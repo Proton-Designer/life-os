@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { AppShell } from "@/components/shell/app-shell";
 
 export default async function AppLayout({
   children,
@@ -15,6 +16,5 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  // Replaced by the real shell (top nav / mobile island) in Task 3.1.
-  return <div>{children}</div>;
+  return <AppShell>{children}</AppShell>;
 }
