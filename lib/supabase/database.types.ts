@@ -199,6 +199,7 @@ export type Database = {
           location_lat: number | null
           location_lng: number | null
           onboarding_completed: boolean
+          paused_date: string | null
           pin_hash: string | null
           pin_lock_enabled: boolean
           prayer_calc_method: string
@@ -218,6 +219,7 @@ export type Database = {
           location_lat?: number | null
           location_lng?: number | null
           onboarding_completed?: boolean
+          paused_date?: string | null
           pin_hash?: string | null
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
@@ -237,6 +239,7 @@ export type Database = {
           location_lat?: number | null
           location_lng?: number | null
           onboarding_completed?: boolean
+          paused_date?: string | null
           pin_hash?: string | null
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
