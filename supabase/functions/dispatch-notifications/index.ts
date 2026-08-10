@@ -3,10 +3,15 @@
 // imminent and not yet notified today, and sends the check-in prompt push
 // if a fixed check-in slot is starting now, per spec.
 //
-// Secrets required (set via `supabase secrets set`, NOT read from the
-// Next.js app's .env.local — Edge Functions have their own secret store):
-//   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
-// SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected by the platform.
+// Secrets: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected by the
+// platform. VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT are NOT —
+// there is no MCP-exposed equivalent of `supabase secrets set` for this
+// project, so they're stored in Supabase Vault instead (vapid_public_key,
+// vapid_private_key, vapid_subject) and fetched at request time via the
+// service-role client below. PostgREST doesn't expose the `vault` schema
+// directly, so this goes through public.get_vault_secrets(), a
+// SECURITY DEFINER RPC restricted to service_role (see migration
+// 009_vault_secret_rpc).
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -195,19 +200,31 @@ const POLL_TOLERANCE_MS = 7.5 * 60 * 1000; // half the 15-min poll interval
 Deno.serve(async (_req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const vapidPublicKey = Deno.env.get("VAPID_PUBLIC_KEY");
-  const vapidPrivateKey = Deno.env.get("VAPID_PRIVATE_KEY");
-  const vapidSubject = Deno.env.get("VAPID_SUBJECT");
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  const { data: vaultRows, error: vaultError } = await supabase.rpc("get_vault_secrets", {
+    secret_names: ["vapid_public_key", "vapid_private_key", "vapid_subject"],
+  });
+
+  if (vaultError || !vaultRows) {
+    return new Response(
+      JSON.stringify({ error: `Failed to read VAPID secrets from Vault: ${vaultError?.message}` }),
+      { status: 500 }
+    );
+  }
+  const secrets = new Map(vaultRows.map((r) => [r.name, r.decrypted_secret as string]));
+  const vapidPublicKey = secrets.get("vapid_public_key");
+  const vapidPrivateKey = secrets.get("vapid_private_key");
+  const vapidSubject = secrets.get("vapid_subject");
 
   if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
     return new Response(
-      JSON.stringify({ error: "VAPID secrets not configured on this Edge Function" }),
+      JSON.stringify({ error: "VAPID secrets missing from Vault" }),
       { status: 500 }
     );
   }
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
   const now = new Date();
 
   const { data: subs } = await supabase
