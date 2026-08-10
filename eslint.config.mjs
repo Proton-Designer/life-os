@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Tool-managed state directories, not project source.
+    ".remember/**",
+    ".superpowers/**",
   ]),
 ]);
 
