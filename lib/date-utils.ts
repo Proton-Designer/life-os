@@ -22,6 +22,12 @@ export function getWeekStartDate(dateStr: string): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** 0 (Sunday) – 6 (Saturday) for a YYYY-MM-DD string, matching workout_schedule's convention. */
+export function dayOfWeekFromDateString(dateStr: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
 /** Resolves a local "HH:MM" clock time on `dateStr` (in `timezone`) to a UTC Date. */
 export function resolveLocalTime(dateStr: string, timeStr: string, timezone: string): Date {
   const [h, m] = timeStr.split(":").map(Number);

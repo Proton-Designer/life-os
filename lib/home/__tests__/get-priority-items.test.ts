@@ -17,6 +17,8 @@ function emptyDataSource(overrides: Partial<HomeDataSource> = {}): HomeDataSourc
     getAdhkarLogs: async () => [],
     getKillListItems: async () => [],
     getTasks: async () => [],
+    getWorkoutSchedule: async () => null,
+    getWorkoutLogs: async () => [],
     ...overrides,
   };
 }
@@ -143,6 +145,35 @@ describe("getPriorityItems", () => {
 
     expect(order.indexOf("dhuhr")).toBeLessThan(order.indexOf("school1"));
     expect(order.indexOf("dhuhr")).toBeLessThan(order.indexOf("coop1"));
+  });
+
+  it("includes a scheduled-but-unlogged workout as a later_today Fitness item", async () => {
+    const now = new Date("2026-08-10T18:00:00Z"); // 2026-08-10 is a Monday
+    const dataSource = emptyDataSource({
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_name: "Push" }),
+      getWorkoutLogs: async () => [],
+    });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+    const workout = items.find((i) => i.actionType === "toggle_workout");
+
+    expect(workout).toBeDefined();
+    expect(workout?.domain).toBe("fitness");
+    expect(workout?.title).toBe("Push");
+    expect(workout?.actionRefId).toBe("Push");
+    expect(workout?.urgencyBucket).toBe("later_today");
+  });
+
+  it("excludes a scheduled workout that's already logged today", async () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+    const dataSource = emptyDataSource({
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_name: "Push" }),
+      getWorkoutLogs: async () => [{ workout_name: "Push" }],
+    });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+
+    expect(items.find((i) => i.actionType === "toggle_workout")).toBeUndefined();
   });
 
   it("orders items with no specific due time by domain priority (Business before School)", async () => {

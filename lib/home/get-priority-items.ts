@@ -5,6 +5,7 @@ import {
   localWeekday,
   resolveLocalTime,
   getTimezoneOffsetMinutes,
+  dayOfWeekFromDateString,
 } from "@/lib/date-utils";
 import type { PriorityItem, Domain } from "./types";
 
@@ -40,6 +41,8 @@ export type HomeTaskRow = {
   due_time: string | null;
   completed: boolean;
 };
+export type HomeWorkoutSchedule = { day_of_week: number; workout_name: string; time?: string | null };
+export type HomeWorkoutLogRow = { workout_name: string };
 
 export type HomeDataSource = {
   getProfile: (userId: string) => Promise<HomeProfile | null>;
@@ -47,6 +50,8 @@ export type HomeDataSource = {
   getAdhkarLogs: (userId: string, date: string) => Promise<HomeAdhkarRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<HomeKillListRow[]>;
   getTasks: (userId: string, date: string) => Promise<HomeTaskRow[]>;
+  getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<HomeWorkoutSchedule | null>;
+  getWorkoutLogs: (userId: string, date: string) => Promise<HomeWorkoutLogRow[]>;
 };
 
 function defaultDataSource(): HomeDataSource {
@@ -97,6 +102,25 @@ function defaultDataSource(): HomeDataSource {
         .eq("due_date", date);
       return (data ?? []) as HomeTaskRow[];
     },
+    async getWorkoutSchedule(userId, dayOfWeek) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("workout_schedule")
+        .select("day_of_week, workout_name, time")
+        .eq("user_id", userId)
+        .eq("day_of_week", dayOfWeek)
+        .maybeSingle();
+      return data ?? null;
+    },
+    async getWorkoutLogs(userId, date) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("workout_logs")
+        .select("workout_name")
+        .eq("user_id", userId)
+        .eq("date", date);
+      return data ?? [];
+    },
   };
 }
 
@@ -114,12 +138,15 @@ export async function getPriorityItems(
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
 
-  const [prayerRows, adhkarRows, killListRows, taskRows] = await Promise.all([
-    dataSource.getPrayers(userId, dateStr),
-    dataSource.getAdhkarLogs(userId, dateStr),
-    dataSource.getKillListItems(userId, dateStr),
-    dataSource.getTasks(userId, dateStr),
-  ]);
+  const [prayerRows, adhkarRows, killListRows, taskRows, workoutSchedule, workoutLogRows] =
+    await Promise.all([
+      dataSource.getPrayers(userId, dateStr),
+      dataSource.getAdhkarLogs(userId, dateStr),
+      dataSource.getKillListItems(userId, dateStr),
+      dataSource.getTasks(userId, dateStr),
+      dataSource.getWorkoutSchedule(userId, dayOfWeekFromDateString(dateStr)),
+      dataSource.getWorkoutLogs(userId, dateStr),
+    ]);
 
   const items: Omit<PriorityItem, "date">[] = [];
 
@@ -210,11 +237,24 @@ export async function getPriorityItems(
     });
   }
 
-  // NOTE: today's scheduled-but-unlogged workout (Fitness) is intentionally not
-  // included yet — PriorityItem.actionType has no workout-logging case, and
-  // Task 4.2's toggleItem (which this type is shared with) doesn't either.
-  // Wiring it requires Phase 7's logWorkout action to exist first. Documented
-  // as a deferred gap in PROJECT_STATUS.md, to revisit in Phase 7.
+  // Fitness: today's scheduled-but-unlogged workout (an ad-hoc log with a
+  // matching name also counts as "done", per spec — no separate tracking of
+  // scheduled vs. ad-hoc completion).
+  if (workoutSchedule && !workoutLogRows.some((w) => w.workout_name === workoutSchedule.workout_name)) {
+    const dueAt = workoutSchedule.time
+      ? resolveLocalTime(dateStr, workoutSchedule.time, timezone)
+      : null;
+    items.push({
+      id: "workout",
+      domain: "fitness",
+      title: workoutSchedule.workout_name,
+      dueAt,
+      urgencyBucket: urgencyBucket(dueAt, now),
+      completed: false,
+      actionType: "toggle_workout",
+      actionRefId: workoutSchedule.workout_name,
+    });
+  }
 
   items.sort((a, b) => {
     if (a.urgencyBucket !== b.urgencyBucket) {
