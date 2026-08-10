@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -48,7 +49,14 @@ export function TopNav() {
           );
         })}
       </div>
-      <div className="w-6" aria-hidden />
+      <Link
+        href="/settings"
+        aria-current={isActive(pathname, "/settings") ? "page" : undefined}
+        aria-label="Settings"
+        className="text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <Settings className="size-5" />
+      </Link>
     </nav>
   );
 }
