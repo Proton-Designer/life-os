@@ -14,6 +14,8 @@ export type PriorityItem = {
   domain: Domain;
   title: string;
   dueAt: Date | null;
+  /** YYYY-MM-DD this item was computed for (user's local day, per spec's midnight-local boundary) */
+  date: string;
   urgencyBucket: UrgencyBucket;
   completed: boolean;
   actionType: ActionType;

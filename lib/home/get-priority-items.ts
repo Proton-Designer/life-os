@@ -95,7 +95,7 @@ function defaultDataSource(): HomeDataSource {
 }
 
 /** YYYY-MM-DD for `now` in the given IANA timezone (day boundary = midnight local, per spec). */
-function localDateString(now: Date, timezone: string): string {
+export function localDateString(now: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -165,7 +165,7 @@ export async function getPriorityItems(
     dataSource.getTasks(userId, dateStr),
   ]);
 
-  const items: PriorityItem[] = [];
+  const items: Omit<PriorityItem, "date">[] = [];
 
   // Deen: prayers
   let prayerTimes: Record<PrayerName, Date> | null = null;
@@ -270,5 +270,19 @@ export async function getPriorityItems(
     return DOMAIN_PRIORITY[a.domain] - DOMAIN_PRIORITY[b.domain];
   });
 
-  return items;
+  return items.map((item) => ({ ...item, date: dateStr }));
+}
+
+/**
+ * Today's YYYY-MM-DD in the user's profile timezone — for callers (e.g. the
+ * domain pulse rings) that need "today" independent of whether any
+ * PriorityItem exists to read `.date` off of (the empty/all-clear state).
+ */
+export async function getTodayDateString(
+  userId: string,
+  now: Date,
+  dataSource: Pick<HomeDataSource, "getProfile"> = defaultDataSource()
+): Promise<string> {
+  const profile = await dataSource.getProfile(userId);
+  return localDateString(now, profile?.timezone ?? "UTC");
 }
