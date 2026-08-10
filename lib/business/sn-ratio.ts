@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 
 export type SnDataSource = {
   getCheckins: (
@@ -51,15 +52,7 @@ export async function getWeeklySignalNoiseRatio(
   const answered = checkins.filter((c) => c.answered);
   const signal = answered.filter((c) => c.tag_type === "kill_list").length;
   const noise = answered.filter((c) => c.tag_type === "noise").length;
-
-  let display: string;
-  if (answered.length === 0) {
-    display = "No data";
-  } else if (noise === 0) {
-    display = "All Signal";
-  } else {
-    display = `${(signal / noise).toFixed(1)} : 1`;
-  }
+  const display = computeRatioDisplay(signal, noise, answered.length > 0);
 
   return { signal, noise, display };
 }
