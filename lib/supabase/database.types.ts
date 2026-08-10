@@ -160,6 +160,33 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_log: {
+        Row: {
+          created_at: string
+          id: string
+          notif_key: string
+          notif_type: string
+          sent_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notif_key: string
+          notif_type: string
+          sent_date: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notif_key?: string
+          notif_type?: string
+          sent_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       prayers: {
         Row: {
           date: string
