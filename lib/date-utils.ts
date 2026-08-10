@@ -28,6 +28,16 @@ export function dayOfWeekFromDateString(dateStr: string): number {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
+/** The 7 YYYY-MM-DD dates (Sun–Sat) for the week starting at `weekStart`. */
+export function weekDatesFrom(weekStart: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const [y, m, d] = weekStart.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    date.setUTCDate(date.getUTCDate() + i);
+    return date.toISOString().slice(0, 10);
+  });
+}
+
 /** Resolves a local "HH:MM" clock time on `dateStr` (in `timezone`) to a UTC Date. */
 export function resolveLocalTime(dateStr: string, timeStr: string, timezone: string): Date {
   const [h, m] = timeStr.split(":").map(Number);
