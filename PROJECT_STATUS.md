@@ -22,6 +22,11 @@ Real values are in `~/Desktop/tracking-app/.env.local` (gitignored, never commit
 - Supabase for Postgres DB, Auth (single real user, not multi-tenant — but still real auth, since the app will be live on a public URL), and Edge Functions where server-side logic benefits (e.g., scheduled push notification dispatch, prayer-time recalculation).
 - RLS enabled on all tables scoped to the single user's auth uid, as a defense-in-depth measure even though it's single-user.
 
+## Coordination mechanism
+Implementation plan: `docs/superpowers/plans/2026-08-10-life-os-implementation.md` (26 tasks, Phase 0–16). **The TaskCreate/TaskList tool is scoped per-session and is NOT shared between the Opus lead and Sonnet engineer sessions** (confirmed 2026-08-10 — engineer's TaskList showed nothing despite 26 tasks existing on the lead's side). Do not rely on it for cross-session coordination. Actual coordination is: the engineer works the plan doc in phase/ID order, commits after every task (per the plan's own instructions), and appends a line to this file's Progress log after each phase completes. The lead tracks progress by reading `git log` and this file, not a shared task list.
+
 ## Progress log
 _(Updated as work completes — append, don't rewrite history.)_
-- 2026-08-10: Repo/spec/edge-cases finalized (see docs/superpowers/specs/). Overnight build kicked off. Safety setup (env file, gitignore verified, memory, caffeinate) complete. Implementation plan in progress.
+- 2026-08-10 00:51 CDT: Repo/spec/edge-cases finalized (see docs/superpowers/specs/). Overnight build kicked off. Safety setup (env file, gitignore verified, memory, caffeinate) complete.
+- 2026-08-10 00:51 CDT: Implementation plan written and committed (26 tasks).
+- 2026-08-10 01:02 CDT: Discovered TaskCreate/TaskList is per-session, not shared — switched coordination to plan-doc-order + git log + this progress log. Engineer starting Task 0.1.
