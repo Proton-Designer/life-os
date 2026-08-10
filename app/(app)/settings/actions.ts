@@ -31,6 +31,7 @@ export type ProfileUpdatable = Partial<{
   checkin_window_end: string;
   checkin_interval_minutes: number;
   traveling_mode: boolean;
+  onboarding_completed: boolean;
 }>;
 
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;
@@ -55,10 +56,16 @@ export async function updateProfile(fields: ProfileUpdatable): Promise<void> {
     );
   }
 
+  // Upsert, not update: a brand-new auth user has no profiles row yet
+  // (nothing creates one automatically) — onboarding is what's expected to
+  // create it. Update-only would silently no-op for that user.
   const { error } = await supabase
     .from("profiles")
-    .update(update as Database["public"]["Tables"]["profiles"]["Update"])
-    .eq("user_id", userId);
+    .upsert(
+      { user_id: userId, ...update } as Database["public"]["Tables"]["profiles"]["Insert"],
+      { onConflict: "user_id" }
+    );
   if (error) throw error;
   revalidatePath("/settings");
+  revalidatePath("/onboarding");
 }

@@ -3,7 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "./database.types";
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  // Next.js layouts have no built-in pathname access (unlike usePathname()
+  // in Client Components) — inject it as a request header so app/(app)/
+  // layout.tsx can tell whether it's already rendering /onboarding, and
+  // avoid redirecting to itself in a loop.
+  const requestWithPathname = new Headers(request.headers);
+  requestWithPathname.set("x-pathname", request.nextUrl.pathname);
+
+  let supabaseResponse = NextResponse.next({ request: { headers: requestWithPathname } });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -24,7 +31,7 @@ export async function updateSession(request: NextRequest) {
       getAll: () => request.cookies.getAll(),
       setAll: (cookiesToSet) => {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        supabaseResponse = NextResponse.next({ request });
+        supabaseResponse = NextResponse.next({ request: { headers: requestWithPathname } });
         cookiesToSet.forEach(({ name, value, options }) =>
           supabaseResponse.cookies.set(name, value, options)
         );
