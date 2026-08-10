@@ -9,21 +9,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { signIn } from "./actions";
+import { signUp } from "./actions";
 
-export default async function LoginPage({
+export default async function SignUpPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, message } = await searchParams;
 
-  async function signInAction(formData: FormData) {
+  async function signUpAction(formData: FormData) {
     "use server";
-    const result = await signIn(formData);
+    const result = await signUp(formData);
     if (result?.error) {
       const { redirect } = await import("next/navigation");
-      redirect(`/login?error=${encodeURIComponent(result.error)}`);
+      redirect(`/signup?error=${encodeURIComponent(result.error)}`);
+    }
+    if (result?.message) {
+      const { redirect } = await import("next/navigation");
+      redirect(`/signup?message=${encodeURIComponent(result.message)}`);
     }
   }
 
@@ -32,10 +36,10 @@ export default async function LoginPage({
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-2xl">Life OS</CardTitle>
-          <CardDescription>Sign in to continue</CardDescription>
+          <CardDescription>Create an account</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={signInAction} className="flex flex-col gap-4">
+          <form action={signUpAction} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -52,7 +56,19 @@ export default async function LoginPage({
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
+                minLength={6}
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="confirmPassword">Confirm password</Label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                minLength={6}
                 required
               />
             </div>
@@ -61,14 +77,19 @@ export default async function LoginPage({
                 {error}
               </p>
             )}
+            {message && (
+              <p className="text-sm text-muted-foreground" role="status">
+                {message}
+              </p>
+            )}
             <Button type="submit" className="w-full">
-              Sign in
+              Sign up
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href="/signup" className="text-foreground underline underline-offset-4">
-              Sign up
+            Already have an account?{" "}
+            <Link href="/login" className="text-foreground underline underline-offset-4">
+              Sign in
             </Link>
           </p>
         </CardContent>
