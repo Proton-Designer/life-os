@@ -14,6 +14,14 @@ export function localWeekday(now: Date, timezone: string): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long" }).format(now);
 }
 
+/** Sunday of the week containing `dateStr` (week boundary = Sunday–Saturday, per spec). */
+export function getWeekStartDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  return date.toISOString().slice(0, 10);
+}
+
 /** Resolves a local "HH:MM" clock time on `dateStr` (in `timezone`) to a UTC Date. */
 export function resolveLocalTime(dateStr: string, timeStr: string, timezone: string): Date {
   const [h, m] = timeStr.split(":").map(Number);

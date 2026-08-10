@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import type { PriorityItem } from "@/lib/home/types";
 import { revalidatePath } from "next/cache";
+import { markPrayer } from "@/app/(app)/deen/actions";
 
 export async function toggleItem(item: PriorityItem): Promise<void> {
   const supabase = await createClient();
@@ -16,17 +17,13 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
 
   switch (item.actionType) {
     case "toggle_prayer": {
-      const { error } = await supabase.from("prayers").upsert(
-        {
-          user_id: user.id,
-          date: item.date,
-          prayer_name: item.actionRefId,
-          status: "on_time",
-          logged_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,date,prayer_name" }
+      // Home's one-tap checkbox always means "mark on time" — Deen's own page
+      // offers the full on_time/qada/missed choice via the same markPrayer action.
+      await markPrayer(
+        item.date,
+        item.actionRefId as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
+        "on_time"
       );
-      if (error) throw error;
       break;
     }
     case "toggle_kill_list": {
