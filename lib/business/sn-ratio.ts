@@ -5,7 +5,7 @@ export type SnDataSource = {
     userId: string,
     weekStartIso: string,
     weekEndIso: string
-  ) => Promise<{ tag_type: string; answered: boolean }[]>;
+  ) => Promise<{ tag_type: string | null; answered: boolean }[]>;
 };
 
 export type SignalNoiseResult = {

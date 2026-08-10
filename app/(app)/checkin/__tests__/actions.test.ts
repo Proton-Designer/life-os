@@ -56,6 +56,24 @@ describe("Check-in actions", () => {
     );
   });
 
+  it("recordMissedCheckin inserts an unanswered, untagged checkins row", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { recordMissedCheckin } = await import("../actions");
+
+    await recordMissedCheckin("2026-08-10T13:00:00.000Z");
+
+    expect(fromMock).toHaveBeenCalledWith("checkins");
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "user-1",
+        checkin_time: "2026-08-10T13:00:00.000Z",
+        tag_type: null,
+        answered: false,
+      })
+    );
+  });
+
   it("skipCheckinsToday sets profiles.paused_date to today's local date", async () => {
     const chain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
     fromImpl = () => chain;

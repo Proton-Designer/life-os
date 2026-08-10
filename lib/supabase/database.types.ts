@@ -46,7 +46,7 @@ export type Database = {
           id: string
           tag_label: string | null
           tag_ref_id: string | null
-          tag_type: string
+          tag_type: string | null
           user_id: string
         }
         Insert: {
@@ -56,7 +56,7 @@ export type Database = {
           id?: string
           tag_label?: string | null
           tag_ref_id?: string | null
-          tag_type: string
+          tag_type?: string | null
           user_id?: string
         }
         Update: {
@@ -66,7 +66,7 @@ export type Database = {
           id?: string
           tag_label?: string | null
           tag_ref_id?: string | null
-          tag_type?: string
+          tag_type?: string | null
           user_id?: string
         }
         Relationships: []

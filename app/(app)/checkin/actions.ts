@@ -2,8 +2,9 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { localDateString } from "@/lib/date-utils";
+import { getCheckinOptions } from "@/lib/checkins/get-checkin-options";
 import { revalidatePath } from "next/cache";
-import type { CheckinTagType } from "@/lib/checkins/types";
+import type { CheckinOption, CheckinTagType } from "@/lib/checkins/types";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -43,6 +44,31 @@ export async function answerCheckin(
  */
 export async function snoozeCheckin(_checkinTime: string, _minutes: 15): Promise<void> {
   await requireUser();
+}
+
+/**
+ * Auto-recorded once a check-in slot's grace period has expired (a newer
+ * slot has since fired). tag_type/tag_label/tag_ref_id are all null —
+ * nothing was selected — which the ratio calculations already skip via
+ * `answered = true` filtering regardless of tag_type.
+ */
+export async function recordMissedCheckin(checkinTime: string): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { error } = await supabase.from("checkins").insert({
+    user_id: userId,
+    checkin_time: checkinTime,
+    tag_type: null,
+    tag_label: null,
+    tag_ref_id: null,
+    answered: false,
+  });
+  if (error) throw error;
+}
+
+/** Client-callable wrapper — CheckinScheduler (Task 10.3) can't call the server-only getCheckinOptions directly. */
+export async function getCheckinOptionsForNow(nowIso: string): Promise<CheckinOption[]> {
+  const { userId } = await requireUser();
+  return getCheckinOptions(userId, new Date(nowIso));
 }
 
 export async function skipCheckinsToday(): Promise<void> {
