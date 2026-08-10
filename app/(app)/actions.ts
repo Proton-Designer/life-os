@@ -30,7 +30,8 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
       const { error } = await supabase
         .from("kill_list_items")
         .update({ completed: true })
-        .eq("id", item.actionRefId);
+        .eq("id", item.actionRefId)
+        .eq("user_id", user.id);
       if (error) throw error;
       break;
     }
@@ -38,7 +39,8 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
       const { error } = await supabase
         .from("tasks")
         .update({ completed: true })
-        .eq("id", item.actionRefId);
+        .eq("id", item.actionRefId)
+        .eq("user_id", user.id);
       if (error) throw error;
       break;
     }

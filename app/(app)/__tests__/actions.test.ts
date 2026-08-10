@@ -80,6 +80,7 @@ describe("toggleItem", () => {
     expect(fromMock).toHaveBeenCalledWith("kill_list_items");
     expect(chain.update).toHaveBeenCalledWith({ completed: true });
     expect(chain.eq).toHaveBeenCalledWith("id", "kill-item-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
   it("updates tasks.completed by id for toggle_task", async () => {
@@ -92,6 +93,7 @@ describe("toggleItem", () => {
     expect(fromMock).toHaveBeenCalledWith("tasks");
     expect(chain.update).toHaveBeenCalledWith({ completed: true });
     expect(chain.eq).toHaveBeenCalledWith("id", "task-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
   it("upserts habit_logs keyed by habit_id + date for toggle_habit", async () => {

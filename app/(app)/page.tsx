@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPriorityItems, getTodayDateString } from "@/lib/home/get-priority-items";
 import { getDomainPulse } from "@/lib/home/get-domain-pulse";
@@ -11,8 +12,11 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Non-null: app/(app)/layout.tsx already redirects unauthenticated requests to /login.
-  const userId = user!.id;
+  // app/(app)/layout.tsx also gates on this, but layout and page data-fetching
+  // can run independently (e.g. an unauthenticated request with no session
+  // cookie) — guard here too rather than assuming user is always non-null.
+  if (!user) redirect("/login");
+  const userId = user.id;
   const now = new Date();
 
   const [items, dateStr] = await Promise.all([

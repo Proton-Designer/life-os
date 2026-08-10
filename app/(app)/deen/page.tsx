@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { localDateString, localWeekday, getWeekStartDate } from "@/lib/date-utils";
 import { PrayerRow, type PrayerName, type PrayerStatus } from "@/components/deen/prayer-row";
@@ -19,7 +20,8 @@ export default async function DeenPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const userId = user!.id;
+  if (!user) redirect("/login");
+  const userId = user.id;
   const now = new Date();
 
   const { data: profile } = await supabase
