@@ -25,6 +25,10 @@ const eslintConfig = defineConfig([
     // Tool-managed state directories, not project source.
     ".remember/**",
     ".superpowers/**",
+    // Static assets served directly to the browser, not part of the app
+    // bundle — the service worker in particular runs in its own global
+    // scope (self, not window) and isn't meant to follow app lint rules.
+    "public/**",
   ]),
 ]);
 
