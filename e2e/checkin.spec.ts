@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { dismissCheckinDialogIfPresent } from "./helpers";
 
 // A real 2-hour check-in window can't be waited out in a test run, so this
 // drives the actual answerCheckin Server Action directly through a
@@ -16,6 +17,7 @@ test("answering a check-in records it and updates the weekly Signal:Noise ratio"
   }
 
   await page.goto("/business");
+  await dismissCheckinDialogIfPresent(page);
   const before = await page.getByText("This week's Signal:Noise").locator("xpath=..").innerText();
 
   const checkinTime = new Date().toISOString();
@@ -40,6 +42,7 @@ test("answering a check-in records it and updates the weekly Signal:Noise ratio"
   });
 
   await page.goto("/business");
+  await dismissCheckinDialogIfPresent(page);
   const after = await page.getByText("This week's Signal:Noise").locator("xpath=..").innerText();
   expect(after).not.toBe(before);
 

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { login } from "./helpers";
+import { login, dismissCheckinDialogIfPresent } from "./helpers";
 
 // This spec exercises the login flow itself, so it opts out of the shared
 // authenticated session every other spec relies on (project-level
@@ -9,6 +9,7 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 test("sign in with the seeded user redirects to Home", async ({ page }) => {
   await login(page);
+  await dismissCheckinDialogIfPresent(page);
   // The hero renders either a real "next up" item (title + Mark done) or
   // the all-clear empty state — either is proof Home actually rendered.
   await expect(page.getByRole("button", { name: "Mark done" }).or(page.getByText("all clear"))).toBeVisible();

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { dismissCheckinDialogIfPresent } from "./helpers";
 
 // Every test in this file relies on the shared authenticated session from
 // the "setup" project (e2e/auth.setup.ts / playwright.config.ts's
@@ -7,6 +8,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Home", () => {
   test("renders hero, pulse strip, and priority list", async ({ page }) => {
     await page.goto("/");
+    await dismissCheckinDialogIfPresent(page);
 
     await expect(page.getByRole("button", { name: "Mark done" }).or(page.getByText("all clear"))).toBeVisible();
     for (const domain of ["Deen", "Business", "Fitness", "School"]) {
@@ -26,6 +28,7 @@ test.describe("Home", () => {
 
   test("toggling a visible item updates its state without a full page reload", async ({ page }) => {
     await page.goto("/");
+    await dismissCheckinDialogIfPresent(page);
 
     // Adhkar items are the most reliably-present, safely-revertible toggle
     // on Home (a real flip, not a one-way completion like prayers/kill-list) —
@@ -54,11 +57,13 @@ test.describe("Home", () => {
     // Revert via the dedicated Deen toggle (same underlying action, a real
     // flip) so this run doesn't leave the real account's data altered.
     await page.goto("/deen");
+    await dismissCheckinDialogIfPresent(page);
     await page.getByRole("button", { name: `${period} adhkar` }).click();
   });
 
   test("renders the responsive nav matching the current viewport", async ({ page }, testInfo) => {
     await page.goto("/");
+    await dismissCheckinDialogIfPresent(page);
 
     const mobileIsland = page.locator('[data-testid="mobile-island-item-home"]');
     const desktopSettingsLink = page.getByRole("link", { name: "Settings" });

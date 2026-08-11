@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { dismissCheckinDialogIfPresent } from "./helpers";
 
 // Isha, specifically: it's the last prayer of the day, so at almost any hour
 // this run happens, today's Isha is the prayer least likely to already carry
@@ -15,6 +16,7 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   }
 
   await page.goto("/deen");
+  await dismissCheckinDialogIfPresent(page);
 
   const prayerRow = page.locator("li", { hasText: PRAYER_LABEL });
   await expect(prayerRow).toBeVisible();
@@ -41,11 +43,13 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   // Reflects on Home: a logged (non-pending) prayer is excluded from the
   // priority list entirely (lib/home/get-priority-items.ts).
   await page.goto("/");
+  await dismissCheckinDialogIfPresent(page);
   await expect(page.getByRole("button", { name: `Mark "${PRAYER_LABEL}" done` })).toHaveCount(0);
 
   // Restore real account state exactly as found.
   if (priorStatusLabel) {
     await page.goto("/deen");
+    await dismissCheckinDialogIfPresent(page);
     await page.locator("li", { hasText: PRAYER_LABEL }).getByRole("button", { name: priorStatusLabel }).click();
   } else {
     const cleanup = await page.request.delete(`${baseURL}/api/test/clear-prayer`, {

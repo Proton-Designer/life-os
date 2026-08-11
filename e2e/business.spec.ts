@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
+import { dismissCheckinDialogIfPresent } from "./helpers";
 
 // Relies on the shared authenticated session (e2e/auth.setup.ts).
 test("kill list: completing an item reflects on the Business page", async ({ page }) => {
   await page.goto("/business");
+  await dismissCheckinDialogIfPresent(page);
 
   const slots = page.locator("ul").first().locator("> li");
   await expect(slots).toHaveCount(3);
