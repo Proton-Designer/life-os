@@ -154,3 +154,23 @@ _(Updated as work completes — append, don't rewrite history.)_
   - **Verified live against the real project, not just mocked**: confirmed this Supabase project actually has "Confirm email" enabled (no MCP tool exposes that setting directly, so tested empirically) — a real sign-up with a real deliverable address landed in `auth.users` as unconfirmed and correctly showed the "check your email" message rather than assuming immediate access. Also exercised Supabase's own invalid-email rejection (tried `example.com`, correctly rejected) and its resend-cooldown error on a repeat attempt — both surfaced through to the UI correctly since the action just passes through Supabase's real error message. Deleted the one real test account created during this via `supabase.auth.admin.deleteUser` afterward (a throwaway Node script using the service role key — no MCP tool exposes user deletion) so nothing fabricated was left in the account list.
   - **Redeployed to production — URL changed again**: `https://tracking-qk29l5qvk-aymans-projects-8752c9e2.vercel.app` (supersedes Task 17.1's deploy URL). Confirmed both `/signup` and `/login` return 200 publicly (SSO deployment protection is a project-level setting, already off, unaffected by redeploys).
   - **Note for Ayman**: since email confirmation is on, anyone who signs up needs to click the link in their confirmation email before they can sign in — same as any normal SaaS sign-up flow. Existing onboarding (Phase 13) already handles first-run setup for a freshly confirmed account with no extra wiring needed.
+
+## Post-launch: app-wide 1-4s interaction latency — root cause diagnosis (Ayman-reported, 2026-08-11 13:46 CDT)
+
+**Symptom (Ayman's report):** every screen switch, button click, popup, and status change has a 1-2s (up to 2-4s) delay between trigger and visible effect, throughout the entire app.
+
+**Root cause (lead's investigation, systematic-debugging Phase 1-2, code-read only, no fix applied yet):** redundant, fully-sequential `supabase.auth.getUser()` network round-trips stacked at every layer of a single request. `getUser()` in `@supabase/ssr` always makes a live call to the Supabase Auth API (that's what makes it trustworthy over `getSession()`, which is a local cookie read) — it is never free. Confirmed call sites, each with its own independent `createClient()` + `getUser()`:
+1. `lib/supabase/middleware.ts` (`proxy.ts`) — 1 call. **Correct and necessary, leave as-is.**
+2. `app/(app)/layout.tsx` — 1 call, for the auth gate + onboarding check.
+3. `components/shell/app-shell.tsx` (rendered by the layout on every route) — 1 call, for check-in props.
+4. Every `page.tsx` (home, deen, business, fitness, school, co-op, insights, settings, weekly-planning) — 1 call each.
+5. Every `actions.ts` Server Action — 1 call each. Some actions call other actions internally (Home's `toggleItem` → `markPrayer`/`logWorkout`), stacking additional independent calls inside a single mutation.
+6. Every mutating action calls `revalidatePath(...)`, which re-renders layout+shell+page server-side within the *same* request/response — repeating steps 2-4's `getUser()` calls again, post-mutation.
+
+Net effect: a single navigation costs ~3-4 sequential Auth API round trips; a single checkbox toggle (Home's `toggleItem` → `markPrayer`, then `revalidatePath("/")`) costs 5-7+ **sequential** round trips in one request. At even 150-400ms per round trip this lands exactly in the reported 1-4s range, and it's universal because literally every interaction path goes through this exact stack shape.
+
+**Confirmed secondary/compounding factor:** grepped every `components/**/*.tsx` for `useOptimistic` — zero results. Only `useTransition` is used (e.g. `components/home/priority-list.tsx`), which disables the button while pending but does not reflect the new state instantly. So the full redundant-network-call chain above is 100% visible to the user as a frozen UI, not masked by any optimistic update.
+
+**Not yet investigated / lower priority:** Vercel function region vs. Supabase project region (`us-east-2`/Ohio) — worth a quick check but the round-trip *count* is the dominant factor, not per-hop distance.
+
+**Fix instructions sent to the Sonnet engineer via claude-peers** (not implemented by the lead — implementation stays with the engineer per the established split): consolidate `getUser()` per-request using React's `cache()` (Supabase's own documented App Router pattern), thread the already-authenticated user through nested action calls instead of re-fetching, and add `useOptimistic` to the toggle/status-change UI as a secondary UX fix. Full instructions and rationale in the peer message; engineer to log implementation + verification here as usual.
