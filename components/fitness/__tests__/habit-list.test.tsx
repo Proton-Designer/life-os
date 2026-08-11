@@ -35,4 +35,27 @@ describe("HabitList", () => {
     expect(screen.getAllByRole("button", { name: "Mark complete" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Mark incomplete" })).toBeInTheDocument();
   });
+
+  it("does not disable other habits' toggles while one habit's toggle is pending", async () => {
+    toggleHabitMock.mockImplementation(() => new Promise<void>(() => {}));
+
+    render(
+      <HabitList
+        date="2026-08-11"
+        habits={[
+          { id: "h1", name: "Read", completedToday: false },
+          { id: "h2", name: "Stretch", completedToday: false },
+        ]}
+      />
+    );
+
+    const user = userEvent.setup();
+    const buttons = screen.getAllByRole("button", { name: "Mark complete" });
+    await user.click(buttons[0]);
+
+    // Only Read's toggle (now pending) should be disabled — Stretch's toggle
+    // must stay interactive, not share pending state list-wide.
+    expect(screen.getByRole("button", { name: "Mark incomplete" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Mark complete" })).toBeEnabled();
+  });
 });

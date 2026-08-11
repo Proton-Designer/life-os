@@ -8,8 +8,49 @@ import { cn } from "@/lib/utils";
 
 export type HabitData = { id: string; name: string; completedToday: boolean };
 
-export function HabitList({ date, habits }: { date: string; habits: HabitData[] }) {
+function HabitRow({
+  date,
+  habit,
+  onToggle,
+}: {
+  date: string;
+  habit: HabitData;
+  onToggle: (id: string, completed: boolean) => void;
+}) {
   const [isPending, startTransition] = useTransition();
+
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3">
+      <button
+        type="button"
+        disabled={isPending}
+        onClick={() =>
+          startTransition(async () => {
+            onToggle(habit.id, !habit.completedToday);
+            await toggleHabit(habit.id, date);
+          })
+        }
+        aria-label={habit.completedToday ? "Mark incomplete" : "Mark complete"}
+        className={cn(
+          "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",
+          habit.completedToday ? "border-accent-fitness bg-accent-fitness" : "border-border"
+        )}
+      />
+      <span className="flex-1 text-sm">{habit.name}</span>
+      <button
+        type="button"
+        disabled={isPending}
+        onClick={() => startTransition(() => removeHabit(habit.id))}
+        className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+      >
+        Remove
+      </button>
+    </li>
+  );
+}
+
+export function HabitList({ date, habits }: { date: string; habits: HabitData[] }) {
+  const [isAdding, startAddTransition] = useTransition();
   const [newHabit, setNewHabit] = useState("");
   const [optimisticHabits, setOptimisticCompletion] = useOptimistic(
     habits,
@@ -21,7 +62,7 @@ export function HabitList({ date, habits }: { date: string; habits: HabitData[] 
     e.preventDefault();
     const trimmed = newHabit.trim();
     if (!trimmed) return;
-    startTransition(async () => {
+    startAddTransition(async () => {
       await addHabit(trimmed);
       setNewHabit("");
     });
@@ -31,34 +72,12 @@ export function HabitList({ date, habits }: { date: string; habits: HabitData[] 
     <div className="flex flex-col gap-3">
       <ul className="flex flex-col gap-2">
         {optimisticHabits.map((h) => (
-          <li
+          <HabitRow
             key={h.id}
-            className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3"
-          >
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() =>
-                startTransition(async () => {
-                  setOptimisticCompletion({ id: h.id, completed: !h.completedToday });
-                  await toggleHabit(h.id, date);
-                })
-              }
-              aria-label={h.completedToday ? "Mark incomplete" : "Mark complete"}
-              className={cn(
-                "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",
-                h.completedToday ? "border-accent-fitness bg-accent-fitness" : "border-border"
-              )}
-            />
-            <span className="flex-1 text-sm">{h.name}</span>
-            <button
-              type="button"
-              onClick={() => startTransition(() => removeHabit(h.id))}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Remove
-            </button>
-          </li>
+            date={date}
+            habit={h}
+            onToggle={(id, completed) => setOptimisticCompletion({ id, completed })}
+          />
         ))}
       </ul>
       <form onSubmit={handleAdd} className="flex gap-2">
@@ -67,7 +86,7 @@ export function HabitList({ date, habits }: { date: string; habits: HabitData[] 
           onChange={(e) => setNewHabit(e.target.value)}
           placeholder="Add a habit"
         />
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" disabled={isAdding}>
           Add
         </Button>
       </form>
