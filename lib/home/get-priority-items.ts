@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import { calculatePrayerTimes, type CalcMethod, type AsrMadhab } from "@/lib/prayer-times/calculate";
 import {
   localDateString,
@@ -54,16 +55,27 @@ export type HomeDataSource = {
   getWorkoutLogs: (userId: string, date: string) => Promise<HomeWorkoutLogRow[]>;
 };
 
-function defaultDataSource(): HomeDataSource {
+// Exported for testing defaultDataSource().getProfile() in isolation — see
+// lib/home/__tests__/default-data-source.test.ts. Real callers always use
+// the default parameter value in getPriorityItems()/getTodayDateString().
+export function defaultDataSource(): HomeDataSource {
   return {
-    async getProfile(userId) {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("profiles")
-        .select("location_lat, location_lng, timezone, prayer_calc_method, asr_madhab")
-        .eq("user_id", userId)
-        .maybeSingle();
-      return data ?? null;
+    // Routes through the shared, cache()-per-request getProfile() (see
+    // lib/supabase/auth.ts) instead of its own raw query — this used to be
+    // a separate, un-deduped profiles read on every Home load, on top of
+    // the one layout.tsx/page.tsx already do. Narrows the full row down to
+    // just the fields HomeProfile needs (never pass pin_hash or other
+    // fields through further than necessary).
+    async getProfile(_userId) {
+      const profile = await getSharedProfile();
+      if (!profile) return null;
+      return {
+        location_lat: profile.location_lat,
+        location_lng: profile.location_lng,
+        timezone: profile.timezone,
+        prayer_calc_method: profile.prayer_calc_method,
+        asr_madhab: profile.asr_madhab,
+      };
     },
     async getPrayers(userId, date) {
       const supabase = await createClient();
