@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { getWeeklySignalNoiseRatio } from "@/lib/business/sn-ratio";
 import { GoalCard } from "@/components/shared/goal-card";
@@ -7,9 +8,7 @@ import { saveWeeklyGoal } from "./actions";
 
 export default async function WeeklyPlanningPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();

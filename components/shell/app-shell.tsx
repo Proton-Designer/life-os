@@ -2,13 +2,12 @@ import { TopNav } from "./top-nav";
 import { MobileIsland } from "./mobile-island";
 import { CheckinScheduler } from "@/components/checkin/checkin-scheduler";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, resolveLocalTime } from "@/lib/date-utils";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
 
   let checkinProps: {
     timezone: string;

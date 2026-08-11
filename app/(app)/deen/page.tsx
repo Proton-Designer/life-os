@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, localWeekday, getWeekStartDate } from "@/lib/date-utils";
 import { PrayerRow, type PrayerName, type PrayerStatus } from "@/components/deen/prayer-row";
 import { AdhkarStrip } from "@/components/deen/adhkar-strip";
@@ -17,9 +18,7 @@ const PRAYERS: { name: PrayerName; label: string }[] = [
 
 export default async function DeenPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();

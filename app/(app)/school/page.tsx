@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-utils";
 import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
 import { TaskList, type TaskData } from "@/components/shared/task-list";
@@ -7,9 +8,7 @@ import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/
 
 export default async function SchoolPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();

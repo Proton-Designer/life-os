@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, resolveLocalTime } from "@/lib/date-utils";
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
@@ -33,9 +34,7 @@ export default async function InsightsPage({
   const range = rangeParam === "day" ? "day" : "week";
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();

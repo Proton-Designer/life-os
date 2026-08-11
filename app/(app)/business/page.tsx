@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { getWeeklySignalNoiseRatio } from "@/lib/business/sn-ratio";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
@@ -8,9 +9,7 @@ import { SnRatioCard } from "@/components/business/sn-ratio-card";
 
 export default async function BusinessPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();

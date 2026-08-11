@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { calculateWeeklyConsistency } from "@/lib/fitness/consistency";
 import { HabitList, type HabitData } from "@/components/fitness/habit-list";
@@ -8,9 +9,7 @@ import { AdhocWorkoutForm } from "@/components/fitness/adhoc-workout-form";
 
 export default async function FitnessPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();

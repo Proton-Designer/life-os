@@ -1,19 +1,10 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { getCheckinOptions } from "@/lib/checkins/get-checkin-options";
 import { revalidatePath } from "next/cache";
 import type { CheckinOption, CheckinTagType } from "@/lib/checkins/types";
-
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
-  return { supabase, userId: user.id };
-}
 
 export async function answerCheckin(
   checkinTime: string,
