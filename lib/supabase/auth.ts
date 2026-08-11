@@ -20,3 +20,24 @@ export async function requireUser() {
   if (!user) throw new Error("Not authenticated");
   return { supabase, userId: user.id };
 }
+
+// Same cache()-per-request pattern as getAuthedUser(): the profiles row was
+// previously fetched separately in the layout (onboarding check), the
+// check-in loader (timezone/window fields), and nearly every page.tsx (its
+// own subset of fields) — 2-4 round trips per request for the same row.
+// Selects the full row once; callers destructure only what they need, same
+// as before. Deliberately does NOT accept a userId param — derives it from
+// getAuthedUser() itself so every call site is guaranteed to be asking for
+// the current request's own user, not something a caller could pass wrong.
+export const getProfile = cache(async () => {
+  const user = await getAuthedUser();
+  if (!user) return null;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  return data;
+});

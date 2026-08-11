@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CheckinSchedulerLoader } from "../checkin-scheduler-loader";
 
 const getAuthedUserMock = vi.fn();
+const getProfileMock = vi.fn();
 vi.mock("@/lib/supabase/auth", () => ({
   getAuthedUser: () => getAuthedUserMock(),
+  getProfile: () => getProfileMock(),
 }));
 
 function makeChain(resolvedValue: { data: unknown; error: null }) {
@@ -16,12 +18,8 @@ function makeChain(resolvedValue: { data: unknown; error: null }) {
   return chain;
 }
 
-let profileResult: { data: unknown; error: null };
 let checkinsResult: { data: unknown; error: null };
-const fromMock = vi.fn((table: string) => {
-  if (table === "profiles") return makeChain(profileResult);
-  return makeChain(checkinsResult);
-});
+const fromMock = vi.fn(() => makeChain(checkinsResult));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({ from: fromMock })),
@@ -30,13 +28,14 @@ vi.mock("@/lib/supabase/server", () => ({
 describe("CheckinSchedulerLoader", () => {
   beforeEach(() => {
     getAuthedUserMock.mockReset();
+    getProfileMock.mockReset();
     fromMock.mockClear();
     checkinsResult = { data: [], error: null };
   });
 
   it("returns null when there's no authenticated user", async () => {
     getAuthedUserMock.mockResolvedValue(null);
-    profileResult = { data: null, error: null };
+    getProfileMock.mockResolvedValue(null);
 
     const result = await CheckinSchedulerLoader();
 
@@ -45,7 +44,7 @@ describe("CheckinSchedulerLoader", () => {
 
   it("returns null when the user has no profile row yet", async () => {
     getAuthedUserMock.mockResolvedValue({ id: "user-1" });
-    profileResult = { data: null, error: null };
+    getProfileMock.mockResolvedValue(null);
 
     const result = await CheckinSchedulerLoader();
 
@@ -54,16 +53,13 @@ describe("CheckinSchedulerLoader", () => {
 
   it("passes correctly computed props to CheckinScheduler when a profile exists", async () => {
     getAuthedUserMock.mockResolvedValue({ id: "user-1" });
-    profileResult = {
-      data: {
-        timezone: "America/Chicago",
-        checkin_window_start: "08:00:00",
-        checkin_window_end: "22:00:00",
-        checkin_interval_minutes: 120,
-        paused_date: null,
-      },
-      error: null,
-    };
+    getProfileMock.mockResolvedValue({
+      timezone: "America/Chicago",
+      checkin_window_start: "08:00:00",
+      checkin_window_end: "22:00:00",
+      checkin_interval_minutes: 120,
+      paused_date: null,
+    });
     checkinsResult = { data: [{ checkin_time: "2026-08-11T14:00:00+00:00" }], error: null };
 
     const element = await CheckinSchedulerLoader();

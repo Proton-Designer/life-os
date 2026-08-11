@@ -1,6 +1,6 @@
 import { CheckinScheduler } from "./checkin-scheduler";
 import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, resolveLocalTime } from "@/lib/date-utils";
 
 // Deliberately its own async Server Component, rendered inside a
@@ -13,14 +13,7 @@ export async function CheckinSchedulerLoader() {
   const user = await getAuthedUser();
   if (!user) return null;
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select(
-      "timezone, checkin_window_start, checkin_window_end, checkin_interval_minutes, paused_date"
-    )
-    .eq("user_id", user.id)
-    .maybeSingle();
-
+  const profile = await getProfile();
   if (!profile) return null;
 
   const timezone = profile.timezone;

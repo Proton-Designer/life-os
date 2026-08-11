@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, resolveLocalTime } from "@/lib/date-utils";
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
@@ -33,17 +32,12 @@ export default async function InsightsPage({
   const { range: rangeParam, domain: highlightDomain } = await searchParams;
   const range = rangeParam === "day" ? "day" : "week";
 
-  const supabase = await createClient();
   const user = await getAuthedUser();
   if (!user) redirect("/login");
   const userId = user.id;
   const now = new Date();
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("timezone")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(now, timezone);
   const anchor =

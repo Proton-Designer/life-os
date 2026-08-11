@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { getWeeklySignalNoiseRatio } from "@/lib/business/sn-ratio";
 import { GoalCard } from "@/components/shared/goal-card";
@@ -13,11 +13,7 @@ export default async function WeeklyPlanningPage() {
   const userId = user.id;
   const now = new Date();
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("timezone")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const currentWeekStart = getWeekStartDate(localDateString(now, timezone));
   const previousWeekStart = addDaysToDateString(currentWeekStart, -7);

@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { AppShell } from "@/components/shell/app-shell";
 
 export default async function AppLayout({
@@ -9,7 +8,6 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
   const user = await getAuthedUser();
 
   if (!user) {
@@ -18,11 +16,7 @@ export default async function AppLayout({
 
   const pathname = (await headers()).get("x-pathname") ?? "";
   if (!pathname.startsWith("/onboarding")) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("onboarding_completed")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const profile = await getProfile();
 
     // No profile row yet is equivalent to "onboarding not done" — a brand
     // new auth user has no profiles row until onboarding creates one.

@@ -1,20 +1,16 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { SettingsForm } from "@/components/settings/settings-form";
 
 export default async function SettingsPage() {
-  const supabase = await createClient();
   const user = await getAuthedUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select(
-      "prayer_calc_method, asr_madhab, location_label, checkin_window_start, checkin_window_end, checkin_interval_minutes, pin_lock_enabled"
-    )
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // getProfile() selects the full row (see lib/supabase/auth.ts) — destructure
+  // only the specific safe fields below into SettingsForm's props, same as
+  // before. Never spread the raw profile object into a Client Component's
+  // props: it also carries pin_hash, which must never reach the client.
+  const profile = await getProfile();
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">

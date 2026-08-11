@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { getPriorityItems, getTodayDateString } from "@/lib/home/get-priority-items";
 import { getDomainPulse } from "@/lib/home/get-domain-pulse";
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
@@ -26,11 +26,7 @@ export default async function HomePage() {
   ]);
   const pulse = await getDomainPulse(userId, dateStr);
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("onboarding_completed, timezone")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const profile = await getProfile();
 
   // Onboarding (Phase 13) doesn't exist yet — until it does, a fresh account
   // just sees the same empty state as "all clear" with a slightly different
