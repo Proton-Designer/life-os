@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useOptimistic, useTransition } from "react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,17 @@ export function PrayerRow({
   status: PrayerStatus;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [optimisticStatus, setOptimisticStatus] = useOptimistic(
+    status,
+    (_state, next: PrayerStatus) => next
+  );
+
+  function handleClick(s: Exclude<PrayerStatus, "pending">) {
+    startTransition(async () => {
+      setOptimisticStatus(s);
+      await markPrayer(date, prayerName, s);
+    });
+  }
 
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg border border-border/40 px-4 py-3">
@@ -35,10 +46,10 @@ export function PrayerRow({
             key={s}
             type="button"
             disabled={isPending}
-            onClick={() => startTransition(() => markPrayer(date, prayerName, s))}
+            onClick={() => handleClick(s)}
             className={cn(
               "rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50",
-              status === s
+              optimisticStatus === s
                 ? "bg-accent-deen text-background"
                 : "bg-accent/40 text-muted-foreground hover:bg-accent/70"
             )}

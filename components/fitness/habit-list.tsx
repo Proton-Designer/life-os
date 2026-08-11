@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { addHabit, removeHabit, toggleHabit } from "@/app/(app)/fitness/actions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,11 @@ export type HabitData = { id: string; name: string; completedToday: boolean };
 export function HabitList({ date, habits }: { date: string; habits: HabitData[] }) {
   const [isPending, startTransition] = useTransition();
   const [newHabit, setNewHabit] = useState("");
+  const [optimisticHabits, setOptimisticCompletion] = useOptimistic(
+    habits,
+    (state, { id, completed }: { id: string; completed: boolean }) =>
+      state.map((h) => (h.id === id ? { ...h, completedToday: completed } : h))
+  );
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -25,7 +30,7 @@ export function HabitList({ date, habits }: { date: string; habits: HabitData[] 
   return (
     <div className="flex flex-col gap-3">
       <ul className="flex flex-col gap-2">
-        {habits.map((h) => (
+        {optimisticHabits.map((h) => (
           <li
             key={h.id}
             className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3"
@@ -33,7 +38,12 @@ export function HabitList({ date, habits }: { date: string; habits: HabitData[] 
             <button
               type="button"
               disabled={isPending}
-              onClick={() => startTransition(() => toggleHabit(h.id, date))}
+              onClick={() =>
+                startTransition(async () => {
+                  setOptimisticCompletion({ id: h.id, completed: !h.completedToday });
+                  await toggleHabit(h.id, date);
+                })
+              }
               aria-label={h.completedToday ? "Mark incomplete" : "Mark complete"}
               className={cn(
                 "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",

@@ -1,8 +1,10 @@
 "use client";
 
-import { useTransition } from "react";
+import { useOptimistic, useTransition } from "react";
 import { toggleAdhkar } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
+
+type Period = "morning" | "evening";
 
 export function AdhkarStrip({
   date,
@@ -14,9 +16,13 @@ export function AdhkarStrip({
   eveningCompleted: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [optimisticCompleted, toggleOptimistic] = useOptimistic(
+    { morning: morningCompleted, evening: eveningCompleted },
+    (state, period: Period) => ({ ...state, [period]: !state[period] })
+  );
   const periods = [
-    { key: "morning" as const, label: "Morning adhkar", completed: morningCompleted },
-    { key: "evening" as const, label: "Evening adhkar", completed: eveningCompleted },
+    { key: "morning" as const, label: "Morning adhkar", completed: optimisticCompleted.morning },
+    { key: "evening" as const, label: "Evening adhkar", completed: optimisticCompleted.evening },
   ];
 
   return (
@@ -26,7 +32,12 @@ export function AdhkarStrip({
           key={p.key}
           type="button"
           disabled={isPending}
-          onClick={() => startTransition(() => toggleAdhkar(date, p.key))}
+          onClick={() =>
+            startTransition(async () => {
+              toggleOptimistic(p.key);
+              await toggleAdhkar(date, p.key);
+            })
+          }
           className={cn(
             "rounded-full px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50",
             p.completed

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { setKillListItem, toggleKillListItem } from "@/app/(app)/business/actions";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,10 @@ function KillListSlot({
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(!slot.text);
   const [text, setText] = useState(slot.text);
+  const [optimisticCompleted, setOptimisticCompleted] = useOptimistic(
+    slot.completed,
+    (_state, next: boolean) => next
+  );
 
   function submit() {
     const trimmed = text.trim();
@@ -73,14 +77,20 @@ function KillListSlot({
       <button
         type="button"
         disabled={isPending || !slot.id}
-        onClick={() => slot.id && startTransition(() => toggleKillListItem(slot.id!))}
-        aria-label={slot.completed ? "Mark incomplete" : "Mark complete"}
+        onClick={() =>
+          slot.id &&
+          startTransition(async () => {
+            setOptimisticCompleted(!optimisticCompleted);
+            await toggleKillListItem(slot.id!);
+          })
+        }
+        aria-label={optimisticCompleted ? "Mark incomplete" : "Mark complete"}
         className={cn(
           "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",
-          slot.completed ? "border-accent-business bg-accent-business" : "border-border"
+          optimisticCompleted ? "border-accent-business bg-accent-business" : "border-border"
         )}
       />
-      <span className={cn("flex-1 text-sm", slot.completed && "text-muted-foreground line-through")}>
+      <span className={cn("flex-1 text-sm", optimisticCompleted && "text-muted-foreground line-through")}>
         {slot.text}
       </span>
       <button
