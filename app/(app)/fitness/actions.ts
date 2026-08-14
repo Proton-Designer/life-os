@@ -74,6 +74,7 @@ export async function setWorkoutSchedule(
     if (error) throw error;
   }
   revalidatePath("/fitness");
+  revalidatePath("/");
 }
 
 export async function logWorkout(

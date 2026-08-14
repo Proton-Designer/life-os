@@ -24,6 +24,7 @@ export async function toggleTask(id: string): Promise<void> {
 export async function removeTask(id: string): Promise<void> {
   await removeTaskCore(id);
   revalidatePath("/co-op");
+  revalidatePath("/");
 }
 
 export async function addScheduleEvent(

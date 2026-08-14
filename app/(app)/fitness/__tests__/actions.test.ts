@@ -21,16 +21,18 @@ function makeChain(resolvedValue: { data: unknown; error: null } = { data: null,
 const getUserMock = vi.fn(async () => ({ data: { user: { id: "user-1" } } }));
 let fromImpl: (table: string) => ReturnType<typeof makeChain>;
 const fromMock = vi.fn((table: string) => fromImpl(table));
+const revalidatePathMock = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({ auth: { getUser: getUserMock }, from: fromMock })),
 }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathMock(path) }));
 
 describe("Fitness actions", () => {
   beforeEach(() => {
     getUserMock.mockClear();
     fromMock.mockClear();
+    revalidatePathMock.mockClear();
   });
 
   it("addHabit inserts into custom_habits scoped to domain 'fitness'", async () => {
@@ -90,6 +92,17 @@ describe("Fitness actions", () => {
       }),
       expect.objectContaining({ onConflict: "user_id,day_of_week" })
     );
+  });
+
+  it("setWorkoutSchedule revalidates '/' too — Home reads workout_schedule via getWorkoutSchedule", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { setWorkoutSchedule } = await import("../actions");
+
+    await setWorkoutSchedule(1, "Push", "18:00");
+
+    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
   });
 
   it("logWorkout inserts a workout_logs row with the given source", async () => {

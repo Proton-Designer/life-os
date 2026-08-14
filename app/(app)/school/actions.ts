@@ -24,6 +24,7 @@ export async function toggleTask(id: string): Promise<void> {
 export async function removeTask(id: string): Promise<void> {
   await removeTaskCore(id);
   revalidatePath("/school");
+  revalidatePath("/");
 }
 
 export async function addScheduleEvent(

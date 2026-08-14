@@ -1,9 +1,12 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { toggleItem } from "@/app/(app)/actions";
 import type { PriorityItem } from "@/lib/home/types";
+import { urgencyBucket } from "@/lib/home/urgency";
 import { cn } from "@/lib/utils";
+
+const TICK_MS = 60 * 1000;
 
 const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   deen: "Deen",
@@ -57,12 +60,31 @@ export function PriorityList({ items }: { items: PriorityItem[] }) {
     (state, removedId: string) => state.filter((i) => i.id !== removedId)
   );
 
+  // Re-derive each item's urgency bucket against the current time on an
+  // interval, so an item can move from "Later today" into "Right now" as
+  // its due time approaches without a server refetch — the client router
+  // cache (see next.config.ts's staleTimes) can otherwise hold the
+  // server-baked bucket for up to an hour. `now` stays null through the
+  // first render (falling back to the server-computed item.urgencyBucket,
+  // which is correct for that exact instant) and only starts ticking after
+  // mount, so there's no hydration mismatch.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    tick();
+    const interval = setInterval(tick, TICK_MS);
+    return () => clearInterval(interval);
+  }, []);
+
   if (optimisticItems.length === 0) {
     return <p className="text-sm text-muted-foreground">Nothing due right now.</p>;
   }
 
-  const rightNow = optimisticItems.filter((i) => i.urgencyBucket === "right_now");
-  const laterToday = optimisticItems.filter((i) => i.urgencyBucket === "later_today");
+  const byDueAtAsc = (a: PriorityItem, b: PriorityItem) =>
+    (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity);
+  const bucketOf = (item: PriorityItem) => (now ? urgencyBucket(item.dueAt, now) : item.urgencyBucket);
+  const rightNow = optimisticItems.filter((i) => bucketOf(i) === "right_now").sort(byDueAtAsc);
+  const laterToday = optimisticItems.filter((i) => bucketOf(i) === "later_today").sort(byDueAtAsc);
 
   return (
     <div className="flex flex-col gap-6">

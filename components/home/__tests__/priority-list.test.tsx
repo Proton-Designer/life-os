@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PriorityList } from "../priority-list";
+import { RIGHT_NOW_WINDOW_MS } from "@/lib/home/urgency";
 import type { PriorityItem } from "@/lib/home/types";
 
 const toggleItemMock = vi.fn();
@@ -61,5 +62,42 @@ describe("PriorityList", () => {
 
     expect(screen.queryByText("Fajr")).not.toBeInTheDocument();
     expect(screen.getByText("Dhuhr")).toBeInTheDocument();
+  });
+
+  describe("client-side urgency re-derivation", () => {
+    const NOW = new Date("2026-08-13T12:00:00.000Z");
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("flips an item from Later today into Right now as the clock crosses the 2h boundary, with no refetch", async () => {
+      // Server computed this as later_today at render time (due just outside
+      // the 2h window) — matches what the real server-side urgencyBucket()
+      // would have produced for the same dueAt/now.
+      const dueAt = new Date(NOW.getTime() + RIGHT_NOW_WINDOW_MS + 5 * 60 * 1000);
+      const item = makeItem({ dueAt, urgencyBucket: "later_today" });
+
+      render(<PriorityList items={[item]} />);
+      // Mount effect fires synchronously against the fake "now" — matches
+      // the server bucket, no flip yet.
+      expect(screen.getByText("Fajr").closest("section")).toHaveTextContent("Later today");
+      expect(screen.queryByRole("heading", { name: "Right now" })).not.toBeInTheDocument();
+
+      // Advance the clock past the boundary — the interval tick re-derives
+      // the bucket client-side, no server round trip involved.
+      await act(async () => {
+        vi.advanceTimersByTime(6 * 60 * 1000);
+      });
+
+      expect(screen.getByText("Fajr").closest("section")).toHaveTextContent("Right now");
+      expect(screen.queryByRole("heading", { name: "Later today" })).not.toBeInTheDocument();
+      expect(toggleItemMock).not.toHaveBeenCalled();
+    });
   });
 });

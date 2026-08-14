@@ -8,12 +8,11 @@ import {
   getTimezoneOffsetMinutes,
   dayOfWeekFromDateString,
 } from "@/lib/date-utils";
+import { urgencyBucket } from "./urgency";
 import type { PriorityItem, Domain } from "./types";
 
 const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
 type PrayerName = (typeof PRAYER_NAMES)[number];
-
-const RIGHT_NOW_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours, per Task 4.2
 
 const DOMAIN_PRIORITY: Record<Domain, number> = {
   deen: 0,
@@ -134,11 +133,6 @@ export function defaultDataSource(): HomeDataSource {
       return data ?? [];
     },
   };
-}
-
-function urgencyBucket(dueAt: Date | null, now: Date): "right_now" | "later_today" {
-  if (!dueAt) return "later_today";
-  return dueAt.getTime() - now.getTime() <= RIGHT_NOW_WINDOW_MS ? "right_now" : "later_today";
 }
 
 export async function getPriorityItems(
