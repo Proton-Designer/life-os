@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
-  useRouter: () => ({ refresh: vi.fn() }),
 }));
 
 // Simulates a check-in data fetch that never resolves — proves the static

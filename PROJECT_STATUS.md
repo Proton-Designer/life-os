@@ -401,3 +401,35 @@ Sending full instructions to the Sonnet engineer now — implementation + edge-c
 4. Full regression: unit suite, typecheck, E2E, redeploy to production, log here, ping me.
 
 Sending to the engineer now — this needs to move fast, Ayman's been testing production directly and hitting this live.
+
+- 2026-08-14 21:35 CDT: **Engineer's revert of the focus-refresh fix — done, live-verified against the exact regression repro, deploy still blocked.**
+
+  Executed the lead's 4-step instructions above exactly, no changes beyond scope:
+
+  1. Deleted `components/shell/focus-refresh.tsx` and `components/shell/__tests__/focus-refresh.test.tsx`.
+  2. Reverted `AppShell` (`components/shell/app-shell.tsx`) — removed the `FocusRefresh` import and `<FocusRefresh />` render — and `app-shell.test.tsx`'s `next/navigation` mock back to just `usePathname` (confirmed no other component under `AppShell`'s tree — `TopNav`, `MobileIsland`, `CheckinSchedulerLoader` — calls `useRouter`, so nothing else depended on that mock).
+  3. Typecheck clean (`tsc --noEmit`, 0 errors). Unit suite: 119/119 passing (124 minus the 5 deleted focus-refresh tests, everything else green, including the app-shell structural Suspense test).
+  4. Built production (`next build`, Turbopack, clean) and ran `next start` locally against that build for live verification, same methodology as every round tonight (synthetic `visibilitychange` dispatch via `page.evaluate()`, since this sandbox doesn't fire real ones — documented previously, unchanged).
+
+  **Live-verified both required cases against the real production build:**
+  - **The exact regression repro**: Home → Deen → simulate a hidden→visible focus cycle while sitting on Deen → click back to Home → **0 skeleton elements, 0 RSC/network requests, Home content intact.** This is the precise scenario that showed 9 skeletons + a real network request with `focus-refresh.tsx` present — confirmed clean now that it's gone.
+  - **The original within-tab idle-revisit case** (no focus event at all): Home → Deen → idle 2s → click back to Home → same result, 0 skeleton, 0 requests. Matches the very first round's finding that `staleTimes: 3600` + `revalidatePath` alone handles this correctly.
+  - Full E2E regression against the local production build: 13 passed, 4 skipped, 0 failed — same 13/4/0 shape as every prior clean run tonight.
+
+  **DB residue check**: queried `checkins` for duplicates before wrapping up — found duplicates present again (counts of 2–16 across several `checkin_time`/`answered` groups, spanning 2026-08-13 and 2026-08-14). This is the same pre-existing, already-flagged, out-of-scope `recordMissedCheckin` de-dup bug from earlier tonight, not something introduced by this revert — the local E2E run still passed 13/13 despite it, so it isn't blocking anything functionally. Did **not** clean it up this round: the lead already flagged the growth rate (6 → 6 → 33) as worth prioritizing soon rather than "someday," and repeatedly re-cleaning a symptom without fixing `recordMissedCheckin` itself just produces the same regrowth next session — leaving it in place as the clearest evidence for prioritizing the real fix.
+
+  **Deploy: still blocked, same root cause as before, no change.** Re-checked both paths: CLI (`vercel whoami` → `ayman-mohammed07`, `vercel project ls` → only `newton-protoworks`/`aegis`/`newton-beverage-solutions`, no `tracking-app`) and the Vercel MCP directly (`get_project` on `.vercel/project.json`'s `orgId` `team_65o9SgZtNBt9VgezWjY2npZH` → 403 Forbidden; `list_teams` → only returns `newton-beverage-solutions`, `team_um26vag17FXT7slKPqRKPF3d`, a different team than the one `tracking-app` is linked to). Did not attempt `vercel link`, creating a new project, or any other account-relinking action — same reasoning as before, that's a hard-to-reverse, account-level decision that belongs to Ayman. **The revert itself is fully done, tested, and live-verified; only the production redeploy step is blocked pending Vercel access.**
+
+  Pinging the lead now with this status.
+
+- 2026-08-14 21:40 CDT: **Lead's independent re-verification of the revert, deployed to production.** Reviewed the diff directly — exact revert, nothing extra (`focus-refresh.tsx` + its test deleted, `AppShell` and `app-shell.test.tsx` back to their pre-focus-refresh state). Ran the full unit suite myself: 119/119, matches. `tsc --noEmit`: clean.
+
+  **Deployed to production myself** using the same working token Ayman supplied for the earlier deploy (still valid this session, used transiently as a `--token` CLI arg only, not persisted or re-logged): **https://tracking-g3w55pc4c-aymans-projects-8752c9e2.vercel.app**. Full E2E suite run directly against it: 13 passed/4 skipped/0 failed in 22.0s.
+
+  **Independently re-ran both of tonight's key repros directly against this production deployment** (not the local build) — both clean:
+  - The exact regression repro (focus-blip on Deen → click to Home): 0 skeletons, 0 requests. Matches the engineer's local-build finding, now confirmed on the actual deployed production URL.
+  - The original real-3-minute idle-on-Deen-then-revisit-Home case: 0 skeletons, 0 requests, only the one expected request when Deen was first opened.
+
+  **DB check**: duplicate-checkins count has grown again — 6 groups, 90 extra rows total, up from 33 last check. Growth trend across tonight: 6 → 6 → 33 → 90. Did not clean up this round, agreeing with the engineer's reasoning — repeated cleanup without the real fix is just noise at this point and the growth curve itself is the clearest argument for prioritizing it. Flagging the accelerating trend directly to Ayman.
+
+  **This closes the focus-refresh regression.** Net state of the reload investigation after both rounds: `staleTimes: 3600` + `revalidatePath` handles same-tab correctness (verified repeatedly), the focus-refresh cross-tab mitigation was tried, found to cause a worse regression than the problem it solved, and fully reverted — cross-tab/cross-device staleness up to 1hr is the accepted, explicit trade-off going forward. Deployed and live-verified.
