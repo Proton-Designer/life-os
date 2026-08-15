@@ -433,3 +433,20 @@ Sending to the engineer now — this needs to move fast, Ayman's been testing pr
   **DB check**: duplicate-checkins count has grown again — 6 groups, 90 extra rows total, up from 33 last check. Growth trend across tonight: 6 → 6 → 33 → 90. Did not clean up this round, agreeing with the engineer's reasoning — repeated cleanup without the real fix is just noise at this point and the growth curve itself is the clearest argument for prioritizing it. Flagging the accelerating trend directly to Ayman.
 
   **This closes the focus-refresh regression.** Net state of the reload investigation after both rounds: `staleTimes: 3600` + `revalidatePath` handles same-tab correctness (verified repeatedly), the focus-refresh cross-tab mitigation was tried, found to cause a worse regression than the problem it solved, and fully reverted — cross-tab/cross-device staleness up to 1hr is the accepted, explicit trade-off going forward. Deployed and live-verified.
+
+## Overnight session 2026-08-15: Home / Deen / Business overhaul (Ayman's direct ask, full creative autonomy granted)
+
+**Kicked off 2026-08-15 ~23:50 CDT while Ayman is asleep/unreachable — no clarifying questions permitted this run; every judgment call is made and documented, matching the 2026-08-10 overnight convention.** Ayman gave three concrete asks (paraphrased in his own words in the design spec below) plus explicit permission to brainstorm and design the Home screen and the private "sins/shortcomings" tracker with full creative freedom, evaluating options as a COO would, testing each layer before adding the next.
+
+**Design spec**: `docs/superpowers/specs/2026-08-15-home-deen-business-overhaul-design.md` — covers all three asks in full: Home screen v2 (responsive 3-rail grid replacing the centered strip, domain peek modules, weekly summary), Deen changes (remove Traveling/Adhkar from UI, add a private "Reflection" 3-tier accountability tracker with no visible sin/severity labels, add a Habit Builder pipeline — weekly focus → Active Build → Stabilized → Locked), and Business changes (remove the app-wide 2-hour check-in scheduler entirely, replace with a Business-scoped "Lock In" work session that fires an hourly progress check and shows live signal:noise, still rolling into the existing weekly S:N ratio). Full DB schema for all new tables is in the spec.
+
+**Team/process**: same structure as the 2026-08-10 build — Opus Lead architects/reviews/verifies, does not write app code directly; Sonnet Engineer (peer id `u4c32t5m`, confirmed reachable and idle) implements every phase; never fork subagents (per standing memory — no research-only carve-out); `caffeinate -i` relaunched correctly this session (prior background-task id `bo8zk8690`, standalone, no `-w` flag so it survives independent of any single shell) — **must be killed as the very last step**, only after every phase below is built, tested, and Playwright-verified.
+
+**Phased build order** (each phase fully lead-verified — code review + re-run tests + live Playwright pass — before the next phase's implementation starts):
+1. Schema (all new tables/migrations from the spec)
+2. Business Lock In (backend + UI + removing the global scheduler)
+3. Deen changes (remove Adhkar/Traveling UI, add Reflection tracker, add Habit Builder)
+4. Home v2 (depends on 2+3 for real peek-card data)
+5. Full regression — unit + tsc + lint + full Playwright E2E + deploy + live production verification
+
+- 2026-08-15 23:52 CDT: Design spec written and committed. Sent Phase 1 (schema) assignment to the Sonnet Engineer with the spec path — starting there since every later phase depends on it. Awaiting engineer's Phase 1 commit before proceeding to review.
