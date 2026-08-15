@@ -1,5 +1,6 @@
 import { DomainPeekCard, type PeekDomain } from "./domain-peek-card";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
+import { formatRelativeDuration } from "@/lib/date-utils";
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 
@@ -13,12 +14,8 @@ const PRAYER_LABEL: Record<string, string> = {
 
 function relativeTime(dueAtIso: string | null, now: Date): string {
   if (!dueAtIso) return "";
-  const diffMin = Math.round((new Date(dueAtIso).getTime() - now.getTime()) / 60_000);
-  if (diffMin < -1) return `${Math.abs(diffMin)} min overdue`;
-  if (diffMin <= 1) return "now";
-  if (diffMin < 60) return `in ${diffMin} min`;
-  const hours = Math.round(diffMin / 60);
-  return `in ${hours} hr${hours === 1 ? "" : "s"}`;
+  const diffMin = (new Date(dueAtIso).getTime() - now.getTime()) / 60_000;
+  return formatRelativeDuration(diffMin);
 }
 
 // Semantic mapping mirrors Badge's variant colors (positive/warning/negative)

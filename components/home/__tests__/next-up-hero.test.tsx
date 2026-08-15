@@ -40,4 +40,17 @@ describe("NextUpHero", () => {
     render(<NextUpHero item={item({ domain: "co_op" })} now={NOW} data-testid="hero" />);
     expect(screen.getByTestId("hero").style.background).toContain("--accent-coop");
   });
+
+  it("formats an overdue item in hours, not raw minutes (778 min -> 13h overdue)", () => {
+    // 778 minutes before NOW (2026-08-15T12:00:00Z).
+    const dueAt = new Date(NOW.getTime() - 778 * 60_000);
+    render(<NextUpHero item={item({ dueAt })} now={NOW} />);
+    expect(screen.getByText(/13h overdue/)).toBeInTheDocument();
+  });
+
+  it("formats an upcoming item in hours once past the 1-hour mark", () => {
+    const dueAt = new Date(NOW.getTime() + 150 * 60_000);
+    render(<NextUpHero item={item({ dueAt })} now={NOW} />);
+    expect(screen.getByText(/in 3h/)).toBeInTheDocument();
+  });
 });

@@ -44,15 +44,6 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-const ALL_ITEMS = SECTIONS.flatMap((s) => s.items);
-
-// Shared with Topbar, which needs the current route's title but isn't a
-// nav-rendering concern of its own — single source of truth for route labels.
-export function getPageTitle(pathname: string): string {
-  const match = ALL_ITEMS.find((item) => isActive(pathname, item.href));
-  return match?.label ?? "Life OS";
-}
-
 function NavLink({
   item,
   active,

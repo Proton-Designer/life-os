@@ -72,3 +72,13 @@ describe("DomainPeekCards — prayer status dots", () => {
     expect(dot.style.backgroundColor).toBe("");
   });
 });
+
+describe("DomainPeekCards — next prayer countdown", () => {
+  it("formats an overdue next prayer in hours, not raw minutes", () => {
+    const snaps = snapshots([]);
+    // 778 minutes before NOW.
+    snaps.deen.nextPrayer = { name: "fajr", dueAt: new Date(NOW.getTime() - 778 * 60_000).toISOString() };
+    render(<DomainPeekCards snapshots={snaps} now={NOW} domains={["deen"]} />);
+    expect(screen.getByText(/13h overdue/)).toBeInTheDocument();
+  });
+});

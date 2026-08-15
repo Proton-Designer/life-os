@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { formatRelativeDuration } from "@/lib/date-utils";
 
 const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   deen: "Deen",
@@ -18,12 +19,9 @@ const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
 
 function relativeTime(dueAt: Date | null, now: Date): string {
   if (!dueAt) return "Today";
-  const diffMin = Math.round((dueAt.getTime() - now.getTime()) / 60_000);
-  if (diffMin < -1) return `${Math.abs(diffMin)} min overdue`;
-  if (diffMin <= 1) return "Now";
-  if (diffMin < 60) return `in ${diffMin} min`;
-  const hours = Math.round(diffMin / 60);
-  return `in ${hours} hr${hours === 1 ? "" : "s"}`;
+  const diffMin = (dueAt.getTime() - now.getTime()) / 60_000;
+  const formatted = formatRelativeDuration(diffMin);
+  return formatted === "now" ? "Now" : formatted;
 }
 
 export function NextUpHero({

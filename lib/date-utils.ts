@@ -24,6 +24,31 @@ export function formatTopbarDate(now: Date, timezone: string): string {
   }).format(now);
 }
 
+/**
+ * "41m" / "13h" / "2d" — a duration's magnitude only, no direction/framing.
+ * Every card caption and countdown should route through this (or
+ * formatRelativeDuration below) rather than hand-rolling "778 min" style
+ * output, per the 2026-08-15 structural refactor review.
+ */
+export function formatDurationMagnitude(minutes: number): string {
+  const magnitude = Math.round(Math.abs(minutes));
+  if (magnitude < 60) return `${magnitude}m`;
+  if (magnitude < 1440) {
+    const hours = Math.round(magnitude / 60);
+    // 23h59m rounds to 24h, which must roll over into 1d instead.
+    return hours >= 24 ? "1d" : `${hours}h`;
+  }
+  return `${Math.round(magnitude / 1440)}d`;
+}
+
+/** "13h overdue" / "in 45m" / "now" (within a 1-minute margin either way). */
+export function formatRelativeDuration(diffMinutes: number): string {
+  const rounded = Math.round(diffMinutes);
+  if (Math.abs(rounded) <= 1) return "now";
+  const magnitude = formatDurationMagnitude(rounded);
+  return rounded < 0 ? `${magnitude} overdue` : `in ${magnitude}`;
+}
+
 /** Sunday of the week containing `dateStr` (week boundary = Sunday–Saturday, per spec). */
 export function getWeekStartDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);

@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Menu, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getPageTitle } from "./sidebar-nav";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
 
@@ -18,9 +16,6 @@ export function Topbar({
   dateLabel: string;
   hasActiveLockIn: boolean;
 }) {
-  const pathname = usePathname();
-  const title = getPageTitle(pathname);
-
   return (
     <DialogPrimitive.Root>
       <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md md:px-6">
@@ -34,10 +29,16 @@ export function Topbar({
               <Menu className="size-5" />
             </button>
           </DialogPrimitive.Trigger>
-          {/* Chrome label, not page content — PageHeader inside each page's
-              own content renders the real <h1>. Two h1s per page would be
-              an a11y smell (duplicate top-level heading). */}
-          <p className="text-lg font-semibold tracking-tight">{title}</p>
+          {/* AppSidebar's own logo covers lg+ — below that the sidebar is
+              hidden entirely, so this is the only place the brand mark
+              shows. The page title itself lives solely in PageHeader
+              (removed from here per lead review — was rendering twice). */}
+          <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
+            <span aria-hidden className="text-base">
+              &#9670;
+            </span>
+            Life OS
+          </Link>
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>

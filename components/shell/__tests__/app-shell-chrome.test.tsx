@@ -18,7 +18,7 @@ describe("AppShellChrome", () => {
     );
 
     expect(screen.getAllByRole("link", { name: "Life OS" })[0]).toBeInTheDocument();
-    expect(within(screen.getByRole("banner")).getByText("Home")).toBeInTheDocument();
+    expect(within(screen.getByRole("banner")).getByText("Fri, Aug 15")).toBeInTheDocument();
     expect(screen.getByTestId("mobile-island-item-home")).toBeInTheDocument();
     expect(screen.getByText("Page content")).toBeInTheDocument();
   });

@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+// Topbar itself no longer reads the route (title moved to PageHeader), but
+// its drawer renders SidebarNav, which does.
 vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
@@ -16,13 +18,14 @@ import { Topbar } from "../topbar";
 const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
 
 describe("Topbar", () => {
-  it("shows the current route's title as chrome, not a duplicate page heading", () => {
+  it("does not render a page title — PageHeader owns it, to avoid rendering it twice", () => {
     render(<Topbar account={ACCOUNT} dateLabel="Fri, Aug 15" hasActiveLockIn={false} />);
-    // Not role "heading": the real <h1> belongs to the page's own PageHeader —
-    // Topbar's title is persistent chrome, and two h1s per page would be an
-    // a11y smell.
-    expect(screen.getByText("Deen")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Deen" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  });
+
+  it("shows the Life OS wordmark (visible only below lg, where the sidebar's own logo is hidden)", () => {
+    render(<Topbar account={ACCOUNT} dateLabel="Fri, Aug 15" hasActiveLockIn={false} />);
+    expect(screen.getByRole("link", { name: /life os/i })).toHaveAttribute("href", "/");
   });
 
   it("shows today's date", () => {
