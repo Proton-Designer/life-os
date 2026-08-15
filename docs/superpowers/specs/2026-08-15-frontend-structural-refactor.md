@@ -178,50 +178,60 @@ It fills the wide horizontal space the current layout wastes, replaces the weak 
 
 All grids are 12-column. `c-N` = column span at `xl`. Below `lg` everything stacks to a single column unless noted.
 
+### The one-metric rule (governs every map below)
+
+Review of the first draft found the same defect on four screens: a KPI card and a panel showing the same number in two places — Business rendered Signal:Noise **three** times on one screen. Cause: KPI rows were composed mechanically as "one card per domain" instead of from what each screen actually needs.
+
+**Rule: if a screen has a panel for a metric, that number lives in the panel's own header, next to the detail it summarizes. The KPI row carries only metrics that have no panel on that screen.** A panel header may carry a hero value, a delta, and a caption — that is the reference dashboards' actual pattern (hero number top-left, chart beneath, in one card), and it beats splitting a number away from the thing it describes.
+
+This also gives the KPI row a real job rather than a decorative one: on a domain page it is the **standing row** — trend, streak, and backlog metrics answering *"how am I doing overall"* — while panels answer *"what's happening today."*
+
 ### Home
 | Row | Content |
 |---|---|
 | 1 | **Day Ribbon** panel, `c-12` (the signature; replaces "Later today" as the day's spine) |
-| 2 | **Tier-1 KPI row ×4**, `c-3` each: *Next Up* (Deen-tinted, hero = prayer name + countdown, primary action inline) · *Kill list* (Business) · *Focus today* (info) · *Consistency* (Fitness) |
+| 2 | **Tier-1 KPI row ×4**, `c-3` each — all **cross-cutting**, never per-domain (the domain stack in row 3 owns per-domain status): *Next Up* (hero = prayer/task + countdown, primary action inline) · *Today's completion* (items done across all domains) · *Focus time today* · *Prayer streak* |
 | 3 | **Right Now / Later Today** action list panel `c-7` · **Domain status stack** `c-5` (5 compact rows, each: icon chip, domain, one live metric, progress ring, → link) |
-| 4 | **This week trend** area chart `c-8` (S:N or completion over 7 days, segmented Week/Month control) · **Signal:Noise donut** `c-4` |
+| 4 | **This week trend** area chart `c-8` (completion over 7 days, segmented Week/Month control) · **Signal:Noise donut** `c-4` (Home's only S:N treatment) |
 
 ### Deen
 | Row | Content |
 |---|---|
-| 1 | KPI ×3: *Today's prayers* (`3/5`, caption names which is missed) · *Qur'an this week* (pages vs target) · *Qada backlog* (trend caption) |
-| 2 | **Prayer consistency grid** `c-8` (5 × 30-day heatmap — the domain's signature) · **Next prayer + salah rows** `c-4` |
-| 3 | **Qur'an pages** area chart `c-6` · **Habit Builder** stage columns `c-6` (Active Build / Stabilized / Locked as 3 columns, badge per habit) |
+| 1 | KPI ×3, standing metrics with no panel below: *Next prayer* (countdown + one-tap mark) · *Prayer streak* · *Qada backlog* (trend caption) |
+| 2 | **Salah today** featured panel `c-5` — header hero `3/5` + caption naming the gap, then the 5 interactive On-time/Qada/Missed rows. *(Was split into a "Today's prayers" KPI plus a separate rows panel; merged — the count and the rows belong together.)* · **Prayer consistency grid** `c-7` (5 × 30-day heatmap, header hero = on-time rate over the window) |
+| 3 | **Qur'an** panel `c-6` — header hero = pages this week vs target + delta, **trend chart beneath in the same card**. *(Was a "Qur'an this week" KPI in row 1 and a separate pages chart in row 3 — same subject read twice, in two places.)* · **Habit Builder** stage columns `c-6` (Active Build / Stabilized / Locked, badge per habit) |
 | 4 | **Reflection** panel `c-12` — three tier tallies + existing 7-day sparkline, upgraded to the shared chart primitive. **Privacy is a hard constraint: no sin/severity language in text, aria-labels, tooltips, or chart legends.** Keep the abstract ○/◐/● tiers. |
 
 ### Business
 | Row | Content |
 |---|---|
-| 1 | KPI ×3: *Signal:Noise this week* · *Kill list* (`1/3`) · *Focus time today* (from Lock-In sessions) |
-| 2 | **Lock In** panel `c-7` — when active this becomes the screen's featured Tier-1 card with the live timer as hero value, session S:N, and the session check-in list · **S:N donut + weekly goal** `c-5` |
-| 3 | **Kill list** panel `c-6` (Tier-4 rows, drag order preserved) · **S:N by week** bar chart `c-6`, current week highlighted in `--accent-info` (Ref B's exact treatment) |
+| 1 | KPI ×3, standing metrics with no panel below: *Focus time today* (total from Lock-In sessions, shown whether or not one is running) · *Sessions this week* · *Days kill list cleared, last 7* |
+| 2 | **Lock In** featured panel `c-7` — when active, live timer as hero value, session S:N, session check-in list; when idle, the start action and the last session's summary · **This week's goal** panel `c-5` — headline + milestones from Weekly Planning, editable inline. *(These were previously crammed into one "S:N donut + weekly goal" cell — two unrelated things bundled to fill a slot. Layout now follows content.)* |
+| 3 | **Kill list** panel `c-6` (header hero `1/3`, then Tier-4 rows, order preserved) · **S:N by week** bar chart `c-6` (header hero = this week's ratio + delta; current week highlighted in `--accent-info`) |
+
+**Signal:Noise appears exactly once on Business** — as the by-week chart, which carries the current ratio in its header. The donut is removed from this screen; it lives on Insights, the analytics screen. The first draft had S:N in three places (a KPI, a donut, and the bar chart).
 
 ### Fitness
 | Row | Content |
 |---|---|
-| 1 | KPI ×3: *Weekly consistency* · *Workouts this week* (`X/5 scheduled`) · *Today* (scheduled type or Rest) |
-| 2 | **Habit consistency grid** `c-7` (habits × 30 days, same primitive as Deen's prayer grid) · **This week's schedule** `c-5` (7-day column strip, today emphasized) |
+| 1 | KPI ×3, standing metrics with no panel below: *Today's workout* (scheduled type or Rest, with the log action inline) · *Current streak* · *Workouts this month* |
+| 2 | **Habit consistency grid** `c-7` (habits × 30 days, same primitive as Deen's prayer grid; header hero = weekly consistency %) · **This week's schedule** `c-5` (7-day column strip, today emphasized; header hero = `X/5 scheduled`) |
 | 3 | **Habits** list panel `c-6` · **Workouts per week** bar chart `c-6` |
 
 ### School / Co-op (same layout, different domain accent + data)
 | Row | Content |
 |---|---|
-| 1 | KPI ×3: *Due today* · *Due this week* · *Completed this week* |
-| 2 | **Week schedule** `c-8` (7-day grid, today's column emphasized, per-occurrence cancel preserved) · **Upcoming deadlines** `c-4` (Tier-4 rows w/ urgency badges) |
-| 3 | **Task list** panel `c-12`, grouped by due window |
+| 1 | KPI ×3, standing metrics with no panel below: *Due today* · *Overdue* · *Completed this week* (needs `tasks.completed_at`) |
+| 2 | **Week schedule** `c-8` (7-day grid, today's column emphasized, per-occurrence cancel preserved) · **Upcoming deadlines** `c-4` (header hero = count due this week, then Tier-4 rows w/ urgency badges) |
+| 3 | **Task list** panel `c-12`, grouped by due window (header hero = open task count) |
 
 Co-op's empty state (`No active co-op`) becomes a proper Tier-2 empty panel with an action, not a bare line.
 
 ### Insights
 | Row | Content |
 |---|---|
-| 1 | KPI ×3: *Global S:N* (featured) · *Most-focused domain* · *Check-in coverage* (answered / fired) |
-| 2 | **Focus Map — ranked horizontal bars** `c-8`, direct-labeled, Day/Week toggle as a segmented control · **S:N donut** `c-4` |
+| 1 | KPI ×3, standing metrics with no panel below: *Check-in coverage* (answered / fired) · *Most-focused domain* · *Noise share vs last week* |
+| 2 | **Focus Map — ranked horizontal bars** `c-8`, direct-labeled, Day/Week toggle as a segmented control · **S:N donut** `c-4` — **the global ratio is the donut's center total**, not a separate KPI card (a donut has a center; that is where its number belongs) |
 | 3 | **Per-domain breakdown** `c-12` — one Tier-4 row per domain: icon chip, name, ratio, inline mini bar. Keep the existing `?domain=` highlight, with the accent bug fix already landed in the prior phase. |
 
 ### Weekly Planning
