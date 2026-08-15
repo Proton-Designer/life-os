@@ -38,7 +38,12 @@ describe("KpiCard", () => {
       <KpiCard icon={Target} accent="fitness" label="Consistency" value="80%" caption="4/5 days this week" />
     );
     const card = screen.getByTestId("kpi-card");
-    expect(card.style.background).toContain("--accent-fitness");
+    expect(card.style.backgroundImage).toContain("--accent-fitness");
+  });
+
+  it("has an opaque --card base, not just a transparent-past-70% radial wash", () => {
+    render(<KpiCard icon={Target} accent="business" label="Kill list" value="1/3" caption="2 left" />);
+    expect(screen.getByTestId("kpi-card").style.backgroundColor).toBe("var(--card)");
   });
 
   it("carries a fixed min-height so a row of them aligns exactly", () => {

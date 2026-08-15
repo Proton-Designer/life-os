@@ -22,13 +22,13 @@ describe("NextUpHero", () => {
   it("uses the item's own domain accent, not a hardcoded one", () => {
     render(<NextUpHero item={item({ domain: "business" })} now={NOW} data-testid="hero" />);
     const hero = screen.getByTestId("hero");
-    expect(hero.style.background).toContain("--accent-business");
-    expect(hero.style.background).not.toContain("--accent-deen");
+    expect(hero.style.backgroundImage).toContain("--accent-business");
+    expect(hero.style.backgroundImage).not.toContain("--accent-deen");
   });
 
   it("switches accent when the item's domain changes", () => {
     render(<NextUpHero item={item({ domain: "fitness" })} now={NOW} data-testid="hero" />);
-    expect(screen.getByTestId("hero").style.background).toContain("--accent-fitness");
+    expect(screen.getByTestId("hero").style.backgroundImage).toContain("--accent-fitness");
   });
 
   it("renders an IconChip for the item's domain", () => {
@@ -38,7 +38,7 @@ describe("NextUpHero", () => {
 
   it("uses its own coop accent, no longer folded onto school", () => {
     render(<NextUpHero item={item({ domain: "co_op" })} now={NOW} data-testid="hero" />);
-    expect(screen.getByTestId("hero").style.background).toContain("--accent-coop");
+    expect(screen.getByTestId("hero").style.backgroundImage).toContain("--accent-coop");
   });
 
   it("formats an overdue item in hours, not raw minutes (778 min -> 13h overdue)", () => {
@@ -52,5 +52,10 @@ describe("NextUpHero", () => {
     const dueAt = new Date(NOW.getTime() + 150 * 60_000);
     render(<NextUpHero item={item({ dueAt })} now={NOW} />);
     expect(screen.getByText(/in 3h/)).toBeInTheDocument();
+  });
+
+  it("has an opaque --card base, not just a transparent-past-70% radial wash", () => {
+    render(<NextUpHero item={item()} now={NOW} data-testid="hero" />);
+    expect(screen.getByTestId("hero").style.backgroundColor).toBe("var(--card)");
   });
 });

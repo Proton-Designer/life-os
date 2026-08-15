@@ -49,7 +49,8 @@ describe("HabitBuilder", () => {
       />
     );
     const card = screen.getByTestId("habit-focus-card");
-    expect(card.style.background).toContain("--accent-deen");
+    expect(card.style.backgroundImage).toContain("--accent-deen");
+    expect(card.style.backgroundColor).toBe("var(--card)");
     expect(card.querySelector("svg")).toBeInTheDocument();
   });
 });

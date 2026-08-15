@@ -29,4 +29,13 @@ describe("DomainPeekCard", () => {
     );
     expect(screen.getByText("custom body")).toBeInTheDocument();
   });
+
+  it("has an opaque --card base, not just a transparent-past-70% radial wash", () => {
+    render(
+      <DomainPeekCard domain="deen" href="/deen" pulse={0.5}>
+        body
+      </DomainPeekCard>
+    );
+    expect(screen.getByTestId("domain-peek-card-deen").style.backgroundColor).toBe("var(--card)");
+  });
 });

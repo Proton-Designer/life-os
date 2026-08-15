@@ -37,7 +37,8 @@ describe("LockInSession", () => {
       />
     );
     const card = screen.getByTestId("lock-in-session");
-    expect(card.style.background).toContain("--accent-business");
+    expect(card.style.backgroundImage).toContain("--accent-business");
+    expect(card.style.backgroundColor).toBe("var(--card)");
     expect(card.querySelector("svg")).toBeInTheDocument();
   });
 

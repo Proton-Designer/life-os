@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
+import { featuredCardStyle } from "@/lib/featured-card-style";
 import { IconChip } from "@/components/ui/icon-chip";
 import { DeltaPill, type DeltaDirection } from "@/components/ui/delta-pill";
 
@@ -35,10 +36,7 @@ export function KpiCard({
     <div
       data-testid="kpi-card"
       className={cn("flex min-h-[168px] flex-col gap-3 rounded-2xl border p-4", className)}
-      style={{
-        borderColor: `color-mix(in oklch, var(${colorVar}) 30%, transparent)`,
-        background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${colorVar}) 16%, transparent), transparent 70%)`,
-      }}
+      style={featuredCardStyle(colorVar)}
       {...props}
     >
       <div className="flex items-center justify-between">

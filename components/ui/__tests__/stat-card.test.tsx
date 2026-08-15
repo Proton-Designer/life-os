@@ -32,6 +32,13 @@ describe("StatCard", () => {
     render(
       <StatCard icon={Moon} accent="deen" label="Prayers" value="4/5" featured data-testid="card" />
     );
-    expect(screen.getByTestId("card").style.background).toContain("--accent-deen");
+    expect(screen.getByTestId("card").style.backgroundImage).toContain("--accent-deen");
+  });
+
+  it("has an opaque --card base when featured, not just a transparent-past-70% radial wash", () => {
+    render(
+      <StatCard icon={Moon} accent="deen" label="Prayers" value="4/5" featured data-testid="card" />
+    );
+    expect(screen.getByTestId("card").style.backgroundColor).toBe("var(--card)");
   });
 });

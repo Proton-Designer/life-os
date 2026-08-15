@@ -8,6 +8,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { formatRelativeDuration } from "@/lib/date-utils";
+import { featuredCardStyle } from "@/lib/featured-card-style";
 
 const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   deen: "Deen",
@@ -46,10 +47,7 @@ export function NextUpHero({
   return (
     <div
       className="rounded-2xl border p-6"
-      style={{
-        borderColor: `color-mix(in oklch, var(${colorVar}) 30%, transparent)`,
-        background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${colorVar}) 16%, transparent), transparent 70%)`,
-      }}
+      style={featuredCardStyle(colorVar)}
       {...props}
     >
       <div className="flex items-center gap-3">

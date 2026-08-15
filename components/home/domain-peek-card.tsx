@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { PriorityItem } from "@/lib/home/types";
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { featuredCardStyle } from "@/lib/featured-card-style";
 import { IconChip } from "@/components/ui/icon-chip";
 
 export type PeekDomain = PriorityItem["domain"];
@@ -45,10 +46,7 @@ export function DomainPeekCard({
       href={href}
       data-testid={`domain-peek-card-${domain}`}
       className="flex snap-start flex-col gap-3 rounded-2xl border p-5 transition-colors hover:bg-accent/10 md:min-w-0"
-      style={{
-        borderColor: `color-mix(in oklch, var(${colorVar}) 25%, transparent)`,
-        background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${colorVar}) 10%, transparent), transparent 70%)`,
-      }}
+      style={featuredCardStyle(colorVar, { borderOpacity: 25, washOpacity: 10 })}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">

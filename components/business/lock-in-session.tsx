@@ -12,6 +12,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { featuredCardStyle } from "@/lib/featured-card-style";
 import type { CheckinOption } from "@/lib/checkins/types";
 
 // Signal (kill_list) is positive, noise is a warning, an unanswered/missed
@@ -128,10 +129,7 @@ export function LockInSession({
     <div
       data-testid="lock-in-session"
       className="flex flex-col gap-4 rounded-2xl border p-4"
-      style={{
-        borderColor: `color-mix(in oklch, var(${ACCENT_VAR.business}) 30%, transparent)`,
-        background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${ACCENT_VAR.business}) 16%, transparent), transparent 70%)`,
-      }}
+      style={featuredCardStyle(ACCENT_VAR.business)}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

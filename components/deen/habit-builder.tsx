@@ -10,6 +10,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { featuredCardStyle } from "@/lib/featured-card-style";
 
 export type DeenHabitData = {
   id: string;
@@ -217,10 +218,7 @@ export function HabitBuilder({
         <div
           data-testid="habit-focus-card"
           className="flex items-center justify-between rounded-2xl border p-4"
-          style={{
-            borderColor: `color-mix(in oklch, var(${ACCENT_VAR.deen}) 30%, transparent)`,
-            background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${ACCENT_VAR.deen}) 16%, transparent), transparent 70%)`,
-          }}
+          style={featuredCardStyle(ACCENT_VAR.deen)}
         >
           <div className="flex items-center gap-3">
             <IconChip icon={DOMAIN_ICON.deen} accent="deen" />
