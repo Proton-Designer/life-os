@@ -36,4 +36,17 @@ describe("MobileIsland", () => {
       "aria-current"
     );
   });
+
+  it("renders a Lucide icon for every top-level item, no emoji", () => {
+    render(<MobileIsland />);
+    for (const key of ["home", "deen", "business", "school"]) {
+      expect(screen.getByTestId(`mobile-island-item-${key}`).querySelector("svg")).toBeInTheDocument();
+    }
+  });
+
+  it("tints the active item with its domain accent", () => {
+    render(<MobileIsland />);
+    expect(screen.getByTestId("mobile-island-item-deen").style.color).toContain("--accent-deen");
+    expect(screen.getByTestId("mobile-island-item-home").style.color).toBe("");
+  });
 });

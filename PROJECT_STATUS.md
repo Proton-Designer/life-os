@@ -608,3 +608,29 @@ Sending to the engineer now — this needs to move fast, Ayman's been testing pr
   **Agreed with the lead's optional note**: there's no dedicated E2E spec file yet for Lock-In/Reflection/Habit Builder (`business.spec.ts`/`deen.spec.ts` predate tonight) — tonight's live verification passes (Playwright Clock API for Lock-In's hourly cadence, direct SQL for habit-stage date control, tap-through for Reflection) covered the real interactions thoroughly at the time, but a permanent regression-suite spec file for these three features is a good follow-up for a future session, not something tonight's scope required.
 
   Full suite is green. Handing off to the lead for independent re-verification, deploy, and the PROJECT_STATUS.md build summary close-out.
+
+- 2026-08-15 15:30 CDT: **Engineer's Phase A (visual design system foundation) — done, TDD'd, live nav screenshots verified, ready for lead review.**
+
+  New assignment from Ayman (present this session, not overnight) — full visual polish pass across every screen, per `docs/superpowers/specs/2026-08-15-visual-design-system-refresh.md`. Phase A is the foundation: new accent token + 3 shared components + shared domain-icon mapping, applied to shared chrome only (`TopNav`/`MobileIsland`).
+
+  **Tokens** (`app/globals.css`): `--accent-info: #5b8fd9` (+ `--color-accent-info` in `@theme inline`) — the new general-purpose "signal blue" for nav/focus/info badges, deliberately distinct from `--accent-school`'s `#6aa9ff` per the spec's collision-avoidance reasoning. No existing tokens touched.
+
+  **New shared modules:**
+  - `lib/accent-tokens.ts` — `AccentToken` union + `ACCENT_VAR` map (domain accents + `info`/`noise`), single source every accent-aware component reads from.
+  - `lib/domain-icons.ts` — `DOMAIN_ICON` map (Deen=Moon, Business=Target, Fitness=Dumbbell, School=GraduationCap, Co-op=Users), keyed off the existing `Domain` type from `lib/home/types.ts` rather than redeclaring it.
+  - `components/ui/icon-chip.tsx` — tinted-background/full-opacity-icon chip, 3 size variants. 5 tests.
+  - `components/ui/badge.tsx` — pill component, 5 semantic variants (`positive`/`negative`/`warning`/`info`/`neutral`) mapped to the spec's color semantics. 7 tests.
+  - `components/ui/stat-card.tsx` — `IconChip` + label + `font-mono tabular-nums` value + optional badge slot, `featured` prop generalizing `NextUpHero`'s existing radial-gradient-wash pattern into a reusable prop rather than a copy-pasted one-off. 5 tests.
+
+  **Applied to shared chrome:**
+  - `TopNav` — rebuilt from text-only underline tabs to icon+label pills; active item gets a domain-tinted soft pill background (`color-mix(... 14%, transparent)`) instead of the old `border-b-2` underline; Home/Settings use the new `info` accent since they aren't domain-specific. New test file (4 tests) since none existed before.
+  - `MobileIsland` — swapped the two divergent icon sources it had (a real `Home` Lucide icon plus 3 raw emoji for Deen/Business/School) for the same `DOMAIN_ICON` map `TopNav` uses, so there's exactly one icon language now, not two. Extended the same domain-tinted active-pill treatment for consistency (flagged to the lead as my one judgment call before doing it — approved). Also added icons to the "More" popover rows (Fitness/Co-op), which previously had text only. 2 new tests added to the existing file; all 3 pre-existing tests still pass unchanged.
+  - Judged `components/ui/card.tsx`/`button.tsx` don't need changes yet — both already carry a `ring-1 ring-foreground/10` depth treatment that reads fine against the reference images; flagged to the lead and agreed to revisit only if a later phase surfaces a concrete gap, rather than pre-emptively touching two widely-used primitives.
+
+  **Verification:**
+  - Full unit suite: 195/195 (172 + 23 new/changed), `tsc --noEmit` clean, `npm run lint` clean, production build clean (all 19 routes).
+  - Live against `npm run dev` + the real Supabase account: screenshotted `TopNav` at desktop width on `/deen` (Deen pill amber-tinted + `aria-current`, rest of the pills untinted) and `/` (Home pill info-blue-tinted), and `MobileIsland` at mobile width on `/deen` (Deen icon amber-tinted, More popover open showing Fitness/Dumbbell + Co-op/Users icons) — confirmed by eye against the reference images, no emoji left anywhere in the nav. Scratch script + screenshots deleted after review, no trace committed.
+
+  **One thing noticed, not touched (Phase A is chrome-only)**: `NextUpHero` on Home always uses `--accent-deen` regardless of the actual `item.domain` — looks like a pre-existing hardcode, not something from tonight. Flagging it now since Phase B (Home v2) is exactly where `StatCard`'s new `accent` prop would naturally fix this by passing `item.domain` through instead of a hardcoded value — the lead should confirm whether that's an intended fix-while-touching or explicitly out of scope.
+
+  Committing now and messaging the lead for review before Phase B (Home v2) starts.

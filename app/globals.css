@@ -15,6 +15,7 @@
   --color-accent-business: var(--accent-business);
   --color-accent-school: var(--accent-school);
   --color-accent-noise: var(--accent-noise);
+  --color-accent-info: var(--accent-info);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -99,6 +100,11 @@
   --accent-business: #4caf7d;
   --accent-school: #6aa9ff;
   --accent-noise: #e85050;
+
+  /* General-purpose chrome accent (nav, focus rings, info badges, chart
+     highlights) — distinct from --accent-school so the two don't get
+     visually confused when both appear together. */
+  --accent-info: #5b8fd9;
 
   /* Oxblood/ember glow used in the body's radial-gradient background layer */
   --glow-oxblood: #2b0e13;
