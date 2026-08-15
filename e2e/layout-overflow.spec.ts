@@ -21,6 +21,11 @@ const AUTHED_ROUTES = [
   "/weekly-planning",
   "/settings",
   "/onboarding",
+  // The Phase B/C component harness — the only route with real [data-panel]
+  // elements today (Panel isn't wired into any real page until D-G), so
+  // this is what actually exercises the per-panel check below right now.
+  // Dev-only (404s in production), safe to include here.
+  "/harness",
 ];
 
 const PUBLIC_ROUTES = ["/login", "/signup"];
@@ -38,6 +43,20 @@ async function assertNoHorizontalOverflow(page: import("@playwright/test").Page,
   ).toBeLessThanOrEqual(clientWidth + 1);
 }
 
+// document.documentElement.scrollWidth only catches page-level overflow — an
+// inner container overflowing its own parent under an `overflow-hidden`
+// ancestor gets silently clipped instead, which the document-level check
+// can't see. Charts inside Panels (Phase C onward) are exactly that risk,
+// per the Phase B review. Every Panel carries `data-panel` for this reason.
+async function assertNoPanelOverflow(page: import("@playwright/test").Page, width: number) {
+  const overflowing = await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-panel]"))
+      .map((el, i) => ({ i, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
+      .filter((p) => p.scrollWidth > p.clientWidth + 1)
+  );
+  expect(overflowing, `${overflowing.length} panel(s) overflow their own bounds at ${width}px wide`).toEqual([]);
+}
+
 test.describe("Layout overflow — zero horizontal scroll at every breakpoint", () => {
   test.beforeEach(({}, testInfo) => {
     test.skip(testInfo.project.name !== "Desktop Chrome", "runs once, viewport is overridden per test");
@@ -50,6 +69,7 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
         await page.goto(route);
         await dismissCheckinDialogIfPresent(page);
         await assertNoHorizontalOverflow(page, width);
+        await assertNoPanelOverflow(page, width);
       }
     });
   }
@@ -60,6 +80,7 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
         await page.setViewportSize({ width, height: 900 });
         await page.goto(route);
         await assertNoHorizontalOverflow(page, width);
+        await assertNoPanelOverflow(page, width);
       }
     });
   }
