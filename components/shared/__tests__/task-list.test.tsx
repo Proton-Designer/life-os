@@ -29,4 +29,33 @@ describe("TaskList", () => {
     );
     expect(screen.queryByText("Done")).not.toBeInTheDocument();
   });
+
+  it("tints the completed checkbox with the passed accent, not a hardcoded school color", () => {
+    render(
+      <TaskList
+        tasks={[{ id: "t1", title: "Bring snacks", dueDate: null, dueTime: null, completed: true }]}
+        addTask={vi.fn()}
+        toggleTask={vi.fn()}
+        removeTask={vi.fn()}
+        accent="coop"
+      />
+    );
+    const checkbox = screen.getByRole("button", { name: "Mark incomplete" });
+    expect(checkbox.className).toContain("border-accent-coop");
+    expect(checkbox.className).not.toContain("border-accent-school");
+  });
+
+  it("defaults to the school accent when none is passed", () => {
+    render(
+      <TaskList
+        tasks={[{ id: "t1", title: "Finish essay", dueDate: null, dueTime: null, completed: true }]}
+        addTask={vi.fn()}
+        toggleTask={vi.fn()}
+        removeTask={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Mark incomplete" }).className).toContain(
+      "border-accent-school"
+    );
+  });
 });

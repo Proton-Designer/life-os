@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { AccentToken } from "@/lib/accent-tokens";
 
 export type TaskData = {
   id: string;
@@ -14,16 +15,31 @@ export type TaskData = {
   completed: boolean;
 };
 
+// Literal, complete class strings (not runtime-interpolated) so Tailwind's
+// build-time scanner can find every one of them — School and Co-op share
+// this component but must not share a color, so the accent is prop-driven.
+const COMPLETED_CLASS: Record<AccentToken, string> = {
+  deen: "border-accent-deen bg-accent-deen",
+  business: "border-accent-business bg-accent-business",
+  fitness: "border-accent-fitness bg-accent-fitness",
+  school: "border-accent-school bg-accent-school",
+  coop: "border-accent-coop bg-accent-coop",
+  info: "border-accent-info bg-accent-info",
+  noise: "border-accent-noise bg-accent-noise",
+};
+
 export function TaskList({
   tasks,
   addTask,
   toggleTask,
   removeTask,
+  accent = "school",
 }: {
   tasks: TaskData[];
   addTask: (title: string, dueDate?: string, dueTime?: string) => Promise<void>;
   toggleTask: (id: string) => Promise<void>;
   removeTask: (id: string) => Promise<void>;
+  accent?: AccentToken;
 }) {
   const [isPending, startTransition] = useTransition();
   const [title, setTitle] = useState("");
@@ -55,7 +71,7 @@ export function TaskList({
               aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
               className={cn(
                 "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",
-                task.completed ? "border-accent-school bg-accent-school" : "border-border"
+                task.completed ? COMPLETED_CLASS[accent] : "border-border"
               )}
             />
             <span className={cn("flex-1 text-sm", task.completed && "text-muted-foreground line-through")}>

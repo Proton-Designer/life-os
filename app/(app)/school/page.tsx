@@ -8,6 +8,8 @@ import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/
 import { IconChip } from "@/components/ui/icon-chip";
 import { StatCard } from "@/components/ui/stat-card";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export default async function SchoolPage() {
   const supabase = await createClient();
@@ -53,14 +55,15 @@ export default async function SchoolPage() {
   const dueTodayCount = tasks.filter((t) => t.dueDate === dateStr).length;
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
+    <PageContainer>
+      <PageHeader title="School" />
       <section className="flex flex-col gap-4">
-        <h1 className="flex items-center gap-2.5 text-lg font-semibold">
+        <h2 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
           <IconChip icon={DOMAIN_ICON.school} accent="school" size="sm" />
           Tasks
-        </h1>
+        </h2>
         <StatCard icon={DOMAIN_ICON.school} accent="school" label="Due today" value={String(dueTodayCount)} />
-        <TaskList tasks={tasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} />
+        <TaskList tasks={tasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="school" />
       </section>
 
       <section className="flex flex-col gap-3">
@@ -75,6 +78,6 @@ export default async function SchoolPage() {
           cancelScheduleOccurrence={cancelScheduleOccurrence}
         />
       </section>
-    </div>
+    </PageContainer>
   );
 }

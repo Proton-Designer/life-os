@@ -21,7 +21,7 @@ const DOMAIN_ACCENT_CLASS: Record<PriorityItem["domain"], string> = {
   business: "text-accent-business",
   fitness: "text-accent-fitness",
   school: "text-accent-school",
-  co_op: "text-accent-school",
+  co_op: "text-accent-coop",
 };
 
 function Row({ item, onComplete }: { item: PriorityItem; onComplete: (item: PriorityItem) => void }) {

@@ -20,16 +20,25 @@ const fromMock = vi.fn();
 const getUserMock = vi.fn(async () => ({
   data: { user: { id: "user-1" } as { id: string } | null },
 }));
+const signOutMock = vi.fn(async () => ({ error: null }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
-    auth: { getUser: getUserMock },
+    auth: { getUser: getUserMock, signOut: signOutMock },
     from: fromMock,
   })),
 }));
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
+}));
+
+const redirectMock = vi.fn(() => {
+  throw new Error("NEXT_REDIRECT");
+});
+
+vi.mock("next/navigation", () => ({
+  redirect: redirectMock,
 }));
 
 function baseItem(overrides: Partial<PriorityItem>): PriorityItem {
@@ -161,5 +170,21 @@ describe("toggleItem", () => {
     const { toggleItem } = await import("../actions");
 
     await expect(toggleItem(baseItem({ actionType: "toggle_prayer" }))).rejects.toThrow();
+  });
+});
+
+describe("signOut", () => {
+  beforeEach(() => {
+    signOutMock.mockClear();
+    redirectMock.mockClear();
+  });
+
+  it("calls supabase auth.signOut and redirects to /login", async () => {
+    const { signOut } = await import("../actions");
+
+    await expect(signOut()).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(signOutMock).toHaveBeenCalled();
+    expect(redirectMock).toHaveBeenCalledWith("/login");
   });
 });

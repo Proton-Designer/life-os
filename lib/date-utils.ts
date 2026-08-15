@@ -14,6 +14,16 @@ export function localWeekday(now: Date, timezone: string): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long" }).format(now);
 }
 
+/** "Fri, Aug 15" for the Topbar's date display, in the given IANA timezone. */
+export function formatTopbarDate(now: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(now);
+}
+
 /** Sunday of the week containing `dateStr` (week boundary = Sunday–Saturday, per spec). */
 export function getWeekStartDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);

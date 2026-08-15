@@ -4,8 +4,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import type { PriorityItem } from "@/lib/home/types";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { logWorkout } from "@/app/(app)/fitness/actions";
+
+export async function signOut(): Promise<void> {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  redirect("/login");
+}
 
 export async function toggleItem(item: PriorityItem): Promise<void> {
   const supabase = await createClient();

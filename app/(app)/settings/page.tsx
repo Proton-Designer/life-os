@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { Settings as SettingsIcon } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { SettingsForm } from "@/components/settings/settings-form";
-import { IconChip } from "@/components/ui/icon-chip";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export default async function SettingsPage() {
   const user = await getAuthedUser();
@@ -15,11 +15,8 @@ export default async function SettingsPage() {
   const profile = await getProfile();
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
-      <h1 className="flex items-center gap-2.5 text-lg font-semibold">
-        <IconChip icon={SettingsIcon} accent="info" size="sm" />
-        Settings
-      </h1>
+    <PageContainer>
+      <PageHeader title="Settings" />
       <SettingsForm
         initial={{
           prayerCalcMethod: profile?.prayer_calc_method ?? "MWL",
@@ -31,6 +28,6 @@ export default async function SettingsPage() {
           pinLockEnabled: profile?.pin_lock_enabled ?? false,
         }}
       />
-    </div>
+    </PageContainer>
   );
 }

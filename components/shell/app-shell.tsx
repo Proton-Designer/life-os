@@ -1,18 +1,41 @@
-import { TopNav } from "./top-nav";
-import { MobileIsland } from "./mobile-island";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/server";
+import { formatTopbarDate } from "@/lib/date-utils";
+import { AppShellChrome } from "./app-shell-chrome";
 
-// The app-wide 2-hour check-in scheduler (CheckinSchedulerLoader) is gone
-// entirely as of the Business Lock-In overhaul — check-in prompts are now
-// scoped to an active Lock-In work session (components/business/lock-in-session.tsx)
-// instead of firing globally. checkin-scheduler.tsx/checkin-scheduler-loader.tsx
-// are left in place, just unreferenced here, matching the "remove for now"
-// pattern used elsewhere in this overhaul (adhkar/traveling).
-export function AppShell({ children }: { children: React.ReactNode }) {
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const user = await getAuthedUser();
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+
+  // Topbar's Lock-In status affordance — same "active session" shape
+  // Business's own LockInPanel queries, kept as its own minimal lookup here
+  // rather than threading a shared helper through, since this is the only
+  // other place that needs just the boolean (not the full session/checkins).
+  let hasActiveLockIn = false;
+  if (user) {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("work_sessions")
+      .select("id")
+      .eq("user_id", user.id)
+      .is("ended_at", null)
+      .maybeSingle();
+    hasActiveLockIn = Boolean(data);
+  }
+
+  const account = {
+    displayName: profile?.display_name || user?.email?.split("@")[0] || "Account",
+    email: user?.email ?? "",
+  };
+
   return (
-    <>
-      <TopNav />
-      <main className="pt-0 pb-24 md:pt-14 md:pb-0">{children}</main>
-      <MobileIsland />
-    </>
+    <AppShellChrome
+      account={account}
+      dateLabel={formatTopbarDate(new Date(), timezone)}
+      hasActiveLockIn={hasActiveLockIn}
+    >
+      {children}
+    </AppShellChrome>
   );
 }

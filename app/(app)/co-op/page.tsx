@@ -8,6 +8,8 @@ import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/
 import { IconChip } from "@/components/ui/icon-chip";
 import { StatCard } from "@/components/ui/stat-card";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export default async function CoOpPage() {
   const supabase = await createClient();
@@ -56,23 +58,24 @@ export default async function CoOpPage() {
   const dueTodayCount = tasks.filter((t) => t.dueDate === dateStr).length;
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
+    <PageContainer>
+      <PageHeader title="Co-op" />
       {hasNothing && (
         <p className="text-sm text-muted-foreground">No active co-op — nothing scheduled</p>
       )}
 
       <section className="flex flex-col gap-4">
-        <h1 className="flex items-center gap-2.5 text-lg font-semibold">
-          <IconChip icon={DOMAIN_ICON.co_op} accent="school" size="sm" />
+        <h2 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.co_op} accent="coop" size="sm" />
           Tasks
-        </h1>
-        <StatCard icon={DOMAIN_ICON.co_op} accent="school" label="Due today" value={String(dueTodayCount)} />
-        <TaskList tasks={tasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} />
+        </h2>
+        <StatCard icon={DOMAIN_ICON.co_op} accent="coop" label="Due today" value={String(dueTodayCount)} />
+        <TaskList tasks={tasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="coop" />
       </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
-          <IconChip icon={DOMAIN_ICON.co_op} accent="school" size="sm" />
+          <IconChip icon={DOMAIN_ICON.co_op} accent="coop" size="sm" />
           Work schedule
         </h2>
         <DomainScheduleView
@@ -82,6 +85,6 @@ export default async function CoOpPage() {
           cancelScheduleOccurrence={cancelScheduleOccurrence}
         />
       </section>
-    </div>
+    </PageContainer>
   );
 }

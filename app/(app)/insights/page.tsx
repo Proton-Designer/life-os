@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { TrendingUp } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, resolveLocalTime } from "@/lib/date-utils";
 import { getFocusMap } from "@/lib/insights/focus-map";
@@ -10,6 +9,8 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { StatCard } from "@/components/ui/stat-card";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 const SEGMENT_LABEL: Record<string, string> = {
   deen: "Deen",
@@ -20,6 +21,10 @@ const SEGMENT_LABEL: Record<string, string> = {
   other_work: "Other work",
 };
 
+// school_co_op is the Focus Map's own combined category (School and Co-op
+// aren't broken out separately there yet — a data-layer decision, not an
+// accent-token one, so this intentionally still points at School's accent
+// rather than the new --accent-coop introduced for Co-op elsewhere).
 const SEGMENT_COLOR: Record<string, string> = {
   deen: "var(--accent-deen)",
   business: "var(--accent-business)",
@@ -69,27 +74,26 @@ export default async function InsightsPage({
   const { segments, globalRatio } = await getFocusMap(userId, range, anchor);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
-      <div className="flex items-center justify-between">
-        <h1 className="flex items-center gap-2.5 text-lg font-semibold">
-          <IconChip icon={TrendingUp} accent="info" size="sm" />
-          Insights
-        </h1>
-        <div className="flex gap-2 text-sm">
-          <Link
-            href="/insights?range=day"
-            className={cn("rounded-full px-3 py-1", range === "day" ? "bg-accent" : "text-muted-foreground")}
-          >
-            Day
-          </Link>
-          <Link
-            href="/insights?range=week"
-            className={cn("rounded-full px-3 py-1", range === "week" ? "bg-accent" : "text-muted-foreground")}
-          >
-            Week
-          </Link>
-        </div>
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Insights"
+        actions={
+          <div className="flex gap-2 text-sm">
+            <Link
+              href="/insights?range=day"
+              className={cn("rounded-full px-3 py-1", range === "day" ? "bg-accent" : "text-muted-foreground")}
+            >
+              Day
+            </Link>
+            <Link
+              href="/insights?range=week"
+              className={cn("rounded-full px-3 py-1", range === "week" ? "bg-accent" : "text-muted-foreground")}
+            >
+              Week
+            </Link>
+          </div>
+        }
+      />
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Focus Map</h2>
@@ -164,6 +168,6 @@ export default async function InsightsPage({
             })}
         </ul>
       </section>
-    </div>
+    </PageContainer>
   );
 }

@@ -9,6 +9,8 @@ import { SnRatioCard } from "@/components/business/sn-ratio-card";
 import { LockInPanel, type ActiveSessionData } from "@/components/business/lock-in-panel";
 import { IconChip } from "@/components/ui/icon-chip";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export default async function BusinessPage() {
   const supabase = await createClient();
@@ -72,12 +74,13 @@ export default async function BusinessPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
+    <PageContainer>
+      <PageHeader title="Business" />
       <section>
-        <h1 className="mb-4 flex items-center gap-2.5 text-lg font-semibold">
+        <h2 className="mb-4 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
           <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
           Lock In
-        </h1>
+        </h2>
         <LockInPanel initialSession={activeSession} />
       </section>
 
@@ -102,6 +105,6 @@ export default async function BusinessPage() {
       </section>
 
       <SnRatioCard display={snRatio.display} />
-    </div>
+    </PageContainer>
   );
 }

@@ -9,6 +9,8 @@ import { NextUpHero } from "@/components/home/next-up-hero";
 import { PriorityList } from "@/components/home/priority-list";
 import { DomainPeekCards } from "@/components/home/domain-peek-cards";
 import { WeeklySummaryStrip } from "@/components/home/weekly-summary-strip";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -53,21 +55,22 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-6 px-4 py-8 md:grid-cols-[minmax(0,1fr)_280px] md:py-12 lg:grid-cols-[280px_minmax(0,1fr)_280px]">
-      {/* Left rail — desktop only. Deen + Business: the two domains
-          DOMAIN_PRIORITY (lib/home/get-priority-items.ts) weights highest.
-          self-start: grid's default stretch would otherwise pad this
-          column's box to match the (usually taller) center column, leaving
-          a big dead gap below these 2 cards instead of just a shorter column. */}
-      <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
-        <DomainPeekCards snapshots={snapshots} now={now} domains={["deen", "business"]} />
-      </div>
+    <PageContainer>
+      <PageHeader title="Home" />
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_280px] lg:grid-cols-[280px_minmax(0,1fr)_280px]">
+        {/* Left rail — desktop only. Deen + Business: the two domains
+            DOMAIN_PRIORITY (lib/home/get-priority-items.ts) weights highest.
+            self-start: grid's default stretch would otherwise pad this
+            column's box to match the (usually taller) center column, leaving
+            a big dead gap below these 2 cards instead of just a shorter column. */}
+        <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
+          <DomainPeekCards snapshots={snapshots} now={now} domains={["deen", "business"]} />
+        </div>
 
-      {/* Center column — the highest-leverage content, same relative
-          position at every width: hero, nudge, priority list, then (mobile
-          only) the peek-card carousel, then the weekly summary. */}
-      <div className="flex flex-col gap-6">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+        {/* Center column — the highest-leverage content, same relative
+            position at every width: hero, nudge, priority list, then (mobile
+            only) the peek-card carousel, then the weekly summary. */}
+        <div className="flex flex-col gap-6">
           <NextUpHero item={items[0] ?? null} now={now} />
           {showPlanningNudge && (
             <Link
@@ -84,26 +87,24 @@ export default async function HomePage() {
           ) : (
             <PriorityList items={items} />
           )}
+
+          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:hidden">
+            <DomainPeekCards snapshots={snapshots} now={now} />
+          </div>
+
+          <WeeklySummaryStrip snapshots={snapshots} />
         </div>
 
-        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:hidden">
+        {/* Combined rail — tablet only (all 5 cards, one column). */}
+        <div className="hidden md:flex md:flex-col md:gap-4 md:self-start lg:hidden">
           <DomainPeekCards snapshots={snapshots} now={now} />
         </div>
 
-        <div className="mx-auto w-full max-w-2xl">
-          <WeeklySummaryStrip snapshots={snapshots} />
+        {/* Right rail — desktop only. */}
+        <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
+          <DomainPeekCards snapshots={snapshots} now={now} domains={["fitness", "school", "co_op"]} />
         </div>
       </div>
-
-      {/* Combined rail — tablet only (all 5 cards, one column). */}
-      <div className="hidden md:flex md:flex-col md:gap-4 md:self-start lg:hidden">
-        <DomainPeekCards snapshots={snapshots} now={now} />
-      </div>
-
-      {/* Right rail — desktop only. */}
-      <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
-        <DomainPeekCards snapshots={snapshots} now={now} domains={["fitness", "school", "co_op"]} />
-      </div>
-    </div>
+    </PageContainer>
   );
 }

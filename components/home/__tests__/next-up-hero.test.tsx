@@ -36,8 +36,8 @@ describe("NextUpHero", () => {
     expect(screen.getByTestId("hero").querySelector("svg")).toBeInTheDocument();
   });
 
-  it("folds co_op onto the school accent, same as elsewhere", () => {
+  it("uses its own coop accent, no longer folded onto school", () => {
     render(<NextUpHero item={item({ domain: "co_op" })} now={NOW} data-testid="hero" />);
-    expect(screen.getByTestId("hero").style.background).toContain("--accent-school");
+    expect(screen.getByTestId("hero").style.background).toContain("--accent-coop");
   });
 });
