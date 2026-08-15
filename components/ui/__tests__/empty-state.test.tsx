@@ -5,12 +5,24 @@ import { EmptyState } from "../empty-state";
 
 describe("EmptyState", () => {
   it("renders a muted icon and the message", () => {
-    render(<EmptyState icon={Inbox} message="Nothing logged yet — start with Fajr" />);
+    render(
+      <EmptyState
+        icon={Inbox}
+        message="Nothing logged yet — start with Fajr"
+        action={{ label: "Go", href: "/deen" }}
+      />
+    );
     expect(screen.getByText("Nothing logged yet — start with Fajr")).toBeInTheDocument();
   });
 
   it('never renders the banned "No data" copy verbatim as the whole message', () => {
-    render(<EmptyState icon={Inbox} message="Nothing logged yet — start with Fajr" />);
+    render(
+      <EmptyState
+        icon={Inbox}
+        message="Nothing logged yet — start with Fajr"
+        action={{ label: "Go", href: "/deen" }}
+      />
+    );
     expect(screen.queryByText(/^No data$/)).not.toBeInTheDocument();
   });
 
@@ -28,9 +40,4 @@ describe("EmptyState", () => {
     expect(onClick).toHaveBeenCalled();
   });
 
-  it("renders with no action at all when none is passed", () => {
-    render(<EmptyState icon={Inbox} message="No tasks yet" />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
-  });
 });

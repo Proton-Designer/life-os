@@ -46,7 +46,11 @@ export function HarnessInteractive() {
       </div>
 
       <div className="rounded-2xl border border-border/40 bg-card p-4">
-        <EmptyState icon={Inbox} message="No active co-op — nothing scheduled" />
+        <EmptyState
+          icon={Inbox}
+          message="No active co-op — nothing scheduled"
+          action={{ label: "Add a task", href: "/co-op" }}
+        />
       </div>
     </div>
   );

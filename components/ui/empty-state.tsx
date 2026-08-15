@@ -13,22 +13,25 @@ export function EmptyState({
 }: {
   icon: LucideIcon;
   message: string;
-  action?: EmptyStateAction;
+  // Required, not optional — "an empty screen is an invitation to act" per
+  // spec, enforced at the type level the same way KpiCard's caption is.
+  // A genuinely action-less empty state is a deliberate exception to raise
+  // with the lead, not a default this component makes available.
+  action: EmptyStateAction;
 }) {
   return (
     <div className="flex flex-col items-center gap-3 py-8 text-center">
       <Icon className="size-8 text-muted-foreground/50" strokeWidth={1.5} />
       <p className="max-w-xs text-sm text-muted-foreground">{message}</p>
-      {action &&
-        (action.href ? (
-          <Button asChild size="sm" variant="outline">
-            <Link href={action.href}>{action.label}</Link>
-          </Button>
-        ) : (
-          <Button size="sm" variant="outline" onClick={action.onClick}>
-            {action.label}
-          </Button>
-        ))}
+      {action.href ? (
+        <Button asChild size="sm" variant="outline">
+          <Link href={action.href}>{action.label}</Link>
+        </Button>
+      ) : (
+        <Button size="sm" variant="outline" onClick={action.onClick}>
+          {action.label}
+        </Button>
+      )}
     </div>
   );
 }
