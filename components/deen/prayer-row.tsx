@@ -2,7 +2,7 @@
 
 import { useOptimistic, useTransition } from "react";
 import { markPrayer } from "@/app/(app)/deen/actions";
-import { cn } from "@/lib/utils";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 
 export type PrayerName = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
 export type PrayerStatus = "pending" | "on_time" | "qada" | "missed";
@@ -11,6 +11,14 @@ const STATUS_LABEL: Record<Exclude<PrayerStatus, "pending">, string> = {
   on_time: "On-time",
   qada: "Qada",
   missed: "Missed",
+};
+
+// Same semantic split as Home's peek-card prayer dots: on-time is a clean
+// completion (positive), qada arrived late (warning), missed is negative.
+const STATUS_VARIANT: Record<Exclude<PrayerStatus, "pending">, BadgeVariant> = {
+  on_time: "positive",
+  qada: "warning",
+  missed: "negative",
 };
 
 export function PrayerRow({
@@ -47,14 +55,11 @@ export function PrayerRow({
             type="button"
             disabled={isPending}
             onClick={() => handleClick(s)}
-            className={cn(
-              "rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50",
-              optimisticStatus === s
-                ? "bg-accent-deen text-background"
-                : "bg-accent/40 text-muted-foreground hover:bg-accent/70"
-            )}
+            className="rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
           >
-            {STATUS_LABEL[s]}
+            <Badge variant={optimisticStatus === s ? STATUS_VARIANT[s] : "neutral"}>
+              {STATUS_LABEL[s]}
+            </Badge>
           </button>
         ))}
       </div>

@@ -6,6 +6,10 @@ import { habitStage } from "@/lib/deen/habit-stage";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { IconChip } from "@/components/ui/icon-chip";
+import { ACCENT_VAR } from "@/lib/accent-tokens";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 export type DeenHabitData = {
   id: string;
@@ -61,19 +65,23 @@ function HabitRow({
     <li className={cn("flex items-center gap-3 rounded-lg border border-border/40 px-3 py-2", quiet && "opacity-60")}>
       <HabitToggleButton habitId={habit.id} todayStr={todayStr} completed={habit.completedToday} onToggle={onToggle} />
       <span className="flex-1 text-sm">{habit.name}</span>
-      {habit.streak > 0 && <span className="text-xs text-muted-foreground">{habit.streak}d</span>}
+      {habit.streak > 0 && (
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">{habit.streak}d</span>
+      )}
     </li>
   );
 }
 
 function StageColumn({
   title,
+  variant,
   habits,
   todayStr,
   quiet,
   onToggle,
 }: {
   title: string;
+  variant: BadgeVariant;
   habits: DeenHabitData[];
   todayStr: string;
   quiet?: boolean;
@@ -81,7 +89,9 @@ function StageColumn({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold text-muted-foreground">{title}</h3>
+      <h3>
+        <Badge variant={variant}>{title}</Badge>
+      </h3>
       {habits.length === 0 ? (
         <p className="text-xs text-muted-foreground">None yet.</p>
       ) : (
@@ -204,13 +214,25 @@ export function HabitBuilder({
           onDone={handleFocusChosen}
         />
       ) : focusHabit ? (
-        <div className="flex items-center justify-between rounded-lg border border-border/40 p-4">
-          <div>
-            <div className="text-xs text-muted-foreground">This week&apos;s focus</div>
-            <div className="font-medium">{focusHabit.name}</div>
-            {focusHabit.streak > 0 && (
-              <div className="text-xs text-muted-foreground">{focusHabit.streak} day streak</div>
-            )}
+        <div
+          data-testid="habit-focus-card"
+          className="flex items-center justify-between rounded-2xl border p-4"
+          style={{
+            borderColor: `color-mix(in oklch, var(${ACCENT_VAR.deen}) 30%, transparent)`,
+            background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${ACCENT_VAR.deen}) 16%, transparent), transparent 70%)`,
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <IconChip icon={DOMAIN_ICON.deen} accent="deen" />
+            <div>
+              <div className="text-xs text-muted-foreground">This week&apos;s focus</div>
+              <div className="font-medium">{focusHabit.name}</div>
+              {focusHabit.streak > 0 && (
+                <div className="font-mono text-xs text-muted-foreground tabular-nums">
+                  {focusHabit.streak} day streak
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -247,9 +269,9 @@ export function HabitBuilder({
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StageColumn title="Active Build" habits={activeBuild} todayStr={todayStr} onToggle={handleToggle} />
-        <StageColumn title="Stabilized" habits={stabilized} todayStr={todayStr} onToggle={handleToggle} />
-        <StageColumn title="Locked" habits={locked} todayStr={todayStr} quiet onToggle={handleToggle} />
+        <StageColumn title="Active Build" variant="info" habits={activeBuild} todayStr={todayStr} onToggle={handleToggle} />
+        <StageColumn title="Stabilized" variant="positive" habits={stabilized} todayStr={todayStr} onToggle={handleToggle} />
+        <StageColumn title="Locked" variant="neutral" habits={locked} todayStr={todayStr} quiet onToggle={handleToggle} />
       </div>
     </div>
   );

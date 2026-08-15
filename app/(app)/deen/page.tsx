@@ -9,6 +9,8 @@ import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-sparkline";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
+import { IconChip } from "@/components/ui/icon-chip";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 const PRAYERS: { name: PrayerName; label: string }[] = [
   { name: "fajr", label: "Fajr" },
@@ -121,7 +123,10 @@ export default async function DeenPage() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-8 md:py-12">
       <section className="mx-auto w-full max-w-2xl">
-        <h1 className="mb-4 text-lg font-semibold">Salah</h1>
+        <h1 className="mb-4 flex items-center gap-2.5 text-lg font-semibold">
+          <IconChip icon={DOMAIN_ICON.deen} accent="deen" size="sm" />
+          Salah
+        </h1>
         <ul className="flex flex-col gap-2">
           {PRAYERS.map((p) => {
             const row = prayerRows?.find((r) => r.prayer_name === p.name);
@@ -135,7 +140,10 @@ export default async function DeenPage() {
       </section>
 
       <section className="mx-auto w-full max-w-2xl">
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Qur&apos;an</h2>
+        <h2 className="mb-3 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.deen} accent="deen" size="sm" />
+          Qur&apos;an
+        </h2>
         <QuranCard
           currentSurah={latestSession?.surah ?? null}
           currentJuz={latestSession?.juz ?? null}
@@ -147,17 +155,26 @@ export default async function DeenPage() {
       </section>
 
       <section className="mx-auto w-full max-w-2xl">
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Qada backlog</h2>
+        <h2 className="mb-3 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.deen} accent="deen" size="sm" />
+          Qada backlog
+        </h2>
         <QadaCounter owed={profile?.qada_owed ?? 0} />
       </section>
 
       <section className="mx-auto w-full max-w-2xl">
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Reflection</h2>
+        <h2 className="mb-3 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.deen} accent="deen" size="sm" />
+          Reflection
+        </h2>
         <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} />
       </section>
 
       <section className="w-full">
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Habit Builder</h2>
+        <h2 className="mb-3 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.deen} accent="deen" size="sm" />
+          Habit Builder
+        </h2>
         <HabitBuilder
           todayStr={dateStr}
           habits={deenHabits}

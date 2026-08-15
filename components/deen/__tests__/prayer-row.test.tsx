@@ -13,7 +13,7 @@ describe("PrayerRow", () => {
     markPrayerMock.mockReset();
   });
 
-  it("shows the clicked status as active immediately, before markPrayer resolves", async () => {
+  it("shows the clicked status as active immediately, before markPrayer resolves, with the positive (on-time) color", async () => {
     markPrayerMock.mockImplementation(() => new Promise<void>(() => {}));
 
     render(<PrayerRow date="2026-08-11" prayerName="isha" label="Isha" status="pending" />);
@@ -21,7 +21,25 @@ describe("PrayerRow", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "On-time" }));
 
-    expect(screen.getByRole("button", { name: "On-time" })).toHaveClass("bg-accent-deen");
-    expect(screen.getByRole("button", { name: "Qada" })).not.toHaveClass("bg-accent-deen");
+    expect(screen.getByRole("button", { name: "On-time" }).querySelector("span")).toHaveClass(
+      "text-accent-business"
+    );
+    expect(screen.getByRole("button", { name: "Qada" }).querySelector("span")).not.toHaveClass(
+      "text-accent-business"
+    );
+  });
+
+  it("colors an active qada status with the warning accent, distinct from on-time", () => {
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="qada" />);
+    expect(screen.getByRole("button", { name: "Qada" }).querySelector("span")).toHaveClass(
+      "text-accent-deen"
+    );
+  });
+
+  it("colors an active missed status with the negative accent", () => {
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="missed" />);
+    expect(screen.getByRole("button", { name: "Missed" }).querySelector("span")).toHaveClass(
+      "text-destructive"
+    );
   });
 });

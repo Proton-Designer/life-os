@@ -7,6 +7,8 @@ import { KillList, type KillListSlotData } from "@/components/business/kill-list
 import { WeeklyGoalCard } from "@/components/business/weekly-goal-card";
 import { SnRatioCard } from "@/components/business/sn-ratio-card";
 import { LockInPanel, type ActiveSessionData } from "@/components/business/lock-in-panel";
+import { IconChip } from "@/components/ui/icon-chip";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 export default async function BusinessPage() {
   const supabase = await createClient();
@@ -72,17 +74,26 @@ export default async function BusinessPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
       <section>
-        <h1 className="mb-4 text-lg font-semibold">Lock In</h1>
+        <h1 className="mb-4 flex items-center gap-2.5 text-lg font-semibold">
+          <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
+          Lock In
+        </h1>
         <LockInPanel initialSession={activeSession} />
       </section>
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Today&apos;s kill list</h2>
+        <h2 className="mb-4 flex items-center gap-2.5 text-lg font-semibold">
+          <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
+          Today&apos;s kill list
+        </h2>
         <KillList date={dateStr} slots={slots} />
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">This week&apos;s goal</h2>
+        <h2 className="mb-3 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
+          This week&apos;s goal
+        </h2>
         <WeeklyGoalCard
           weekStartDate={weekStart}
           headline={weeklyGoal?.headline ?? ""}

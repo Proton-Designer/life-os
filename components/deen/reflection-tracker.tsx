@@ -54,7 +54,7 @@ export function ReflectionTracker({
               className="flex flex-col items-center gap-1 disabled:opacity-50"
             >
               <span className="text-2xl leading-none">{GLYPH[tier]}</span>
-              <span className="text-sm font-semibold tabular-nums">{todayCounts[tier]}</span>
+              <span className="font-mono text-sm font-semibold tabular-nums">{todayCounts[tier]}</span>
             </button>
             <button
               type="button"

@@ -8,7 +8,18 @@ import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { CheckinPrompt } from "@/components/checkin/checkin-prompt";
 import { Button } from "@/components/ui/button";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { IconChip } from "@/components/ui/icon-chip";
+import { ACCENT_VAR } from "@/lib/accent-tokens";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 import type { CheckinOption } from "@/lib/checkins/types";
+
+// Signal (kill_list) is positive, noise is a warning, an unanswered/missed
+// slot is neutral — same semantic split established for Home's peek cards.
+const CHECKIN_VARIANT: Record<string, BadgeVariant> = {
+  kill_list: "positive",
+  noise: "warning",
+};
 
 const POLL_MS = 60 * 1000;
 const INTERVAL_MINUTES = 60;
@@ -114,30 +125,45 @@ export function LockInSession({
   }
 
   return (
-    <div data-testid="lock-in-session" className="flex flex-col gap-4 rounded-lg border border-border/40 p-4">
+    <div
+      data-testid="lock-in-session"
+      className="flex flex-col gap-4 rounded-2xl border p-4"
+      style={{
+        borderColor: `color-mix(in oklch, var(${ACCENT_VAR.business}) 30%, transparent)`,
+        background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${ACCENT_VAR.business}) 16%, transparent), transparent 70%)`,
+      }}
+    >
       <div className="flex items-center justify-between">
-        <div>
-          <div className="text-sm text-muted-foreground">Locked in</div>
-          <div data-testid="lock-in-elapsed" className="text-2xl font-semibold tabular-nums">
-            {elapsed}
+        <div className="flex items-center gap-3">
+          <IconChip icon={DOMAIN_ICON.business} accent="business" />
+          <div>
+            <div className="text-sm text-muted-foreground">Locked in</div>
+            <div data-testid="lock-in-elapsed" className="font-mono text-2xl font-semibold tabular-nums">
+              {elapsed}
+            </div>
           </div>
         </div>
         <div className="text-right">
           <div className="text-sm text-muted-foreground">This session&apos;s Signal:Noise</div>
-          <div data-testid="lock-in-session-ratio" className="text-lg font-semibold text-accent-business">
+          <div
+            data-testid="lock-in-session-ratio"
+            className="font-mono text-lg font-semibold tabular-nums text-accent-business"
+          >
             {snDisplay}
           </div>
         </div>
       </div>
 
       {checkins.length > 0 && (
-        <ul data-testid="lock-in-checkin-list" className="flex flex-col gap-1 text-sm">
+        <ul data-testid="lock-in-checkin-list" className="flex flex-col gap-1.5 text-sm">
           {checkins.map((c) => (
-            <li key={c.checkinTime} className="flex items-center justify-between text-muted-foreground">
-              <span>
+            <li key={c.checkinTime} className="flex items-center justify-between">
+              <span className="text-muted-foreground">
                 {new Date(c.checkinTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
               </span>
-              <span>{c.answered ? (c.tagLabel ?? c.tagType) : "Missed"}</span>
+              <Badge variant={c.answered ? (c.tagType ? CHECKIN_VARIANT[c.tagType] : "neutral") : "neutral"}>
+                {c.answered ? (c.tagLabel ?? c.tagType) : "Missed"}
+              </Badge>
             </li>
           ))}
         </ul>

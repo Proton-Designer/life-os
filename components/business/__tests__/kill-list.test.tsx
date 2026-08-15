@@ -34,5 +34,20 @@ describe("KillList", () => {
 
     expect(screen.getByRole("button", { name: "Mark incomplete" })).toBeInTheDocument();
     expect(screen.getByText("Ship the landing page")).toHaveClass("line-through");
+    expect(screen.getByText("Done")).toBeInTheDocument();
+  });
+
+  it("does not show the Done badge on an incomplete item", () => {
+    render(
+      <KillList
+        date="2026-08-11"
+        slots={[
+          { id: "slot-1", text: "Ship the landing page", completed: false },
+          { id: null, text: "", completed: false },
+          { id: null, text: "", completed: false },
+        ]}
+      />
+    );
+    expect(screen.queryByText("Done")).not.toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { setKillListItem, toggleKillListItem } from "@/app/(app)/business/actions";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export type KillListSlotData = { id: string | null; text: string; completed: boolean };
@@ -93,6 +94,7 @@ function KillListSlot({
       <span className={cn("flex-1 text-sm", optimisticCompleted && "text-muted-foreground line-through")}>
         {slot.text}
       </span>
+      {optimisticCompleted && <Badge variant="positive">Done</Badge>}
       <button
         type="button"
         onClick={() => setEditing(true)}
