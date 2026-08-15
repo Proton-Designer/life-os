@@ -4,6 +4,7 @@ import { useOptimistic, useState, useTransition } from "react";
 import { addHabit, removeHabit, toggleHabit } from "@/app/(app)/fitness/actions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export type HabitData = { id: string; name: string; completedToday: boolean };
@@ -37,6 +38,7 @@ function HabitRow({
         )}
       />
       <span className="flex-1 text-sm">{habit.name}</span>
+      {habit.completedToday && <Badge variant="positive">Done</Badge>}
       <button
         type="button"
         disabled={isPending}

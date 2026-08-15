@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export type TaskData = {
@@ -63,6 +64,7 @@ export function TaskList({
             {task.dueDate && (
               <span className="text-xs text-muted-foreground">{task.dueDate}</span>
             )}
+            {task.completed && <Badge variant="positive">Done</Badge>}
             <button
               type="button"
               onClick={() => startTransition(() => removeTask(task.id))}

@@ -58,4 +58,17 @@ describe("HabitList", () => {
     expect(screen.getByRole("button", { name: "Mark incomplete" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Mark complete" })).toBeEnabled();
   });
+
+  it("shows a Done badge on a completed habit", () => {
+    render(
+      <HabitList
+        date="2026-08-11"
+        habits={[
+          { id: "h1", name: "Read", completedToday: true },
+          { id: "h2", name: "Stretch", completedToday: false },
+        ]}
+      />
+    );
+    expect(screen.getByText("Done")).toBeInTheDocument();
+  });
 });

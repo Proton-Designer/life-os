@@ -5,6 +5,9 @@ import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-uti
 import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
 import { TaskList, type TaskData } from "@/components/shared/task-list";
 import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/domain-schedule-view";
+import { IconChip } from "@/components/ui/icon-chip";
+import { StatCard } from "@/components/ui/stat-card";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 export default async function CoOpPage() {
   const supabase = await createClient();
@@ -50,6 +53,7 @@ export default async function CoOpPage() {
   // Co-op stays permanently in the nav; when off-rotation it shows this
   // empty state rather than being hidden or relabeled, per spec.
   const hasNothing = tasks.length === 0 && events.length === 0;
+  const dueTodayCount = tasks.filter((t) => t.dueDate === dateStr).length;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
@@ -57,13 +61,20 @@ export default async function CoOpPage() {
         <p className="text-sm text-muted-foreground">No active co-op — nothing scheduled</p>
       )}
 
-      <section>
-        <h1 className="mb-4 text-lg font-semibold">Tasks</h1>
+      <section className="flex flex-col gap-4">
+        <h1 className="flex items-center gap-2.5 text-lg font-semibold">
+          <IconChip icon={DOMAIN_ICON.co_op} accent="school" size="sm" />
+          Tasks
+        </h1>
+        <StatCard icon={DOMAIN_ICON.co_op} accent="school" label="Due today" value={String(dueTodayCount)} />
         <TaskList tasks={tasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} />
       </section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Work schedule</h2>
+      <section className="flex flex-col gap-3">
+        <h2 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+          <IconChip icon={DOMAIN_ICON.co_op} accent="school" size="sm" />
+          Work schedule
+        </h2>
         <DomainScheduleView
           events={events}
           weekDates={weekDates}
