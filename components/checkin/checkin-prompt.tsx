@@ -15,6 +15,7 @@ export function CheckinPrompt({
   checkinTime,
   intervalMinutes,
   options,
+  workSessionId,
   onAnswered,
   onSnoozed,
 }: {
@@ -22,7 +23,15 @@ export function CheckinPrompt({
   checkinTime: string;
   intervalMinutes: number;
   options: CheckinOption[];
-  onAnswered: () => void;
+  /** Set when this prompt was fired by a Business Lock-In session (Phase 2), so the answer is tagged to that session. */
+  workSessionId?: string | null;
+  /**
+   * Receives the selected option — Lock-In (Phase 2) needs it to append to
+   * its session-local answered list without a second round trip. Called
+   * with no argument from the "Skip check-ins today" path, since nothing
+   * was actually answered there.
+   */
+  onAnswered: (option?: CheckinOption) => void;
   onSnoozed: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -34,8 +43,8 @@ export function CheckinPrompt({
 
   function select(option: CheckinOption) {
     startTransition(async () => {
-      await answerCheckin(checkinTime, option.tagType, option.label, option.refId);
-      onAnswered();
+      await answerCheckin(checkinTime, option.tagType, option.label, option.refId, workSessionId ?? null);
+      onAnswered(option);
     });
   }
 

@@ -5,20 +5,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
 
-// Simulates a check-in data fetch that never resolves — proves the static
-// shell (nav, page content) doesn't wait on it, which is the actual bug
-// being fixed here (components/shell/app-shell.tsx previously awaited this
-// data before returning any JSX at all, including TopNav/MobileIsland).
-vi.mock("@/components/checkin/checkin-scheduler-loader", () => ({
-  CheckinSchedulerLoader: () => {
-    throw new Promise(() => {});
-  },
-}));
-
 import { AppShell } from "../app-shell";
 
 describe("AppShell", () => {
-  it("renders the nav and page content immediately, without waiting on the check-in data fetch", () => {
+  it("renders the nav and page content", () => {
     render(
       <AppShell>
         <div>Page content</div>

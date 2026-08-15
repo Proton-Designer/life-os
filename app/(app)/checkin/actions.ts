@@ -10,7 +10,8 @@ export async function answerCheckin(
   checkinTime: string,
   tagType: CheckinTagType,
   tagLabel: string,
-  tagRefId: string | null
+  tagRefId: string | null,
+  workSessionId: string | null = null
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("checkins").insert({
@@ -20,6 +21,7 @@ export async function answerCheckin(
     tag_label: tagLabel,
     tag_ref_id: tagRefId,
     answered: true,
+    work_session_id: workSessionId,
   });
   if (error) throw error;
   revalidatePath("/");
@@ -43,7 +45,10 @@ export async function snoozeCheckin(_checkinTime: string, _minutes: 15): Promise
  * nothing was selected — which the ratio calculations already skip via
  * `answered = true` filtering regardless of tag_type.
  */
-export async function recordMissedCheckin(checkinTime: string): Promise<void> {
+export async function recordMissedCheckin(
+  checkinTime: string,
+  workSessionId: string | null = null
+): Promise<void> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("checkins").insert({
     user_id: userId,
@@ -52,6 +57,7 @@ export async function recordMissedCheckin(checkinTime: string): Promise<void> {
     tag_label: null,
     tag_ref_id: null,
     answered: false,
+    work_session_id: workSessionId,
   });
   if (error) throw error;
 }

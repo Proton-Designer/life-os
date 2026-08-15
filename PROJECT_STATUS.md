@@ -473,3 +473,32 @@ Sending to the engineer now — this needs to move fast, Ayman's been testing pr
   - Full unit suite: 119/119 still green (no regressions from the types regen).
 
   No app code, no UI, no actions — schema only, per the lead's explicit Phase 1 scope. Committing now and messaging the lead for independent review before Phase 2 starts.
+
+- 2026-08-15 00:20 CDT: **Engineer's Phase 2 (Business Lock In) implementation — done, TDD throughout, live-verified against a real running dev server + real Supabase account, full E2E green.**
+
+  Read the existing `checkin-scheduler.tsx`/`checkin-scheduler-loader.tsx`, `compute-checkin-slots.ts` (+ its test), `checkin/actions.ts`, `checkin-prompt.tsx`, `get-checkin-options.ts`, `sn-ratio.ts`, `ratio-display.ts`, and `business/page.tsx`/`actions.ts` in full before writing anything, to match established patterns rather than inventing new ones.
+
+  **TDD, in order:**
+  1. `lib/checkins/compute-session-checkin-slots.ts` — session-relative slots (`started_at + N*interval`, unbounded end) with the same grace-period due/missed semantics as `compute-checkin-slots.ts`. 7 tests, fixed dates, no wall-clock dependency (RED confirmed before implementing).
+  2. `lib/business/format-elapsed.ts` — pure `"1h 25m"`/`"23m"` formatter for the live elapsed display. 5 tests.
+  3. Extended `answerCheckin`/`recordMissedCheckin` (`checkin/actions.ts`) with an optional `workSessionId` param (default `null`, existing call sites unaffected) — 2 new tests confirming both the set and omitted cases write the right value.
+  4. `startWorkSession()`/`endWorkSession()` (`business/actions.ts`) — "at most one active session" enforced as a read-then-write invariant in the action (matching `toggleKillListItem`'s existing fail-loud style, not a DB constraint, per spec). 4 new tests.
+  5. `CheckinPrompt` widened to pass the selected option back through `onAnswered(option?)` (optional — the "skip check-ins today" path still calls it with no option) so `LockInSession` can append to its session-local list without a second round trip. Confirmed `CheckinScheduler` is the only other caller and stays compatible (a callback that ignores the extra argument).
+  6. `components/business/lock-in-session.tsx` (new) and `lock-in-panel.tsx` (new) — the panel holds local state and switches views instantly off `startWorkSession()`'s return value (optimistic, no `router.refresh()`, explicitly per the lead's steer given the recent focus-refresh regression). `LockInSession` polls every 60s like `CheckinScheduler` does, reusing `CheckinPrompt`/`answerCheckin`/`recordMissedCheckin` with `workSessionId` set, and computes this-session-only S:N via the same `computeRatioDisplay` used by the weekly card — `getWeeklySignalNoiseRatio` itself untouched.
+  7. `business/page.tsx` — loads the active `work_sessions` row (if any) and its checkins server-side, hands them to `LockInPanel` as initial state (so a closed tab resumes correctly on reload, per spec). Added a "Lock In" section above the existing kill list/goal/S:N sections; nothing else on the page changed.
+  8. `AppShell` — removed the `<Suspense><CheckinSchedulerLoader /></Suspense>` block and its import entirely (not just hidden); the app-wide 2-hour prompt is gone everywhere. Left `checkin-scheduler.tsx`/`checkin-scheduler-loader.tsx` in place, unreferenced (same "remove for now" pattern as the spec uses for adhkar/traveling) — my call per the lead's explicit either-is-fine, chose not-delete since they're still fully working, tested code that could be restored. Updated `app-shell.test.tsx`: the old test's whole premise (proving the shell doesn't block on the check-in fetch) is moot now that there's no fetch to block on, so simplified it rather than keeping a now-meaningless mock.
+
+  **One lint fix worth noting**: `LockInSession`'s first draft called `setNow(nowDate)` as the literal first statement inside its polling `check()` callback, which tripped `react-hooks/set-state-in-effect` the same way `priority-list.tsx` did earlier tonight — fixed the same way, by splitting the clock tick into its own `useEffect` with a locally-scoped `tick` function, separate from the slot-polling effect.
+
+  **Verification:**
+  - Full unit suite: 137/137 (119 + 18 new), `tsc --noEmit` clean, `npm run lint` clean.
+  - Live, against `npm run dev` + the real Supabase account, using Playwright's Clock API (`page.clock.install()` called before any navigation, `runFor()` not `fastForward()` so the repeating 60s poll interval actually fires multiple times rather than "at most once per advance" — confirmed this distinction matters by hitting it) to advance the *browser's* Date without waiting real hours, since all slot-firing math is client-side against the server-supplied `started_at`:
+    - Lock In button → session view appears immediately, no reload (elapsed "0m").
+    - Session persists across a real page reload (server-loaded active session).
+    - Advancing past 60 minutes fires the hourly prompt; answering it appends to the running list and updates the session-only S:N badge.
+    - **Bonus, unplanned confirmation**: on the very first run, a slow first-compile of the `getCheckinOptionsForNow` Server Action route raced past my test's initial visibility check, so by the time I advanced the clock a second time, the codebase's own grace-period logic correctly locked the first (now-superseded) slot as "missed" and surfaced the second as "due" — verified directly via SQL against the real inserted rows before cleaning them up. Not a bug; incidental live proof that the missed-slot path (already covered by 3 of the 7 unit tests) also works correctly end-to-end through a real Server Action round trip, not just in isolation.
+    - Ending the session reverts to the Lock In button; reloading confirms it stays ended server-side; the existing weekly Signal:Noise card kept rendering correctly throughout.
+  - Full E2E regression: 15 passed, 2 skipped, 0 failed (`checkin.spec.ts`'s existing test drives `answerCheckin` through a test-only route, not the removed global scheduler UI, so it's unaffected by the `AppShell` change).
+  - Cleaned up all test-created `work_sessions`/`checkins` rows via direct SQL after each verification pass — confirmed zero residue (`select count(*) from work_sessions where ended_at is null` → 0) before finishing.
+
+  Committing now and messaging the lead for independent review before Phase 3 starts.

@@ -77,3 +77,59 @@ export async function saveBusinessWeeklyGoal(
   if (error) throw error;
   revalidatePath("/business");
 }
+
+/**
+ * "At most one active session per user" is an application-level invariant
+ * (enforced here, not a DB constraint — simplest correct approach for a
+ * single-user app, per the design spec). Checked with a read-then-write
+ * rather than a DB unique partial index, matching this codebase's existing
+ * fail-loud-in-the-action style (see toggleKillListItem).
+ */
+export async function startWorkSession(): Promise<{ id: string; startedAt: string }> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: active } = await supabase
+    .from("work_sessions")
+    .select("id")
+    .eq("user_id", userId)
+    .is("ended_at", null)
+    .maybeSingle();
+
+  if (active) {
+    throw new Error("A work session is already active");
+  }
+
+  const { data, error } = await supabase
+    .from("work_sessions")
+    .insert({ user_id: userId })
+    .select("id, started_at")
+    .single();
+  if (error) throw error;
+
+  revalidatePath("/business");
+  return { id: data.id, startedAt: data.started_at };
+}
+
+export async function endWorkSession(sessionId: string): Promise<void> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: existing } = await supabase
+    .from("work_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!existing) {
+    throw new Error("Work session not found");
+  }
+
+  const { error } = await supabase
+    .from("work_sessions")
+    .update({ ended_at: new Date().toISOString() })
+    .eq("id", sessionId)
+    .eq("user_id", userId);
+  if (error) throw error;
+
+  revalidatePath("/business");
+}

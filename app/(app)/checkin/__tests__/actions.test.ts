@@ -74,6 +74,50 @@ describe("Check-in actions", () => {
     );
   });
 
+  it("answerCheckin sets work_session_id when passed, omits it when not", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { answerCheckin } = await import("../actions");
+
+    await answerCheckin(
+      "2026-08-10T18:00:00.000Z",
+      "kill_list",
+      "Ship the landing page",
+      "kill-item-1",
+      "session-1"
+    );
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ work_session_id: "session-1" })
+    );
+
+    chain.insert.mockClear();
+    await answerCheckin("2026-08-10T18:00:00.000Z", "kill_list", "Ship the landing page", "kill-item-1");
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ work_session_id: null })
+    );
+  });
+
+  it("recordMissedCheckin sets work_session_id when passed, omits it when not", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { recordMissedCheckin } = await import("../actions");
+
+    await recordMissedCheckin("2026-08-10T13:00:00.000Z", "session-1");
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ work_session_id: "session-1" })
+    );
+
+    chain.insert.mockClear();
+    await recordMissedCheckin("2026-08-10T13:00:00.000Z");
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ work_session_id: null })
+    );
+  });
+
   it("skipCheckinsToday sets profiles.paused_date to today's local date", async () => {
     const chain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
     fromImpl = () => chain;

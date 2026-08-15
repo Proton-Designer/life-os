@@ -2,17 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "upsert", "update", "insert"]) {
+  for (const method of ["select", "eq", "is", "order", "upsert", "update", "insert"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.maybeSingle = vi.fn(async () => resolvedValue);
+  chain.single = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
   return chain as {
     select: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    insert: ReturnType<typeof vi.fn>;
     maybeSingle: ReturnType<typeof vi.fn>;
+    single: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -89,5 +92,61 @@ describe("Business actions", () => {
       }),
       expect.objectContaining({ onConflict: "user_id,week_start_date,domain" })
     );
+  });
+
+  it("startWorkSession throws when an active session already exists for this user", async () => {
+    const chain = makeChain({
+      data: { id: "existing-session" },
+      error: null,
+    });
+    fromImpl = () => chain;
+    const { startWorkSession } = await import("../actions");
+
+    await expect(startWorkSession()).rejects.toThrow();
+    expect(chain.insert).not.toHaveBeenCalled();
+  });
+
+  it("startWorkSession inserts a new work_sessions row and returns it when no active session exists", async () => {
+    let call = 0;
+    const chain = makeChain();
+    // First maybeSingle() call (the active-session check) resolves null;
+    // the insert().select().single() call resolves the new row.
+    chain.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+    chain.single = vi.fn(async () => {
+      call++;
+      return { data: { id: "new-session", started_at: "2026-08-15T14:00:00.000Z" }, error: null };
+    });
+    fromImpl = () => chain;
+    const { startWorkSession } = await import("../actions");
+
+    const result = await startWorkSession();
+
+    expect(fromMock).toHaveBeenCalledWith("work_sessions");
+    expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1" }));
+    expect(result).toEqual({ id: "new-session", startedAt: "2026-08-15T14:00:00.000Z" });
+    expect(call).toBe(1);
+  });
+
+  it("endWorkSession throws (rather than silently no-op'ing) when the session doesn't exist or isn't the user's", async () => {
+    const chain = makeChain({ data: null, error: null });
+    fromImpl = () => chain;
+    const { endWorkSession } = await import("../actions");
+
+    await expect(endWorkSession("not-mine")).rejects.toThrow();
+    expect(chain.update).not.toHaveBeenCalled();
+  });
+
+  it("endWorkSession sets ended_at, scoped to the session id and the authenticated user", async () => {
+    const chain = makeChain({ data: { id: "session-1" }, error: null });
+    fromImpl = () => chain;
+    const { endWorkSession } = await import("../actions");
+
+    await endWorkSession("session-1");
+
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ ended_at: expect.any(String) })
+    );
+    expect(chain.eq).toHaveBeenCalledWith("id", "session-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 });
