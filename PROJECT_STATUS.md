@@ -707,3 +707,19 @@ Sending to the engineer now — this needs to move fast, Ayman's been testing pr
   - **Mobile-specific pass across Phases B-D**: re-reviewed the mobile screenshots already taken during those phases (Home's peek-card carousel and StatCard strip, Deen's Badge pills and 3-column-collapsing-to-1-column Habit Builder stages, Business's Lock In/kill list/SnRatioCard, Fitness/School/Co-op's new StatCards) plus this phase's fresh mobile captures — nothing read worse on mobile than desktop; no follow-up fixes needed.
 
   This closes out all lettered phases (A-E). Committing now and messaging the lead — Phase F (full regression + deploy) is next.
+
+- 2026-08-15 16:10 CDT: **Engineer's Phase F (full regression across all 5 phases) — done, one real E2E gap found and fixed.**
+
+  Ran everything fresh, all 5 phases combined for the first time as one build, dev server killed first so `test:e2e` spawned its own (per the established Phase 5 convention — a reused server can mask issues a cold start wouldn't):
+  - `npm run test` (Vitest): 233/233 passing, 57 test files.
+  - `tsc --noEmit`: clean.
+  - `npm run lint`: clean.
+  - `npm run build` (production, Turbopack): clean, all 19 routes generated.
+
+  **`npm run test:e2e` — first run found a real failure, not a flake.** `e2e/deen.spec.ts`'s prayer-marking test asserted `bg-accent-deen` on the status button itself — that was true under the *old* `PrayerRow` (every active status shared one hardcoded amber class directly on the `<button>`), but Phase C's fix moved the color onto a semantic `Badge` (`positive`/`warning`/`negative`) rendered as a child `<span>`, and the button itself no longer carries any color class at all. This is exactly the E2E-spec-drift gap flagged as a good follow-up back in Wednesday's Phase 5 — a component's unit test got updated when its behavior changed, but the E2E spec exercising the same element through a real click didn't, because it lived in a different file I didn't think to grep for at the time. Fixed both places that assumed the old single-class scheme: the prior-status detection loop now checks the child `<span>` for the *absence* of the neutral variant's `bg-muted` (works regardless of which of the 3 active colors it is) instead of checking one specific class, and the post-click assertion now checks the child span for `text-accent-business` (the positive variant's actual color) instead of `bg-accent-deen`. Re-ran `e2e/deen.spec.ts` alone to confirm (3/3 passed on both projects), then re-ran the complete suite fresh again: **13 passed, 4 skipped, 0 failed** — the established baseline, now genuinely exercising this week's real markup instead of asserting on removed classes. Re-ran the full non-E2E suite (`test`/`tsc`/`lint`) once more after this edit since it touched a spec file — all still clean.
+
+  Same benign `[WebServer] ⨯ Error: The destination stream closed early` line from Phase 5 appeared again at the same spot (after `deen.spec.ts`, before `home.spec.ts`) — already investigated and confirmed to be deterministic Next.js dev-mode stderr noise, not a real failure; not re-investigating a second time per the lead's Phase C guidance not to re-litigate an already-settled question.
+
+  No DB residue sweep this round — the lead confirmed it's not needed for a pure visual/component refactor with zero schema or business-logic changes, unlike Wednesday's build which touched 6 new tables.
+
+  Full suite is green, with one real bug caught and fixed along the way. Handing off to the lead for independent re-verification and deploy.

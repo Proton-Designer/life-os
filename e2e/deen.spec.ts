@@ -22,15 +22,19 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   await expect(prayerRow).toBeVisible();
 
   // Capture real pre-test state before mutating anything: whichever status
-  // button (if any) currently carries the "active" style is the account's
-  // real logged status. None active means genuinely unlogged ("pending" —
-  // markPrayer has no such value to write, so there's nothing to restore to
-  // by clicking; cleanup instead deletes the row via the test-only route).
+  // button (if any) currently carries the "active" Badge variant is the
+  // account's real logged status — the color itself now varies by status
+  // (positive/warning/negative), so "active" means "not the neutral variant"
+  // rather than one specific class. None active means genuinely unlogged
+  // ("pending" — markPrayer has no such value to write, so there's nothing
+  // to restore to by clicking; cleanup instead deletes the row via the
+  // test-only route).
   let priorStatusLabel: (typeof STATUS_LABELS)[number] | null = null;
   for (const label of STATUS_LABELS) {
     const isActive = await prayerRow
       .getByRole("button", { name: label })
-      .evaluate((el) => el.className.includes("bg-accent-deen"));
+      .locator("span")
+      .evaluate((el) => !el.className.includes("bg-muted"));
     if (isActive) {
       priorStatusLabel = label;
       break;
@@ -38,7 +42,9 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   }
 
   await prayerRow.getByRole("button", { name: "On-time" }).click();
-  await expect(prayerRow.getByRole("button", { name: "On-time" })).toHaveClass(/bg-accent-deen/);
+  await expect(prayerRow.getByRole("button", { name: "On-time" }).locator("span")).toHaveClass(
+    /text-accent-business/
+  );
 
   // Reflects on Home: a logged (non-pending) prayer is excluded from the
   // priority list entirely (lib/home/get-priority-items.ts).
