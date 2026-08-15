@@ -450,3 +450,25 @@ Sending to the engineer now — this needs to move fast, Ayman's been testing pr
 5. Full regression — unit + tsc + lint + full Playwright E2E + deploy + live production verification
 
 - 2026-08-15 23:52 CDT: Design spec written and committed. Sent Phase 1 (schema) assignment to the Sonnet Engineer with the spec path — starting there since every later phase depends on it. Awaiting engineer's Phase 1 commit before proceeding to review.
+
+- 2026-08-15 23:58 CDT: **Engineer's Phase 1 (schema-only) implementation — done, security-advisor clean, types regenerated.**
+
+  Read the full design spec first, then read the existing `custom_habits`/`habit_logs`/`checkins` schema (columns, constraints, indexes, RLS policies) directly via SQL to match the established pattern exactly rather than guessing at it, per the spec's "matching the `supabase-postgres-best-practices` pattern already established in migration `001`" instruction.
+
+  Applied 6 migrations via `apply_migration` (one per table/column, matching the project's existing one-concern-per-migration granularity):
+  - `010_reflection_entries` — tally-only (`tier int check (tier in (1,2,3))`, no text/note column, per spec).
+  - `011_deen_habits` — `committed_date` stored, stage derivation deliberately left computed (that's Phase 3 app-code work, not schema).
+  - `012_deen_habit_logs` — mirrors `habit_logs` exactly: same columns, `unique (habit_id, date)`, cascade-on-delete FK, both `user_id` and `habit_id` indexed (confirmed via `pg_indexes` that `habit_logs` itself has this same seemingly-redundant pair before mirroring it).
+  - `013_deen_weekly_focus` — `unique (user_id, week_start_date)`, both FK columns indexed.
+  - `014_work_sessions` — `ended_at` nullable (active = null), `started_at default now()` so the future `startWorkSession()` action can rely on the column default instead of passing a timestamp explicitly.
+  - `015_checkins_work_session_id` — nullable, additive only, indexed. **One judgment call**: `on delete set null` rather than `cascade` — the spec didn't specify on-delete behavior for this FK, and checkins are permanent historical records that shouldn't disappear just because a `work_sessions` row is ever removed. Confirmed purely additive: existing 142 rows show `work_session_id = null`, `checkins`' other columns/constraints/RLS untouched, `getWeeklySignalNoiseRatio` not touched.
+
+  All 6 new tables: RLS enabled, single `<table>_own_row` ALL policy (`user_id = (select auth.uid())` on both `using`/`with check`), matching every existing table exactly.
+
+  **Verification:**
+  - `get_advisors(security)` run before and after: identical — only the 2 pre-accepted WARNs (`pg_net` in public schema, leaked-password-protection disabled), zero new findings across all 6 new tables/columns.
+  - `get_advisors(performance)`: only expected `unused_index` INFO-level noise on the brand-new empty tables (will resolve once Phase 2+3 app code queries them) — not a security concern, not blocking.
+  - Regenerated `lib/supabase/database.types.ts` via `generate_typescript_types` — caught and fixed one transcription error of my own in the process (a copy-paste slip in the `CompositeTypes` generic referenced the wrong type parameter) before it could land; `tsc --noEmit` clean after the fix confirmed it.
+  - Full unit suite: 119/119 still green (no regressions from the types regen).
+
+  No app code, no UI, no actions — schema only, per the lead's explicit Phase 1 scope. Committing now and messaging the lead for independent review before Phase 2 starts.

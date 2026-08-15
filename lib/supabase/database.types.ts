@@ -48,6 +48,7 @@ export type Database = {
           tag_ref_id: string | null
           tag_type: string | null
           user_id: string
+          work_session_id: string | null
         }
         Insert: {
           answered?: boolean
@@ -58,6 +59,7 @@ export type Database = {
           tag_ref_id?: string | null
           tag_type?: string | null
           user_id?: string
+          work_session_id?: string | null
         }
         Update: {
           answered?: boolean
@@ -68,8 +70,17 @@ export type Database = {
           tag_ref_id?: string | null
           tag_type?: string | null
           user_id?: string
+          work_session_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "checkins_work_session_id_fkey"
+            columns: ["work_session_id"]
+            isOneToOne: false
+            referencedRelation: "work_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       custom_habits: {
         Row: {
@@ -97,6 +108,97 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      deen_habit_logs: {
+        Row: {
+          completed: boolean
+          date: string
+          habit_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean
+          date: string
+          habit_id: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          completed?: boolean
+          date?: string
+          habit_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deen_habit_logs_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "deen_habits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deen_habits: {
+        Row: {
+          archived: boolean
+          committed_date: string
+          created_at: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          archived?: boolean
+          committed_date: string
+          created_at?: string
+          id?: string
+          name: string
+          user_id?: string
+        }
+        Update: {
+          archived?: boolean
+          committed_date?: string
+          created_at?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      deen_weekly_focus: {
+        Row: {
+          created_at: string
+          habit_id: string
+          id: string
+          user_id: string
+          week_start_date: string
+        }
+        Insert: {
+          created_at?: string
+          habit_id: string
+          id?: string
+          user_id?: string
+          week_start_date: string
+        }
+        Update: {
+          created_at?: string
+          habit_id?: string
+          id?: string
+          user_id?: string
+          week_start_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deen_weekly_focus_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "deen_habits"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       habit_logs: {
         Row: {
@@ -334,6 +436,30 @@ export type Database = {
         }
         Relationships: []
       }
+      reflection_entries: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          tier: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          tier: number
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          tier?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       schedule_events: {
         Row: {
           cancelled_on: string | null
@@ -442,6 +568,30 @@ export type Database = {
         }
         Relationships: []
       }
+      work_sessions: {
+        Row: {
+          created_at: string
+          ended_at: string | null
+          id: string
+          started_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          started_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       workout_logs: {
         Row: {
           completed: boolean
@@ -501,7 +651,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_vault_secrets: {
+        Args: { secret_names: string[] }
+        Returns: {
+          decrypted_secret: string
+          name: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
