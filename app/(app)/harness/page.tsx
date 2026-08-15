@@ -18,9 +18,15 @@ import { ConsistencyGrid } from "@/components/charts/consistency-grid";
 import { RankedBars } from "@/components/charts/ranked-bars";
 import { HarnessInteractive } from "./harness-interactive";
 
-const PRAYER_STATUS_COLOR = { on_time: "--accent-business", qada: "--accent-deen", missed: "--destructive" };
-const PRAYER_STATUS_LABEL = { on_time: "On-time", qada: "Qada", missed: "Missed" };
+const PRAYER_STATUS_STYLE = {
+  on_time: { colorVar: "--accent-business", treatment: "solid" as const, label: "On-time" },
+  qada: { colorVar: "--accent-deen", treatment: "hatch" as const, label: "Qada" },
+  missed: { colorVar: "--destructive", treatment: "hollow" as const, label: "Missed" },
+};
 const DAYS_7 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS_30 = Array.from({ length: 30 }, (_, i) => `Day ${i + 1}`);
+const DAYS_14 = Array.from({ length: 14 }, (_, i) => `Day ${i + 1}`);
+const cyclingStatus = (i: number) => ["on_time", "on_time", "qada", "on_time", "missed", "on_time", "on_time"][i % 7];
 
 // Temporary visual QA harness for the 2026-08-15 structural refactor's card
 // system (Phase B) and chart primitives (Phase C) — a components-only phase
@@ -249,23 +255,42 @@ export default function HarnessPage() {
                 { label: "Dhuhr", cells: DAYS_7.map((d) => ({ date: d, status: "on_time" })) },
                 { label: "Asr", cells: DAYS_7.map((d, i) => ({ date: d, status: i < 4 ? "on_time" : "missed" })) },
               ]}
-              statusColorVar={PRAYER_STATUS_COLOR}
-              statusLabel={PRAYER_STATUS_LABEL}
+              statusStyle={PRAYER_STATUS_STYLE}
             />
           </Panel>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Panel title="Empty state">
-              <ConsistencyGrid rows={[]} statusColorVar={PRAYER_STATUS_COLOR} statusLabel={PRAYER_STATUS_LABEL} />
+              <ConsistencyGrid rows={[]} statusStyle={PRAYER_STATUS_STYLE} />
             </Panel>
             <Panel title="Single row, single day">
               <ConsistencyGrid
                 rows={[{ label: "Fajr", cells: [{ date: "Today", status: "on_time" }] }]}
-                statusColorVar={PRAYER_STATUS_COLOR}
-                statusLabel={PRAYER_STATUS_LABEL}
+                statusStyle={PRAYER_STATUS_STYLE}
               />
             </Panel>
           </div>
         </div>
+        <Panel title="Full width at the specced 30 columns (1600px readability check)">
+          <ConsistencyGrid
+            rows={[
+              { label: "Fajr", cells: DAYS_30.map((d, i) => ({ date: d, status: cyclingStatus(i) })) },
+              { label: "Dhuhr", cells: DAYS_30.map((d, i) => ({ date: d, status: cyclingStatus(i + 2) })) },
+              { label: "Asr", cells: DAYS_30.map((d, i) => ({ date: d, status: cyclingStatus(i + 4) })) },
+              { label: "Maghrib", cells: DAYS_30.map((d, i) => ({ date: d, status: cyclingStatus(i + 1) })) },
+              { label: "Isha", cells: DAYS_30.map((d, i) => ({ date: d, status: cyclingStatus(i + 3) })) },
+            ]}
+            statusStyle={PRAYER_STATUS_STYLE}
+          />
+        </Panel>
+        <Panel title="14 columns (the specced mobile day-count, for the 390px pass)">
+          <ConsistencyGrid
+            rows={[
+              { label: "Fajr", cells: DAYS_14.map((d, i) => ({ date: d, status: cyclingStatus(i) })) },
+              { label: "Asr", cells: DAYS_14.map((d, i) => ({ date: d, status: cyclingStatus(i + 4) })) },
+            ]}
+            statusStyle={PRAYER_STATUS_STYLE}
+          />
+        </Panel>
       </section>
 
       <section className="flex flex-col gap-3">
