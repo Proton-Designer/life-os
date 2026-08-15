@@ -1,8 +1,17 @@
 "use server";
 
 import { requireUser } from "@/lib/supabase/auth";
-import { localDateString } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
+
+async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string) {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return localDateString(new Date(), profile?.timezone ?? "UTC");
+}
 
 export async function markPrayer(
   date: string,
@@ -101,6 +110,106 @@ export async function setTravelingMode(enabled: boolean): Promise<void> {
     .from("profiles")
     .update({ traveling_mode: enabled })
     .eq("user_id", userId);
+  if (error) throw error;
+  revalidatePath("/deen");
+}
+
+/**
+ * Plain tally insert — no text/note column by design (see design spec: a
+ * glance at an expanded note could leak content; a tally count can't).
+ */
+export async function logReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const date = await todayForUser(supabase, userId);
+
+  const { error } = await supabase.from("reflection_entries").insert({
+    user_id: userId,
+    date,
+    tier,
+  });
+  if (error) throw error;
+  revalidatePath("/deen");
+}
+
+/**
+ * Misclick correction — deletes only the single most recent entry of this
+ * tier logged today, never an earlier one. No-ops (not an error) if there's
+ * nothing to decrement, since this is a "whoops" affordance, not a data
+ * integrity check like toggleKillListItem's not-found case.
+ */
+export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const date = await todayForUser(supabase, userId);
+
+  const { data: mostRecent } = await supabase
+    .from("reflection_entries")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("date", date)
+    .eq("tier", tier)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!mostRecent) return;
+
+  const { error } = await supabase.from("reflection_entries").delete().eq("id", mostRecent.id);
+  if (error) throw error;
+  revalidatePath("/deen");
+}
+
+export async function createDeenHabit(name: string): Promise<{ id: string }> {
+  const { supabase, userId } = await requireUser();
+  const committedDate = await todayForUser(supabase, userId);
+
+  const { data, error } = await supabase
+    .from("deen_habits")
+    .insert({ user_id: userId, name, committed_date: committedDate })
+    .select("id")
+    .single();
+  if (error) throw error;
+  revalidatePath("/deen");
+  return { id: data.id };
+}
+
+export async function toggleDeenHabitLog(habitId: string, date: string): Promise<void> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: existing } = await supabase
+    .from("deen_habit_logs")
+    .select("completed")
+    .eq("habit_id", habitId)
+    .eq("date", date)
+    .maybeSingle();
+
+  const { error } = await supabase.from("deen_habit_logs").upsert(
+    {
+      habit_id: habitId,
+      user_id: userId,
+      date,
+      completed: !existing?.completed,
+    },
+    { onConflict: "habit_id,date" }
+  );
+  if (error) throw error;
+  revalidatePath("/deen");
+  revalidatePath("/");
+}
+
+/**
+ * week_start_date is computed server-side (never trusts a client-passed
+ * date) since it drives the (user_id, week_start_date) uniqueness — same
+ * discipline as skipCheckinsToday/logQuranSession's self-computed dates.
+ */
+export async function setWeeklyFocus(habitId: string): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const today = await todayForUser(supabase, userId);
+  const weekStartDate = getWeekStartDate(today);
+
+  const { error } = await supabase.from("deen_weekly_focus").upsert(
+    { user_id: userId, week_start_date: weekStartDate, habit_id: habitId },
+    { onConflict: "user_id,week_start_date" }
+  );
   if (error) throw error;
   revalidatePath("/deen");
 }

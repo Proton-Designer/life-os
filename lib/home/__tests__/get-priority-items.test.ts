@@ -14,7 +14,6 @@ function emptyDataSource(overrides: Partial<HomeDataSource> = {}): HomeDataSourc
   return {
     getProfile: async () => CHICAGO_PROFILE,
     getPrayers: async () => [],
-    getAdhkarLogs: async () => [],
     getKillListItems: async () => [],
     getTasks: async () => [],
     getWorkoutSchedule: async () => null,
@@ -85,21 +84,6 @@ describe("getPriorityItems", () => {
     const items = await getPriorityItems("user-1", now, dataSource);
 
     expect(items.find((i) => i.actionRefId === "fajr")).toBeUndefined();
-  });
-
-  it("includes an incomplete morning adhkar as a later_today item", async () => {
-    const now = new Date("2026-08-10T14:00:00Z");
-    const dataSource = emptyDataSource({
-      getAdhkarLogs: async () => [{ id: "a1", period: "morning", completed: false }],
-    });
-
-    const items = await getPriorityItems("user-1", now, dataSource);
-    const adhkar = items.find((i) => i.actionType === "toggle_adhkar" && i.actionRefId === "morning");
-
-    expect(adhkar).toBeDefined();
-    expect(adhkar?.domain).toBe("deen");
-    expect(adhkar?.urgencyBucket).toBe("later_today");
-    expect(adhkar?.completed).toBe(false);
   });
 
   it("orders items due at the exact same moment by domain priority (Deen before School/Co-op)", async () => {

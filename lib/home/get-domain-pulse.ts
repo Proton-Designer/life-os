@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 
 export type PulseDataSource = {
   getPrayers: (userId: string, date: string) => Promise<{ prayer_name: string; status: string }[]>;
-  getAdhkarLogs: (userId: string, date: string) => Promise<{ period: string; completed: boolean }[]>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
   getTasks: (
     userId: string,
@@ -32,15 +31,6 @@ function defaultDataSource(): PulseDataSource {
       const { data } = await supabase
         .from("prayers")
         .select("prayer_name, status")
-        .eq("user_id", userId)
-        .eq("date", date);
-      return data ?? [];
-    },
-    async getAdhkarLogs(userId, date) {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("adhkar_logs")
-        .select("period, completed")
         .eq("user_id", userId)
         .eq("date", date);
       return data ?? [];
@@ -89,17 +79,15 @@ export async function getDomainPulse(
   date: string,
   dataSource: PulseDataSource = defaultDataSource()
 ): Promise<DomainPulse> {
-  const [prayers, adhkar, killList, tasks, habits] = await Promise.all([
+  const [prayers, killList, tasks, habits] = await Promise.all([
     dataSource.getPrayers(userId, date),
-    dataSource.getAdhkarLogs(userId, date),
     dataSource.getKillListItems(userId, date),
     dataSource.getTasks(userId, date),
     dataSource.getHabits(userId, date),
   ]);
 
   const prayersDone = prayers.filter((p) => p.status !== "pending" && p.status !== "missed").length;
-  const adhkarDone = adhkar.filter((a) => a.completed).length;
-  const deen = safeFraction(prayersDone + adhkarDone, 5 + 2);
+  const deen = safeFraction(prayersDone, 5);
 
   const business = safeFraction(
     killList.filter((k) => k.completed).length,

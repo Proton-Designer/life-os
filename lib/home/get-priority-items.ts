@@ -31,7 +31,6 @@ export type HomeProfile = {
 };
 
 export type HomePrayerRow = { id: string; prayer_name: string; status: string };
-export type HomeAdhkarRow = { id: string; period: string; completed: boolean };
 export type HomeKillListRow = { id: string; text: string; completed: boolean; position: number };
 export type HomeTaskRow = {
   id: string;
@@ -47,7 +46,6 @@ export type HomeWorkoutLogRow = { workout_name: string };
 export type HomeDataSource = {
   getProfile: (userId: string) => Promise<HomeProfile | null>;
   getPrayers: (userId: string, date: string) => Promise<HomePrayerRow[]>;
-  getAdhkarLogs: (userId: string, date: string) => Promise<HomeAdhkarRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<HomeKillListRow[]>;
   getTasks: (userId: string, date: string) => Promise<HomeTaskRow[]>;
   getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<HomeWorkoutSchedule | null>;
@@ -81,15 +79,6 @@ export function defaultDataSource(): HomeDataSource {
       const { data } = await supabase
         .from("prayers")
         .select("id, prayer_name, status")
-        .eq("user_id", userId)
-        .eq("date", date);
-      return data ?? [];
-    },
-    async getAdhkarLogs(userId, date) {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("adhkar_logs")
-        .select("id, period, completed")
         .eq("user_id", userId)
         .eq("date", date);
       return data ?? [];
@@ -144,10 +133,9 @@ export async function getPriorityItems(
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
 
-  const [prayerRows, adhkarRows, killListRows, taskRows, workoutSchedule, workoutLogRows] =
+  const [prayerRows, killListRows, taskRows, workoutSchedule, workoutLogRows] =
     await Promise.all([
       dataSource.getPrayers(userId, dateStr),
-      dataSource.getAdhkarLogs(userId, dateStr),
       dataSource.getKillListItems(userId, dateStr),
       dataSource.getTasks(userId, dateStr),
       dataSource.getWorkoutSchedule(userId, dayOfWeekFromDateString(dateStr)),
@@ -189,22 +177,6 @@ export async function getPriorityItems(
       completed: false,
       actionType: "toggle_prayer",
       actionRefId: prayerName,
-    });
-  }
-
-  // Deen: adhkar (morning/evening — no specific due time, per spec)
-  for (const period of ["morning", "evening"] as const) {
-    const row = adhkarRows.find((a) => a.period === period);
-    if (row?.completed) continue;
-    items.push({
-      id: `adhkar-${period}`,
-      domain: "deen",
-      title: period === "morning" ? "Morning adhkar" : "Evening adhkar",
-      dueAt: null,
-      urgencyBucket: "later_today",
-      completed: false,
-      actionType: "toggle_adhkar",
-      actionRefId: period,
     });
   }
 

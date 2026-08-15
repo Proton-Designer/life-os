@@ -27,26 +27,42 @@ test.describe("Home", () => {
   });
 
   test("toggling a visible item updates its state without a full page reload", async ({ page }) => {
+    // Adhkar (this test's original target — a real flip, not a one-way
+    // completion like every other Home item type) was dropped from the UI
+    // in the Home/Deen/Business overhaul. Kill-list is the next-best target:
+    // Home's own toggle is one-way (completed: true, per app/(app)/actions.ts),
+    // but the Business page's toggleKillListItem action flips it back, so the
+    // same cross-page complete-then-revert shape still works.
+    await page.goto("/business");
+    await dismissCheckinDialogIfPresent(page);
+
+    const slots = page.locator("ul").first().locator("> li");
+    let targetIndex = -1;
+    const slotCount = await slots.count();
+    for (let i = 0; i < slotCount; i++) {
+      if (await slots.nth(i).getByRole("button", { name: "Mark complete" }).count()) {
+        targetIndex = i;
+        break;
+      }
+    }
+    if (targetIndex === -1) {
+      test.skip(true, "No populated, not-yet-completed kill-list slot in this account — nothing to toggle in this run");
+    }
+    const slot = slots.nth(targetIndex);
+
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    // Adhkar items are the most reliably-present, safely-revertible toggle
-    // on Home (a real flip, not a one-way completion like prayers/kill-list) —
-    // see toggleAdhkar in app/(app)/deen/actions.ts.
-    const anyToggle = page.getByRole("button", { name: /Mark "(Morning|Evening) adhkar" done/ });
+    // Kill-list is rolled into a single Home item (per get-priority-items.ts) —
+    // the "Business" domain label is the only one that ever appears in that
+    // row, so scoping to it is unambiguous without needing to match the
+    // (possibly rolled-up, e.g. "3 kill-list items remaining") title text.
+    const businessRow = page.locator("li").filter({ hasText: "Business" });
+    const toggleButton = businessRow.getByRole("button", { name: /^Mark ".*" done$/ });
 
-    if ((await anyToggle.count()) === 0) {
-      test.skip(true, "No adhkar item currently due in this account — nothing to toggle in this run");
+    if ((await toggleButton.count()) === 0) {
+      test.skip(true, "No Business item currently visible on Home in this account — nothing to toggle in this run");
     }
-
-    const label = (await anyToggle.first().getAttribute("aria-label")) ?? "";
-    const period = label.includes("Morning") ? "Morning" : "Evening";
-
-    // Pinned to this exact accessible name, not `.first()` of the shared
-    // regex — once this button's item completes and disappears, `.first()`
-    // would silently re-resolve to the OTHER adhkar item's still-visible
-    // button instead of correctly reporting "not found."
-    const toggleButton = page.getByRole("button", { name: `Mark "${period} adhkar" done` });
 
     const urlBefore = page.url();
 
@@ -54,11 +70,13 @@ test.describe("Home", () => {
     await expect(toggleButton).toBeHidden();
     expect(page.url()).toBe(urlBefore);
 
-    // Revert via the dedicated Deen toggle (same underlying action, a real
-    // flip) so this run doesn't leave the real account's data altered.
-    await page.goto("/deen");
+    // Revert via the Business page's own bidirectional toggle so this run
+    // doesn't leave the real account's data altered.
+    await page.goto("/business");
     await dismissCheckinDialogIfPresent(page);
-    await page.getByRole("button", { name: `${period} adhkar` }).click();
+    await expect(slot.getByRole("button", { name: "Mark incomplete" })).toBeVisible();
+    await slot.getByRole("button", { name: "Mark incomplete" }).click();
+    await expect(slot.getByRole("button", { name: "Mark complete" })).toBeVisible();
   });
 
   test("renders the responsive nav matching the current viewport", async ({ page }, testInfo) => {

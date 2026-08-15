@@ -4,7 +4,6 @@ import { getDomainPulse, type PulseDataSource } from "../get-domain-pulse";
 function emptyDataSource(overrides: Partial<PulseDataSource> = {}): PulseDataSource {
   return {
     getPrayers: async () => [],
-    getAdhkarLogs: async () => [],
     getKillListItems: async () => [],
     getTasks: async () => [],
     getHabits: async () => [],
@@ -13,19 +12,19 @@ function emptyDataSource(overrides: Partial<PulseDataSource> = {}): PulseDataSou
 }
 
 describe("getDomainPulse", () => {
-  it("computes Deen's fraction from prayers + adhkar (7 trackables/day)", async () => {
+  it("computes Deen's fraction from prayers only (5 trackables/day)", async () => {
     const dataSource = emptyDataSource({
       getPrayers: async () => [
         { prayer_name: "fajr", status: "on_time" },
         { prayer_name: "dhuhr", status: "on_time" },
       ],
-      getAdhkarLogs: async () => [{ period: "morning", completed: true }],
     });
 
     const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
 
-    // 3 done (2 prayers + 1 adhkar) out of 7 trackables (5 prayers + 2 adhkar)
-    expect(pulse.deen).toBeCloseTo(3 / 7);
+    // 2 done out of 5 trackables (5 prayers — adhkar dropped from the UI,
+    // see the Home/Deen/Business overhaul).
+    expect(pulse.deen).toBeCloseTo(2 / 5);
   });
 
   it("returns 0 for a domain with zero trackables set today rather than dividing by zero", async () => {
