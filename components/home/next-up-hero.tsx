@@ -4,6 +4,9 @@ import { useTransition } from "react";
 import { toggleItem } from "@/app/(app)/actions";
 import type { PriorityItem } from "@/lib/home/types";
 import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
+import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   deen: "Deen",
@@ -23,31 +26,43 @@ function relativeTime(dueAt: Date | null, now: Date): string {
   return `in ${hours} hr${hours === 1 ? "" : "s"}`;
 }
 
-export function NextUpHero({ item, now }: { item: PriorityItem | null; now: Date }) {
+export function NextUpHero({
+  item,
+  now,
+  ...props
+}: { item: PriorityItem | null; now: Date } & React.HTMLAttributes<HTMLDivElement>) {
   const [isPending, startTransition] = useTransition();
 
   if (!item) {
     return (
-      <div className="rounded-2xl border border-border/50 bg-card p-6">
+      <div className="rounded-2xl border border-border/50 bg-card p-6" {...props}>
         <p className="text-sm text-muted-foreground">Next up</p>
         <p className="mt-2 text-lg font-medium">You&apos;re all clear</p>
       </div>
     );
   }
 
+  const accent = DOMAIN_ACCENT[item.domain];
+  const colorVar = ACCENT_VAR[accent];
+
   return (
     <div
       className="rounded-2xl border p-6"
       style={{
-        borderColor: "color-mix(in oklch, var(--accent-deen) 30%, transparent)",
-        background:
-          "radial-gradient(ellipse at top left, color-mix(in oklch, var(--accent-deen) 16%, transparent), transparent 70%)",
+        borderColor: `color-mix(in oklch, var(${colorVar}) 30%, transparent)`,
+        background: `radial-gradient(ellipse at top left, color-mix(in oklch, var(${colorVar}) 16%, transparent), transparent 70%)`,
       }}
+      {...props}
     >
-      <p className="text-sm text-muted-foreground">
-        {DOMAIN_LABEL[item.domain]} &middot; {relativeTime(item.dueAt, now)}
-      </p>
-      <p className="mt-1 text-xl font-semibold">{item.title}</p>
+      <div className="flex items-center gap-3">
+        <IconChip icon={DOMAIN_ICON[item.domain]} accent={accent} />
+        <div>
+          <p className="text-sm text-muted-foreground">
+            {DOMAIN_LABEL[item.domain]} &middot; {relativeTime(item.dueAt, now)}
+          </p>
+          <p className="mt-1 text-xl font-semibold">{item.title}</p>
+        </div>
+      </div>
       <Button
         className="mt-4"
         disabled={isPending}

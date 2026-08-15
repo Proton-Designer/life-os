@@ -1,7 +1,7 @@
 import { DomainPeekCard, type PeekDomain } from "./domain-peek-card";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
-import { cn } from "@/lib/utils";
+import { ACCENT_VAR } from "@/lib/accent-tokens";
 
 const PRAYER_LABEL: Record<string, string> = {
   fajr: "Fajr",
@@ -21,23 +21,30 @@ function relativeTime(dueAtIso: string | null, now: Date): string {
   return `in ${hours} hr${hours === 1 ? "" : "s"}`;
 }
 
+// Semantic mapping mirrors Badge's variant colors (positive/warning/negative)
+// — on-time is a clean completion (positive/business green), qada is a
+// completion that arrived late (warning/deen amber), missed is negative/red.
+// Pending (not yet due) stays an unfilled outline, same as before.
+const PRAYER_STATUS_VAR: Record<string, string> = {
+  on_time: ACCENT_VAR.business,
+  qada: ACCENT_VAR.deen,
+  missed: "--destructive",
+};
+
 function PrayerDots({ statuses }: { statuses: { name: string; status: string }[] }) {
   return (
     <div className="flex gap-1.5">
-      {statuses.map((p) => (
-        <span
-          key={p.name}
-          title={PRAYER_LABEL[p.name]}
-          className={cn(
-            "size-2 rounded-full",
-            p.status === "on_time" || p.status === "qada"
-              ? "bg-accent-deen"
-              : p.status === "missed"
-                ? "bg-destructive/50"
-                : "border border-border"
-          )}
-        />
-      ))}
+      {statuses.map((p) => {
+        const colorVar = PRAYER_STATUS_VAR[p.status];
+        return (
+          <span
+            key={p.name}
+            title={PRAYER_LABEL[p.name]}
+            className={colorVar ? "size-2 rounded-full" : "size-2 rounded-full border border-border"}
+            style={colorVar ? { backgroundColor: `var(${colorVar})` } : undefined}
+          />
+        );
+      })}
     </div>
   );
 }

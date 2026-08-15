@@ -1,18 +1,10 @@
 import Link from "next/link";
 import type { PriorityItem } from "@/lib/home/types";
+import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { IconChip } from "@/components/ui/icon-chip";
 
 export type PeekDomain = PriorityItem["domain"];
-
-// Co-op has no color token of its own — it shares School's accent, same as
-// priority-list.tsx's DOMAIN_ACCENT_CLASS and get-domain-pulse.ts's folded
-// fraction.
-const ACCENT_VAR: Record<PeekDomain, string> = {
-  deen: "--accent-deen",
-  business: "--accent-business",
-  fitness: "--accent-fitness",
-  school: "--accent-school",
-  co_op: "--accent-school",
-};
 
 const DOMAIN_LABEL: Record<PeekDomain, string> = {
   deen: "Deen",
@@ -44,7 +36,8 @@ export function DomainPeekCard({
   pulse: number;
   children: React.ReactNode;
 }) {
-  const colorVar = ACCENT_VAR[domain];
+  const accent = DOMAIN_ACCENT[domain];
+  const colorVar = ACCENT_VAR[accent];
   const pct = Math.round(pulse * 100);
 
   return (
@@ -58,9 +51,12 @@ export function DomainPeekCard({
       }}
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold" style={{ color: `var(${colorVar})` }}>
-          {DOMAIN_LABEL[domain]}
-        </span>
+        <div className="flex items-center gap-2.5">
+          <IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />
+          <span className="text-sm font-semibold" style={{ color: `var(${colorVar})` }}>
+            {DOMAIN_LABEL[domain]}
+          </span>
+        </div>
         <PulseRing pct={pct} colorVar={colorVar} />
       </div>
       <div className="flex flex-1 flex-col justify-center gap-2 text-sm">{children}</div>

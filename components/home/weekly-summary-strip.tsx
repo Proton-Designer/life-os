@@ -1,13 +1,6 @@
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
-
-function Chip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex shrink-0 flex-col gap-0.5 rounded-lg border border-border/40 px-3 py-2 text-center">
-      <span className="text-sm font-semibold tabular-nums">{value}</span>
-      <span className="text-xs whitespace-nowrap text-muted-foreground">{label}</span>
-    </div>
-  );
-}
+import { StatCard } from "@/components/ui/stat-card";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 // No new data fetching — every value here was already pulled by
 // get-domain-snapshots.ts for the peek cards, just surfaced again compactly.
@@ -16,10 +9,34 @@ export function WeeklySummaryStrip({ snapshots }: { snapshots: DomainSnapshots }
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">
-      <Chip label="Signal:Noise" value={snapshots.business.weeklyRatioDisplay} />
-      <Chip label="Qur'an pages" value={String(snapshots.deen.quranWeekPages)} />
-      <Chip label="Workouts" value={String(snapshots.fitness.workoutsThisWeek)} />
-      <Chip label="Tasks done" value={String(tasksThisWeek)} />
+      <StatCard
+        className="min-w-[9.5rem] shrink-0"
+        icon={DOMAIN_ICON.business}
+        accent="business"
+        label="Signal:Noise"
+        value={snapshots.business.weeklyRatioDisplay}
+      />
+      <StatCard
+        className="min-w-[9.5rem] shrink-0"
+        icon={DOMAIN_ICON.deen}
+        accent="deen"
+        label="Qur'an pages"
+        value={String(snapshots.deen.quranWeekPages)}
+      />
+      <StatCard
+        className="min-w-[9.5rem] shrink-0"
+        icon={DOMAIN_ICON.fitness}
+        accent="fitness"
+        label="Workouts"
+        value={String(snapshots.fitness.workoutsThisWeek)}
+      />
+      <StatCard
+        className="min-w-[9.5rem] shrink-0"
+        icon={DOMAIN_ICON.school}
+        accent="school"
+        label="Tasks done"
+        value={String(tasksThisWeek)}
+      />
     </div>
   );
 }
