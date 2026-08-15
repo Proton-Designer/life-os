@@ -3,9 +3,14 @@
 import { useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
+import type { Domain } from "@/lib/home/types";
 
 export function GoalCard({
   title,
+  domain,
   headline: initialHeadline,
   milestones: initialMilestones,
   quranPageTarget: initialQuranPageTarget,
@@ -14,6 +19,7 @@ export function GoalCard({
   onSave,
 }: {
   title: string;
+  domain: Domain;
   headline: string;
   milestones: string[];
   quranPageTarget?: number | null;
@@ -41,8 +47,11 @@ export function GoalCard({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-lg border border-border/40 p-4">
-      <h3 className="text-sm font-semibold text-muted-foreground">{title}</h3>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
+      <h3 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
+        <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
+        {title}
+      </h3>
       <Input
         value={headline}
         onChange={(e) => setHeadline(e.target.value)}

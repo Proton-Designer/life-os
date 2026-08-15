@@ -1,10 +1,46 @@
 "use client";
 
 import { useState } from "react";
+import { MapPin, Moon, Bell, type LucideIcon } from "lucide-react";
 import { completeOnboarding } from "@/app/(app)/onboarding/actions";
 import { IosInstallPrompt } from "./ios-install-prompt";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
+import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
+
+const STEP_ICON: Record<1 | 2 | 3, LucideIcon> = { 1: MapPin, 2: Moon, 3: Bell };
+const STEP_ACCENT: Record<1 | 2 | 3, AccentToken> = { 1: "info", 2: "deen", 3: "info" };
+
+function StepCard({ step, children }: { step: 1 | 2 | 3; children: React.ReactNode }) {
+  const accent = STEP_ACCENT[step];
+  return (
+    <div
+      data-testid="onboarding-card"
+      className="flex flex-col gap-4 rounded-2xl border border-border/40 bg-card p-6"
+    >
+      <div className="flex items-center justify-between">
+        <IconChip icon={STEP_ICON[step]} accent={accent} />
+        <span className="text-xs font-medium text-muted-foreground">Step {step} of 3</span>
+      </div>
+      {children}
+      <div className="flex gap-1.5">
+        {([1, 2, 3] as const).map((s) => (
+          <div
+            key={s}
+            className="h-1 flex-1 rounded-full"
+            style={{
+              backgroundColor:
+                s <= step
+                  ? `var(${ACCENT_VAR[accent]})`
+                  : "color-mix(in oklch, var(--foreground) 12%, transparent)",
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function isIosSafariNotStandalone(): boolean {
   if (typeof window === "undefined") return false;
@@ -45,7 +81,7 @@ export function OnboardingWizard() {
 
   if (step === 1) {
     return (
-      <div className="flex flex-col gap-4">
+      <StepCard step={1}>
         <h1 className="text-xl font-semibold">Where are you?</h1>
         <p className="text-sm text-muted-foreground">
           Used to compute accurate prayer times for Deen tracking.
@@ -64,13 +100,13 @@ export function OnboardingWizard() {
         >
           Next
         </Button>
-      </div>
+      </StepCard>
     );
   }
 
   if (step === 2) {
     return (
-      <div className="flex flex-col gap-4">
+      <StepCard step={2}>
         <h1 className="text-xl font-semibold">Prayer calculation</h1>
         <p className="text-sm text-muted-foreground">
           A sensible default is pre-filled — change it if you know you need to.
@@ -108,7 +144,7 @@ export function OnboardingWizard() {
         <Button type="button" onClick={() => setStep(3)} className="self-start">
           Next
         </Button>
-      </div>
+      </StepCard>
     );
   }
 
@@ -117,7 +153,7 @@ export function OnboardingWizard() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <StepCard step={3}>
       <h1 className="text-xl font-semibold">Enable notifications</h1>
       <p className="text-sm text-muted-foreground">
         Prayer times, check-in prompts, and deadline reminders all depend on this.
@@ -130,6 +166,6 @@ export function OnboardingWizard() {
           Skip for now
         </Button>
       </div>
-    </div>
+    </StepCard>
   );
 }

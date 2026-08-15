@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { TrendingUp } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, resolveLocalTime } from "@/lib/date-utils";
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { cn } from "@/lib/utils";
+import { IconChip } from "@/components/ui/icon-chip";
+import { StatCard } from "@/components/ui/stat-card";
+import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 const SEGMENT_LABEL: Record<string, string> = {
   deen: "Deen",
@@ -22,6 +27,22 @@ const SEGMENT_COLOR: Record<string, string> = {
   school_co_op: "var(--accent-school)",
   noise: "var(--accent-noise)",
   other_work: "var(--muted-foreground)",
+};
+
+// Segments that map to a real domain get a matching IconChip/accent — noise
+// and other_work aren't domains, so they stay a plain color dot.
+const SEGMENT_ACCENT: Partial<Record<string, AccentToken>> = {
+  deen: "deen",
+  business: "business",
+  fitness: "fitness",
+  school_co_op: "school",
+  noise: "noise",
+};
+const SEGMENT_ICON: Partial<Record<string, typeof DOMAIN_ICON.deen>> = {
+  deen: DOMAIN_ICON.deen,
+  business: DOMAIN_ICON.business,
+  fitness: DOMAIN_ICON.fitness,
+  school_co_op: DOMAIN_ICON.school,
 };
 
 export default async function InsightsPage({
@@ -50,7 +71,10 @@ export default async function InsightsPage({
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Insights</h1>
+        <h1 className="flex items-center gap-2.5 text-lg font-semibold">
+          <IconChip icon={TrendingUp} accent="info" size="sm" />
+          Insights
+        </h1>
         <div className="flex gap-2 text-sm">
           <Link
             href="/insights?range=day"
@@ -89,7 +113,8 @@ export default async function InsightsPage({
                     className="size-2 rounded-full"
                     style={{ backgroundColor: SEGMENT_COLOR[s.domain] ?? "var(--muted)" }}
                   />
-                  {SEGMENT_LABEL[s.domain] ?? s.domain} · {Math.round(s.pct)}%
+                  {SEGMENT_LABEL[s.domain] ?? s.domain} ·{" "}
+                  <span className="font-mono tabular-nums">{Math.round(s.pct)}%</span>
                 </li>
               ))}
             </ul>
@@ -97,10 +122,13 @@ export default async function InsightsPage({
         )}
       </section>
 
-      <section className="rounded-lg border border-border/40 p-4">
-        <p className="text-sm text-muted-foreground">Global Signal:Noise</p>
-        <p className="text-2xl font-semibold">{globalRatio}</p>
-      </section>
+      <StatCard
+        icon={DOMAIN_ICON.business}
+        accent="business"
+        label="Global Signal:Noise"
+        value={globalRatio}
+        featured
+      />
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Per-domain</h2>
@@ -112,16 +140,25 @@ export default async function InsightsPage({
               // the same total, so the ratio between them is identical.
               const noiseSegment = segments.find((n) => n.domain === "noise");
               const display = computeRatioDisplay(s.pct, noiseSegment?.pct ?? 0, true);
+              const accent = SEGMENT_ACCENT[s.domain];
+              const Icon = SEGMENT_ICON[s.domain];
+              const isHighlighted = highlightDomain === s.domain;
               return (
                 <li
                   key={s.domain}
                   className={cn(
-                    "flex items-center justify-between rounded-lg border border-border/40 px-4 py-3 text-sm",
-                    highlightDomain === s.domain && "border-accent-business/60"
+                    "flex items-center gap-3 rounded-lg border px-4 py-3 text-sm",
+                    !isHighlighted && "border-border/40"
                   )}
+                  style={
+                    isHighlighted && accent
+                      ? { borderColor: `color-mix(in oklch, var(${ACCENT_VAR[accent]}) 60%, transparent)` }
+                      : undefined
+                  }
                 >
-                  <span>{SEGMENT_LABEL[s.domain] ?? s.domain}</span>
-                  <span className="font-medium">{display}</span>
+                  {Icon && accent && <IconChip icon={Icon} accent={accent} size="sm" />}
+                  <span className="flex-1">{SEGMENT_LABEL[s.domain] ?? s.domain}</span>
+                  <span className="font-mono font-medium tabular-nums">{display}</span>
                 </li>
               );
             })}

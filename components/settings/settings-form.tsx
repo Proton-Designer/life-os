@@ -54,7 +54,7 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
 
   return (
     <div className="flex flex-col gap-8">
-      <form onSubmit={saveMain} className="flex flex-col gap-4 rounded-lg border border-border/40 p-4">
+      <form onSubmit={saveMain} className="flex flex-col gap-4 rounded-2xl border border-border/40 bg-card p-4">
         <h2 className="text-sm font-semibold text-muted-foreground">Prayer &amp; location</h2>
         <div className="flex flex-col gap-1">
           <Label htmlFor="prayer-method">Calculation method</Label>
@@ -133,7 +133,7 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
         </Button>
       </form>
 
-      <div className="flex flex-col gap-4 rounded-lg border border-border/40 p-4">
+      <div className="flex flex-col gap-4 rounded-2xl border border-border/40 bg-card p-4">
         <h2 className="text-sm font-semibold text-muted-foreground">App lock</h2>
         <div className="flex items-center gap-2">
           <Switch
@@ -163,7 +163,7 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
         )}
       </div>
 
-      <div className="rounded-lg border border-border/40 p-4 text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-border/40 bg-card p-4 text-sm text-muted-foreground">
         Theme: dark-first (the only theme for v1 — light mode is a future nice-to-have).
       </div>
 
