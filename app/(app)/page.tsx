@@ -2,12 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { getPriorityItems, getTodayDateString } from "@/lib/home/get-priority-items";
-import { getDomainPulse } from "@/lib/home/get-domain-pulse";
+import { getPriorityItems } from "@/lib/home/get-priority-items";
+import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextUpHero } from "@/components/home/next-up-hero";
-import { PulseStrip } from "@/components/home/pulse-strip";
 import { PriorityList } from "@/components/home/priority-list";
+import { DomainPeekCards } from "@/components/home/domain-peek-cards";
+import { WeeklySummaryStrip } from "@/components/home/weekly-summary-strip";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -20,11 +21,10 @@ export default async function HomePage() {
   const userId = user.id;
   const now = new Date();
 
-  const [items, dateStr] = await Promise.all([
+  const [items, snapshots] = await Promise.all([
     getPriorityItems(userId, now),
-    getTodayDateString(userId, now),
+    getDomainSnapshots(userId, now),
   ]);
-  const pulse = await getDomainPulse(userId, dateStr);
 
   const profile = await getProfile();
 
@@ -53,24 +53,57 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 md:py-12">
-      <NextUpHero item={items[0] ?? null} now={now} />
-      <PulseStrip pulse={pulse} />
-      {showPlanningNudge && (
-        <Link
-          href="/weekly-planning"
-          className="rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business hover:bg-accent-business/20"
-        >
-          Plan next week&apos;s Deen and Business goals →
-        </Link>
-      )}
-      {isFreshInstall ? (
-        <p className="text-sm text-muted-foreground">
-          Welcome to Life OS — head into a domain tab to get started.
-        </p>
-      ) : (
-        <PriorityList items={items} />
-      )}
+    <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-6 px-4 py-8 md:grid-cols-[minmax(0,1fr)_280px] md:py-12 lg:grid-cols-[280px_minmax(0,1fr)_280px]">
+      {/* Left rail — desktop only. Deen + Business: the two domains
+          DOMAIN_PRIORITY (lib/home/get-priority-items.ts) weights highest.
+          self-start: grid's default stretch would otherwise pad this
+          column's box to match the (usually taller) center column, leaving
+          a big dead gap below these 2 cards instead of just a shorter column. */}
+      <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
+        <DomainPeekCards snapshots={snapshots} now={now} domains={["deen", "business"]} />
+      </div>
+
+      {/* Center column — the highest-leverage content, same relative
+          position at every width: hero, nudge, priority list, then (mobile
+          only) the peek-card carousel, then the weekly summary. */}
+      <div className="flex flex-col gap-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+          <NextUpHero item={items[0] ?? null} now={now} />
+          {showPlanningNudge && (
+            <Link
+              href="/weekly-planning"
+              className="rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business hover:bg-accent-business/20"
+            >
+              Plan next week&apos;s Deen and Business goals →
+            </Link>
+          )}
+          {isFreshInstall ? (
+            <p className="text-sm text-muted-foreground">
+              Welcome to Life OS — head into a domain tab to get started.
+            </p>
+          ) : (
+            <PriorityList items={items} />
+          )}
+        </div>
+
+        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:hidden">
+          <DomainPeekCards snapshots={snapshots} now={now} />
+        </div>
+
+        <div className="mx-auto w-full max-w-2xl">
+          <WeeklySummaryStrip snapshots={snapshots} />
+        </div>
+      </div>
+
+      {/* Combined rail — tablet only (all 5 cards, one column). */}
+      <div className="hidden md:flex md:flex-col md:gap-4 md:self-start lg:hidden">
+        <DomainPeekCards snapshots={snapshots} now={now} />
+      </div>
+
+      {/* Right rail — desktop only. */}
+      <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
+        <DomainPeekCards snapshots={snapshots} now={now} domains={["fitness", "school", "co_op"]} />
+      </div>
     </div>
   );
 }

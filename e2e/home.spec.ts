@@ -6,17 +6,20 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // storageState) rather than logging in itself.
 
 test.describe("Home", () => {
-  test("renders hero, pulse strip, and priority list", async ({ page }) => {
+  test("renders hero, domain peek cards, and priority list", async ({ page }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
     await expect(page.getByRole("button", { name: "Mark done" }).or(page.getByText("all clear"))).toBeVisible();
-    for (const domain of ["Deen", "Business", "Fitness", "School"]) {
-      // Match the pulse-strip ring link specifically (accessible name "N%
-      // Deen") rather than any nav link — Fitness has no direct top-level
-      // nav link on the mobile island (it lives behind the "More" popover),
-      // but the pulse strip always renders all four regardless of viewport.
-      await expect(page.getByRole("link", { name: new RegExp(`\\d+% ${domain}`) })).toBeVisible();
+
+    // Home v2 (the domain peek cards replaced the old PulseStrip ring row —
+    // pulse-strip.tsx is left in place, just unreferenced). Each domain's
+    // testid is rendered in up to 3 places in the DOM at once (left/right
+    // rail, tablet's combined rail, mobile's carousel — same "duplicate,
+    // CSS-toggle visibility" pattern as TopNav/MobileIsland), so scope to
+    // the single one that's actually visible at this viewport.
+    for (const domain of ["deen", "business", "fitness", "school", "co_op"]) {
+      await expect(page.locator(`[data-testid="domain-peek-card-${domain}"]:visible`)).toHaveCount(1);
     }
 
     // Priority list section headings or the empty-state copy are the only
