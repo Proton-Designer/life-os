@@ -24,9 +24,15 @@ export type LastSessionData = {
 export function LockInPanel({
   initialSession,
   lastSession,
+  todayFocusMinutes,
 }: {
   initialSession: ActiveSessionData | null;
   lastSession: LastSessionData | null;
+  // Opus Lead review (2026-08-16): idle used to be a single button in an
+  // otherwise-empty 7-column panel. Required, not optional — an idle panel
+  // with nothing to show isn't a state this composition should silently
+  // fall back into; the caller always has a real number, even "0m".
+  todayFocusMinutes: number;
 }) {
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
@@ -54,10 +60,13 @@ export function LockInPanel({
     : 0;
 
   return (
-    <div className="flex flex-col gap-3">
-      <Button type="button" onClick={handleLockIn} disabled={isPending} className="w-full">
-        Lock In
-      </Button>
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Today</p>
+        <p className="font-mono text-2xl font-semibold tabular-nums">
+          {formatElapsedDuration(todayFocusMinutes * 60_000)}
+        </p>
+      </div>
       {lastSession && (
         <p className="text-xs text-muted-foreground">
           Last session: {formatElapsedDuration(lastSessionMinutesMs)} on{" "}
@@ -67,6 +76,9 @@ export function LockInPanel({
           })}
         </p>
       )}
+      <Button type="button" onClick={handleLockIn} disabled={isPending} className="w-full">
+        Lock In
+      </Button>
     </div>
   );
 }

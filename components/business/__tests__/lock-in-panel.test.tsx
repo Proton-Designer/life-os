@@ -21,18 +21,19 @@ describe("LockInPanel", () => {
       <LockInPanel
         initialSession={null}
         lastSession={{ startedAtIso: "2026-08-15T14:00:00Z", endedAtIso: "2026-08-15T15:30:00Z" }}
+        todayFocusMinutes={0}
       />
     );
     expect(screen.getByText(/Last session: 1h 30m/)).toBeInTheDocument();
   });
 
   it("shows no last-session line when there isn't one (first-ever session)", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
     expect(screen.queryByText(/Last session/)).not.toBeInTheDocument();
   });
 
   it("still renders the Lock In button when idle", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
     expect(screen.getByRole("button", { name: "Lock In" })).toBeInTheDocument();
   });
 
@@ -41,8 +42,20 @@ describe("LockInPanel", () => {
       <LockInPanel
         initialSession={{ id: "s1", startedAtIso: "2026-08-15T14:00:00Z", checkins: [] }}
         lastSession={{ startedAtIso: "2026-08-14T14:00:00Z", endedAtIso: "2026-08-14T15:00:00Z" }}
+        todayFocusMinutes={0}
       />
     );
     expect(screen.queryByText(/Last session/)).not.toBeInTheDocument();
+  });
+
+  it("shows today's focus total when idle — the idle-state design fix, not just a bare button in empty space", () => {
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85} />);
+    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.getByText("1h 25m")).toBeInTheDocument();
+  });
+
+  it("shows a real 0m today total rather than omitting it when nothing's logged yet", () => {
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
+    expect(screen.getByText("0m")).toBeInTheDocument();
   });
 });

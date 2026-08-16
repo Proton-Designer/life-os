@@ -69,18 +69,24 @@ export function ReflectionTracker({
         ))}
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        {/* Upgraded to the shared Sparkline primitive (Phase C) — one per
-            tier, deliberately monochrome (--muted-foreground) rather than
-            an escalating color per tier, so no severity implication rides
-            along in color the way a red-tint scale would. */}
-        {TIERS.map((tier) => (
-          <div key={tier} className="flex items-center gap-1.5">
-            <span className="w-3 shrink-0 text-xs text-muted-foreground">{GLYPH[tier]}</span>
-            <Sparkline values={sparkline.map((day) => day.counts[tier])} colorVar="--muted-foreground" />
-          </div>
-        ))}
-      </div>
+      {/* Opus Lead review (2026-08-16): a zero-history sparkline row rendered
+          as a stray 1px flat line in empty space — not informative, just
+          visual noise. Suppressed entirely until there's real history to
+          show, rather than rendering a trend of nothing. */}
+      {entries.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {/* Upgraded to the shared Sparkline primitive (Phase C) — one per
+              tier, deliberately monochrome (--muted-foreground) rather than
+              an escalating color per tier, so no severity implication rides
+              along in color the way a red-tint scale would. */}
+          {TIERS.map((tier) => (
+            <div key={tier} className="flex items-center gap-1.5">
+              <span className="w-3 shrink-0 text-xs text-muted-foreground">{GLYPH[tier]}</span>
+              <Sparkline values={sparkline.map((day) => day.counts[tier])} colorVar="--muted-foreground" />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

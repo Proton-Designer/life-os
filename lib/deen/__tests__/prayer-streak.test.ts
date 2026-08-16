@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePrayerStreak } from "../prayer-streak";
+import { computePrayerStreak, accentForPrayerStreak } from "../prayer-streak";
 
 describe("computePrayerStreak", () => {
   it("counts consecutive days where all 5 prayers are on_time or qada", () => {
@@ -23,5 +23,16 @@ describe("computePrayerStreak", () => {
 
   it("returns 0 for no history at all", () => {
     expect(computePrayerStreak({}, "2026-08-15")).toBe(0);
+  });
+});
+
+describe("accentForPrayerStreak", () => {
+  it("is info (not the domain amber) when there's no streak yet", () => {
+    expect(accentForPrayerStreak(0)).toBe("info");
+  });
+
+  it("is positive once a real streak exists", () => {
+    expect(accentForPrayerStreak(1)).toBe("business");
+    expect(accentForPrayerStreak(30)).toBe("business");
   });
 });

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Clock, ListChecks, CheckCircle2 } from "lucide-react";
+import { Clock, ListChecks, CheckCircle2, Radar } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
@@ -15,7 +15,9 @@ import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
+import { EmptyState } from "@/components/ui/empty-state";
 import { BarChart } from "@/components/charts/bar-chart";
+import { accentForActivityCount } from "@/lib/kpi-value-accent";
 
 const SN_WEEK_COUNT = 6;
 
@@ -132,6 +134,7 @@ export default async function BusinessPage() {
     label: w.label,
     value: w.noise === 0 ? w.signal : Math.round((w.signal / w.noise) * 10) / 10,
   }));
+  const hasAnySnActivity = snWeeklyData.some((w) => w.signal + w.noise > 0);
 
   return (
     <PageContainer>
@@ -141,7 +144,7 @@ export default async function BusinessPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={Clock}
-            accent="business"
+            accent={accentForActivityCount(sessionsToday.length)}
             label="Focus time today"
             value={formatElapsedDuration(focusMinutesToday * 60_000)}
             caption={
@@ -154,7 +157,7 @@ export default async function BusinessPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={ListChecks}
-            accent="business"
+            accent={accentForActivityCount(sessionsThisWeek.length)}
             label="Sessions this week"
             value={`${sessionsThisWeek.length}`}
             caption={
@@ -167,7 +170,7 @@ export default async function BusinessPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={CheckCircle2}
-            accent="business"
+            accent={accentForActivityCount(daysCleared)}
             label="Days cleared"
             value={`${daysCleared}/7`}
             caption={
@@ -182,9 +185,9 @@ export default async function BusinessPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-7">
+        <div id="lock-in-panel" className="lg:col-span-7">
           <Panel title="Lock In">
-            <LockInPanel initialSession={activeSession} lastSession={lastSession} />
+            <LockInPanel initialSession={activeSession} lastSession={lastSession} todayFocusMinutes={focusMinutesToday} />
           </Panel>
         </div>
         <div className="lg:col-span-5">
@@ -210,13 +213,23 @@ export default async function BusinessPage() {
           </Panel>
         </div>
         <div className="lg:col-span-6">
-          <Panel
-            title="Signal:Noise by week"
-            heroValue={thisWeekSn.display}
-            caption="kill-list vs. noise check-ins, this week vs. the last 6"
-          >
-            <BarChart bars={snBars} colorVar="--series-business" highlightIndex={snBars.length - 1} />
-          </Panel>
+          {hasAnySnActivity ? (
+            <Panel
+              title="Signal:Noise by week"
+              heroValue={thisWeekSn.display}
+              caption="kill-list vs. noise check-ins, this week vs. the last 6"
+            >
+              <BarChart bars={snBars} colorVar="--series-business" highlightIndex={snBars.length - 1} />
+            </Panel>
+          ) : (
+            <Panel title="Signal:Noise by week">
+              <EmptyState
+                icon={Radar}
+                message="No check-ins answered yet in the last 6 weeks"
+                action={{ label: "Lock in to start tracking", href: "#lock-in-panel" }}
+              />
+            </Panel>
+          )}
         </div>
       </div>
     </PageContainer>

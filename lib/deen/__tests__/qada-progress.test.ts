@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countRecentQadaCatchUps } from "../qada-progress";
+import { countRecentQadaCatchUps, accentForQadaBacklog } from "../qada-progress";
 
 describe("countRecentQadaCatchUps", () => {
   it("counts prayers logged as qada within the given window", () => {
@@ -18,5 +18,20 @@ describe("countRecentQadaCatchUps", () => {
 
   it("returns 0 for an empty history", () => {
     expect(countRecentQadaCatchUps([])).toBe(0);
+  });
+});
+
+describe("accentForQadaBacklog", () => {
+  it("is positive at zero backlog — nothing owed", () => {
+    expect(accentForQadaBacklog(0)).toBe("business");
+  });
+
+  it("is warning once anything is owed", () => {
+    // Binary, not thresholded — no "large backlog" number was specified,
+    // and inventing one would be guessing at a figure nobody gave. Any
+    // qada owed is worth flagging, conservatively, per overnight judgment
+    // rules (documented in PROJECT_STATUS.md).
+    expect(accentForQadaBacklog(1)).toBe("deen");
+    expect(accentForQadaBacklog(12)).toBe("deen");
   });
 });

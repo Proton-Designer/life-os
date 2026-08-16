@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Flame, History } from "lucide-react";
+import { Flame, History, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { calculatePrayerTimes, type CalcMethod, type AsrMadhab } from "@/lib/prayer-times/calculate";
@@ -16,8 +16,8 @@ import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-sparkline";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
-import { computePrayerStreak } from "@/lib/deen/prayer-streak";
-import { countRecentQadaCatchUps } from "@/lib/deen/qada-progress";
+import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
+import { countRecentQadaCatchUps, accentForQadaBacklog } from "@/lib/deen/qada-progress";
 import { bucketPagesByDay } from "@/lib/deen/quran-trend";
 import { buildPrayerConsistencyRows, computeOnTimeRate } from "@/lib/deen/prayer-consistency";
 import { NextUpHero } from "@/components/home/next-up-hero";
@@ -228,7 +228,7 @@ export default async function DeenPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={Flame}
-            accent="deen"
+            accent={accentForPrayerStreak(prayerStreak)}
             label="Prayer streak"
             value={`${prayerStreak}`}
             caption={prayerStreak === 0 ? "Pray all 5 today to start one" : "Keep it going"}
@@ -237,7 +237,7 @@ export default async function DeenPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={History}
-            accent="deen"
+            accent={accentForQadaBacklog(profile?.qada_owed ?? 0)}
             label="Qada backlog"
             value={`${profile?.qada_owed ?? 0}`}
             caption={
@@ -281,7 +281,15 @@ export default async function DeenPage() {
             caption="pages read this week"
           >
             <div className="flex flex-col gap-4">
-              <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} />
+              {latestSession ? (
+                <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} />
+              ) : (
+                <EmptyState
+                  icon={BookOpen}
+                  message="No Qur'an sessions logged yet"
+                  action={{ label: "Log your first session", href: "#quran-pages" }}
+                />
+              )}
               <QuranCard
                 currentSurah={latestSession?.surah ?? null}
                 currentJuz={latestSession?.juz ?? null}

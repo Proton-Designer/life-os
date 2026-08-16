@@ -39,6 +39,28 @@ describe("HabitBuilder", () => {
     expect(screen.getByText("5d").className).toContain("font-mono");
   });
 
+  it("collapses the three redundant 'None yet.' stage columns into one shared EmptyState when there are no habits at all", () => {
+    render(
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} />
+    );
+    expect(screen.getByText("No habits started yet")).toBeInTheDocument();
+    expect(screen.queryAllByText("None yet.").length).toBe(0);
+    expect(screen.queryByText("Active Build")).not.toBeInTheDocument();
+  });
+
+  it("keeps a real per-stage 'None yet.' once at least one habit exists somewhere — that's a legitimate empty stage, not noise", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ committedDate: "2026-08-15" })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+      />
+    );
+    expect(screen.queryByText("No habits started yet")).not.toBeInTheDocument();
+    expect(screen.getAllByText("None yet.").length).toBeGreaterThan(0);
+  });
+
   it("gives the current focus card a gradient wash and an icon chip", () => {
     render(
       <HabitBuilder

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Repeat } from "lucide-react";
 import { toggleDeenHabitLog, setWeeklyFocus, createDeenHabit } from "@/app/(app)/deen/actions";
 import { habitStage } from "@/lib/deen/habit-stage";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { featuredCardStyle } from "@/lib/featured-card-style";
@@ -266,11 +268,30 @@ export function HabitBuilder({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <StageColumn title="Active Build" variant="info" habits={activeBuild} todayStr={todayStr} onToggle={handleToggle} />
-        <StageColumn title="Stabilized" variant="positive" habits={stabilized} todayStr={todayStr} onToggle={handleToggle} />
-        <StageColumn title="Locked" variant="neutral" habits={locked} todayStr={todayStr} quiet onToggle={handleToggle} />
-      </div>
+      {/* Opus Lead review (2026-08-16): with zero habits, all three columns
+          independently render "None yet." — three copies of the same
+          non-message. A real per-stage empty ("None yet.") is legitimate
+          once at least one habit exists somewhere; it's only noise when
+          there's nothing at all, so that case gets one shared EmptyState
+          instead of three. */}
+      {habits.length === 0 ? (
+        // Suppressed while the picker is already open above (showPicker) —
+        // a second "Add a habit" prompt right below the real form it opens
+        // is redundant, not a second real empty state.
+        !showPicker && (
+          <EmptyState
+            icon={Repeat}
+            message="No habits started yet"
+            action={{ label: "Add a habit", onClick: () => setShowPicker(true) }}
+          />
+        )
+      ) : (
+        <div className="grid gap-4 md:grid-cols-3">
+          <StageColumn title="Active Build" variant="info" habits={activeBuild} todayStr={todayStr} onToggle={handleToggle} />
+          <StageColumn title="Stabilized" variant="positive" habits={stabilized} todayStr={todayStr} onToggle={handleToggle} />
+          <StageColumn title="Locked" variant="neutral" habits={locked} todayStr={todayStr} quiet onToggle={handleToggle} />
+        </div>
+      )}
     </div>
   );
 }

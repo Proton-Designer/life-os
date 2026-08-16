@@ -3,7 +3,7 @@ import type { Domain } from "@/lib/home/types";
 // Single source of truth mapping an accent name to its CSS custom property.
 // Domain accents plus the two chrome accents (info = general-purpose signal
 // blue, noise = destructive/red) used by IconChip, StatCard, and nav pills.
-export type AccentToken = "deen" | "business" | "fitness" | "school" | "coop" | "info" | "noise";
+export type AccentToken = "deen" | "business" | "fitness" | "school" | "coop" | "info" | "noise" | "neutral";
 
 export const ACCENT_VAR: Record<AccentToken, string> = {
   deen: "--accent-deen",
@@ -13,6 +13,7 @@ export const ACCENT_VAR: Record<AccentToken, string> = {
   coop: "--accent-coop",
   info: "--accent-info",
   noise: "--accent-noise",
+  neutral: "--muted-foreground",
 };
 
 // Which accent token a domain renders with. Co-op used to fold onto School's

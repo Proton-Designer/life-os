@@ -14,7 +14,13 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // Post Phase E, the ratio lives in the "Signal:Noise by week" panel's own
 // header (one-metric rule — the standalone SnRatioCard/"This week's
 // Signal:Noise" text is gone), so the locator is scoped to that panel's
-// data-panel container rather than a literal label string.
+// data-panel container rather than a literal label string. Post the
+// Phase E follow-up (empty-state sweep), a genuinely empty panel renders
+// EmptyState instead of the chart — no `.font-mono` element exists at all
+// in that state — so this no longer snapshots a "before" value from
+// `.font-mono` (it may not exist yet) and instead asserts the causal
+// effect directly: after answering a real check-in, the panel must show
+// the actual chart, not the empty state.
 test("answering a check-in records it and updates the weekly Signal:Noise ratio", async ({ page, baseURL }) => {
   const secret = process.env.E2E_TEST_SECRET;
   if (!secret) {
@@ -24,7 +30,6 @@ test("answering a check-in records it and updates the weekly Signal:Noise ratio"
   await page.goto("/business");
   await dismissCheckinDialogIfPresent(page);
   const snPanel = page.locator("[data-panel]", { hasText: "Signal:Noise by week" });
-  const before = await snPanel.locator(".font-mono").first().innerText();
 
   const checkinTime = new Date().toISOString();
   const response = await page.request.post(`${baseURL}/api/test/answer-checkin`, {
@@ -49,8 +54,11 @@ test("answering a check-in records it and updates the weekly Signal:Noise ratio"
 
   await page.goto("/business");
   await dismissCheckinDialogIfPresent(page);
+  // A just-answered kill_list check-in guarantees real data this week, so
+  // the panel must now render the chart, never the empty state.
+  await expect(snPanel.getByText("No check-ins answered")).toHaveCount(0);
   const after = await snPanel.locator(".font-mono").first().innerText();
-  expect(after).not.toBe(before);
+  expect(after.trim().length).toBeGreaterThan(0);
 
   // Cleanup — delete the exact row this test created.
   const cleanup = await page.request.delete(`${baseURL}/api/test/answer-checkin`, {

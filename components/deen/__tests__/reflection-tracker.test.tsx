@@ -28,9 +28,16 @@ describe("ReflectionTracker", () => {
     }
   });
 
-  it("upgrades the trend to the shared Sparkline primitive — one per tier, three total", () => {
-    const { container } = render(<ReflectionTracker entries={[]} todayStr="2026-08-15" />);
+  it("upgrades the trend to the shared Sparkline primitive — one per tier, three total, when there's history", () => {
+    const { container } = render(
+      <ReflectionTracker entries={[{ date: "2026-08-15", tier: 1 }]} todayStr="2026-08-15" />
+    );
     expect(container.querySelectorAll('svg[role="img"]').length).toBe(3);
+  });
+
+  it("suppresses the trend entirely with no history — no stray flat lines in empty space", () => {
+    const { container } = render(<ReflectionTracker entries={[]} todayStr="2026-08-15" />);
+    expect(container.querySelectorAll('svg[role="img"]').length).toBe(0);
   });
 
   it("never mentions sin or severity anywhere in visible text or aria-labels — privacy is a hard constraint", () => {
