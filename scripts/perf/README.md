@@ -57,6 +57,33 @@ from `.env.local` — never Ayman's real account.
   response status explicitly and reports failure loudly rather than silently
   leaving the real account mutated.
 
+## Traps found while verifying these scripts against themselves (2026-08-16)
+
+Both caught during the pre-deploy verification pass, before trusting any
+result from a modified version of these scripts. Recorded here because they
+evaporate the moment they only live in a chat log, and this exact area is
+where they'll bite again.
+
+- **`page.goto()` wipes the in-memory Router Cache.** It's a hard/top-level
+  navigation, not a client-side transition, so it reloads the document and
+  destroys whatever the client Router Cache was holding. A script that uses
+  `page.goto()` to "return home" between navigation checks and then measures
+  a "revisit" is actually measuring a cold load while believing it's
+  measuring a cache hit — that produces a confident, completely wrong "the
+  cache is broken" result. Always return via a real `<Link>` click
+  (`page.locator('a[href="/"]:visible').first().click()`) when the point is
+  to preserve cache state between steps.
+- **A background `<Link>` prefetch can race an immediate same-session
+  revisit.** Clicking a link fires a real RSC request even when the segment
+  should already be cache-warm, if a prefetch triggered by the previous
+  page's mount/visibility is still in flight when the next click lands.
+  Observed directly: re-clicking a nav link within milliseconds of landing
+  on the previous page showed 1-2 real RSC requests and a genuine (correct,
+  not buggy) pending-indicator flash; adding a ~500ms settle before the
+  measured click dropped that to 0 requests, 0 flash, on every surface
+  tested. Any script measuring a "cache hit" click needs that settle window,
+  or it will misreport a real cache hit as a miss.
+
 ## Known simplifications vs. the original harnesses
 
 These are honest approximations, not exact reconstructions — nobody but the
@@ -74,3 +101,17 @@ prior session saw the originals' code.
 
 If a future session needs tighter fidelity than this, it's cheaper to sharpen
 these three scripts than to reverse-engineer intent from scratch again.
+
+## Observed-but-unexplained: duplicate RSC requests on some routes after a purge
+
+`measure-mutation.mjs` has twice shown `/fitness` receiving 2 RSC requests
+against `/school`'s 1 for the same `revalidatePath`-triggered purge (once in
+the Opus Lead's original runs, once independently in the 2026-08-16
+pre-deploy verification pass). Leading hypothesis, not yet verified by
+anyone: `vercel/next.js#86130` documents route groups combined with a
+nonzero `staleTimes.dynamic` producing duplicate RSC requests — this app
+matches that shape exactly (everything under the `(app)` route group,
+`staleTimes.dynamic: 3600`). Harmless either way — one redundant request, no
+skeleton, no correctness impact — and unrelated to the `proxy.ts`/
+`getClaims()` decision. Not investigated further; starting point for
+whoever picks it up next.
