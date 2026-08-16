@@ -54,6 +54,13 @@ describe("DayRibbon", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders no empty activity track — an inert full-width pill with nothing in it reads as a stray scrollbar", () => {
+    const { container } = render(
+      <DayRibbon layout={{ ...LAYOUT, blocks: [] }} todayStr="2026-08-15" timezone="UTC" />
+    );
+    expect(container.querySelector(".bg-background\\/30")).not.toBeInTheDocument();
+  });
+
   it("omits the invitation line once real activity exists", () => {
     render(<DayRibbon layout={LAYOUT} todayStr="2026-08-15" timezone="UTC" />);
     expect(

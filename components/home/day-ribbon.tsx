@@ -137,20 +137,28 @@ export function DayRibbon({
               ))}
             </div>
 
-            <div className="relative z-10 mt-3 h-4 rounded-full bg-background/30">
-              {layout.blocks.map((b, i) => (
-                <div
-                  key={i}
-                  title={b.label}
-                  className="absolute top-0 h-full rounded-full opacity-80"
-                  style={{
-                    left: `${b.startPct}%`,
-                    width: `${Math.max(1, b.endPct - b.startPct)}%`,
-                    backgroundColor: `var(${b.colorVar})`,
-                  }}
-                />
-              ))}
-            </div>
+            {/* Opus Lead review (2026-08-16): an empty track here rendered
+                as a plain light rounded pill spanning near-full-width,
+                which reads exactly like an idle horizontal scrollbar —
+                there IS nothing to show yet, so don't render inert chrome
+                that looks like UI. The "Check-ins and Lock-In sessions
+                will show up here" line above already carries that message. */}
+            {layout.blocks.length > 0 && (
+              <div className="relative z-10 mt-3 h-4 rounded-full bg-background/30">
+                {layout.blocks.map((b, i) => (
+                  <div
+                    key={i}
+                    title={b.label}
+                    className="absolute top-0 h-full rounded-full opacity-80"
+                    style={{
+                      left: `${b.startPct}%`,
+                      width: `${Math.max(1, b.endPct - b.startPct)}%`,
+                      backgroundColor: `var(${b.colorVar})`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
