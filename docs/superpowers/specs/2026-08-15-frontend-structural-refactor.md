@@ -255,7 +255,7 @@ Every screen must be designed at 390px, not merely not-broken.
 - **KPI rows** become a horizontally scrollable snap carousel (`snap-x snap-mandatory`, cards at ~78vw so the next one peeks) — the pattern already proven on Home's peek cards.
 - **Charts**: full-width, reduced height (`h-40`), fewer x-ticks, tap-to-inspect instead of hover.
 - **Day Ribbon**: horizontally scrollable, auto-scrolled to center "now" on mount.
-- **Consistency grids**: show 14 days instead of 30, horizontally scrollable.
+- **Consistency grids**: cells get a **minimum size** (~22px desktop, ~16px mobile); when the full range doesn't fit, the grid **scrolls horizontally, anchored to the most recent day**. The full 30-day range stays reachable at every width. *(Supersedes the original "show 14 days instead of 30" — measured during Phase E, 30 columns at 390px yields ~6.5px cells where hatch and hollow become indistinguishable. Truncating the range would silently discard half the history and make one component answer different questions on different devices; constraining the cell and scrolling keeps the data whole. Reuse the Day Ribbon's existing scroll-position-on-mount pattern.)*
 - **Bottom padding**: every page needs clearance for the floating island — verify against its real height, do not guess.
 - Tap targets ≥44px. Tier-4 rows already meet this at 52px.
 
