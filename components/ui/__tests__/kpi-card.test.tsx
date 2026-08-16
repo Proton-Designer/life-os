@@ -50,4 +50,23 @@ describe("KpiCard", () => {
     render(<KpiCard icon={Target} accent="school" label="Due today" value="0" caption="Nothing due yet" />);
     expect(screen.getByTestId("kpi-card").className).toContain("min-h-[168px]");
   });
+
+  it("renders an inline sparkline when given a trend", () => {
+    render(
+      <KpiCard
+        icon={Target}
+        accent="deen"
+        label="Prayers on time"
+        value="28/35"
+        caption="last week"
+        sparkline={[20, 25, 22, 28]}
+      />
+    );
+    expect(screen.getByRole("img", { name: /Trend:/ })).toBeInTheDocument();
+  });
+
+  it("renders no sparkline element when none is given", () => {
+    render(<KpiCard icon={Target} accent="deen" label="Prayers on time" value="28/35" caption="last week" />);
+    expect(screen.queryByRole("img", { name: /Trend:/ })).not.toBeInTheDocument();
+  });
 });

@@ -4,6 +4,7 @@ import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { featuredCardStyle } from "@/lib/featured-card-style";
 import { IconChip } from "@/components/ui/icon-chip";
 import { DeltaPill, type DeltaDirection } from "@/components/ui/delta-pill";
+import { Sparkline } from "@/components/charts/sparkline";
 
 // Tier 1 — the reference dashboards' saturated tinted card. Always featured
 // (there is no plain mode — that's what distinguishes it from a StatTile),
@@ -19,6 +20,7 @@ export function KpiCard({
   value,
   caption,
   delta,
+  sparkline,
   className,
   ...props
 }: {
@@ -28,6 +30,10 @@ export function KpiCard({
   value: React.ReactNode;
   caption: string;
   delta?: { direction: DeltaDirection; text: string };
+  // Optional inline trend (Weekly Planning's recap tiles) — same Sparkline
+  // primitive already used in Reflection/Qur'an, colored to match the
+  // card's own accent so it reads as part of the tile, not a bolted-on chart.
+  sparkline?: number[];
   className?: string;
 } & React.HTMLAttributes<HTMLDivElement>) {
   const colorVar = ACCENT_VAR[accent];
@@ -47,6 +53,11 @@ export function KpiCard({
         <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
         <p className="font-mono text-4xl font-semibold tabular-nums">{value}</p>
         <p className="text-xs text-muted-foreground">{caption}</p>
+        {sparkline && sparkline.length > 0 && (
+          <div className="mt-1">
+            <Sparkline values={sparkline} colorVar={colorVar} />
+          </div>
+        )}
       </div>
     </div>
   );
