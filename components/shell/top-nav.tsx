@@ -6,6 +6,7 @@ import { Home, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; accent: AccentToken }[] = [
   { href: "/", label: "Home", icon: Home, accent: "info" },
@@ -44,7 +45,7 @@ export function TopNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                "relative flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground",
                 active && "font-medium"
               )}
               style={
@@ -58,6 +59,7 @@ export function TopNav() {
             >
               <item.icon className="size-4" />
               {item.label}
+              <NavLinkPendingHint />
             </Link>
           );
         })}
@@ -66,7 +68,7 @@ export function TopNav() {
         href="/settings"
         aria-current={settingsActive ? "page" : undefined}
         aria-label="Settings"
-        className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+        className="relative flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
         style={
           settingsActive
             ? {
@@ -77,6 +79,7 @@ export function TopNav() {
         }
       >
         <Settings className="size-5" />
+        <NavLinkPendingHint />
       </Link>
     </nav>
   );

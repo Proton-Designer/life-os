@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 const PRIMARY_ITEMS: {
   href: string;
@@ -62,7 +63,7 @@ export function MobileIsland() {
               data-testid={`mobile-island-item-${item.key}`}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex size-10 items-center justify-center rounded-full transition-colors",
+                "relative flex size-10 items-center justify-center rounded-full transition-colors",
                 !active && "text-muted-foreground"
               )}
               style={
@@ -76,6 +77,7 @@ export function MobileIsland() {
             >
               <item.icon className="size-5" />
               <span className="sr-only">{item.label}</span>
+              <NavLinkPendingHint />
             </Link>
           );
         })}
@@ -100,10 +102,11 @@ export function MobileIsland() {
                 key={item.href}
                 href={item.href}
                 aria-current={isActive(pathname, item.href) ? "page" : undefined}
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                className="relative flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
               >
                 <item.icon className="size-4" />
                 {item.label}
+                <NavLinkPendingHint />
               </Link>
             ))}
           </PopoverContent>

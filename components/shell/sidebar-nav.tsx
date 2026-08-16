@@ -7,6 +7,7 @@ import { Home, TrendingUp, CalendarRange, Settings, type LucideIcon } from "luci
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 export type SidebarVariant = "expanded" | "icon-rail" | "drawer";
 
@@ -61,7 +62,7 @@ function NavLink({
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-lg text-sm text-muted-foreground transition-colors hover:text-foreground",
+        "relative flex items-center gap-3 rounded-lg text-sm text-muted-foreground transition-colors hover:text-foreground",
         iconOnly ? "size-10 justify-center" : "px-3 py-2"
       )}
       style={
@@ -75,6 +76,7 @@ function NavLink({
     >
       <item.icon className="size-4 shrink-0" style={active ? { color: `var(${colorVar})` } : undefined} />
       <span className={iconOnly ? "sr-only" : undefined}>{item.label}</span>
+      <NavLinkPendingHint />
     </Link>
   );
 

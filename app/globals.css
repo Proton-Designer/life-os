@@ -172,3 +172,50 @@ html {
     @apply font-sans;
   }
 }
+
+/* useLinkStatus pending affordance (Phase 2 of the 2026-08-16 navigation-
+   latency fix — see docs/superpowers/specs). Always rendered so toggling
+   opacity never shifts nav layout; the animation-delay keeps a fast/cached
+   navigation (~40ms) from ever flashing it, per the hook's own docs. */
+.nav-pending-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.nav-pending-dot.is-pending {
+  visibility: visible;
+  animation:
+    nav-pending-fade-in 200ms ease forwards,
+    nav-pending-pulse 1s ease-in-out infinite;
+  animation-delay: 100ms, 100ms;
+}
+
+@keyframes nav-pending-fade-in {
+  to {
+    opacity: 0.9;
+  }
+}
+
+@keyframes nav-pending-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Same convention as topbar.tsx's motion-reduce:animate-none — keep the
+   affordance itself (it's still information, not just decoration), just
+   drop the throb: show it at its settled opacity instead of animating in. */
+@media (prefers-reduced-motion: reduce) {
+  .nav-pending-dot.is-pending {
+    animation: none;
+    opacity: 0.9;
+  }
+}
