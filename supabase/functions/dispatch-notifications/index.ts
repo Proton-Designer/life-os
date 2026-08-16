@@ -1,7 +1,20 @@
 // Scheduled every 15 minutes via pg_cron. For each user with an active push
 // subscription: sends a "prayer in ~15 min" push if a prayer time is
-// imminent and not yet notified today, and sends the check-in prompt push
-// if a fixed check-in slot is starting now, per spec.
+// imminent and not yet notified today.
+//
+// Opus Lead review (2026-08-16, Phase H): this function used to also send a
+// check-in-slot "Pulse check-in" push. The app-wide check-in scheduler that
+// prompt pointed at was removed from the UI on 2026-08-15 (app-shell.tsx
+// dropped CheckinSchedulerLoader, replaced by Business-scoped Lock-In
+// sessions) — but the backend half of that removal was never done, so this
+// function kept dispatching prompts for a feature that no longer existed.
+// Confirmed latent, not user-facing: push_subscriptions had zero active
+// rows and notification_log had zero rows of any type at the time this was
+// found, so nothing was ever actually delivered. Removed the check-in
+// branch and its now-unused slot-generation helpers below; prayer
+// notifications are unchanged. Lock-In-session push (useful since a
+// session keeps running with the tab closed) is a real, separate feature
+// idea, not built here — new features don't land at 3am on a deploy night.
 //
 // Secrets: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected by the
 // platform. VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT are NOT —
@@ -152,50 +165,8 @@ function calculatePrayerTimes(opts: {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Duplicated pure check-in slot generation — see
-// lib/checkins/compute-checkin-slots.ts. Simplified for this poll-based
-// context: we only need "is a slot starting within this poll window", not
-// the full due/missed grace-period evaluation (that's the client
-// scheduler's job, Task 10.3) — this just needs to know whether to push.
-// ---------------------------------------------------------------------------
-
-function toMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function resolveLocalTime(dateStr: string, timeStr: string, timezone: string): Date {
-  const [h, m] = timeStr.split(":").map(Number);
-  const naiveUtc = new Date(`${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`);
-  const offsetMinutes = getTimezoneOffsetMinutes(naiveUtc, timezone);
-  return new Date(naiveUtc.getTime() - offsetMinutes * 60_000);
-}
-
-function getCheckinSlotsForToday(
-  windowStart: string,
-  windowEnd: string,
-  intervalMinutes: number,
-  now: Date,
-  timezone: string
-): Date[] {
-  const dateStr = localDateString(now, timezone);
-  const startMin = toMinutes(windowStart);
-  const endMin = toMinutes(windowEnd);
-  const slots: Date[] = [];
-  for (let t = startMin; t <= endMin; t += intervalMinutes) {
-    const hh = String(Math.floor(t / 60)).padStart(2, "0");
-    const mm = String(t % 60).padStart(2, "0");
-    slots.push(resolveLocalTime(dateStr, `${hh}:${mm}`, timezone));
-  }
-  return slots;
-}
-
-// ---------------------------------------------------------------------------
-
 const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
 const PRAYER_WINDOW_MS = 15 * 60 * 1000;
-const POLL_TOLERANCE_MS = 7.5 * 60 * 1000; // half the 15-min poll interval
 
 Deno.serve(async (_req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -237,9 +208,7 @@ Deno.serve(async (_req) => {
   const userIds = [...new Set(subs.map((s) => s.user_id))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select(
-      "user_id, timezone, location_lat, location_lng, prayer_calc_method, asr_madhab, checkin_window_start, checkin_window_end, checkin_interval_minutes, paused_date"
-    )
+    .select("user_id, timezone, location_lat, location_lng, prayer_calc_method, asr_madhab")
     .in("user_id", userIds);
 
   let dispatched = 0;
@@ -269,7 +238,7 @@ Deno.serve(async (_req) => {
       }
     }
 
-    async function alreadyNotified(notifType: "prayer" | "checkin", notifKey: string): Promise<boolean> {
+    async function alreadyNotified(notifType: "prayer", notifKey: string): Promise<boolean> {
       const { data } = await supabase
         .from("notification_log")
         .select("id")
@@ -281,7 +250,7 @@ Deno.serve(async (_req) => {
       return !!data;
     }
 
-    async function markNotified(notifType: "prayer" | "checkin", notifKey: string) {
+    async function markNotified(notifType: "prayer", notifKey: string) {
       await supabase
         .from("notification_log")
         .insert({ user_id: profile.user_id, notif_type: notifType, notif_key: notifKey, sent_date: todayStr });
@@ -305,30 +274,6 @@ Deno.serve(async (_req) => {
             const label = prayerName.charAt(0).toUpperCase() + prayerName.slice(1);
             await sendToUser(`${label} in ~15 min`, "Time to prepare for prayer.", "/deen");
             await markNotified("prayer", prayerName);
-          }
-        }
-      }
-    }
-
-    // Check-in slot notifications — skip entirely if paused for today.
-    if (profile.paused_date !== todayStr) {
-      const slots = getCheckinSlotsForToday(
-        profile.checkin_window_start?.slice(0, 5) ?? "08:00",
-        profile.checkin_window_end?.slice(0, 5) ?? "22:00",
-        profile.checkin_interval_minutes ?? 120,
-        now,
-        timezone
-      );
-      for (const slot of slots) {
-        if (Math.abs(slot.getTime() - now.getTime()) <= POLL_TOLERANCE_MS) {
-          const slotKey = `checkin-${slot.toISOString()}`;
-          if (!(await alreadyNotified("checkin", slotKey))) {
-            await sendToUser(
-              "Pulse check-in",
-              "What'd you spend the last stretch on?",
-              "/"
-            );
-            await markNotified("checkin", slotKey);
           }
         }
       }
