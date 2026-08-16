@@ -22,16 +22,26 @@ describe("countRecentQadaCatchUps", () => {
 });
 
 describe("accentForQadaBacklog", () => {
-  it("is positive at zero backlog — nothing owed", () => {
-    expect(accentForQadaBacklog(0)).toBe("business");
+  it("is positive at zero backlog — nothing owed, regardless of this window's activity", () => {
+    expect(accentForQadaBacklog(0, 0, 0)).toBe("business");
+    expect(accentForQadaBacklog(0, 3, 0)).toBe("business");
   });
 
-  it("is warning once anything is owed", () => {
-    // Binary, not thresholded — no "large backlog" number was specified,
-    // and inventing one would be guessing at a figure nobody gave. Any
-    // qada owed is worth flagging, conservatively, per overnight judgment
-    // rules (documented in PROJECT_STATUS.md).
-    expect(accentForQadaBacklog(1)).toBe("deen");
-    expect(accentForQadaBacklog(12)).toBe("deen");
+  // Opus Lead review (2026-08-16): qada backlog is a long-term catch-up
+  // project, not an alert — a binary any-backlog-means-warning rule pins
+  // the card amber permanently and the tint stops carrying information.
+  // Tint by direction over the window instead, using the same two counts
+  // (caught up / newly missed) already computed for the card's caption.
+  it("is positive when more was caught up than newly missed this window — falling behind less", () => {
+    expect(accentForQadaBacklog(5, 3, 1)).toBe("business");
+  });
+
+  it("is neutral when catch-ups and new misses net to zero", () => {
+    expect(accentForQadaBacklog(5, 2, 2)).toBe("neutral");
+    expect(accentForQadaBacklog(5, 0, 0)).toBe("neutral");
+  });
+
+  it("is warning when more was newly missed than caught up — falling further behind", () => {
+    expect(accentForQadaBacklog(5, 1, 3)).toBe("deen");
   });
 });

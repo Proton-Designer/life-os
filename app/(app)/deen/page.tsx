@@ -17,7 +17,7 @@ import type { ReflectionEntry } from "@/lib/deen/reflection-sparkline";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
-import { countRecentQadaCatchUps, accentForQadaBacklog } from "@/lib/deen/qada-progress";
+import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
 import { bucketPagesByDay } from "@/lib/deen/quran-trend";
 import { buildPrayerConsistencyRows, computeOnTimeRate } from "@/lib/deen/prayer-consistency";
 import { NextUpHero } from "@/components/home/next-up-hero";
@@ -166,9 +166,10 @@ export default async function DeenPage() {
   for (const row of allPrayerRows) (prayersByDate[row.date] ??= []).push(row.status);
   const prayerStreak = computePrayerStreak(prayersByDate, dateStr);
 
-  // --- Qada backlog: recent catch-up count (real derived signal — qada_owed itself has no history) ---
+  // --- Qada backlog: recent catch-up vs. newly-missed counts (real derived signal — qada_owed itself has no history) ---
   const sevenDayRows = allPrayerRows.filter((p) => p.date >= sevenDaysAgoStr);
   const recentQadaCatchUps = countRecentQadaCatchUps(sevenDayRows);
+  const recentMisses = countRecentMisses(sevenDayRows);
 
   // --- Qur'an: this week's total + delta vs last week + daily trend ---
   const sessions = quranSessionRows ?? [];
@@ -237,13 +238,15 @@ export default async function DeenPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={History}
-            accent={accentForQadaBacklog(profile?.qada_owed ?? 0)}
+            accent={accentForQadaBacklog(profile?.qada_owed ?? 0, recentQadaCatchUps, recentMisses)}
             label="Qada backlog"
             value={`${profile?.qada_owed ?? 0}`}
             caption={
-              recentQadaCatchUps === 0
+              recentQadaCatchUps === 0 && recentMisses === 0
                 ? "None caught up in the last 7 days"
-                : `${recentQadaCatchUps} caught up in the last 7 days`
+                : recentQadaCatchUps >= recentMisses
+                  ? `${recentQadaCatchUps} caught up in the last 7 days`
+                  : `${recentMisses} added in the last 7 days`
             }
           />
         </div>

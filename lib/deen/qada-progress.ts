@@ -13,11 +13,26 @@ export function countRecentQadaCatchUps(rows: { date: string; status: string }[]
 }
 
 /**
- * Opus Lead review (2026-08-16): KPI tint follows the card's own value, not
- * the domain accent. Binary rather than thresholded — no "large backlog"
- * number was ever specified, so any owed count is flagged rather than
- * guessing at a cutoff.
+ * How many prayers were newly marked missed within the given rows — the
+ * other half of the backlog's direction (missed prayers are what grow
+ * qada_owed; qada catch-ups are what shrink it).
  */
-export function accentForQadaBacklog(owed: number): AccentToken {
-  return owed === 0 ? "business" : "deen";
+export function countRecentMisses(rows: { date: string; status: string }[]): number {
+  return rows.filter((r) => r.status === "missed").length;
+}
+
+/**
+ * Opus Lead review (2026-08-16): qada backlog is a long-term catch-up
+ * project, not an alert — tinting on the absolute owed count pins the card
+ * amber permanently the moment anything is owed, which stops carrying any
+ * information. Zero owed is still an unambiguous positive (a genuinely
+ * resolved state, not a "trend" that needs comparing). Above zero, tint by
+ * direction over the window instead: caught up vs. newly missed.
+ */
+export function accentForQadaBacklog(owed: number, caughtUp: number, missed: number): AccentToken {
+  if (owed === 0) return "business";
+  const net = caughtUp - missed;
+  if (net > 0) return "business";
+  if (net < 0) return "deen";
+  return "neutral";
 }
