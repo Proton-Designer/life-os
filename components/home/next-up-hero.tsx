@@ -25,47 +25,45 @@ function relativeTime(dueAt: Date | null, now: Date): string {
   return formatted === "now" ? "Now" : formatted;
 }
 
+// The "Next Up" slot of Home's cross-cutting KPI row (Tier 1 — same
+// min-h-[168px] rhythm as KpiCard, but keeps its own component rather than
+// being forced through KpiCard's generic shape, since it's the one KPI
+// that needs an inline primary action button. No internal "all clear"
+// fallback — per the chart-empty-states ruling, the caller renders
+// EmptyState instead of this component when there's no next item, rather
+// than this component rendering its own stub.
 export function NextUpHero({
   item,
   now,
+  caption,
   ...props
-}: { item: PriorityItem | null; now: Date } & React.HTMLAttributes<HTMLDivElement>) {
+}: { item: PriorityItem; now: Date; caption: string } & React.HTMLAttributes<HTMLDivElement>) {
   const [isPending, startTransition] = useTransition();
-
-  if (!item) {
-    return (
-      <div className="rounded-2xl border border-border/50 bg-card p-6" {...props}>
-        <p className="text-sm text-muted-foreground">Next up</p>
-        <p className="mt-2 text-lg font-medium">You&apos;re all clear</p>
-      </div>
-    );
-  }
 
   const accent = DOMAIN_ACCENT[item.domain];
   const colorVar = ACCENT_VAR[accent];
 
   return (
-    <div
-      className="rounded-2xl border p-6"
-      style={featuredCardStyle(colorVar)}
-      {...props}
-    >
+    <div className="flex min-h-[168px] flex-col justify-between rounded-2xl border p-4" style={featuredCardStyle(colorVar)} {...props}>
       <div className="flex items-center gap-3">
         <IconChip icon={DOMAIN_ICON[item.domain]} accent={accent} />
-        <div>
-          <p className="text-sm text-muted-foreground">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
             {DOMAIN_LABEL[item.domain]} &middot; {relativeTime(item.dueAt, now)}
           </p>
-          <p className="mt-1 text-xl font-semibold">{item.title}</p>
+          <p className="mt-1 truncate text-lg font-semibold">{item.title}</p>
         </div>
       </div>
-      <Button
-        className="mt-4"
-        disabled={isPending}
-        onClick={() => startTransition(() => toggleItem(item))}
-      >
-        {isPending ? "Marking…" : "Mark done"}
-      </Button>
+      <div className="flex items-end justify-between gap-2">
+        <p className="text-xs text-muted-foreground">{caption}</p>
+        <Button
+          size="sm"
+          disabled={isPending}
+          onClick={() => startTransition(() => toggleItem(item))}
+        >
+          {isPending ? "Marking…" : "Mark done"}
+        </Button>
+      </div>
     </div>
   );
 }

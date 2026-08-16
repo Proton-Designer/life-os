@@ -6,21 +6,28 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // storageState) rather than logging in itself.
 
 test.describe("Home", () => {
-  test("renders hero, domain peek cards, and priority list", async ({ page }) => {
+  test("renders the day ribbon, KPI row, domain status stack, and priority list", async ({ page }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
     await expect(page.getByRole("button", { name: "Mark done" }).or(page.getByText("all clear"))).toBeVisible();
 
-    // Home v2 (the domain peek cards replaced the old PulseStrip ring row —
-    // pulse-strip.tsx is left in place, just unreferenced). Each domain's
-    // testid is rendered in up to 3 places in the DOM at once (left/right
-    // rail, tablet's combined rail, mobile's carousel — same "duplicate,
-    // CSS-toggle visibility" pattern as TopNav/MobileIsland), so scope to
-    // the single one that's actually visible at this viewport.
-    for (const domain of ["deen", "business", "fitness", "school", "co_op"]) {
-      await expect(page.locator(`[data-testid="domain-peek-card-${domain}"]:visible`)).toHaveCount(1);
-    }
+    // Day Ribbon (Phase D) — either the real ribbon (a Fajr prayer-marker
+    // button, aria-labeled distinctly from every other "Fajr" text on the
+    // page — the priority list row, Next Up hero, etc.) or, if no location
+    // is set yet, its EmptyState fallback.
+    await expect(
+      page.getByRole("button", { name: /^Fajr,/ }).or(page.getByText("Set your location in Settings"))
+    ).toBeVisible();
+
+    // Domain status stack (replaced the old rail-based domain peek cards in
+    // the Phase D rebuild) — checked via each row's own metric text, which
+    // is unique per domain, rather than a testid the shared ListRow
+    // component doesn't expose per-instance.
+    await expect(page.getByText(/\d\/5 prayers/)).toBeVisible();
+    await expect(page.getByText(/Kill list \d\/3/)).toBeVisible();
+    await expect(page.getByText(/% this week/)).toBeVisible();
+    await expect(page.getByText(/due today/).first()).toBeVisible();
 
     // Priority list section headings or the empty-state copy are the only
     // two valid rendered states for this account at any given moment.

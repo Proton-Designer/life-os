@@ -2,15 +2,30 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { ListChecks, Timer, Flame, Inbox } from "lucide-react";
 import { getPriorityItems } from "@/lib/home/get-priority-items";
 import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
-import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
+import { getHomeExtras } from "@/lib/home/get-home-extras";
+import { getWeeklySignalNoiseRatio } from "@/lib/business/sn-ratio";
+import {
+  localDateString,
+  localWeekday,
+  getTimezoneOffsetMinutes,
+  getWeekStartDate,
+  addDaysToDateString,
+  formatDurationMagnitude,
+} from "@/lib/date-utils";
 import { NextUpHero } from "@/components/home/next-up-hero";
 import { PriorityList } from "@/components/home/priority-list";
-import { DomainPeekCards } from "@/components/home/domain-peek-cards";
-import { WeeklySummaryStrip } from "@/components/home/weekly-summary-strip";
+import { DomainStatusStack } from "@/components/home/domain-status-stack";
+import { DayRibbon } from "@/components/home/day-ribbon";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { Panel } from "@/components/ui/panel";
+import { EmptyState } from "@/components/ui/empty-state";
+import { AreaChart } from "@/components/charts/area-chart";
+import { DonutChart } from "@/components/charts/donut-chart";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -23,12 +38,17 @@ export default async function HomePage() {
   const userId = user.id;
   const now = new Date();
 
-  const [items, snapshots] = await Promise.all([
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const dateStr = localDateString(now, timezone);
+  const weekStart = getWeekStartDate(dateStr);
+
+  const [items, snapshots, extras, snRatio] = await Promise.all([
     getPriorityItems(userId, now),
     getDomainSnapshots(userId, now),
+    getHomeExtras(userId, now, profile),
+    getWeeklySignalNoiseRatio(userId, new Date(`${weekStart}T00:00:00Z`)),
   ]);
-
-  const profile = await getProfile();
 
   // Onboarding (Phase 13) doesn't exist yet — until it does, a fresh account
   // just sees the same empty state as "all clear" with a slightly different
@@ -39,13 +59,12 @@ export default async function HomePage() {
   // a nudge until it's done, per spec. "This week" here means the upcoming
   // week (starts tomorrow, Sunday), since Saturday evening is when you plan
   // ahead for it.
-  const timezone = profile?.timezone ?? "UTC";
   const isSaturdayEvening =
     localWeekday(now, timezone) === "Saturday" &&
     (now.getUTCHours() * 60 + now.getUTCMinutes() + getTimezoneOffsetMinutes(now, timezone)) % 1440 >= 18 * 60;
   let showPlanningNudge = false;
   if (isSaturdayEvening) {
-    const upcomingWeekStart = addDaysToDateString(getWeekStartDate(localDateString(now, timezone)), 7);
+    const upcomingWeekStart = addDaysToDateString(getWeekStartDate(dateStr), 7);
     const { data: upcomingGoals } = await supabase
       .from("weekly_goals")
       .select("id")
@@ -54,55 +73,168 @@ export default async function HomePage() {
     showPlanningNudge = (upcomingGoals?.length ?? 0) === 0;
   }
 
+  const { done: completionDone, total: completionTotal } = extras.todayCompletion;
+  const completionCaption =
+    completionTotal === 0
+      ? "Nothing due yet today"
+      : completionDone === completionTotal
+        ? "Everything done for today"
+        : `${completionTotal - completionDone} item${completionTotal - completionDone === 1 ? "" : "s"} left`;
+  const todayPct = completionTotal === 0 ? 0 : Math.round((completionDone / completionTotal) * 100);
+  const yesterdayPct = extras.weeklyCompletionPct[5] ?? 0;
+  const completionDelta =
+    completionTotal === 0
+      ? undefined
+      : {
+          direction: (todayPct > yesterdayPct ? "up" : todayPct < yesterdayPct ? "down" : "flat") as
+            | "up"
+            | "down"
+            | "flat",
+          text: `${todayPct - yesterdayPct >= 0 ? "+" : ""}${todayPct - yesterdayPct}% vs yesterday`,
+        };
+
+  const weeklyAvgPct = Math.round(
+    extras.weeklyCompletionPct.reduce((a, b) => a + b, 0) / extras.weeklyCompletionPct.length
+  );
+  const bestDayIndex = extras.weeklyCompletionPct.reduce(
+    (best, v, i) => (v > extras.weeklyCompletionPct[best] ? i : best),
+    0
+  );
+
   return (
     <PageContainer>
       <PageHeader title="Home" />
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_280px] lg:grid-cols-[280px_minmax(0,1fr)_280px]">
-        {/* Left rail — desktop only. Deen + Business: the two domains
-            DOMAIN_PRIORITY (lib/home/get-priority-items.ts) weights highest.
-            self-start: grid's default stretch would otherwise pad this
-            column's box to match the (usually taller) center column, leaving
-            a big dead gap below these 2 cards instead of just a shorter column. */}
-        <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
-          <DomainPeekCards snapshots={snapshots} now={now} domains={["deen", "business"]} />
-        </div>
 
-        {/* Center column — the highest-leverage content, same relative
-            position at every width: hero, nudge, priority list, then (mobile
-            only) the peek-card carousel, then the weekly summary. */}
-        <div className="flex flex-col gap-6">
-          <NextUpHero item={items[0] ?? null} now={now} />
-          {showPlanningNudge && (
-            <Link
-              href="/weekly-planning"
-              className="rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business hover:bg-accent-business/20"
-            >
-              Plan next week&apos;s Deen and Business goals →
-            </Link>
-          )}
-          {isFreshInstall ? (
-            <p className="text-sm text-muted-foreground">
-              Welcome to Life OS — head into a domain tab to get started.
-            </p>
-          ) : (
-            <PriorityList items={items} />
-          )}
+      {extras.dayRibbon ? (
+        <Panel title="Today" data-panel>
+          <DayRibbon layout={extras.dayRibbon} todayStr={dateStr} timezone={timezone} />
+        </Panel>
+      ) : (
+        <Panel title="Today">
+          <EmptyState
+            icon={Inbox}
+            message="Set your location in Settings to see today's prayer-anchored timeline"
+            action={{ label: "Go to Settings", href: "/settings" }}
+          />
+        </Panel>
+      )}
 
-          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:hidden">
-            <DomainPeekCards snapshots={snapshots} now={now} />
+      {/* Cross-cutting Tier-1 KPI row — never per-domain (the domain status
+          stack below owns that). Mobile: horizontal snap carousel at ~78vw
+          so the next card peeks, matching the pattern already proven on
+          the domain peek cards. */}
+      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-4">
+        {items.length > 0 ? (
+          <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+            <NextUpHero
+              item={items[0]}
+              now={now}
+              caption={items.length > 1 ? `${items.length - 1} more today` : "Last one for today"}
+            />
           </div>
-
-          <WeeklySummaryStrip snapshots={snapshots} />
+        ) : (
+          <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+            <EmptyState
+              icon={ListChecks}
+              message={isFreshInstall ? "Welcome — head into a domain tab to get started" : "You're all clear"}
+              action={{ label: "Plan the week", href: "/weekly-planning" }}
+            />
+          </div>
+        )}
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={ListChecks}
+            accent="info"
+            label="Today's completion"
+            value={completionTotal === 0 ? "—" : `${completionDone}/${completionTotal}`}
+            caption={completionCaption}
+            delta={completionDelta}
+          />
         </div>
-
-        {/* Combined rail — tablet only (all 5 cards, one column). */}
-        <div className="hidden md:flex md:flex-col md:gap-4 md:self-start lg:hidden">
-          <DomainPeekCards snapshots={snapshots} now={now} />
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Timer}
+            accent="business"
+            label="Focus time today"
+            value={extras.focusTimeMinutes === 0 ? "0m" : formatDurationMagnitude(extras.focusTimeMinutes)}
+            caption={
+              extras.focusSessionCount === 0
+                ? "No Lock-In sessions yet today"
+                : `${extras.focusSessionCount} Lock-In session${extras.focusSessionCount === 1 ? "" : "s"}`
+            }
+          />
         </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Flame}
+            accent="deen"
+            label="Prayer streak"
+            value={`${extras.prayerStreak}`}
+            caption={
+              extras.prayerStreak === 0
+                ? "Pray all 5 today to start one"
+                : extras.prayerStreak === 1
+                  ? "Just getting started"
+                  : "Keep it going"
+            }
+          />
+        </div>
+      </div>
 
-        {/* Right rail — desktop only. */}
-        <div className="hidden lg:flex lg:flex-col lg:gap-4 lg:self-start">
-          <DomainPeekCards snapshots={snapshots} now={now} domains={["fitness", "school", "co_op"]} />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          <Panel title="Right now / Later today" data-panel>
+            {showPlanningNudge && (
+              <Link
+                href="/weekly-planning"
+                className="mb-4 block rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business hover:bg-accent-business/20"
+              >
+                Plan next week&apos;s Deen and Business goals →
+              </Link>
+            )}
+            <PriorityList items={items} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-5">
+          <DomainStatusStack snapshots={snapshots} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-8">
+          <Panel
+            title="This week"
+            heroValue={`${weeklyAvgPct}%`}
+            caption={`${extras.weeklyCompletionLabels[bestDayIndex]} was your best day this week`}
+            data-panel
+          >
+            <AreaChart
+              categories={extras.weeklyCompletionLabels}
+              series={[{ label: "Completion", colorVar: "--series-business", values: extras.weeklyCompletionPct }]}
+            />
+          </Panel>
+        </div>
+        <div className="lg:col-span-4">
+          {snRatio.signal + snRatio.noise === 0 ? (
+            <Panel title="Signal:Noise this week">
+              <EmptyState
+                icon={Inbox}
+                message="No check-ins answered yet this week"
+                action={{ label: "Start a Lock-In session", href: "/business" }}
+              />
+            </Panel>
+          ) : (
+            <Panel title="Signal:Noise this week" data-panel>
+              <DonutChart
+                slices={[
+                  { label: "Signal", value: snRatio.signal, colorVar: "--accent-business" },
+                  { label: "Noise", value: snRatio.noise, colorVar: "--accent-noise" },
+                ]}
+                centerLabel="This week"
+                centerValue={snRatio.display}
+              />
+            </Panel>
+          )}
         </div>
       </div>
     </PageContainer>
