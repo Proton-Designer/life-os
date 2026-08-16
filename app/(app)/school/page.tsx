@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
-import { CalendarClock, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { CalendarClock, AlertTriangle, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString } from "@/lib/date-utils";
 import { countOverdue, countCompletedInWeek } from "@/lib/tasks/task-metrics";
+import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { accentForActivityCount } from "@/lib/kpi-value-accent";
 import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
 import { TaskList, type TaskData } from "@/components/shared/task-list";
@@ -72,6 +73,7 @@ export default async function SchoolPage() {
     weekEndIso
   );
   const dueThisWeekCount = deadlineTasks.filter((t) => weekDates.includes(t.dueDate)).length;
+  const scheduledThisWeekCount = countScheduledThisWeek(events, weekDates);
 
   return (
     <PageContainer>
@@ -81,7 +83,10 @@ export default async function SchoolPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={CalendarClock}
-            accent={dueTodayCount === 0 ? "business" : "info"}
+            // Opus Lead review (2026-08-16): the first KPI card is the
+            // screen's identity anchor and keeps the domain accent
+            // unconditionally — only the other two take state-based tint.
+            accent="school"
             label="Due today"
             value={`${dueTodayCount}`}
             caption={dueTodayCount === 0 ? "Nothing due today" : `${dueTodayCount} task${dueTodayCount === 1 ? "" : "s"} due`}
@@ -89,7 +94,7 @@ export default async function SchoolPage() {
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
-            icon={AlertTriangle}
+            icon={overdueCount === 0 ? ShieldCheck : AlertTriangle}
             accent={overdueCount === 0 ? "business" : "deen"}
             label="Overdue"
             value={`${overdueCount}`}
@@ -114,7 +119,11 @@ export default async function SchoolPage() {
           </Panel>
         </div>
         <div className="lg:col-span-6">
-          <Panel title="Class schedule">
+          <Panel
+            title="Class schedule"
+            heroValue={`${scheduledThisWeekCount}`}
+            caption={scheduledThisWeekCount === 0 ? "Nothing scheduled this week" : "classes this week"}
+          >
             <DomainScheduleView
               events={events}
               weekDates={weekDates}

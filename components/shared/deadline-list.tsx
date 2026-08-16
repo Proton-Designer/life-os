@@ -18,14 +18,26 @@ export function DeadlineList({
   tasks,
   todayStr,
   toggleTask,
+  quiet = false,
 }: {
   tasks: DeadlineTaskData[];
   todayStr: string;
   toggleTask: (id: string) => Promise<void>;
+  // Opus Lead review (2026-08-16): when a page-level empty state is already
+  // announcing there's nothing here (Co-op's "No active co-op" panel), this
+  // panel's own "Add a task" CTA becomes a second identical prompt stacked
+  // right below the first — the same double-CTA problem fixed on Deen's
+  // Habit Builder. Quiet mode keeps the panel (and its real message) but
+  // drops the redundant action, deliberately violating EmptyState's normal
+  // required-action contract for this one authorized case.
+  quiet?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
 
   if (tasks.length === 0) {
+    if (quiet) {
+      return <p className="py-8 text-center text-sm text-muted-foreground">Nothing due yet</p>;
+    }
     return (
       <EmptyState icon={CalendarClock} message="Nothing due yet" action={{ label: "Add a task", href: "#task-list-add" }} />
     );

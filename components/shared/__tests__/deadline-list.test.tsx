@@ -10,6 +10,12 @@ describe("DeadlineList", () => {
     expect(screen.getByRole("link", { name: "Add a task" })).toBeInTheDocument();
   });
 
+  it("drops the action in quiet mode, keeping only the message", () => {
+    render(<DeadlineList tasks={[]} todayStr="2026-08-15" toggleTask={vi.fn()} quiet />);
+    expect(screen.getByText("Nothing due yet")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Add a task" })).not.toBeInTheDocument();
+  });
+
   it("sorts tasks soonest-due first regardless of input order", () => {
     render(
       <DeadlineList

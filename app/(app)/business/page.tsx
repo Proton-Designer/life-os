@@ -144,7 +144,13 @@ export default async function BusinessPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={Clock}
-            accent={accentForActivityCount(sessionsToday.length)}
+            // Opus Lead review (2026-08-16): the first KPI card is the
+            // screen's identity anchor and keeps the domain accent
+            // unconditionally — only cards two and three take state-based
+            // semantic tint. Without this, a page's whole KPI row can lose
+            // domain identity entirely (Co-op's did: 3/3 cards ended up
+            // green at zero, no magenta anywhere but the sidebar).
+            accent="business"
             label="Focus time today"
             value={formatElapsedDuration(focusMinutesToday * 60_000)}
             caption={
