@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AreaChart } from "../area-chart";
 
@@ -43,5 +43,20 @@ describe("AreaChart", () => {
       />
     );
     expect(screen.getByRole("img")).toBeInTheDocument();
+  });
+
+  it("appends unit to axis ticks and tooltip values, so a hero value shown alongside can't read as a different unit", async () => {
+    const { container } = render(
+      <AreaChart
+        categories={["Mon", "Tue"]}
+        series={[{ label: "Completion", colorVar: "--series-business", values: [0, 20] }]}
+        unit="%"
+      />
+    );
+    expect(screen.getByText("20%")).toBeInTheDocument(); // an axis tick
+
+    const hitTarget = container.querySelectorAll('[role="button"]')[1];
+    fireEvent.mouseEnter(hitTarget);
+    expect(await screen.findByText("20%", { selector: "span" })).toBeInTheDocument(); // the tooltip value
   });
 });

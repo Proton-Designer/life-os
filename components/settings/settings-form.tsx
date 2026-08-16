@@ -93,7 +93,12 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
         </div>
 
         <h2 className="mt-2 text-sm font-semibold text-muted-foreground">Check-ins</h2>
-        <div className="flex gap-3">
+        {/* flex-col below sm: 3 side-by-side inputs (2 native time pickers +
+            a number field) genuinely don't fit in 390px — native time
+            inputs have a browser-enforced minimum width flex can't shrink
+            below. A real overflow bug, caught by the layout-overflow
+            spec's determinism fix (2026-08-16), not by eyeballing. */}
+        <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>
             <Input

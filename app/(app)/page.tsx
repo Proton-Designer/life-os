@@ -211,6 +211,7 @@ export default async function HomePage() {
             <AreaChart
               categories={extras.weeklyCompletionLabels}
               series={[{ label: "Completion", colorVar: "--series-business", values: extras.weeklyCompletionPct }]}
+              unit="%"
             />
           </Panel>
         </div>

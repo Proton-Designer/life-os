@@ -20,11 +20,20 @@ export function AreaChart({
   categories,
   series,
   height = 200,
+  unit = "",
 }: {
   categories: string[];
   series: AreaChartSeries[];
   height?: number;
+  /** Appended to both axis ticks and tooltip values — e.g. "%" when the
+   * plotted values are a percentage, so the axis and any hero value shown
+   * alongside the chart can't read as two different units. A plain string,
+   * not a formatter function: AreaChart is a Client Component and this
+   * often gets called from a Server Component page, which can't pass
+   * functions as props across that boundary. */
+  unit?: string;
 }) {
+  const formatValue = (v: number) => `${v}${unit}`;
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const innerWidth = WIDTH - PADDING.left - PADDING.right;
@@ -77,7 +86,7 @@ export function AreaChart({
                 dominantBaseline="middle"
                 className="fill-muted-foreground text-[10px]"
               >
-                {t}
+                {formatValue(t)}
               </text>
             ))}
 
@@ -147,7 +156,7 @@ export function AreaChart({
               key={s.label}
               colorVar={s.colorVar}
               label={s.label}
-              value={String(s.values[hoverIndex] ?? "—")}
+              value={s.values[hoverIndex] !== undefined ? formatValue(s.values[hoverIndex]) : "—"}
             />
           ))}
         </ChartTooltip>

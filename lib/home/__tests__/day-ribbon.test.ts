@@ -39,12 +39,22 @@ describe("computeDayRibbon", () => {
     const layout = computeDayRibbon({ prayers: PRAYERS, activities: [], now: DHUHR });
     expect(layout?.nowPct).toBeGreaterThan(0);
     expect(layout?.nowPct).toBeLessThan(100);
+    expect(layout?.nowPosition).toBe("within");
+  });
 
-    // before Fajr and after Isha both clamp rather than going out of range
+  it("reports nowPosition as before/after rather than silently clamping — no defined on-track behavior outside Fajr-Isha", () => {
     const before = computeDayRibbon({ prayers: PRAYERS, activities: [], now: new Date("2026-08-15T00:00:00Z") });
+    expect(before?.nowPosition).toBe("before");
     expect(before?.nowPct).toBe(0);
+
     const after = computeDayRibbon({ prayers: PRAYERS, activities: [], now: new Date("2026-08-17T00:00:00Z") });
+    expect(after?.nowPosition).toBe("after");
     expect(after?.nowPct).toBe(100);
+  });
+
+  it("carries the raw 'now' Date through so the caller can format a real 'time until/since' label", () => {
+    const layout = computeDayRibbon({ prayers: PRAYERS, activities: [], now: DHUHR });
+    expect(layout?.now).toEqual(DHUHR);
   });
 
   it("positions activity blocks by their real start/end timestamps", () => {

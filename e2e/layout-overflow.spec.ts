@@ -30,17 +30,45 @@ const AUTHED_ROUTES = [
 
 const PUBLIC_ROUTES = ["/login", "/signup"];
 
+// Opus Lead review (2026-08-16): a bare goto->measure had no deterministic
+// settle point. `goto` resolves on `load`, but a streaming Server Component,
+// a late font swap, or a client chart mounting can all still move layout
+// after that — under full-suite load (slower machine) the measurement can
+// land mid-shift, which cuts both ways: a transient overflow reads as a
+// false FAIL, or measuring BEFORE a wide element has mounted yet reads as a
+// false PASS on a page that will actually overflow once settled. The false
+// PASS is the dangerous direction, since nothing would ever flag it.
+// Fix: wait for network idle + web fonts + two animation frames (hydration/
+// layout settle) BEFORE measuring at all, so the measurement itself isn't
+// racing anything. expect.poll then gives any final micro-jitter a short
+// window to resolve without masking a real, persistent overflow (which
+// stays failing across the whole poll window regardless).
+async function waitForSettled(page: import("@playwright/test").Page) {
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  );
+}
+
 async function assertNoHorizontalOverflow(page: import("@playwright/test").Page, width: number) {
-  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  // 1px tolerance for subpixel rounding, same margin the spec's own
-  // "measured, not eyeballed" quality floor implies is acceptable.
-  expect(
-    scrollWidth,
-    `scrollWidth (${scrollWidth}) exceeds clientWidth (${clientWidth}) at ${width}px wide`
-  ).toBeLessThanOrEqual(clientWidth + 1);
+  await expect
+    .poll(
+      async () => {
+        const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        }));
+        // 1px tolerance for subpixel rounding, same margin the spec's own
+        // "measured, not eyeballed" quality floor implies is acceptable.
+        return scrollWidth <= clientWidth + 1;
+      },
+      {
+        message: `document scrollWidth exceeds clientWidth at ${width}px wide`,
+        timeout: 2000,
+      }
+    )
+    .toBe(true);
 }
 
 // document.documentElement.scrollWidth only catches page-level overflow — an
@@ -49,12 +77,22 @@ async function assertNoHorizontalOverflow(page: import("@playwright/test").Page,
 // can't see. Charts inside Panels (Phase C onward) are exactly that risk,
 // per the Phase B review. Every Panel carries `data-panel` for this reason.
 async function assertNoPanelOverflow(page: import("@playwright/test").Page, width: number) {
-  const overflowing = await page.evaluate(() =>
-    Array.from(document.querySelectorAll<HTMLElement>("[data-panel]"))
-      .map((el, i) => ({ i, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
-      .filter((p) => p.scrollWidth > p.clientWidth + 1)
-  );
-  expect(overflowing, `${overflowing.length} panel(s) overflow their own bounds at ${width}px wide`).toEqual([]);
+  await expect
+    .poll(
+      async () => {
+        const overflowing = await page.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>("[data-panel]"))
+            .map((el, i) => ({ i, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
+            .filter((p) => p.scrollWidth > p.clientWidth + 1)
+        );
+        return overflowing.length;
+      },
+      {
+        message: `panel(s) overflow their own bounds at ${width}px wide`,
+        timeout: 2000,
+      }
+    )
+    .toBe(0);
 }
 
 test.describe("Layout overflow — zero horizontal scroll at every breakpoint", () => {
@@ -68,6 +106,7 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
         await page.setViewportSize({ width, height: 900 });
         await page.goto(route);
         await dismissCheckinDialogIfPresent(page);
+        await waitForSettled(page);
         await assertNoHorizontalOverflow(page, width);
         await assertNoPanelOverflow(page, width);
       }
@@ -79,6 +118,7 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
       for (const width of BREAKPOINTS) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(route);
+        await waitForSettled(page);
         await assertNoHorizontalOverflow(page, width);
         await assertNoPanelOverflow(page, width);
       }

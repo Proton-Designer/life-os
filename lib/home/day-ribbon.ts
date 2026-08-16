@@ -20,7 +20,12 @@ export type DayRibbonLayout = {
   rangeStart: Date;
   rangeEnd: Date;
   markers: RibbonPrayerMarker[];
+  now: Date;
   nowPct: number;
+  /** Whether `now` actually falls within Fajr-Isha — the caller must render
+   * before/after distinctly (parked off-track with its own label), not as
+   * a silently-clamped 0%/100% line indistinguishable from "now is Fajr". */
+  nowPosition: "before" | "within" | "after";
   blocks: RibbonActivityBlock[];
 };
 
@@ -67,6 +72,8 @@ export function computeDayRibbon({
   }));
 
   const nowPct = pctOf(now, rangeStart, rangeEnd);
+  const nowPosition: DayRibbonLayout["nowPosition"] =
+    now.getTime() < rangeStart.getTime() ? "before" : now.getTime() > rangeEnd.getTime() ? "after" : "within";
 
   const blocks: RibbonActivityBlock[] = activities.map((a) => ({
     label: a.label,
@@ -75,5 +82,5 @@ export function computeDayRibbon({
     endPct: pctOf(a.end ?? now, rangeStart, rangeEnd),
   }));
 
-  return { rangeStart, rangeEnd, markers, nowPct, blocks };
+  return { rangeStart, rangeEnd, markers, now, nowPct, nowPosition, blocks };
 }
