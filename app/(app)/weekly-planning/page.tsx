@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Flame, Sparkles, BookOpen, Target } from "lucide-react";
+import { Flame, CheckCircle2, BookOpen, Target } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
@@ -14,6 +14,36 @@ import { Panel } from "@/components/ui/panel";
 import { BarChart } from "@/components/charts/bar-chart";
 
 const RECAP_WEEK_COUNT = 6;
+
+// Opus Lead review (2026-08-16): BarChart's own empty state only fires
+// when `bars` itself is empty — with 6 weeks of real zero *values* it
+// still renders a live (if invisible) chart. In a small-multiples grid a
+// bare axis reads as "nothing happened," which is defensible, but with
+// two of four panels empty at once it's a lot of dead space. A compact
+// line beats an invisible chart.
+function SmallMultiple({
+  label,
+  bars,
+  colorVar,
+}: {
+  label: string;
+  bars: { label: string; value: number }[];
+  colorVar: string;
+}) {
+  const hasData = bars.some((b) => b.value !== 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      {hasData ? (
+        <BarChart bars={bars} colorVar={colorVar} highlightIndex={bars.length - 1} />
+      ) : (
+        <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
+          No data this window
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default async function WeeklyPlanningPage() {
   const supabase = await createClient();
@@ -45,7 +75,7 @@ export default async function WeeklyPlanningPage() {
     { data: currentGoals },
     { data: previousGoals },
     { data: prayerRows },
-    { data: adhkarRows },
+    { data: killListRows },
     { data: quranRows },
     { data: checkinRows },
   ] = await Promise.all([
@@ -54,7 +84,7 @@ export default async function WeeklyPlanningPage() {
     // One bulk range per table across the whole recap window — sliced into
     // per-week buckets in memory, never a per-week query loop.
     supabase.from("prayers").select("date, status").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
-    supabase.from("adhkar_logs").select("date, completed").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
+    supabase.from("kill_list_items").select("date, completed").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
     supabase.from("quran_sessions").select("date, pages_read").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
     supabase.from("checkins").select("checkin_time, tag_type, answered").eq("user_id", userId).gte("checkin_time", snWeeks[0].weekStartIso),
   ]);
@@ -64,7 +94,7 @@ export default async function WeeklyPlanningPage() {
   const previousDeen = previousGoals?.find((g) => g.domain === "deen") ?? null;
   const previousBusiness = previousGoals?.find((g) => g.domain === "business") ?? null;
 
-  const recap = buildWeeklyRecap(prayerRows ?? [], adhkarRows ?? [], quranRows ?? [], recapWeeks);
+  const recap = buildWeeklyRecap(prayerRows ?? [], killListRows ?? [], quranRows ?? [], recapWeeks);
   const snByWeek = bucketSignalNoiseByWeek(checkinRows ?? [], snWeeks);
   const snBars = snByWeek.map((w) => ({
     label: w.label,
@@ -126,12 +156,12 @@ export default async function WeeklyPlanningPage() {
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
-            icon={Sparkles}
-            accent="deen"
-            label="Adhkar"
-            value={`${lastWeekRecap.adhkarDone}/14`}
-            caption="last week"
-            sparkline={recap.map((r) => r.adhkarDone)}
+            icon={CheckCircle2}
+            accent="business"
+            label="Days cleared"
+            value={`${lastWeekRecap.killListDaysCleared}/7`}
+            caption="kill list, last week"
+            sparkline={recap.map((r) => r.killListDaysCleared)}
           />
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
@@ -187,22 +217,22 @@ export default async function WeeklyPlanningPage() {
 
       <Panel title="Week over week">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground">Prayers on time</p>
-            <BarChart bars={recap.map((r) => ({ label: r.label, value: r.prayersOnTime }))} colorVar="--series-deen" highlightIndex={recap.length - 1} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground">Adhkar</p>
-            <BarChart bars={recap.map((r) => ({ label: r.label, value: r.adhkarDone }))} colorVar="--series-deen" highlightIndex={recap.length - 1} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground">Qur&apos;an pages</p>
-            <BarChart bars={recap.map((r) => ({ label: r.label, value: r.quranPages }))} colorVar="--series-deen" highlightIndex={recap.length - 1} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground">Signal:Noise</p>
-            <BarChart bars={snBars} colorVar="--series-business" highlightIndex={snBars.length - 1} />
-          </div>
+          <SmallMultiple
+            label="Prayers on time"
+            bars={recap.map((r) => ({ label: r.label, value: r.prayersOnTime }))}
+            colorVar="--series-deen"
+          />
+          <SmallMultiple
+            label="Days cleared"
+            bars={recap.map((r) => ({ label: r.label, value: r.killListDaysCleared }))}
+            colorVar="--series-business"
+          />
+          <SmallMultiple
+            label="Qur'an pages"
+            bars={recap.map((r) => ({ label: r.label, value: r.quranPages }))}
+            colorVar="--series-deen"
+          />
+          <SmallMultiple label="Signal:Noise" bars={snBars} colorVar="--series-business" />
         </div>
       </Panel>
     </PageContainer>

@@ -23,20 +23,21 @@ describe("buildWeeklyRecap", () => {
     expect(result[1].prayersOnTime).toBe(1);
   });
 
-  it("counts completed adhkar per week", () => {
+  it("counts kill-list days fully cleared per week", () => {
     const result = buildWeeklyRecap(
       [],
       [
         { date: "2026-08-03", completed: true },
-        { date: "2026-08-04", completed: false },
+        { date: "2026-08-03", completed: true },
+        { date: "2026-08-03", completed: false }, // not fully cleared
         { date: "2026-08-10", completed: true },
-        { date: "2026-08-10", completed: true },
+        { date: "2026-08-11", completed: true },
       ],
       [],
       weeks
     );
-    expect(result[0].adhkarDone).toBe(1);
-    expect(result[1].adhkarDone).toBe(2);
+    expect(result[0].killListDaysCleared).toBe(0);
+    expect(result[1].killListDaysCleared).toBe(2);
   });
 
   it("sums Qur'an pages read per week", () => {
@@ -57,8 +58,8 @@ describe("buildWeeklyRecap", () => {
   it("labels each week from the given window and returns 0s for a week with no data", () => {
     const result = buildWeeklyRecap([], [], [], weeks);
     expect(result).toEqual([
-      { label: "Aug 2", prayersOnTime: 0, adhkarDone: 0, quranPages: 0 },
-      { label: "Aug 9", prayersOnTime: 0, adhkarDone: 0, quranPages: 0 },
+      { label: "Aug 2", prayersOnTime: 0, killListDaysCleared: 0, quranPages: 0 },
+      { label: "Aug 9", prayersOnTime: 0, killListDaysCleared: 0, quranPages: 0 },
     ]);
   });
 });
