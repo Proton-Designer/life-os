@@ -72,6 +72,27 @@ describe("ConsistencyGrid", () => {
     expect(missed.style.backgroundColor).toBe("transparent");
   });
 
+  it("gives every cell a fixed minimum width (not flex-1) and pins row labels — the narrow-viewport fix", () => {
+    // jsdom reports zero layout dimensions, so the scroll-to-most-recent-day
+    // mount effect can't be meaningfully asserted here (it early-returns
+    // whenever scrollWidth <= clientWidth, which is always true in jsdom) —
+    // that behavior is verified live, same as the Day Ribbon's identical
+    // pattern. This locks in the structural half of the fix: cells no
+    // longer shrink to fit (that's what produced ~6.5px cells at 390px),
+    // and labels stay pinned to the scroll container's left edge.
+    render(
+      <ConsistencyGrid
+        rows={[{ label: "Fajr", cells: [{ date: "d1", status: "on_time" }] }]}
+        statusStyle={STATUS_STYLE}
+      />
+    );
+    const cellWrapper = screen.getByRole("button", { name: /d1: On time/ }).parentElement;
+    expect(cellWrapper?.className).toContain("w-4");
+    expect(cellWrapper?.className).toContain("shrink-0");
+    expect(cellWrapper?.className).not.toContain("flex-1");
+    expect(screen.getByText("Fajr").className).toContain("sticky");
+  });
+
   it("renders a legend showing every status's treatment and label", () => {
     render(
       <ConsistencyGrid

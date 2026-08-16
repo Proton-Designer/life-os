@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { consistencyCellStyle, type CellTreatment } from "@/lib/charts/consistency-style";
 
@@ -29,6 +29,21 @@ export function ConsistencyGrid({
   statusStyle: Record<string, ConsistencyStatusStyle>;
 }) {
   const [hovered, setHovered] = useState<{ row: number; col: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Opus Lead review (2026-08-16): the 30-column grid measured ~6.5px cells
+  // at 390px, well past where the required hatch/hollow texture channel
+  // stops reading — texture itself is fine (confirmed legible down to
+  // ~17px), the cell was the problem. Fix is a minimum cell size, not a
+  // truncated day range — history stays whole, the row scrolls instead.
+  // Same mount-scroll pattern as the Day Ribbon, anchored to the most
+  // recent day (the right edge) rather than centered on "now", since
+  // there's no single "now" point on a status grid.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    el.scrollLeft = el.scrollWidth;
+  }, []);
 
   if (rows.length === 0 || rows[0].cells.length === 0) {
     return <p className="text-xs text-muted-foreground">No data yet</p>;
@@ -36,44 +51,48 @@ export function ConsistencyGrid({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        {rows.map((row, rowIndex) => (
-          <div key={row.label} className="flex items-center gap-2">
-            <span className="w-16 shrink-0 truncate text-xs text-muted-foreground">{row.label}</span>
-            <div className="flex flex-1 gap-[2px]">
-              {row.cells.map((cell, colIndex) => {
-                const style = statusStyle[cell.status];
-                const isHovered = hovered?.row === rowIndex && hovered?.col === colIndex;
-                return (
-                  <div key={cell.date} className="relative flex-1">
-                    <button
-                      type="button"
-                      aria-label={`${row.label}, ${cell.date}: ${style?.label ?? cell.status}`}
-                      onMouseEnter={() => setHovered({ row: rowIndex, col: colIndex })}
-                      onMouseLeave={() => setHovered(null)}
-                      onFocus={() => setHovered({ row: rowIndex, col: colIndex })}
-                      onBlur={() => setHovered(null)}
-                      className={cn("aspect-square w-full rounded-[2px] transition-opacity hover:opacity-80")}
-                      style={
-                        style
-                          ? consistencyCellStyle(style.treatment, style.colorVar)
-                          : { backgroundColor: "var(--muted)" }
-                      }
-                    />
-                    {isHovered && (
-                      <div
-                        role="tooltip"
-                        className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-border/50 bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-                      >
-                        {cell.date}: {style?.label ?? cell.status}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+      <div ref={scrollRef} className="overflow-x-auto">
+        <div className="flex w-fit flex-col gap-1">
+          {rows.map((row, rowIndex) => (
+            <div key={row.label} className="flex items-center gap-2">
+              <span className="sticky left-0 z-20 w-16 shrink-0 truncate bg-card pr-1 text-xs text-muted-foreground">
+                {row.label}
+              </span>
+              <div className="flex gap-[2px]">
+                {row.cells.map((cell, colIndex) => {
+                  const style = statusStyle[cell.status];
+                  const isHovered = hovered?.row === rowIndex && hovered?.col === colIndex;
+                  return (
+                    <div key={cell.date} className="relative w-4 shrink-0 sm:w-[22px]">
+                      <button
+                        type="button"
+                        aria-label={`${row.label}, ${cell.date}: ${style?.label ?? cell.status}`}
+                        onMouseEnter={() => setHovered({ row: rowIndex, col: colIndex })}
+                        onMouseLeave={() => setHovered(null)}
+                        onFocus={() => setHovered({ row: rowIndex, col: colIndex })}
+                        onBlur={() => setHovered(null)}
+                        className={cn("aspect-square w-full rounded-[2px] transition-opacity hover:opacity-80")}
+                        style={
+                          style
+                            ? consistencyCellStyle(style.treatment, style.colorVar)
+                            : { backgroundColor: "var(--muted)" }
+                        }
+                      />
+                      {isHovered && (
+                        <div
+                          role="tooltip"
+                          className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-border/50 bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+                        >
+                          {cell.date}: {style?.label ?? cell.status}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-[72px] text-xs text-muted-foreground">
         {Object.entries(statusStyle).map(([key, s]) => (
