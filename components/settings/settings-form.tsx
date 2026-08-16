@@ -6,8 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Panel } from "@/components/ui/panel";
 
 export type SettingsFormData = {
+  displayName: string;
   prayerCalcMethod: string;
   asrMadhab: "standard" | "hanafi";
   locationLabel: string;
@@ -17,7 +19,7 @@ export type SettingsFormData = {
   pinLockEnabled: boolean;
 };
 
-export function SettingsForm({ initial }: { initial: SettingsFormData }) {
+export function SettingsForm({ initial, email }: { initial: SettingsFormData; email: string }) {
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState(initial);
   const [pin, setPin] = useState("");
@@ -26,6 +28,7 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
     e.preventDefault();
     startTransition(() =>
       updateProfile({
+        display_name: form.displayName,
         prayer_calc_method: form.prayerCalcMethod,
         asr_madhab: form.asrMadhab,
         location_label: form.locationLabel,
@@ -54,50 +57,78 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
 
   return (
     <div className="flex flex-col gap-8">
-      <form onSubmit={saveMain} className="flex flex-col gap-4 rounded-2xl border border-border/40 bg-card p-4">
-        <h2 className="text-sm font-semibold text-muted-foreground">Prayer &amp; location</h2>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="prayer-method">Calculation method</Label>
-          <select
-            id="prayer-method"
-            value={form.prayerCalcMethod}
-            onChange={(e) => setForm((f) => ({ ...f, prayerCalcMethod: e.target.value }))}
-            className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-          >
-            <option value="MWL">Muslim World League</option>
-            <option value="ISNA">ISNA</option>
-            <option value="Karachi">Karachi</option>
-            <option value="Egyptian">Egyptian</option>
-          </select>
+      <form onSubmit={saveMain} className="contents">
+      <Panel id="profile" className="scroll-mt-24" title="Profile">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="email">Email</Label>
+            <p id="email" className="text-sm text-muted-foreground">
+              {email}
+            </p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="display-name">Display name</Label>
+            <Input
+              id="display-name"
+              value={form.displayName}
+              onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+              placeholder="How Life OS should address you"
+              className="max-w-xs"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Theme: dark-first (the only theme for v1 — light mode is a future nice-to-have).
+          </p>
         </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="asr-madhab">Asr madhab</Label>
-          <select
-            id="asr-madhab"
-            value={form.asrMadhab}
-            onChange={(e) => setForm((f) => ({ ...f, asrMadhab: e.target.value as "standard" | "hanafi" }))}
-            className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-          >
-            <option value="standard">Standard (Shafi/Maliki/Hanbali)</option>
-            <option value="hanafi">Hanafi</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="location">Location (city)</Label>
-          <Input
-            id="location"
-            value={form.locationLabel}
-            onChange={(e) => setForm((f) => ({ ...f, locationLabel: e.target.value }))}
-            placeholder="e.g. Chicago, IL"
-          />
-        </div>
+      </Panel>
 
-        <h2 className="mt-2 text-sm font-semibold text-muted-foreground">Check-ins</h2>
+      <Panel id="prayer" className="scroll-mt-24" title="Prayer">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="prayer-method">Calculation method</Label>
+            <select
+              id="prayer-method"
+              value={form.prayerCalcMethod}
+              onChange={(e) => setForm((f) => ({ ...f, prayerCalcMethod: e.target.value }))}
+              className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+            >
+              <option value="MWL">Muslim World League</option>
+              <option value="ISNA">ISNA</option>
+              <option value="Karachi">Karachi</option>
+              <option value="Egyptian">Egyptian</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="asr-madhab">Asr madhab</Label>
+            <select
+              id="asr-madhab"
+              value={form.asrMadhab}
+              onChange={(e) => setForm((f) => ({ ...f, asrMadhab: e.target.value as "standard" | "hanafi" }))}
+              className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+            >
+              <option value="standard">Standard (Shafi/Maliki/Hanbali)</option>
+              <option value="hanafi">Hanafi</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="location">Location (city)</Label>
+            <Input
+              id="location"
+              value={form.locationLabel}
+              onChange={(e) => setForm((f) => ({ ...f, locationLabel: e.target.value }))}
+              placeholder="e.g. Chicago, IL"
+            />
+          </div>
+        </div>
+      </Panel>
+
+      <Panel id="checkins" className="scroll-mt-24" title="Check-ins">
         {/* flex-col below sm: 3 side-by-side inputs (2 native time pickers +
             a number field) genuinely don't fit in 390px — native time
             inputs have a browser-enforced minimum width flex can't shrink
             below. A real overflow bug, caught by the layout-overflow
-            spec's determinism fix (2026-08-16), not by eyeballing. */}
+            spec's determinism fix (2026-08-16), not by eyeballing. Kept
+            unchanged through the Phase G restructure — re-verified live. */}
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>
@@ -132,52 +163,54 @@ export function SettingsForm({ initial }: { initial: SettingsFormData }) {
             />
           </div>
         </div>
+      </Panel>
 
-        <Button type="submit" disabled={isPending} className="self-start">
+      <div className="self-start">
+        <Button type="submit" disabled={isPending}>
           Save settings
         </Button>
+      </div>
       </form>
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-border/40 bg-card p-4">
-        <h2 className="text-sm font-semibold text-muted-foreground">App lock</h2>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="pin-lock"
-            checked={form.pinLockEnabled}
-            disabled={isPending}
-            onCheckedChange={togglePinLock}
-          />
-          <Label htmlFor="pin-lock" className="text-sm">
-            Require a PIN to open the app (default off)
-          </Label>
-        </div>
-        {form.pinLockEnabled && (
-          <form onSubmit={savePin} className="flex gap-2">
-            <Input
-              type="password"
-              inputMode="numeric"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              placeholder="New PIN"
-              className="w-32"
+      <Panel id="security" className="scroll-mt-24" title="Security">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="pin-lock"
+              checked={form.pinLockEnabled}
+              disabled={isPending}
+              onCheckedChange={togglePinLock}
             />
-            <Button type="submit" disabled={isPending} variant="outline">
-              Set PIN
-            </Button>
-          </form>
-        )}
-      </div>
+            <Label htmlFor="pin-lock" className="text-sm">
+              Require a PIN to open the app (default off)
+            </Label>
+          </div>
+          {form.pinLockEnabled && (
+            <form onSubmit={savePin} className="flex gap-2">
+              <Input
+                type="password"
+                inputMode="numeric"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                placeholder="New PIN"
+                className="w-32"
+              />
+              <Button type="submit" disabled={isPending} variant="outline">
+                Set PIN
+              </Button>
+            </form>
+          )}
+        </div>
+      </Panel>
 
-      <div className="rounded-2xl border border-border/40 bg-card p-4 text-sm text-muted-foreground">
-        Theme: dark-first (the only theme for v1 — light mode is a future nice-to-have).
-      </div>
-
-      <a
-        href="/settings/export"
-        className="self-start rounded-md border border-border/40 px-4 py-2 text-sm hover:bg-accent/40"
-      >
-        Export my data (JSON)
-      </a>
+      <Panel id="data" className="scroll-mt-24" title="Data">
+        <a
+          href="/settings/export"
+          className="self-start rounded-md border border-border/40 px-4 py-2 text-sm hover:bg-accent/40"
+        >
+          Export my data (JSON)
+        </a>
+      </Panel>
     </div>
   );
 }
