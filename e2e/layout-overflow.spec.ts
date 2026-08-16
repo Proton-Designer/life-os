@@ -21,11 +21,6 @@ const AUTHED_ROUTES = [
   "/weekly-planning",
   "/settings",
   "/onboarding",
-  // The Phase B/C component harness — the only route with real [data-panel]
-  // elements today (Panel isn't wired into any real page until D-G), so
-  // this is what actually exercises the per-panel check below right now.
-  // Dev-only (404s in production), safe to include here.
-  "/harness",
 ];
 
 const PUBLIC_ROUTES = ["/login", "/signup"];
