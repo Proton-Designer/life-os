@@ -67,6 +67,12 @@ There is also **no inbox**. The kill list deliberately resets daily with no carr
 
 This is the largest untapped asset in the app, and the one thing a *personal* OS can do that no general tool can, because the data is unified across domains that normally live in separate apps.
 
+**A prerequisite nobody has noticed: Insights is now almost blind.**
+
+When the app-wide Pulse Check-in was removed (2026-08-15) and replaced with Business-scoped Lock-In sessions, the *only* remaining source of time-allocation data became check-ins answered inside a Lock-In session. That was the right call for friction — being prompted every two hours regardless of what you're doing is genuinely intrusive. But the consequence went unexamined: the Focus Map and Signal:Noise ratios now describe **only business focus sessions**, not the day. Insights presents itself as "where your time goes" while seeing a narrow slice of it, and any Patterns engine built on that data would inherit the same blindness while sounding equally authoritative.
+
+**Fix, and it falls out of the Daily Review block for free:** the evening review asks for one coarse allocation of the day — a handful of taps across the domains, not eight interruptions. One interaction per day restores the Focus Map's honesty at a fraction of the old friction, and self-reported-at-day's-end is a well-understood, acceptable accuracy trade for this purpose. This makes the Daily Review load-bearing for Gap 3 rather than merely nice to have — build it before Patterns, not after.
+
 **Proposal — a Patterns engine, no AI required for tier one.** Simple correlations over local data, stated in plain language, with the evidence attached:
 
 - *"Your kill list gets cleared on 78% of days you Lock In before 10am, and 24% of days you don't."*
@@ -121,6 +127,14 @@ Named so it's clear these were considered and rejected, not overlooked:
 - **Multi-user anything.** Explicitly out of scope since the original spec.
 - **Gamification** — points, badges, levels. Wrong register for a system that tracks religious practice, and it corrupts the honesty of the data the moment a number becomes a score to protect.
 - **A general LLM chat surface.** The references have one; it would be decoration here. A specific, well-shaped weekly summary is worth more than a chat box.
+
+## Also found: the push/cron layer has no test surface
+
+While reviewing Phase F I found that `dispatch-notifications` was still pushing "Pulse check-in" prompts every two hours for a feature deleted from the UI a day earlier — the removal was UI-only, and nothing touched the Edge Function or its `pg_cron` schedule. Queued for a fix in Phase H.
+
+The specific bug matters less than what it reveals: **unit tests, `tsc`, lint, build, and Playwright all pass without ever executing a line of the Deno Edge Function or the cron job.** That entire layer — the one thing in this app that reaches Ayman when the app is closed — can rot indefinitely and every regression pass will still report green. Prayer notifications silently failing would look exactly like everything being fine.
+
+Worth a small, cheap remedy at some point: extract the Edge Function's pure logic (prayer-time computation, slot evaluation, dedup keys) so it can be unit-tested from the main suite, and add a scheduled self-check that alerts if `notification_log` stops accruing prayer rows. Not urgent, but it's a genuine blind spot and it was invisible until something broke in it.
 
 ## Open questions for Ayman
 
