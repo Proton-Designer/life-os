@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import { logReflectionEntry, decrementReflectionEntry } from "@/app/(app)/deen/actions";
 import { buildReflectionSparkline, type ReflectionEntry } from "@/lib/deen/reflection-sparkline";
+import { Sparkline } from "@/components/charts/sparkline";
 import { cn } from "@/lib/utils";
 
 const TIERS = [1, 2, 3] as const;
@@ -33,7 +34,6 @@ export function ReflectionTracker({
   );
 
   const sparkline = buildReflectionSparkline(entries, todayStr);
-  const maxCount = Math.max(1, ...sparkline.flatMap((d) => TIERS.map((t) => d.counts[t])));
 
   return (
     <div className="flex flex-col gap-4">
@@ -70,18 +70,14 @@ export function ReflectionTracker({
       </div>
 
       <div className="flex flex-col gap-1.5">
+        {/* Upgraded to the shared Sparkline primitive (Phase C) — one per
+            tier, deliberately monochrome (--muted-foreground) rather than
+            an escalating color per tier, so no severity implication rides
+            along in color the way a red-tint scale would. */}
         {TIERS.map((tier) => (
-          <div key={tier} className="flex items-end gap-1.5">
+          <div key={tier} className="flex items-center gap-1.5">
             <span className="w-3 shrink-0 text-xs text-muted-foreground">{GLYPH[tier]}</span>
-            <div className="flex h-6 flex-1 items-end gap-1">
-              {sparkline.map((day) => (
-                <div
-                  key={day.date}
-                  className={cn("flex-1 rounded-sm", day.counts[tier] > 0 ? "bg-foreground/30" : "bg-muted")}
-                  style={{ height: `${Math.max(15, (day.counts[tier] / maxCount) * 100)}%` }}
-                />
-              ))}
-            </div>
+            <Sparkline values={sparkline.map((day) => day.counts[tier])} colorVar="--muted-foreground" />
           </div>
         ))}
       </div>

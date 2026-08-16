@@ -9,15 +9,11 @@ import { Input } from "@/components/ui/input";
 export function QuranCard({
   currentSurah,
   currentJuz,
-  weekPagesRead,
-  weeklyTarget,
   sessionDates,
   todayStr,
 }: {
   currentSurah: string | null;
   currentJuz: number | null;
-  weekPagesRead: number;
-  weeklyTarget: number | null;
   sessionDates: string[];
   todayStr: string;
 }) {
@@ -48,10 +44,6 @@ export function QuranCard({
         </span>
         <span>{streak > 0 ? `${streak} day streak` : "No streak yet"}</span>
       </div>
-      <p className="text-sm">
-        <span className="font-semibold">{weekPagesRead}</span>
-        {weeklyTarget ? ` / ${weeklyTarget}` : ""} pages this week
-      </p>
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-muted-foreground" htmlFor="quran-pages">

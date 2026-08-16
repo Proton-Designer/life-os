@@ -20,8 +20,30 @@ describe("ReflectionTracker", () => {
     }
   });
 
-  it("still shows no text label beyond the glyph and count — no icon added to the tally boxes", () => {
+  it("adds no icon to the tally boxes themselves — glyph and count only, still no sin/severity language", () => {
+    render(<ReflectionTracker entries={[]} todayStr="2026-08-15" />);
+    for (const tier of [1, 2, 3]) {
+      const tallyButton = screen.getByRole("button", { name: `Log entry, tier ${tier}` });
+      expect(tallyButton.querySelector("svg")).not.toBeInTheDocument();
+    }
+  });
+
+  it("upgrades the trend to the shared Sparkline primitive — one per tier, three total", () => {
     const { container } = render(<ReflectionTracker entries={[]} todayStr="2026-08-15" />);
-    expect(container.querySelector("svg")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('svg[role="img"]').length).toBe(3);
+  });
+
+  it("never mentions sin or severity anywhere in visible text or aria-labels — privacy is a hard constraint", () => {
+    const { container } = render(
+      <ReflectionTracker entries={[{ date: "2026-08-15", tier: 3 }]} todayStr="2026-08-15" />
+    );
+    const text = container.textContent?.toLowerCase() ?? "";
+    const ariaLabels = Array.from(container.querySelectorAll("[aria-label]")).map((el) =>
+      (el.getAttribute("aria-label") ?? "").toLowerCase()
+    );
+    for (const banned of ["sin", "severity", "severe"]) {
+      expect(text).not.toContain(banned);
+      for (const label of ariaLabels) expect(label).not.toContain(banned);
+    }
   });
 });

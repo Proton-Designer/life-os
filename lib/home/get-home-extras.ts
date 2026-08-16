@@ -6,9 +6,10 @@ import {
   dayOfWeekFromDateString,
   getTimezoneOffsetMinutes,
 } from "@/lib/date-utils";
-import { computeHabitStreak } from "@/lib/deen/habit-streak";
+import { computePrayerStreak } from "@/lib/deen/prayer-streak";
+import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { computeDayRibbon, type DayRibbonLayout } from "./day-ribbon";
-import { computeTodayCompletion, computeFocusTimeMinutes, allPrayersDoneDates } from "./home-kpis";
+import { computeTodayCompletion } from "./home-kpis";
 import { computeWeeklyCompletionPct } from "./weekly-completion-trend";
 
 const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
@@ -161,7 +162,7 @@ export async function getHomeExtras(
   for (const row of prayerHistoryRows ?? []) {
     (prayersByDate[row.date] ??= []).push(row.status);
   }
-  const prayerStreak = computeHabitStreak(allPrayersDoneDates(prayersByDate), todayStr);
+  const prayerStreak = computePrayerStreak(prayersByDate, todayStr);
 
   // --- 7-day completion trend ---
   const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(sevenDaysAgoStr, i));

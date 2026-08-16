@@ -1,16 +1,23 @@
 import { redirect } from "next/navigation";
+import { Clock, ListChecks, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate } from "@/lib/date-utils";
-import { getWeeklySignalNoiseRatio } from "@/lib/business/sn-ratio";
+import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
+import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
+import { formatElapsedDuration } from "@/lib/business/format-elapsed";
+import { countDaysCleared } from "@/lib/business/kill-list-cleared";
+import { bucketSignalNoiseByWeek, type WeekBoundary } from "@/lib/business/sn-trend";
+import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
-import { WeeklyGoalCard } from "@/components/business/weekly-goal-card";
-import { SnRatioCard } from "@/components/business/sn-ratio-card";
-import { LockInPanel, type ActiveSessionData } from "@/components/business/lock-in-panel";
-import { IconChip } from "@/components/ui/icon-chip";
-import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { GoalCard } from "@/components/shared/goal-card";
+import { LockInPanel, type ActiveSessionData, type LastSessionData } from "@/components/business/lock-in-panel";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { Panel } from "@/components/ui/panel";
+import { BarChart } from "@/components/charts/bar-chart";
+
+const SN_WEEK_COUNT = 6;
 
 export default async function BusinessPage() {
   const supabase = await createClient();
@@ -23,35 +30,62 @@ export default async function BusinessPage() {
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(weekStart, i));
+  const sevenDaysAgoStr = addDaysToDateString(dateStr, -6);
+  const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ data: killListRows }, { data: weeklyGoal }, snRatio, { data: activeSessionRow }] =
-    await Promise.all([
-      supabase
-        .from("kill_list_items")
-        .select("id, position, text, completed")
-        .eq("user_id", userId)
-        .eq("date", dateStr)
-        .order("position", { ascending: true }),
-      supabase
-        .from("weekly_goals")
-        .select("headline, milestones")
-        .eq("user_id", userId)
-        .eq("domain", "business")
-        .eq("week_start_date", weekStart)
-        .maybeSingle(),
-      getWeeklySignalNoiseRatio(userId, new Date(`${weekStart}T00:00:00Z`)),
-      supabase
-        .from("work_sessions")
-        .select("id, started_at")
-        .eq("user_id", userId)
-        .is("ended_at", null)
-        .maybeSingle(),
-    ]);
+  const snWeekStarts = Array.from({ length: SN_WEEK_COUNT }, (_, i) =>
+    addDaysToDateString(weekStart, -7 * (SN_WEEK_COUNT - 1 - i))
+  );
+  const snWeeks: WeekBoundary[] = snWeekStarts.map((ws) => ({
+    weekStartIso: `${ws}T00:00:00.000Z`,
+    weekEndIso: `${addDaysToDateString(ws, 7)}T00:00:00.000Z`,
+    label: new Date(`${ws}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+  }));
+
+  const [
+    { data: killListRows },
+    { data: sevenDayKillListRows },
+    { data: weeklyGoal },
+    { data: activeSessionRow },
+    { data: workSessionRows },
+    { data: checkinRows },
+  ] = await Promise.all([
+    supabase
+      .from("kill_list_items")
+      .select("id, position, text, completed")
+      .eq("user_id", userId)
+      .eq("date", dateStr)
+      .order("position", { ascending: true }),
+    supabase.from("kill_list_items").select("date, completed").eq("user_id", userId).gte("date", sevenDaysAgoStr),
+    supabase
+      .from("weekly_goals")
+      .select("headline, milestones")
+      .eq("user_id", userId)
+      .eq("domain", "business")
+      .eq("week_start_date", weekStart)
+      .maybeSingle(),
+    supabase.from("work_sessions").select("id, started_at").eq("user_id", userId).is("ended_at", null).maybeSingle(),
+    // One 30-day range serves today's focus time, this week's session
+    // count, and the most recent completed session — sliced in memory.
+    supabase
+      .from("work_sessions")
+      .select("id, started_at, ended_at")
+      .eq("user_id", userId)
+      .gte("started_at", thirtyDaysAgoIso)
+      .order("started_at", { ascending: false }),
+    supabase
+      .from("checkins")
+      .select("checkin_time, tag_type, answered")
+      .eq("user_id", userId)
+      .gte("checkin_time", snWeeks[0].weekStartIso),
+  ]);
 
   const slots: [KillListSlotData, KillListSlotData, KillListSlotData] = [0, 1, 2].map((position) => {
     const row = killListRows?.find((r) => r.position === position);
     return { id: row?.id ?? null, text: row?.text ?? "", completed: row?.completed ?? false };
   }) as [KillListSlotData, KillListSlotData, KillListSlotData];
+  const killListCompletedToday = slots.filter((s) => s.completed).length;
 
   let activeSession: ActiveSessionData | null = null;
   if (activeSessionRow) {
@@ -73,38 +107,118 @@ export default async function BusinessPage() {
     };
   }
 
+  // --- Focus time today / sessions this week / last completed session ---
+  const allSessions = (workSessionRows ?? []).map((s) => ({
+    startedAt: new Date(s.started_at),
+    endedAt: s.ended_at ? new Date(s.ended_at) : null,
+  }));
+  const sessionsToday = allSessions.filter((s) => localDateString(s.startedAt, timezone) === dateStr);
+  const focusMinutesToday = computeFocusTimeMinutes(sessionsToday, now);
+  const sessionsThisWeek = allSessions.filter((s) => weekDates.includes(localDateString(s.startedAt, timezone)));
+  const completedSessions = allSessions
+    .filter((s): s is { startedAt: Date; endedAt: Date } => s.endedAt !== null)
+    .sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime());
+  const lastSession: LastSessionData | null = completedSessions[0]
+    ? { startedAtIso: completedSessions[0].startedAt.toISOString(), endedAtIso: completedSessions[0].endedAt.toISOString() }
+    : null;
+
+  // --- Days cleared, last 7 days ---
+  const daysCleared = countDaysCleared(sevenDayKillListRows ?? []);
+
+  // --- Signal:Noise by week ---
+  const snWeeklyData = bucketSignalNoiseByWeek(checkinRows ?? [], snWeeks);
+  const thisWeekSn = snWeeklyData[snWeeklyData.length - 1];
+  const snBars = snWeeklyData.map((w) => ({
+    label: w.label,
+    value: w.noise === 0 ? w.signal : Math.round((w.signal / w.noise) * 10) / 10,
+  }));
+
   return (
     <PageContainer>
       <PageHeader title="Business" />
-      <section>
-        <h2 className="mb-4 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
-          <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
-          Lock In
-        </h2>
-        <LockInPanel initialSession={activeSession} />
-      </section>
 
-      <section>
-        <h2 className="mb-4 flex items-center gap-2.5 text-lg font-semibold">
-          <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
-          Today&apos;s kill list
-        </h2>
-        <KillList date={dateStr} slots={slots} />
-      </section>
+      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Clock}
+            accent="business"
+            label="Focus time today"
+            value={formatElapsedDuration(focusMinutesToday * 60_000)}
+            caption={
+              sessionsToday.length === 0
+                ? "No Lock-In sessions yet today"
+                : `${sessionsToday.length} session${sessionsToday.length === 1 ? "" : "s"} today`
+            }
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={ListChecks}
+            accent="business"
+            label="Sessions this week"
+            value={`${sessionsThisWeek.length}`}
+            caption={
+              sessionsThisWeek.length === 0
+                ? "Lock in to start your first session"
+                : `${formatElapsedDuration(computeFocusTimeMinutes(sessionsThisWeek, now) * 60_000)} total`
+            }
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={CheckCircle2}
+            accent="business"
+            label="Days cleared"
+            value={`${daysCleared}/7`}
+            caption={
+              daysCleared === 7
+                ? "Perfect week — every kill list cleared"
+                : daysCleared === 0
+                  ? "No fully cleared days in the last 7"
+                  : "Keep clearing all 3 daily"
+            }
+          />
+        </div>
+      </div>
 
-      <section>
-        <h2 className="mb-3 flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
-          <IconChip icon={DOMAIN_ICON.business} accent="business" size="sm" />
-          This week&apos;s goal
-        </h2>
-        <WeeklyGoalCard
-          weekStartDate={weekStart}
-          headline={weeklyGoal?.headline ?? ""}
-          milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
-        />
-      </section>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          <Panel title="Lock In">
+            <LockInPanel initialSession={activeSession} lastSession={lastSession} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-5">
+          <GoalCard
+            title="This week's goal"
+            domain="business"
+            headline={weeklyGoal?.headline ?? ""}
+            milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
+            locked={false}
+            onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
+          />
+        </div>
+      </div>
 
-      <SnRatioCard display={snRatio.display} />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-6">
+          <Panel
+            title="Today's kill list"
+            heroValue={`${killListCompletedToday}/3`}
+            caption={killListCompletedToday === 3 ? "All three cleared" : `${3 - killListCompletedToday} left today`}
+          >
+            <KillList date={dateStr} slots={slots} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-6">
+          <Panel
+            title="Signal:Noise by week"
+            heroValue={thisWeekSn.display}
+            caption="kill-list vs. noise check-ins, this week vs. the last 6"
+          >
+            <BarChart bars={snBars} colorVar="--series-business" highlightIndex={snBars.length - 1} />
+          </Panel>
+        </div>
+      </div>
     </PageContainer>
   );
 }
