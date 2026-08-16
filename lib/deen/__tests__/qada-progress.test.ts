@@ -42,6 +42,6 @@ describe("accentForQadaBacklog", () => {
   });
 
   it("is warning when more was newly missed than caught up — falling further behind", () => {
-    expect(accentForQadaBacklog(5, 1, 3)).toBe("deen");
+    expect(accentForQadaBacklog(5, 1, 3)).toBe("warning");
   });
 });

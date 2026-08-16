@@ -95,7 +95,7 @@ export default async function SchoolPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={overdueCount === 0 ? ShieldCheck : AlertTriangle}
-            accent={overdueCount === 0 ? "business" : "deen"}
+            accent={overdueCount === 0 ? "business" : "warning"}
             label="Overdue"
             value={`${overdueCount}`}
             caption={overdueCount === 0 ? "Nothing overdue" : "Needs attention"}

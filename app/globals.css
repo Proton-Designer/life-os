@@ -17,6 +17,7 @@
   --color-accent-coop: var(--accent-coop);
   --color-accent-noise: var(--accent-noise);
   --color-accent-info: var(--accent-info);
+  --color-accent-warning: var(--accent-warning);
   --color-series-deen: var(--series-deen);
   --color-series-business: var(--series-business);
   --color-series-school: var(--series-school);
@@ -113,6 +114,15 @@
   --accent-school: #6aa9ff;
   --accent-coop: #d55181;
   --accent-noise: #e85050;
+
+  /* Semantic "warning" role, aliased to --accent-deen's hex (Phase H, per
+     the lead's review): Badge's `warning` variant and the KPI-tinting
+     helpers built in Phases E-G (accentForQadaBacklog, School/Co-op's
+     Overdue card, etc.) all reach for "the app's amber" as a semantic
+     signal, not because they mean Deen. Aliasing makes that intent
+     explicit — if Deen's own brand amber ever moves, warning shouldn't
+     move with it by accident. Zero visual change: same hex, new name. */
+  --accent-warning: #e0a030;
 
   /* General-purpose chrome accent (nav, focus rings, info badges, chart
      highlights) — distinct from --accent-school so the two don't get

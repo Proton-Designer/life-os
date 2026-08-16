@@ -27,6 +27,7 @@ const COMPLETED_CLASS: Record<AccentToken, string> = {
   info: "border-accent-info bg-accent-info",
   noise: "border-accent-noise bg-accent-noise",
   neutral: "border-muted-foreground bg-muted-foreground",
+  warning: "border-accent-warning bg-accent-warning",
 };
 
 export function TaskList({

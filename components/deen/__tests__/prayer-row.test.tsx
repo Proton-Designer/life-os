@@ -32,7 +32,7 @@ describe("PrayerRow", () => {
   it("colors an active qada status with the warning accent, distinct from on-time", () => {
     render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="qada" />);
     expect(screen.getByRole("button", { name: "Qada" }).querySelector("span")).toHaveClass(
-      "text-accent-deen"
+      "text-accent-warning"
     );
   });
 

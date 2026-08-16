@@ -33,6 +33,6 @@ export function accentForQadaBacklog(owed: number, caughtUp: number, missed: num
   if (owed === 0) return "business";
   const net = caughtUp - missed;
   if (net > 0) return "business";
-  if (net < 0) return "deen";
+  if (net < 0) return "warning";
   return "neutral";
 }

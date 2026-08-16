@@ -16,7 +16,7 @@ describe("Badge", () => {
   it.each([
     ["positive", "text-accent-business"],
     ["negative", "text-destructive"],
-    ["warning", "text-accent-deen"],
+    ["warning", "text-accent-warning"],
     ["info", "text-accent-info"],
     ["neutral", "text-muted-foreground"],
   ] as const)("applies the %s variant's color class", (variant, expectedClass) => {

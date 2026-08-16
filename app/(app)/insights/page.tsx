@@ -147,7 +147,7 @@ export default async function InsightsPage({
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={Volume2}
-            accent={kpis.noiseShareDeltaPct > 0 ? "deen" : kpis.noiseShareDeltaPct < 0 ? "business" : "neutral"}
+            accent={kpis.noiseShareDeltaPct > 0 ? "warning" : kpis.noiseShareDeltaPct < 0 ? "business" : "neutral"}
             label="Noise share"
             value={`${Math.round(kpis.noiseSharePct)}%`}
             caption={

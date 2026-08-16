@@ -5,7 +5,10 @@ export type BadgeVariant = "positive" | "negative" | "warning" | "info" | "neutr
 const VARIANT_CLASS: Record<BadgeVariant, string> = {
   positive: "bg-accent-business/15 text-accent-business",
   negative: "bg-destructive/15 text-destructive",
-  warning: "bg-accent-deen/15 text-accent-deen",
+  // Semantic role, not a Deen reference — see globals.css's --accent-warning
+  // (Phase H). Same hex as --accent-deen, so this is a zero-visual-change
+  // repoint: prayer-row "qada" badges etc. render identically.
+  warning: "bg-accent-warning/15 text-accent-warning",
   info: "bg-accent-info/15 text-accent-info",
   neutral: "bg-muted text-muted-foreground",
 };

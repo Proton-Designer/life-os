@@ -56,7 +56,7 @@ describe("LockInSession", () => {
       />
     );
     expect(screen.getByText("On task")).toHaveClass("text-accent-business");
-    expect(screen.getByText("Distracted")).toHaveClass("text-accent-deen");
+    expect(screen.getByText("Distracted")).toHaveClass("text-accent-warning");
     expect(screen.getByText("Missed")).toHaveClass("text-muted-foreground");
   });
 });
