@@ -1,15 +1,19 @@
 import { redirect } from "next/navigation";
+import { CalendarClock, AlertTriangle, CheckCircle2, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString } from "@/lib/date-utils";
+import { countOverdue, countCompletedInWeek } from "@/lib/tasks/task-metrics";
+import { accentForActivityCount } from "@/lib/kpi-value-accent";
 import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
 import { TaskList, type TaskData } from "@/components/shared/task-list";
+import { DeadlineList } from "@/components/shared/deadline-list";
 import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/domain-schedule-view";
-import { IconChip } from "@/components/ui/icon-chip";
-import { StatCard } from "@/components/ui/stat-card";
-import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { Panel } from "@/components/ui/panel";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default async function CoOpPage() {
   const supabase = await createClient();
@@ -23,11 +27,13 @@ export default async function CoOpPage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
+  const weekEndIso = `${addDaysToDateString(weekStart, 7)}T00:00:00.000Z`;
+  const weekStartIso = `${weekStart}T00:00:00.000Z`;
 
   const [{ data: taskRows }, { data: eventRows }] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id, title, due_date, due_time, completed")
+      .select("id, title, due_date, due_time, completed, completed_at")
       .eq("user_id", userId)
       .eq("domain", "co_op")
       .order("due_date", { ascending: true, nullsFirst: false }),
@@ -38,9 +44,13 @@ export default async function CoOpPage() {
       .eq("domain", "co_op"),
   ]);
 
-  const tasks: TaskData[] = (taskRows ?? [])
+  const allTasks = taskRows ?? [];
+  const openTasks: TaskData[] = allTasks
     .filter((t) => !t.completed)
     .map((t) => ({ id: t.id, title: t.title, dueDate: t.due_date, dueTime: t.due_time, completed: t.completed }));
+  const deadlineTasks = openTasks
+    .filter((t): t is TaskData & { dueDate: string } => t.dueDate !== null)
+    .map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate, dueTime: t.dueTime }));
 
   const events: ScheduleEventData[] = (eventRows ?? []).map((e) => ({
     id: e.id,
@@ -52,39 +62,86 @@ export default async function CoOpPage() {
     cancelledOn: e.cancelled_on,
   }));
 
-  // Co-op stays permanently in the nav; when off-rotation it shows this
-  // empty state rather than being hidden or relabeled, per spec.
-  const hasNothing = tasks.length === 0 && events.length === 0;
-  const dueTodayCount = tasks.filter((t) => t.dueDate === dateStr).length;
+  // Co-op stays permanently in the nav; when off-rotation it shows a real
+  // empty panel rather than being hidden or relabeled, per spec.
+  const hasNothing = allTasks.length === 0 && events.length === 0;
+  const dueTodayCount = openTasks.filter((t) => t.dueDate === dateStr).length;
+  const overdueCount = countOverdue(
+    allTasks.map((t) => ({ dueDate: t.due_date, completed: t.completed })),
+    dateStr
+  );
+  const completedThisWeekCount = countCompletedInWeek(
+    allTasks.map((t) => ({ completedAt: t.completed_at })),
+    weekStartIso,
+    weekEndIso
+  );
+  const dueThisWeekCount = deadlineTasks.filter((t) => weekDates.includes(t.dueDate)).length;
 
   return (
     <PageContainer>
       <PageHeader title="Co-op" />
+
       {hasNothing && (
-        <p className="text-sm text-muted-foreground">No active co-op — nothing scheduled</p>
+        <Panel title="Co-op">
+          <EmptyState
+            icon={Users}
+            message="No active co-op right now"
+            action={{ label: "Add a task", href: "#task-list-add" }}
+          />
+        </Panel>
       )}
 
-      <section className="flex flex-col gap-4">
-        <h2 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
-          <IconChip icon={DOMAIN_ICON.co_op} accent="coop" size="sm" />
-          Tasks
-        </h2>
-        <StatCard icon={DOMAIN_ICON.co_op} accent="coop" label="Due today" value={String(dueTodayCount)} />
-        <TaskList tasks={tasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="coop" />
-      </section>
+      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={CalendarClock}
+            accent={dueTodayCount === 0 ? "business" : "info"}
+            label="Due today"
+            value={`${dueTodayCount}`}
+            caption={dueTodayCount === 0 ? "Nothing due today" : `${dueTodayCount} task${dueTodayCount === 1 ? "" : "s"} due`}
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={AlertTriangle}
+            accent={overdueCount === 0 ? "business" : "deen"}
+            label="Overdue"
+            value={`${overdueCount}`}
+            caption={overdueCount === 0 ? "Nothing overdue" : "Needs attention"}
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={CheckCircle2}
+            accent={accentForActivityCount(completedThisWeekCount)}
+            label="Completed this week"
+            value={`${completedThisWeekCount}`}
+            caption={completedThisWeekCount === 0 ? "Nothing completed yet this week" : "Keep it up"}
+          />
+        </div>
+      </div>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
-          <IconChip icon={DOMAIN_ICON.co_op} accent="coop" size="sm" />
-          Work schedule
-        </h2>
-        <DomainScheduleView
-          events={events}
-          weekDates={weekDates}
-          addScheduleEvent={addScheduleEvent}
-          cancelScheduleOccurrence={cancelScheduleOccurrence}
-        />
-      </section>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-6">
+          <Panel title="Deadlines" heroValue={`${dueThisWeekCount}`} caption="due this week">
+            <DeadlineList tasks={deadlineTasks} todayStr={dateStr} toggleTask={toggleTask} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-6">
+          <Panel title="Work schedule">
+            <DomainScheduleView
+              events={events}
+              weekDates={weekDates}
+              addScheduleEvent={addScheduleEvent}
+              cancelScheduleOccurrence={cancelScheduleOccurrence}
+            />
+          </Panel>
+        </div>
+      </div>
+
+      <Panel title="Task list" heroValue={`${openTasks.length}`} caption="open">
+        <TaskList tasks={openTasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="coop" />
+      </Panel>
     </PageContainer>
   );
 }

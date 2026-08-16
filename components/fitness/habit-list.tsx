@@ -84,6 +84,7 @@ export function HabitList({ date, habits }: { date: string; habits: HabitData[] 
       </ul>
       <form onSubmit={handleAdd} className="flex gap-2">
         <Input
+          id="fitness-add-habit"
           value={newHabit}
           onChange={(e) => setNewHabit(e.target.value)}
           placeholder="Add a habit"

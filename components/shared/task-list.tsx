@@ -93,7 +93,7 @@ export function TaskList({
         ))}
       </ul>
       <form onSubmit={handleAdd} className="flex gap-2">
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task" />
+        <Input id="task-list-add" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task" />
         <Input
           type="date"
           value={dueDate}

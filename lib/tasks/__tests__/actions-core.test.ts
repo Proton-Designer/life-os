@@ -48,6 +48,35 @@ describe("cancelScheduleOccurrenceCore", () => {
   });
 });
 
+describe("toggleTaskCore", () => {
+  beforeEach(() => {
+    getUserMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("sets completed_at when flipping a task to complete", async () => {
+    const chain = makeChain({ data: { completed: false }, error: null });
+    fromImpl = () => chain;
+    const { toggleTaskCore } = await import("../actions-core");
+
+    await toggleTaskCore("task-1");
+
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ completed: true, completed_at: expect.any(String) })
+    );
+  });
+
+  it("clears completed_at when flipping a task back to incomplete", async () => {
+    const chain = makeChain({ data: { completed: true }, error: null });
+    fromImpl = () => chain;
+    const { toggleTaskCore } = await import("../actions-core");
+
+    await toggleTaskCore("task-1");
+
+    expect(chain.update).toHaveBeenCalledWith({ completed: false, completed_at: null });
+  });
+});
+
 describe("addTaskCore", () => {
   beforeEach(() => {
     getUserMock.mockClear();
