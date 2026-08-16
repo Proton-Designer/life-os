@@ -56,4 +56,17 @@ describe("getFocusMap", () => {
     // Global ratio is signal(1) vs noise(0), other_work doesn't factor in.
     expect(result.globalRatio).toBe("All Signal");
   });
+
+  it("returns raw counts alongside pct, for chart forms that scale by value (ranked bars, donut)", async () => {
+    const checkins = [
+      { tag_type: "kill_list", answered: true },
+      { tag_type: "kill_list", answered: true },
+      { tag_type: "noise", answered: true },
+    ];
+    const result = await getFocusMap("user-1", "week", new Date("2026-08-09T00:00:00Z"), dataSourceWith(checkins));
+    const business = result.segments.find((s) => s.domain === "business");
+    expect(business?.count).toBe(2);
+    expect(result.signal).toBe(2);
+    expect(result.noise).toBe(1);
+  });
 });

@@ -10,11 +10,13 @@ export type FocusMapDataSource = {
 };
 
 export type FocusMapResult = {
-  segments: { domain: string; pct: number }[];
+  segments: { domain: string; count: number; pct: number }[];
   globalRatio: string;
+  signal: number;
+  noise: number;
 };
 
-const SEGMENT_MAP: Record<string, string> = {
+export const SEGMENT_MAP: Record<string, string> = {
   kill_list: "business",
   workout: "fitness",
   deen: "deen",
@@ -67,6 +69,7 @@ export async function getFocusMap(
 
   const segments = [...counts.entries()].map(([domain, count]) => ({
     domain,
+    count,
     pct: total === 0 ? 0 : (count / total) * 100,
   }));
 
@@ -74,5 +77,5 @@ export async function getFocusMap(
   const noise = answered.filter((c) => c.tag_type === "noise").length;
   const globalRatio = computeRatioDisplay(signal, noise, total > 0);
 
-  return { segments, globalRatio };
+  return { segments, globalRatio, signal, noise };
 }

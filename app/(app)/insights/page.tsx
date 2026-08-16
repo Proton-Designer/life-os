@@ -1,16 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Radar, Volume2, Target } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, resolveLocalTime } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { getFocusMap } from "@/lib/insights/focus-map";
+import { getInsightsKpis } from "@/lib/insights/insights-kpis";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
-import { StatCard } from "@/components/ui/stat-card";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { Panel } from "@/components/ui/panel";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { RankedBars, type RankedBarsItem } from "@/components/charts/ranked-bars";
+import { DonutChart } from "@/components/charts/donut-chart";
 
 const SEGMENT_LABEL: Record<string, string> = {
   deen: "Deen",
@@ -23,15 +29,15 @@ const SEGMENT_LABEL: Record<string, string> = {
 
 // school_co_op is the Focus Map's own combined category (School and Co-op
 // aren't broken out separately there yet — a data-layer decision, not an
-// accent-token one, so this intentionally still points at School's accent
-// rather than the new --accent-coop introduced for Co-op elsewhere).
-const SEGMENT_COLOR: Record<string, string> = {
-  deen: "var(--accent-deen)",
-  business: "var(--accent-business)",
-  fitness: "var(--accent-fitness)",
-  school_co_op: "var(--accent-school)",
-  noise: "var(--accent-noise)",
-  other_work: "var(--muted-foreground)",
+// accent-token one, so this intentionally still points at School's series
+// token rather than splitting into Co-op's).
+const SEGMENT_SERIES_VAR: Record<string, string> = {
+  deen: "--series-deen",
+  business: "--series-business",
+  fitness: "--series-fitness",
+  school_co_op: "--series-school",
+  noise: "--series-noise",
+  other_work: "--series-other",
 };
 
 // Segments that map to a real domain get a matching IconChip/accent — noise
@@ -66,12 +72,32 @@ export default async function InsightsPage({
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(now, timezone);
+  const weekStart = getWeekStartDate(todayStr);
+  const previousWeekStart = addDaysToDateString(weekStart, -7);
   const anchor =
     range === "week"
-      ? resolveLocalTime(getWeekStartDate(todayStr), "00:00", timezone)
+      ? resolveLocalTime(weekStart, "00:00", timezone)
       : resolveLocalTime(todayStr, "00:00", timezone);
 
-  const { segments, globalRatio } = await getFocusMap(userId, range, anchor);
+  const [{ segments, globalRatio, signal, noise }, kpis] = await Promise.all([
+    getFocusMap(userId, range, anchor),
+    getInsightsKpis(userId, weekStart, previousWeekStart),
+  ]);
+
+  const hasFocusData = segments.length > 0;
+  const hasSnData = signal + noise > 0;
+  const domainSegments = segments.filter((s) => s.domain !== "noise" && s.domain !== "other_work");
+
+  const rankedItems: RankedBarsItem[] = segments.map((s) => ({
+    label: SEGMENT_LABEL[s.domain] ?? s.domain,
+    value: s.count,
+    colorVar: SEGMENT_SERIES_VAR[s.domain] ?? "--series-other",
+  }));
+
+  const mostFocusedIcon = kpis.mostFocusedDomain ? (SEGMENT_ICON[kpis.mostFocusedDomain] ?? Target) : Target;
+  const mostFocusedAccent: AccentToken = kpis.mostFocusedDomain
+    ? (SEGMENT_ACCENT[kpis.mostFocusedDomain] ?? "info")
+    : "neutral";
 
   return (
     <PageContainer>
@@ -95,53 +121,82 @@ export default async function InsightsPage({
         }
       />
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Focus Map</h2>
-        {segments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No check-ins answered in this range yet.</p>
+      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Radar}
+            accent="info"
+            label="Check-in coverage"
+            value={`${Math.round(kpis.coveragePct)}%`}
+            caption={
+              kpis.totalSlots === 0
+                ? "No check-in slots yet this week"
+                : `${kpis.answeredCount} of ${kpis.totalSlots} answered this week`
+            }
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={mostFocusedIcon}
+            accent={mostFocusedAccent}
+            label="Most-focused domain"
+            value={kpis.mostFocusedDomain ? (SEGMENT_LABEL[kpis.mostFocusedDomain] ?? kpis.mostFocusedDomain) : "—"}
+            caption={kpis.mostFocusedDomain ? "by answered check-ins this week" : "No focus data yet this week"}
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Volume2}
+            accent={kpis.noiseShareDeltaPct > 0 ? "deen" : kpis.noiseShareDeltaPct < 0 ? "business" : "neutral"}
+            label="Noise share"
+            value={`${Math.round(kpis.noiseSharePct)}%`}
+            caption={
+              kpis.noiseShareDeltaPct === 0
+                ? "Same as last week"
+                : `${kpis.noiseShareDeltaPct > 0 ? "+" : ""}${Math.round(kpis.noiseShareDeltaPct)}pp vs last week`
+            }
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          <Panel title="Focus Map">
+            {hasFocusData ? (
+              <RankedBars items={rankedItems} />
+            ) : (
+              <p className="py-8 text-center text-xs text-muted-foreground">No check-ins answered in this range yet</p>
+            )}
+          </Panel>
+        </div>
+        <div className="lg:col-span-5">
+          <Panel title="Signal:Noise">
+            {hasSnData ? (
+              <DonutChart
+                slices={[
+                  { label: "Signal", value: signal, colorVar: "--series-business" },
+                  { label: "Noise", value: noise, colorVar: "--series-noise" },
+                ]}
+                centerLabel="Global ratio"
+                centerValue={globalRatio}
+              />
+            ) : (
+              <EmptyState
+                icon={Volume2}
+                message="No check-ins answered in this range yet"
+                action={{ label: "Start a Lock-In session", href: "/business" }}
+              />
+            )}
+          </Panel>
+        </div>
+      </div>
+
+      <Panel title="Per-domain">
+        {domainSegments.length === 0 ? (
+          <p className="py-4 text-center text-xs text-muted-foreground">No per-domain data in this range yet</p>
         ) : (
-          <>
-            <div className="flex h-4 overflow-hidden rounded-full">
-              {segments.map((s) => (
-                <div
-                  key={s.domain}
-                  style={{ width: `${s.pct}%`, backgroundColor: SEGMENT_COLOR[s.domain] ?? "var(--muted)" }}
-                  title={`${SEGMENT_LABEL[s.domain] ?? s.domain}: ${Math.round(s.pct)}%`}
-                />
-              ))}
-            </div>
-            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              {segments.map((s) => (
-                <li key={s.domain} className="flex items-center gap-1.5">
-                  <span
-                    className="size-2 rounded-full"
-                    style={{ backgroundColor: SEGMENT_COLOR[s.domain] ?? "var(--muted)" }}
-                  />
-                  {SEGMENT_LABEL[s.domain] ?? s.domain} ·{" "}
-                  <span className="font-mono tabular-nums">{Math.round(s.pct)}%</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
-
-      <StatCard
-        icon={DOMAIN_ICON.business}
-        accent="business"
-        label="Global Signal:Noise"
-        value={globalRatio}
-        featured
-      />
-
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Per-domain</h2>
-        <ul className="flex flex-col gap-2">
-          {segments
-            .filter((s) => s.domain !== "noise" && s.domain !== "other_work")
-            .map((s) => {
-              // Using pct instead of raw counts is fine — both are divided by
-              // the same total, so the ratio between them is identical.
+          <ul className="flex flex-col gap-2">
+            {domainSegments.map((s) => {
               const noiseSegment = segments.find((n) => n.domain === "noise");
               const display = computeRatioDisplay(s.pct, noiseSegment?.pct ?? 0, true);
               const accent = SEGMENT_ACCENT[s.domain];
@@ -166,8 +221,9 @@ export default async function InsightsPage({
                 </li>
               );
             })}
-        </ul>
-      </section>
+          </ul>
+        )}
+      </Panel>
     </PageContainer>
   );
 }
