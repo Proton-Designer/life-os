@@ -97,6 +97,21 @@ Each block is independently valuable and shippable. Ordered by leverage per unit
 | 5 | Goal linkage + conflict detection | Makes existing features consult each other instead of coexisting |
 | 6 | Patterns engine | Needs 3 to have been running long enough to have data worth reading |
 
+## Gap 0 — Durability (found 2026-08-16, not part of the original thesis)
+
+Surfaced while reviewing Phase E: **this project has no schema-as-code.** `supabase/` contains only `functions/`. Every one of the ~15 migrations from the original build exists solely inside Supabase's own migration-history table, because they were applied through the MCP `apply_migration` tool and never written to the repo.
+
+**Why it matters here more than in a normal app.** This database holds years of prayer records, business history, and a private reflection log — data that is genuinely irreplaceable and, by design, exists nowhere else. The schema that gives it meaning currently lives in one hosted provider's tracking table. A bad restore, an account issue, or a provider migration leaves a repo from which the database cannot be reconstructed.
+
+There is already a manual JSON export in Settings, which covers the *rows*. Nothing covers the *shape*.
+
+**Proposal (small, and it should probably jump the queue):**
+- Backfill `supabase/migrations/*.sql` for the existing schema — generatable from the live database, not hand-written from memory.
+- Keep every future change as a file first, applied second. The Phase E `tasks.completed_at` column was applied via raw psql and for a period was recorded in neither the repo nor Supabase's history — exactly the drift this prevents.
+- Consider a scheduled `pg_dump` to Vercel Blob or similar. The existing manual export is a safety net only if he remembers to pull it, and nobody remembers.
+
+This isn't glamorous and it isn't what "most powerful and productive" evokes, but losing the history would undo everything the app is for.
+
 ## What is deliberately not proposed
 
 Named so it's clear these were considered and rejected, not overlooked:
