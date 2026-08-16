@@ -28,13 +28,13 @@ function makeChain(resolvedValue: { data: unknown; error: null } = { data: null,
   };
 }
 
-const getUserMock = vi.fn(async () => ({ data: { user: { id: "user-1" } } }));
+const getClaimsMock = vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null }));
 let fromImpl: (table: string) => ReturnType<typeof makeChain>;
 const fromMock = vi.fn((table: string) => fromImpl(table));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
-    auth: { getUser: getUserMock },
+    auth: { getClaims: getClaimsMock },
     from: fromMock,
   })),
 }));
@@ -43,7 +43,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 describe("Deen actions", () => {
   beforeEach(() => {
-    getUserMock.mockClear();
+    getClaimsMock.mockClear();
     fromMock.mockClear();
   });
 

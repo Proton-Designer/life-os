@@ -6,12 +6,26 @@ import { createClient } from "./server";
 // site can independently call getAuthedUser() for its own defense-in-depth
 // auth check without each one paying its own network round trip to Supabase
 // Auth. Matches the DAL pattern from Next's own App Router auth guide.
+//
+// getClaims() rather than getUser(): this project signs its access tokens
+// with ES256 against a published JWKS, so getClaims() verifies the JWT
+// locally (~1ms) instead of making a network round trip to the Auth server
+// (~80ms) — see docs/superpowers/specs/2026-08-16-navigation-latency-fix.md
+// Phase 4. getClaims() still runs the same lazy session-init/refresh path as
+// getUser()/getSession() under the hood (refreshes an expired access token
+// via the refresh token and writes it back to cookies), so token rotation is
+// unaffected. The real tradeoff: a *revoked-but-not-yet-expired* session is
+// no longer caught here, since local verification never asks the Auth
+// server — proxy.ts's own middleware call is unchanged and remains the
+// server-contacting check on every request. Only callers that read `.id`/
+// `.email` off the return value exist in this codebase (verified before
+// this change) — the mapped shape below covers exactly that.
 export const getAuthedUser = cache(async () => {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data) return null;
+  const { claims } = data;
+  return { id: claims.sub, email: claims.email };
 });
 
 export async function requireUser() {

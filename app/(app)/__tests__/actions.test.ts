@@ -17,14 +17,15 @@ function makeChain() {
 }
 
 const fromMock = vi.fn();
-const getUserMock = vi.fn(async () => ({
-  data: { user: { id: "user-1" } as { id: string } | null },
+const getClaimsMock = vi.fn(async () => ({
+  data: { claims: { sub: "user-1" } } as { claims: { sub: string } } | null,
+  error: null as { message: string } | null,
 }));
 const signOutMock = vi.fn(async () => ({ error: null }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
-    auth: { getUser: getUserMock, signOut: signOutMock },
+    auth: { getClaims: getClaimsMock, signOut: signOutMock },
     from: fromMock,
   })),
 }));
@@ -59,7 +60,7 @@ function baseItem(overrides: Partial<PriorityItem>): PriorityItem {
 describe("toggleItem", () => {
   beforeEach(() => {
     fromMock.mockReset();
-    getUserMock.mockClear();
+    getClaimsMock.mockClear();
   });
 
   it("upserts prayers keyed by prayer_name for toggle_prayer", async () => {
@@ -166,7 +167,7 @@ describe("toggleItem", () => {
   });
 
   it("throws if no authenticated user is present", async () => {
-    getUserMock.mockResolvedValueOnce({ data: { user: null } });
+    getClaimsMock.mockResolvedValueOnce({ data: null, error: null });
     const { toggleItem } = await import("../actions");
 
     await expect(toggleItem(baseItem({ actionType: "toggle_prayer" }))).rejects.toThrow();
