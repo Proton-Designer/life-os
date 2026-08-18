@@ -14,9 +14,11 @@
 -- which only works if null and "" are kept distinct.
 --
 -- Applied directly via psql on 2026-08-18 (Supabase MCP unauthenticated
--- this session, same as migrations 016/017) — NOT yet registered in
--- Supabase's own migration-history table. 016, 017, and this one all need
--- registering together once MCP auth is available.
+-- this session, same as migrations 016/017). REGISTERED 2026-08-18 in
+-- supabase_migrations.schema_migrations as version 20260818053500, together
+-- with 017. 016 was already registered on 2026-08-16; its own header comment
+-- had gone stale saying otherwise, which is worth remembering -- the database
+-- is the source of truth for what is applied, a comment is a claim about it.
 alter table public.deen_habits
   add column anchor_cue text,
   add column commitment_note text;

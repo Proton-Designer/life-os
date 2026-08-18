@@ -14,9 +14,10 @@
 -- (registration in Supabase's own migration-history table), not capability.
 -- That trade was made deliberately and is recorded here rather than left
 -- silent -- which was the actual failure of migration 016, not the use of
--- psql itself. CONSEQUENCE: like 016, this migration is NOT registered in
--- Supabase's migration-history table. Register 016 and 017 together once MCP
--- auth is available.
+-- psql itself. REGISTERED 2026-08-18 in supabase_migrations.schema_migrations
+-- as version 20260818044800, closing the drift this header first recorded as
+-- outstanding. Registration turned out to need only the same DB access the
+-- apply did -- the OAuth was never load-bearing for it.
 --
 -- CORRECTION 2026-08-18 00:07 CDT: the original CREATE TABLE in this file
 -- (written by the Opus Lead in the spec) omitted `default auth.uid()` on
