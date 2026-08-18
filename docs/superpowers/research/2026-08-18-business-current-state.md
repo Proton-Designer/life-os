@@ -80,4 +80,9 @@ behind it or needs schema:
 3. When am I most likely to lose the day to noise? — **has data** (`checkin_time` + `tag_type`), not
    surfaced.
 4. Am I clearing the kill list more or less often than a month ago? — **has data**, not surfaced.
-5. What did I not finish yesterday? — **needs schema** (no carry-over between days).
+5. What did I not finish yesterday? — **has data.** *(Corrected 2026-08-18 after Engineer 1's
+   pushback.)* An earlier version of this line said "needs schema." That conflated two different
+   things: making an item *persist* across days as one entity does need schema, but simply **showing**
+   yesterday's incomplete items needs nothing — they are queryable exactly as they sit, the same way
+   the Qada backlog surfaces missed prayers without linking rows across dates. The original claim
+   would have wrongly ruled a cheap, high-value candidate out of the brainstorm.
