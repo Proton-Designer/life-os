@@ -10,9 +10,13 @@ test.use({ storageState: { cookies: [], origins: [] } });
 test("sign in with the seeded user redirects to Home", async ({ page }) => {
   await login(page);
   await dismissCheckinDialogIfPresent(page);
-  // The hero renders either a real "next up" item (title + Mark done) or
-  // the all-clear empty state — either is proof Home actually rendered.
-  await expect(page.getByRole("button", { name: "Mark done" }).or(page.getByText("all clear"))).toBeVisible();
+  // The "Now" module renders either a real item (title + `Mark "…" done`)
+  // or the all-clear/fresh-install empty state — either is proof Home
+  // actually rendered. Updated for the 2026-08-17 restructure: NextUpHero's
+  // plain "Mark done" button is gone from Home (still live on /deen).
+  await expect(
+    page.getByRole("button", { name: /^Mark ".*" done$/ }).first().or(page.getByText(/all clear|Welcome/))
+  ).toBeVisible();
 });
 
 test("unauthenticated visitors are redirected to /login", async ({ page }) => {

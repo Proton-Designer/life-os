@@ -38,29 +38,36 @@ function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {
   }
 }
 
-// Row 3's per-domain view — the KPI row above is deliberately cross-cutting
-// (never per-domain), so this compact stack is the ONLY place Home shows
-// domain-scoped status, per the one-metric rule.
-export function DomainStatusStack({ snapshots }: { snapshots: DomainSnapshots }) {
+// The ONLY place Home shows domain-scoped status, per the one-metric rule.
+export function DomainStatusStack({ snapshots, title }: { snapshots: DomainSnapshots; title?: string }) {
   const domains: (keyof DomainSnapshots)[] = ["deen", "business", "fitness", "school", "co_op"];
 
   return (
-    <div className="divide-y divide-border/40 rounded-2xl border border-border/40 bg-card px-3">
-      {domains.map((domain) => {
-        const accent = DOMAIN_ACCENT[domain === "co_op" ? "co_op" : domain];
-        return (
-          <ListRow
-            key={domain}
-            href={DOMAIN_HREF[domain]}
-            leading={<IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />}
-            label={DOMAIN_LABEL[domain]}
-            meta={metricFor(domain, snapshots)}
-            trailing={
-              <ProgressRing pct={Math.round(snapshots[domain].pulse * 100)} colorVar={ACCENT_VAR[accent]} size={32} strokeWidth={3} />
-            }
-          />
-        );
-      })}
+    <div className="rounded-2xl border border-border/40 bg-card px-3">
+      {title && <div className="px-1 pt-3 text-sm font-medium">{title}</div>}
+      <div className="divide-y divide-border/40">
+        {domains.map((domain) => {
+          const accent = DOMAIN_ACCENT[domain === "co_op" ? "co_op" : domain];
+          const pulse = snapshots[domain].pulse;
+          return (
+            <ListRow
+              key={domain}
+              href={DOMAIN_HREF[domain]}
+              leading={<IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />}
+              label={DOMAIN_LABEL[domain]}
+              meta={metricFor(domain, snapshots)}
+              trailing={
+                <ProgressRing
+                  pct={pulse === null ? null : Math.round(pulse * 100)}
+                  colorVar={ACCENT_VAR[accent]}
+                  size={44}
+                  strokeWidth={4}
+                />
+              }
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

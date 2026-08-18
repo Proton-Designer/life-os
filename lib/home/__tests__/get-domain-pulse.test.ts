@@ -7,6 +7,8 @@ function emptyDataSource(overrides: Partial<PulseDataSource> = {}): PulseDataSou
     getKillListItems: async () => [],
     getTasks: async () => [],
     getHabits: async () => [],
+    getWorkoutSchedule: async () => null,
+    getWorkoutLogs: async () => [],
     ...overrides,
   };
 }
@@ -27,11 +29,10 @@ describe("getDomainPulse", () => {
     expect(pulse.deen).toBeCloseTo(2 / 5);
   });
 
-  it("returns 0 for a domain with zero trackables set today rather than dividing by zero", async () => {
+  it("returns null for a domain with zero trackables set today rather than dividing by zero", async () => {
     const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource());
 
-    expect(pulse.business).toBe(0);
-    expect(Number.isNaN(pulse.business)).toBe(false);
+    expect(pulse.business).toBeNull();
   });
 
   it("computes Business's fraction from kill list completion", async () => {
@@ -48,7 +49,7 @@ describe("getDomainPulse", () => {
     expect(pulse.business).toBeCloseTo(2 / 3);
   });
 
-  it("folds Co-op tasks into the School fraction", async () => {
+  it("keeps Co-op and School as independent fractions (no pooling)", async () => {
     const dataSource = emptyDataSource({
       getTasks: async () => [
         { domain: "school", completed: true },
@@ -58,6 +59,50 @@ describe("getDomainPulse", () => {
 
     const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
 
-    expect(pulse.school).toBeCloseTo(1 / 2);
+    expect(pulse.school).toBeCloseTo(1 / 1);
+    expect(pulse.co_op).toBeCloseTo(0 / 1);
+  });
+
+  it("has a null School fraction when there are no school tasks today, even if Co-op has tasks", async () => {
+    const dataSource = emptyDataSource({
+      getTasks: async () => [{ domain: "co_op", completed: true }],
+    });
+
+    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
+
+    expect(pulse.school).toBeNull();
+    expect(pulse.co_op).toBe(1);
+  });
+
+  it("counts the scheduled workout alongside habits for Fitness", async () => {
+    const dataSource = emptyDataSource({
+      getHabits: async () => [{ habitId: "h1", completed: true }],
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_name: "Push day" }),
+      getWorkoutLogs: async () => [{ workout_name: "Push day" }],
+    });
+
+    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
+
+    // 1 habit done + 1 workout done, out of 1 habit + 1 workout.
+    expect(pulse.fitness).toBe(1);
+  });
+
+  it("counts an unlogged scheduled workout as not-done for Fitness", async () => {
+    const dataSource = emptyDataSource({
+      getHabits: async () => [{ habitId: "h1", completed: true }],
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_name: "Push day" }),
+      getWorkoutLogs: async () => [],
+    });
+
+    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
+
+    // 1 habit done out of 1 habit + 1 workout.
+    expect(pulse.fitness).toBeCloseTo(1 / 2);
+  });
+
+  it("has a null Fitness fraction on a rest day with no habits", async () => {
+    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource());
+
+    expect(pulse.fitness).toBeNull();
   });
 });

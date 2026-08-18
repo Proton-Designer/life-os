@@ -17,7 +17,7 @@ export function PulseStrip({ pulse }: { pulse: DomainPulse }) {
   return (
     <div className="flex justify-around gap-2">
       {RINGS.map((ring) => {
-        const pct = Math.round(pulse[ring.key] * 100);
+        const pct = Math.round((pulse[ring.key] ?? 0) * 100);
         return (
           <Link
             key={ring.key}

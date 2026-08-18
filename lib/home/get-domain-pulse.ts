@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { dayOfWeekFromDateString } from "@/lib/date-utils";
 
 export type PulseDataSource = {
   getPrayers: (userId: string, date: string) => Promise<{ prayer_name: string; status: string }[]>;
@@ -11,17 +12,25 @@ export type PulseDataSource = {
     userId: string,
     date: string
   ) => Promise<{ habitId: string; completed: boolean }[]>;
+  getWorkoutSchedule: (
+    userId: string,
+    dayOfWeek: number
+  ) => Promise<{ day_of_week: number; workout_name: string } | null>;
+  getWorkoutLogs: (userId: string, date: string) => Promise<{ workout_name: string }[]>;
 };
 
 export type DomainPulse = {
-  deen: number;
-  business: number;
-  fitness: number;
-  school: number;
+  deen: number | null;
+  business: number | null;
+  fitness: number | null;
+  school: number | null;
+  co_op: number | null;
 };
 
-function safeFraction(done: number, total: number): number {
-  return total === 0 ? 0 : done / total;
+// Nothing tracked ≠ zero progress: a 0% ring on a day with nothing
+// scheduled is a wrong number, not a low one.
+function safeFraction(done: number, total: number): number | null {
+  return total === 0 ? null : done / total;
 }
 
 function defaultDataSource(): PulseDataSource {
@@ -71,6 +80,25 @@ function defaultDataSource(): PulseDataSource {
         completed: logs?.some((l) => l.habit_id === h.id && l.completed) ?? false,
       }));
     },
+    async getWorkoutSchedule(userId, dayOfWeek) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("workout_schedule")
+        .select("day_of_week, workout_name")
+        .eq("user_id", userId)
+        .eq("day_of_week", dayOfWeek)
+        .maybeSingle();
+      return data ?? null;
+    },
+    async getWorkoutLogs(userId, date) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("workout_logs")
+        .select("workout_name")
+        .eq("user_id", userId)
+        .eq("date", date);
+      return data ?? [];
+    },
   };
 }
 
@@ -79,11 +107,14 @@ export async function getDomainPulse(
   date: string,
   dataSource: PulseDataSource = defaultDataSource()
 ): Promise<DomainPulse> {
-  const [prayers, killList, tasks, habits] = await Promise.all([
+  const dayOfWeek = dayOfWeekFromDateString(date);
+  const [prayers, killList, tasks, habits, workoutSchedule, workoutLogs] = await Promise.all([
     dataSource.getPrayers(userId, date),
     dataSource.getKillListItems(userId, date),
     dataSource.getTasks(userId, date),
     dataSource.getHabits(userId, date),
+    dataSource.getWorkoutSchedule(userId, dayOfWeek),
+    dataSource.getWorkoutLogs(userId, date),
   ]);
 
   const prayersDone = prayers.filter((p) => p.status !== "pending" && p.status !== "missed").length;
@@ -94,12 +125,26 @@ export async function getDomainPulse(
     killList.length
   );
 
-  const fitness = safeFraction(habits.filter((h) => h.completed).length, habits.length);
-
-  const school = safeFraction(
-    tasks.filter((t) => t.completed).length,
-    tasks.length
+  const hasScheduledWorkout = workoutSchedule !== null;
+  const workoutDone = hasScheduledWorkout
+    ? workoutLogs.some((w) => w.workout_name === workoutSchedule.workout_name)
+    : false;
+  const habitsDone = habits.filter((h) => h.completed).length;
+  const fitness = safeFraction(
+    habitsDone + (workoutDone ? 1 : 0),
+    habits.length + (hasScheduledWorkout ? 1 : 0)
   );
 
-  return { deen, business, fitness, school };
+  const schoolTasks = tasks.filter((t) => t.domain === "school");
+  const coOpTasks = tasks.filter((t) => t.domain === "co_op");
+  const school = safeFraction(
+    schoolTasks.filter((t) => t.completed).length,
+    schoolTasks.length
+  );
+  const co_op = safeFraction(
+    coOpTasks.filter((t) => t.completed).length,
+    coOpTasks.length
+  );
+
+  return { deen, business, fitness, school, co_op };
 }

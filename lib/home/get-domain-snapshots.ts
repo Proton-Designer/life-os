@@ -23,7 +23,7 @@ export type DeenSnapshot = {
   quranWeeklyTarget: number | null;
   habitFocusName: string | null;
   habitFocusStreak: number;
-  pulse: number;
+  pulse: number | null;
 };
 
 export type BusinessSnapshot = {
@@ -31,7 +31,7 @@ export type BusinessSnapshot = {
   killListDone: number;
   killListTotal: number;
   weeklyRatioDisplay: string;
-  pulse: number;
+  pulse: number | null;
 };
 
 export type FitnessSnapshot = {
@@ -39,14 +39,14 @@ export type FitnessSnapshot = {
   workoutDone: boolean;
   weeklyConsistency: number;
   workoutsThisWeek: number;
-  pulse: number;
+  pulse: number | null;
 };
 
 export type TaskDomainSnapshot = {
   dueTodayCount: number;
   nextDueTitle: string | null;
   completedThisWeek: number;
-  pulse: number;
+  pulse: number | null;
 };
 
 export type DomainSnapshots = {
@@ -373,9 +373,7 @@ export async function getDomainSnapshots(
     dueTodayCount: dueTodayCoOp.length,
     nextDueTitle: nextDueTaskTitle(dueTodayCoOp),
     completedThisWeek: coOpTasksThisWeek.filter((t) => t.completed).length,
-    // No separate co-op fraction exists — get-domain-pulse.ts folds co-op
-    // tasks into the school fraction, so the peek card reuses that same value.
-    pulse: pulse.school,
+    pulse: pulse.co_op,
   };
 
   return { deen, business, fitness, school, co_op };

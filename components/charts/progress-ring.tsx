@@ -8,15 +8,29 @@ export function ProgressRing({
   strokeWidth = 6,
   label,
 }: {
-  pct: number;
+  pct: number | null;
   colorVar: string;
   size?: number;
   strokeWidth?: number;
   label?: string;
 }) {
-  const clamped = Math.max(0, Math.min(100, pct));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
+
+  if (pct === null) {
+    return (
+      <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+        <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Not tracked today">
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} />
+        </svg>
+        <span className="pointer-events-none absolute font-mono text-xs font-medium tabular-nums text-muted-foreground">
+          —
+        </span>
+      </div>
+    );
+  }
+
+  const clamped = Math.max(0, Math.min(100, pct));
   const filled = (clamped / 100) * circumference;
 
   return (

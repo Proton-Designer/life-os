@@ -1,0 +1,73 @@
+import { describe, expect, it } from "vitest";
+import { NEXT_ACTION_ORDER, selectNextActionPerDomain } from "../next-actions";
+import type { PriorityItem } from "../types";
+
+function item(overrides: Partial<PriorityItem>): PriorityItem {
+  return {
+    id: "id",
+    domain: "deen",
+    title: "title",
+    dueAt: null,
+    date: "2026-08-17",
+    urgencyBucket: "later_today",
+    completed: false,
+    actionType: "toggle_prayer",
+    actionRefId: "ref",
+    ...overrides,
+  };
+}
+
+describe("selectNextActionPerDomain", () => {
+  it("returns empty output for empty input", () => {
+    expect(selectNextActionPerDomain([])).toEqual([]);
+  });
+
+  it("picks one item per domain present", () => {
+    const items = [
+      item({ id: "d1", domain: "deen" }),
+      item({ id: "b1", domain: "business" }),
+      item({ id: "f1", domain: "fitness" }),
+    ];
+    const result = selectNextActionPerDomain(items);
+    expect(result.map((i) => i.id)).toEqual(["d1", "b1", "f1"]);
+  });
+
+  it("omits domains with no pending item", () => {
+    const items = [item({ id: "d1", domain: "deen" }), item({ id: "s1", domain: "school" })];
+    const result = selectNextActionPerDomain(items);
+    expect(result.map((i) => i.domain)).toEqual(["deen", "school"]);
+  });
+
+  it("orders output by NEXT_ACTION_ORDER regardless of input order", () => {
+    const items = [
+      item({ id: "c1", domain: "co_op" }),
+      item({ id: "f1", domain: "fitness" }),
+      item({ id: "d1", domain: "deen" }),
+      item({ id: "s1", domain: "school" }),
+      item({ id: "b1", domain: "business" }),
+    ];
+    const result = selectNextActionPerDomain(items);
+    expect(result.map((i) => i.domain)).toEqual(NEXT_ACTION_ORDER);
+  });
+
+  it("picks the first (most urgent) item when a domain has several", () => {
+    const items = [
+      item({ id: "fajr", domain: "deen", title: "Fajr" }),
+      item({ id: "isha", domain: "deen", title: "Isha" }),
+    ];
+    const result = selectNextActionPerDomain(items);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("fajr");
+  });
+
+  it("does not mutate or re-sort within a domain", () => {
+    const items = [
+      item({ id: "b1", domain: "business" }),
+      item({ id: "d2", domain: "deen", title: "second" }),
+      item({ id: "d1", domain: "deen", title: "first" }),
+    ];
+    const result = selectNextActionPerDomain(items);
+    const deen = result.find((i) => i.domain === "deen");
+    expect(deen?.id).toBe("d2");
+  });
+});

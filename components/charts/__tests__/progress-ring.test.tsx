@@ -22,4 +22,11 @@ describe("ProgressRing", () => {
     render(<ProgressRing pct={140} colorVar="--accent-deen" />);
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
+
+  it("renders a muted dash with an explanatory label when nothing is tracked, not 0%", () => {
+    render(<ProgressRing pct={null} colorVar="--accent-deen" />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Not tracked today" })).toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  });
 });

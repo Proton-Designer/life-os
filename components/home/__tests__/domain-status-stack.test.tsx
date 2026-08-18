@@ -40,4 +40,18 @@ describe("DomainStatusStack", () => {
     expect(screen.getByText("2 due today")).toBeInTheDocument();
     expect(screen.getByText("0 due today")).toBeInTheDocument();
   });
+
+  it("renders an optional title inside the container, without a separate Panel wrapper", () => {
+    render(<DomainStatusStack snapshots={SNAPSHOTS} title="Sector progress" />);
+    expect(screen.getByText("Sector progress")).toBeInTheDocument();
+  });
+
+  it("shows a muted dash instead of 0% for a domain with a null pulse", () => {
+    const snapshots: DomainSnapshots = {
+      ...SNAPSHOTS,
+      co_op: { ...SNAPSHOTS.co_op, pulse: null },
+    };
+    render(<DomainStatusStack snapshots={snapshots} />);
+    expect(screen.getByRole("img", { name: "Not tracked today" })).toBeInTheDocument();
+  });
 });

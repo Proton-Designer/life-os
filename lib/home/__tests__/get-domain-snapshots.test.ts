@@ -9,7 +9,7 @@ const CHICAGO_PROFILE = {
   asr_madhab: "standard" as const,
 };
 
-const ZERO_PULSE = { deen: 0, business: 0, fitness: 0, school: 0 };
+const ZERO_PULSE = { deen: 0, business: 0, fitness: 0, school: 0, co_op: 0 };
 
 function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): DomainSnapshotDataSource {
   return {
@@ -198,13 +198,22 @@ describe("getDomainSnapshots", () => {
 
   it("carries through each domain's getDomainPulse fraction without recomputing it", async () => {
     const dataSource = baseDataSource({
-      getDomainPulse: async () => ({ deen: 0.5, business: 0.25, fitness: 1, school: 0 }),
+      getDomainPulse: async () => ({ deen: 0.5, business: 0.25, fitness: 1, school: 0, co_op: 0.75 }),
     });
     const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
     expect(snapshots.deen.pulse).toBe(0.5);
     expect(snapshots.business.pulse).toBe(0.25);
     expect(snapshots.fitness.pulse).toBe(1);
     expect(snapshots.school.pulse).toBe(0);
-    expect(snapshots.co_op.pulse).toBe(0);
+    expect(snapshots.co_op.pulse).toBe(0.75);
+  });
+
+  it("carries a null pulse through untouched (nothing tracked today)", async () => {
+    const dataSource = baseDataSource({
+      getDomainPulse: async () => ({ deen: null, business: null, fitness: null, school: null, co_op: null }),
+    });
+    const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+    expect(snapshots.deen.pulse).toBeNull();
+    expect(snapshots.co_op.pulse).toBeNull();
   });
 });

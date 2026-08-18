@@ -164,7 +164,7 @@ export function DomainPeekCards({
   return (
     <>
       {domains.map((domain) => (
-        <DomainPeekCard key={domain} domain={domain} href={CARD_HREF[domain]} pulse={snapshots[domain].pulse}>
+        <DomainPeekCard key={domain} domain={domain} href={CARD_HREF[domain]} pulse={snapshots[domain].pulse ?? 0}>
           {domain === "deen" && <DeenBody snapshot={snapshots.deen} now={now} />}
           {domain === "business" && <BusinessBody snapshot={snapshots.business} />}
           {domain === "fitness" && <FitnessBody snapshot={snapshots.fitness} />}

@@ -6,24 +6,41 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // storageState) rather than logging in itself.
 
 test.describe("Home", () => {
-  test("renders the day ribbon, KPI row, domain status stack, and priority list", async ({ page }) => {
+  test("renders the Now module, Focus module, weekly focus, sector progress, and priority list", async ({
+    page,
+  }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    await expect(page.getByRole("button", { name: "Mark done" }).or(page.getByText("all clear"))).toBeVisible();
-
-    // Day Ribbon (Phase D) — either the real ribbon (a Fajr prayer-marker
-    // button, aria-labeled distinctly from every other "Fajr" text on the
-    // page — the priority list row, Next Up hero, etc.) or, if no location
-    // is set yet, its EmptyState fallback.
+    // "Now" module (2026-08-17 restructure) — one row per applicable domain
+    // via a `Mark "…" done` button, or the all-clear/fresh-install empty
+    // state. Scoped to the panel whose title span is exactly "Now" — a
+    // plain hasText substring match would also catch the "Right now / Later
+    // today" panel below, and the same `Mark "…" done` aria-label pattern
+    // is reused by the priority list, so scoping matters here.
+    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
     await expect(
-      page.getByRole("button", { name: /^Fajr,/ }).or(page.getByText("Set your location in Settings"))
+      nowPanel.getByRole("button", { name: /^Mark ".*" done$/ }).first().or(nowPanel.getByText(/all clear|Welcome/))
     ).toBeVisible();
 
-    // Domain status stack (replaced the old rail-based domain peek cards in
-    // the Phase D rebuild) — checked via each row's own metric text, which
-    // is unique per domain, rather than a testid the shared ListRow
-    // component doesn't expose per-instance.
+    // Focus module — idle (Lock In button) or active (a live elapsed timer
+    // plus "Open session →") are the only two valid states.
+    const focusPanel = page.locator("[data-panel]").filter({ has: page.getByText("Focus", { exact: true }) });
+    await expect(
+      focusPanel.getByRole("button", { name: "Lock In" }).or(focusPanel.getByRole("link", { name: "Open session →" }))
+    ).toBeVisible();
+
+    // Weekly focus — Deen and Business blocks are always labeled, whether a
+    // goal is set this week or not (see weekly-focus.tsx's GoalBlock).
+    const weeklyFocusPanel = page.locator("[data-panel]", { hasText: "This week's focus" });
+    await expect(weeklyFocusPanel.getByText("Deen", { exact: true })).toBeVisible();
+    await expect(weeklyFocusPanel.getByText("Business", { exact: true })).toBeVisible();
+
+    // Sector progress (the moved DomainStatusStack, no longer wrapped in a
+    // Panel — see its own component comment) — checked via each row's own
+    // metric text, which is unique per domain, rather than a testid the
+    // shared ListRow component doesn't expose per-instance.
+    await expect(page.getByText("Sector progress")).toBeVisible();
     await expect(page.getByText(/\d\/5 prayers/)).toBeVisible();
     await expect(page.getByText(/Kill list \d\/3/)).toBeVisible();
     await expect(page.getByText(/% this week/)).toBeVisible();
@@ -63,11 +80,13 @@ test.describe("Home", () => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    // Kill-list is rolled into a single Home item (per get-priority-items.ts) —
-    // the "Business" domain label is the only one that ever appears in that
-    // row, so scoping to it is unambiguous without needing to match the
-    // (possibly rolled-up, e.g. "3 kill-list items remaining") title text.
-    const businessRow = page.locator("li").filter({ hasText: "Business" });
+    // Kill-list is rolled into a single Home item (per get-priority-items.ts),
+    // and since the 2026-08-17 restructure that same item can appear twice
+    // on Home — once in the "Now" module, once here — so scoping to the
+    // priority-list panel specifically (not just the "Business" domain
+    // label) is required, not optional, to avoid an ambiguous match.
+    const priorityListPanel = page.locator("[data-panel]", { hasText: "Right now / Later today" });
+    const businessRow = priorityListPanel.locator("li").filter({ hasText: "Business" });
     const toggleButton = businessRow.getByRole("button", { name: /^Mark ".*" done$/ });
 
     if ((await toggleButton.count()) === 0) {
