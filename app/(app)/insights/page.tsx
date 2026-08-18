@@ -6,6 +6,7 @@ import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTim
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { getInsightsKpis } from "@/lib/insights/insights-kpis";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
+import { getWeeklyCompletion } from "@/lib/home/get-weekly-completion";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -17,6 +18,7 @@ import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { RankedBars, type RankedBarsItem } from "@/components/charts/ranked-bars";
 import { DonutChart } from "@/components/charts/donut-chart";
+import { AreaChart } from "@/components/charts/area-chart";
 
 const SEGMENT_LABEL: Record<string, string> = {
   deen: "Deen",
@@ -79,14 +81,23 @@ export default async function InsightsPage({
       ? resolveLocalTime(weekStart, "00:00", timezone)
       : resolveLocalTime(todayStr, "00:00", timezone);
 
-  const [{ segments, globalRatio, signal, noise }, kpis] = await Promise.all([
+  const [{ segments, globalRatio, signal, noise }, kpis, weeklyCompletion] = await Promise.all([
     getFocusMap(userId, range, anchor),
     getInsightsKpis(userId, weekStart, previousWeekStart),
+    getWeeklyCompletion(userId, now, profile),
   ]);
 
   const hasFocusData = segments.length > 0;
   const hasSnData = signal + noise > 0;
   const domainSegments = segments.filter((s) => s.domain !== "noise" && s.domain !== "other_work");
+
+  const weeklyAvgPct = Math.round(
+    weeklyCompletion.weeklyCompletionPct.reduce((a, b) => a + b, 0) / weeklyCompletion.weeklyCompletionPct.length
+  );
+  const bestDayIndex = weeklyCompletion.weeklyCompletionPct.reduce(
+    (best, v, i) => (v > weeklyCompletion.weeklyCompletionPct[best] ? i : best),
+    0
+  );
 
   const rankedItems: RankedBarsItem[] = segments.map((s) => ({
     label: SEGMENT_LABEL[s.domain] ?? s.domain,
@@ -158,6 +169,23 @@ export default async function InsightsPage({
           />
         </div>
       </div>
+
+      {/* Moved from Home (2026-08-17 day-shape spec) — a completion-percent
+          trend is a pattern-over-time chart, which belongs here per Ayman's
+          own "metrics belong in Insights, not Home" rule. Independent of
+          the day/week range toggle above: always the trailing 7 days,
+          matching what this chart showed on Home. */}
+      <Panel
+        title="This week"
+        heroValue={`${weeklyAvgPct}%`}
+        caption={`${weeklyCompletion.weeklyCompletionLabels[bestDayIndex]} was your best day this week`}
+      >
+        <AreaChart
+          categories={weeklyCompletion.weeklyCompletionLabels}
+          series={[{ label: "Completion", colorVar: "--series-business", values: weeklyCompletion.weeklyCompletionPct }]}
+          unit="%"
+        />
+      </Panel>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-7">

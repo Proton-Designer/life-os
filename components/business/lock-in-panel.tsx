@@ -25,6 +25,7 @@ export function LockInPanel({
   initialSession,
   lastSession,
   todayFocusMinutes,
+  showTodayTotal = true,
 }: {
   initialSession: ActiveSessionData | null;
   lastSession: LastSessionData | null;
@@ -33,6 +34,14 @@ export function LockInPanel({
   // with nothing to show isn't a state this composition should silently
   // fall back into; the caller always has a real number, even "0m".
   todayFocusMinutes: number;
+  // Opus Lead review (2026-08-18): the overnight Business restructure put a
+  // standalone "Focus time today" card directly beside this panel, so its
+  // own idle-state "Today" figure became a literal duplicate of the number
+  // right next to it. This flag lets that one caller opt out without
+  // weakening todayFocusMinutes' required-ness for every other caller —
+  // don't delete the display outright, or a caller with no adjacent card
+  // silently loses the guarantee above.
+  showTodayTotal?: boolean;
 }) {
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
@@ -61,12 +70,14 @@ export function LockInPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">Today</p>
-        <p className="font-mono text-2xl font-semibold tabular-nums">
-          {formatElapsedDuration(todayFocusMinutes * 60_000)}
-        </p>
-      </div>
+      {showTodayTotal && (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Today</p>
+          <p className="font-mono text-2xl font-semibold tabular-nums">
+            {formatElapsedDuration(todayFocusMinutes * 60_000)}
+          </p>
+        </div>
+      )}
       {lastSession && (
         <p className="text-xs text-muted-foreground">
           Last session: {formatElapsedDuration(lastSessionMinutesMs)} on{" "}

@@ -75,6 +75,16 @@ function HabitRow({
   );
 }
 
+// Mirrors lib/deen/habit-stage.ts's own boundaries exactly (0-13 / 14-29 /
+// 30+ days since committed_date) — shown, not just implied, per Ayman's
+// explicit ask: "at least making it visible is easier to understand what
+// goes where."
+const STAGE_WINDOW: Record<string, string> = {
+  "Active Build": "Days 0–13",
+  Stabilized: "Days 14–29",
+  Locked: "Day 30+",
+};
+
 function StageColumn({
   title,
   variant,
@@ -92,8 +102,9 @@ function StageColumn({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3>
+      <h3 className="flex items-baseline gap-2">
         <Badge variant={variant}>{title}</Badge>
+        <span className="text-xs text-muted-foreground">{STAGE_WINDOW[title]}</span>
       </h3>
       {habits.length === 0 ? (
         <p className="text-xs text-muted-foreground">None yet.</p>
@@ -111,9 +122,11 @@ function StageColumn({
 function HabitFocusPicker({
   candidates,
   onDone,
+  onCancel,
 }: {
   candidates: DeenHabitData[];
   onDone: (habitId: string, createdName?: string) => void;
+  onCancel: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [newName, setNewName] = useState("");
@@ -158,6 +171,11 @@ function HabitFocusPicker({
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Or start a new habit" />
         <Button type="submit" disabled={isPending}>
           Start
+        </Button>
+        {/* The only way out of this section used to be refreshing the page —
+            this is the fix. Plain, always available, no side effects. */}
+        <Button type="button" variant="outline" disabled={isPending} onClick={onCancel}>
+          Cancel
         </Button>
       </form>
     </div>
@@ -215,6 +233,7 @@ export function HabitBuilder({
         <HabitFocusPicker
           candidates={activeBuild.filter((h) => h.id !== focusHabitId)}
           onDone={handleFocusChosen}
+          onCancel={() => setShowPicker(false)}
         />
       ) : focusHabit ? (
         <div
@@ -235,13 +254,12 @@ export function HabitBuilder({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setShowPicker(true)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Edit
-            </button>
+            {/* Was a 12px muted text link labeled "Edit" — Ayman's exact
+                complaint was that adding a habit is hidden behind it. A
+                real, clearly-labeled button in its place. */}
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowPicker(true)}>
+              Add a habit
+            </Button>
             <HabitToggleButton
               habitId={focusHabit.id}
               todayStr={todayStr}
@@ -251,21 +269,23 @@ export function HabitBuilder({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border/60 p-4">
-          <p className="text-sm text-muted-foreground">Pick this week&apos;s focus habit.</p>
-          {previousFocusHabit && (
-            <Button type="button" variant="outline" disabled={isContinuing} onClick={continueWithPrevious}>
-              Continue with {previousFocusHabit.name}
+        // Only when there's already at least one habit to pick a focus
+        // from — with zero habits, the EmptyState below already owns the
+        // "add one" prompt, and a second "Add a habit" button here would
+        // just be the same redundant-tiny-links problem in a new outfit.
+        habits.length > 0 && (
+          <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border/60 p-4">
+            <p className="text-sm text-muted-foreground">Pick this week&apos;s focus habit.</p>
+            {previousFocusHabit && (
+              <Button type="button" variant="outline" disabled={isContinuing} onClick={continueWithPrevious}>
+                Continue with {previousFocusHabit.name}
+              </Button>
+            )}
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowPicker(true)}>
+              Add a habit
             </Button>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowPicker(true)}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            {previousFocusHabit ? "Choose different" : "Choose a habit"}
-          </button>
-        </div>
+          </div>
+        )
       )}
 
       {/* Opus Lead review (2026-08-16): with zero habits, all three columns

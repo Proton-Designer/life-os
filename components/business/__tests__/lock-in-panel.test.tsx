@@ -58,4 +58,28 @@ describe("LockInPanel", () => {
     render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
     expect(screen.getByText("0m")).toBeInTheDocument();
   });
+
+  it("defaults to showing the today total when showTodayTotal is omitted", () => {
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85} />);
+    expect(screen.getByText("Today")).toBeInTheDocument();
+  });
+
+  it("hides the today total when a caller already shows it elsewhere (showTodayTotal=false)", () => {
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85} showTodayTotal={false} />);
+    expect(screen.queryByText("Today")).not.toBeInTheDocument();
+    expect(screen.queryByText("1h 25m")).not.toBeInTheDocument();
+  });
+
+  it("still shows the Lock In button and last-session line when the today total is hidden", () => {
+    render(
+      <LockInPanel
+        initialSession={null}
+        lastSession={{ startedAtIso: "2026-08-15T14:00:00Z", endedAtIso: "2026-08-15T15:30:00Z" }}
+        todayFocusMinutes={85}
+        showTodayTotal={false}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Lock In" })).toBeInTheDocument();
+    expect(screen.getByText(/Last session: 1h 30m/)).toBeInTheDocument();
+  });
 });

@@ -18,6 +18,7 @@ const SNAPSHOTS: DomainSnapshots = {
     habitFocusName: null,
     habitFocusStreak: 0,
     pulse: 0.4,
+    qadaBacklogCount: 0,
   },
   business: { activeSession: null, killListDone: 1, killListTotal: 3, weeklyRatioDisplay: "1:1", pulse: 0.33 },
   fitness: { scheduledWorkoutName: null, workoutDone: false, weeklyConsistency: 0.8, workoutsThisWeek: 4, pulse: 0.8 },
@@ -44,6 +45,20 @@ describe("DomainStatusStack", () => {
   it("renders an optional title inside the container, without a separate Panel wrapper", () => {
     render(<DomainStatusStack snapshots={SNAPSHOTS} title="Sector progress" />);
     expect(screen.getByText("Sector progress")).toBeInTheDocument();
+  });
+
+  it("does not mention qada in the Deen row when nothing is outstanding", () => {
+    render(<DomainStatusStack snapshots={SNAPSHOTS} />);
+    expect(screen.queryByText(/qada/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces outstanding qada in the Deen row's metric when non-zero — a doorway, not a new element", () => {
+    const snapshots: DomainSnapshots = {
+      ...SNAPSHOTS,
+      deen: { ...SNAPSHOTS.deen, qadaBacklogCount: 3 },
+    };
+    render(<DomainStatusStack snapshots={snapshots} />);
+    expect(screen.getByText("2/5 prayers · 3 qada")).toBeInTheDocument();
   });
 
   it("shows a muted dash instead of 0% for a domain with a null pulse", () => {

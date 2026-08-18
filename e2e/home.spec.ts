@@ -6,18 +6,14 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // storageState) rather than logging in itself.
 
 test.describe("Home", () => {
-  test("renders the Now module, Focus module, weekly focus, sector progress, and priority list", async ({
+  test("renders the Now module, Focus module, the day's shape, weekly focus, and sector progress", async ({
     page,
   }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    // "Now" module (2026-08-17 restructure) — one row per applicable domain
-    // via a `Mark "…" done` button, or the all-clear/fresh-install empty
-    // state. Scoped to the panel whose title span is exactly "Now" — a
-    // plain hasText substring match would also catch the "Right now / Later
-    // today" panel below, and the same `Mark "…" done` aria-label pattern
-    // is reused by the priority list, so scoping matters here.
+    // "Now" module. Scoped to the panel whose title span is exactly "Now" —
+    // a plain hasText substring match would also catch other panel titles.
     const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
     await expect(
       nowPanel.getByRole("button", { name: /^Mark ".*" done$/ }).first().or(nowPanel.getByText(/all clear|Welcome/))
@@ -30,36 +26,49 @@ test.describe("Home", () => {
       focusPanel.getByRole("button", { name: "Lock In" }).or(focusPanel.getByRole("link", { name: "Open session →" }))
     ).toBeVisible();
 
+    // The day's shape (2026-08-17 day-shape spec — revived DayRibbon with
+    // spans + overlay). Either the real ribbon (a headline status line is
+    // always present when rendered) or, if no location is set yet, its
+    // EmptyState fallback pointing at Settings.
+    const dayShapePanel = page.locator("[data-panel]", { hasText: "The day's shape" });
+    await expect(
+      dayShapePanel
+        .getByText(/until Fajr|is open now|Next:|accounted for|day is complete/)
+        .or(dayShapePanel.getByText("Set your location in Settings"))
+    ).toBeVisible();
+
     // Weekly focus — Deen and Business blocks are always labeled, whether a
     // goal is set this week or not (see weekly-focus.tsx's GoalBlock).
     const weeklyFocusPanel = page.locator("[data-panel]", { hasText: "This week's focus" });
     await expect(weeklyFocusPanel.getByText("Deen", { exact: true })).toBeVisible();
     await expect(weeklyFocusPanel.getByText("Business", { exact: true })).toBeVisible();
 
-    // Sector progress (the moved DomainStatusStack, no longer wrapped in a
-    // Panel — see its own component comment) — checked via each row's own
-    // metric text, which is unique per domain, rather than a testid the
-    // shared ListRow component doesn't expose per-instance.
+    // Sector progress (DomainStatusStack, not wrapped in a Panel — see its
+    // own component comment) — checked via each row's own metric text.
     await expect(page.getByText("Sector progress")).toBeVisible();
     await expect(page.getByText(/\d\/5 prayers/)).toBeVisible();
     await expect(page.getByText(/Kill list \d\/3/)).toBeVisible();
     await expect(page.getByText(/% this week/)).toBeVisible();
     await expect(page.getByText(/due today/).first()).toBeVisible();
-
-    // Priority list section headings or the empty-state copy are the only
-    // two valid rendered states for this account at any given moment.
-    const hasSections = await page.getByRole("heading", { name: /Right now|Later today/ }).count();
-    const hasEmptyState = await page.getByText(/Nothing due right now|all clear/).count();
-    expect(hasSections + hasEmptyState).toBeGreaterThan(0);
   });
 
-  test("toggling a visible item updates its state without a full page reload", async ({ page }) => {
+  test("Home no longer renders the deleted priority-list panel or Signal:Noise donut", async ({ page }) => {
+    await page.goto("/");
+    await dismissCheckinDialogIfPresent(page);
+
+    await expect(page.getByText("Right now / Later today")).not.toBeVisible();
+    await expect(page.getByText("Signal:Noise this week")).not.toBeVisible();
+  });
+
+  test("toggling a visible item in the Now module updates its state without a full page reload", async ({
+    page,
+  }) => {
     // Adhkar (this test's original target — a real flip, not a one-way
     // completion like every other Home item type) was dropped from the UI
-    // in the Home/Deen/Business overhaul. Kill-list is the next-best target:
-    // Home's own toggle is one-way (completed: true, per app/(app)/actions.ts),
-    // but the Business page's toggleKillListItem action flips it back, so the
-    // same cross-page complete-then-revert shape still works.
+    // long ago. Kill-list is the next-best target: Home's own toggle is
+    // one-way (completed: true, per app/(app)/actions.ts), but the Business
+    // page's toggleKillListItem action flips it back, so the same
+    // cross-page complete-then-revert shape still works.
     await page.goto("/business");
     await dismissCheckinDialogIfPresent(page);
 
@@ -80,13 +89,13 @@ test.describe("Home", () => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    // Kill-list is rolled into a single Home item (per get-priority-items.ts),
-    // and since the 2026-08-17 restructure that same item can appear twice
-    // on Home — once in the "Now" module, once here — so scoping to the
-    // priority-list panel specifically (not just the "Business" domain
-    // label) is required, not optional, to avoid an ambiguous match.
-    const priorityListPanel = page.locator("[data-panel]", { hasText: "Right now / Later today" });
-    const businessRow = priorityListPanel.locator("li").filter({ hasText: "Business" });
+    // Kill-list is rolled into a single Home item (per get-priority-items.ts).
+    // The Now module is the only place on Home it can appear now that the
+    // priority-list panel is gone, so scoping to it isn't strictly required
+    // for uniqueness anymore — kept anyway so this test still targets the
+    // right module if that ever changes back.
+    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
+    const businessRow = nowPanel.locator("li").filter({ hasText: "Business" });
     const toggleButton = businessRow.getByRole("button", { name: /^Mark ".*" done$/ });
 
     if ((await toggleButton.count()) === 0) {

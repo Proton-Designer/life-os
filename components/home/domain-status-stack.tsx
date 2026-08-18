@@ -25,7 +25,11 @@ function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {
   switch (domain) {
     case "deen": {
       const done = s.deen.prayerStatuses.filter((p) => p.status === "on_time" || p.status === "qada").length;
-      return `${done}/5 prayers`;
+      const base = `${done}/5 prayers`;
+      // No new element — the existing metric is the doorway. Outstanding
+      // qada is invisible otherwise once a missed-and-unlogged prayer drops
+      // out of Home's actionable items (it's qada, not "pending").
+      return s.deen.qadaBacklogCount > 0 ? `${base} · ${s.deen.qadaBacklogCount} qada` : base;
     }
     case "business":
       return `Kill list ${s.business.killListDone}/${s.business.killListTotal || 3}`;

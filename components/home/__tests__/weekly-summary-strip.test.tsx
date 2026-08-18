@@ -5,7 +5,7 @@ import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
 
 function snapshots(overrides: Partial<DomainSnapshots> = {}): DomainSnapshots {
   return {
-    deen: { nextPrayer: null, prayerStatuses: [], quranWeekPages: 12, quranWeeklyTarget: null, habitFocusName: null, habitFocusStreak: 0, pulse: 0 },
+    deen: { nextPrayer: null, prayerStatuses: [], quranWeekPages: 12, quranWeeklyTarget: null, habitFocusName: null, habitFocusStreak: 0, pulse: 0, qadaBacklogCount: 0 },
     business: { activeSession: null, killListDone: 0, killListTotal: 3, weeklyRatioDisplay: "3:1", pulse: 0 },
     fitness: { scheduledWorkoutName: null, workoutDone: false, weeklyConsistency: 0, workoutsThisWeek: 4, pulse: 0 },
     school: { dueTodayCount: 0, nextDueTitle: null, completedThisWeek: 2, pulse: 0 },

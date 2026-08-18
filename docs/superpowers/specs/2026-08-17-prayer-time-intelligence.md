@@ -40,9 +40,9 @@ required, not decorative. Existing callers destructure by name and are unaffecte
 export type PrayerWindow = { start: Date; end: Date };
 
 export function computePrayerWindows(opts: {
-  date: Date; lat: number; lng: number; timezoneOffsetMinutes: number;
+  date: Date; lat: number; lng: number; timezone: string;
   calcMethod: CalcMethod; asrMadhab: AsrMadhab;
-}): Record<PrayerName, PrayerWindow>;
+}): Record<PrayerName, PrayerWindow | null>;
 ```
 
 | Prayer | Starts | Ends |
@@ -60,9 +60,17 @@ mark a prayer missed while it is still valid**, so the outer bound governs auto-
 preferred bound as a UI hint is fine later; it must not drive status.
 
 Notes for the implementer:
+- **This function takes an IANA `timezone` string, not a scalar offset.** An earlier draft specified
+  `timezoneOffsetMinutes: number`, which contradicted the requirement below it: a single scalar cannot
+  be re-resolved for a second date. `calculatePrayerTimes` keeps its scalar parameter — it is the
+  low-level astronomical primitive and has existing callers — while `computePrayerWindows` owns the
+  timezone semantics and resolves the offset itself. (Caught by Engineer 1 before implementation,
+  2026-08-17.)
 - Timezone offset must be computed for **each** date, not reused across the day boundary — a DST
   transition between today and tomorrow otherwise shifts Isha's end by an hour. Call
-  `getTimezoneOffsetMinutes` per date.
+  `getTimezoneOffsetMinutes(date, timezone)` for today and again for tomorrow, where tomorrow is the
+  next UTC calendar day — the same convention `calculate.ts` already uses internally when it reads
+  `getUTCFullYear/Month/Date` off the passed date.
 - High latitudes can produce a non-existent Fajr or Isha (the `hourAngle` `cosH` clamp fires). Detect
   the clamp case and return `null` for that window rather than a silently wrong `Date`. A `null`
   window means "cannot determine" and must **never** derive a missed status. Ayman is not at high

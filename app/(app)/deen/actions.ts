@@ -3,6 +3,8 @@
 import { requireUser } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
+import type { PrayerName } from "@/lib/prayer-times/windows";
+import type { SunnahSlot } from "@/lib/deen/sunnah";
 
 async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string) {
   const { data: profile } = await supabase
@@ -194,6 +196,38 @@ export async function toggleDeenHabitLog(habitId: string, date: string): Promise
   if (error) throw error;
   revalidatePath("/deen");
   revalidatePath("/");
+}
+
+// Same upsert-and-flip shape as toggleDeenHabitLog. Sunnah doesn't appear on
+// Home, so only /deen is revalidated.
+export async function toggleSunnah(
+  date: string,
+  prayerName: PrayerName,
+  slot: SunnahSlot
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: existing } = await supabase
+    .from("sunnah_logs")
+    .select("completed")
+    .eq("user_id", userId)
+    .eq("date", date)
+    .eq("prayer_name", prayerName)
+    .eq("slot", slot)
+    .maybeSingle();
+
+  const { error } = await supabase.from("sunnah_logs").upsert(
+    {
+      user_id: userId,
+      date,
+      prayer_name: prayerName,
+      slot,
+      completed: !existing?.completed,
+    },
+    { onConflict: "user_id,date,prayer_name,slot" }
+  );
+  if (error) throw error;
+  revalidatePath("/deen");
 }
 
 /**

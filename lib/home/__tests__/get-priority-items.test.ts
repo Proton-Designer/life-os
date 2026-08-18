@@ -86,6 +86,26 @@ describe("getPriorityItems", () => {
     expect(items.find((i) => i.actionRefId === "fajr")).toBeUndefined();
   });
 
+  it("excludes an unlogged prayer whose window has already closed (missed, not pending)", async () => {
+    // Late evening in Chicago — Fajr's window (ends at sunrise) closed many hours ago.
+    const now = new Date("2026-08-10T23:00:00Z"); // ~6pm CDT
+    const dataSource = emptyDataSource({ getPrayers: async () => [] });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+
+    expect(items.find((i) => i.actionRefId === "fajr")).toBeUndefined();
+  });
+
+  it("excludes an unlogged prayer whose window hasn't opened and isn't within the right-now lookahead (fixes 'all five from midnight')", async () => {
+    // Early morning — Isha's window is many hours away, well outside the 2h lookahead.
+    const now = new Date("2026-08-10T11:00:00Z"); // ~6am CDT
+    const dataSource = emptyDataSource({ getPrayers: async () => [] });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+
+    expect(items.find((i) => i.actionRefId === "isha")).toBeUndefined();
+  });
+
   it("orders items due at the exact same moment by domain priority (Deen before School/Co-op)", async () => {
     const now = new Date("2026-08-10T00:00:00Z");
     const times = calculatePrayerTimes({

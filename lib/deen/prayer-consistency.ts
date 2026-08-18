@@ -1,4 +1,6 @@
-const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
+import { PRAYER_NAMES } from "@/lib/prayer-times/windows";
+import type { ResolvedDayStatuses } from "./prayer-status";
+
 const PRAYER_LABEL: Record<string, string> = {
   fajr: "Fajr",
   dhuhr: "Dhuhr",
@@ -9,13 +11,19 @@ const PRAYER_LABEL: Record<string, string> = {
 
 export type PrayerHistoryRow = { date: string; prayer_name: string; status: string };
 
-/** Shapes prayer history into ConsistencyGrid's rows — always all 5 prayers, Fajr..Isha order. */
-export function buildPrayerConsistencyRows(rows: PrayerHistoryRow[], days: string[]) {
+/**
+ * Shapes prayer history into ConsistencyGrid's rows — always all 5 prayers,
+ * Fajr..Isha order. Takes already-resolved effective statuses (see
+ * lib/deen/prayer-status.ts's resolvePrayerStatuses) rather than raw rows,
+ * so a genuinely-missed unlogged prayer shows as missed here, not a generic
+ * pending default forever.
+ */
+export function buildPrayerConsistencyRows(resolved: Record<string, ResolvedDayStatuses>, days: string[]) {
   return PRAYER_NAMES.map((name) => ({
     label: PRAYER_LABEL[name],
     cells: days.map((date) => ({
       date,
-      status: rows.find((r) => r.date === date && r.prayer_name === name)?.status ?? "pending",
+      status: resolved[date]?.[name] ?? "pending",
     })),
   }));
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HabitBuilder, type DeenHabitData } from "../habit-builder";
 
 vi.mock("@/app/(app)/deen/actions", () => ({
@@ -74,5 +75,79 @@ describe("HabitBuilder", () => {
     expect(card.style.backgroundImage).toContain("--accent-deen");
     expect(card.style.backgroundColor).toBe("var(--card)");
     expect(card.querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("shows the day-range for each stage, not just its name", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ id: "a" })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+      />
+    );
+    expect(screen.getByText("Days 0–13")).toBeInTheDocument();
+    expect(screen.getByText("Days 14–29")).toBeInTheDocument();
+    expect(screen.getByText("Day 30+")).toBeInTheDocument();
+  });
+
+  it("offers a real, clearly-labeled Add a habit button when a focus is already set — not just a tiny Edit link", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit()]}
+        currentFocusHabitId="h1"
+        previousFocusHabitId={null}
+      />
+    );
+    const addButton = screen.getByRole("button", { name: /add a habit/i });
+    expect(addButton.tagName).toBe("BUTTON");
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+  });
+
+  it("offers a real Add a habit button when habits exist but no focus is set this week", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit()]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+      />
+    );
+    expect(screen.getByRole("button", { name: /add a habit/i })).toBeInTheDocument();
+  });
+
+  it("lets you cancel out of the habit picker without picking anything, restoring the previous view", async () => {
+    const user = userEvent.setup();
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit()]}
+        currentFocusHabitId="h1"
+        previousFocusHabitId={null}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /add a habit/i }));
+    expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(screen.queryByPlaceholderText("Or start a new habit")).not.toBeInTheDocument();
+    expect(screen.getByTestId("habit-focus-card")).toBeInTheDocument();
+  });
+
+  it("cancel from the picker doesn't create or select anything", async () => {
+    const user = userEvent.setup();
+    render(
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} />
+    );
+
+    await user.click(screen.getByRole("button", { name: /add a habit/i }));
+    await user.type(screen.getByPlaceholderText("Or start a new habit"), "Should not be created");
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(screen.getByText("No habits started yet")).toBeInTheDocument();
+    expect(screen.queryByText("Should not be created")).not.toBeInTheDocument();
   });
 });

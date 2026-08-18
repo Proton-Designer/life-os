@@ -7,6 +7,7 @@ const CHICAGO_PROFILE = {
   timezone: "America/Chicago",
   prayer_calc_method: "MWL" as const,
   asr_madhab: "standard" as const,
+  created_at: "2026-01-01T00:00:00Z",
 };
 
 const ZERO_PULSE = { deen: 0, business: 0, fitness: 0, school: 0, co_op: 0 };
@@ -15,6 +16,8 @@ function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): Doma
   return {
     getProfile: async () => CHICAGO_PROFILE,
     getPrayers: async () => [],
+    getPrayerHistory: async () => [],
+    getPrayerHandledCount: async () => 0,
     getQuranSessions: async () => [],
     getQuranWeeklyTarget: async () => null,
     getWeeklyFocusHabit: async () => null,
@@ -84,6 +87,59 @@ describe("getDomainSnapshots", () => {
       const snapshots = await getDomainSnapshots("user-1", NOW, baseDataSource());
       expect(snapshots.deen.habitFocusName).toBeNull();
       expect(snapshots.deen.habitFocusStreak).toBe(0);
+    });
+
+    it("has a zero qada backlog count when no location is set — a null window must never derive missed", async () => {
+      const dataSource = baseDataSource({
+        getProfile: async () => ({ ...CHICAGO_PROFILE, location_lat: null, location_lng: null }),
+      });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.deen.qadaBacklogCount).toBe(0);
+    });
+
+    // Old range (<= T-2, provably closed) is derived from a head-only count
+    // via getPrayerHandledCount — days*5 minus however many were handled
+    // (on_time/qada). No row detail crosses this boundary; see
+    // get-domain-snapshots.ts's own comment for why days*5-handled is exact.
+    it("derives old-range backlog from the handled head-count when nothing is handled", async () => {
+      const dataSource = baseDataSource({ getPrayerHandledCount: async () => 0 });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.deen.qadaBacklogCount).toBeGreaterThan(0);
+    });
+
+    it("shrinks the old-range backlog as the handled head-count rises, and clamps at zero rather than going negative", async () => {
+      const fewHandled = baseDataSource({ getPrayerHandledCount: async () => 5 });
+      const allHandled = baseDataSource({ getPrayerHandledCount: async () => 1_000_000 });
+
+      const fewSnapshot = await getDomainSnapshots("user-1", NOW, fewHandled);
+      const allSnapshot = await getDomainSnapshots("user-1", NOW, allHandled);
+
+      expect(allSnapshot.deen.qadaBacklogCount).toBeLessThan(fewSnapshot.deen.qadaBacklogCount);
+      expect(allSnapshot.deen.qadaBacklogCount).toBeGreaterThanOrEqual(0);
+    });
+
+    // Recent range (T-1, T) still resolves from real per-row history — the
+    // one place a window might genuinely still be open, so it can't be
+    // reduced to a count. Old-range contribution is pinned to 0 via a
+    // saturated handled-count so only the recent-range difference shows.
+    it("still resolves the recent range (T-1/T) from real per-row history, distinct from the old range", async () => {
+      const nothingLoggedRecently = baseDataSource({
+        getPrayerHandledCount: async () => 1_000_000,
+        getPrayerHistory: async () => [],
+      });
+      const allLoggedRecently = baseDataSource({
+        getPrayerHandledCount: async () => 1_000_000,
+        getPrayerHistory: async () =>
+          ["fajr", "dhuhr", "asr", "maghrib", "isha"].flatMap((prayer_name) => [
+            { date: "2026-08-09", prayer_name, status: "on_time" },
+            { date: "2026-08-10", prayer_name, status: "on_time" },
+          ]),
+      });
+
+      const nothingSnapshot = await getDomainSnapshots("user-1", NOW, nothingLoggedRecently);
+      const allSnapshot = await getDomainSnapshots("user-1", NOW, allLoggedRecently);
+
+      expect(allSnapshot.deen.qadaBacklogCount).toBeLessThan(nothingSnapshot.deen.qadaBacklogCount);
     });
   });
 

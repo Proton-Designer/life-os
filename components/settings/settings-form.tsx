@@ -2,17 +2,19 @@
 
 import { useState, useTransition } from "react";
 import { updateProfile } from "@/app/(app)/settings/actions";
+import { LocationSettings } from "@/components/settings/location-settings";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Panel } from "@/components/ui/panel";
+import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 
 export type SettingsFormData = {
   displayName: string;
-  prayerCalcMethod: string;
-  asrMadhab: "standard" | "hanafi";
-  locationLabel: string;
+  prayerCalcMethod: CalcMethod;
+  asrMadhab: AsrMadhab;
+  location: { lat: number | null; lng: number | null; label: string | null; timezone: string | null };
   checkinWindowStart: string;
   checkinWindowEnd: string;
   checkinIntervalMinutes: number;
@@ -31,7 +33,6 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
         display_name: form.displayName,
         prayer_calc_method: form.prayerCalcMethod,
         asr_madhab: form.asrMadhab,
-        location_label: form.locationLabel,
         checkin_window_start: form.checkinWindowStart,
         checkin_window_end: form.checkinWindowEnd,
         checkin_interval_minutes: form.checkinIntervalMinutes,
@@ -89,7 +90,7 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
             <select
               id="prayer-method"
               value={form.prayerCalcMethod}
-              onChange={(e) => setForm((f) => ({ ...f, prayerCalcMethod: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, prayerCalcMethod: e.target.value as CalcMethod }))}
               className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
             >
               <option value="MWL">Muslim World League</option>
@@ -109,15 +110,6 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
               <option value="standard">Standard (Shafi/Maliki/Hanbali)</option>
               <option value="hanafi">Hanafi</option>
             </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="location">Location (city)</Label>
-            <Input
-              id="location"
-              value={form.locationLabel}
-              onChange={(e) => setForm((f) => ({ ...f, locationLabel: e.target.value }))}
-              placeholder="e.g. Chicago, IL"
-            />
           </div>
         </div>
       </Panel>
@@ -171,6 +163,15 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
         </Button>
       </div>
       </form>
+
+      {/* Outside the main form: location saves itself atomically the moment
+          a place is resolved (geolocation success or a candidate pick),
+          same reasoning as Security's PIN form below — it must not wait on
+          "Save settings", and nesting a <form> inside a <form> is invalid
+          HTML besides. */}
+      <Panel id="location" className="scroll-mt-24" title="Location">
+        <LocationSettings initial={form.location} prayerCalcMethod={form.prayerCalcMethod} asrMadhab={form.asrMadhab} />
+      </Panel>
 
       <Panel id="security" className="scroll-mt-24" title="Security">
         <div className="flex flex-col gap-4">

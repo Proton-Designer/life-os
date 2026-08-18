@@ -4,12 +4,16 @@ import { useEffect, useRef, useTransition } from "react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
 import { formatRelativeDuration, formatDurationMagnitude } from "@/lib/date-utils";
-import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
+import type { DayRibbonLayout, RibbonSpanState } from "@/lib/home/day-ribbon";
 
-const MARKER_STATE_CLASS: Record<string, string> = {
-  logged: "bg-accent-deen border-accent-deen",
-  upcoming: "bg-transparent border-muted-foreground",
-  missed: "bg-transparent border-destructive",
+const SPAN_STATE_CLASS: Record<RibbonSpanState, string> = {
+  logged: "bg-accent-deen",
+  // The live band — the window is currently open and unlogged. Distinct
+  // from both "upcoming" (not yet due) and "logged" (already handled): this
+  // is the one span that actually needs attention right now.
+  pending: "bg-accent-info animate-pulse",
+  upcoming: "bg-transparent border border-dashed border-muted-foreground/60",
+  missed: "bg-transparent border-2 border-destructive",
 };
 
 // Night -> dawn -> midday -> dusk -> night, so the long Fajr-Dhuhr and
@@ -32,31 +36,37 @@ function formatTime(date: Date, timezone: string): string {
 }
 
 // The ribbon's headline — rendered OUTSIDE the horizontally-scrolling track
-// (so it's always in view, never clipped on mobile) and always present
-// (not just for the empty-day case) so the ribbon carries real textual
-// weight, per the "should feel like the page's spine" review note. Also
-// where before-Fajr/after-Isha get an explicit, real label instead of a
-// silently-clamped indicator that reads as "now is Fajr".
+// (so it's always in view, never clipped on mobile) and always present.
+// Priority: a currently-open (pending) window is the most actionable thing
+// on the page, so it leads even over "next upcoming".
 function statusLine(layout: DayRibbonLayout, timezone: string): string {
   if (layout.nowPosition === "before") {
     const mins = (layout.rangeStart.getTime() - layout.now.getTime()) / 60_000;
     return `${formatDurationMagnitude(mins)} until Fajr at ${formatTime(layout.rangeStart, timezone)}`;
   }
   if (layout.nowPosition === "after") {
-    const mins = (layout.now.getTime() - layout.rangeEnd.getTime()) / 60_000;
-    return `${formatDurationMagnitude(mins)} since Isha — today's day is complete`;
+    return "Today's day is complete";
   }
-  const next = layout.markers.find((m) => m.state === "upcoming");
-  if (!next) return "All 5 prayers logged for today";
-  const diffMin = (next.time.getTime() - layout.now.getTime()) / 60_000;
-  return `Next: ${next.label} ${formatRelativeDuration(diffMin)}`;
+  const pending = layout.spans.find((s) => s.state === "pending");
+  if (pending) {
+    const mins = (pending.windowEnd.getTime() - layout.now.getTime()) / 60_000;
+    return `${pending.label} is open now — ${formatDurationMagnitude(mins)} left`;
+  }
+  const nextUpcoming = [...layout.spans]
+    .filter((s) => s.state === "upcoming")
+    .sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime())[0];
+  if (!nextUpcoming) return "Today's 5 prayers are accounted for";
+  const diffMin = (nextUpcoming.windowStart.getTime() - layout.now.getTime()) / 60_000;
+  return `Next: ${nextUpcoming.label} ${formatRelativeDuration(diffMin)}`;
 }
 
-// The signature element — a day shaped and punctuated by the five prayers,
-// not a generic analytics chart. Markers sit at their TRUE computed
-// horizontal position (never evenly spaced — that would misrepresent the
-// day's actual shape). Horizontally scrollable + auto-centered on "now" at
-// mobile widths, since 5 labels plus times genuinely don't fit at 390px.
+// The signature element — a day shaped and punctuated by the five prayer
+// WINDOWS (spans, not points — Phase 1's whole thesis), plus the overlay of
+// today's workout/timed tasks/focus sessions on the same timeline. Markers
+// sit at their TRUE computed horizontal position (never evenly spaced —
+// that would misrepresent the day's actual shape). Horizontally scrollable
+// + auto-centered on "now" at mobile widths, since 5 labels plus times
+// genuinely don't fit at 390px.
 export function DayRibbon({
   layout,
   todayStr,
@@ -91,15 +101,14 @@ export function DayRibbon({
         <p className="text-base font-medium">{statusLine(layout, timezone)}</p>
         {layout.blocks.length === 0 && (
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Check-ins and Lock-In sessions will show up here as your day happens
+            Today&apos;s workout, tasks, or focus sessions will show up here as your day happens
           </p>
         )}
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto">
-        {/* px-10: markers at 0%/100% are horizontally centered on their exact
-            position via -translate-x-1/2, so the first/last labels need real
-            room to extend past the 0%/100% edges without clipping. */}
+        {/* px-10: spans at the 0%/100% edges still need labels with real
+            room to extend past them without clipping. */}
         <div className="min-w-[640px] px-10 py-4" style={{ backgroundImage: DAY_GRADIENT }}>
           <div className="relative">
             {layout.nowPosition === "within" && (
@@ -107,7 +116,7 @@ export function DayRibbon({
             )}
 
             <div className="relative h-24">
-              <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+              <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-border/50" />
               {layout.nowPosition === "within" && (
                 <div
                   className="absolute top-0 bottom-0 z-10 w-px bg-accent-info"
@@ -118,20 +127,28 @@ export function DayRibbon({
                   </span>
                 </div>
               )}
-              {layout.markers.map((m) => (
+              {layout.spans.map((s) => (
+                <div
+                  key={s.name}
+                  data-testid={`ribbon-span-${s.name}`}
+                  data-state={s.state}
+                  className={cn("absolute top-1/2 h-2 -translate-y-1/2 rounded-full", SPAN_STATE_CLASS[s.state])}
+                  style={{ left: `${s.startPct}%`, width: `${Math.max(1, s.endPct - s.startPct)}%` }}
+                />
+              ))}
+              {layout.spans.map((s) => (
                 <button
-                  key={m.name}
+                  key={s.name}
                   type="button"
                   disabled={isPending}
-                  aria-label={`${m.label}, ${formatTime(m.time, timezone)}${m.state === "logged" ? " (logged)" : m.state === "missed" ? " (missed)" : " — mark on time"}`}
-                  onClick={() => handleMark(m.name)}
-                  className="absolute top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 disabled:opacity-50"
-                  style={{ left: `${m.pct}%` }}
+                  aria-label={`${s.label}, ${formatTime(s.windowStart, timezone)}–${formatTime(s.windowEnd, timezone)}${s.state === "logged" ? " (logged)" : s.state === "missed" ? " (missed)" : " — mark on time"}`}
+                  onClick={() => handleMark(s.name)}
+                  className="absolute top-[calc(50%+1.25rem)] z-10 flex -translate-x-1/2 flex-col items-center gap-0.5 disabled:opacity-50"
+                  style={{ left: `${(s.startPct + s.endPct) / 2}%` }}
                 >
-                  <span className={cn("size-4 rounded-full border-2", MARKER_STATE_CLASS[m.state])} />
-                  <span className="whitespace-nowrap text-sm font-medium">{m.label}</span>
+                  <span className="whitespace-nowrap text-sm font-medium">{s.label}</span>
                   <span className="whitespace-nowrap text-xs text-muted-foreground">
-                    {formatTime(m.time, timezone)}
+                    {formatTime(s.windowStart, timezone)}
                   </span>
                 </button>
               ))}
@@ -141,10 +158,10 @@ export function DayRibbon({
                 as a plain light rounded pill spanning near-full-width,
                 which reads exactly like an idle horizontal scrollbar —
                 there IS nothing to show yet, so don't render inert chrome
-                that looks like UI. The "Check-ins and Lock-In sessions
-                will show up here" line above already carries that message. */}
+                that looks like UI. The invitation line above already
+                carries that message. */}
             {layout.blocks.length > 0 && (
-              <div className="relative z-10 mt-3 h-4 rounded-full bg-background/30">
+              <div className="relative z-10 mt-8 h-4 rounded-full bg-background/30">
                 {layout.blocks.map((b, i) => (
                   <div
                     key={i}

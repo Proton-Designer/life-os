@@ -5,26 +5,19 @@ import { Inbox } from "lucide-react";
 import { getPriorityItems } from "@/lib/home/get-priority-items";
 import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { getHomeExtras } from "@/lib/home/get-home-extras";
-import { getWeeklySignalNoiseRatio } from "@/lib/business/sn-ratio";
+import { getDayShape } from "@/lib/home/get-day-shape";
+import { computeDayRibbon } from "@/lib/home/day-ribbon";
 import { getActiveWorkSession } from "@/lib/business/active-session";
-import {
-  localDateString,
-  localWeekday,
-  getTimezoneOffsetMinutes,
-  getWeekStartDate,
-  addDaysToDateString,
-} from "@/lib/date-utils";
+import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextActions } from "@/components/home/next-actions";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyFocus } from "@/components/home/weekly-focus";
-import { PriorityList } from "@/components/home/priority-list";
 import { DomainStatusStack } from "@/components/home/domain-status-stack";
+import { DayRibbon } from "@/components/home/day-ribbon";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
-import { AreaChart } from "@/components/charts/area-chart";
-import { DonutChart } from "@/components/charts/donut-chart";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -42,11 +35,11 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, snapshots, extras, snRatio, weeklyGoalsResult, activeSession] = await Promise.all([
+  const [items, snapshots, extras, dayShape, weeklyGoalsResult, activeSession] = await Promise.all([
     getPriorityItems(userId, now),
     getDomainSnapshots(userId, now),
     getHomeExtras(userId, now, profile),
-    getWeeklySignalNoiseRatio(userId, new Date(`${weekStart}T00:00:00Z`)),
+    getDayShape(userId, now),
     supabase
       .from("weekly_goals")
       .select("domain, headline, milestones, quran_page_target")
@@ -96,17 +89,11 @@ export default async function HomePage() {
     showPlanningNudge = (upcomingGoals?.length ?? 0) === 0;
   }
 
-  const weeklyAvgPct = Math.round(
-    extras.weeklyCompletionPct.reduce((a, b) => a + b, 0) / extras.weeklyCompletionPct.length
-  );
-  const bestDayIndex = extras.weeklyCompletionPct.reduce(
-    (best, v, i) => (v > extras.weeklyCompletionPct[best] ? i : best),
-    0
-  );
-
   const activeSessionForFocusModule = activeSession
     ? { id: activeSession.id, startedAtIso: activeSession.startedAt }
     : null;
+
+  const ribbonLayout = computeDayRibbon({ prayers: dayShape.prayers, activities: dayShape.activities, now });
 
   return (
     <PageContainer>
@@ -129,6 +116,18 @@ export default async function HomePage() {
         </div>
       </div>
 
+      <Panel title="The day's shape">
+        {ribbonLayout ? (
+          <DayRibbon layout={ribbonLayout} todayStr={dateStr} timezone={timezone} />
+        ) : (
+          <EmptyState
+            icon={Inbox}
+            message="Set your location in Settings to see today's prayer-anchored timeline"
+            action={{ label: "Go to Settings", href: "/settings" }}
+          />
+        )}
+      </Panel>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
           <Panel title="This week's focus">
@@ -137,48 +136,6 @@ export default async function HomePage() {
         </div>
         <div className="lg:col-span-4">
           <DomainStatusStack snapshots={snapshots} title="Sector progress" />
-        </div>
-      </div>
-
-      <Panel title="Right now / Later today">
-        <PriorityList items={items} />
-      </Panel>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-8">
-          <Panel
-            title="This week"
-            heroValue={`${weeklyAvgPct}%`}
-            caption={`${extras.weeklyCompletionLabels[bestDayIndex]} was your best day this week`}
-          >
-            <AreaChart
-              categories={extras.weeklyCompletionLabels}
-              series={[{ label: "Completion", colorVar: "--series-business", values: extras.weeklyCompletionPct }]}
-              unit="%"
-            />
-          </Panel>
-        </div>
-        <div className="lg:col-span-4">
-          {snRatio.signal + snRatio.noise === 0 ? (
-            <Panel title="Signal:Noise this week">
-              <EmptyState
-                icon={Inbox}
-                message="No check-ins answered yet this week"
-                action={{ label: "Start a Lock-In session", href: "/business" }}
-              />
-            </Panel>
-          ) : (
-            <Panel title="Signal:Noise this week">
-              <DonutChart
-                slices={[
-                  { label: "Signal", value: snRatio.signal, colorVar: "--accent-business" },
-                  { label: "Noise", value: snRatio.noise, colorVar: "--accent-noise" },
-                ]}
-                centerLabel="This week"
-                centerValue={snRatio.display}
-              />
-            </Panel>
-          )}
         </div>
       </div>
     </PageContainer>

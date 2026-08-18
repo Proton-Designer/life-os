@@ -499,6 +499,43 @@ export type Database = {
         }
         Relationships: []
       }
+      // Hand-added, not regenerated. Migration 017_sunnah_logs.sql IS
+      // applied (2026-08-17, RLS verified by real cross-user policy
+      // evaluation — see the migration file's header) and this matches its
+      // shape exactly, but `supabase gen types typescript --db-url` in this
+      // environment requires a running Docker daemon to inspect the schema,
+      // which isn't available here. Replace with real generated output once
+      // either Docker or authenticated Supabase MCP access is available.
+      sunnah_logs: {
+        Row: {
+          completed: boolean
+          created_at: string
+          date: string
+          id: string
+          prayer_name: string
+          slot: string
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean
+          created_at?: string
+          date: string
+          id?: string
+          prayer_name: string
+          slot: string
+          user_id?: string
+        }
+        Update: {
+          completed?: boolean
+          created_at?: string
+          date?: string
+          id?: string
+          prayer_name?: string
+          slot?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       tasks: {
         Row: {
           completed: boolean

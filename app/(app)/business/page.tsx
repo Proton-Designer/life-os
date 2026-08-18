@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Clock, ListChecks, CheckCircle2, Radar } from "lucide-react";
+import { Clock, CheckCircle2, Radar } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
@@ -32,7 +32,6 @@ export default async function BusinessPage() {
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
-  const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(weekStart, i));
   const sevenDaysAgoStr = addDaysToDateString(dateStr, -6);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -116,7 +115,6 @@ export default async function BusinessPage() {
   }));
   const sessionsToday = allSessions.filter((s) => localDateString(s.startedAt, timezone) === dateStr);
   const focusMinutesToday = computeFocusTimeMinutes(sessionsToday, now);
-  const sessionsThisWeek = allSessions.filter((s) => weekDates.includes(localDateString(s.startedAt, timezone)));
   const completedSessions = allSessions
     .filter((s): s is { startedAt: Date; endedAt: Date } => s.endedAt !== null)
     .sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime());
@@ -140,16 +138,38 @@ export default async function BusinessPage() {
     <PageContainer>
       <PageHeader title="Business" />
 
-      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
-        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+      {/* Overnight restructure (2026-08-18 brief §2.1) — Ayman's own
+          proposed order, built as specified. He explicitly framed it as a
+          best guess ("I always think there's something that can do
+          better"), not a final answer — a brainstorm using tonight's
+          research is expected to revisit this. "Sessions this week" is
+          removed outright, per his instruction. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-6">
+          <Panel
+            title="Today's kill list"
+            heroValue={`${killListCompletedToday}/3`}
+            caption={killListCompletedToday === 3 ? "All three cleared" : `${3 - killListCompletedToday} left today`}
+          >
+            <KillList date={dateStr} slots={slots} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-6">
+          <GoalCard
+            title="This week's goal"
+            domain="business"
+            headline={weeklyGoal?.headline ?? ""}
+            milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
+            locked={false}
+            onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-4">
           <KpiCard
             icon={Clock}
-            // Opus Lead review (2026-08-16): the first KPI card is the
-            // screen's identity anchor and keeps the domain accent
-            // unconditionally — only cards two and three take state-based
-            // semantic tint. Without this, a page's whole KPI row can lose
-            // domain identity entirely (Co-op's did: 3/3 cards ended up
-            // green at zero, no magenta anywhere but the sidebar).
             accent="business"
             label="Focus time today"
             value={formatElapsedDuration(focusMinutesToday * 60_000)}
@@ -160,20 +180,23 @@ export default async function BusinessPage() {
             }
           />
         </div>
-        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-          <KpiCard
-            icon={ListChecks}
-            accent={accentForActivityCount(sessionsThisWeek.length)}
-            label="Sessions this week"
-            value={`${sessionsThisWeek.length}`}
-            caption={
-              sessionsThisWeek.length === 0
-                ? "Lock in to start your first session"
-                : `${formatElapsedDuration(computeFocusTimeMinutes(sessionsThisWeek, now) * 60_000)} total`
-            }
-          />
+        <div id="lock-in-panel" className="lg:col-span-8">
+          <Panel title="Lock In">
+            {/* showTodayTotal={false}: the Focus-time-today card directly
+                above already shows this exact number — see LockInPanel's
+                own comment on the flag. */}
+            <LockInPanel
+              initialSession={activeSession}
+              lastSession={lastSession}
+              todayFocusMinutes={focusMinutesToday}
+              showTodayTotal={false}
+            />
+          </Panel>
         </div>
-        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-4">
           <KpiCard
             icon={CheckCircle2}
             accent={accentForActivityCount(daysCleared)}
@@ -188,37 +211,7 @@ export default async function BusinessPage() {
             }
           />
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div id="lock-in-panel" className="lg:col-span-7">
-          <Panel title="Lock In">
-            <LockInPanel initialSession={activeSession} lastSession={lastSession} todayFocusMinutes={focusMinutesToday} />
-          </Panel>
-        </div>
-        <div className="lg:col-span-5">
-          <GoalCard
-            title="This week's goal"
-            domain="business"
-            headline={weeklyGoal?.headline ?? ""}
-            milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
-            locked={false}
-            onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
-          <Panel
-            title="Today's kill list"
-            heroValue={`${killListCompletedToday}/3`}
-            caption={killListCompletedToday === 3 ? "All three cleared" : `${3 - killListCompletedToday} left today`}
-          >
-            <KillList date={dateStr} slots={slots} />
-          </Panel>
-        </div>
-        <div className="lg:col-span-6">
+        <div className="lg:col-span-8">
           {hasAnySnActivity ? (
             <Panel
               title="Signal:Noise by week"

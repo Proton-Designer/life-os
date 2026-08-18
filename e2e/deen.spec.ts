@@ -18,7 +18,11 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   await page.goto("/deen");
   await dismissCheckinDialogIfPresent(page);
 
-  const prayerRow = page.locator("li", { hasText: PRAYER_LABEL });
+  // Scoped to the Salah panel specifically — the Qada backlog panel also
+  // renders <li>s with "Isha · <date>" text (lib/deen/qada-backlog-list.tsx),
+  // so an unscoped "li" locator resolves ambiguously in strict mode.
+  const salahPanel = page.locator("[data-panel]").filter({ has: page.getByText("Salah today", { exact: true }) });
+  const prayerRow = salahPanel.locator("li", { hasText: PRAYER_LABEL });
   await expect(prayerRow).toBeVisible();
 
   // Capture real pre-test state before mutating anything: whichever status
@@ -56,7 +60,8 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   if (priorStatusLabel) {
     await page.goto("/deen");
     await dismissCheckinDialogIfPresent(page);
-    await page.locator("li", { hasText: PRAYER_LABEL }).getByRole("button", { name: priorStatusLabel }).click();
+    const restoreSalahPanel = page.locator("[data-panel]").filter({ has: page.getByText("Salah today", { exact: true }) });
+    await restoreSalahPanel.locator("li", { hasText: PRAYER_LABEL }).getByRole("button", { name: priorStatusLabel }).click();
   } else {
     const cleanup = await page.request.delete(`${baseURL}/api/test/clear-prayer`, {
       headers: { "x-e2e-secret": secret! },

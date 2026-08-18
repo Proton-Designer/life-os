@@ -15,6 +15,7 @@ function snapshots(prayerStatuses: { name: string; status: string }[]): DomainSn
       habitFocusName: null,
       habitFocusStreak: 0,
       pulse: 0,
+      qadaBacklogCount: 0,
     },
     business: { activeSession: null, killListDone: 0, killListTotal: 3, weeklyRatioDisplay: "1:1", pulse: 0 },
     fitness: { scheduledWorkoutName: null, workoutDone: false, weeklyConsistency: 0, workoutsThisWeek: 0, pulse: 0 },

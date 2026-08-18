@@ -1,18 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
-import { calculatePrayerTimes, type CalcMethod, type AsrMadhab } from "@/lib/prayer-times/calculate";
+import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
+import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
+import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import {
   localDateString,
   localWeekday,
   resolveLocalTime,
-  getTimezoneOffsetMinutes,
   dayOfWeekFromDateString,
 } from "@/lib/date-utils";
 import { urgencyBucket } from "./urgency";
 import type { PriorityItem, Domain } from "./types";
-
-const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
-type PrayerName = (typeof PRAYER_NAMES)[number];
 
 const DOMAIN_PRIORITY: Record<Domain, number> = {
   deen: 0,
@@ -144,14 +142,19 @@ export async function getPriorityItems(
 
   const items: Omit<PriorityItem, "date">[] = [];
 
-  // Deen: prayers
-  let prayerTimes: Record<PrayerName, Date> | null = null;
+  // Deen: prayers — windowed, not instants. A prayer is actionable here when
+  // its window is currently open ("pending"), or when it's coming up within
+  // the same right-now lookahead every other domain's due-soon item gets
+  // ("upcoming" + urgencyBucket already says right_now). A prayer whose
+  // window has closed ("missed") is no longer shown here at all — it flows
+  // into the Qada backlog instead, not Home's due-today list.
+  let windows: Record<PrayerName, { start: Date; end: Date } | null> | null = null;
   if (profile?.location_lat != null && profile?.location_lng != null) {
-    prayerTimes = calculatePrayerTimes({
+    windows = computePrayerWindows({
       date: now,
       lat: profile.location_lat,
       lng: profile.location_lng,
-      timezoneOffsetMinutes: getTimezoneOffsetMinutes(now, timezone),
+      timezone,
       calcMethod: (profile.prayer_calc_method as CalcMethod) || "MWL",
       asrMadhab: (profile.asr_madhab as AsrMadhab) || "standard",
     });
@@ -160,10 +163,14 @@ export async function getPriorityItems(
   const isFriday = localWeekday(now, timezone) === "Friday";
   for (const prayerName of PRAYER_NAMES) {
     const row = prayerRows.find((p) => p.prayer_name === prayerName);
-    const status = row?.status ?? "pending";
-    if (status !== "pending") continue; // already logged today — not actionable
+    const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
+    const window = windows ? windows[prayerName] : null;
+    const effective = effectivePrayerStatus(stored, window, now);
+    const dueAt = window ? window.start : null;
+    const bucket = dueAt ? urgencyBucket(dueAt, now) : "later_today";
+    const isActionableSoon = effective === "upcoming" && bucket === "right_now";
+    if (effective !== "pending" && !isActionableSoon) continue;
 
-    const dueAt = prayerTimes ? prayerTimes[prayerName] : null;
     const title = prayerName === "dhuhr" && isFriday
       ? "Jummah"
       : prayerName.charAt(0).toUpperCase() + prayerName.slice(1);
@@ -173,7 +180,7 @@ export async function getPriorityItems(
       domain: "deen",
       title,
       dueAt,
-      urgencyBucket: urgencyBucket(dueAt, now),
+      urgencyBucket: bucket,
       completed: false,
       actionType: "toggle_prayer",
       actionRefId: prayerName,

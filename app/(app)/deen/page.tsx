@@ -2,15 +2,20 @@ import { redirect } from "next/navigation";
 import { Flame, History, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { calculatePrayerTimes, type CalcMethod, type AsrMadhab } from "@/lib/prayer-times/calculate";
+import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
+import { computePrayerWindows, type PrayerName } from "@/lib/prayer-times/windows";
+import {
+  resolvePrayerStatuses,
+  type EffectivePrayerStatus,
+} from "@/lib/deen/prayer-status";
+import type { SunnahSlot } from "@/lib/deen/sunnah";
 import {
   localDateString,
   localWeekday,
   getWeekStartDate,
   addDaysToDateString,
-  getTimezoneOffsetMinutes,
 } from "@/lib/date-utils";
-import { PrayerRow, type PrayerName, type PrayerStatus } from "@/components/deen/prayer-row";
+import { PrayerRow } from "@/components/deen/prayer-row";
 import { QuranCard } from "@/components/deen/quran-card";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-sparkline";
@@ -18,6 +23,8 @@ import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builde
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
+import { buildQadaBacklog, totalQadaOwed } from "@/lib/deen/qada-backlog";
+import { QadaBacklogList } from "@/components/deen/qada-backlog-list";
 import { bucketPagesByDay } from "@/lib/deen/quran-trend";
 import { buildPrayerConsistencyRows, computeOnTimeRate } from "@/lib/deen/prayer-consistency";
 import { NextUpHero } from "@/components/home/next-up-hero";
@@ -70,6 +77,7 @@ export default async function DeenPage() {
     { data: habitLogRows },
     { data: currentFocusRow },
     { data: previousFocusRow },
+    { data: sunnahLogRows },
   ] = await Promise.all([
     // One 60-day range query serves today's status, the 30-day consistency
     // grid, the streak, and the 7-day qada catch-up count — sliced in
@@ -107,47 +115,82 @@ export default async function DeenPage() {
       .eq("user_id", userId)
       .eq("week_start_date", previousWeekStart)
       .maybeSingle(),
+    supabase.from("sunnah_logs").select("prayer_name, slot, completed").eq("user_id", userId).eq("date", dateStr).eq("completed", true),
   ]);
 
   const allPrayerRows = prayerHistoryRows ?? [];
-  const todayStatusFor = (name: string) =>
-    (allPrayerRows.find((p) => p.date === dateStr && p.prayer_name === name)?.status as PrayerStatus) ?? "pending";
+
+  // --- Prayer windows + derived statuses (never written, only ever read) ---
+  // Windowed, not instants: a prayer's status is derived at read time from
+  // its window against `now`, floored at the account's own creation date so
+  // nothing before the account existed can be derived as missed.
+  const accountCreatedDateStr = localDateString(
+    profile?.created_at ? new Date(profile.created_at) : now,
+    timezone
+  );
+  const sixtyDayDates = Array.from({ length: 60 }, (_, i) => addDaysToDateString(sixtyDaysAgoStr, i));
+  const resolvedStatuses = resolvePrayerStatuses({
+    rows: allPrayerRows,
+    dates: sixtyDayDates,
+    lat: profile?.location_lat ?? null,
+    lng: profile?.location_lng ?? null,
+    timezone,
+    calcMethod: (profile?.prayer_calc_method as CalcMethod) || "MWL",
+    asrMadhab: (profile?.asr_madhab as AsrMadhab) || "standard",
+    now,
+    accountCreatedDateStr,
+  });
+  const todayStatusFor = (name: PrayerName): EffectivePrayerStatus => resolvedStatuses[dateStr][name];
+  const sunnahCompletionsFor = (name: PrayerName): SunnahSlot[] =>
+    (sunnahLogRows ?? [])
+      .filter((s) => s.prayer_name === name)
+      .map((s) => s.slot as SunnahSlot);
 
   // --- Prayer time computation, for the Next Prayer KPI ---
-  let prayerTimes: Record<PrayerName, Date> | null = null;
+  let todayWindows: Record<PrayerName, { start: Date; end: Date } | null> | null = null;
   if (profile?.location_lat != null && profile?.location_lng != null) {
-    prayerTimes = calculatePrayerTimes({
+    todayWindows = computePrayerWindows({
       date: now,
       lat: profile.location_lat,
       lng: profile.location_lng,
-      timezoneOffsetMinutes: getTimezoneOffsetMinutes(now, timezone),
+      timezone,
       calcMethod: (profile.prayer_calc_method as CalcMethod) || "MWL",
       asrMadhab: (profile.asr_madhab as AsrMadhab) || "standard",
     });
   }
-  const pendingPrayers = PRAYERS.filter((p) => todayStatusFor(p.name) === "pending");
-  const nextPrayer = pendingPrayers[0] ?? null;
-  const nextPrayerItem: PriorityItem | null =
-    nextPrayer && prayerTimes
-      ? {
-          id: `prayer-${nextPrayer.name}`,
-          domain: "deen",
-          title: nextPrayer.name === "dhuhr" && isFriday ? "Jummah" : nextPrayer.label,
-          dueAt: prayerTimes[nextPrayer.name],
-          date: dateStr,
-          urgencyBucket: "later_today",
-          completed: false,
-          actionType: "toggle_prayer",
-          actionRefId: nextPrayer.name,
-        }
-      : null;
+  // Pending or upcoming — never missed — so a closed-and-unlogged Fajr
+  // doesn't get stuck showing as "next" all day. No location, no hero: the
+  // EmptyState below asks for one instead.
+  const nextPrayer = todayWindows
+    ? PRAYERS.find((p) => {
+        const s = todayStatusFor(p.name);
+        return s === "pending" || s === "upcoming";
+      }) ?? null
+    : null;
+  const nextPrayerItem: PriorityItem | null = nextPrayer
+    ? {
+        id: `prayer-${nextPrayer.name}`,
+        domain: "deen",
+        title: nextPrayer.name === "dhuhr" && isFriday ? "Jummah" : nextPrayer.label,
+        dueAt: todayWindows?.[nextPrayer.name]?.start ?? null,
+        date: dateStr,
+        urgencyBucket: "later_today",
+        completed: false,
+        actionType: "toggle_prayer",
+        actionRefId: nextPrayer.name,
+      }
+    : null;
 
   // --- Salah panel hero + caption ---
-  const salahDoneCount = PRAYERS.filter((p) => {
+  // "Remaining" is everything not yet on_time/qada — pending, upcoming, AND
+  // missed. A missed prayer still needs the user's attention (mark it qada
+  // or on-time), so it stays in this count rather than silently dropping out.
+  const unloggedToday = PRAYERS.filter((p) => {
     const s = todayStatusFor(p.name);
-    return s === "on_time" || s === "qada";
-  }).length;
-  const remainingLabels = pendingPrayers.map((p) => (p.name === "dhuhr" && isFriday ? "Jummah" : p.label));
+    return s !== "on_time" && s !== "qada";
+  });
+  const salahDoneCount = PRAYERS.length - unloggedToday.length;
+  const remainingLabels = unloggedToday.map((p) => (p.name === "dhuhr" && isFriday ? "Jummah" : p.label));
   const salahCaption =
     remainingLabels.length === 0
       ? "All 5 prayers logged for today"
@@ -158,18 +201,26 @@ export default async function DeenPage() {
   // --- Prayer consistency grid (30 days) ---
   const thirtyDayRows = allPrayerRows.filter((p) => p.date >= thirtyDaysAgoStr);
   const thirtyDays = Array.from({ length: 30 }, (_, i) => addDaysToDateString(thirtyDaysAgoStr, i));
-  const consistencyRows = buildPrayerConsistencyRows(thirtyDayRows, thirtyDays);
+  const consistencyRows = buildPrayerConsistencyRows(resolvedStatuses, thirtyDays);
   const onTimeRate = computeOnTimeRate(thirtyDayRows, 30);
 
   // --- Prayer streak ---
   const prayersByDate: Record<string, string[]> = {};
-  for (const row of allPrayerRows) (prayersByDate[row.date] ??= []).push(row.status);
+  for (const date of sixtyDayDates) {
+    prayersByDate[date] = PRAYERS.map((p) => resolvedStatuses[date][p.name]);
+  }
   const prayerStreak = computePrayerStreak(prayersByDate, dateStr);
 
   // --- Qada backlog: recent catch-up vs. newly-missed counts (real derived signal — qada_owed itself has no history) ---
   const sevenDayRows = allPrayerRows.filter((p) => p.date >= sevenDaysAgoStr);
   const recentQadaCatchUps = countRecentQadaCatchUps(sevenDayRows);
   const recentMisses = countRecentMisses(sevenDayRows);
+
+  // --- Qada backlog: itemized. profiles.qada_owed is legacy pre-app debt,
+  // left completely alone; the displayed total adds the real derived count
+  // on top of it — never recomputes or migrates the legacy number itself.
+  const qadaBacklog = buildQadaBacklog(resolvedStatuses);
+  const totalQadaBacklog = totalQadaOwed(profile?.qada_owed ?? 0, qadaBacklog.derivedCount);
 
   // --- Qur'an: this week's total + delta vs last week + daily trend ---
   const sessions = quranSessionRows ?? [];
@@ -214,14 +265,20 @@ export default async function DeenPage() {
             <NextUpHero
               item={nextPrayerItem}
               now={now}
-              caption={pendingPrayers.length > 1 ? `${pendingPrayers.length - 1} more today` : "Last one for today"}
+              caption={unloggedToday.length > 1 ? `${unloggedToday.length - 1} more today` : "Last one for today"}
             />
           </div>
         ) : (
           <div className="w-[78vw] shrink-0 snap-start md:w-auto">
             <EmptyState
               icon={History}
-              message={prayerTimes ? "All 5 prayers logged for today" : "Set your location in Settings for prayer times"}
+              message={
+                !todayWindows
+                  ? "Set your location in Settings for prayer times"
+                  : unloggedToday.length > 0
+                    ? "Some prayers from today still need logging"
+                    : "All 5 prayers logged for today"
+              }
               action={{ label: "Go to Settings", href: "/settings" }}
             />
           </div>
@@ -238,9 +295,9 @@ export default async function DeenPage() {
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={History}
-            accent={accentForQadaBacklog(profile?.qada_owed ?? 0, recentQadaCatchUps, recentMisses)}
+            accent={accentForQadaBacklog(totalQadaBacklog, recentQadaCatchUps, recentMisses)}
             label="Qada backlog"
-            value={`${profile?.qada_owed ?? 0}`}
+            value={`${totalQadaBacklog}`}
             caption={
               recentQadaCatchUps === 0 && recentMisses === 0
                 ? "None caught up in the last 7 days"
@@ -259,20 +316,21 @@ export default async function DeenPage() {
               {PRAYERS.map((p) => {
                 const status = todayStatusFor(p.name);
                 const label = p.name === "dhuhr" && isFriday ? "Jummah" : p.label;
-                return <PrayerRow key={p.name} date={dateStr} prayerName={p.name} label={label} status={status} />;
+                return (
+                  <PrayerRow
+                    key={p.name}
+                    date={dateStr}
+                    prayerName={p.name}
+                    label={label}
+                    status={status}
+                    sunnahCompletions={sunnahCompletionsFor(p.name)}
+                  />
+                );
               })}
             </ul>
           </Panel>
         </div>
         <div className="lg:col-span-7">
-          <Panel title="Prayer consistency, last 30 days" heroValue={`${onTimeRate}%`} caption="On-time rate over the window">
-            <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} />
-          </Panel>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
           <Panel
             title="Qur'an"
             heroValue={quranTarget ? `${weekPagesRead}/${quranTarget}` : weekPagesRead}
@@ -302,7 +360,34 @@ export default async function DeenPage() {
             </div>
           </Panel>
         </div>
-        <div className="lg:col-span-6">
+      </div>
+
+      {qadaBacklog.derivedCount === 0 ? (
+        // Empty most days — a full-width panel spent on "nothing to report"
+        // is the same waste as the deleted sparklines. One compact line,
+        // not a centered EmptyState in a full Panel, until there's an
+        // actual list to show.
+        <div className="flex items-center justify-between rounded-lg border border-border/40 px-4 py-2.5 text-sm">
+          <span className="font-medium">Qada backlog</span>
+          <span className="text-muted-foreground">Nothing outstanding</span>
+        </div>
+      ) : (
+        <Panel
+          title="Qada backlog"
+          heroValue={`${qadaBacklog.derivedCount}`}
+          caption="Oldest outstanding prayers first — mark one as qada to clear it"
+        >
+          <QadaBacklogList items={qadaBacklog.items} />
+        </Panel>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <Panel title="Reflection">
+            <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-8">
           <Panel title="Habit Builder">
             <HabitBuilder
               todayStr={dateStr}
@@ -314,8 +399,8 @@ export default async function DeenPage() {
         </div>
       </div>
 
-      <Panel title="Reflection">
-        <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} />
+      <Panel title="Prayer consistency, last 30 days" heroValue={`${onTimeRate}%`} caption="On-time rate over the window">
+        <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} />
       </Panel>
     </PageContainer>
   );

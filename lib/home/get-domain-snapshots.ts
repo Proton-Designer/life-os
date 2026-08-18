@@ -1,9 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
-import { calculatePrayerTimes, type CalcMethod, type AsrMadhab } from "@/lib/prayer-times/calculate";
+import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
+import { computePrayerWindows, PRAYER_NAMES } from "@/lib/prayer-times/windows";
+import { effectivePrayerStatus, resolvePrayerStatuses, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
+import { buildQadaBacklog } from "@/lib/deen/qada-backlog";
 import {
   localDateString,
-  getTimezoneOffsetMinutes,
   dayOfWeekFromDateString,
   getWeekStartDate,
   addDaysToDateString,
@@ -14,8 +16,6 @@ import { getWeeklySignalNoiseRatio, type SignalNoiseResult } from "@/lib/busines
 import { calculateWeeklyConsistency } from "@/lib/fitness/consistency";
 import { getDomainPulse, type DomainPulse } from "./get-domain-pulse";
 
-const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
-
 export type DeenSnapshot = {
   nextPrayer: { name: string; dueAt: string | null } | null;
   prayerStatuses: { name: string; status: string }[];
@@ -24,6 +24,11 @@ export type DeenSnapshot = {
   habitFocusName: string | null;
   habitFocusStreak: number;
   pulse: number | null;
+  /** buildQadaBacklog(resolved).derivedCount — outstanding, derived-missed
+   * prayers since the account's own floor. Not the legacy+derived total
+   * qada-progress.ts shows on Deen's own page; this is specifically the
+   * doorway signal for Home's Sector progress row. */
+  qadaBacklogCount: number;
 };
 
 export type BusinessSnapshot = {
@@ -64,8 +69,17 @@ export type DomainSnapshotDataSource = {
     timezone: string;
     prayer_calc_method: string;
     asr_madhab: string;
+    created_at: string;
   } | null>;
   getPrayers: (userId: string, date: string) => Promise<{ prayer_name: string; status: string }[]>;
+  /** Raw prayer rows from `sinceDate` on — used only for the last two days
+   * (T-1, T), where a real window resolve is still needed. */
+  getPrayerHistory: (userId: string, sinceDate: string) => Promise<{ date: string; prayer_name: string; status: string }[]>;
+  /** Head-only count (no rows transferred) of prayers logged on_time/qada
+   * within [fromDate, toDate] — every other slot in that closed range is
+   * missed by elimination, so this is all the qada backlog derivation needs
+   * for dates provably past their window (T-2 and earlier). */
+  getPrayerHandledCount: (userId: string, fromDate: string, toDate: string) => Promise<number>;
   getQuranSessions: (userId: string, weekStart: string) => Promise<{ pages_read: number }[]>;
   getQuranWeeklyTarget: (userId: string, weekStart: string) => Promise<number | null>;
   getWeeklyFocusHabit: (userId: string, weekStart: string) => Promise<{ id: string; name: string } | null>;
@@ -88,7 +102,10 @@ export type DomainSnapshotDataSource = {
   getDomainPulse: (userId: string, date: string) => Promise<DomainPulse>;
 };
 
-function defaultDataSource(): DomainSnapshotDataSource {
+// Exported for testing in isolation — see
+// lib/home/__tests__/get-domain-snapshots-default-source.test.ts. Real
+// callers always use the default parameter value in getDomainSnapshots().
+export function defaultDataSource(): DomainSnapshotDataSource {
   return {
     async getProfile(_userId) {
       const profile = await getSharedProfile();
@@ -99,6 +116,7 @@ function defaultDataSource(): DomainSnapshotDataSource {
         timezone: profile.timezone,
         prayer_calc_method: profile.prayer_calc_method,
         asr_madhab: profile.asr_madhab,
+        created_at: profile.created_at,
       };
     },
     async getPrayers(userId, date) {
@@ -109,6 +127,26 @@ function defaultDataSource(): DomainSnapshotDataSource {
         .eq("user_id", userId)
         .eq("date", date);
       return data ?? [];
+    },
+    async getPrayerHistory(userId, sinceDate) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("prayers")
+        .select("date, prayer_name, status")
+        .eq("user_id", userId)
+        .gte("date", sinceDate);
+      return data ?? [];
+    },
+    async getPrayerHandledCount(userId, fromDate, toDate) {
+      const supabase = await createClient();
+      const { count } = await supabase
+        .from("prayers")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .gte("date", fromDate)
+        .lte("date", toDate)
+        .in("status", ["on_time", "qada"]);
+      return count ?? 0;
     },
     async getQuranSessions(userId, weekStart) {
       const supabase = await createClient();
@@ -260,8 +298,32 @@ export async function getDomainSnapshots(
   const sixtyDaysAgoStr = localDateString(new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000), timezone);
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
 
+  // Qada backlog doorway signal, set up before the batch so the two new
+  // fetches below can run inside it rather than after. Same 60-dates-ending-
+  // today floor convention as app/(app)/deen/page.tsx's own qada backlog —
+  // kept as its own variable rather than reusing sixtyDaysAgoStr above (a
+  // slightly different now-minus-60*24h computation, used for the unrelated
+  // habit-streak lookback) so the derived count here matches Deen's page.
+  //
+  // Every date <= T-2 has all five windows provably closed (Isha's outer
+  // bound is next-day Fajr), so instead of a 60-day row fetch + per-day
+  // resolve, that range only needs a head-only count: every slot is either
+  // handled (on_time/qada) or missed, so missed = totalSlots - handled.
+  // Only T-1 and T can still have an open window relative to `now`, and
+  // keep the real resolvePrayerStatuses resolve against a 2-day row fetch.
+  const accountCreatedDateStr = localDateString(
+    profile?.created_at ? new Date(profile.created_at) : now,
+    timezone
+  );
+  const qadaFloorDateStr = addDaysToDateString(dateStr, -59);
+  const twoDaysAgoStr = addDaysToDateString(dateStr, -2);
+  const oneDayAgoStr = addDaysToDateString(dateStr, -1);
+  const oldQadaRangeStart = accountCreatedDateStr > qadaFloorDateStr ? accountCreatedDateStr : qadaFloorDateStr;
+
   const [
     prayerRows,
+    recentPrayerRows,
+    oldPrayerHandledCount,
     quranSessions,
     quranWeeklyTarget,
     weeklyFocusHabit,
@@ -277,6 +339,8 @@ export async function getDomainSnapshots(
     pulse,
   ] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
+    dataSource.getPrayerHistory(userId, oneDayAgoStr),
+    dataSource.getPrayerHandledCount(userId, oldQadaRangeStart, twoDaysAgoStr),
     dataSource.getQuranSessions(userId, weekStart),
     dataSource.getQuranWeeklyTarget(userId, weekStart),
     dataSource.getWeeklyFocusHabit(userId, weekStart),
@@ -292,39 +356,84 @@ export async function getDomainSnapshots(
     dataSource.getDomainPulse(userId, dateStr),
   ]);
 
-  // Deen
-  let prayerTimes: Record<(typeof PRAYER_NAMES)[number], Date> | null = null;
+  // Deen — windowed, not instants. "Next prayer" is the first one that's
+  // neither completed nor missed (still pending or upcoming), not just the
+  // first unlogged one in Fajr..Isha order, so a closed-and-unlogged Fajr
+  // doesn't get stuck showing as "next" all day.
+  let windows: Record<(typeof PRAYER_NAMES)[number], { start: Date; end: Date } | null> | null = null;
   if (profile?.location_lat != null && profile?.location_lng != null) {
-    prayerTimes = calculatePrayerTimes({
+    windows = computePrayerWindows({
       date: now,
       lat: profile.location_lat,
       lng: profile.location_lng,
-      timezoneOffsetMinutes: getTimezoneOffsetMinutes(now, timezone),
+      timezone,
       calcMethod: (profile.prayer_calc_method as CalcMethod) || "MWL",
       asrMadhab: (profile.asr_madhab as AsrMadhab) || "standard",
     });
   }
-  const nextPendingPrayer = PRAYER_NAMES.find((name) => {
+  const effectiveStatusFor = (name: (typeof PRAYER_NAMES)[number]) => {
     const row = prayerRows.find((p) => p.prayer_name === name);
-    return (row?.status ?? "pending") === "pending";
+    const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
+    return effectivePrayerStatus(stored, windows ? windows[name] : null, now);
+  };
+  const nextPendingPrayer = PRAYER_NAMES.find((name) => {
+    const effective = effectiveStatusFor(name);
+    return effective === "pending" || effective === "upcoming";
   });
   const habitFocusStreak = weeklyFocusHabit
     ? computeHabitStreak(await dataSource.getHabitLogDates(userId, weeklyFocusHabit.id, sixtyDaysAgoStr), dateStr)
     : 0;
 
+  // Old range (<= T-2): closed by elimination, no row detail needed.
+  // `profiles.status` defaults to 'pending' (never actually logged), so
+  // subtracting only the handled statuses (on_time/qada) correctly counts
+  // an absent row AND a stray 'pending'/'missed' row as missed alike.
+  // Gated on hasLocation same as everywhere else — without a location we
+  // can never know a window really existed to be closed, so nothing here
+  // may derive as missed (the "old range is provably closed" claim itself
+  // depends on there having been a real window in the first place).
+  const hasLocation = profile?.location_lat != null && profile?.location_lng != null;
+  let oldQadaMissedCount = 0;
+  if (hasLocation && oldQadaRangeStart <= twoDaysAgoStr) {
+    const daysInOldRange =
+      (new Date(`${twoDaysAgoStr}T00:00:00Z`).getTime() - new Date(`${oldQadaRangeStart}T00:00:00Z`).getTime()) /
+        86_400_000 +
+      1;
+    oldQadaMissedCount = Math.max(0, daysInOldRange * 5 - oldPrayerHandledCount);
+  }
+
+  // Recent range (T-1, T): still needs the real window resolve — reuses
+  // the same resolvePrayerStatuses + buildQadaBacklog app/(app)/deen/page.tsx
+  // uses, given access here rather than duplicated, per spec.
+  const recentResolvedStatuses = resolvePrayerStatuses({
+    rows: recentPrayerRows,
+    dates: [oneDayAgoStr, dateStr],
+    lat: profile?.location_lat ?? null,
+    lng: profile?.location_lng ?? null,
+    timezone,
+    calcMethod: (profile?.prayer_calc_method as CalcMethod) || "MWL",
+    asrMadhab: (profile?.asr_madhab as AsrMadhab) || "standard",
+    now,
+    accountCreatedDateStr,
+  });
+  const recentQadaMissedCount = buildQadaBacklog(recentResolvedStatuses).derivedCount;
+
+  const qadaBacklogCount = oldQadaMissedCount + recentQadaMissedCount;
+
   const deen: DeenSnapshot = {
     nextPrayer: nextPendingPrayer
-      ? { name: nextPendingPrayer, dueAt: prayerTimes ? prayerTimes[nextPendingPrayer].toISOString() : null }
+      ? { name: nextPendingPrayer, dueAt: windows?.[nextPendingPrayer]?.start.toISOString() ?? null }
       : null,
     prayerStatuses: PRAYER_NAMES.map((name) => ({
       name,
-      status: prayerRows.find((p) => p.prayer_name === name)?.status ?? "pending",
+      status: effectiveStatusFor(name),
     })),
     quranWeekPages: quranSessions.reduce((sum, s) => sum + s.pages_read, 0),
     quranWeeklyTarget,
     habitFocusName: weeklyFocusHabit?.name ?? null,
     habitFocusStreak,
     pulse: pulse.deen,
+    qadaBacklogCount,
   };
 
   // Business

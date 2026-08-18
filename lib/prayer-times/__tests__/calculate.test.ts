@@ -50,4 +50,32 @@ describe("calculatePrayerTimes", () => {
       expect(localHour).toBeLessThan(24);
     }
   });
+
+  it("places sunrise between Fajr and Dhuhr", () => {
+    const times = calculatePrayerTimes({
+      date: new Date("2026-08-10T00:00:00Z"),
+      ...CHICAGO,
+      calcMethod: "MWL",
+      asrMadhab: "standard",
+    });
+
+    expect(times.fajr.getTime()).toBeLessThan(times.sunrise.getTime());
+    expect(times.sunrise.getTime()).toBeLessThan(times.dhuhr.getTime());
+  });
+
+  it("computes sunrise symmetrically with Maghrib around solar noon (same depression angle)", () => {
+    // Both use MAGHRIB_ANGLE (0.833°) — sunrise is dhuhrClock - sunriseHA, maghrib is
+    // dhuhrClock + maghribHA, and the two hour angles are equal for the same angle/lat/decl.
+    const times = calculatePrayerTimes({
+      date: new Date("2026-08-10T00:00:00Z"),
+      ...CHICAGO,
+      calcMethod: "MWL",
+      asrMadhab: "standard",
+    });
+
+    const dhuhrToSunrise = times.dhuhr.getTime() - times.sunrise.getTime();
+    const dhuhrToMaghrib = times.maghrib.getTime() - times.dhuhr.getTime();
+    // Each side independently rounds to the nearest minute, so allow up to ~2 minutes of slack.
+    expect(Math.abs(dhuhrToSunrise - dhuhrToMaghrib)).toBeLessThan(2 * 60_000);
+  });
 });

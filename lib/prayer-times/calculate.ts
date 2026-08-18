@@ -11,13 +11,14 @@ export type AsrMadhab = "standard" | "hanafi";
 
 export type PrayerTimes = {
   fajr: Date;
+  sunrise: Date;
   dhuhr: Date;
   asr: Date;
   maghrib: Date;
   isha: Date;
 };
 
-const METHOD_ANGLES: Record<CalcMethod, { fajr: number; isha: number }> = {
+export const METHOD_ANGLES: Record<CalcMethod, { fajr: number; isha: number }> = {
   MWL: { fajr: 18, isha: 17 },
   ISNA: { fajr: 15, isha: 15 },
   Karachi: { fajr: 18, isha: 18 },
@@ -74,15 +75,37 @@ function sunPosition(jd: number): { declination: number; equationOfTime: number 
   return { declination: radToDeg(declination), equationOfTime };
 }
 
-/** Hour angle (in hours) for the sun to reach `angle` degrees below the horizon. */
-function hourAngle(angle: number, lat: number, declination: number): number {
+function rawCosH(angle: number, lat: number, declination: number): number {
   const latRad = degToRad(lat);
   const declRad = degToRad(declination);
-  const cosH =
+  return (
     (-Math.sin(degToRad(angle)) - Math.sin(latRad) * Math.sin(declRad)) /
-    (Math.cos(latRad) * Math.cos(declRad));
-  const clamped = Math.max(-1, Math.min(1, cosH));
+    (Math.cos(latRad) * Math.cos(declRad))
+  );
+}
+
+/** Hour angle (in hours) for the sun to reach `angle` degrees below the horizon. */
+function hourAngle(angle: number, lat: number, declination: number): number {
+  const clamped = Math.max(-1, Math.min(1, rawCosH(angle, lat, declination)));
   return radToDeg(Math.acos(clamped)) / 15;
+}
+
+// At high latitudes the sun may never reach `angle` degrees below the
+// horizon on a given day (e.g. no true dawn/dusk near the poles in summer) —
+// hourAngle()'s clamp silently produces a plausible-looking wrong Date in
+// that case. This lets a caller (lib/prayer-times/windows.ts) detect it and
+// return null instead of a lying value.
+export function isSunAngleReachable(angle: number, lat: number, declination: number): boolean {
+  const cosH = rawCosH(angle, lat, declination);
+  return cosH >= -1 && cosH <= 1;
+}
+
+/** Sun declination (deg) for a date/longitude — the piece of calculatePrayerTimes's
+ * pipeline windows.ts needs on its own to evaluate isSunAngleReachable() for a date
+ * without duplicating the Julian-date/equation-of-time math. */
+export function sunDeclinationDeg(date: Date, lng: number): number {
+  const jd = julianDate(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+  return sunPosition(jd - lng / (15 * 24)).declination;
 }
 
 /** Asr hour angle: sun altitude where shadow length = shadowFactor + tan(|lat - decl|). */
@@ -135,6 +158,7 @@ export function calculatePrayerTimes(opts: {
 
   return {
     fajr: localClockHoursToDate(date, dhuhrClock - fajrHA, tzHours),
+    sunrise: localClockHoursToDate(date, dhuhrClock - maghribHA, tzHours),
     dhuhr: localClockHoursToDate(date, dhuhrClock, tzHours),
     asr: localClockHoursToDate(date, dhuhrClock + asrHA, tzHours),
     maghrib: localClockHoursToDate(date, dhuhrClock + maghribHA, tzHours),

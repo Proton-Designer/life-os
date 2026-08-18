@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { SettingsForm } from "@/components/settings/settings-form";
+import { SettingsForm, type SettingsFormData } from "@/components/settings/settings-form";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 
 const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "prayer", label: "Prayer" },
+  { id: "location", label: "Location" },
   { id: "checkins", label: "Check-ins" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
@@ -48,9 +49,14 @@ export default async function SettingsPage() {
           email={user.email ?? ""}
           initial={{
             displayName: profile?.display_name ?? "",
-            prayerCalcMethod: profile?.prayer_calc_method ?? "MWL",
+            prayerCalcMethod: (profile?.prayer_calc_method as SettingsFormData["prayerCalcMethod"]) ?? "MWL",
             asrMadhab: (profile?.asr_madhab as "standard" | "hanafi") ?? "standard",
-            locationLabel: profile?.location_label ?? "",
+            location: {
+              lat: profile?.location_lat ?? null,
+              lng: profile?.location_lng ?? null,
+              label: profile?.location_label ?? null,
+              timezone: profile?.timezone ?? null,
+            },
             checkinWindowStart: profile?.checkin_window_start?.slice(0, 5) ?? "08:00",
             checkinWindowEnd: profile?.checkin_window_end?.slice(0, 5) ?? "22:00",
             checkinIntervalMinutes: profile?.checkin_interval_minutes ?? 120,
