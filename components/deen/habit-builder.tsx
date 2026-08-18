@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConsistencyGrid, type ConsistencyRow } from "@/components/charts/consistency-grid";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { featuredCardStyle } from "@/lib/featured-card-style";
@@ -18,9 +19,37 @@ export type DeenHabitData = {
   id: string;
   name: string;
   committedDate: string;
+  /** Implementation-intention cue ("After Fajr") — see redesign proposal §1.
+   * Null means never set; shown as a small tag, never fused into a sentence
+   * with the habit name (concatenation reads as broken grammar for names
+   * that weren't authored as verb phrases). */
+  anchorCue: string | null;
   streak: number;
+  /** Rolling count over the last 30 days (or since committed_date if
+   * younger) — the primary progress signal now, not the hard-reset streak.
+   * See redesign proposal §2 and lib/deen/habit-consistency.ts. */
+  rollingRate: { done: number; total: number };
   completedToday: boolean;
 };
+
+// Reuses the on_time/positive-green semantic already established elsewhere
+// on this page (PrayerRow, Prayer consistency) rather than inventing a new
+// palette — and, just as importantly, is structurally distinct from
+// whatever severity ramp the Reflection module's redesign uses, since this
+// is a plain done/in-progress/not-done map, not an ordinal intensity scale.
+//
+// "in_progress" (today, not yet done) is deliberately neutral, not red —
+// the day isn't over, so it hasn't actually been missed. Same
+// upcoming-vs-missed distinction the prayer-windows work draws, applied
+// here: painting today red is telling the user they failed at something
+// they still have time to do.
+const HABIT_STATUS_STYLE = {
+  done: { colorVar: "--accent-business", treatment: "solid" as const, label: "Done" },
+  in_progress: { colorVar: "--muted-foreground", treatment: "hollow" as const, label: "Today — not yet done" },
+  missed: { colorVar: "--destructive", treatment: "hollow" as const, label: "Not done" },
+};
+
+const VISIBLE_HABIT_ROWS = 5;
 
 function HabitToggleButton({
   habitId,
@@ -53,6 +82,15 @@ function HabitToggleButton({
   );
 }
 
+function AnchorCueTag({ cue }: { cue: string | null }) {
+  if (!cue) return null;
+  return (
+    <span className="mb-0.5 inline-block rounded-full bg-accent/50 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+      After {cue}
+    </span>
+  );
+}
+
 function HabitRow({
   habit,
   todayStr,
@@ -67,10 +105,18 @@ function HabitRow({
   return (
     <li className={cn("flex items-center gap-3 rounded-lg border border-border/40 px-3 py-2", quiet && "opacity-60")}>
       <HabitToggleButton habitId={habit.id} todayStr={todayStr} completed={habit.completedToday} onToggle={onToggle} />
-      <span className="flex-1 text-sm">{habit.name}</span>
-      {habit.streak > 0 && (
-        <span className="font-mono text-xs text-muted-foreground tabular-nums">{habit.streak}d</span>
-      )}
+      <span className="min-w-0 flex-1">
+        <AnchorCueTag cue={habit.anchorCue} />
+        <span className="block truncate text-sm">{habit.name}</span>
+      </span>
+      <div className="flex shrink-0 flex-col items-end gap-0.5">
+        <span className="font-mono text-xs tabular-nums">
+          {habit.rollingRate.done}/{habit.rollingRate.total}
+        </span>
+        {habit.streak > 0 && (
+          <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{habit.streak}d streak</span>
+        )}
+      </div>
     </li>
   );
 }
@@ -125,11 +171,12 @@ function HabitFocusPicker({
   onCancel,
 }: {
   candidates: DeenHabitData[];
-  onDone: (habitId: string, createdName?: string) => void;
+  onDone: (habitId: string, createdName?: string, createdAnchorCue?: string | null) => void;
   onCancel: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [newName, setNewName] = useState("");
+  const [anchorCue, setAnchorCue] = useState("");
 
   function selectExisting(habitId: string) {
     startTransition(async () => {
@@ -142,11 +189,13 @@ function HabitFocusPicker({
     e.preventDefault();
     const trimmed = newName.trim();
     if (!trimmed) return;
+    const trimmedCue = anchorCue.trim() || null;
     startTransition(async () => {
-      const { id } = await createDeenHabit(trimmed);
+      const { id } = await createDeenHabit(trimmed, anchorCue);
       await setWeeklyFocus(id);
-      onDone(id, trimmed);
+      onDone(id, trimmed, trimmedCue);
       setNewName("");
+      setAnchorCue("");
     });
   }
 
@@ -167,16 +216,29 @@ function HabitFocusPicker({
           ))}
         </div>
       )}
-      <form onSubmit={createAndFocus} className="flex gap-2">
+      {/* Deliberately two separate fields, not "After ___ I will ___" laid
+          out as a sentence — the evidence (Gollwitzer & Sheeran) is about
+          stating and rehearsing the if-then link, not about grammatical
+          fusion, and a sentence-shaped pair of inputs would drag the same
+          "reads oddly for names that aren't verb phrases" problem into the
+          create form that the row display avoids by using a tag instead. */}
+      <form onSubmit={createAndFocus} className="flex flex-col gap-2">
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Or start a new habit" />
-        <Button type="submit" disabled={isPending}>
-          Start
-        </Button>
-        {/* The only way out of this section used to be refreshing the page —
-            this is the fix. Plain, always available, no side effects. */}
-        <Button type="button" variant="outline" disabled={isPending} onClick={onCancel}>
-          Cancel
-        </Button>
+        <Input
+          value={anchorCue}
+          onChange={(e) => setAnchorCue(e.target.value)}
+          placeholder="Cue (optional) — e.g. Fajr"
+        />
+        <div className="flex gap-2">
+          <Button type="submit" disabled={isPending}>
+            Start
+          </Button>
+          {/* The only way out of this section used to be refreshing the page —
+              this is the fix. Plain, always available, no side effects. */}
+          <Button type="button" variant="outline" disabled={isPending} onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
       </form>
     </div>
   );
@@ -187,28 +249,50 @@ export function HabitBuilder({
   habits: initialHabits,
   currentFocusHabitId,
   previousFocusHabitId,
+  habitConsistencyRows,
 }: {
   todayStr: string;
   habits: DeenHabitData[];
   currentFocusHabitId: string | null;
   previousFocusHabitId: string | null;
+  /** One ConsistencyGrid row per active habit — a single shared grid, not
+   * one grid per habit, so the cross-habit comparison ("one habit's
+   * carrying, another's gone dark") is visible at a glance. See redesign
+   * proposal §2 and lib/deen/habit-consistency.ts's buildHabitConsistencyRows. */
+  habitConsistencyRows: ConsistencyRow[];
 }) {
   const [habits, setHabits] = useState(initialHabits);
   const [focusHabitId, setFocusHabitId] = useState(currentFocusHabitId);
   const [showPicker, setShowPicker] = useState(false);
+  const [showAllRows, setShowAllRows] = useState(false);
   const [isContinuing, startContinueTransition] = useTransition();
 
   function handleToggle(habitId: string, completed: boolean) {
     setHabits((prev) => prev.map((h) => (h.id === habitId ? { ...h, completedToday: completed } : h)));
   }
 
-  function handleFocusChosen(habitId: string, createdName?: string) {
+  function handleFocusChosen(habitId: string, createdName?: string, createdAnchorCue?: string | null) {
     setFocusHabitId(habitId);
     setShowPicker(false);
     setHabits((prev) =>
       prev.some((h) => h.id === habitId)
         ? prev
-        : [...prev, { id: habitId, name: createdName ?? "New habit", committedDate: todayStr, streak: 0, completedToday: false }]
+        : [
+            ...prev,
+            {
+              id: habitId,
+              name: createdName ?? "New habit",
+              committedDate: todayStr,
+              anchorCue: createdAnchorCue ?? null,
+              streak: 0,
+              // Committed today, not yet done today — today doesn't count
+              // against the rate until it's either completed or over (see
+              // computeHabitRollingRate), so the honest optimistic value is
+              // 0/0, not 0/1.
+              rollingRate: { done: 0, total: 0 },
+              completedToday: false,
+            },
+          ]
     );
   }
 
@@ -226,6 +310,9 @@ export function HabitBuilder({
 
   const focusHabit = habits.find((h) => h.id === focusHabitId) ?? null;
   const previousFocusHabit = habits.find((h) => h.id === previousFocusHabitId) ?? null;
+
+  const visibleRows = showAllRows ? habitConsistencyRows : habitConsistencyRows.slice(0, VISIBLE_HABIT_ROWS);
+  const hiddenRowCount = habitConsistencyRows.length - VISIBLE_HABIT_ROWS;
 
   return (
     <div className="flex flex-col gap-4">
@@ -245,12 +332,12 @@ export function HabitBuilder({
             <IconChip icon={DOMAIN_ICON.deen} accent="deen" />
             <div>
               <div className="text-xs text-muted-foreground">This week&apos;s focus</div>
+              <AnchorCueTag cue={focusHabit.anchorCue} />
               <div className="font-medium">{focusHabit.name}</div>
-              {focusHabit.streak > 0 && (
-                <div className="font-mono text-xs text-muted-foreground tabular-nums">
-                  {focusHabit.streak} day streak
-                </div>
-              )}
+              <div className="font-mono text-xs text-muted-foreground tabular-nums">
+                {focusHabit.rollingRate.done}/{focusHabit.rollingRate.total} last 30 days
+                {focusHabit.streak > 0 && ` · ${focusHabit.streak}d streak`}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -306,11 +393,29 @@ export function HabitBuilder({
           />
         )
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <StageColumn title="Active Build" variant="info" habits={activeBuild} todayStr={todayStr} onToggle={handleToggle} />
-          <StageColumn title="Stabilized" variant="positive" habits={stabilized} todayStr={todayStr} onToggle={handleToggle} />
-          <StageColumn title="Locked" variant="neutral" habits={locked} todayStr={todayStr} quiet onToggle={handleToggle} />
-        </div>
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            <StageColumn title="Active Build" variant="info" habits={activeBuild} todayStr={todayStr} onToggle={handleToggle} />
+            <StageColumn title="Stabilized" variant="positive" habits={stabilized} todayStr={todayStr} onToggle={handleToggle} />
+            <StageColumn title="Locked" variant="neutral" habits={locked} todayStr={todayStr} quiet onToggle={handleToggle} />
+          </div>
+
+          {habitConsistencyRows.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-medium text-muted-foreground">Last 30 days</h3>
+              <ConsistencyGrid rows={visibleRows} statusStyle={HABIT_STATUS_STYLE} />
+              {hiddenRowCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllRows((v) => !v)}
+                  className="self-start text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {showAllRows ? "Show fewer" : `Show ${hiddenRowCount} more`}
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

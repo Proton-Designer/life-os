@@ -10,7 +10,16 @@ vi.mock("@/app/(app)/deen/actions", () => ({
 }));
 
 function habit(overrides: Partial<DeenHabitData> = {}): DeenHabitData {
-  return { id: "h1", name: "Fajr on time", committedDate: "2026-08-15", streak: 3, completedToday: false, ...overrides };
+  return {
+    id: "h1",
+    name: "Fajr on time",
+    committedDate: "2026-08-15",
+    anchorCue: null,
+    streak: 3,
+    rollingRate: { done: 10, total: 15 },
+    completedToday: false,
+    ...overrides,
+  };
 }
 
 describe("HabitBuilder", () => {
@@ -21,6 +30,7 @@ describe("HabitBuilder", () => {
         habits={[habit({ id: "a" }), habit({ id: "b", committedDate: "2026-07-01" }), habit({ id: "c", committedDate: "2026-06-01" })]}
         currentFocusHabitId="a"
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
     expect(screen.getByText("Active Build")).toHaveClass("text-accent-info");
@@ -28,21 +38,36 @@ describe("HabitBuilder", () => {
     expect(screen.getByText("Locked")).toHaveClass("text-muted-foreground");
   });
 
-  it("renders a habit row's streak in the mono numeral scale", () => {
+  it("renders a habit row's streak in the mono numeral scale, as a secondary line under the rolling rate", () => {
     render(
       <HabitBuilder
         todayStr="2026-08-15"
-        habits={[habit({ streak: 5 })]}
+        habits={[habit({ streak: 5, rollingRate: { done: 10, total: 15 } })]}
         currentFocusHabitId={null}
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
-    expect(screen.getByText("5d").className).toContain("font-mono");
+    expect(screen.getByText("10/15").className).toContain("font-mono");
+    expect(screen.getByText("5d streak").className).toContain("font-mono");
+  });
+
+  it("omits the streak line entirely when there's no current run", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ streak: 0 })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.queryByText(/streak/)).not.toBeInTheDocument();
   });
 
   it("collapses the three redundant 'None yet.' stage columns into one shared EmptyState when there are no habits at all", () => {
     render(
-      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} />
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
     );
     expect(screen.getByText("No habits started yet")).toBeInTheDocument();
     expect(screen.queryAllByText("None yet.").length).toBe(0);
@@ -56,6 +81,7 @@ describe("HabitBuilder", () => {
         habits={[habit({ committedDate: "2026-08-15" })]}
         currentFocusHabitId={null}
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
     expect(screen.queryByText("No habits started yet")).not.toBeInTheDocument();
@@ -69,6 +95,7 @@ describe("HabitBuilder", () => {
         habits={[habit()]}
         currentFocusHabitId="h1"
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
     const card = screen.getByTestId("habit-focus-card");
@@ -84,6 +111,7 @@ describe("HabitBuilder", () => {
         habits={[habit({ id: "a" })]}
         currentFocusHabitId={null}
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
     expect(screen.getByText("Days 0–13")).toBeInTheDocument();
@@ -98,6 +126,7 @@ describe("HabitBuilder", () => {
         habits={[habit()]}
         currentFocusHabitId="h1"
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
     const addButton = screen.getByRole("button", { name: /add a habit/i });
@@ -112,6 +141,7 @@ describe("HabitBuilder", () => {
         habits={[habit()]}
         currentFocusHabitId={null}
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
     expect(screen.getByRole("button", { name: /add a habit/i })).toBeInTheDocument();
@@ -125,6 +155,7 @@ describe("HabitBuilder", () => {
         habits={[habit()]}
         currentFocusHabitId="h1"
         previousFocusHabitId={null}
+        habitConsistencyRows={[]}
       />
     );
 
@@ -140,7 +171,7 @@ describe("HabitBuilder", () => {
   it("cancel from the picker doesn't create or select anything", async () => {
     const user = userEvent.setup();
     render(
-      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} />
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
     );
 
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
@@ -149,5 +180,116 @@ describe("HabitBuilder", () => {
 
     expect(screen.getByText("No habits started yet")).toBeInTheDocument();
     expect(screen.queryByText("Should not be created")).not.toBeInTheDocument();
+  });
+
+  it("shows the anchor cue as a standalone tag above the habit name, not fused into a sentence", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ anchorCue: "Fajr", name: "Gym" })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("After Fajr")).toBeInTheDocument();
+    expect(screen.getByText("Gym")).toBeInTheDocument();
+    // Never fused — "After Fajr, I will Gym" or similar would read oddly.
+    expect(screen.queryByText(/After Fajr.*Gym/)).not.toBeInTheDocument();
+  });
+
+  it("renders no cue tag at all when anchorCue is null — degrades to the bare name, not a sentence with a hole in it", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ anchorCue: null, name: "Read Qur'an daily" })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("Read Qur'an daily")).toBeInTheDocument();
+    expect(screen.queryByText(/^After/)).not.toBeInTheDocument();
+  });
+
+  it("the create-habit form has separate name and cue fields, not one sentence-shaped input", async () => {
+    const user = userEvent.setup();
+    render(
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
+    );
+    await user.click(screen.getByRole("button", { name: /add a habit/i }));
+    expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/cue \(optional\)/i)).toBeInTheDocument();
+  });
+
+  it("creating a habit with a cue passes it through to createDeenHabit", async () => {
+    const { createDeenHabit, setWeeklyFocus } = await import("@/app/(app)/deen/actions");
+    vi.mocked(createDeenHabit).mockResolvedValue({ id: "new-habit" });
+    const user = userEvent.setup();
+    render(
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
+    );
+
+    await user.click(screen.getByRole("button", { name: /add a habit/i }));
+    await user.type(screen.getByPlaceholderText("Or start a new habit"), "Read Qur'an");
+    await user.type(screen.getByPlaceholderText(/cue \(optional\)/i), "Fajr");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    expect(createDeenHabit).toHaveBeenCalledWith("Read Qur'an", "Fajr");
+    expect(setWeeklyFocus).toHaveBeenCalledWith("new-habit");
+    // A brand-new habit, not yet done today, must show 0/0 — not 0/1. The
+    // day isn't over, so it shouldn't be counted against a habit that's
+    // seconds old; this is the same bug the today-in-progress fix targets,
+    // just in the optimistic client-side placeholder rather than the
+    // server calculation.
+    expect(screen.getByText("0/0")).toBeInTheDocument();
+  });
+
+  it("renders one shared grid with a row per habit, not one grid per habit", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ id: "a", name: "Unrelated A" }), habit({ id: "b", name: "Unrelated B" })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+        habitConsistencyRows={[
+          { label: "Grid habit A", cells: [{ date: "2026-08-15", status: "done" }] },
+          { label: "Grid habit B", cells: [{ date: "2026-08-15", status: "missed" }] },
+        ]}
+      />
+    );
+    expect(screen.getByText("Last 30 days")).toBeInTheDocument();
+    // Both row labels present in the single grid section — one grid, not two.
+    const grid = screen.getByText("Last 30 days").parentElement;
+    expect(grid).toHaveTextContent("Grid habit A");
+    expect(grid).toHaveTextContent("Grid habit B");
+  });
+
+  it("caps visible habit rows at 5 with a show-more toggle, since habits (unlike prayers) have no fixed count", async () => {
+    const user = userEvent.setup();
+    // Grid rows use distinct labels from the (unrelated) stage-column habit,
+    // so assertions can't accidentally match the wrong rendered list.
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      label: `Grid habit ${i + 1}`,
+      cells: [{ date: "2026-08-15", status: "done" }],
+    }));
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ id: "dummy", name: "Unrelated stage-column habit" })]}
+        currentFocusHabitId={null}
+        previousFocusHabitId={null}
+        habitConsistencyRows={rows}
+      />
+    );
+
+    expect(screen.getByText("Grid habit 5")).toBeInTheDocument();
+    expect(screen.queryByText("Grid habit 6")).not.toBeInTheDocument();
+    expect(screen.getByText("Show 2 more")).toBeInTheDocument();
+
+    await user.click(screen.getByText("Show 2 more"));
+
+    expect(screen.getByText("Grid habit 6")).toBeInTheDocument();
+    expect(screen.getByText("Grid habit 7")).toBeInTheDocument();
   });
 });

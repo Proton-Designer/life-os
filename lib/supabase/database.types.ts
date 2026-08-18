@@ -141,9 +141,18 @@ export type Database = {
           },
         ]
       }
+      // anchor_cue and commitment_note hand-added, not regenerated. Migration
+      // 018_deen_habits_anchor_and_commitment.sql IS applied (2026-08-18,
+      // verified via information_schema.columns — see the migration file's
+      // header) but `supabase gen types` needs a running Docker daemon
+      // that isn't available here, same constraint as sunnah_logs above.
+      // Replace with real generated output once Docker or authenticated
+      // Supabase MCP access is available.
       deen_habits: {
         Row: {
+          anchor_cue: string | null
           archived: boolean
+          commitment_note: string | null
           committed_date: string
           created_at: string
           id: string
@@ -151,7 +160,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          anchor_cue?: string | null
           archived?: boolean
+          commitment_note?: string | null
           committed_date: string
           created_at?: string
           id?: string
@@ -159,7 +170,9 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          anchor_cue?: string | null
           archived?: boolean
+          commitment_note?: string | null
           committed_date?: string
           created_at?: string
           id?: string

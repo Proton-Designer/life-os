@@ -214,9 +214,34 @@ describe("Deen actions", () => {
         user_id: "user-1",
         name: "Read one page of tafsir",
         committed_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        anchor_cue: null,
       })
     );
     expect(result).toEqual({ id: "habit-1" });
+  });
+
+  it("createDeenHabit stores a trimmed anchor cue when given one", async () => {
+    const chain = makeChain({ data: { id: "habit-2" }, error: null });
+    fromImpl = () => chain;
+    const { createDeenHabit } = await import("../actions");
+
+    await createDeenHabit("Pray Isha", "  Maghrib  ");
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ anchor_cue: "Maghrib" })
+    );
+  });
+
+  it("createDeenHabit normalizes a blank anchor cue to null, not an empty string", async () => {
+    const chain = makeChain({ data: { id: "habit-3" }, error: null });
+    fromImpl = () => chain;
+    const { createDeenHabit } = await import("../actions");
+
+    await createDeenHabit("Pray Isha", "   ");
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ anchor_cue: null })
+    );
   });
 
   it("toggleDeenHabitLog upserts keyed on (habit_id, date)", async () => {

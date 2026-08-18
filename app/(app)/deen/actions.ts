@@ -160,13 +160,23 @@ export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
   revalidatePath("/deen");
 }
 
-export async function createDeenHabit(name: string): Promise<{ id: string }> {
+// anchorCue is the implementation-intention cue ("After Fajr") — see
+// docs/superpowers/specs/2026-08-18-habit-builder-redesign-proposal.md §1.
+// Normalized to null (never "") so "no cue set" and "cue cleared" stay
+// distinguishable, matching the column's own nullable-no-default design.
+export async function createDeenHabit(name: string, anchorCue?: string): Promise<{ id: string }> {
   const { supabase, userId } = await requireUser();
   const committedDate = await todayForUser(supabase, userId);
+  const trimmedCue = anchorCue?.trim();
 
   const { data, error } = await supabase
     .from("deen_habits")
-    .insert({ user_id: userId, name, committed_date: committedDate })
+    .insert({
+      user_id: userId,
+      name,
+      committed_date: committedDate,
+      anchor_cue: trimmedCue ? trimmedCue : null,
+    })
     .select("id")
     .single();
   if (error) throw error;

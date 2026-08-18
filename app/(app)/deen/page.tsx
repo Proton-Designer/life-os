@@ -18,9 +18,10 @@ import {
 import { PrayerRow } from "@/components/deen/prayer-row";
 import { QuranCard } from "@/components/deen/quran-card";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
-import type { ReflectionEntry } from "@/lib/deen/reflection-sparkline";
+import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
+import { computeHabitRollingRate, buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
 import { buildQadaBacklog, totalQadaOwed } from "@/lib/deen/qada-backlog";
@@ -96,8 +97,12 @@ export default async function DeenPage() {
       .eq("domain", "deen")
       .eq("week_start_date", weekStart)
       .maybeSingle(),
-    supabase.from("reflection_entries").select("date, tier").eq("user_id", userId).gte("date", sevenDaysAgoStr),
-    supabase.from("deen_habits").select("id, name, committed_date").eq("user_id", userId).eq("archived", false),
+    supabase
+      .from("reflection_entries")
+      .select("date, tier, created_at")
+      .eq("user_id", userId)
+      .gte("date", thirtyDaysAgoStr),
+    supabase.from("deen_habits").select("id, name, committed_date, anchor_cue").eq("user_id", userId).eq("archived", false),
     supabase
       .from("deen_habit_logs")
       .select("habit_id, date, completed")
@@ -239,9 +244,18 @@ export default async function DeenPage() {
   const reflectionEntries: ReflectionEntry[] = (reflectionRows ?? []).map((r) => ({
     date: r.date,
     tier: r.tier as 1 | 2 | 3,
+    createdAt: r.created_at,
   }));
 
   // --- Habit Builder ---
+  // Rolling 30-day rate is now the headline progress signal, not the
+  // hard-reset streak — see docs/superpowers/specs/2026-08-18-habit-builder-redesign-proposal.md
+  // §2. Streak stays, but only as a secondary line (habit-builder.tsx).
+  const habitLogsForConsistency = (habitLogRows ?? []).map((l) => ({
+    habitId: l.habit_id,
+    date: l.date,
+    completed: l.completed,
+  }));
   const deenHabits: DeenHabitData[] = (habitRows ?? []).map((h) => {
     const habitLogs = (habitLogRows ?? []).filter((l) => l.habit_id === h.id);
     const completedDates = habitLogs.filter((l) => l.completed).map((l) => l.date);
@@ -250,10 +264,23 @@ export default async function DeenPage() {
       id: h.id,
       name: h.name,
       committedDate: h.committed_date,
+      anchorCue: h.anchor_cue,
       streak: computeHabitStreak(completedDates, dateStr),
+      rollingRate: computeHabitRollingRate(
+        { id: h.id, name: h.name, committedDate: h.committed_date },
+        habitLogsForConsistency,
+        thirtyDaysAgoStr,
+        dateStr
+      ),
       completedToday,
     };
   });
+  const habitConsistencyRows = buildHabitConsistencyRows(
+    (habitRows ?? []).map((h) => ({ id: h.id, name: h.name, committedDate: h.committed_date })),
+    habitLogsForConsistency,
+    thirtyDays,
+    dateStr
+  );
 
   return (
     <PageContainer>
@@ -384,16 +411,17 @@ export default async function DeenPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-4">
           <Panel title="Reflection">
-            <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} />
+            <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} timezone={timezone} />
           </Panel>
         </div>
-        <div className="lg:col-span-8">
+        <div id="habit-builder" className="lg:col-span-8">
           <Panel title="Habit Builder">
             <HabitBuilder
               todayStr={dateStr}
               habits={deenHabits}
               currentFocusHabitId={currentFocusRow?.habit_id ?? null}
               previousFocusHabitId={previousFocusRow?.habit_id ?? null}
+              habitConsistencyRows={habitConsistencyRows}
             />
           </Panel>
         </div>

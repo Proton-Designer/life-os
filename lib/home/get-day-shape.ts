@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
-import { localDateString, dayOfWeekFromDateString, resolveLocalTime } from "@/lib/date-utils";
+import { localDateString, dayOfWeekFromDateString, resolveLocalTime, addDaysToDateString } from "@/lib/date-utils";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
@@ -38,7 +38,7 @@ export type DayShapeDataSource = {
   getPrayers: (userId: string, date: string) => Promise<DayShapePrayerRow[]>;
   getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<DayShapeWorkoutSchedule | null>;
   getTimedTasks: (userId: string, date: string) => Promise<DayShapeTaskRow[]>;
-  getFocusSessions: (userId: string, date: string) => Promise<DayShapeSessionRow[]>;
+  getFocusSessions: (userId: string, date: string, timezone: string) => Promise<DayShapeSessionRow[]>;
 };
 
 export function defaultDataSource(): DayShapeDataSource {
@@ -83,16 +83,23 @@ export function defaultDataSource(): DayShapeDataSource {
         .not("due_time", "is", null);
       return (data ?? []) as DayShapeTaskRow[];
     },
-    async getFocusSessions(userId, date) {
+    async getFocusSessions(userId, date, timezone) {
       const supabase = await createClient();
-      const dayStart = `${date}T00:00:00.000Z`;
-      const dayEnd = `${date}T23:59:59.999Z`;
+      // Bounds must be the LOCAL day converted to instants, not a UTC-day
+      // string range — `date` is already local, and a naive `${date}T00:00Z`
+      // range is off by the timezone offset in both directions (e.g. a
+      // Chicago evening session lands in the UTC date's early hours the
+      // *next* calendar day, and gets dropped from today / shown on
+      // tomorrow instead). See PROJECT_STATUS.md 2026-08-18 for the bug
+      // this fixes and lib/home/get-home-extras.ts for the sibling case.
+      const dayStart = resolveLocalTime(date, "00:00", timezone).toISOString();
+      const dayEnd = resolveLocalTime(addDaysToDateString(date, 1), "00:00", timezone).toISOString();
       const { data } = await supabase
         .from("work_sessions")
         .select("started_at, ended_at")
         .eq("user_id", userId)
         .gte("started_at", dayStart)
-        .lte("started_at", dayEnd);
+        .lt("started_at", dayEnd);
       return data ?? [];
     },
   };
@@ -118,7 +125,7 @@ export async function getDayShape(
     dataSource.getPrayers(userId, dateStr),
     dataSource.getWorkoutSchedule(userId, dayOfWeekFromDateString(dateStr)),
     dataSource.getTimedTasks(userId, dateStr),
-    dataSource.getFocusSessions(userId, dateStr),
+    dataSource.getFocusSessions(userId, dateStr, timezone),
   ]);
 
   const hasLocation = profile?.location_lat != null && profile?.location_lng != null;
