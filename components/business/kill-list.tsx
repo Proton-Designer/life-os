@@ -15,12 +15,26 @@ export function KillList({
   date: string;
   slots: [KillListSlotData, KillListSlotData, KillListSlotData];
 }) {
+  const isUntouched = slots.every((s) => !s.text);
+
   return (
-    <ul className="flex flex-col gap-2">
-      {slots.map((slot, i) => (
-        <KillListSlot key={i} date={date} position={i as 0 | 1 | 2} slot={slot} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3">
+      {/* Empty-state only (R1, 2026-08-18 synthesis) — this exists to make
+          the act obvious at 7am, not to explain the kill-list concept back
+          to Ayman, who designed it. Recedes the moment a slot has anything
+          in it, so it never sits around as clutter next to real items. */}
+      {isUntouched && (
+        <p className="text-xs text-muted-foreground">
+          Not a to-do list — the three that must happen today, whatever else goes sideways. e.g.
+          &ldquo;Ship the pricing page,&rdquo; not &ldquo;check email.&rdquo;
+        </p>
+      )}
+      <ul className="flex flex-col gap-2">
+        {slots.map((slot, i) => (
+          <KillListSlot key={i} date={date} position={i as 0 | 1 | 2} slot={slot} />
+        ))}
+      </ul>
+    </div>
   );
 }
 

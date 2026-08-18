@@ -1,5 +1,5 @@
 import { countClearDays, type ReflectionDayBucket, type ReflectionStripDay } from "@/lib/deen/reflection-strip";
-import { cn } from "@/lib/utils";
+import { consistencyCellStyle } from "@/lib/charts/consistency-style";
 
 // Single-hue saturation ramp, not a categorical map — spec §5A: "one thing
 // at four intensities," not "four unrelated things." Clear is a flat
@@ -10,16 +10,17 @@ const BUCKET_STYLE: Partial<Record<ReflectionDayBucket, React.CSSProperties>> = 
   low: { backgroundColor: "color-mix(in oklch, var(--destructive) 25%, var(--muted))" },
   mid: { backgroundColor: "color-mix(in oklch, var(--destructive) 50%, var(--muted))" },
   high: { backgroundColor: "color-mix(in oklch, var(--destructive) 80%, var(--muted))" },
-  // in_progress gets no fixed color here — bg-accent-info comes from the
-  // class below, matching the day-ribbon's own "live, unresolved" treatment
-  // (components/home/day-ribbon.tsx's `pending` span) so the two grids
-  // agree instead of one silently claiming a verdict the other withholds.
+  // Today, still running: neither a confirmed clear day nor a logged one.
+  // Lead's ruling (2026-08-18): this started as day-ribbon's solid+pulse
+  // "live" treatment, but a pulse-only signal fails under
+  // prefers-reduced-motion, and unlike the ribbon's single "now" this grid
+  // can carry several in-progress cells at once (one per habit row, plus
+  // this strip) — animation that reads as "alive" on one element reads as
+  // noise on six. Reusing the habit grid's own "hollow" recipe instead
+  // (lib/charts/consistency-style.ts) is both accessible and literally the
+  // same treatment, not just a similar-looking one.
+  in_progress: consistencyCellStyle("hollow", "--muted-foreground"),
 };
-
-// Today, still running: neither a confirmed clear day nor a logged one.
-// Same visual language as day-ribbon's `pending` span for the same reason —
-// an open, unresolved window, not a result.
-const IN_PROGRESS_CLASS = "bg-accent-info/60 animate-pulse";
 
 function formatShortDate(dateStr: string): string {
   return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -61,7 +62,7 @@ export function ReflectionIntensityStrip({ days }: { days: ReflectionStripDay[] 
                 role="img"
                 aria-label={`${formatShortDate(d.date)}: ${cellLabel(d)}`}
                 title={`${formatShortDate(d.date)}: ${d.bucket}`}
-                className={cn("h-6 flex-1 rounded-sm", d.bucket === "in_progress" && IN_PROGRESS_CLASS)}
+                className="h-6 flex-1 rounded-sm"
                 style={BUCKET_STYLE[d.bucket]}
               />
             ))}

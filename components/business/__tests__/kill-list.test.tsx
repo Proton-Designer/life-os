@@ -50,4 +50,33 @@ describe("KillList", () => {
     );
     expect(screen.queryByText("Done")).not.toBeInTheDocument();
   });
+
+  it("shows empty-state framing when all three slots are unused — what it is, why three, one example", () => {
+    render(
+      <KillList
+        date="2026-08-11"
+        slots={[
+          { id: null, text: "", completed: false },
+          { id: null, text: "", completed: false },
+          { id: null, text: "", completed: false },
+        ]}
+      />
+    );
+    expect(screen.getByText(/whatever else/i)).toBeInTheDocument();
+    expect(screen.getByText(/ship the pricing page/i)).toBeInTheDocument();
+  });
+
+  it("hides the framing once even one slot has a saved item — it doesn't linger as clutter", () => {
+    render(
+      <KillList
+        date="2026-08-11"
+        slots={[
+          { id: "slot-1", text: "Ship the landing page", completed: false },
+          { id: null, text: "", completed: false },
+          { id: null, text: "", completed: false },
+        ]}
+      />
+    );
+    expect(screen.queryByText(/whatever else/i)).not.toBeInTheDocument();
+  });
 });

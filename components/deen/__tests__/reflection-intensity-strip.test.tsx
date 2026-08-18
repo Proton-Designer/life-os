@@ -46,12 +46,20 @@ describe("ReflectionIntensityStrip", () => {
     expect(cell?.getAttribute("aria-label")).toMatch(/Aug 15/);
   });
 
-  it("marks an empty today as in-progress, visually distinct from a clear day — echoes the day-ribbon's live-window treatment, never claims a verdict the day hasn't earned yet", () => {
+  it("marks an empty today as in-progress, visually distinct from a clear day — hollow/outlined/static, matching the habit grid's own in-progress treatment, never claims a verdict the day hasn't earned yet", () => {
     const days = buildReflectionStrip([], "2026-08-30");
     const { container } = render(<ReflectionIntensityStrip days={days} />);
     const todayCell = container.querySelector('[data-date="2026-08-30"]');
     expect(todayCell).toHaveAttribute("data-bucket", "in_progress");
-    expect(todayCell?.className).toMatch(/animate-pulse/);
+    // Lead's ruling (2026-08-18): a pulse-only signal fails under
+    // prefers-reduced-motion — a dense grid can carry several in-progress
+    // cells at once, unlike day-ribbon's single "now", so the state can't
+    // depend on animation here. Static hollow border instead, same recipe
+    // ConsistencyGrid's "hollow" treatment already uses (lib/charts/consistency-style.ts).
+    expect(todayCell?.className).not.toMatch(/animate-pulse/);
+    const style = (todayCell as HTMLElement).style;
+    expect(style.backgroundColor).toBe("transparent");
+    expect(style.border).toMatch(/muted-foreground/);
     expect(todayCell?.getAttribute("aria-label")).toMatch(/in progress/i);
   });
 

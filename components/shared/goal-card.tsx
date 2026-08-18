@@ -17,6 +17,7 @@ export function GoalCard({
   showQuranTarget,
   locked,
   onSave,
+  emptyStateFraming,
 }: {
   title: string;
   domain: Domain;
@@ -26,6 +27,11 @@ export function GoalCard({
   showQuranTarget?: boolean;
   locked: boolean;
   onSave: (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
+  /** Optional, caller-owned empty-state copy (R1, 2026-08-18 synthesis) —
+   * shown only while this goal has never been saved, so a domain that
+   * hasn't opted in (or already has real data) never sees it. GoalCard
+   * stays domain-agnostic; the wording itself belongs to the page. */
+  emptyStateFraming?: React.ReactNode;
 }) {
   const [isPending, startTransition] = useTransition();
   const [headline, setHeadline] = useState(initialHeadline);
@@ -52,6 +58,9 @@ export function GoalCard({
         <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
         {title}
       </h3>
+      {emptyStateFraming && !initialHeadline && initialMilestones.length === 0 && (
+        <p className="text-xs text-muted-foreground">{emptyStateFraming}</p>
+      )}
       <Input
         value={headline}
         onChange={(e) => setHeadline(e.target.value)}
