@@ -24,7 +24,7 @@ function GoalBlock({
     return (
       <div className="flex flex-col gap-1.5">
         {label}
-        <Link href="/weekly-planning" className={`text-sm ${DOMAIN_ACCENT_CLASS[domain]} hover:underline`}>
+        <Link href="/weekly-planning" prefetch className={`text-sm ${DOMAIN_ACCENT_CLASS[domain]} hover:underline`}>
           Set this week&apos;s {DOMAIN_LABEL[domain]} goal →
         </Link>
       </div>
@@ -65,6 +65,7 @@ export function WeeklyFocus({
       {showPlanningNudge && (
         <Link
           href="/weekly-planning"
+          prefetch
           className="block rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business hover:bg-accent-business/20"
         >
           Plan next week&apos;s Deen and Business goals →

@@ -1,5 +1,25 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Real next/link never forwards `prefetch` to the DOM (destructured out,
+// consumed internally), so intercept it before Link eats it. Mirrors real
+// rendering for every other prop this file's other assertions rely on.
+vi.mock("next/link", async () => {
+  const React = await import("react");
+  return {
+    default: React.forwardRef(function MockLink(
+      { href, prefetch, children, ...rest }: React.ComponentPropsWithoutRef<"a"> & { prefetch?: unknown },
+      ref: React.Ref<HTMLAnchorElement>
+    ) {
+      return (
+        <a ref={ref} href={href} data-prefetch={String(prefetch)} {...rest}>
+          {children}
+        </a>
+      );
+    }),
+  };
+});
+
 import { WeeklyFocus } from "../weekly-focus";
 
 describe("WeeklyFocus", () => {
@@ -92,5 +112,21 @@ describe("WeeklyFocus", () => {
   it("hides the planning nudge when showPlanningNudge is false", () => {
     render(<WeeklyFocus deen={null} business={null} showPlanningNudge={false} />);
     expect(screen.queryByText("Plan next week's Deen and Business goals →")).not.toBeInTheDocument();
+  });
+
+  it("prefetches the set-goal links and the planning nudge (navigation-prefetch-fix, Part A)", () => {
+    render(<WeeklyFocus deen={null} business={null} showPlanningNudge />);
+    expect(screen.getByRole("link", { name: "Set this week's Deen goal →" })).toHaveAttribute(
+      "data-prefetch",
+      "true"
+    );
+    expect(screen.getByRole("link", { name: "Set this week's Business goal →" })).toHaveAttribute(
+      "data-prefetch",
+      "true"
+    );
+    expect(screen.getByText("Plan next week's Deen and Business goals →")).toHaveAttribute(
+      "data-prefetch",
+      "true"
+    );
   });
 });

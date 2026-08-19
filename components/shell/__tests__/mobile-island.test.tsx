@@ -6,6 +6,26 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
 
+// Real next/link never forwards `prefetch` to the DOM (destructured out,
+// consumed internally), so intercept it before Link eats it. Mirrors real
+// rendering for every other prop this file's other assertions rely on.
+vi.mock("next/link", async () => {
+  const React = await import("react");
+  return {
+    default: React.forwardRef(function MockLink(
+      { href, prefetch, children, ...rest }: React.ComponentPropsWithoutRef<"a"> & { prefetch?: unknown },
+      ref: React.Ref<HTMLAnchorElement>
+    ) {
+      return (
+        <a ref={ref} href={href} data-prefetch={String(prefetch)} {...rest}>
+          {children}
+        </a>
+      );
+    }),
+    useLinkStatus: () => ({ pending: false }),
+  };
+});
+
 import { MobileIsland } from "../mobile-island";
 
 describe("MobileIsland", () => {
@@ -48,5 +68,16 @@ describe("MobileIsland", () => {
     render(<MobileIsland />);
     expect(screen.getByTestId("mobile-island-item-deen").style.color).toContain("--accent-deen");
     expect(screen.getByTestId("mobile-island-item-home").style.color).toBe("");
+  });
+
+  it("prefetches every nav target, including the More popover items (navigation-prefetch-fix, Part A)", async () => {
+    const user = userEvent.setup();
+    render(<MobileIsland />);
+    for (const key of ["home", "deen", "business", "school"]) {
+      expect(screen.getByTestId(`mobile-island-item-${key}`)).toHaveAttribute("data-prefetch", "true");
+    }
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: /fitness/i })).toHaveAttribute("data-prefetch", "true");
+    expect(screen.getByRole("link", { name: /co-op/i })).toHaveAttribute("data-prefetch", "true");
   });
 });

@@ -57,11 +57,15 @@ export function AccountBlock({
       <PopoverContent align="start" side="top" className="w-56 p-1">
         <Link
           href="/settings"
+          prefetch
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
         >
           <Settings className="size-4" />
           Settings
         </Link>
+        {/* No prefetch: this is a route handler (app/(app)/settings/export/route.ts)
+            that generates and returns a file, not a screen — prefetching it would
+            fire a real export GET on mere viewport visibility. */}
         <Link
           href="/settings/export"
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"

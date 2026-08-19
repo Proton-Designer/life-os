@@ -2,7 +2,23 @@
 
 import { lookupViaCity, findFromCityStateProvince, cityMapping } from "city-timezones";
 import { requireUser } from "@/lib/supabase/auth";
-import { rankCityMatches, nearestCityLabel, type CityMatch } from "@/lib/settings/location";
+import { rankCityMatches, nearestCityLabel, type CityMatch, type CityRecord } from "@/lib/settings/location";
+import { SUPPLEMENTAL_CITIES } from "@/lib/settings/supplemental-cities";
+
+// Same matching rules city-timezones itself uses (exact city-name equality;
+// partial match against city/province/country) — see supplemental-cities.ts
+// for why this list exists instead of just being part of exactMatches.
+function supplementalExactMatches(query: string): CityRecord[] {
+  return SUPPLEMENTAL_CITIES.filter((c) => c.city.toLowerCase() === query.toLowerCase());
+}
+
+function supplementalPartialMatches(query: string): CityRecord[] {
+  const terms = query.toLowerCase().split(" ");
+  return SUPPLEMENTAL_CITIES.filter((c) => {
+    const haystack = [c.city, c.stateAnsi ?? "", c.province, c.country].join(",").toLowerCase();
+    return terms.every((t) => haystack.includes(t));
+  });
+}
 
 // Split into its own module from actions.ts deliberately: onboarding/
 // actions.ts imports updateProfile from that file, and a same-module import
@@ -21,7 +37,10 @@ export async function searchCities(query: string): Promise<CityMatch[]> {
   await requireUser();
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
-  return rankCityMatches(lookupViaCity(trimmed), findFromCityStateProvince(trimmed));
+  return rankCityMatches(
+    [...lookupViaCity(trimmed), ...supplementalExactMatches(trimmed)],
+    [...findFromCityStateProvince(trimmed), ...supplementalPartialMatches(trimmed)]
+  );
 }
 
 // Nearest-city lookup over the same bundled dataset — offline reverse

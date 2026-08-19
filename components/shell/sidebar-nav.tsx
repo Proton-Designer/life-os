@@ -60,6 +60,7 @@ function NavLink({
   const link = (
     <Link
       href={item.href}
+      prefetch
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative flex items-center gap-3 rounded-lg text-sm text-muted-foreground transition-colors hover:text-foreground",

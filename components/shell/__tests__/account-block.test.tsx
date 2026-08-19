@@ -7,6 +7,25 @@ vi.mock("@/app/(app)/actions", () => ({
   signOut: signOutMock,
 }));
 
+// Real next/link never forwards `prefetch` to the DOM (destructured out,
+// consumed internally), so intercept it before Link eats it. Mirrors real
+// rendering for every other prop this file's other assertions rely on.
+vi.mock("next/link", async () => {
+  const React = await import("react");
+  return {
+    default: React.forwardRef(function MockLink(
+      { href, prefetch, children, ...rest }: React.ComponentPropsWithoutRef<"a"> & { prefetch?: unknown },
+      ref: React.Ref<HTMLAnchorElement>
+    ) {
+      return (
+        <a ref={ref} href={href} data-prefetch={String(prefetch)} {...rest}>
+          {children}
+        </a>
+      );
+    }),
+  };
+});
+
 import { AccountBlock } from "../account-block";
 
 describe("AccountBlock", () => {
@@ -39,5 +58,13 @@ describe("AccountBlock", () => {
     render(<AccountBlock displayName="Ayman" email="ayman.mohammed@newtonbev.com" variant="icon-rail" />);
     expect(screen.queryByText("Ayman")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /account menu/i })).toBeInTheDocument();
+  });
+
+  it("prefetches Settings, a real screen — but not Export data, a route handler that downloads a file rather than rendering one (navigation-prefetch-fix, Part A)", async () => {
+    const user = userEvent.setup();
+    render(<AccountBlock displayName="Ayman" email="ayman.mohammed@newtonbev.com" variant="expanded" />);
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute("data-prefetch", "true");
+    expect(screen.getByRole("link", { name: /export data/i })).toHaveAttribute("data-prefetch", "undefined");
   });
 });

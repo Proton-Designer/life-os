@@ -5,6 +5,26 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
 
+// Real next/link never forwards `prefetch` to the DOM (destructured out,
+// consumed internally), so intercept it before Link eats it. Mirrors real
+// rendering for every other prop this file's other assertions rely on.
+vi.mock("next/link", async () => {
+  const React = await import("react");
+  return {
+    default: React.forwardRef(function MockLink(
+      { href, prefetch, children, ...rest }: React.ComponentPropsWithoutRef<"a"> & { prefetch?: unknown },
+      ref: React.Ref<HTMLAnchorElement>
+    ) {
+      return (
+        <a ref={ref} href={href} data-prefetch={String(prefetch)} {...rest}>
+          {children}
+        </a>
+      );
+    }),
+    useLinkStatus: () => ({ pending: false }),
+  };
+});
+
 import { TopNav } from "../top-nav";
 
 describe("TopNav", () => {
@@ -34,5 +54,13 @@ describe("TopNav", () => {
     render(<TopNav />);
     const settings = screen.getByRole("link", { name: /settings/i });
     expect(settings.style.color).toBe("");
+  });
+
+  it("prefetches every link, including the brand mark and Settings (navigation-prefetch-fix, Part A)", () => {
+    render(<TopNav />);
+    for (const label of ["Life OS", "Home", "Deen", "Business", "Fitness", "School", "Co-op", "Settings"]) {
+      const link = screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") });
+      expect(link).toHaveAttribute("data-prefetch", "true");
+    }
   });
 });

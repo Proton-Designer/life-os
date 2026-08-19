@@ -15,6 +15,7 @@ function Logo({ iconOnly }: { iconOnly: boolean }) {
   return (
     <Link
       href="/"
+      prefetch
       className="flex h-16 shrink-0 items-center border-b border-border px-3 text-sm font-semibold tracking-tight"
     >
       <span aria-hidden className="text-lg">

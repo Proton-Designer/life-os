@@ -6,6 +6,10 @@ export type CityRecord = {
   lng: number;
   pop: number;
   timezone: string | null;
+  /** US-only, matches city-timezones' `state_ansi` (e.g. "TX") — lets a
+   * "city, state-abbreviation" query match the way it does for cities that
+   * come from the bundled dataset itself. */
+  stateAnsi?: string;
 };
 
 export type CityMatch = {

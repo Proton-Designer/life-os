@@ -60,6 +60,7 @@ export function MobileIsland() {
             <Link
               key={item.key}
               href={item.href}
+              prefetch
               data-testid={`mobile-island-item-${item.key}`}
               aria-current={active ? "page" : undefined}
               className={cn(
@@ -101,6 +102,7 @@ export function MobileIsland() {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch
                 aria-current={isActive(pathname, item.href) ? "page" : undefined}
                 className="relative flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
               >

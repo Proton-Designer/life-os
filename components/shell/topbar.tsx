@@ -33,7 +33,7 @@ export function Topbar({
               hidden entirely, so this is the only place the brand mark
               shows. The page title itself lives solely in PageHeader
               (removed from here per lead review — was rendering twice). */}
-          <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
+          <Link href="/" prefetch className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
             <span aria-hidden className="text-base">
               &#9670;
             </span>
@@ -44,6 +44,7 @@ export function Topbar({
           <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>
           <Link
             href="/business"
+            prefetch
             aria-label={hasActiveLockIn ? "Lock-In session active" : "No active Lock-In session"}
             className={cn(
               "flex size-8 items-center justify-center rounded-full transition-colors",

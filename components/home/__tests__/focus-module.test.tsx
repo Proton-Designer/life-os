@@ -6,6 +6,25 @@ vi.mock("@/app/(app)/business/actions", () => ({
   startWorkSession: vi.fn(),
 }));
 
+// Real next/link never forwards `prefetch` to the DOM (destructured out,
+// consumed internally), so intercept it before Link eats it. Mirrors real
+// rendering for every other prop this file's other assertions rely on.
+vi.mock("next/link", async () => {
+  const React = await import("react");
+  return {
+    default: React.forwardRef(function MockLink(
+      { href, prefetch, children, ...rest }: React.ComponentPropsWithoutRef<"a"> & { prefetch?: unknown },
+      ref: React.Ref<HTMLAnchorElement>
+    ) {
+      return (
+        <a ref={ref} href={href} data-prefetch={String(prefetch)} {...rest}>
+          {children}
+        </a>
+      );
+    }),
+  };
+});
+
 import { startWorkSession } from "@/app/(app)/business/actions";
 import { FocusModule } from "../focus-module";
 
@@ -61,5 +80,16 @@ describe("FocusModule", () => {
     );
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("href", "/business");
     expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
+  });
+
+  it("prefetches the Open session link (navigation-prefetch-fix, Part A)", () => {
+    render(
+      <FocusModule
+        focusMinutesToday={30}
+        sessionCount={1}
+        activeSession={{ id: "s1", startedAtIso: "2026-08-17T22:00:00Z" }}
+      />
+    );
+    expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("data-prefetch", "true");
   });
 });

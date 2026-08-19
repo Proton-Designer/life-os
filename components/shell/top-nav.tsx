@@ -32,7 +32,7 @@ export function TopNav() {
       aria-label="Primary"
       className="fixed inset-x-0 top-0 z-50 hidden h-14 items-center justify-between border-b border-border/50 bg-background/80 px-6 backdrop-blur-md md:flex"
     >
-      <Link href="/" className="text-sm font-semibold tracking-tight">
+      <Link href="/" prefetch className="text-sm font-semibold tracking-tight">
         Life OS
       </Link>
       <div className="flex items-center gap-1">
@@ -43,6 +43,7 @@ export function TopNav() {
             <Link
               key={item.href}
               href={item.href}
+              prefetch
               aria-current={active ? "page" : undefined}
               className={cn(
                 "relative flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground",
@@ -66,6 +67,7 @@ export function TopNav() {
       </div>
       <Link
         href="/settings"
+        prefetch
         aria-current={settingsActive ? "page" : undefined}
         aria-label="Settings"
         className="relative flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"

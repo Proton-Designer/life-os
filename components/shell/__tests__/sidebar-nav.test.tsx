@@ -6,6 +6,28 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
 
+// Real next/link never forwards `prefetch` to the DOM (destructured out,
+// consumed internally — see node_modules/next/dist/client/app-dir/link.js),
+// so the only way to assert on it is to intercept the prop before Link eats
+// it. Mirrors every other prop's real behavior (href/aria-current/style/
+// children) so this file's other assertions keep exercising real rendering.
+vi.mock("next/link", async () => {
+  const React = await import("react");
+  return {
+    default: React.forwardRef(function MockLink(
+      { href, prefetch, children, ...rest }: React.ComponentPropsWithoutRef<"a"> & { prefetch?: unknown },
+      ref: React.Ref<HTMLAnchorElement>
+    ) {
+      return (
+        <a ref={ref} href={href} data-prefetch={String(prefetch)} {...rest}>
+          {children}
+        </a>
+      );
+    }),
+    useLinkStatus: () => ({ pending: false }),
+  };
+});
+
 import { SidebarNav } from "../sidebar-nav";
 
 describe("SidebarNav", () => {
@@ -93,5 +115,23 @@ describe("SidebarNav", () => {
     const link = screen.getByRole("link", { name: "Deen" });
     expect(within(link).getByText("Deen")).toBeVisible();
     expect(screen.getByText("MAIN")).toBeInTheDocument();
+  });
+
+  it("prefetches every route link (navigation-prefetch-fix, Part A)", () => {
+    render(<SidebarNav variant="expanded" />);
+    for (const label of [
+      "Home",
+      "Deen",
+      "Business",
+      "Fitness",
+      "School",
+      "Co-op",
+      "Insights",
+      "Weekly Planning",
+      "Settings",
+    ]) {
+      const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
+      expect(link).toHaveAttribute("data-prefetch", "true");
+    }
   });
 });

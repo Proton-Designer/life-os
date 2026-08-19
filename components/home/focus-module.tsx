@@ -29,7 +29,7 @@ function ActiveView({ startedAtIso }: { startedAtIso: string }) {
     <div className="flex flex-col gap-2">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">Locked in</p>
       <p className="font-mono text-2xl font-semibold tabular-nums">{elapsed}</p>
-      <Link href="/business" className="text-sm text-accent-business hover:underline">
+      <Link href="/business" prefetch className="text-sm text-accent-business hover:underline">
         Open session →
       </Link>
     </div>
