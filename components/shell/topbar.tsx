@@ -6,6 +6,7 @@ import { Menu, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
+import { CheckinQueueBadge } from "./checkin-queue-badge";
 
 export function Topbar({
   account,
@@ -55,6 +56,7 @@ export function Topbar({
           >
             <Zap className="size-4" fill={hasActiveLockIn ? "currentColor" : "none"} />
           </Link>
+          <CheckinQueueBadge />
           <AccountBlock displayName={account.displayName} email={account.email} variant="icon-rail" />
         </div>
       </header>
