@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   ALLOCATION_WINDOW_MINUTES,
+  NOMINAL_PRAYER_MINUTES,
   computeAllocationWindows,
   resolveFireTime,
   resolveAllocationSlots,
   pendingQueue,
   unknownCount,
   activeCadence,
+  prayerSuppressionRanges,
   type AllocationWindow,
   type TimeRange,
 } from "../schedule";
@@ -189,5 +191,49 @@ describe("activeCadence", () => {
 
   it("switches to session_hourly during an active Lock-In session", () => {
     expect(activeCadence({ startedAt: new Date("2026-08-10T13:00:00Z") })).toBe("session_hourly");
+  });
+});
+
+// 2026-08-19 review catch: suppression must be a short nominal span around
+// a prayer's actual clock time, NEVER computePrayerWindows' full validity
+// window (Dhuhr's alone can run 3+ hours) — a check-in landing on that
+// would silence most of the afternoon instead of just pausing around the
+// prayer itself.
+describe("prayerSuppressionRanges", () => {
+  it("builds a NOMINAL_PRAYER_MINUTES-long span starting exactly at each prayer time", () => {
+    const dhuhr = new Date("2026-08-10T18:30:00Z");
+    const [range] = prayerSuppressionRanges([dhuhr]);
+    expect(range.start.toISOString()).toBe(dhuhr.toISOString());
+    expect(range.end?.getTime()).toBe(dhuhr.getTime() + NOMINAL_PRAYER_MINUTES * 60_000);
+  });
+
+  it("is far shorter than a real multi-hour prayer validity window", () => {
+    const dhuhr = new Date("2026-08-10T18:30:00Z");
+    const [range] = prayerSuppressionRanges([dhuhr]);
+    const spanMinutes = (range.end!.getTime() - range.start.getTime()) / 60_000;
+    expect(spanMinutes).toBeLessThan(30); // real Dhuhr windows run 100+ minutes
+  });
+
+  it("builds one range per prayer time, independently", () => {
+    const fajr = new Date("2026-08-10T10:23:00Z");
+    const isha = new Date("2026-08-11T02:32:00Z");
+    const ranges = prayerSuppressionRanges([fajr, isha]);
+    expect(ranges).toHaveLength(2);
+    expect(ranges[0].start.toISOString()).toBe(fajr.toISOString());
+    expect(ranges[1].start.toISOString()).toBe(isha.toISOString());
+  });
+
+  it("returns no ranges for no prayer times", () => {
+    expect(prayerSuppressionRanges([])).toEqual([]);
+  });
+
+  it("plugs directly into resolveFireTime as a real suppression range", () => {
+    const window: AllocationWindow = {
+      start: new Date("2026-08-10T18:00:00Z"),
+      end: new Date("2026-08-10T20:00:00Z"),
+    };
+    const dhuhr = new Date("2026-08-10T19:55:00Z"); // 5 min before the window's natural fire time
+    const fireTime = resolveFireTime(window, prayerSuppressionRanges([dhuhr]));
+    expect(fireTime?.toISOString()).toBe(new Date("2026-08-10T20:10:00Z").toISOString()); // pushed to 19:55 + 15min
   });
 });

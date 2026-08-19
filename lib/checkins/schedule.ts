@@ -6,14 +6,46 @@ import { localDateString, resolveLocalTime } from "@/lib/date-utils";
  *
  * The 2-hour grid is a CLOCK, not a timer: windows sit at fixed times
  * (derived once from wake/sleep bounds) and never shift, reset, or
- * re-anchor themselves. Interruptions (a prayer window, a recurring block,
- * an active Lock-In session) only ever delay a window's *fire time* —
- * pushing it to the moment the interruption ends — they never move the
- * window's own boundaries or skip it outright. That's what "resumes
- * wherever it is when a session ends" means concretely.
+ * re-anchor themselves. Interruptions (a short nominal span around a
+ * prayer time, a recurring block, an active Lock-In session) only ever
+ * delay a window's *fire time* — pushing it to the moment the interruption
+ * ends — they never move the window's own boundaries or skip it outright.
+ * That's what "resumes wherever it is when a session ends" means
+ * concretely.
+ *
+ * Prayer suppression is deliberately a short nominal span, NOT
+ * `computePrayerWindows`'s full validity window (2026-08-19 review catch):
+ * Dhuhr's window alone can run 3+ hours, and suppressing a check-in for the
+ * entire time a prayer remains merely *valid* would silence most of the
+ * afternoon. See NOMINAL_PRAYER_MINUTES and prayerSuppressionRanges below.
  */
 
 export const ALLOCATION_WINDOW_MINUTES = 120;
+
+/**
+ * A placeholder duration for "a prayer happened around here," used both to
+ * build a short suppression span (below) and, in prefill.ts, to give a
+ * logged prayer a nominal contribution to a pre-filled Deen allocation —
+ * same honest-coarse-default pattern as prefill.ts's own
+ * NOMINAL_WORKOUT_MINUTES, and the same value as one allocation STEP so a
+ * single logged prayer maps to exactly one step, never a fraction of one.
+ */
+export const NOMINAL_PRAYER_MINUTES = 15;
+
+/**
+ * A short suppression span around a prayer's actual clock time (its
+ * window's *start*, from computePrayerWindows) — not the full multi-hour
+ * validity window. Applies to every one of a day's prayer times regardless
+ * of whether it's been logged yet (suppression is prospective — "don't
+ * interrupt around prayer time" — unlike prefill's pre-fill contribution,
+ * which only counts prayers actually logged).
+ */
+export function prayerSuppressionRanges(prayerTimes: Date[]): TimeRange[] {
+  return prayerTimes.map((start) => ({
+    start,
+    end: new Date(start.getTime() + NOMINAL_PRAYER_MINUTES * 60_000),
+  }));
+}
 
 /** profiles.checkin_window_start / checkin_window_end ("HH:MM[:SS]" local clock time) — reused as-is, no new schema needed for wake/sleep bounds. */
 export type WakeSleepBounds = { wakeTime: string; sleepTime: string };
@@ -21,11 +53,12 @@ export type WakeSleepBounds = { wakeTime: string; sleepTime: string };
 export type AllocationWindow = { start: Date; end: Date };
 
 /**
- * A suppression interval — a prayer window, a user-defined recurring block
- * (commute, gym), or an active Lock-In session. `end: null` means "still
- * open" (an in-progress session with no `ended_at` yet): it suppresses
- * everything from `start` onward, indefinitely, until re-evaluated with a
- * concrete end.
+ * A suppression interval — a short nominal span around a prayer time (see
+ * prayerSuppressionRanges, NOT computePrayerWindows' full validity window),
+ * a user-defined recurring block (commute, gym), or an active Lock-In
+ * session. `end: null` means "still open" (an in-progress session with no
+ * `ended_at` yet): it suppresses everything from `start` onward,
+ * indefinitely, until re-evaluated with a concrete end.
  */
 export type TimeRange = { start: Date; end: Date | null };
 

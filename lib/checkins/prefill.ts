@@ -1,5 +1,5 @@
 import { DOMAIN_KEYS, STEP, emptyAllocation, type Allocation, type DomainKey } from "./allocation";
-import type { AllocationWindow, TimeRange } from "./schedule";
+import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from "./schedule";
 
 /**
  * Pre-fill derivation — pure functions, no React, no I/O.
@@ -9,9 +9,20 @@ import type { AllocationWindow, TimeRange } from "./schedule";
  *
  * Never a guess about *what* happened — only about *how much* of it landed
  * inside this specific window, computed from data the app already logged
- * (Lock-In sessions, prayer windows, a scheduled workout). The caller
+ * (Lock-In sessions, logged prayers, a scheduled workout). The caller
  * (Engineer 2's `allocation-checkin.tsx`) takes the result as
  * `initialAllocation`, fully editable, marked subtly as pre-filled.
+ *
+ * Deen deliberately takes `loggedPrayerTimes: Date[]`, NOT prayer-window
+ * overlap (2026-08-19 review catch, the worst bug this build almost
+ * shipped): computePrayerWindows returns *validity* windows — Dhuhr's alone
+ * can run 3+ hours — not durations, and a prayer remaining merely valid
+ * during a window is not evidence he prayed for most of it. Deen sits on
+ * the signal side of Signal:Noise, so overcounting it here would have
+ * silently manufactured a flattering ratio out of nothing. Only a prayer
+ * actually logged (status on_time/qada) whose real clock time falls inside
+ * the window counts, and it counts for one nominal STEP — pre-fill only
+ * ever fills what's *known*, and "the window was open" was never that.
  */
 
 const NOMINAL_WORKOUT_MINUTES = 30; // 2 steps — no logged duration exists anywhere yet (workout_schedule/workout_logs have no duration column); a clearly-coarse, fully-editable default, not a claim.
@@ -31,30 +42,41 @@ function sumOverlapStepMinutes(window: AllocationWindow, ranges: TimeRange[]): n
   return Math.floor(total / STEP) * STEP;
 }
 
+/** One NOMINAL_PRAYER_MINUTES step per logged prayer whose real clock time falls inside the window — never a fraction, never a guess at duration. */
+function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]): number {
+  const count = loggedPrayerTimes.filter(
+    (t) => t.getTime() >= window.start.getTime() && t.getTime() < window.end.getTime()
+  ).length;
+  return count * NOMINAL_PRAYER_MINUTES;
+}
+
 /**
  * Derives a pre-fill `Allocation` for `window` from real, already-logged
- * data: Lock-In session overlap -> business, prayer-window overlap -> deen,
- * a scheduled workout whose time falls inside the window -> fitness (a
- * fixed nominal duration, since nothing records a real one). School and
- * Co-op have no data source to guess from, so they're always left at 0 —
- * genuinely unknown, not silently assumed zero-effort.
+ * data: Lock-In session overlap -> business, a logged prayer's clock time
+ * falling in the window -> deen (one nominal STEP each, see
+ * loggedPrayerMinutes above), a scheduled workout whose time falls inside
+ * the window -> fitness (a fixed nominal duration, since nothing records a
+ * real one). School and Co-op have no data source to guess from, so
+ * they're always left at 0 — genuinely unknown, not silently assumed
+ * zero-effort.
  *
  * If sources together would exceed the window's own length (e.g. a
- * Lock-In session that overlaps a prayer window inside it — double-booked
- * data, not double-booked time), each domain keeps its own share but the
- * total is capped at the window length by scaling down proportionally,
- * snapped back to whole steps — never silently over 100% of the window.
+ * Lock-In session overlapping several logged prayers inside it —
+ * double-booked data, not double-booked time), each domain keeps its own
+ * share but the total is capped at the window length by scaling down
+ * proportionally, snapped back to whole steps — never silently over 100%
+ * of the window.
  */
 export function derivePrefillAllocation(
   window: AllocationWindow,
   data: {
     lockInSessions: TimeRange[];
-    prayerWindows: TimeRange[];
+    loggedPrayerTimes: Date[];
     workoutTime: Date | null;
   }
 ): Allocation {
   const businessMinutes = sumOverlapStepMinutes(window, data.lockInSessions);
-  const deenMinutes = sumOverlapStepMinutes(window, data.prayerWindows);
+  const deenMinutes = loggedPrayerMinutes(window, data.loggedPrayerTimes);
   const fitnessMinutes =
     data.workoutTime && data.workoutTime.getTime() >= window.start.getTime() && data.workoutTime.getTime() < window.end.getTime()
       ? NOMINAL_WORKOUT_MINUTES
