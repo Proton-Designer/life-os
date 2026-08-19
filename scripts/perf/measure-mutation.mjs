@@ -65,7 +65,14 @@ async function main() {
   await dismissCheckinDialogIfPresent(page);
   await page.locator(`a[href="/deen"]:visible`).first().click();
   await dismissCheckinDialogIfPresent(page);
-  const prayerRow = page.locator("li", { hasText: "Isha" });
+  // Scoped to the row with the status buttons, not just text match — the
+  // qada backlog (bfee70b) added "Isha · Aug 10" / "Isha · Aug 12" list items
+  // to this same page, so a bare `hasText: "Isha"` resolves to 3 elements and
+  // Playwright throws in strict mode.
+  const prayerRow = page
+    .locator("li", { hasText: "Isha" })
+    .filter({ has: page.getByRole("button", { name: "On-time" }) })
+    .first();
   await prayerRow.waitFor();
 
   let priorStatusLabel = null;
@@ -92,7 +99,10 @@ async function main() {
   let cleanupOk = false;
   await page.locator(`a[href="/deen"]:visible`).first().click();
   await dismissCheckinDialogIfPresent(page);
-  const rowAfter = page.locator("li", { hasText: "Isha" });
+  const rowAfter = page
+    .locator("li", { hasText: "Isha" })
+    .filter({ has: page.getByRole("button", { name: "On-time" }) })
+    .first();
   await rowAfter.waitFor();
   if (priorStatusLabel) {
     await rowAfter.getByRole("button", { name: priorStatusLabel }).click();

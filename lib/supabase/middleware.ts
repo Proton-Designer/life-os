@@ -41,7 +41,20 @@ export async function updateSession(request: NextRequest) {
 
   // Refreshes the auth session (expired-token rotation) before the request
   // hits Server Components — required by @supabase/ssr's App Router pattern.
-  await supabase.auth.getUser();
+  //
+  // getClaims() rather than getUser(): same tradeoff as lib/supabase/auth.ts
+  // (Phase 4) — local ES256/JWKS verification (~1ms) instead of a network
+  // round trip to the Auth server (~80ms), measured 345ms -> 182ms mean
+  // server time for this call specifically. getClaims() runs the same lazy
+  // refresh path under the hood, so expired-token rotation is unaffected.
+  // The real tradeoff: this was the last server-contacting revocation check
+  // in the app (lib/supabase/auth.ts's own comment used to point back here
+  // as the exception) — a remotely-revoked session now survives until its
+  // next token refresh (exp - iat = 3600s on this project, ~30min average
+  // in practice) instead of dying on the next request. Accepted for a
+  // single-user personal app; see
+  // docs/superpowers/specs/2026-08-18-navigation-prefetch-fix.md Part B.
+  await supabase.auth.getClaims();
 
   return supabaseResponse;
 }

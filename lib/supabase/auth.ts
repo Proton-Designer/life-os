@@ -16,8 +16,11 @@ import { createClient } from "./server";
 // via the refresh token and writes it back to cookies), so token rotation is
 // unaffected. The real tradeoff: a *revoked-but-not-yet-expired* session is
 // no longer caught here, since local verification never asks the Auth
-// server — proxy.ts's own middleware call is unchanged and remains the
-// server-contacting check on every request. Only callers that read `.id`/
+// server. lib/supabase/middleware.ts (proxy.ts's session refresh) made the
+// same move in the 2026-08-18 navigation-prefetch-fix Part B, so there is
+// no longer a server-contacting revocation check anywhere in the request
+// path — accepted there for the same single-user-app reasoning. Only
+// callers that read `.id`/
 // `.email` off the return value exist in this codebase (verified before
 // this change) — the mapped shape below covers exactly that.
 export const getAuthedUser = cache(async () => {

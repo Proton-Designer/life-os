@@ -12,6 +12,7 @@ import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDa
 import { NextActions } from "@/components/home/next-actions";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyFocus } from "@/components/home/weekly-focus";
+import { WeeklyGoalStrip } from "@/components/home/weekly-goal-strip";
 import { DomainStatusStack } from "@/components/home/domain-status-stack";
 import { DayRibbon } from "@/components/home/day-ribbon";
 import { PageContainer } from "@/components/shell/page-container";
@@ -98,6 +99,8 @@ export default async function HomePage() {
   return (
     <PageContainer>
       <PageHeader title="Home" />
+
+      <WeeklyGoalStrip deen={deenGoal} business={businessGoal} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">

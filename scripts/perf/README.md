@@ -55,7 +55,20 @@ from `.env.local` — never Ayman's real account.
   one, or via the test-only `DELETE /api/test/clear-prayer` route
   (`E2E_TEST_SECRET`) if it was genuinely unlogged before. Checks the cleanup
   response status explicitly and reports failure loudly rather than silently
-  leaving the real account mutated.
+  leaving the real account mutated. **The route's body key is `prayerName`,
+  not `prayer`** — a mismatched key is accepted by `request.json()` and just
+  produces a 400 (`"Missing prayerName"`) rather than a type error, so an
+  ad-hoc script calling it with the wrong key fails silently unless the
+  caller checks the response status. Cost a stray SEED row once
+  (2026-08-18) before the check was there; check it every time.
+
+- **`measure-prefetch.mjs`** — "After the fix, does a warm nav link actually
+  cost zero non-prefetch requests at click time?" The regression test the
+  navigation-prefetch-fix round needed and didn't have — see
+  `docs/superpowers/specs/2026-08-18-navigation-prefetch-fix.md`. Lands on a
+  route via a real `<Link>` click, settles 3000ms (empirically clean — see
+  the trap below), then clicks each nav target and asserts 0 requests
+  observed strictly after the click.
 
 ## Traps found while verifying these scripts against themselves (2026-08-16)
 
