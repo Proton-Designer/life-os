@@ -9,6 +9,7 @@ import {
   dayOfWeekFromDateString,
   getWeekStartDate,
   addDaysToDateString,
+  resolveLocalTime,
 } from "@/lib/date-utils";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
@@ -87,7 +88,7 @@ export type DomainSnapshotDataSource = {
   getActiveWorkSession: (userId: string) => Promise<{ id: string; startedAt: string } | null>;
   getSessionCheckins: (userId: string, sessionId: string) => Promise<{ tag_type: string | null; answered: boolean }[]>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
-  getWeeklySnRatio: (userId: string, weekStart: string) => Promise<SignalNoiseResult>;
+  getWeeklySnRatio: (userId: string, weekStart: string, timezone: string) => Promise<SignalNoiseResult>;
   getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<{ workout_name: string; time: string | null } | null>;
   /** Whole week, not just today — the daily "done?" check and the weekly total chip both derive from this one fetch. */
   getWorkoutLogsThisWeek: (userId: string, weekStart: string) => Promise<{ workout_name: string; date: string }[]>;
@@ -223,8 +224,13 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .eq("date", date);
       return data ?? [];
     },
-    async getWeeklySnRatio(userId, weekStart) {
-      return getWeeklySignalNoiseRatio(userId, new Date(`${weekStart}T00:00:00Z`));
+    async getWeeklySnRatio(userId, weekStart, timezone) {
+      // resolveLocalTime, not `${weekStart}T00:00:00Z` — the latter applies
+      // UTC midnight to a local date string, which in Chicago makes weeks
+      // run Sat 7pm -> Sat 7pm and puts Saturday-evening activity (exactly
+      // when weekly planning happens) in the wrong week. Same class of bug
+      // fixed in get-day-shape.ts on 2026-08-18.
+      return getWeeklySignalNoiseRatio(userId, resolveLocalTime(weekStart, "00:00", timezone));
     },
     async getWorkoutSchedule(userId, dayOfWeek) {
       const supabase = await createClient();
@@ -346,7 +352,7 @@ export async function getDomainSnapshots(
     dataSource.getWeeklyFocusHabit(userId, weekStart),
     dataSource.getActiveWorkSession(userId),
     dataSource.getKillListItems(userId, dateStr),
-    dataSource.getWeeklySnRatio(userId, weekStart),
+    dataSource.getWeeklySnRatio(userId, weekStart, timezone),
     dataSource.getWorkoutSchedule(userId, dayOfWeek),
     dataSource.getWorkoutLogsThisWeek(userId, weekStart),
     dataSource.getFitnessHabits(userId),

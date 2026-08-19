@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { Flame, CheckCircle2, BookOpen, Target } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
-import { bucketSignalNoiseByWeek, type WeekBoundary } from "@/lib/business/sn-trend";
+import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { bucketSignalNoiseByWeek, type SnAllocationRow, type WeekBoundary } from "@/lib/business/sn-trend";
 import { buildWeeklyRecap, type WeekWindow } from "@/lib/weekly-planning/weekly-recap";
 import { GoalCard } from "@/components/shared/goal-card";
 import { saveWeeklyGoal } from "./actions";
@@ -64,9 +64,14 @@ export default async function WeeklyPlanningPage() {
     weekStart: ws,
     label: new Date(`${ws}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
   }));
+  // resolveLocalTime, not `${ws}T00:00:00.000Z` — the latter applies UTC
+  // midnight to a local date string, which in Chicago makes weeks run Sat
+  // 7pm -> Sat 7pm and misfiles Saturday-evening activity (exactly when
+  // weekly planning happens) into the wrong week. Same class of bug fixed
+  // in get-day-shape.ts on 2026-08-18.
   const snWeeks: WeekBoundary[] = recapWeekStarts.map((ws, i) => ({
-    weekStartIso: `${ws}T00:00:00.000Z`,
-    weekEndIso: `${addDaysToDateString(ws, 7)}T00:00:00.000Z`,
+    weekStartIso: resolveLocalTime(ws, "00:00", timezone).toISOString(),
+    weekEndIso: resolveLocalTime(addDaysToDateString(ws, 7), "00:00", timezone).toISOString(),
     label: recapWeeks[i].label,
   }));
   const earliestWeekStart = recapWeekStarts[0];
@@ -86,7 +91,12 @@ export default async function WeeklyPlanningPage() {
     supabase.from("prayers").select("date, status").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
     supabase.from("kill_list_items").select("date, completed").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
     supabase.from("quran_sessions").select("date, pages_read").eq("user_id", userId).gte("date", earliestWeekStart).lt("date", currentWeekStart),
-    supabase.from("checkins").select("checkin_time, tag_type, answered").eq("user_id", userId).gte("checkin_time", snWeeks[0].weekStartIso),
+    supabase
+      .from("checkins")
+      .select("window_start, checkin_allocations(domain, minutes)")
+      .eq("user_id", userId)
+      .eq("kind", "allocation")
+      .gte("window_start", snWeeks[0].weekStartIso),
   ]);
 
   const currentDeen = currentGoals?.find((g) => g.domain === "deen") ?? null;
@@ -95,10 +105,13 @@ export default async function WeeklyPlanningPage() {
   const previousBusiness = previousGoals?.find((g) => g.domain === "business") ?? null;
 
   const recap = buildWeeklyRecap(prayerRows ?? [], killListRows ?? [], quranRows ?? [], recapWeeks);
-  const snByWeek = bucketSignalNoiseByWeek(checkinRows ?? [], snWeeks);
+  const snAllocationRows: SnAllocationRow[] = (checkinRows ?? []).flatMap((c) =>
+    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes }))
+  );
+  const snByWeek = bucketSignalNoiseByWeek(snAllocationRows, snWeeks);
   const snBars = snByWeek.map((w) => ({
     label: w.label,
-    value: w.noise === 0 ? w.signal : Math.round((w.signal / w.noise) * 10) / 10,
+    value: w.noiseMinutes === 0 ? w.signalMinutes / 15 : Math.round((w.signalMinutes / w.noiseMinutes) * 10) / 10,
   }));
 
   const lastWeekRecap = recap[recap.length - 1];
@@ -183,8 +196,8 @@ export default async function WeeklyPlanningPage() {
             // there were zero answered check-ins — a KpiCard hero value must
             // never render that banned string (Phase B's card taxonomy),
             // same fix as the Business S:N panel in the Phase E follow-up.
-            value={lastWeekSn.signal + lastWeekSn.noise === 0 ? "—" : lastWeekSn.display}
-            caption={lastWeekSn.signal + lastWeekSn.noise === 0 ? "No check-ins last week" : "last week"}
+            value={lastWeekSn.signalMinutes + lastWeekSn.noiseMinutes === 0 ? "—" : lastWeekSn.display}
+            caption={lastWeekSn.signalMinutes + lastWeekSn.noiseMinutes === 0 ? "No check-ins last week" : "last week"}
             sparkline={snBars.map((b) => b.value)}
           />
         </div>

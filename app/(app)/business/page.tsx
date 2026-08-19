@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
-import { Clock, CheckCircle2, Radar } from "lucide-react";
+import { Clock, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { countDaysCleared } from "@/lib/business/kill-list-cleared";
-import { bucketSignalNoiseByWeek, type WeekBoundary } from "@/lib/business/sn-trend";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
 import { GoalCard } from "@/components/shared/goal-card";
@@ -15,11 +14,7 @@ import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
-import { EmptyState } from "@/components/ui/empty-state";
-import { BarChart } from "@/components/charts/bar-chart";
 import { accentForActivityCount } from "@/lib/kpi-value-accent";
-
-const SN_WEEK_COUNT = 6;
 
 export default async function BusinessPage() {
   const supabase = await createClient();
@@ -35,22 +30,12 @@ export default async function BusinessPage() {
   const sevenDaysAgoStr = addDaysToDateString(dateStr, -6);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const snWeekStarts = Array.from({ length: SN_WEEK_COUNT }, (_, i) =>
-    addDaysToDateString(weekStart, -7 * (SN_WEEK_COUNT - 1 - i))
-  );
-  const snWeeks: WeekBoundary[] = snWeekStarts.map((ws) => ({
-    weekStartIso: `${ws}T00:00:00.000Z`,
-    weekEndIso: `${addDaysToDateString(ws, 7)}T00:00:00.000Z`,
-    label: new Date(`${ws}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
-  }));
-
   const [
     { data: killListRows },
     { data: sevenDayKillListRows },
     { data: weeklyGoal },
     { data: activeSessionRow },
     { data: workSessionRows },
-    { data: checkinRows },
   ] = await Promise.all([
     supabase
       .from("kill_list_items")
@@ -75,11 +60,6 @@ export default async function BusinessPage() {
       .eq("user_id", userId)
       .gte("started_at", thirtyDaysAgoIso)
       .order("started_at", { ascending: false }),
-    supabase
-      .from("checkins")
-      .select("checkin_time, tag_type, answered")
-      .eq("user_id", userId)
-      .gte("checkin_time", snWeeks[0].weekStartIso),
   ]);
 
   const slots: [KillListSlotData, KillListSlotData, KillListSlotData] = [0, 1, 2].map((position) => {
@@ -124,15 +104,6 @@ export default async function BusinessPage() {
 
   // --- Days cleared, last 7 days ---
   const daysCleared = countDaysCleared(sevenDayKillListRows ?? []);
-
-  // --- Signal:Noise by week ---
-  const snWeeklyData = bucketSignalNoiseByWeek(checkinRows ?? [], snWeeks);
-  const thisWeekSn = snWeeklyData[snWeeklyData.length - 1];
-  const snBars = snWeeklyData.map((w) => ({
-    label: w.label,
-    value: w.noise === 0 ? w.signal : Math.round((w.signal / w.noise) * 10) / 10,
-  }));
-  const hasAnySnActivity = snWeeklyData.some((w) => w.signal + w.noise > 0);
 
   return (
     <PageContainer>
@@ -198,41 +169,24 @@ export default async function BusinessPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-4">
-          <KpiCard
-            icon={CheckCircle2}
-            accent={accentForActivityCount(daysCleared)}
-            label="Days cleared"
-            value={`${daysCleared}/7`}
-            caption={
-              daysCleared === 7
-                ? "Perfect week — every kill list cleared"
-                : daysCleared === 0
-                  ? "No fully cleared days in the last 7"
-                  : "Keep clearing all 3 daily"
-            }
-          />
-        </div>
-        <div className="lg:col-span-8">
-          {hasAnySnActivity ? (
-            <Panel
-              title="Signal:Noise by week"
-              heroValue={thisWeekSn.display}
-              caption="kill-list vs. noise check-ins, this week vs. the last 6"
-            >
-              <BarChart bars={snBars} colorVar="--series-business" highlightIndex={snBars.length - 1} />
-            </Panel>
-          ) : (
-            <Panel title="Signal:Noise by week">
-              <EmptyState
-                icon={Radar}
-                message="No check-ins answered yet in the last 6 weeks"
-                action={{ label: "Lock in to start tracking", href: "#lock-in-panel" }}
-              />
-            </Panel>
-          )}
-        </div>
+      {/* Signal:Noise moved to Insights (2026-08-19, Phase 4 of the
+          check-in allocation system) — once it counts every domain
+          (Deen/Business signal vs. School/Fitness/Co-op/Wasted noise), a
+          Business-page-only widget misrepresents what it measures. */}
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <KpiCard
+          icon={CheckCircle2}
+          accent={accentForActivityCount(daysCleared)}
+          label="Days cleared"
+          value={`${daysCleared}/7`}
+          caption={
+            daysCleared === 7
+              ? "Perfect week — every kill list cleared"
+              : daysCleared === 0
+                ? "No fully cleared days in the last 7"
+                : "Keep clearing all 3 daily"
+          }
+        />
       </div>
     </PageContainer>
   );

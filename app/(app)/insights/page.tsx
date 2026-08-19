@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 import { Radar, Volume2, Target } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { createClient } from "@/lib/supabase/server";
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { getInsightsKpis } from "@/lib/insights/insights-kpis";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { getWeeklyCompletion } from "@/lib/home/get-weekly-completion";
+import { bucketSignalNoiseByWeek, type SnAllocationRow, type WeekBoundary } from "@/lib/business/sn-trend";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -19,6 +21,9 @@ import { PageHeader } from "@/components/shell/page-header";
 import { RankedBars, type RankedBarsItem } from "@/components/charts/ranked-bars";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { AreaChart } from "@/components/charts/area-chart";
+import { BarChart } from "@/components/charts/bar-chart";
+
+const SN_WEEK_COUNT = 6;
 
 const SEGMENT_LABEL: Record<string, string> = {
   deen: "Deen",
@@ -81,15 +86,52 @@ export default async function InsightsPage({
       ? resolveLocalTime(weekStart, "00:00", timezone)
       : resolveLocalTime(todayStr, "00:00", timezone);
 
-  const [{ segments, globalRatio, signal, noise }, kpis, weeklyCompletion] = await Promise.all([
+  const snWeekStarts = Array.from({ length: SN_WEEK_COUNT }, (_, i) =>
+    addDaysToDateString(weekStart, -7 * (SN_WEEK_COUNT - 1 - i))
+  );
+  // resolveLocalTime, not `${ws}T00:00:00Z` — see business/page.tsx and
+  // weekly-planning/page.tsx's own fix comment (2026-08-19): UTC midnight
+  // on a local date string misfiles Saturday-evening activity into the
+  // wrong week in Chicago.
+  const snWeeks: WeekBoundary[] = snWeekStarts.map((ws) => ({
+    weekStartIso: resolveLocalTime(ws, "00:00", timezone).toISOString(),
+    weekEndIso: resolveLocalTime(addDaysToDateString(ws, 7), "00:00", timezone).toISOString(),
+    label: new Date(`${ws}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+  }));
+
+  const supabase = await createClient();
+  const [{ segments, globalRatio, signal, noise }, kpis, weeklyCompletion, { data: snCheckinRows }] = await Promise.all([
     getFocusMap(userId, range, anchor),
     getInsightsKpis(userId, weekStart, previousWeekStart),
     getWeeklyCompletion(userId, now, profile),
+    supabase
+      .from("checkins")
+      .select("window_start, checkin_allocations(domain, minutes)")
+      .eq("user_id", userId)
+      .eq("kind", "allocation")
+      .gte("window_start", snWeeks[0].weekStartIso),
   ]);
 
   const hasFocusData = segments.length > 0;
   const hasSnData = signal + noise > 0;
   const domainSegments = segments.filter((s) => s.domain !== "noise" && s.domain !== "other_work");
+
+  // --- Signal:Noise by week (2026-08-19 Phase 4: allocation minutes, moved
+  // here from Business — once it counts every domain, sitting on the
+  // Business screen misrepresents what it measures). Distinct from the
+  // "Signal:Noise" donut above, which is the Focus Map's own
+  // tag-count-based global ratio for the day/week toggle — not yet
+  // migrated to the allocation system, a separate follow-up. ---
+  const snAllocationRows: SnAllocationRow[] = (snCheckinRows ?? []).flatMap((c) =>
+    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes }))
+  );
+  const snByWeek = bucketSignalNoiseByWeek(snAllocationRows, snWeeks);
+  const thisWeekSn = snByWeek[snByWeek.length - 1];
+  const snBars = snByWeek.map((w) => ({
+    label: w.label,
+    value: w.noiseMinutes === 0 ? w.signalMinutes / 15 : Math.round((w.signalMinutes / w.noiseMinutes) * 10) / 10,
+  }));
+  const hasAnySnWeekData = snByWeek.some((w) => w.signalMinutes + w.noiseMinutes > 0);
 
   const weeklyAvgPct = Math.round(
     weeklyCompletion.weeklyCompletionPct.reduce((a, b) => a + b, 0) / weeklyCompletion.weeklyCompletionPct.length
@@ -186,6 +228,27 @@ export default async function InsightsPage({
           unit="%"
         />
       </Panel>
+
+      {hasAnySnWeekData ? (
+        <Panel
+          title="Signal:Noise by week"
+          heroValue={thisWeekSn.display}
+          // Split displayed explicitly, never just a combined "noise"
+          // total — a heavy school week and a lost afternoon both land on
+          // the noise side and are nothing alike (spec, 2026-08-19).
+          caption={`This week: ${thisWeekSn.otherCommitmentsMinutes}m other commitments · ${thisWeekSn.wastedMinutes}m wasted`}
+        >
+          <BarChart bars={snBars} colorVar="--series-business" highlightIndex={snBars.length - 1} />
+        </Panel>
+      ) : (
+        <Panel title="Signal:Noise by week">
+          <EmptyState
+            icon={Volume2}
+            message="No allocation check-ins answered yet in the last 6 weeks"
+            action={{ label: "Start a Lock-In session", href: "/business" }}
+          />
+        </Panel>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-7">

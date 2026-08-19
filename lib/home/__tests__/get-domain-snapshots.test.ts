@@ -25,7 +25,7 @@ function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): Doma
     getActiveWorkSession: async () => null,
     getSessionCheckins: async () => [],
     getKillListItems: async () => [],
-    getWeeklySnRatio: async () => ({ signal: 0, noise: 0, display: "No data" }),
+    getWeeklySnRatio: async () => ({ signalMinutes: 0, noiseMinutes: 0, otherCommitmentsMinutes: 0, wastedMinutes: 0, display: "No data" }),
     getWorkoutSchedule: async () => null,
     getWorkoutLogsThisWeek: async () => [],
     getFitnessHabits: async () => [],
@@ -161,7 +161,7 @@ describe("getDomainSnapshots", () => {
     it("falls back to kill-list completion + weekly ratio when no session is active", async () => {
       const dataSource = baseDataSource({
         getKillListItems: async () => [{ completed: true }, { completed: false }, { completed: true }],
-        getWeeklySnRatio: async () => ({ signal: 4, noise: 2, display: "2.0 : 1" }),
+        getWeeklySnRatio: async () => ({ signalMinutes: 60, noiseMinutes: 30, otherCommitmentsMinutes: 30, wastedMinutes: 0, display: "2.0 : 1" }),
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
       expect(snapshots.business.activeSession).toBeNull();

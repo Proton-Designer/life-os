@@ -1,62 +1,76 @@
 import { describe, expect, it } from "vitest";
-import { getWeeklySignalNoiseRatio, type SnDataSource } from "../sn-ratio";
+import { bucketAllocationMinutes, getWeeklySignalNoiseRatio, type AllocationRow, type SnDataSource } from "../sn-ratio";
 
-function dataSourceWith(checkins: { tag_type: string; answered: boolean }[]): SnDataSource {
-  return { getCheckins: async () => checkins };
+function dataSourceWith(rows: AllocationRow[]): SnDataSource {
+  return { getAllocations: async () => rows };
 }
 
-describe("getWeeklySignalNoiseRatio", () => {
-  it("computes a normal ratio, excluding 'other_work' from both counts", async () => {
-    const checkins = [
-      ...Array(8).fill({ tag_type: "kill_list", answered: true }),
-      ...Array(2).fill({ tag_type: "noise", answered: true }),
-      ...Array(3).fill({ tag_type: "other_work", answered: true }),
-    ];
-    const result = await getWeeklySignalNoiseRatio(
-      "user-1",
-      new Date("2026-08-09T00:00:00Z"),
-      dataSourceWith(checkins)
-    );
+describe("bucketAllocationMinutes", () => {
+  it("sums deen + business into signal", () => {
+    const result = bucketAllocationMinutes([
+      { domain: "deen", minutes: 30 },
+      { domain: "business", minutes: 60 },
+    ]);
+    expect(result.signalMinutes).toBe(90);
+  });
 
-    expect(result.signal).toBe(8);
-    expect(result.noise).toBe(2);
+  it("sums school + fitness + co_op + wasted into noise, split from otherCommitments", () => {
+    const result = bucketAllocationMinutes([
+      { domain: "school", minutes: 15 },
+      { domain: "fitness", minutes: 30 },
+      { domain: "co_op", minutes: 15 },
+      { domain: "wasted", minutes: 45 },
+    ]);
+    expect(result.otherCommitmentsMinutes).toBe(60);
+    expect(result.wastedMinutes).toBe(45);
+    expect(result.noiseMinutes).toBe(105);
+  });
+
+  it("ignores an unrecognized domain rather than folding it into either side", () => {
+    const result = bucketAllocationMinutes([{ domain: "bogus", minutes: 100 }]);
+    expect(result.signalMinutes).toBe(0);
+    expect(result.noiseMinutes).toBe(0);
+  });
+});
+
+describe("getWeeklySignalNoiseRatio", () => {
+  it("computes a normal ratio from allocation minutes", async () => {
+    const rows: AllocationRow[] = [
+      { domain: "deen", minutes: 30 },
+      { domain: "business", minutes: 90 },
+      { domain: "school", minutes: 30 },
+    ];
+    const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith(rows));
+
+    expect(result.signalMinutes).toBe(120);
+    expect(result.noiseMinutes).toBe(30);
+    expect(result.otherCommitmentsMinutes).toBe(30);
+    expect(result.wastedMinutes).toBe(0);
     expect(result.display).toBe("4.0 : 1");
   });
 
   it("shows 'All Signal' when noise is zero", async () => {
-    const checkins = Array(5).fill({ tag_type: "kill_list", answered: true });
-    const result = await getWeeklySignalNoiseRatio(
-      "user-1",
-      new Date("2026-08-09T00:00:00Z"),
-      dataSourceWith(checkins)
-    );
+    const rows: AllocationRow[] = [{ domain: "business", minutes: 120 }];
+    const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith(rows));
 
     expect(result.display).toBe("All Signal");
   });
 
-  it("shows 'No data' when there are zero check-ins all week", async () => {
-    const result = await getWeeklySignalNoiseRatio(
-      "user-1",
-      new Date("2026-08-09T00:00:00Z"),
-      dataSourceWith([])
-    );
+  it("shows 'No data' when there are zero allocation rows all week", async () => {
+    const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith([]));
 
     expect(result.display).toBe("No data");
   });
 
-  it("excludes unanswered (missed) check-ins from both signal and noise", async () => {
-    const checkins = [
-      { tag_type: "kill_list", answered: true },
-      { tag_type: "noise", answered: false },
+  it("reports wasted separately from other commitments, never merged silently", async () => {
+    const rows: AllocationRow[] = [
+      { domain: "deen", minutes: 15 },
+      { domain: "wasted", minutes: 105 },
     ];
-    const result = await getWeeklySignalNoiseRatio(
-      "user-1",
-      new Date("2026-08-09T00:00:00Z"),
-      dataSourceWith(checkins)
-    );
+    const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith(rows));
 
-    expect(result.signal).toBe(1);
-    expect(result.noise).toBe(0);
-    expect(result.display).toBe("All Signal");
+    expect(result.otherCommitmentsMinutes).toBe(0);
+    expect(result.wastedMinutes).toBe(105);
+    expect(result.noiseMinutes).toBe(105);
   });
 });
