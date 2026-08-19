@@ -1230,3 +1230,27 @@ visibility · `7bd1142` badge+sheet + idempotent saves · `8018ff2` donut unific
 - **Concurrent `next build` in the shared working tree collides** — both Engineer 2 and the Lead hit a
   stale `.next` racing another agent's build and got misleading results. Separate worktrees per agent
   remain the real answer.
+
+### Follow-ups the same afternoon — deployed
+
+**Workout duration and planned time.** Ayman's question — *"if workouts have no duration stored anywhere why don't you just add a duration and store it"* — had no good answer. Added `workout_schedule.duration_minutes` (nullable, 15–240, step 15) plus the previously-missing `time`, both optional, both settable on Fitness.
+
+**A dead code path found while reviewing that work.** `setWorkoutSchedule`'s `time` parameter was passed `null` by **every caller that had ever existed** — no UI ever set it — so `workout_schedule.time` was null on every row, `derivePrefillAllocation`'s `workoutTime && inside window` condition could never be true, **Fitness pre-fill had never fired**, and the duration column would have been unreachable the moment it landed.
+
+Fixing it by simply making the scheduled time real would have repeated the prayer-window mistake in a new place: a schedule is a *plan*, and crediting Fitness for a session that may never have happened is the same error as crediting Deen because a prayer window was open. Final rule: **evidence and placement come from different sources.** A `workout_logs` row proves it happened; `workout_schedule.time`/`duration_minutes` only say where in the day and how long. Neither alone pre-fills anything. Explicitly **not** `workout_logs.created_at` — that records when the row was written, so logging Monday's session on Tuesday would place it in the wrong window entirely.
+
+**One definition of Signal:Noise, everywhere.** `getFocusMap`, `insights-kpis.ts`, and Home's Business sector card were all still computing ratios from the dead point-sample `tag_type` model (23 rows, none answered). Home's card in particular showed a *different number for the same metric* than Insights — the exact contradiction removed from Insights hours earlier, still live one screen over. All migrated to `checkin_allocations` minutes. `insights-kpis.ts` also carried its own copy of the UTC-midnight week-boundary bug — the **fifth** instance found today. Focus Map segments are now real durations rather than sample tallies, with `wasted` included so segments actually sum to the day. The Lock-In *activity log* correctly still reads `tag_type` — it's a per-session label list, a genuinely different thing from the ratio, and was deliberately left alone.
+
+**The hourly Lock-In confirm — the last piece of Ayman's specified design.** He asked for it explicitly (*"inside lock in make check-ins 1 hour, because a simple yes/no tap wouldn't distract"*) and it had never been built against the allocation model, which is why an active session's ratio read "No data." One tap, inline in the Lock-In card, no dialog: Yes writes that hour as business, "Not really" writes it as wasted and offers — never forces — to end the session.
+
+**Two things settled by Engineer 3 against the Lead's lean, both correctly:**
+
+1. **The double-count guard must be per-hour, not per-window.** The Lead proposed suppressing any 2h window fully covered by confirmed hours. Engineer 3 showed that misses the boundary case: a session running 1–4pm leaves an hour inside a *partially* covered window, which a window-level check leaves alone while the confirmed hour still needs subtracting. Proven with real numbers rather than green assertions — **without the guard, 165 minutes of business credit inside a 120-minute window; with it, exactly 120, each hour counted once.** A comment on `subtractConfirmedHours` now records why, explicitly warning against "simplifying" it back to a coverage check.
+
+2. **A missed hour keeps its coarse credit; only an explicit "No" moves it.** The distinction: today's other fixes changed inputs that were *never* evidence (an open prayer window, a scheduled workout), whereas session presence has been accepted evidence since before this feature. Treating silence as unknown would have been a behaviour change smuggled in under cover of a bug fix. It also matches Ayman's stated design — *"if a lock in period is started, that entire period will be counted as just signal, and it would be my job to end a lock in session before I get distracted"* — where the hourly tap is a **check**, not a gate. Relatedly, a "No" does not degrade *later* hours: that would have the system pre-empting the decision to end the session, which Ayman explicitly reserved for himself.
+
+**Consequence worth stating plainly**: ignoring every hourly prompt is currently the highest-scoring path — full signal, no visible trace. That is Ayman's design and was not overridden, but he has been told.
+
+**Two live-only bugs in the Fitness field**, neither reachable from unit tests: a Radix popover seeded its local state once at mount, so save-then-reopen showed a stale unsnapped value; and Postgres `time` round-trips as `HH:MM:SS`, which a time input can't hold. Both found only by saving, closing, and reopening against a real server.
+
+**Deployed**: `970874c`. 945 tests, `tsc`/`eslint`/`next build` clean, badge/sheet flow re-verified in production at 1600 and 390 with 0 console errors.
