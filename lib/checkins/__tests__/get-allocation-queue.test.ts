@@ -16,6 +16,7 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
     getWorkoutSchedule: async () => null,
     getAnsweredWindowStarts: async () => [],
     getLoggedPrayerNames: async () => [],
+    getWorkoutLoggedToday: async () => false,
     ...overrides,
   };
 }
@@ -99,13 +100,14 @@ describe("getPendingAllocationQueue", () => {
 
   // 2026-08-19, requested directly by Ayman: a real workout duration must
   // win over the nominal 30-minute guess when the schedule row has one.
-  it("uses the real workout duration for the fitness prefill when the schedule row has one", async () => {
+  it("uses the real workout duration for the fitness prefill when logged AND scheduled", async () => {
     const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — well after the 12:00-14:00 window fired
     const result = await getPendingAllocationQueue(
       "user-1",
       now,
       baseDataSource({
         getWorkoutSchedule: async () => ({ time: new Date("2026-08-19T18:30:00Z"), durationMinutes: 75 }), // 13:30 CDT, inside 12:00-14:00
+        getWorkoutLoggedToday: async () => true,
       })
     );
 
@@ -119,10 +121,30 @@ describe("getPendingAllocationQueue", () => {
       now,
       baseDataSource({
         getWorkoutSchedule: async () => ({ time: new Date("2026-08-19T18:30:00Z"), durationMinutes: null }),
+        getWorkoutLoggedToday: async () => true,
       })
     );
 
     expect(result.items.some((i) => i.prefill.fitness === 30)).toBe(true);
+  });
+
+  // 2026-08-19 review catch (same shape as the Deen validity-window bug):
+  // a scheduled-but-never-logged workout must never credit Fitness — a
+  // plan isn't evidence the session happened.
+  it("does not credit fitness for a scheduled workout that was never logged", async () => {
+    const now = new Date("2026-08-19T21:00:00Z");
+    const result = await getPendingAllocationQueue(
+      "user-1",
+      now,
+      baseDataSource({
+        getWorkoutSchedule: async () => ({ time: new Date("2026-08-19T18:30:00Z"), durationMinutes: 75 }),
+        getWorkoutLoggedToday: async () => false,
+      })
+    );
+
+    for (const item of result.items) {
+      expect(item.prefill.fitness).toBe(0);
+    }
   });
 
   it("passes the profile's own timezone through on the result", async () => {
