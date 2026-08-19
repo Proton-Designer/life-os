@@ -64,8 +64,15 @@ write. Measured on routes the mutation never named, after marking a prayer on `/
 
 | navigate after mutation | requests at click | click → new screen |
 |---|---|---|
-| immediately | 2 | 395ms |
+| immediately | 2 *(count unreliable — see below)* | 395ms |
 | ~2.5s later | **0** | **29ms** |
+
+**The request count in that first row is retracted, the timing is not.** It came from a header-based
+script, and per the Part C correction below, Full-strategy prefetches carry no header — so those 2
+requests may have been the unmarked background re-prefetch still in flight rather than click-triggered
+work. The 395ms elapsed is method-independent and stands, which is what the conclusion rests on. The
+joint re-measure for criteria 3/4/7 must use the settle-based method and treat this row as superseded
+rather than as a baseline to match.
 
 Next re-prefetches the in-viewport links after a purge; it needs a couple of seconds to land. So this
 does not make navigation instant unconditionally — it makes it instant **except within a few seconds
@@ -133,9 +140,20 @@ Check `e2e/deen.spec.ts` for the same pattern while you're in there.
 
 **Add `scripts/perf/measure-prefetch.mjs`**, the regression test this round needed and didn't have:
 land on a route via a real `<Link>` click, settle, then click each nav target and assert **0**
-non-prefetch RSC requests at click time. Distinguish prefetch from navigation by the
-`next-router-prefetch: 1` request header — `measure-navigation.mjs`'s README already names not doing
-this as a known simplification, and this is the round where it matters.
+non-prefetch RSC requests at click time. **Do not distinguish prefetch from navigation by the `next-router-prefetch: 1`
+header — that instruction, in an earlier version of this spec, was wrong.** (Corrected 2026-08-18
+after Engineer 2 found the mechanism in Next's own source.) `next-router-prefetch` is only set, in
+`node_modules/next/dist/client/components/segment-cache/cache.js`, for FetchStrategy.PPRRuntime /
+RuntimeShell / LoadingBoundary. For **FetchStrategy.Full** — exactly what `<Link prefetch>` selects,
+per `link.js`'s `prefetchIntent` mapping — the switch sets no header and breaks. A Full-strategy
+prefetch is therefore wire-identical to a real navigation fetch, and after Part A those are the
+majority of what this app issues. A header-based harness misreports every one of them as a
+click-triggered miss.
+
+Key off **timing** instead: treat any `rsc: 1` response observed strictly before the click as a
+prefetch, count only what fires after it, and put a real settle (3000ms measured clean) ahead of each
+measured click. Say all of this in the script's header comment — the header approach looks correct and
+silently isn't, which is exactly the trap a later session falls back into.
 
 Also fix `clear-prayer`'s documented payload while you're here: the route reads `prayerName`, and a
 harness calling it with `prayer` gets a silent 400. (Cost the Lead a stray SEED row tonight; caught
