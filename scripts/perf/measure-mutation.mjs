@@ -32,6 +32,12 @@ import { loginSession, BASE_URL, requireEnv, dismissCheckinDialogIfPresent } fro
 const STATUS_LABELS = ["On-time", "Qada", "Missed"];
 const UNTOUCHED_ROUTES = ["/fitness", "/school"];
 const WARM_ROUTES = ["/deen", "/business", "/fitness", "/school"]; // already on "/" post-login
+const SETTLE_MS = 2500; // matches the navigation-prefetch-fix acceptance criterion's "~2.5s settle"
+
+// Same technique as measure-prefetch.mjs: components/shell/page-header.tsx
+// renders a real <h1>{title}</h1> on every route, so click -> new screen can
+// be timed as click -> that heading visible.
+const ROUTE_HEADING = { "/fitness": "Fitness", "/school": "School" };
 
 async function clickLinkAndProbe(page, route) {
   await dismissCheckinDialogIfPresent(page);
@@ -47,11 +53,18 @@ async function clickLinkAndProbe(page, route) {
     }
   };
   page.on("request", onRequest);
+  const start = performance.now();
   await page.locator(`a[href="${route}"]:visible`).first().click();
+  const heading = ROUTE_HEADING[route];
+  let elapsedMs = null;
+  if (heading) {
+    await page.getByRole("heading", { level: 1, name: heading }).waitFor({ state: "visible", timeout: 5000 });
+    elapsedMs = performance.now() - start;
+  }
   await page.waitForTimeout(400); // give a real server round trip (200-450ms per measure-server-time.mjs) room to land
   page.off("request", onRequest);
   const skeletonSeen = await page.evaluate(() => !!document.querySelector('[data-slot="skeleton"]'));
-  return { route, rscRequestCount: rscRequests.length, skeletonSeen };
+  return { route, rscRequestCount: rscRequests.length, skeletonSeen, elapsedMs };
 }
 
 async function main() {
@@ -90,14 +103,29 @@ async function main() {
   await prayerRow.getByRole("button", { name: "On-time" }).click();
   await page.waitForTimeout(400); // let the Server Action + revalidatePath land
 
-  const results = [];
+  const immediateResults = [];
   for (const route of UNTOUCHED_ROUTES) {
-    results.push(await clickLinkAndProbe(page, route));
+    immediateResults.push(await clickLinkAndProbe(page, route));
+    // Each probe leaves us on `route`; go back to /deen so the next probe's
+    // click is a fair same-origin nav, matching WARM_ROUTES's starting point.
+    await dismissCheckinDialogIfPresent(page);
+    await page.locator(`a[href="/deen"]:visible`).first().click();
+  }
+
+  // Acceptance criterion 3: "Post-mutation, after a ~2.5s settle: 0
+  // requests, comparable timing." Re-probe the same routes after Next has
+  // had time to re-prefetch the in-viewport links post-purge.
+  await page.waitForTimeout(SETTLE_MS);
+  const settledResults = [];
+  for (const route of UNTOUCHED_ROUTES) {
+    settledResults.push(await clickLinkAndProbe(page, route));
+    await dismissCheckinDialogIfPresent(page);
+    await page.locator(`a[href="/deen"]:visible`).first().click();
   }
 
   // Cleanup — restore the account to exactly what it was before this ran.
+  // Already on /deen (the last probe loop's own return click above).
   let cleanupOk = false;
-  await page.locator(`a[href="/deen"]:visible`).first().click();
   await dismissCheckinDialogIfPresent(page);
   const rowAfter = page
     .locator("li", { hasText: "Isha" })
@@ -128,21 +156,31 @@ async function main() {
 
   await browser.close();
 
+  const fmt = (r) => ({
+    route: r.route,
+    "rsc reqs": r.rscRequestCount,
+    skeleton: r.skeletonSeen,
+    "elapsed ms": r.elapsedMs === null ? "n/a" : r.elapsedMs.toFixed(0),
+  });
+
   console.log(`\nMutation: marked Isha on-time via the real UI + Server Action (markPrayer -> revalidatePath).`);
   console.log(`Prior status: ${priorStatusLabel ?? "pending (unlogged)"}\n`);
   console.log("Untouched routes, revisited via real <Link> click immediately after (never named by the mutation):");
-  console.table(results.map((r) => ({ route: r.route, "rsc reqs": r.rscRequestCount, skeleton: r.skeletonSeen })));
+  console.table(immediateResults.map(fmt));
+  console.log(`\nSame routes, revisited after a ${SETTLE_MS}ms settle (acceptance criterion 3):`);
+  console.table(settledResults.map(fmt));
   console.log(`\nCleanup: ${cleanupOk ? "OK — real account restored" : "FAILED — real account may be left mutated, check manually"}`);
 
-  const skeletonLeaked = results.filter((r) => r.skeletonSeen);
-  const purgeNotObserved = results.filter((r) => r.rscRequestCount === 0);
+  const allResults = [...immediateResults, ...settledResults];
+  const skeletonLeaked = allResults.filter((r) => r.skeletonSeen);
+  const purgeNotObserved = immediateResults.filter((r) => r.rscRequestCount === 0);
   if (skeletonLeaked.length) {
     console.error(`\nCONTRACT VIOLATION — skeleton appeared on: ${skeletonLeaked.map((r) => r.route).join(", ")}`);
     process.exitCode = 1;
   }
   if (purgeNotObserved.length) {
     console.log(
-      `\nNote: no RSC request observed on ${purgeNotObserved.map((r) => r.route).join(", ")} — either the broad-purge behavior has narrowed since the spec was written (worth telling the lead), or something else refetched it. Not automatically a defect.`
+      `\nNote: no RSC request observed immediately post-mutation on ${purgeNotObserved.map((r) => r.route).join(", ")} — either the broad-purge behavior has narrowed since the spec was written (worth telling the lead), or something else refetched it. Not automatically a defect.`
     );
   }
   if (!cleanupOk) {

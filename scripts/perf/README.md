@@ -103,8 +103,30 @@ These are honest approximations, not exact reconstructions — nobody but the
 prior session saw the originals' code.
 
 - RSC-request detection matches on the `RSC: 1` request header and an exact
-  path match; it does not attempt to distinguish a full-page navigation fetch
-  from a `<Link>` prefetch fetch.
+  path match; `measure-server-time.mjs`, `measure-navigation.mjs`, and
+  `measure-mutation.mjs` do not attempt to distinguish a full-page navigation
+  fetch from a `<Link>` prefetch fetch, because none of them need to — they
+  either mutate nothing and measure total request counts, or drive the
+  click and probe timing directly.
+
+  **`measure-prefetch.mjs` is the one place this distinction is actually
+  needed, and it does NOT use the `next-router-prefetch: 1` request header
+  to make it — that looks like the obvious approach and is wrong.** Read via
+  `node_modules/next/dist/client/components/segment-cache/cache.js`: the
+  header is only set for `FetchStrategy.PPRRuntime` / `RuntimeShell` /
+  `LoadingBoundary`. For `FetchStrategy.Full` — exactly what `prefetch={true}`
+  selects, per `link.js`'s `prefetchIntent` mapping, and what every
+  cross-screen `<Link>` in this app uses since the 2026-08-18
+  navigation-prefetch-fix — the switch sets no header at all. A Full-strategy
+  prefetch is wire-identical to a real navigation fetch: same `rsc: 1`, no
+  marker, nothing to tell them apart by header. A header-based harness
+  silently misreports every one of them as a click-triggered miss. Instead,
+  `measure-prefetch.mjs` keys off **timing**: any `rsc: 1` response observed
+  strictly before the click is a prefetch; only what fires after the click
+  counts. This is the trap a later session (or a future rewrite of one of
+  the other three scripts) will fall right back into if it reaches for the
+  header out of habit — it looks correct, runs without error, and produces a
+  confidently wrong result.
 - "Went blank" is approximated by sampling `document.body.innerText.trim()`
   length on a 15ms interval during the transition and checking whether it
   ever hit zero — a real but coarse proxy for "the previous screen visibly
@@ -115,16 +137,19 @@ prior session saw the originals' code.
 If a future session needs tighter fidelity than this, it's cheaper to sharpen
 these three scripts than to reverse-engineer intent from scratch again.
 
-## Observed-but-unexplained: duplicate RSC requests on some routes after a purge
+## Resolved: duplicate RSC requests on some routes after a purge
 
-`measure-mutation.mjs` has twice shown `/fitness` receiving 2 RSC requests
+`measure-mutation.mjs` had twice shown `/fitness` receiving 2 RSC requests
 against `/school`'s 1 for the same `revalidatePath`-triggered purge (once in
 the Opus Lead's original runs, once independently in the 2026-08-16
-pre-deploy verification pass). Leading hypothesis, not yet verified by
-anyone: `vercel/next.js#86130` documents route groups combined with a
-nonzero `staleTimes.dynamic` producing duplicate RSC requests — this app
-matches that shape exactly (everything under the `(app)` route group,
-`staleTimes.dynamic: 3600`). Harmless either way — one redundant request, no
-skeleton, no correctness impact — and unrelated to the `proxy.ts`/
-`getClaims()` decision. Not investigated further; starting point for
-whoever picks it up next.
+pre-deploy verification pass). The leading hypothesis at the time was
+`vercel/next.js#86130` (route groups + nonzero `staleTimes.dynamic`
+producing duplicate RSC requests) — **ruled out here**, so nobody re-derives
+it: Engineer 2 traced it during the settle experiment for the 2026-08-18
+navigation-prefetch-fix. The "extra" request was an unmarked Full-strategy
+prefetch (see the "Known simplifications" section above) still in flight
+when the measured revisit landed, not a duplicate of the same logical
+request — Full-strategy prefetches carry no distinguishing header, so a
+header-based count genuinely cannot tell the two apart. Harmless either way
+(one redundant request, no skeleton, no correctness impact), but the
+mechanism is now known rather than open.
