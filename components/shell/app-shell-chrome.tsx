@@ -1,6 +1,7 @@
 import { AppSidebar } from "./app-sidebar";
 import { Topbar } from "./topbar";
 import { MobileIsland } from "./mobile-island";
+import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-gate";
 
 // The sync, fully client-testable half of the shell — AppShell (the server
 // component) fetches account/session data and hands it here. Split out
@@ -26,6 +27,7 @@ export function AppShellChrome({
         <main className="flex-1 pb-24 lg:pb-6">{children}</main>
       </div>
       <MobileIsland />
+      <AllocationCheckinGate />
     </div>
   );
 }

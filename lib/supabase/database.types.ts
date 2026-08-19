@@ -761,6 +761,14 @@ export type Database = {
           name: string
         }[]
       }
+      save_allocation_checkin: {
+        Args: {
+          p_allocations: Json
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

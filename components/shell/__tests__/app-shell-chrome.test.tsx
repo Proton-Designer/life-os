@@ -5,6 +5,15 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
 
+// AppShellChrome renders AllocationCheckinGate, which calls this Server
+// Action on mount to fetch the pending check-in queue — mocked so this
+// stays the "fully client-testable through RTL" half of the shell (see the
+// file's own header comment) rather than reaching for real Supabase env.
+vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
+  getAllocationQueueForNow: vi.fn(async () => ({ items: [], unknownCount: 0, timezone: "UTC" })),
+  saveAllocationCheckin: vi.fn(async () => {}),
+}));
+
 import { AppShellChrome } from "../app-shell-chrome";
 
 const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
