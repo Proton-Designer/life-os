@@ -6,10 +6,10 @@ import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTim
 import { createClient } from "@/lib/supabase/server";
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { getInsightsKpis } from "@/lib/insights/insights-kpis";
-import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { getWeeklyCompletion } from "@/lib/home/get-weekly-completion";
 import { bucketSignalNoiseByWeek, type SnAllocationRow, type WeekBoundary } from "@/lib/business/sn-trend";
 import { getSignalNoiseForRange } from "@/lib/business/sn-ratio";
+import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -26,42 +26,43 @@ import { BarChart } from "@/components/charts/bar-chart";
 
 const SN_WEEK_COUNT = 6;
 
+// Allocation domains (2026-08-19: converted off the old tag_type vocabulary
+// — kill_list/workout/school_co_op/noise/other_work don't exist in this
+// model). Matches checkin_allocations.domain exactly, plus "wasted".
 const SEGMENT_LABEL: Record<string, string> = {
   deen: "Deen",
   business: "Business",
+  school: "School",
   fitness: "Fitness",
-  school_co_op: "School/Co-op",
-  noise: "Noise",
-  other_work: "Other work",
+  co_op: "Co-op",
+  wasted: "Wasted",
 };
 
-// school_co_op is the Focus Map's own combined category (School and Co-op
-// aren't broken out separately there yet — a data-layer decision, not an
-// accent-token one, so this intentionally still points at School's series
-// token rather than splitting into Co-op's).
 const SEGMENT_SERIES_VAR: Record<string, string> = {
   deen: "--series-deen",
   business: "--series-business",
+  school: "--series-school",
   fitness: "--series-fitness",
-  school_co_op: "--series-school",
-  noise: "--series-noise",
-  other_work: "--series-other",
+  co_op: "--series-coop",
+  wasted: "--series-other",
 };
 
-// Segments that map to a real domain get a matching IconChip/accent — noise
-// and other_work aren't domains, so they stay a plain color dot.
+// wasted intentionally has no accent/icon — a plain color dot, never a
+// domain-style IconChip, and never red (same neutral treatment as the
+// donut's Wasted slice: information, not an accusation).
 const SEGMENT_ACCENT: Partial<Record<string, AccentToken>> = {
   deen: "deen",
   business: "business",
+  school: "school",
   fitness: "fitness",
-  school_co_op: "school",
-  noise: "noise",
+  co_op: "coop",
 };
 const SEGMENT_ICON: Partial<Record<string, typeof DOMAIN_ICON.deen>> = {
   deen: DOMAIN_ICON.deen,
   business: DOMAIN_ICON.business,
+  school: DOMAIN_ICON.school,
   fitness: DOMAIN_ICON.fitness,
-  school_co_op: DOMAIN_ICON.school,
+  co_op: DOMAIN_ICON.co_op,
 };
 
 export default async function InsightsPage({
@@ -103,7 +104,7 @@ export default async function InsightsPage({
   const supabase = await createClient();
   const [{ segments }, kpis, weeklyCompletion, { data: snCheckinRows }, rangeSn] = await Promise.all([
     getFocusMap(userId, range, anchor),
-    getInsightsKpis(userId, weekStart, previousWeekStart),
+    getInsightsKpis(userId, weekStart, previousWeekStart, timezone),
     getWeeklyCompletion(userId, now, profile),
     supabase
       .from("checkins")
@@ -115,7 +116,8 @@ export default async function InsightsPage({
   ]);
 
   const hasFocusData = segments.length > 0;
-  const domainSegments = segments.filter((s) => s.domain !== "noise" && s.domain !== "other_work");
+  const domainSegments = segments.filter((s) => s.domain !== "wasted");
+  const wastedSegment = segments.find((s) => s.domain === "wasted") ?? null;
 
   // --- Signal:Noise, allocation-minutes based (2026-08-19 Phase 4 + donut
   // unification): the donut (rangeSn, this day/week) and the 6-week bar
@@ -145,7 +147,8 @@ export default async function InsightsPage({
 
   const rankedItems: RankedBarsItem[] = segments.map((s) => ({
     label: SEGMENT_LABEL[s.domain] ?? s.domain,
-    value: s.count,
+    value: s.minutes,
+    displayValue: formatElapsedDuration(s.minutes * 60_000),
     colorVar: SEGMENT_SERIES_VAR[s.domain] ?? "--series-other",
   }));
 
@@ -295,8 +298,6 @@ export default async function InsightsPage({
         ) : (
           <ul className="flex flex-col gap-2">
             {domainSegments.map((s) => {
-              const noiseSegment = segments.find((n) => n.domain === "noise");
-              const display = computeRatioDisplay(s.pct, noiseSegment?.pct ?? 0, true);
               const accent = SEGMENT_ACCENT[s.domain];
               const Icon = SEGMENT_ICON[s.domain];
               const isHighlighted = highlightDomain === s.domain;
@@ -315,10 +316,21 @@ export default async function InsightsPage({
                 >
                   {Icon && accent && <IconChip icon={Icon} accent={accent} size="sm" />}
                   <span className="flex-1">{SEGMENT_LABEL[s.domain] ?? s.domain}</span>
-                  <span className="font-mono font-medium tabular-nums">{display}</span>
+                  <span className="font-mono font-medium tabular-nums">
+                    {formatElapsedDuration(s.minutes * 60_000)} · {Math.round(s.pct)}%
+                  </span>
                 </li>
               );
             })}
+            {wastedSegment && (
+              <li className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-sm text-muted-foreground">
+                <span className="size-8 shrink-0" aria-hidden />
+                <span className="flex-1">Wasted</span>
+                <span className="font-mono font-medium tabular-nums">
+                  {formatElapsedDuration(wastedSegment.minutes * 60_000)} · {Math.round(wastedSegment.pct)}%
+                </span>
+              </li>
+            )}
           </ul>
         )}
       </Panel>

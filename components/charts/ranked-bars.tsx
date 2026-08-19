@@ -1,6 +1,9 @@
 import { rankBars, type RankedBar } from "@/lib/charts/ranked-bars";
 
-export type RankedBarsItem = RankedBar & { colorVar: string };
+// displayValue overrides the trailing number for callers whose raw `value`
+// isn't itself the right thing to show (e.g. Focus Map's minutes render as
+// "3h 15m", not "195") — `value` still drives ranking/bar width either way.
+export type RankedBarsItem = RankedBar & { colorVar: string; displayValue?: string };
 
 // 7-category Focus Map and anything similar — per the spec's chart-form
 // ruling, position/rank carries identity here, not a donut (an 8-hue
@@ -27,7 +30,9 @@ export function RankedBars({ items }: { items: RankedBarsItem[] }) {
                 style={{ width: `${item.pct}%`, backgroundColor: `var(${original?.colorVar})` }}
               />
             </div>
-            <span className="w-12 shrink-0 text-right font-mono tabular-nums">{item.value}</span>
+            <span className="w-16 shrink-0 text-right font-mono tabular-nums">
+              {original?.displayValue ?? item.value}
+            </span>
           </li>
         );
       })}

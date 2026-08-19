@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { getInsightsKpis, type InsightsKpisDataSource } from "../insights-kpis";
+import { getInsightsKpis, type InsightsKpisDataSource, type InsightsKpisRow } from "../insights-kpis";
 
-function dataSourceWith(
-  rows: { checkin_time: string; tag_type: string | null; answered: boolean }[]
-): InsightsKpisDataSource {
+function dataSourceWith(rows: InsightsKpisRow[]): InsightsKpisDataSource {
   return { getAllCheckins: async () => rows };
 }
 
 const weekStart = "2026-08-09"; // Sunday
 const previousWeekStart = "2026-08-02";
+const TZ = "America/Chicago";
+
+function row(windowStartIso: string, answered: boolean, allocations: { domain: string; minutes: number }[]): InsightsKpisRow {
+  return { windowStartIso, answered, allocations };
+}
 
 describe("getInsightsKpis", () => {
   it("computes this week's coverage as answered / total slots", async () => {
@@ -16,10 +19,11 @@ describe("getInsightsKpis", () => {
       "user-1",
       weekStart,
       previousWeekStart,
+      TZ,
       dataSourceWith([
-        { checkin_time: "2026-08-10T10:00:00Z", tag_type: "deen", answered: true },
-        { checkin_time: "2026-08-10T12:00:00Z", tag_type: null, answered: false },
-        { checkin_time: "2026-08-11T10:00:00Z", tag_type: "kill_list", answered: true },
+        row("2026-08-10T15:00:00Z", true, [{ domain: "deen", minutes: 15 }]),
+        row("2026-08-10T17:00:00Z", false, []),
+        row("2026-08-11T15:00:00Z", true, [{ domain: "business", minutes: 30 }]),
       ])
     );
     expect(result.coveragePct).toBeCloseTo(66.7, 0);
@@ -27,29 +31,28 @@ describe("getInsightsKpis", () => {
     expect(result.totalSlots).toBe(3);
   });
 
-  it("picks the domain with the most answered check-ins this week, excluding noise/other_work", async () => {
+  it("picks the domain with the most answered minutes this week, excluding wasted", async () => {
     const result = await getInsightsKpis(
       "user-1",
       weekStart,
       previousWeekStart,
+      TZ,
       dataSourceWith([
-        { checkin_time: "2026-08-10T10:00:00Z", tag_type: "kill_list", answered: true },
-        { checkin_time: "2026-08-10T11:00:00Z", tag_type: "kill_list", answered: true },
-        { checkin_time: "2026-08-10T12:00:00Z", tag_type: "deen", answered: true },
-        { checkin_time: "2026-08-10T13:00:00Z", tag_type: "noise", answered: true },
-        { checkin_time: "2026-08-10T14:00:00Z", tag_type: "noise", answered: true },
-        { checkin_time: "2026-08-10T15:00:00Z", tag_type: "noise", answered: true },
+        row("2026-08-10T15:00:00Z", true, [{ domain: "business", minutes: 30 }]),
+        row("2026-08-10T17:00:00Z", true, [{ domain: "deen", minutes: 15 }]),
+        row("2026-08-10T19:00:00Z", true, [{ domain: "wasted", minutes: 105 }]),
       ])
     );
     expect(result.mostFocusedDomain).toBe("business");
   });
 
-  it("returns null for most-focused domain when nothing real-domain was answered this week", async () => {
+  it("returns null for most-focused domain when nothing but wasted was answered this week", async () => {
     const result = await getInsightsKpis(
       "user-1",
       weekStart,
       previousWeekStart,
-      dataSourceWith([{ checkin_time: "2026-08-10T10:00:00Z", tag_type: "noise", answered: true }])
+      TZ,
+      dataSourceWith([row("2026-08-10T15:00:00Z", true, [{ domain: "wasted", minutes: 120 }])])
     );
     expect(result.mostFocusedDomain).toBeNull();
   });
@@ -59,15 +62,15 @@ describe("getInsightsKpis", () => {
       "user-1",
       weekStart,
       previousWeekStart,
+      TZ,
       dataSourceWith([
-        // Last week: 1 of 2 answered was noise (50%)
-        { checkin_time: "2026-08-03T10:00:00Z", tag_type: "noise", answered: true },
-        { checkin_time: "2026-08-03T11:00:00Z", tag_type: "deen", answered: true },
-        // This week: 1 of 4 answered is noise (25%)
-        { checkin_time: "2026-08-10T10:00:00Z", tag_type: "noise", answered: true },
-        { checkin_time: "2026-08-10T11:00:00Z", tag_type: "deen", answered: true },
-        { checkin_time: "2026-08-10T12:00:00Z", tag_type: "kill_list", answered: true },
-        { checkin_time: "2026-08-10T13:00:00Z", tag_type: "kill_list", answered: true },
+        // Last week: 60 signal, 60 noise (50%)
+        row("2026-08-03T15:00:00Z", true, [{ domain: "deen", minutes: 60 }]),
+        row("2026-08-03T17:00:00Z", true, [{ domain: "wasted", minutes: 60 }]),
+        // This week: 90 signal, 30 noise (25%)
+        row("2026-08-10T15:00:00Z", true, [{ domain: "deen", minutes: 45 }]),
+        row("2026-08-10T17:00:00Z", true, [{ domain: "business", minutes: 45 }]),
+        row("2026-08-10T19:00:00Z", true, [{ domain: "school", minutes: 30 }]),
       ])
     );
     expect(result.noiseSharePct).toBeCloseTo(25, 0);
@@ -75,10 +78,22 @@ describe("getInsightsKpis", () => {
   });
 
   it("returns 0 coverage and 0 noise share, not NaN, when there's no data at all", async () => {
-    const result = await getInsightsKpis("user-1", weekStart, previousWeekStart, dataSourceWith([]));
+    const result = await getInsightsKpis("user-1", weekStart, previousWeekStart, TZ, dataSourceWith([]));
     expect(result.coveragePct).toBe(0);
     expect(result.noiseSharePct).toBe(0);
     expect(result.noiseShareDeltaPct).toBe(0);
+    expect(result.mostFocusedDomain).toBeNull();
+  });
+
+  it("excludes an unanswered check-in's allocations from noise share and most-focused", async () => {
+    const result = await getInsightsKpis(
+      "user-1",
+      weekStart,
+      previousWeekStart,
+      TZ,
+      dataSourceWith([row("2026-08-10T15:00:00Z", false, [{ domain: "wasted", minutes: 120 }])])
+    );
+    expect(result.noiseSharePct).toBe(0);
     expect(result.mostFocusedDomain).toBeNull();
   });
 });
