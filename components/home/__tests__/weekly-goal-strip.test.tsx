@@ -85,9 +85,43 @@ describe("WeeklyGoalStrip", () => {
     expect(headline.className).toMatch(/truncate/);
   });
 
-  it("uses the domain accent color on an unset prompt, matching weekly-focus.tsx's convention", () => {
+  it("uses the domain accent color on an unset prompt", () => {
     render(<WeeklyGoalStrip deen={null} business={{ headline: "Close 3 deals" }} />);
     const prompt = screen.getByRole("link", { name: "Set this week's Deen goal →" });
     expect(prompt.className).toContain("text-accent-deen");
+  });
+
+  it("uses the domain accent color on a set headline too — with no labels or icons in the strip, color is the only thing that says which goal is which", () => {
+    render(
+      <WeeklyGoalStrip
+        deen={{ headline: "Finish Juz 5" }}
+        business={{ headline: "Close 3 deals" }}
+      />
+    );
+    expect(screen.getByRole("link", { name: "Finish Juz 5" }).className).toContain("text-accent-deen");
+    expect(screen.getByRole("link", { name: "Close 3 deals" }).className).toContain("text-accent-business");
+  });
+
+  it("does not force an equal 50/50 split between slots — a short headline shouldn't reserve space it doesn't need", () => {
+    render(
+      <WeeklyGoalStrip
+        deen={{ headline: "Finish Juz 5" }}
+        business={{ headline: "Close 3 deals" }}
+      />
+    );
+    expect(screen.getByRole("link", { name: "Finish Juz 5" }).className).not.toMatch(/\bflex-1\b/);
+    expect(screen.getByRole("link", { name: "Close 3 deals" }).className).not.toMatch(/\bflex-1\b/);
+  });
+
+  it("stacks the goal slots into their own full-width lines below lg, rather than splitting narrow width between them", () => {
+    render(
+      <WeeklyGoalStrip
+        deen={{ headline: "Finish Juz 5" }}
+        business={{ headline: "Close 3 deals" }}
+      />
+    );
+    const row = screen.getByRole("link", { name: "Finish Juz 5" }).parentElement;
+    expect(row?.className).toMatch(/flex-col/);
+    expect(row?.className).toMatch(/lg:flex-row/);
   });
 });

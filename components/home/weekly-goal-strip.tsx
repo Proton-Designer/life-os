@@ -4,9 +4,9 @@ type GoalStripEntry = { headline: string } | null;
 type Domain = "deen" | "business";
 
 const DOMAIN_LABEL: Record<Domain, string> = { deen: "Deen", business: "Business" };
-// Matches weekly-focus.tsx's own convention: the accent marks the recruiting
-// prompt, not the set headline — once a goal exists it reads as content, not
-// as "this belongs to Deen."
+// Unlike weekly-focus.tsx's panel, this strip has no DEEN/BUSINESS label
+// above each slot — so the accent is the only thing that says which goal is
+// which, and has to stay on the headline itself, not just the empty prompt.
 const DOMAIN_ACCENT_CLASS: Record<Domain, string> = {
   deen: "text-accent-deen",
   business: "text-accent-business",
@@ -18,9 +18,7 @@ function GoalSlot({ domain, goal }: { domain: Domain; goal: GoalStripEntry }) {
     <Link
       href="/weekly-planning"
       prefetch
-      className={`flex min-h-11 min-w-0 flex-1 items-center hover:underline ${
-        goal ? "text-foreground" : DOMAIN_ACCENT_CLASS[domain]
-      }`}
+      className={`flex min-h-11 min-w-0 items-center hover:underline ${DOMAIN_ACCENT_CLASS[domain]}`}
     >
       <span className="truncate">{content}</span>
     </Link>
@@ -42,7 +40,7 @@ export function WeeklyGoalStrip({ deen, business }: { deen: GoalStripEntry; busi
           <span className="truncate">Set this week&apos;s goals →</span>
         </Link>
       ) : (
-        <div className="flex min-w-0 items-center gap-4">
+        <div className="flex min-w-0 flex-col gap-0.5 lg:flex-row lg:items-center lg:gap-4">
           <GoalSlot domain="deen" goal={deen} />
           <GoalSlot domain="business" goal={business} />
         </div>
