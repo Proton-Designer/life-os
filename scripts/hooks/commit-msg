@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Rule: a commit whose message starts with "docs:" may stage only *.md files.
+#
+# Why this exact rule and not a directory-span or byte-count heuristic: every
+# accidental cross-engineer sweep on 2026-08-18/19 (three engineers sharing
+# one working tree, `git add -A` on what looked like a docs-only commit) was
+# a `docs:`-prefixed message carrying real .tsx/.ts/.mjs changes underneath
+# it — including a security-posture change (proxy.ts auth) landed under a
+# "docs: spec real geocoding" message, ahead of its required live
+# verification. A directory-span or file-count check wouldn't reliably catch
+# that shape (a docs commit can legitimately touch few files across few
+# dirs); checking the message against the actual staged contents catches the
+# exact failure that happened, with no thresholds to tune and no false
+# positives on a real docs-only or real feature commit.
+#
+# Installed repo-wide via `git config core.hooksPath scripts/hooks` — do not
+# rely on .git/hooks/, which is untracked and evaporates on a fresh clone.
+set -euo pipefail
+
+commit_msg_file="$1"
+first_line="$(head -n1 "$commit_msg_file")"
+
+if [[ "$first_line" != docs:* ]]; then
+  exit 0
+fi
+
+non_md_files="$(git diff --cached --name-only --diff-filter=ACMR | grep -v '\.md$' || true)"
+
+if [[ -n "$non_md_files" ]]; then
+  echo "commit-msg hook: message starts with 'docs:' but non-.md files are staged:" >&2
+  echo "$non_md_files" | sed 's/^/  /' >&2
+  echo >&2
+  echo "A 'docs:' commit should only touch *.md files. If this is genuinely" >&2
+  echo "intentional, rename the commit to not start with 'docs:', or split it" >&2
+  echo "into separate commits. To override this check for a one-off case:" >&2
+  echo "  ALLOW_WIDE_COMMIT=1 git commit ..." >&2
+  if [[ "${ALLOW_WIDE_COMMIT:-}" == "1" ]]; then
+    echo "ALLOW_WIDE_COMMIT=1 set — allowing." >&2
+    exit 0
+  fi
+  exit 1
+fi
+
+exit 0

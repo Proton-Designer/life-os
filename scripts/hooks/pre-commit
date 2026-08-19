@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Backstop for the non-"docs:" case of the same failure the commit-msg hook
+# catches: three engineers sharing one working tree means `git add -A` under
+# a real feature message can just as easily sweep in someone else's
+# unrelated, uncommitted work. This can't check the message against the
+# diff (pre-commit runs before the message is known — see commit-msg's own
+# comment for why that check lives there instead), so it's a blunter
+# file-count threshold rather than a precise one.
+#
+# Installed repo-wide via `git config core.hooksPath scripts/hooks` — do not
+# rely on .git/hooks/, which is untracked and evaporates on a fresh clone.
+set -euo pipefail
+
+THRESHOLD=15
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+count="$(echo "$staged_files" | grep -c . || true)"
+
+if [[ "$count" -gt "$THRESHOLD" ]]; then
+  if [[ "${ALLOW_WIDE_COMMIT:-}" == "1" ]]; then
+    exit 0
+  fi
+  echo "pre-commit hook: $count files staged (over the $THRESHOLD-file guard):" >&2
+  echo "$staged_files" | sed 's/^/  /' >&2
+  echo >&2
+  echo "This is often an accidental sweep of another engineer's uncommitted" >&2
+  echo "work in a shared working tree. If this is genuinely one commit:" >&2
+  echo "  ALLOW_WIDE_COMMIT=1 git commit ..." >&2
+  exit 1
+fi
+
+exit 0
