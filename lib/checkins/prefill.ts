@@ -23,6 +23,19 @@ import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from ".
  * actually logged (status on_time/qada) whose real clock time falls inside
  * the window counts, and it counts for one nominal STEP — pre-fill only
  * ever fills what's *known*, and "the window was open" was never that.
+ *
+ * Fitness has the same shape, split across two independent inputs
+ * (2026-08-19, same review): `workoutLoggedToday` is EVIDENCE (a
+ * workout_logs row exists for the date — the session actually happened),
+ * `scheduledWorkoutTime`/`scheduledWorkoutDurationMinutes` are PLACEMENT
+ * (where in the day, and how long, per workout_schedule — a plan, not
+ * proof). Neither alone is enough: a scheduled-but-unlogged workout is
+ * exactly the prayer-window mistake in a new shape (crediting a plan that
+ * may never have happened), and a logged-but-unplaced workout has no
+ * window to go in — inventing one (e.g. from workout_logs.created_at,
+ * which is when it was *recorded*, not performed) risks the wrong window
+ * entirely. Both present and the placement time falling in this window is
+ * required; either one missing means no pre-fill, not a guess.
  */
 
 // Fallback only, per 023_workout_schedule_duration.sql — `duration_minutes`
@@ -57,13 +70,12 @@ function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]
  * Derives a pre-fill `Allocation` for `window` from real, already-logged
  * data: Lock-In session overlap -> business, a logged prayer's clock time
  * falling in the window -> deen (one nominal STEP each, see
- * loggedPrayerMinutes above), a scheduled workout whose time falls inside
- * the window -> fitness, using its real `duration_minutes` when the
- * schedule row has one and only falling back to NOMINAL_WORKOUT_MINUTES
- * when it doesn't (2026-08-19, requested directly by Ayman — "why are we
- * guessing instead of storing it"). School and Co-op have no data source to
- * guess from, so they're always left at 0 — genuinely unknown, not
- * silently assumed zero-effort.
+ * loggedPrayerMinutes above), a workout that's BOTH logged AND scheduled
+ * with a time falling inside this window -> fitness, using the schedule's
+ * real `duration_minutes` when set and only falling back to
+ * NOMINAL_WORKOUT_MINUTES when it isn't. School and Co-op have no data
+ * source to guess from, so they're always left at 0 — genuinely unknown,
+ * not silently assumed zero-effort.
  *
  * If sources together would exceed the window's own length (e.g. a
  * Lock-In session overlapping several logged prayers inside it —
@@ -77,16 +89,19 @@ export function derivePrefillAllocation(
   data: {
     lockInSessions: TimeRange[];
     loggedPrayerTimes: Date[];
-    workoutTime: Date | null;
-    workoutDurationMinutes: number | null;
+    workoutLoggedToday: boolean;
+    scheduledWorkoutTime: Date | null;
+    scheduledWorkoutDurationMinutes: number | null;
   }
 ): Allocation {
   const businessMinutes = sumOverlapStepMinutes(window, data.lockInSessions);
   const deenMinutes = loggedPrayerMinutes(window, data.loggedPrayerTimes);
+  const scheduledInWindow =
+    data.scheduledWorkoutTime !== null &&
+    data.scheduledWorkoutTime.getTime() >= window.start.getTime() &&
+    data.scheduledWorkoutTime.getTime() < window.end.getTime();
   const fitnessMinutes =
-    data.workoutTime && data.workoutTime.getTime() >= window.start.getTime() && data.workoutTime.getTime() < window.end.getTime()
-      ? (data.workoutDurationMinutes ?? NOMINAL_WORKOUT_MINUTES)
-      : 0;
+    data.workoutLoggedToday && scheduledInWindow ? (data.scheduledWorkoutDurationMinutes ?? NOMINAL_WORKOUT_MINUTES) : 0;
 
   const raw: Allocation = { ...emptyAllocation(), deen: deenMinutes, business: businessMinutes, fitness: fitnessMinutes };
   return capBelowFullWindow(raw, window);
