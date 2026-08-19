@@ -53,7 +53,7 @@ export default async function FitnessPage() {
         .select("habit_id, date, completed")
         .eq("user_id", userId)
         .gte("date", thirtyDaysAgoStr),
-      supabase.from("workout_schedule").select("day_of_week, workout_name, duration_minutes").eq("user_id", userId),
+      supabase.from("workout_schedule").select("day_of_week, workout_name, duration_minutes, time").eq("user_id", userId),
       // One 60-day range serves today's log check, this week's count, this
       // month's count, and the streak — sliced in memory rather than four
       // separate queries.
@@ -83,7 +83,7 @@ export default async function FitnessPage() {
 
   const schedule: (ScheduledWorkout | null)[] = Array.from({ length: 7 }, (_, dayOfWeek) => {
     const row = scheduleRows?.find((s) => s.day_of_week === dayOfWeek);
-    return row ? { workoutName: row.workout_name, durationMinutes: row.duration_minutes } : null;
+    return row ? { workoutName: row.workout_name, durationMinutes: row.duration_minutes, time: row.time } : null;
   });
   const scheduledDaysThisWeek = schedule.filter(Boolean).length;
 

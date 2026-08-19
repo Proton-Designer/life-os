@@ -12,7 +12,18 @@ const DURATION_MIN = 15;
 const DURATION_MAX = 240;
 const DURATION_STEP = 15;
 
-export type ScheduledWorkout = { workoutName: string; durationMinutes: number | null };
+export type ScheduledWorkout = { workoutName: string; durationMinutes: number | null; time: string | null };
+
+/**
+ * Postgres's `time` column round-trips as "HH:MM:SS" (found live, not by
+ * a unit test — a bare `<input type="time">` with no seconds step can't
+ * fully hold onto that and silently shows the full string as its value).
+ * A native time input's own value format is exactly "HH:MM", so trim to
+ * that regardless of what the DB handed back.
+ */
+function toTimeInputValue(time: string | null | undefined): string {
+  return time?.slice(0, 5) ?? "";
+}
 
 /**
  * Parses the raw text of the duration field. Blank stays blank (null,
@@ -56,18 +67,47 @@ function DayCell({
   // stay genuinely empty rather than coercing to 0, which is what keeps
   // "blank" distinguishable from a real value the whole way to save().
   const [duration, setDuration] = useState(scheduled?.durationMinutes?.toString() ?? "");
+  // "Planned time," not "time" — this only places a plan on the calendar,
+  // it never records that a workout happened. It's what makes Fitness
+  // pre-fill possible at all (a scheduled workout with no time can never
+  // fall inside a check-in window), but per Lead's 2026-08-19 note, a real
+  // logged workout_logs row is what will actually gate the pre-fill —
+  // this field is placement, not evidence.
+  const [time, setTime] = useState(toTimeInputValue(scheduled?.time));
   const durationInputId = useId();
+  const timeInputId = useId();
 
   function save() {
     const trimmedName = name.trim() || null;
     startTransition(async () => {
-      await setWorkoutSchedule(dayOfWeek, trimmedName, null, trimmedName ? parseDurationInput(duration) : null);
+      await setWorkoutSchedule(
+        dayOfWeek,
+        trimmedName,
+        trimmedName ? time.trim() || null : null,
+        trimmedName ? parseDurationInput(duration) : null
+      );
       setOpen(false);
     });
   }
 
+  // Popover stays mounted with the same instance across opens (its `open`
+  // state, not `key`, controls visibility), so name/duration/time's
+  // useState initializers only ever run once at first mount — they don't
+  // pick up a newer `scheduled` prop after a save-and-reopen (found live,
+  // not by a unit test: reopening after a save showed the stale, unsnapped
+  // value that was typed, not what was actually persisted). Re-seed them
+  // from the latest prop every time the popover opens, not just at mount.
+  function handleOpenChange(next: boolean) {
+    if (next) {
+      setName(scheduled?.workoutName ?? "");
+      setDuration(scheduled?.durationMinutes?.toString() ?? "");
+      setTime(toTimeInputValue(scheduled?.time));
+    }
+    setOpen(next);
+  }
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -84,21 +124,37 @@ function DayCell({
           onChange={(e) => setName(e.target.value)}
           placeholder="Workout name (e.g. Push, Rest)"
         />
-        <label htmlFor={durationInputId} className="text-xs text-muted-foreground">
-          Duration
-        </label>
-        <Input
-          id={durationInputId}
-          type="number"
-          inputMode="numeric"
-          step={DURATION_STEP}
-          min={DURATION_MIN}
-          max={DURATION_MAX}
-          value={duration}
-          onChange={(e) => setDuration(e.target.value)}
-          placeholder="Optional — defaults to 30m"
-          className="min-h-11"
-        />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <label htmlFor={timeInputId} className="text-xs text-muted-foreground">
+              Planned time
+            </label>
+            <Input
+              id={timeInputId}
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="min-h-11"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={durationInputId} className="text-xs text-muted-foreground">
+              Duration
+            </label>
+            <Input
+              id={durationInputId}
+              type="number"
+              inputMode="numeric"
+              step={DURATION_STEP}
+              min={DURATION_MIN}
+              max={DURATION_MAX}
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              placeholder="Optional (30m)"
+              className="min-h-11"
+            />
+          </div>
+        </div>
         <Button type="button" size="sm" disabled={isPending} onClick={save} className="min-h-11">
           Save
         </Button>
