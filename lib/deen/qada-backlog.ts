@@ -33,3 +33,34 @@ export function buildQadaBacklog(resolved: Record<string, ResolvedDayStatuses>):
 export function totalQadaOwed(legacyOwed: number, derivedCount: number): number {
   return legacyOwed + derivedCount;
 }
+
+export type QadaBacklogBuckets = {
+  /** date >= sevenDaysAgoStr */
+  last7: QadaBacklogItem[];
+  /** thirtyDaysAgoStr <= date < sevenDaysAgoStr */
+  month: QadaBacklogItem[];
+  /** date < thirtyDaysAgoStr (within whatever window `items` covers) */
+  older: QadaBacklogItem[];
+};
+
+/**
+ * Splits an already most-recent-first `items` list (see buildQadaBacklog)
+ * into three non-overlapping, time-ordered buckets for the backlog
+ * sub-window's sectioned display — each bucket stays latest-to-oldest since
+ * that ordering is just inherited from the input, never re-sorted.
+ */
+export function bucketQadaBacklog(
+  items: QadaBacklogItem[],
+  sevenDaysAgoStr: string,
+  thirtyDaysAgoStr: string
+): QadaBacklogBuckets {
+  const last7: QadaBacklogItem[] = [];
+  const month: QadaBacklogItem[] = [];
+  const older: QadaBacklogItem[] = [];
+  for (const item of items) {
+    if (item.date >= sevenDaysAgoStr) last7.push(item);
+    else if (item.date >= thirtyDaysAgoStr) month.push(item);
+    else older.push(item);
+  }
+  return { last7, month, older };
+}

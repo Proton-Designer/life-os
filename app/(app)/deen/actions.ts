@@ -36,6 +36,30 @@ export async function markPrayer(
   revalidatePath("/");
 }
 
+/**
+ * Corrects a misclick — deletes the stored row entirely rather than writing
+ * a new status, so `effectivePrayerStatus` (prayer-status.ts) falls back to
+ * deriving pending/upcoming/missed from the prayer window again, exactly as
+ * if nothing had ever been logged. Every consumer (streaks, qada backlog,
+ * consistency grid, Home's priority feed) reads the same `prayers` rows, so
+ * this one delete is enough to un-ripple everywhere — no separate cleanup.
+ */
+export async function unmarkPrayer(
+  date: string,
+  prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { error } = await supabase
+    .from("prayers")
+    .delete()
+    .eq("user_id", userId)
+    .eq("date", date)
+    .eq("prayer_name", prayerName);
+  if (error) throw error;
+  revalidatePath("/deen");
+  revalidatePath("/");
+}
+
 export async function toggleAdhkar(date: string, period: "morning" | "evening"): Promise<void> {
   const { supabase, userId } = await requireUser();
 

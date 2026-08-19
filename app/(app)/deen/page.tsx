@@ -24,8 +24,8 @@ import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computeHabitRollingRate, buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
-import { buildQadaBacklog, totalQadaOwed } from "@/lib/deen/qada-backlog";
-import { QadaBacklogList } from "@/components/deen/qada-backlog-list";
+import { buildQadaBacklog, bucketQadaBacklog, totalQadaOwed } from "@/lib/deen/qada-backlog";
+import { QadaBacklogPanel } from "@/components/deen/qada-backlog-panel";
 import { bucketPagesByDay } from "@/lib/deen/quran-trend";
 import { buildPrayerConsistencyRows, computeOnTimeRate } from "@/lib/deen/prayer-consistency";
 import { NextUpHero } from "@/components/home/next-up-hero";
@@ -226,6 +226,8 @@ export default async function DeenPage() {
   // on top of it — never recomputes or migrates the legacy number itself.
   const qadaBacklog = buildQadaBacklog(resolvedStatuses);
   const totalQadaBacklog = totalQadaOwed(profile?.qada_owed ?? 0, qadaBacklog.derivedCount);
+  const qadaBuckets = bucketQadaBacklog(qadaBacklog.items, sevenDaysAgoStr, thirtyDaysAgoStr);
+  const qadaMissedThisMonth = qadaBuckets.last7.length + qadaBuckets.month.length;
 
   // --- Qur'an: this week's total + delta vs last week + daily trend ---
   const sessions = quranSessionRows ?? [];
@@ -297,17 +299,19 @@ export default async function DeenPage() {
           </div>
         ) : (
           <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-            <EmptyState
-              icon={History}
-              message={
-                !todayWindows
-                  ? "Set your location in Settings for prayer times"
-                  : unloggedToday.length > 0
-                    ? "Some prayers from today still need logging"
-                    : "All 5 prayers logged for today"
-              }
-              action={{ label: "Go to Settings", href: "/settings" }}
-            />
+            <div className="flex min-h-[168px] flex-col justify-center rounded-2xl border border-border/40">
+              <EmptyState
+                icon={History}
+                message={
+                  !todayWindows
+                    ? "Set your location in Settings for prayer times"
+                    : unloggedToday.length > 0
+                      ? "Some prayers from today still need logging"
+                      : "All 5 prayers logged for today"
+                }
+                action={{ label: "Go to Settings", href: "/settings" }}
+              />
+            </div>
           </div>
         )}
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
@@ -336,9 +340,9 @@ export default async function DeenPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
         <div className="lg:col-span-5">
-          <Panel title="Salah today" heroValue={`${salahDoneCount}/5`} caption={salahCaption}>
+          <Panel className="h-full" title="Salah today" heroValue={`${salahDoneCount}/5`} caption={salahCaption}>
             <ul className="flex flex-col gap-2">
               {PRAYERS.map((p) => {
                 const status = todayStatusFor(p.name);
@@ -359,6 +363,7 @@ export default async function DeenPage() {
         </div>
         <div className="lg:col-span-7">
           <Panel
+            className="h-full"
             title="Qur'an"
             heroValue={quranTarget ? `${weekPagesRead}/${quranTarget}` : weekPagesRead}
             delta={
@@ -389,33 +394,22 @@ export default async function DeenPage() {
         </div>
       </div>
 
-      {qadaBacklog.derivedCount === 0 ? (
-        // Empty most days — a full-width panel spent on "nothing to report"
-        // is the same waste as the deleted sparklines. One compact line,
-        // not a centered EmptyState in a full Panel, until there's an
-        // actual list to show.
-        <div className="flex items-center justify-between rounded-lg border border-border/40 px-4 py-2.5 text-sm">
-          <span className="font-medium">Qada backlog</span>
-          <span className="text-muted-foreground">Nothing outstanding</span>
-        </div>
-      ) : (
-        <Panel
-          title="Qada backlog"
-          heroValue={`${qadaBacklog.derivedCount}`}
-          caption="Oldest outstanding prayers first — mark one as qada to clear it"
-        >
-          <QadaBacklogList items={qadaBacklog.items} />
-        </Panel>
-      )}
+      <QadaBacklogPanel
+        buckets={qadaBuckets}
+        last7Count={qadaBuckets.last7.length}
+        monthCount={qadaMissedThisMonth}
+        allTimeCount={totalQadaBacklog}
+        legacyOwed={profile?.qada_owed ?? 0}
+      />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
         <div className="lg:col-span-4">
-          <Panel title="Reflection">
+          <Panel className="h-full" title="Reflection">
             <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} timezone={timezone} />
           </Panel>
         </div>
         <div id="habit-builder" className="lg:col-span-8">
-          <Panel title="Habit Builder">
+          <Panel className="h-full" title="Habit Builder">
             <HabitBuilder
               todayStr={dateStr}
               habits={deenHabits}

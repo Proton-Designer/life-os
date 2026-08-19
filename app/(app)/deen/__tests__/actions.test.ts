@@ -66,6 +66,20 @@ describe("Deen actions", () => {
     );
   });
 
+  it("unmarkPrayer deletes the stored row for (user_id, date, prayer_name)", async () => {
+    const prayersChain = makeChain();
+    fromImpl = () => prayersChain;
+    const { unmarkPrayer } = await import("../actions");
+
+    await unmarkPrayer("2026-08-10", "fajr");
+
+    expect(fromMock).toHaveBeenCalledWith("prayers");
+    expect(prayersChain.delete).toHaveBeenCalled();
+    expect(prayersChain.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(prayersChain.eq).toHaveBeenCalledWith("date", "2026-08-10");
+    expect(prayersChain.eq).toHaveBeenCalledWith("prayer_name", "fajr");
+  });
+
   it("writes prayer_name 'dhuhr' (not a separate 'jummah' value) even on a Friday", async () => {
     const prayersChain = makeChain();
     fromImpl = () => prayersChain;

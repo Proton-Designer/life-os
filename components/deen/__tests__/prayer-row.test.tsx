@@ -5,15 +5,18 @@ import { PrayerRow } from "../prayer-row";
 
 const markPrayerMock = vi.fn();
 const toggleSunnahMock = vi.fn();
+const unmarkPrayerMock = vi.fn();
 vi.mock("@/app/(app)/deen/actions", () => ({
   markPrayer: (...args: unknown[]) => markPrayerMock(...args),
   toggleSunnah: (...args: unknown[]) => toggleSunnahMock(...args),
+  unmarkPrayer: (...args: unknown[]) => unmarkPrayerMock(...args),
 }));
 
 describe("PrayerRow", () => {
   beforeEach(() => {
     markPrayerMock.mockReset();
     toggleSunnahMock.mockReset();
+    unmarkPrayerMock.mockReset();
   });
 
   it("shows the clicked status as active immediately, before markPrayer resolves, with the positive (on-time) color", async () => {
@@ -61,6 +64,89 @@ describe("PrayerRow", () => {
     expect(screen.getByRole("button", { name: "On-time" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Qada" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Missed" })).toBeInTheDocument();
+  });
+
+  it("unmarks (deletes) a status when its already-active button is pressed again", async () => {
+    unmarkPrayerMock.mockImplementation(() => new Promise<void>(() => {}));
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="on_time" sunnahCompletions={[]} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "On-time" }));
+
+    expect(unmarkPrayerMock).toHaveBeenCalledWith("2026-08-11", "fajr");
+    expect(markPrayerMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "On-time" }).querySelector("span")).not.toHaveClass(
+      "text-accent-business"
+    );
+  });
+
+  it("marks (not unmarks) when a different status is pressed than the currently active one", async () => {
+    markPrayerMock.mockImplementation(() => new Promise<void>(() => {}));
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="on_time" sunnahCompletions={[]} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Qada" }));
+
+    expect(markPrayerMock).toHaveBeenCalledWith("2026-08-11", "fajr", "qada");
+    expect(unmarkPrayerMock).not.toHaveBeenCalled();
+  });
+
+  it("auto-expands the sunnah disclosure when marking On-time", async () => {
+    markPrayerMock.mockImplementation(() => new Promise<void>(() => {}));
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="pending" sunnahCompletions={[]} />);
+
+    const toggle = screen.getByRole("button", { name: /sunnah for fajr/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "On-time" }));
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("does not auto-expand when marking Qada or Missed", async () => {
+    markPrayerMock.mockImplementation(() => new Promise<void>(() => {}));
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="pending" sunnahCompletions={[]} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Missed" }));
+
+    expect(screen.getByRole("button", { name: /sunnah for fajr/i })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("clicking anywhere on the row bar (not just the chevron) toggles the sunnah disclosure", async () => {
+    render(<PrayerRow date="2026-08-11" prayerName="dhuhr" label="Dhuhr" status="pending" sunnahCompletions={[]} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText("Dhuhr"));
+    expect(screen.getByRole("button", { name: /sunnah for dhuhr/i })).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(screen.getByText("Dhuhr"));
+    expect(screen.getByRole("button", { name: /sunnah for dhuhr/i })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("clicking a fard status button does not also toggle the sunnah disclosure", async () => {
+    markPrayerMock.mockImplementation(() => new Promise<void>(() => {}));
+    render(<PrayerRow date="2026-08-11" prayerName="dhuhr" label="Dhuhr" status="pending" sunnahCompletions={[]} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Qada" }));
+
+    expect(screen.getByRole("button", { name: /sunnah for dhuhr/i })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("a 'None' option at the bottom of the expanded sunnah list collapses it", async () => {
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="pending" sunnahCompletions={[]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /sunnah for fajr/i }));
+
+    const noneButton = screen.getByRole("button", { name: "None" });
+    expect(noneButton).toBeInTheDocument();
+
+    await user.click(noneButton);
+
+    expect(screen.getByRole("button", { name: /sunnah for fajr/i })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "None" })).not.toBeInTheDocument();
   });
 
   describe("sunnah disclosure", () => {
