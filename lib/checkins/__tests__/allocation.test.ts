@@ -116,6 +116,31 @@ describe("setMinutes (drag entry point)", () => {
     a = setMinutes(a, "deen", 500); // ceiling is 30 (own) + 90 (wasted) = 120
     expect(a.deen).toBe(120);
   });
+
+  // Regression: a drag handler derives `requested` from pointer position
+  // over element width; width 0 (not yet laid out, hidden breakpoint,
+  // mid-transition) divides-by-zero into NaN. Every arithmetic guard here
+  // (Math.max/min/round) passes NaN through silently, which corrupted the
+  // domain's value permanently and made every subsequent operation return
+  // NaN too, since wastedMinutes(a) itself becomes NaN once one field is.
+  // Found by the Opus Lead's adversarial sweep — the seeded property test
+  // below only generated valid random inputs, never garbage ones.
+  it.each([NaN, undefined])("is a no-op for non-finite requested that resolves to NaN (%s)", (bad) => {
+    let a: Allocation = emptyAllocation();
+    a = setMinutes(a, "deen", 30);
+    const before = a;
+    // @ts-expect-error — exercising a hostile runtime value, not the declared type
+    const after = setMinutes(a, "deen", bad);
+    expect(after).toEqual(before);
+    expect(Number.isFinite(wastedMinutes(after))).toBe(true);
+  });
+
+  it("still clamps Infinity/-Infinity correctly rather than treating them as a no-op", () => {
+    let a: Allocation = emptyAllocation();
+    a = setMinutes(a, "business", 30); // business: 30, wasted: 90
+    expect(setMinutes(a, "deen", Infinity).deen).toBe(90); // ceiling = deen's own (0) + wasted (90)
+    expect(setMinutes(a, "deen", -Infinity).deen).toBe(0);
+  });
 });
 
 describe("acceptance criterion 1 — property test: no sequence of operations ever breaks the invariants", () => {
@@ -149,7 +174,17 @@ describe("acceptance criterion 1 — property test: no sequence of operations ev
         } else if (opKind === "decrement") {
           a = decrement(a, domain);
         } else {
-          const requested = Math.floor(rand() * 400) - 100; // includes negative and out-of-range
+          // Includes negative/out-of-range values AND hostile garbage
+          // (NaN, undefined, ±Infinity, non-multiples-of-15) — a purely
+          // valid-domain generator is exactly what let the NaN-corruption
+          // bug (see the regression tests above) slip past this suite
+          // originally.
+          const garbage = [NaN, undefined, Infinity, -Infinity, 0.1, 7];
+          const requested =
+            rand() < 0.2
+              ? garbage[Math.floor(rand() * garbage.length)]
+              : Math.floor(rand() * 400) - 100;
+          // @ts-expect-error — deliberately feeding hostile runtime values
           a = setMinutes(a, domain, requested);
         }
 

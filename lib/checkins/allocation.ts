@@ -52,7 +52,17 @@ export function decrement(a: Allocation, domain: DomainKey): Allocation {
  * off by whatever was extra."
  */
 export function setMinutes(a: Allocation, domain: DomainKey, requested: number): Allocation {
+  // A drag handler derives `requested` from pointer position over element
+  // width — width 0 (not yet laid out, hidden breakpoint, mid-transition)
+  // is a divide-by-zero producing NaN (undefined behaves the same way once
+  // it hits arithmetic). Every guard below passes NaN through silently
+  // (Math.max/min/round of NaN is NaN), which would otherwise corrupt this
+  // domain's value permanently. Guarded as a no-op, same shape as
+  // increment() at a full pool. Infinity/-Infinity are deliberately NOT
+  // guarded here — they clamp correctly through the existing Math.min/max
+  // below (to `ceiling` / 0 respectively) and that's the desired behavior.
   const snapped = Math.round(requested / STEP) * STEP;
+  if (Number.isNaN(snapped)) return a;
   const ceiling = a[domain] + wastedMinutes(a);
   const clamped = Math.min(Math.max(snapped, 0), ceiling);
   return { ...a, [domain]: clamped };
