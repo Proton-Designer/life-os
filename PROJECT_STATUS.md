@@ -947,3 +947,40 @@ Prayer times are now windows (start/end per prayer, computed per day from locati
 **R1 shipped, R2 explicitly deferred to Ayman.** Kill List and This Week's Goal both got empty-state framing copy — "Not a to-do list — the three that must happen today, whatever else goes sideways. e.g. 'Ship the pricing page,' not 'check email.'" and the Goal card's matching treatment — shown only while each module has never been used, receding on persisted content (not live keystrokes, so it can't flicker while typing). `GoalCard`'s new `emptyStateFraming` prop is opt-in per caller specifically so `weekly-planning`'s other domain usages stay untouched, with a test asserting they see nothing. tiyo5ktl's review (the person who originally diagnosed the screen as "data entry, not a ritual"): 2 of 3 clear — states the concept rather than the UI mechanics, and genuinely recedes — with an honest partial on "invitation vs. ritual," correctly attributed to the copy's real ceiling rather than a flaw in it: three separate bordered rows with three separate Save buttons is exactly the structure R2 would change, and copy sitting on top of an unchanged structure can explain the ritual but can't fully become it. The wording itself went through three hands, worth recording as the chain it actually was rather than a single fix: Engineer 2's first draft blurred the cap into "the few that must happen today," softening the exact number the whole line exists to state; the Lead caught that and rewrote it to "the three that must happen," which fixed the blur but introduced a new redundancy — "three" twice in two sentences; tiyo5ktl caught the redundancy in review as a wording nit; the Lead then wrote the final line, dropping the "Three things." opener so the cap is stated exactly once. Three people, three passes, no single author got it right alone — recorded as that, not smoothed into "the Lead's fix, independently landed."
 
 **Deployed and live, `b6612be` / `dpl_AoPBFP5ukKojpqRgn7m1WLJ33D5G`.** tiyo5ktl's full authenticated Playwright pass against the deployed URL is in progress as of this entry; its results are a natural follow-up entry once it completes, not held to block this one.
+
+## Commit-hygiene failure, 2026-08-18 ~22:44 CDT — three "docs:" commits carry other agents' work
+
+**All three agents share one working directory, not separate worktrees.** The Lead ran
+`git add -A && git commit` for documentation commits, which staged whatever the two engineers had
+edited but not yet committed. The code in every case is correct and was independently reviewed; what
+is wrong is that **three commit messages do not describe their contents**, so `git log` is misleading
+for anyone bisecting or reviewing later. Recorded rather than rewritten: nothing is pushed (this repo
+has no remote), but a rebase would change files underneath two agents actively editing them, which is
+a worse risk than an inaccurate message.
+
+Caught by Engineer 2 (`p8crcmj2`), who declined to hand over commit hashes that would have implied
+they authored commits they didn't — the second time tonight an engineer refused to proceed on
+something the Lead had gotten wrong, and the right call both times.
+
+**What is actually in each commit:**
+
+| Commit | Message says | Also contains |
+|---|---|---|
+| `a866b67` | navigation prefetch fix spec | *(accurate — spec only)* |
+| `0e35515` | weekly-goal-strip spec | **Part A** of the prefetch fix (`prefetch` prop + tests across 8 shell/home components), and Engineer 1's **McKinney supplemental-cities fix** (`lib/settings/supplemental-cities.ts`, `location.ts`, `location-actions.ts` + tests) |
+| `d5fbd36` | geocoding spec | the **weekly-goal-strip v1 component**, its tests, its `page.tsx` wiring — and **Part B, the `proxy.ts` auth change** (`lib/supabase/middleware.ts` `getUser()` → `getClaims()`, plus the corrected comment in `lib/supabase/auth.ts`), and Part C's in-progress `scripts/perf` edits |
+| `f63e350` | Part C correction | *(accurate — spec only)* |
+| `88d104c` | goal strip v2 | *(accurate — Engineer 2's own commit)* |
+
+**The consequence that actually matters, separate from tidiness:** Part B is a security-posture change
+(local ES256/JWKS verification replaces the last server-contacting revocation check in the request
+path) and it was committed **before its required live auth verification had been run** — the four
+flows named in `2026-08-18-navigation-prefetch-fix.md` Part B. Committed is not deployed and nothing
+is live, but the change must not ship until those four flows pass. Flagged to Engineer 1 immediately
+on discovery.
+
+**Process fix, effective now:** stage explicit paths, never `git add -A` or `git commit -a`, and run
+`git status --short` before every commit. This is the second instance tonight — the first swept a
+stray `.tmp-prod-verify.mjs` into a commit, which the Lead had flagged as a hygiene risk an hour
+before doing it. Twice is a broken process, not a slip; separate worktrees per agent are the real
+answer and should be adopted before the next multi-agent run.
