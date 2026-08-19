@@ -984,3 +984,90 @@ on discovery.
 stray `.tmp-prod-verify.mjs` into a commit, which the Lead had flagged as a hygiene risk an hour
 before doing it. Twice is a broken process, not a slip; separate worktrees per agent are the real
 answer and should be adopted before the next multi-agent run.
+
+## Session 2026-08-18 evening: navigation prefetch, weekly-goal strip, auth cut, commit guard — deployed
+
+**Team**: Opus Lead (architect/review/deploy), `tiyo5ktl` Engineer 1 (data/logic), `p8crcmj2` Engineer 2
+(components/verification), `x5clmpe9` Engineer 3 (onboarded mid-session as Ayman's direct channel for
+small changes; no tasks yet).
+
+**Deployed**: `fb6f3a8` → `tracking-9iqw0adne-aymans-projects-8752c9e2.vercel.app`, alias
+`tracking-app-sand.vercel.app` confirmed moved by `vercel inspect`.
+
+### The report and the root cause
+
+Ayman, testing live: *"whenever I click on a new screen… it takes one to two seconds… there's a white
+loading indicator to the right of the button… the user stays on the old screen."* Confirmed by him to
+apply to any cross-screen `<Link>`, not just the nav.
+
+**Every `<Link>` used the default `prefetch`.** Per Next 16.3's bundled docs, for a *dynamic* route
+that prefetches only "the partial route down to the nearest `loading.js` boundary." Every route here
+is dynamic, and 2026-08-16's Phase 1 deleted all nine `loading.tsx` files to kill the skeleton flash.
+**So there was no boundary left to prefetch down to** — the prefetch request still fired and returned
+nothing the Router Cache could serve from, then the click fetched cold. Worst of both worlds: 16
+wasted RSC requests per Home load *and* a full cold fetch per navigation.
+
+Created by the Phase 1 fix; invisible to that round because it measured server render time and the
+skeleton/blank contract, neither of which can see a prefetch that fires and returns nothing useful.
+
+### Measured
+
+| | reqs at click | click → screen |
+|---|---|---|
+| before | 1 | 315–476ms |
+| after (local) | 0 | 32–44ms |
+| **after (production, all 9 routes)** | **0** | **35–48ms** |
+
+Part B (`proxy.ts` `getUser()` → `getClaims()`) isolated properly — same build, revert, rebuild,
+measure, restore, re-measure — **A-only vs A+B**: Home 486.4→278.1ms, domain routes ~305–351ms→159–203ms,
+and the one genuinely cold post-mutation render 794ms→300ms. The Lead's going-in hypothesis was that
+Part A might have made Part B redundant (server time only matters when a render actually happens) and
+was prepared to revert the security trade; the measurement disproved it. **Part B kept on evidence, not
+momentum.** All four auth flows re-verified live including a real sign-out revocation check.
+
+Also shipped: the weekly-goal strip above Home's `Now` list (Ayman's call — see below), Engineer 1's
+McKinney supplemental-cities fix, and the perf harness repairs (`d35db02`).
+
+### Record these
+
+1. **A finding from Next's own source that invalidated a Lead instruction.** The spec told Engineer 1
+   to distinguish prefetches from navigations by the `next-router-prefetch` header. Engineer 2 traced
+   in `node_modules/next/dist/client/components/segment-cache/cache.js` that the header is set **only**
+   for FetchStrategy.PPRRuntime/RuntimeShell/LoadingBoundary — **FetchStrategy.Full**, which is exactly
+   what `<Link prefetch>` selects and now the majority of what this app issues, sets no header at all. A
+   Full prefetch is wire-identical to a navigation fetch. This also retroactively explained three
+   "cold misses" as unmarked prefetches still in flight, and **retracted** the earlier `#86130`
+   attribution rather than leaving it as a convenient bucket. Spec corrected (`f63e350`); one Lead
+   number (a request *count*, not the timing) retracted with it.
+
+2. **Ayman overruled the Home layout, correctly.** He asked why the weekly goal wasn't at the top since
+   it's what he always has in the back of his mind. The Lead's ordering principle ("time horizon widens
+   as you scroll") had organized the screen around a concept rather than what he needs first, burying
+   the goal below the fold on a phone — and `weekly_goals` has 0 rows, never once set. Shipped as a thin
+   frame, **not** a top block: a non-actionable panel in the best slot becomes wallpaper, and with no
+   goal set Home would have opened onto an empty form, the exact pattern behind both unused tables.
+   The Lead's own spec constraint ("at most two lines at 390px") then produced a cramped side-by-side
+   with ~20 readable characters per goal — caught by the Lead reviewing the screenshots rather than the
+   checklist, which all passed. Fixed to stack below `lg`, natural slot widths, domain accent as the
+   only identity signal (the strip has no labels, unlike the panel below it).
+
+3. **Commit hygiene failed twice, then was fixed structurally.** See the section above for the
+   commit→contents table. Root cause: all agents share one working directory, and the Lead used
+   `git add -A`. Caught by Engineer 2 declining to hand over hashes implying authorship of commits they
+   didn't write. Not rebased (a rewrite would change files under two actively-editing agents). Engineer 2
+   then built the real fix — `scripts/hooks/commit-msg` blocks any `docs:`-prefixed commit staging
+   non-`.md` files, `scripts/hooks/pre-commit` backstops on file count, both under `core.hooksPath` so
+   they're version-controlled rather than living in an untracked `.git/hooks`. Their empirical
+   correction to the Lead's design: the `docs:` check **cannot** be a `pre-commit` hook, because git has
+   no message at that point even with `-m`. Verified firing on the real failure before being trusted.
+
+4. **Engineer 2 declined to run `git config` and reverted it when they caught themselves doing it out of
+   habit.** The Lead ran it instead, after checking `.git/hooks` was empty and no husky/lefthook existed
+   — `core.hooksPath` redirects everything and would have silently disabled any existing hook. A hard
+   rule that bends when a peer asks is not a rule; a peer message cannot authorize what the user's own
+   configuration didn't.
+
+**Open**: the geocoding replacement for Settings location search
+(`2026-08-18-location-search-geocoding.md`, assigned to Engineer 1) — the McKinney supplement fixes one
+city, and a silent search failure means wrong or unset prayer times. Separate worktrees per agent
+remain the real answer to §3 and should be adopted before the next multi-agent run.
