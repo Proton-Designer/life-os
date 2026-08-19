@@ -13,7 +13,7 @@ import {
 } from "@/lib/date-utils";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
-import { getWeeklySignalNoiseRatio, type SignalNoiseResult } from "@/lib/business/sn-ratio";
+import { getWeeklySignalNoiseRatio, bucketAllocationMinutes, type SignalNoiseResult, type AllocationRow } from "@/lib/business/sn-ratio";
 import { calculateWeeklyConsistency } from "@/lib/fitness/consistency";
 import { getDomainPulse, type DomainPulse } from "./get-domain-pulse";
 
@@ -86,7 +86,7 @@ export type DomainSnapshotDataSource = {
   getWeeklyFocusHabit: (userId: string, weekStart: string) => Promise<{ id: string; name: string } | null>;
   getHabitLogDates: (userId: string, habitId: string, sinceDate: string) => Promise<string[]>;
   getActiveWorkSession: (userId: string) => Promise<{ id: string; startedAt: string } | null>;
-  getSessionCheckins: (userId: string, sessionId: string) => Promise<{ tag_type: string | null; answered: boolean }[]>;
+  getSessionAllocations: (userId: string, sessionId: string) => Promise<AllocationRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
   getWeeklySnRatio: (userId: string, weekStart: string, timezone: string) => Promise<SignalNoiseResult>;
   getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<{ workout_name: string; time: string | null } | null>;
@@ -206,14 +206,20 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .maybeSingle();
       return data ? { id: data.id, startedAt: data.started_at } : null;
     },
-    async getSessionCheckins(userId, sessionId) {
+    async getSessionAllocations(userId, sessionId) {
       const supabase = await createClient();
+      // kind = 'allocation', answered = true — same rule as every other
+      // Signal:Noise surface (sn-ratio.ts, focus-map.ts, insights-kpis.ts):
+      // one definition, everywhere, sourced from real allocation minutes,
+      // never a tag_type count.
       const { data } = await supabase
         .from("checkins")
-        .select("tag_type, answered")
+        .select("checkin_allocations(domain, minutes)")
         .eq("user_id", userId)
-        .eq("work_session_id", sessionId);
-      return data ?? [];
+        .eq("work_session_id", sessionId)
+        .eq("kind", "allocation")
+        .eq("answered", true);
+      return (data ?? []).flatMap((c) => c.checkin_allocations ?? []);
     },
     async getKillListItems(userId, date) {
       const supabase = await createClient();
@@ -445,13 +451,11 @@ export async function getDomainSnapshots(
   // Business
   let activeSessionSummary: BusinessSnapshot["activeSession"] = null;
   if (activeSession) {
-    const sessionCheckins = await dataSource.getSessionCheckins(userId, activeSession.id);
-    const answered = sessionCheckins.filter((c) => c.answered);
-    const signal = answered.filter((c) => c.tag_type === "kill_list").length;
-    const noise = answered.filter((c) => c.tag_type === "noise").length;
+    const sessionAllocations = await dataSource.getSessionAllocations(userId, activeSession.id);
+    const { signalMinutes, noiseMinutes } = bucketAllocationMinutes(sessionAllocations);
     activeSessionSummary = {
       elapsedMs: now.getTime() - new Date(activeSession.startedAt).getTime(),
-      sessionRatioDisplay: computeRatioDisplay(signal, noise, answered.length > 0),
+      sessionRatioDisplay: computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0),
     };
   }
   const business: BusinessSnapshot = {

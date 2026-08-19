@@ -10,6 +10,8 @@ export type ActiveSessionData = {
   id: string;
   startedAtIso: string;
   checkins: SessionCheckin[];
+  sessionSignalMinutes: number;
+  sessionNoiseMinutes: number;
 };
 
 export type LastSessionData = {
@@ -52,6 +54,8 @@ export function LockInPanel({
         sessionId={session.id}
         startedAtIso={session.startedAtIso}
         initialCheckins={session.checkins}
+        sessionSignalMinutes={session.sessionSignalMinutes}
+        sessionNoiseMinutes={session.sessionNoiseMinutes}
         onEnded={() => setSession(null)}
       />
     );
@@ -60,7 +64,13 @@ export function LockInPanel({
   function handleLockIn() {
     startTransition(async () => {
       const result = await startWorkSession();
-      setSession({ id: result.id, startedAtIso: result.startedAt, checkins: [] });
+      setSession({
+        id: result.id,
+        startedAtIso: result.startedAt,
+        checkins: [],
+        sessionSignalMinutes: 0,
+        sessionNoiseMinutes: 0,
+      });
     });
   }
 

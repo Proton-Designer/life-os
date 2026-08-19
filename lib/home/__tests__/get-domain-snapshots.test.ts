@@ -23,7 +23,7 @@ function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): Doma
     getWeeklyFocusHabit: async () => null,
     getHabitLogDates: async () => [],
     getActiveWorkSession: async () => null,
-    getSessionCheckins: async () => [],
+    getSessionAllocations: async () => [],
     getKillListItems: async () => [],
     getWeeklySnRatio: async () => ({ signalMinutes: 0, noiseMinutes: 0, otherCommitmentsMinutes: 0, wastedMinutes: 0, display: "No data" }),
     getWorkoutSchedule: async () => null,
@@ -147,9 +147,9 @@ describe("getDomainSnapshots", () => {
     it("surfaces the active session's elapsed time and this-session S:N when one is active", async () => {
       const dataSource = baseDataSource({
         getActiveWorkSession: async () => ({ id: "session-1", startedAt: "2026-08-10T17:00:00.000Z" }),
-        getSessionCheckins: async () => [
-          { tag_type: "kill_list", answered: true },
-          { tag_type: "noise", answered: true },
+        getSessionAllocations: async () => [
+          { domain: "business", minutes: 30 },
+          { domain: "wasted", minutes: 30 },
         ],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);

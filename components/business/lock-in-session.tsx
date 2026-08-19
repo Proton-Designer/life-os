@@ -36,11 +36,22 @@ export function LockInSession({
   sessionId,
   startedAtIso,
   initialCheckins,
+  sessionSignalMinutes,
+  sessionNoiseMinutes,
   onEnded,
 }: {
   sessionId: string;
   startedAtIso: string;
   initialCheckins: SessionCheckin[];
+  // Real allocation minutes, not a tag_type count — same one Signal:Noise
+  // definition as every other surface (2026-08-19). Server-computed at
+  // load time; nothing in this component currently writes allocation data
+  // mid-session (the hourly prompt below still only writes the point-
+  // sample activity log), so this reads as "No data" until that lands —
+  // accurate, not a regression, given nothing has been measured this way
+  // yet during a live session.
+  sessionSignalMinutes: number;
+  sessionNoiseMinutes: number;
   onEnded: () => void;
 }) {
   const startedAt = useMemo(() => new Date(startedAtIso), [startedAtIso]);
@@ -109,10 +120,11 @@ export function LockInSession({
     return () => clearInterval(interval);
   }, [check]);
 
-  const answered = checkins.filter((c) => c.answered);
-  const signal = answered.filter((c) => c.tagType === "kill_list").length;
-  const noise = answered.filter((c) => c.tagType === "noise").length;
-  const snDisplay = computeRatioDisplay(signal, noise, answered.length > 0);
+  const snDisplay = computeRatioDisplay(
+    sessionSignalMinutes,
+    sessionNoiseMinutes,
+    sessionSignalMinutes + sessionNoiseMinutes > 0
+  );
   const elapsed = formatElapsedDuration(now.getTime() - startedAt.getTime());
 
   async function handleEndSession() {

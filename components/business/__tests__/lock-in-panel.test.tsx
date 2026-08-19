@@ -40,7 +40,13 @@ describe("LockInPanel", () => {
   it("does not show the last-session summary once a session is active", () => {
     render(
       <LockInPanel
-        initialSession={{ id: "s1", startedAtIso: "2026-08-15T14:00:00Z", checkins: [] }}
+        initialSession={{
+          id: "s1",
+          startedAtIso: "2026-08-15T14:00:00Z",
+          checkins: [],
+          sessionSignalMinutes: 0,
+          sessionNoiseMinutes: 0,
+        }}
         lastSession={{ startedAtIso: "2026-08-14T14:00:00Z", endedAtIso: "2026-08-14T15:00:00Z" }}
         todayFocusMinutes={0}
       />

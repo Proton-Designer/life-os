@@ -6,6 +6,7 @@ import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/da
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { countDaysCleared } from "@/lib/business/kill-list-cleared";
+import { bucketAllocationMinutes } from "@/lib/business/sn-ratio";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
 import { GoalCard } from "@/components/shared/goal-card";
@@ -70,12 +71,30 @@ export default async function BusinessPage() {
 
   let activeSession: ActiveSessionData | null = null;
   if (activeSessionRow) {
-    const { data: sessionCheckins } = await supabase
-      .from("checkins")
-      .select("checkin_time, tag_type, tag_label, answered")
-      .eq("user_id", userId)
-      .eq("work_session_id", activeSessionRow.id)
-      .order("checkin_time", { ascending: true });
+    // Two separate queries on purpose: checkin_time/tag_type/tag_label is
+    // the session's own activity LOG (each check-in's label, e.g. "Kill
+    // list: draft proposal") — a legitimate point-sample use, unrelated to
+    // the ratio, and it stays exactly as-is. The ratio itself must come
+    // from checkin_allocations, same one definition as every other
+    // Signal:Noise surface (2026-08-19).
+    const [{ data: sessionCheckins }, { data: sessionAllocationRows }] = await Promise.all([
+      supabase
+        .from("checkins")
+        .select("checkin_time, tag_type, tag_label, answered")
+        .eq("user_id", userId)
+        .eq("work_session_id", activeSessionRow.id)
+        .order("checkin_time", { ascending: true }),
+      supabase
+        .from("checkins")
+        .select("checkin_allocations(domain, minutes)")
+        .eq("user_id", userId)
+        .eq("work_session_id", activeSessionRow.id)
+        .eq("kind", "allocation")
+        .eq("answered", true),
+    ]);
+    const sessionAllocations = (sessionAllocationRows ?? []).flatMap((c) => c.checkin_allocations ?? []);
+    const { signalMinutes: sessionSignalMinutes, noiseMinutes: sessionNoiseMinutes } =
+      bucketAllocationMinutes(sessionAllocations);
     activeSession = {
       id: activeSessionRow.id,
       startedAtIso: activeSessionRow.started_at,
@@ -85,6 +104,8 @@ export default async function BusinessPage() {
         tagLabel: c.tag_label,
         answered: c.answered,
       })),
+      sessionSignalMinutes,
+      sessionNoiseMinutes,
     };
   }
 

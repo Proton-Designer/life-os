@@ -20,6 +20,8 @@ describe("LockInSession", () => {
         sessionId="s1"
         startedAtIso="2026-08-15T12:00:00.000Z"
         initialCheckins={[]}
+        sessionSignalMinutes={0}
+        sessionNoiseMinutes={0}
         onEnded={() => {}}
       />
     );
@@ -33,6 +35,8 @@ describe("LockInSession", () => {
         sessionId="s1"
         startedAtIso="2026-08-15T12:00:00.000Z"
         initialCheckins={[]}
+        sessionSignalMinutes={0}
+        sessionNoiseMinutes={0}
         onEnded={() => {}}
       />
     );
@@ -52,11 +56,50 @@ describe("LockInSession", () => {
           { checkinTime: "2026-08-15T14:00:00.000Z", tagType: "noise", tagLabel: "Distracted", answered: true },
           { checkinTime: "2026-08-15T15:00:00.000Z", tagType: null, tagLabel: null, answered: false },
         ]}
+        sessionSignalMinutes={30}
+        sessionNoiseMinutes={15}
         onEnded={() => {}}
       />
     );
     expect(screen.getByText("On task")).toHaveClass("text-accent-business");
     expect(screen.getByText("Distracted")).toHaveClass("text-accent-warning");
     expect(screen.getByText("Missed")).toHaveClass("text-muted-foreground");
+  });
+
+  // 2026-08-19: the ratio must come from real allocation minutes, not a
+  // tag_type count over the activity-log checkins — the log below stays a
+  // legitimate label display, but the number at the top is a different
+  // input entirely now.
+  it("computes the session ratio from sessionSignalMinutes/sessionNoiseMinutes, not from the checkin activity log", () => {
+    render(
+      <LockInSession
+        sessionId="s1"
+        startedAtIso="2026-08-15T12:00:00.000Z"
+        initialCheckins={[
+          { checkinTime: "2026-08-15T13:00:00.000Z", tagType: "kill_list", tagLabel: "On task", answered: true },
+          { checkinTime: "2026-08-15T14:00:00.000Z", tagType: "noise", tagLabel: "Distracted", answered: true },
+        ]}
+        sessionSignalMinutes={90}
+        sessionNoiseMinutes={30}
+        onEnded={() => {}}
+      />
+    );
+    // 90:30 = 3.0:1, NOT 1:1 (which is what the two activity-log entries
+    // above would give if the ratio still counted them).
+    expect(screen.getByTestId("lock-in-session-ratio")).toHaveTextContent("3.0 : 1");
+  });
+
+  it("shows 'No data' when nothing has been allocated to this session yet", () => {
+    render(
+      <LockInSession
+        sessionId="s1"
+        startedAtIso="2026-08-15T12:00:00.000Z"
+        initialCheckins={[]}
+        sessionSignalMinutes={0}
+        sessionNoiseMinutes={0}
+        onEnded={() => {}}
+      />
+    );
+    expect(screen.getByTestId("lock-in-session-ratio")).toHaveTextContent("No data");
   });
 });
