@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.15"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -38,16 +58,54 @@ export type Database = {
         }
         Relationships: []
       }
+      checkin_allocations: {
+        Row: {
+          checkin_id: string
+          created_at: string
+          domain: string
+          id: string
+          minutes: number
+          user_id: string
+        }
+        Insert: {
+          checkin_id: string
+          created_at?: string
+          domain: string
+          id?: string
+          minutes: number
+          user_id?: string
+        }
+        Update: {
+          checkin_id?: string
+          created_at?: string
+          domain?: string
+          id?: string
+          minutes?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkin_allocations_checkin_id_fkey"
+            columns: ["checkin_id"]
+            isOneToOne: false
+            referencedRelation: "checkins"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checkins: {
         Row: {
           answered: boolean
           checkin_time: string
           created_at: string
           id: string
+          kind: string
           tag_label: string | null
           tag_ref_id: string | null
           tag_type: string | null
           user_id: string
+          window_end: string | null
+          window_start: string | null
           work_session_id: string | null
         }
         Insert: {
@@ -55,10 +113,13 @@ export type Database = {
           checkin_time: string
           created_at?: string
           id?: string
+          kind?: string
           tag_label?: string | null
           tag_ref_id?: string | null
           tag_type?: string | null
           user_id?: string
+          window_end?: string | null
+          window_start?: string | null
           work_session_id?: string | null
         }
         Update: {
@@ -66,10 +127,13 @@ export type Database = {
           checkin_time?: string
           created_at?: string
           id?: string
+          kind?: string
           tag_label?: string | null
           tag_ref_id?: string | null
           tag_type?: string | null
           user_id?: string
+          window_end?: string | null
+          window_start?: string | null
           work_session_id?: string | null
         }
         Relationships: [
@@ -141,13 +205,6 @@ export type Database = {
           },
         ]
       }
-      // anchor_cue and commitment_note hand-added, not regenerated. Migration
-      // 018_deen_habits_anchor_and_commitment.sql IS applied (2026-08-18,
-      // verified via information_schema.columns — see the migration file's
-      // header) but `supabase gen types` needs a running Docker daemon
-      // that isn't available here, same constraint as sunnah_logs above.
-      // Replace with real generated output once Docker or authenticated
-      // Supabase MCP access is available.
       deen_habits: {
         Row: {
           anchor_cue: string | null
@@ -512,13 +569,6 @@ export type Database = {
         }
         Relationships: []
       }
-      // Hand-added, not regenerated. Migration 017_sunnah_logs.sql IS
-      // applied (2026-08-17, RLS verified by real cross-user policy
-      // evaluation — see the migration file's header) and this matches its
-      // shape exactly, but `supabase gen types typescript --db-url` in this
-      // environment requires a running Docker daemon to inspect the schema,
-      // which isn't available here. Replace with real generated output once
-      // either Docker or authenticated Supabase MCP access is available.
       sunnah_logs: {
         Row: {
           completed: boolean
@@ -839,7 +889,11 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
 } as const
+
