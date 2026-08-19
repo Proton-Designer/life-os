@@ -1071,3 +1071,34 @@ McKinney supplemental-cities fix, and the perf harness repairs (`d35db02`).
 (`2026-08-18-location-search-geocoding.md`, assigned to Engineer 1) — the McKinney supplement fixes one
 city, and a silent search failure means wrong or unset prayer times. Separate worktrees per agent
 remain the real answer to §3 and should be adopted before the next multi-agent run.
+
+### R1 reverted by Ayman, same night it shipped (2026-08-18 ~23:00 CDT)
+
+Two direct instructions from Ayman to Engineer 2, no reasoning given, both self-authorizing per the
+standing rule:
+
+- `d3472dd` — **Kill List's entire empty-state framing removed**, concept sentence and example both
+  (*"Not a to-do list — the three that must happen today, whatever else goes sideways. e.g. 'Ship the
+  pricing page,' not 'check email.'"*), along with its `isUntouched` gating.
+- `eafa340` — **GoalCard's example clause removed**, concept sentence kept (*"The one outcome this week
+  is actually about — everything else should serve it."* survives; the `e.g. headline… milestones…`
+  illustration does not).
+
+**The accurate pattern: the example format went in both cases; concept-framing went in one of two.**
+An earlier characterization of this as "both removed the example half, kept the concept half" was
+wrong and was caught by reading the diffs before it entered this log — worth recording since a
+plausible summary from memory nearly became a documented finding twice tonight (see the retracted
+`#86130` attribution above).
+
+**Why it matters more than a copy tweak:** R1 was the *only* Business recommendation shipped from the
+2026-08-18 brainstorm, and its entire justification was the diagnosis that `kill_list_items` and
+`weekly_goals` are simultaneously the two never-used tables and the two modules presenting as
+unexplained blank forms. R1 was the cheap bet that explaining the thing would unblock entry. **The user
+removing it within a day is stronger evidence against that bet than anything in the synthesis** — an
+actual rejection of actual copy in the actual product, not a research argument.
+
+It does not refute the diagnosis. It does establish that **framing copy is not the lever**, and the
+Business section is now back to exactly the two unexplained blank forms the diagnosis identified. That
+raises the weight on R2 (slot 1 open, slots 2–3 behind a permanent "+ add another") — a structural
+change to the module's *shape* rather than an explanatory paragraph beside it — which is still awaiting
+Ayman's ruling. See `docs/superpowers/specs/2026-08-18-business-brainstorm-synthesis.md` §5, §7.
