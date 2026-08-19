@@ -81,6 +81,19 @@ function sumOverlapStepMinutes(window: AllocationWindow, ranges: TimeRange[]): n
  * result as `lockInSessions` into every window's derivePrefillAllocation
  * call — cheaper than re-subtracting per window, and keeps this function's
  * signature independent of any single window.
+ *
+ * Deliberately per-HOUR, not per-window (2026-08-19, corrects the Lead's own
+ * first instinct): a window-level "is this window fully covered by confirmed
+ * hours?" check (see schedule.ts's isWindowCoveredBySessionHours, which
+ * exists for the separate re-queue-suppression concern) is not sufficient
+ * here. A 2h window with ONE of its two hours confirmed and the other still
+ * open is not fully covered, so a window-level check leaves it alone — but
+ * the confirmed hour inside it must still be subtracted, or that hour's
+ * minutes get counted twice: once as its own real checkin_allocations row,
+ * once again inside the coarse session-overlap credit for the window's
+ * uncovered boundary hour. Subtracting per-hour handles both the
+ * fully-covered and partially-covered cases correctly in one pass; do not
+ * "simplify" this back to a window-coverage check.
  */
 export function subtractConfirmedHours(sessions: TimeRange[], confirmedHourRanges: TimeRange[]): TimeRange[] {
   const confirmed = confirmedHourRanges.filter((r): r is { start: Date; end: Date } => r.end !== null);
