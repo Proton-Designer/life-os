@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPendingAllocationQueue, type AllocationQueueDataSource } from "../get-allocation-queue";
+import type { TimeRange } from "../schedule";
 
 function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): AllocationQueueDataSource {
   return {
@@ -17,6 +18,7 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
     getAnsweredWindowStarts: async () => [],
     getLoggedPrayerNames: async () => [],
     getWorkoutLoggedToday: async () => false,
+    getConfirmedSessionHours: async () => [],
     ...overrides,
   };
 }
@@ -145,6 +147,57 @@ describe("getPendingAllocationQueue", () => {
     for (const item of result.items) {
       expect(item.prefill.fitness).toBe(0);
     }
+  });
+
+  describe("hourly Lock-In confirm wiring", () => {
+    it("does not queue a window fully covered by explicitly-confirmed session hours", async () => {
+      const now = new Date("2026-08-19T17:00:00Z"); // 12:00 CDT — well after the 08:00-10:00 window fired
+      const confirmedHours: TimeRange[] = [
+        { start: new Date("2026-08-19T13:00:00Z"), end: new Date("2026-08-19T14:00:00Z") },
+        { start: new Date("2026-08-19T14:00:00Z"), end: new Date("2026-08-19T15:00:00Z") },
+      ]; // both hours of the 08:00-10:00 CDT window explicitly confirmed
+      const result = await getPendingAllocationQueue(
+        "user-1",
+        now,
+        baseDataSource({ getConfirmedSessionHours: async () => confirmedHours })
+      );
+
+      expect(
+        result.items.some((i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T13:00:00Z").getTime())
+      ).toBe(false);
+    });
+
+    // The double-count guard: a "No" hour with its own precise
+    // checkin_allocations row must not also get coarse-credited to
+    // business by the raw Lock-In session overlap for the same 60
+    // minutes — otherwise a declined hour would silently reverse itself.
+    it("subtracts confirmed hours from the coarse Lock-In overlap before it reaches the prefill", async () => {
+      const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — inside 14:00-16:00's queue window
+      const lockIn: TimeRange = { start: new Date("2026-08-19T18:00:00Z"), end: new Date("2026-08-19T20:00:00Z") }; // 13:00-15:00 CDT
+      // Only the second hour (14:00-15:00 CDT) has been explicitly confirmed.
+      const confirmedHours: TimeRange[] = [
+        { start: new Date("2026-08-19T19:00:00Z"), end: new Date("2026-08-19T20:00:00Z") },
+      ];
+      const withConfirm = await getPendingAllocationQueue(
+        "user-1",
+        now,
+        baseDataSource({ getWorkSessions: async () => [lockIn], getConfirmedSessionHours: async () => confirmedHours })
+      );
+      const withoutConfirm = await getPendingAllocationQueue(
+        "user-1",
+        now,
+        baseDataSource({ getWorkSessions: async () => [lockIn] })
+      );
+
+      const businessWith = withConfirm.items.find(
+        (i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T19:00:00Z").getTime()
+      )?.prefill.business;
+      const businessWithout = withoutConfirm.items.find(
+        (i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T19:00:00Z").getTime()
+      )?.prefill.business;
+
+      expect(businessWith).toBeLessThan(businessWithout ?? 0);
+    });
   });
 
   it("passes the profile's own timezone through on the result", async () => {
