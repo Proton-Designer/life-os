@@ -25,7 +25,10 @@ import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from ".
  * ever fills what's *known*, and "the window was open" was never that.
  */
 
-const NOMINAL_WORKOUT_MINUTES = 30; // 2 steps — no logged duration exists anywhere yet (workout_schedule/workout_logs have no duration column); a clearly-coarse, fully-editable default, not a claim.
+// Fallback only, per 023_workout_schedule_duration.sql — `duration_minutes`
+// is nullable specifically so this stays the documented guess it always
+// was, not dead code, whenever a schedule row hasn't set a real value.
+const NOMINAL_WORKOUT_MINUTES = 30;
 
 /** Minutes of overlap between a window and a range, snapped down to the nearest STEP, clamped to the window's own length. */
 function overlapStepMinutes(window: AllocationWindow, range: TimeRange): number {
@@ -55,10 +58,12 @@ function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]
  * data: Lock-In session overlap -> business, a logged prayer's clock time
  * falling in the window -> deen (one nominal STEP each, see
  * loggedPrayerMinutes above), a scheduled workout whose time falls inside
- * the window -> fitness (a fixed nominal duration, since nothing records a
- * real one). School and Co-op have no data source to guess from, so
- * they're always left at 0 — genuinely unknown, not silently assumed
- * zero-effort.
+ * the window -> fitness, using its real `duration_minutes` when the
+ * schedule row has one and only falling back to NOMINAL_WORKOUT_MINUTES
+ * when it doesn't (2026-08-19, requested directly by Ayman — "why are we
+ * guessing instead of storing it"). School and Co-op have no data source to
+ * guess from, so they're always left at 0 — genuinely unknown, not
+ * silently assumed zero-effort.
  *
  * If sources together would exceed the window's own length (e.g. a
  * Lock-In session overlapping several logged prayers inside it —
@@ -73,13 +78,14 @@ export function derivePrefillAllocation(
     lockInSessions: TimeRange[];
     loggedPrayerTimes: Date[];
     workoutTime: Date | null;
+    workoutDurationMinutes: number | null;
   }
 ): Allocation {
   const businessMinutes = sumOverlapStepMinutes(window, data.lockInSessions);
   const deenMinutes = loggedPrayerMinutes(window, data.loggedPrayerTimes);
   const fitnessMinutes =
     data.workoutTime && data.workoutTime.getTime() >= window.start.getTime() && data.workoutTime.getTime() < window.end.getTime()
-      ? NOMINAL_WORKOUT_MINUTES
+      ? (data.workoutDurationMinutes ?? NOMINAL_WORKOUT_MINUTES)
       : 0;
 
   const raw: Allocation = { ...emptyAllocation(), deen: deenMinutes, business: businessMinutes, fitness: fitnessMinutes };

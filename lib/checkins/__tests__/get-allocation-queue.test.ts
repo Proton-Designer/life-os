@@ -13,7 +13,7 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
       asr_madhab: "standard",
     }),
     getWorkSessions: async () => [],
-    getWorkoutTime: async () => null,
+    getWorkoutSchedule: async () => null,
     getAnsweredWindowStarts: async () => [],
     getLoggedPrayerNames: async () => [],
     ...overrides,
@@ -95,6 +95,34 @@ describe("getPendingAllocationQueue", () => {
     for (const item of result.items) {
       expect(item.prefill.deen).toBeLessThanOrEqual(15);
     }
+  });
+
+  // 2026-08-19, requested directly by Ayman: a real workout duration must
+  // win over the nominal 30-minute guess when the schedule row has one.
+  it("uses the real workout duration for the fitness prefill when the schedule row has one", async () => {
+    const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — well after the 12:00-14:00 window fired
+    const result = await getPendingAllocationQueue(
+      "user-1",
+      now,
+      baseDataSource({
+        getWorkoutSchedule: async () => ({ time: new Date("2026-08-19T18:30:00Z"), durationMinutes: 75 }), // 13:30 CDT, inside 12:00-14:00
+      })
+    );
+
+    expect(result.items.some((i) => i.prefill.fitness === 75)).toBe(true);
+  });
+
+  it("falls back to the nominal fitness default when the schedule row has no duration set", async () => {
+    const now = new Date("2026-08-19T21:00:00Z");
+    const result = await getPendingAllocationQueue(
+      "user-1",
+      now,
+      baseDataSource({
+        getWorkoutSchedule: async () => ({ time: new Date("2026-08-19T18:30:00Z"), durationMinutes: null }),
+      })
+    );
+
+    expect(result.items.some((i) => i.prefill.fitness === 30)).toBe(true);
   });
 
   it("passes the profile's own timezone through on the result", async () => {

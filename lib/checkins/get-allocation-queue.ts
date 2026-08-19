@@ -37,7 +37,12 @@ export type AllocationQueueDataSource = {
     asr_madhab: string;
   } | null>;
   getWorkSessions: (userId: string, dateStr: string, timezone: string) => Promise<TimeRange[]>;
-  getWorkoutTime: (userId: string, dateStr: string, timezone: string) => Promise<Date | null>;
+  /** durationMinutes is null when the schedule row hasn't set one (023_workout_schedule_duration.sql) — derivePrefillAllocation falls back to its own nominal default. */
+  getWorkoutSchedule: (
+    userId: string,
+    dateStr: string,
+    timezone: string
+  ) => Promise<{ time: Date; durationMinutes: number | null } | null>;
   getAnsweredWindowStarts: (userId: string, dateStr: string, timezone: string) => Promise<Date[]>;
   /** Prayer names logged today with a real (non-missed, non-pending) status — the caller maps these to actual clock times via computePrayerWindows. */
   getLoggedPrayerNames: (userId: string, dateStr: string) => Promise<string[]>;
@@ -71,16 +76,16 @@ function defaultDataSource(): AllocationQueueDataSource {
         end: s.ended_at ? new Date(s.ended_at) : null,
       }));
     },
-    async getWorkoutTime(userId, dateStr, timezone) {
+    async getWorkoutSchedule(userId, dateStr, timezone) {
       const supabase = await createClient();
       const { data } = await supabase
         .from("workout_schedule")
-        .select("time")
+        .select("time, duration_minutes")
         .eq("user_id", userId)
         .eq("day_of_week", dayOfWeekFromDateString(dateStr))
         .maybeSingle();
       if (!data?.time) return null;
-      return resolveLocalTime(dateStr, data.time, timezone);
+      return { time: resolveLocalTime(dateStr, data.time, timezone), durationMinutes: data.duration_minutes };
     },
     async getAnsweredWindowStarts(userId, dateStr, timezone) {
       const supabase = await createClient();
@@ -135,12 +140,14 @@ export async function getPendingAllocationQueue(
     sleepTime: profile.checkin_window_end.slice(0, 5),
   };
 
-  const [lockInSessions, workoutTime, answeredWindowStarts, loggedPrayerNames] = await Promise.all([
+  const [lockInSessions, workoutSchedule, answeredWindowStarts, loggedPrayerNames] = await Promise.all([
     dataSource.getWorkSessions(userId, dateStr, timezone),
-    dataSource.getWorkoutTime(userId, dateStr, timezone),
+    dataSource.getWorkoutSchedule(userId, dateStr, timezone),
     dataSource.getAnsweredWindowStarts(userId, dateStr, timezone),
     dataSource.getLoggedPrayerNames(userId, dateStr),
   ]);
+  const workoutTime = workoutSchedule?.time ?? null;
+  const workoutDurationMinutes = workoutSchedule?.durationMinutes ?? null;
 
   // Prayer TIMES (window.start), not the hours-long validity windows
   // computePrayerWindows returns (Dhuhr's is ~220min, Isha's ~472min) — a
@@ -191,6 +198,7 @@ export async function getPendingAllocationQueue(
       lockInSessions,
       loggedPrayerTimes,
       workoutTime,
+      workoutDurationMinutes,
     });
     return {
       windowStartIso: slot.window.start.toISOString(),

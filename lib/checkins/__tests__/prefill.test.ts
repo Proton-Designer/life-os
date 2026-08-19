@@ -9,31 +9,31 @@ const window: AllocationWindow = {
 
 describe("derivePrefillAllocation", () => {
   it("returns all zeros when there's no data to derive from", () => {
-    const result = derivePrefillAllocation(window, { lockInSessions: [], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result).toEqual({ deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 });
   });
 
   it("maps a fully-contained Lock-In session to business, snapped to 15", () => {
     const session: TimeRange = { start: new Date("2026-08-10T13:07:00Z"), end: new Date("2026-08-10T13:52:00Z") }; // 45 real minutes
-    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result.business).toBe(45); // already a multiple of 15
   });
 
   it("clips a Lock-In session that only partially overlaps the window", () => {
     const session: TimeRange = { start: new Date("2026-08-10T14:30:00Z"), end: new Date("2026-08-10T15:45:00Z") }; // starts in-window, ends after
-    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result.business).toBe(30); // only 14:30-15:00 (30min) is inside the window
   });
 
   it("counts a still-active (open-ended) Lock-In session up to the window's own end", () => {
     const session: TimeRange = { start: new Date("2026-08-10T14:00:00Z"), end: null };
-    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result.business).toBe(60); // 14:00-15:00
   });
 
   it("snaps a Lock-In overlap down to the nearest 15, never rounding up", () => {
     const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:22:00Z") }; // 22 real minutes
-    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result.business).toBe(15);
   });
 
@@ -44,7 +44,7 @@ describe("derivePrefillAllocation", () => {
   // number out of nothing, since Deen sits on the signal side.
   it("gives one nominal STEP of deen per logged prayer whose real time falls inside the window", () => {
     const fajrTime = new Date("2026-08-10T13:15:00Z");
-    const result = derivePrefillAllocation(window, { lockInSessions: [], loggedPrayerTimes: [fajrTime], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [], loggedPrayerTimes: [fajrTime], workoutTime: null, workoutDurationMinutes: null });
     expect(result.deen).toBe(15);
   });
 
@@ -55,6 +55,7 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [],
       loggedPrayerTimes: [fajrTime, dhuhrTime],
       workoutTime: null,
+      workoutDurationMinutes: null,
     });
     expect(result.deen).toBe(30);
   });
@@ -65,6 +66,7 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [],
       loggedPrayerTimes: [outsideTime],
       workoutTime: null,
+      workoutDurationMinutes: null,
     });
     expect(result.deen).toBe(0);
   });
@@ -77,6 +79,7 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [],
       loggedPrayerTimes: [dhuhrTime],
       workoutTime: null,
+      workoutDurationMinutes: null,
     });
     expect(result.deen).toBe(15);
   });
@@ -86,6 +89,30 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [],
       loggedPrayerTimes: [],
       workoutTime: new Date("2026-08-10T14:00:00Z"),
+      workoutDurationMinutes: null,
+    });
+    expect(result.fitness).toBe(30);
+  });
+
+  // 2026-08-19, requested directly by Ayman: "why are we guessing instead
+  // of storing it." A real duration_minutes on the schedule row must win
+  // over the nominal 30 whenever the schedule actually has one.
+  it("uses the real workout duration when the schedule row has one, not the nominal 30", () => {
+    const result = derivePrefillAllocation(window, {
+      lockInSessions: [],
+      loggedPrayerTimes: [],
+      workoutTime: new Date("2026-08-10T14:00:00Z"),
+      workoutDurationMinutes: 75,
+    });
+    expect(result.fitness).toBe(75);
+  });
+
+  it("falls back to the nominal 30 when the schedule row has no duration set", () => {
+    const result = derivePrefillAllocation(window, {
+      lockInSessions: [],
+      loggedPrayerTimes: [],
+      workoutTime: new Date("2026-08-10T14:00:00Z"),
+      workoutDurationMinutes: null,
     });
     expect(result.fitness).toBe(30);
   });
@@ -95,13 +122,14 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [],
       loggedPrayerTimes: [],
       workoutTime: new Date("2026-08-10T16:00:00Z"),
+      workoutDurationMinutes: null,
     });
     expect(result.fitness).toBe(0);
   });
 
   it("never guesses school or co_op — always 0, since nothing logs data for them here", () => {
     const session: TimeRange = { start: window.start, end: window.end };
-    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result.school).toBe(0);
     expect(result.co_op).toBe(0);
   });
@@ -112,6 +140,7 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [session],
       loggedPrayerTimes: [new Date("2026-08-10T13:15:00Z")],
       workoutTime: new Date("2026-08-10T14:00:00Z"),
+      workoutDurationMinutes: null,
     });
     const total = result.deen + result.business + result.school + result.fitness + result.co_op;
     expect(total).toBeLessThan(120);
@@ -135,6 +164,7 @@ describe("derivePrefillAllocation", () => {
         new Date("2026-08-10T14:05:00Z"),
       ],
       workoutTime: new Date("2026-08-10T14:30:00Z"),
+      workoutDurationMinutes: null,
     });
     const total = result.deen + result.business + result.school + result.fitness + result.co_op;
     expect(total).toBeLessThan(120);
@@ -152,6 +182,7 @@ describe("derivePrefillAllocation", () => {
       lockInSessions: [fullWindowSession],
       loggedPrayerTimes: [],
       workoutTime: null,
+      workoutDurationMinutes: null,
     });
     const total = result.deen + result.business + result.school + result.fitness + result.co_op;
     expect(total).toBe(105); // 120 - one STEP reserved as wasted
@@ -160,7 +191,7 @@ describe("derivePrefillAllocation", () => {
 
   it("leaves a within-bounds allocation untouched by the cap", () => {
     const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:30:00Z") };
-    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null });
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], workoutTime: null, workoutDurationMinutes: null });
     expect(result.business).toBe(30);
   });
 });

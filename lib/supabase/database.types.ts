@@ -728,6 +728,7 @@ export type Database = {
       workout_schedule: {
         Row: {
           day_of_week: number
+          duration_minutes: number | null
           id: string
           time: string | null
           user_id: string
@@ -735,6 +736,7 @@ export type Database = {
         }
         Insert: {
           day_of_week: number
+          duration_minutes?: number | null
           id?: string
           time?: string | null
           user_id?: string
@@ -742,6 +744,7 @@ export type Database = {
         }
         Update: {
           day_of_week?: number
+          duration_minutes?: number | null
           id?: string
           time?: string | null
           user_id?: string
