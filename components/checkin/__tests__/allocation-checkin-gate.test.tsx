@@ -10,6 +10,7 @@ vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
 }));
 
 import { AllocationCheckinGate } from "../allocation-checkin-gate";
+import { AllocationQueueProvider, useAllocationQueue } from "@/lib/checkins/allocation-queue-context";
 
 const WINDOW_A = {
   windowStartIso: "2026-08-19T13:00:00.000Z",
@@ -22,21 +23,53 @@ const WINDOW_B = {
   prefill: { deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 },
 };
 
+/** Stand-in for Engineer 2's real shell-chrome badge — just enough to drive `open` from the same shared context. */
+function TestBadge() {
+  const { queue, setOpen } = useAllocationQueue();
+  if (queue.length === 0) return null;
+  return (
+    <button type="button" onClick={() => setOpen(true)}>
+      {queue.length} check-in{queue.length === 1 ? "" : "s"} waiting
+    </button>
+  );
+}
+
+function renderGate() {
+  return render(
+    <AllocationQueueProvider>
+      <TestBadge />
+      <AllocationCheckinGate />
+    </AllocationQueueProvider>
+  );
+}
+
 describe("AllocationCheckinGate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders nothing when the queue is empty", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
-    const { container } = render(<AllocationCheckinGate />);
-    await waitFor(() => expect(getAllocationQueueForNowMock).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+  it("shows only the badge, not the sheet, when the queue is non-empty — opening is the user's action", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
+    renderGate();
+
+    expect(await screen.findByRole("button", { name: /1 check-in waiting/ })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows the oldest pending window as a dialog with a pre-filled domain marked", async () => {
+  it("renders nothing (no badge, no sheet) when the queue is empty", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    renderGate();
+    await waitFor(() => expect(getAllocationQueueForNowMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /waiting/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens the sheet on badge tap, showing the oldest pending window with a pre-filled domain marked", async () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
-    render(<AllocationCheckinGate />);
+    const user = userEvent.setup();
+    renderGate();
+
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
 
     expect(await screen.findByRole("dialog", { name: "Check-in" })).toBeInTheDocument();
     expect(screen.getByText("App filled this in")).toBeInTheDocument();
@@ -44,17 +77,20 @@ describe("AllocationCheckinGate", () => {
 
   it("shows a queue position indicator when more than one window is pending", async () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A, WINDOW_B], unknownCount: 0, timezone: "UTC" });
-    render(<AllocationCheckinGate />);
+    const user = userEvent.setup();
+    renderGate();
 
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
     expect(await screen.findByText("1 of 2")).toBeInTheDocument();
   });
 
-  it("saves via the bound window's own start/end, then advances to the next queued item", async () => {
+  it("saves via the bound window's own start/end, then shows the next queued item with the correct position", async () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A, WINDOW_B], unknownCount: 0, timezone: "UTC" });
     saveAllocationCheckinMock.mockResolvedValue(undefined);
     const user = userEvent.setup();
-    render(<AllocationCheckinGate />);
+    renderGate();
 
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
     await screen.findByText("1 of 2");
     await user.click(screen.getByRole("button", { name: "Done" }));
 
@@ -65,7 +101,38 @@ describe("AllocationCheckinGate", () => {
         WINDOW_A.prefill
       )
     );
-    // Only one item left — no position indicator, and window B's content is showing.
-    await waitFor(() => expect(screen.queryByText(/of 2/)).not.toBeInTheDocument());
+    // One item left — correctly reads "2 of 2", not "1 of 2" again (regression: index used to be hardcoded to 1).
+    await waitFor(() => expect(screen.getByText("2 of 2")).toBeInTheDocument());
+  });
+
+  // Regression: an earlier version auto-opened an inescapable fixed overlay
+  // with no close control, no Escape handler, and no focus trap despite
+  // claiming aria-modal="true" — caught by the Opus Lead's review, then
+  // superseded again (Engineer 2 hit a still-blocking modal live with 6
+  // queued items) by this badge+sheet split. When "Done" is the only way
+  // out, tapping Done without editing becomes the only escape, manufacturing
+  // exactly the rubber-stamped data this build spent an hour eliminating
+  // from pre-fill.
+  it("Escape closes the sheet without saving — the badge remains, queue untouched", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
+    const user = userEvent.setup();
+    renderGate();
+
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
+    await screen.findByRole("dialog", { name: "Check-in" });
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(saveAllocationCheckinMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /1 check-in waiting/ })).toBeInTheDocument();
+  });
+
+  it("exposes a close (X) control, per the shared Dialog primitive", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
+    const user = userEvent.setup();
+    renderGate();
+
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
+    expect(await screen.findByRole("button", { name: "Close" })).toBeInTheDocument();
   });
 });

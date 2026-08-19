@@ -2,6 +2,7 @@ import { AppSidebar } from "./app-sidebar";
 import { Topbar } from "./topbar";
 import { MobileIsland } from "./mobile-island";
 import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-gate";
+import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
 
 // The sync, fully client-testable half of the shell — AppShell (the server
 // component) fetches account/session data and hands it here. Split out
@@ -20,14 +21,16 @@ export function AppShellChrome({
   children: React.ReactNode;
 }) {
   return (
-    <div className="lg:flex lg:min-h-screen">
-      <AppSidebar account={account} />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <Topbar account={account} dateLabel={dateLabel} hasActiveLockIn={hasActiveLockIn} />
-        <main className="flex-1 pb-24 lg:pb-6">{children}</main>
+    <AllocationQueueProvider>
+      <div className="lg:flex lg:min-h-screen">
+        <AppSidebar account={account} />
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+          <Topbar account={account} dateLabel={dateLabel} hasActiveLockIn={hasActiveLockIn} />
+          <main className="flex-1 pb-24 lg:pb-6">{children}</main>
+        </div>
+        <MobileIsland />
+        <AllocationCheckinGate />
       </div>
-      <MobileIsland />
-      <AllocationCheckinGate />
-    </div>
+    </AllocationQueueProvider>
   );
 }
