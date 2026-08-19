@@ -98,3 +98,25 @@ export async function getWeeklySignalNoiseRatio(
   const display = computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0);
   return { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes, display };
 }
+
+/**
+ * Day- or week-scoped Signal:Noise, in minutes, from the allocation
+ * check-in system — Insights' donut (2026-08-19: converted off
+ * lib/insights/focus-map.ts's tag_type-based ratio, which now only feeds
+ * the Focus Map's own segments, a genuinely different data model). `anchor`
+ * must already be resolved to local midnight, same requirement as
+ * getWeeklySignalNoiseRatio's `weekStart`.
+ */
+export async function getSignalNoiseForRange(
+  userId: string,
+  range: "day" | "week",
+  anchor: Date,
+  dataSource: SnDataSource = defaultDataSource()
+): Promise<SignalNoiseResult> {
+  const rangeMs = (range === "week" ? 7 : 1) * 24 * 60 * 60 * 1000;
+  const end = new Date(anchor.getTime() + rangeMs);
+  const rows = await dataSource.getAllocations(userId, anchor.toISOString(), end.toISOString());
+  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows);
+  const display = computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0);
+  return { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes, display };
+}

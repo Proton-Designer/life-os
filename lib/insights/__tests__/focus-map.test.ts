@@ -41,7 +41,7 @@ describe("getFocusMap", () => {
     expect(schoolCoOp?.pct).toBeCloseTo(50, 0); // 2 of 4 answered check-ins
   });
 
-  it("includes other_work as its own Focus Map segment but excludes it from the global ratio", async () => {
+  it("includes other_work as its own Focus Map segment", async () => {
     const checkins = [
       { tag_type: "kill_list", answered: true },
       { tag_type: "other_work", answered: true },
@@ -53,11 +53,9 @@ describe("getFocusMap", () => {
     const otherWorkSegment = result.segments.find((s) => s.domain === "other_work");
     expect(otherWorkSegment).toBeDefined();
     expect(otherWorkSegment?.pct).toBeCloseTo(66.7, 0);
-    // Global ratio is signal(1) vs noise(0), other_work doesn't factor in.
-    expect(result.globalRatio).toBe("All Signal");
   });
 
-  it("returns raw counts alongside pct, for chart forms that scale by value (ranked bars, donut)", async () => {
+  it("returns raw counts alongside pct, for chart forms that scale by value (ranked bars)", async () => {
     const checkins = [
       { tag_type: "kill_list", answered: true },
       { tag_type: "kill_list", answered: true },
@@ -66,7 +64,5 @@ describe("getFocusMap", () => {
     const result = await getFocusMap("user-1", "week", new Date("2026-08-09T00:00:00Z"), dataSourceWith(checkins));
     const business = result.segments.find((s) => s.domain === "business");
     expect(business?.count).toBe(2);
-    expect(result.signal).toBe(2);
-    expect(result.noise).toBe(1);
   });
 });

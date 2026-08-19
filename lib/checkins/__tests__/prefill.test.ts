@@ -118,6 +118,30 @@ describe("derivePrefillAllocation", () => {
     expect(total % 15).toBe(0);
   });
 
+  // Re-confirmed 2026-08-19 per the Lead: the cap's guarantee is structural
+  // (proportional scale-down of whatever raw sum it's given always lands at
+  // or below the limit), so it holds regardless of what produced the raw
+  // values — but re-verified explicitly anyway now that Deen's input
+  // changed from window-overlap to logged-prayer-count, since a full
+  // Lock-In session plus several logged prayers in one window is exactly
+  // the combination that would have broken a less-structural cap.
+  it("stays below the window's own length for a long Lock-In session plus several logged prayers plus a workout", () => {
+    const fullSession: TimeRange = { start: window.start, end: window.end };
+    const result = derivePrefillAllocation(window, {
+      lockInSessions: [fullSession],
+      loggedPrayerTimes: [
+        new Date("2026-08-10T13:05:00Z"),
+        new Date("2026-08-10T13:35:00Z"),
+        new Date("2026-08-10T14:05:00Z"),
+      ],
+      workoutTime: new Date("2026-08-10T14:30:00Z"),
+    });
+    const total = result.deen + result.business + result.school + result.fitness + result.co_op;
+    expect(total).toBeLessThan(120);
+    expect(total).toBeLessThanOrEqual(105);
+    expect(total % 15).toBe(0);
+  });
+
   it("never rubber-stamps the window at 100% — a Lock-In session spanning the entire window alone still leaves at least one STEP wasted", () => {
     // Per the Lead's ruling (2026-08-19): pre-fill must never complete the
     // window, even when the real data genuinely covers all of it, so

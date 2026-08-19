@@ -9,6 +9,7 @@ import { getInsightsKpis } from "@/lib/insights/insights-kpis";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { getWeeklyCompletion } from "@/lib/home/get-weekly-completion";
 import { bucketSignalNoiseByWeek, type SnAllocationRow, type WeekBoundary } from "@/lib/business/sn-trend";
+import { getSignalNoiseForRange } from "@/lib/business/sn-ratio";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -100,7 +101,7 @@ export default async function InsightsPage({
   }));
 
   const supabase = await createClient();
-  const [{ segments, globalRatio, signal, noise }, kpis, weeklyCompletion, { data: snCheckinRows }] = await Promise.all([
+  const [{ segments }, kpis, weeklyCompletion, { data: snCheckinRows }, rangeSn] = await Promise.all([
     getFocusMap(userId, range, anchor),
     getInsightsKpis(userId, weekStart, previousWeekStart),
     getWeeklyCompletion(userId, now, profile),
@@ -110,18 +111,19 @@ export default async function InsightsPage({
       .eq("user_id", userId)
       .eq("kind", "allocation")
       .gte("window_start", snWeeks[0].weekStartIso),
+    getSignalNoiseForRange(userId, range, anchor),
   ]);
 
   const hasFocusData = segments.length > 0;
-  const hasSnData = signal + noise > 0;
   const domainSegments = segments.filter((s) => s.domain !== "noise" && s.domain !== "other_work");
 
-  // --- Signal:Noise by week (2026-08-19 Phase 4: allocation minutes, moved
-  // here from Business — once it counts every domain, sitting on the
-  // Business screen misrepresents what it measures). Distinct from the
-  // "Signal:Noise" donut above, which is the Focus Map's own
-  // tag-count-based global ratio for the day/week toggle — not yet
-  // migrated to the allocation system, a separate follow-up. ---
+  // --- Signal:Noise, allocation-minutes based (2026-08-19 Phase 4 + donut
+  // unification): the donut (rangeSn, this day/week) and the 6-week bar
+  // trend below now share one source — lib/business/sn-ratio.ts — instead
+  // of the donut reading getFocusMap's separate tag_type-count ratio.
+  // getFocusMap is segments-only now, still point-sample-based, and only
+  // feeds the Focus Map / Per-domain panels further down. ---
+  const hasSnData = rangeSn.signalMinutes + rangeSn.noiseMinutes > 0;
   const snAllocationRows: SnAllocationRow[] = (snCheckinRows ?? []).flatMap((c) =>
     (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes }))
   );
@@ -263,18 +265,23 @@ export default async function InsightsPage({
         <div className="lg:col-span-5">
           <Panel title="Signal:Noise">
             {hasSnData ? (
+              // Noise split into two slices, never merged — a heavy school
+              // week and a lost afternoon are nothing alike (spec,
+              // 2026-08-19). Wasted stays a neutral/muted color, never red:
+              // it's information, not an accusation.
               <DonutChart
                 slices={[
-                  { label: "Signal", value: signal, colorVar: "--series-business" },
-                  { label: "Noise", value: noise, colorVar: "--series-noise" },
+                  { label: "Signal", value: rangeSn.signalMinutes, colorVar: "--series-business" },
+                  { label: "Other commitments", value: rangeSn.otherCommitmentsMinutes, colorVar: "--series-noise" },
+                  { label: "Wasted", value: rangeSn.wastedMinutes, colorVar: "--series-other" },
                 ]}
-                centerLabel="Global ratio"
-                centerValue={globalRatio}
+                centerLabel="Ratio"
+                centerValue={rangeSn.display}
               />
             ) : (
               <EmptyState
                 icon={Volume2}
-                message="No check-ins answered in this range yet"
+                message="No allocation check-ins answered in this range yet"
                 action={{ label: "Start a Lock-In session", href: "/business" }}
               />
             )}

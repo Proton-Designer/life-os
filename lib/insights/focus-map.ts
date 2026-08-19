@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { computeRatioDisplay } from "./ratio-display";
 
 export type FocusMapDataSource = {
   getCheckins: (
@@ -11,9 +10,6 @@ export type FocusMapDataSource = {
 
 export type FocusMapResult = {
   segments: { domain: string; count: number; pct: number }[];
-  globalRatio: string;
-  signal: number;
-  noise: number;
 };
 
 export const SEGMENT_MAP: Record<string, string> = {
@@ -42,11 +38,17 @@ function defaultDataSource(): FocusMapDataSource {
 }
 
 /**
- * Day/week segmented breakdown of time by domain + Noise, per spec's Focus
- * Map. Missed (unanswered) check-ins are excluded entirely — same rule as
- * the S:N ratio. 'other_work' gets its own segment (real time spent, per
- * spec's "neutral" framing) but is excluded from the global ratio, same as
- * Business's weekly S:N ratio.
+ * Day/week segmented breakdown of time by domain, per spec's Focus Map —
+ * still point-sample/tag_type-based, distinct from the allocation-minutes
+ * Signal:Noise system (lib/business/sn-ratio.ts's getSignalNoiseForRange).
+ * Missed (unanswered) check-ins are excluded entirely. 'other_work' gets
+ * its own segment (real time spent, per spec's "neutral" framing).
+ *
+ * Deliberately segments-only (2026-08-19): this used to also compute a
+ * global Signal:Noise ratio for Insights' donut, but that's a different
+ * data model now — allocation minutes, not tag_type counts — so it moved
+ * to its own function rather than this one serving two masters. Only
+ * touch this function for Focus Map / RankedBars / Per-domain concerns.
  */
 export async function getFocusMap(
   userId: string,
@@ -73,9 +75,5 @@ export async function getFocusMap(
     pct: total === 0 ? 0 : (count / total) * 100,
   }));
 
-  const signal = answered.filter((c) => c.tag_type === "kill_list").length;
-  const noise = answered.filter((c) => c.tag_type === "noise").length;
-  const globalRatio = computeRatioDisplay(signal, noise, total > 0);
-
-  return { segments, globalRatio, signal, noise };
+  return { segments };
 }
