@@ -163,11 +163,7 @@ export default async function BusinessPage() {
             locked={false}
             onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
             emptyStateFraming={
-              <>
-                The one outcome this week is actually about — everything else should serve it. e.g.
-                headline &ldquo;Close the first paying customer,&rdquo; milestones &ldquo;Send 10
-                outreach emails,&rdquo; &ldquo;Book 3 calls.&rdquo;
-              </>
+              <>The one outcome this week is actually about — everything else should serve it.</>
             }
           />
         </div>
