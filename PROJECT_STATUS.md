@@ -1102,3 +1102,131 @@ Business section is now back to exactly the two unexplained blank forms the diag
 raises the weight on R2 (slot 1 open, slots 2–3 behind a permanent "+ add another") — a structural
 change to the module's *shape* rather than an explanatory paragraph beside it — which is still awaiting
 Ayman's ruling. See `docs/superpowers/specs/2026-08-18-business-brainstorm-synthesis.md` §5, §7.
+
+## 2026-08-19: the check-in allocation system — replacing point-samples with time allocation
+
+**Team**: Opus Lead (architecture/review/deploy), `axgjehh0` Engineer 1 (data/logic), `lorzr3x4`
+Engineer 2 (components/verification), `jazdm6pt` Engineer 3 (scheduling/metrics). All three
+re-registered with new peer IDs mid-session after going stale overnight.
+
+**Spec**: `docs/superpowers/specs/2026-08-19-checkin-allocation-system.md`.
+
+### Why the old model was thrown out
+
+Ayman killed the point-sample check-in with one observation: *"within a two hour period there can be
+a lot that happens… if I spend one hour forty just wasting time and the last twenty doing work, would
+I classify that entire two hour period as signal?"* He was right, and a second problem sat underneath
+it — **reactivity bias**: a prompt arriving is itself a nudge to start working, so prompts
+systematically land at "just started," inflating signal for reasons unrelated to the day.
+
+Replaced with an **allocation**: each 2-hour check-in distributes the window across domains in
+15-minute steps.
+
+### The finding that reshaped the build
+
+Queried production mid-session: **23 check-ins have ever existed. Zero answered. None generated since
+2026-08-15.** Signal:Noise had never had a single data point — every ratio ever displayed was computed
+from an empty set. Two causes: generation stopped when the global `CheckinScheduler` was unmounted on
+8/15 (the Lock-In replacement produced nothing — only 3 work sessions exist), and push notifications
+have never delivered, so nothing ever told him a check-in was waiting.
+
+**Consequence, applied to the design**: the retroactive queue is the *primary* path, not a fallback.
+A prompt requiring him to be looking at the app at 2pm sharp has a demonstrated 0% success rate.
+
+This also **corrects the 2026-08-18 Business analysis**, which called `checkins` "the richest table in
+the section." It is 23 unanswered rows. The Business screen has three empty modules, not two.
+
+### Signal:Noise, per Ayman's ruling
+
+**Signal = Deen + Business. Noise = School + Fitness + Co-op + Wasted. Sleep excluded entirely.** His
+framing: *"after deen, my priority is business… I can't include everything under signal, it has to be
+priority based."* A priority-allocation metric, not a productivity one.
+
+Two guards on it, both requirements rather than polish:
+- **The UI never labels School or Fitness as noise.** He taps the domain; the calculation applies the
+  weighting. A button that feels like a lie stops being pressed honestly.
+- **Noise always displays split** — `other commitments` vs `wasted`. Without it a heavy school week is
+  indistinguishable from a lost afternoon, and the metric silently pressures him to skip the gym.
+
+### Shipped
+
+`b87a48e` allocation math + schema · `c6b7621` scheduling (2h clock, suppression, retroactive queue,
+pre-fill) · `0a9a8d9` the component · `95c1f04` wiring · `05e6ecd` Signal:Noise recalculation + move to
+Insights + week-boundary fix · `c3e1697` `348bc85` `91d8b9a` bug fixes · `b901ca0` push-notification
+visibility · `7bd1142` badge+sheet + idempotent saves · `8018ff2` donut unification · `e42320c` the badge.
+
+### Bugs found and fixed — record these
+
+1. **`setMinutes` corrupted state permanently on `NaN`.** Found by the Lead running an adversarial
+   sweep against Engineer 1's module — 20,000 ops including hostile inputs. `Math.round(NaN/15)*15` is
+   `NaN` and every guard passed it through; once in, every subsequent operation returned `NaN`.
+   Reachable: `setMinutes` is the drag entry point, and a drag handler dividing pointer position by a
+   zero element width produces exactly that. **Why the property test missed it: it generated random
+   *valid* inputs.** Invariants held across 2,500 ops because none were hostile. Fixed (`c3e1697`) by
+   checking `isNaN` *after* rounding rather than `isFinite` up front, which preserves correct clamping
+   for `±Infinity`; generator extended to emit garbage ~20% of the time. Re-verified by the Lead at
+   50,000 ops.
+
+2. **Pre-fill treated prayer *validity windows* as time spent praying.** The worst bug in the build and
+   it would have shipped. `computePrayerWindows` returns validity ranges — measured against Ayman's real
+   coordinates, Dhuhr's is **220 minutes**, Isha's **472**. Every afternoon and evening check-in opened
+   pre-filled claiming **105 of 120 minutes on Deen** (the cap). And **Deen is on the signal side**, so
+   the rubber-stamp path would have produced a near-perfect Signal:Noise number that was pure fiction —
+   worse than the zero-data state, because zero is at least honestly zero. The `capBelowFullWindow`
+   guard didn't help: it capped at 105, and 105 was already the lie. Fixed (`348bc85`/`91d8b9a`):
+   Deen derives from **logged prayers** (`on_time`/`qada`) at one nominal STEP each, and the parameter
+   type changed to `loggedPrayerTimes: Date[]` so it can't be re-conflated. Same root cause produced a
+   second bug — prayer windows were computed and **never used for suppression at all**, so "don't
+   prompt during salah" wasn't implemented; fixed with short spans around prayer *times*, since
+   suppressing on a 220-minute window would silence most of the day. Note the asymmetry the fix
+   encodes: **suppression uses all prayer times (prospective), pre-fill uses only logged ones
+   (evidence).**
+
+3. **The check-in gate was inescapable.** v1 auto-opened a `fixed inset-0` overlay with no close, no
+   Escape, no focus trap, despite claiming `aria-modal="true"` — Ayman would have opened the app with
+   6 queued windows and been unable to reach Home without completing all six. **Engineer 2 hit this
+   personally** while verifying their own component, which is why their argument beat the Lead's:
+   a forcing function whose only exit is the action being measured doesn't produce compliance, it
+   produces the same fabricated data bug #2 was fixed to prevent, arriving through the interaction
+   instead of the data. The Lead's first instruction (add a dismiss control) was **superseded** by
+   Engineer 2's argument for a non-blocking badge + sheet, decided on asymmetry: a badge that
+   under-pressures is detectable in real data within a week and cheap to escalate; a gate that held the
+   app hostage on day one has already done its damage.
+
+4. **Saves were not idempotent.** No constraint prevented two `checkins` rows for the same window; a
+   reload mid-save, two tabs, or a client retry would double-count minutes and silently corrupt the
+   ratio with nothing on screen indicating anything wrong. Fixed with a partial unique index plus an
+   RPC `unique_violation` handler returning the existing id. **Verified by the Lead end-to-end** through
+   the real RPC with a real user JWT: three identical calls → one row, same id, correct values,
+   cascade-delete clean, test data removed.
+
+5. **Push notifications: the actual root cause, finally.** `push_subscriptions` is empty — no device has
+   ever registered — and `register-sw.tsx` ended in a bare `catch {}`, so the failure was **never
+   diagnosable by construction**. Engineer 3 found the likely cause: onboarding's "Enable notifications"
+   only *requested permission* and left the actual subscribe to a background effect that runs on a
+   later mount and only if permission was already granted. A user could grant permission and never
+   register, permanently, silently. Fixed (`b901ca0`): one shared `subscribeToPush()` that never throws
+   and returns a real reason on every failure path, onboarding runs the full flow, and Settings gained
+   the first recovery path that has ever existed. The Edge Function was **not** the blocker — it is
+   deployed and returns 200.
+
+### Overruled, and right to be
+
+- **Engineer 3 overruled the Lead's 4-hour expiry** for missed check-ins, arguing end-of-day: with real
+  pre-fill it's confirmation rather than free recall, so the memory-reliability premise weakened; it
+  still bounds the queue to one day; it matches Reflection's existing day-boundary convention; and a
+  longer fuse gives the only path that has ever worked more chances. Accepted.
+- **Engineer 2 overruled the Lead's dismissible-modal compromise** — see bug #3.
+- **Engineer 3 avoided a migration** by checking existing schema first: `profiles.checkin_window_start`
+  /`_end` and `checkin_interval_minutes` already existed with exactly the right semantics. The Lead had
+  already told Ayman new Settings work would be needed.
+
+### Still open
+
+- **The two Insights S:N surfaces are unified** (`8018ff2`) but `getFocusMap` was split rather than
+  shared — Focus Map remains `tag_type`-based and will stay empty until allocation data accumulates.
+- **Workouts have no duration column anywhere**, so pre-fill assumes a nominal 30 minutes. A real
+  product gap, flagged rather than papered over.
+- **Concurrent `next build` in the shared working tree collides** — both Engineer 2 and the Lead hit a
+  stale `.next` racing another agent's build and got misleading results. Separate worktrees per agent
+  remain the real answer.
