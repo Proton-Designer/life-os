@@ -40,6 +40,46 @@ export function rankCityMatches(exactMatches: CityRecord[], fallbackMatches: Cit
     .map(({ city, province, country, lat, lng, timezone }) => ({ city, province, country, lat, lng, timezone }));
 }
 
+/** ~11km grid — coarse enough to treat the same real city as one match
+ * across sources that format province/country differently (Open-Meteo:
+ * "United States"; city-timezones: "United States of America"), tight
+ * enough that two distinct same-named cities in different states don't
+ * collide. */
+function dedupeKey(c: Pick<CityRecord, "city" | "lat" | "lng">): string {
+  return `${c.city.toLowerCase().trim()}|${c.lat.toFixed(1)}|${c.lng.toFixed(1)}`;
+}
+
+/**
+ * Merges geocoded API results (primary, checked first) with local-dataset
+ * exact matches (supplement, never the broad fallback search — see
+ * localExactMatches's caller) into one list — used when the geocoding API
+ * answered at all, as opposed to `rankCityMatches`'s pure-local path used
+ * when it didn't. A collision between the two sources keeps the geocoded
+ * record: fresher and more complete.
+ *
+ * Deliberately does NOT sort by population, unlike rankCityMatches.
+ * Open-Meteo already returns results in real relevance order — confirmed
+ * live: querying "Anna" puts Anna, Spain / Anna, Russia / Anna, Texas
+ * ahead of Annaba, Algeria (pop 342,703 vs low four figures for the actual
+ * Annas), exactly the disambiguation this feature exists to preserve. A
+ * population sort here would bury every one of those under the one
+ * unrelated big city that happens to share a name prefix. Local-exact
+ * entries not already covered by the geocoded response are appended after,
+ * in whatever order they came in — there's no relevance ranking to
+ * preserve for a single supplemental override entry.
+ */
+export function combineCitySources(geocoded: CityRecord[], local: CityRecord[]): CityMatch[] {
+  const seen = new Map<string, CityRecord & { timezone: string }>();
+  for (const c of [...geocoded, ...local]) {
+    if (!c.timezone) continue;
+    const key = dedupeKey(c);
+    if (!seen.has(key)) seen.set(key, { ...c, timezone: c.timezone });
+  }
+  return Array.from(seen.values())
+    .slice(0, MAX_RESULTS)
+    .map(({ city, province, country, lat, lng, timezone }) => ({ city, province, country, lat, lng, timezone }));
+}
+
 /**
  * Geolocation gives coordinates only, no city name. Reverse geocoding
  * against an *external* service is off the table (per spec), but a nearest-

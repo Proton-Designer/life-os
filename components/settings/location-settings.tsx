@@ -166,7 +166,17 @@ export function LocationSettings({
       {candidates && candidates.length > 0 && (
         <ul className="flex flex-col gap-1">
           {candidates.map((c) => (
-            <li key={`${c.city}-${c.province}-${c.country}`}>
+            // lat/lng, not just city/province/country: real geocoding data
+            // can have two distinct places with identical city+province+
+            // country (confirmed live — Open-Meteo returns two different
+            // towns both named "McKinney, Arkansas, United States" at
+            // different coordinates for one query). A duplicate key across
+            // renders left a stale <li> from a PRIOR search's result stuck
+            // in the DOM after React failed to reconcile it correctly on
+            // the next search — confirmed via a client-side log showing the
+            // new candidates array was already clean, so this was a render
+            // bug, not a stale-data bug.
+            <li key={`${c.city}-${c.province}-${c.country}-${c.lat}-${c.lng}`}>
               <button
                 type="button"
                 disabled={isSaving}

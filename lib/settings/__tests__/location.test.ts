@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { rankCityMatches, formatCoordinateLabel, formatCityLabel, nearestCityLabel, type CityRecord } from "../location";
+import {
+  rankCityMatches,
+  combineCitySources,
+  formatCoordinateLabel,
+  formatCityLabel,
+  nearestCityLabel,
+  type CityRecord,
+} from "../location";
 
 function city(overrides: Partial<CityRecord> & Pick<CityRecord, "city" | "pop">): CityRecord {
   return {
@@ -61,6 +68,66 @@ describe("rankCityMatches", () => {
     const exact = [city({ city: "Chicago", pop: 5_000_000 })];
     const result = rankCityMatches(exact, []);
     expect(result[0]).not.toHaveProperty("pop");
+  });
+});
+
+describe("combineCitySources", () => {
+  it("returns geocoded and local results together when they don't overlap", () => {
+    const geocoded = [city({ city: "McKinney", province: "Texas", pop: 207_000, lat: 33.1976, lng: -96.6398 })];
+    const local = [city({ city: "Denton", province: "Texas", pop: 138_000, lat: 33.2148, lng: -97.1331 })];
+    const result = combineCitySources(geocoded, local);
+    expect(result.map((r) => r.city)).toEqual(["McKinney", "Denton"]);
+  });
+
+  it("dedupes the same real city across sources, preferring the geocoded record", () => {
+    // Same city, ~2km apart (rounds to the same key) and different country
+    // string formatting between sources — exactly the McKinney case.
+    const geocoded = [
+      city({ city: "McKinney", province: "Texas", country: "United States", pop: 162_898, lat: 33.19762, lng: -96.61527 }),
+    ];
+    const local = [
+      city({ city: "McKinney", province: "Texas", country: "United States of America", pop: 207_088, lat: 33.1972, lng: -96.6398 }),
+    ];
+    const result = combineCitySources(geocoded, local);
+    expect(result).toHaveLength(1);
+    expect(result[0].country).toBe("United States"); // the geocoded record won
+  });
+
+  it("does not dedupe two distinct cities that merely share a name", () => {
+    const geocoded = [city({ city: "Springfield", province: "Illinois", pop: 100_000, lat: 39.78, lng: -89.65 })];
+    const local = [city({ city: "Springfield", province: "Missouri", pop: 180_000, lat: 37.18, lng: -93.32 })];
+    const result = combineCitySources(geocoded, local);
+    expect(result).toHaveLength(2);
+  });
+
+  it("drops entries with no known timezone from either source", () => {
+    const geocoded = [city({ city: "Known", pop: 1000, timezone: "America/Chicago" })];
+    const local = [city({ city: "Unknown", pop: 5000, timezone: null })];
+    const result = combineCitySources(geocoded, local);
+    expect(result.map((r) => r.city)).toEqual(["Known"]);
+  });
+
+  it("preserves the geocoded source's own relevance order rather than re-sorting by population", () => {
+    // The actual bug this locks in: Open-Meteo ranks "Anna" name-matches
+    // ahead of "Annaba," a much bigger city that only partially matches.
+    // Sorting the merged list by population would undo that and bury every
+    // real "Anna" result under the unrelated big one.
+    const geocoded = [
+      city({ city: "Anna", province: "Valencia", country: "Spain", pop: 2_775, lat: 39.02, lng: -0.65 }),
+      city({ city: "Anna", province: "Voronezh Oblast", country: "Russia", pop: 19_148, lat: 51.49, lng: 40.42 }),
+      city({ city: "Anna", province: "Texas", country: "United States", pop: 11_463, lat: 33.35, lng: -96.55 }),
+      city({ city: "Annaba", province: "Annaba", country: "Algeria", pop: 342_703, lat: 36.9, lng: 7.77 }),
+    ];
+    const result = combineCitySources(geocoded, []);
+    expect(result.map((r) => r.city)).toEqual(["Anna", "Anna", "Anna", "Annaba"]);
+  });
+
+  it("caps the merged list at 8, geocoded results first", () => {
+    const geocoded = Array.from({ length: 5 }, (_, i) => city({ city: `Geo${i}`, pop: 0, lat: i, lng: i }));
+    const local = Array.from({ length: 5 }, (_, i) => city({ city: `Local${i}`, pop: 0, lat: i + 100, lng: i + 100 }));
+    const result = combineCitySources(geocoded, local);
+    expect(result).toHaveLength(8);
+    expect(result.map((r) => r.city)).toEqual(["Geo0", "Geo1", "Geo2", "Geo3", "Geo4", "Local0", "Local1", "Local2"]);
   });
 });
 
