@@ -58,6 +58,65 @@ function sumOverlapStepMinutes(window: AllocationWindow, ranges: TimeRange[]): n
   return Math.floor(total / STEP) * STEP;
 }
 
+/**
+ * Removes every explicitly-answered (Yes or No) hourly Lock-In confirm from
+ * `sessions` before they ever reach the coarse overlap-based business
+ * credit above — 2026-08-19, the double-count guard for the hourly
+ * confirm feature. An hour with its own precise, directly-written
+ * checkin_allocations row (business for Yes, wasted for No) must never
+ * ALSO be coarse-credited by session-overlap for the same 60 minutes, on
+ * either side: a "No" hour double-counted as business would silently
+ * reverse the very drift the confirm exists to catch, and a "Yes" hour
+ * would just double-count the same real minutes twice.
+ *
+ * A MISSED (unanswered) hour is deliberately left alone — not subtracted —
+ * and keeps falling back to the coarse credit exactly as it already did
+ * before this feature existed. That's a pre-existing, already-accepted
+ * inference (session presence implies probable business time); this
+ * function only ever *replaces* that inference with a more precise one
+ * where positive evidence (an explicit answer) exists, it never removes
+ * evidence that silence would otherwise still provide.
+ *
+ * Call once per queue-build with the day's confirmed hours, then pass the
+ * result as `lockInSessions` into every window's derivePrefillAllocation
+ * call — cheaper than re-subtracting per window, and keeps this function's
+ * signature independent of any single window.
+ */
+export function subtractConfirmedHours(sessions: TimeRange[], confirmedHourRanges: TimeRange[]): TimeRange[] {
+  const confirmed = confirmedHourRanges.filter((r): r is { start: Date; end: Date } => r.end !== null);
+  if (confirmed.length === 0) return sessions;
+
+  const result: TimeRange[] = [];
+  for (const session of sessions) {
+    let pieces: { start: number; end: number | null }[] = [
+      { start: session.start.getTime(), end: session.end ? session.end.getTime() : null },
+    ];
+
+    for (const c of confirmed) {
+      const cStart = c.start.getTime();
+      const cEnd = c.end.getTime();
+      const next: typeof pieces = [];
+      for (const p of pieces) {
+        const noOverlap = (p.end !== null && cEnd <= p.start) || cStart >= (p.end ?? Infinity);
+        if (noOverlap) {
+          next.push(p);
+          continue;
+        }
+        if (cStart > p.start) next.push({ start: p.start, end: cStart });
+        if (p.end === null) next.push({ start: cEnd, end: null });
+        else if (cEnd < p.end) next.push({ start: cEnd, end: p.end });
+      }
+      pieces = next;
+    }
+
+    for (const p of pieces) {
+      if (p.end !== null && p.end <= p.start) continue; // fully consumed
+      result.push({ start: new Date(p.start), end: p.end === null ? null : new Date(p.end) });
+    }
+  }
+  return result;
+}
+
 /** One NOMINAL_PRAYER_MINUTES step per logged prayer whose real clock time falls inside the window — never a fraction, never a guess at duration. */
 function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]): number {
   const count = loggedPrayerTimes.filter(

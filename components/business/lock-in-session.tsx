@@ -1,75 +1,62 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { computeSessionCheckinSlots } from "@/lib/checkins/compute-session-checkin-slots";
-import { recordMissedCheckin, getCheckinOptionsForNow } from "@/app/(app)/checkin/actions";
+import { confirmSessionHour } from "@/app/(app)/checkin/session-hour-actions";
 import { endWorkSession } from "@/app/(app)/business/actions";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
-import { CheckinPrompt } from "@/components/checkin/checkin-prompt";
+import { SessionHourConfirm } from "./session-hour-confirm";
 import { Button } from "@/components/ui/button";
-import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { featuredCardStyle } from "@/lib/featured-card-style";
-import type { CheckinOption } from "@/lib/checkins/types";
-
-// Signal (kill_list) is positive, noise is a warning, an unanswered/missed
-// slot is neutral — same semantic split established for Home's peek cards.
-const CHECKIN_VARIANT: Record<string, BadgeVariant> = {
-  kill_list: "positive",
-  noise: "warning",
-};
 
 const POLL_MS = 60 * 1000;
 const INTERVAL_MINUTES = 60;
 
-export type SessionCheckin = {
-  checkinTime: string;
-  tagType: string | null;
-  tagLabel: string | null;
-  answered: boolean;
-};
+/** An hourly confirm that was actually answered (Yes or No) — one real checkin_allocations row each, from confirmSessionHour. */
+export type SessionHourConfirmation = { hourStartIso: string; stillOnIt: boolean };
+
+// Client-only, never persisted — a missed hour deliberately writes nothing
+// (see session-hour-actions.ts's doc comment), so this is purely "what did
+// I see this tab session," not a durable record. Ayman's own note: nearly
+// free to surface, not worth a server round trip to make durable.
+type LocalMissedHour = { hourStartIso: string };
 
 export function LockInSession({
   sessionId,
   startedAtIso,
-  initialCheckins,
+  initialConfirmedHours,
   sessionSignalMinutes,
   sessionNoiseMinutes,
   onEnded,
 }: {
   sessionId: string;
   startedAtIso: string;
-  initialCheckins: SessionCheckin[];
-  // Real allocation minutes, not a tag_type count — same one Signal:Noise
-  // definition as every other surface (2026-08-19). Server-computed at
-  // load time; nothing in this component currently writes allocation data
-  // mid-session (the hourly prompt below still only writes the point-
-  // sample activity log), so this reads as "No data" until that lands —
-  // accurate, not a regression, given nothing has been measured this way
-  // yet during a live session.
+  initialConfirmedHours: SessionHourConfirmation[];
+  // Real allocation minutes from confirmSessionHour's own writes — the
+  // hourly confirm below is what actually populates these now (2026-08-19).
   sessionSignalMinutes: number;
   sessionNoiseMinutes: number;
   onEnded: () => void;
 }) {
   const startedAt = useMemo(() => new Date(startedAtIso), [startedAtIso]);
   const [now, setNow] = useState(startedAt);
-  const [checkins, setCheckins] = useState<SessionCheckin[]>(initialCheckins);
+  const [confirmedHours, setConfirmedHours] = useState<SessionHourConfirmation[]>(initialConfirmedHours);
+  const [missedHours, setMissedHours] = useState<LocalMissedHour[]>([]);
   const [dueSlot, setDueSlot] = useState<Date | null>(null);
-  const [options, setOptions] = useState<CheckinOption[]>([]);
+  const [offerEndAfterNo, setOfferEndAfterNo] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [isConfirming, startConfirming] = useTransition();
 
-  const answeredRef = useRef(
-    new Set(initialCheckins.filter((c) => c.answered).map((c) => new Date(c.checkinTime).getTime()))
-  );
-  const recordedMissedRef = useRef(
-    new Set(initialCheckins.filter((c) => !c.answered).map((c) => new Date(c.checkinTime).getTime()))
-  );
+  const answeredRef = useRef(new Set(initialConfirmedHours.map((c) => new Date(c.hourStartIso).getTime())));
+  const seenMissedRef = useRef(new Set<number>());
   const shownSlotRef = useRef<number | null>(null);
 
-  const check = useCallback(async () => {
+  const check = useCallback(() => {
     const nowDate = new Date();
 
     const result = computeSessionCheckinSlots(
@@ -81,15 +68,9 @@ export function LockInSession({
 
     for (const missed of result.missedSlots) {
       const t = missed.getTime();
-      if (!recordedMissedRef.current.has(t)) {
-        recordedMissedRef.current.add(t);
-        setCheckins((prev) => [
-          ...prev,
-          { checkinTime: missed.toISOString(), tagType: null, tagLabel: null, answered: false },
-        ]);
-        recordMissedCheckin(missed.toISOString(), sessionId).catch(() => {
-          recordedMissedRef.current.delete(t); // retry on next poll if the write failed
-        });
+      if (!seenMissedRef.current.has(t)) {
+        seenMissedRef.current.add(t);
+        setMissedHours((prev) => [...prev, { hourStartIso: missed.toISOString() }]);
       }
     }
 
@@ -102,10 +83,8 @@ export function LockInSession({
     if (shownSlotRef.current === dueTime) return; // already showing this slot
 
     shownSlotRef.current = dueTime;
-    const opts = await getCheckinOptionsForNow(nowDate.toISOString());
-    setOptions(opts);
     setDueSlot(result.dueSlot);
-  }, [startedAt, sessionId]);
+  }, [startedAt]);
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -137,6 +116,26 @@ export function LockInSession({
     }
   }
 
+  function handleAnswer(stillOnIt: boolean) {
+    if (!dueSlot) return;
+    const hourStartIso = dueSlot.toISOString();
+    answeredRef.current.add(dueSlot.getTime());
+    setConfirmedHours((prev) => [...prev, { hourStartIso, stillOnIt }]);
+    shownSlotRef.current = null;
+    setDueSlot(null);
+    // Offer, don't force (2026-08-19, per the Lead): he may genuinely be
+    // pausing for two minutes, not abandoning the session.
+    if (!stillOnIt) setOfferEndAfterNo(true);
+    startConfirming(async () => {
+      await confirmSessionHour(sessionId, hourStartIso, stillOnIt);
+    });
+  }
+
+  const activityLog = [
+    ...confirmedHours.map((c) => ({ time: c.hourStartIso, label: c.stillOnIt ? "Still on it" : "Not really", missed: false })),
+    ...missedHours.map((m) => ({ time: m.hourStartIso, label: "Missed", missed: true })),
+  ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
   return (
     <div
       data-testid="lock-in-session"
@@ -161,60 +160,46 @@ export function LockInSession({
           >
             {snDisplay}
           </div>
+          {missedHours.length > 0 && (
+            <div className="text-xs text-muted-foreground">{missedHours.length} unconfirmed</div>
+          )}
         </div>
       </div>
 
-      {checkins.length > 0 && (
+      {activityLog.length > 0 && (
         <ul data-testid="lock-in-checkin-list" className="flex flex-col gap-1.5 text-sm">
-          {checkins.map((c) => (
-            <li key={c.checkinTime} className="flex items-center justify-between">
+          {activityLog.map((entry) => (
+            <li key={entry.time} className="flex items-center justify-between">
               <span className="text-muted-foreground">
-                {new Date(c.checkinTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                {new Date(entry.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
               </span>
-              <Badge variant={c.answered ? (c.tagType ? CHECKIN_VARIANT[c.tagType] : "neutral") : "neutral"}>
-                {c.answered ? (c.tagLabel ?? c.tagType) : "Missed"}
+              <Badge variant={entry.missed ? "neutral" : entry.label === "Still on it" ? "positive" : "warning"}>
+                {entry.label}
               </Badge>
             </li>
           ))}
         </ul>
       )}
 
+      {dueSlot && <SessionHourConfirm onAnswer={handleAnswer} disabled={isConfirming} />}
+
+      {offerEndAfterNo && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 px-3 py-2 text-sm">
+          <span>End the session?</span>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={handleEndSession} disabled={isEnding}>
+              End session
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setOfferEndAfterNo(false)}>
+              Keep going
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Button type="button" variant="outline" onClick={handleEndSession} disabled={isEnding}>
         End session
       </Button>
-
-      {dueSlot && (
-        <CheckinPrompt
-          open
-          checkinTime={dueSlot.toISOString()}
-          intervalMinutes={INTERVAL_MINUTES}
-          options={options}
-          workSessionId={sessionId}
-          onAnswered={(option) => {
-            // No option means "Skip check-ins today" was pressed instead of
-            // an actual selection — nothing was recorded, so don't add a
-            // fabricated entry to the session's answered list.
-            if (option) {
-              answeredRef.current.add(dueSlot.getTime());
-              setCheckins((prev) => [
-                ...prev,
-                {
-                  checkinTime: dueSlot.toISOString(),
-                  tagType: option.tagType,
-                  tagLabel: option.label,
-                  answered: true,
-                },
-              ]);
-            }
-            shownSlotRef.current = null;
-            setDueSlot(null);
-          }}
-          onSnoozed={() => {
-            shownSlotRef.current = null;
-            setDueSlot(null);
-          }}
-        />
-      )}
     </div>
   );
 }

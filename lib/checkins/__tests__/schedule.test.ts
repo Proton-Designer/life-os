@@ -9,6 +9,7 @@ import {
   unknownCount,
   activeCadence,
   prayerSuppressionRanges,
+  isWindowCoveredBySessionHours,
   type AllocationWindow,
   type TimeRange,
 } from "../schedule";
@@ -235,5 +236,80 @@ describe("prayerSuppressionRanges", () => {
     const dhuhr = new Date("2026-08-10T19:55:00Z"); // 5 min before the window's natural fire time
     const fireTime = resolveFireTime(window, prayerSuppressionRanges([dhuhr]));
     expect(fireTime?.toISOString()).toBe(new Date("2026-08-10T20:10:00Z").toISOString()); // pushed to 19:55 + 15min
+  });
+});
+
+// 2026-08-19: hourly Lock-In confirms. Full-window coverage is the UX
+// shortcut (don't re-ask about a block already fully accounted for
+// hour-by-hour) — the actual double-count guard for a *partially* covered
+// window lives in prefill.ts's subtractConfirmedHours, per-hour, since a
+// window can be genuinely partially covered and this function alone can't
+// prevent double-crediting the still-uncovered portion.
+describe("isWindowCoveredBySessionHours", () => {
+  const window: AllocationWindow = {
+    start: new Date("2026-08-10T13:00:00Z"),
+    end: new Date("2026-08-10T15:00:00Z"),
+  };
+
+  it("is false with no confirmed hours", () => {
+    expect(isWindowCoveredBySessionHours(window, [])).toBe(false);
+  });
+
+  it("is true when two back-to-back confirmed hours exactly span the window", () => {
+    const hours: TimeRange[] = [
+      { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
+      { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") },
+    ];
+    expect(isWindowCoveredBySessionHours(window, hours)).toBe(true);
+  });
+
+  it("is false when only part of the window is covered (the partial-coverage case)", () => {
+    const hours: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") }];
+    expect(isWindowCoveredBySessionHours(window, hours)).toBe(false);
+  });
+
+  it("is true when a single confirmed range spans past both ends of the window", () => {
+    const hours: TimeRange[] = [{ start: new Date("2026-08-10T12:30:00Z"), end: new Date("2026-08-10T15:30:00Z") }];
+    expect(isWindowCoveredBySessionHours(window, hours)).toBe(true);
+  });
+
+  it("merges adjacent confirmed hours before checking coverage", () => {
+    const hours: TimeRange[] = [
+      { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }, // out of order on purpose
+      { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
+    ];
+    expect(isWindowCoveredBySessionHours(window, hours)).toBe(true);
+  });
+
+  it("ignores an open-ended (still-active) hour range — coverage requires a concrete end", () => {
+    const hours: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: null }];
+    expect(isWindowCoveredBySessionHours(window, hours)).toBe(false);
+  });
+
+  it("is false when confirmed hours are adjacent to but don't overlap the window", () => {
+    const hours: TimeRange[] = [{ start: new Date("2026-08-10T11:00:00Z"), end: new Date("2026-08-10T13:00:00Z") }];
+    expect(isWindowCoveredBySessionHours(window, hours)).toBe(false);
+  });
+});
+
+describe("resolveAllocationSlots — confirmedSessionHourRanges", () => {
+  const bounds = { wakeTime: "08:00", sleepTime: "22:00" };
+
+  it("marks a window covered by confirmed session hours as answered, never queued", () => {
+    const now = new Date("2026-08-10T15:30:00Z"); // 10:30 CDT — the 08-10 window has closed
+    const slots = resolveAllocationSlots({
+      dateStr: "2026-08-10",
+      bounds,
+      timezone: TZ,
+      suppressionRanges: [],
+      now,
+      answeredWindowStarts: [],
+      confirmedSessionHourRanges: [
+        { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
+        { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") },
+      ],
+    });
+    expect(slots[0].outcome).toBe("answered");
+    expect(pendingQueue(slots)).toHaveLength(0);
   });
 });

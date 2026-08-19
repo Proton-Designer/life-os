@@ -126,6 +126,35 @@ export function resolveFireTime(window: AllocationWindow, suppressionRanges: Tim
   return candidate;
 }
 
+/**
+ * True if every minute of `window` falls inside at least one of
+ * `confirmedHourRanges` — the hourly Lock-In confirms, each an explicitly
+ * answered (Yes or No) 60-minute span. Used to skip queuing a 2h window
+ * that's already been fully accounted for hour-by-hour, so it isn't
+ * re-asked about. Ranges are merged/coalesced first so adjacent or
+ * overlapping hours combine into one continuous covered span before the
+ * containment check.
+ */
+export function isWindowCoveredBySessionHours(window: AllocationWindow, confirmedHourRanges: TimeRange[]): boolean {
+  const concrete = confirmedHourRanges.filter(
+    (r): r is { start: Date; end: Date } => r.end !== null
+  );
+  if (concrete.length === 0) return false;
+
+  const sorted = [...concrete].sort((a, b) => a.start.getTime() - b.start.getTime());
+  const merged: { start: Date; end: Date }[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.start.getTime() <= last.end.getTime()) {
+      if (range.end.getTime() > last.end.getTime()) last.end = range.end;
+    } else {
+      merged.push({ ...range });
+    }
+  }
+
+  return merged.some((r) => r.start.getTime() <= window.start.getTime() && r.end.getTime() >= window.end.getTime());
+}
+
 export type AllocationSlotOutcome = "upcoming" | "pending_queue" | "expired_unknown" | "answered";
 
 export type AllocationSlot = {
@@ -159,8 +188,10 @@ export function resolveAllocationSlots(opts: {
   now: Date;
   /** Window start times already answered, exact instant match. */
   answeredWindowStarts: Date[];
+  /** Explicitly-answered (Yes or No) hourly Lock-In confirms — a window fully covered by these is treated as answered too, so it's never re-asked about. */
+  confirmedSessionHourRanges?: TimeRange[];
 }): AllocationSlot[] {
-  const { dateStr, bounds, timezone, suppressionRanges, now, answeredWindowStarts } = opts;
+  const { dateStr, bounds, timezone, suppressionRanges, now, answeredWindowStarts, confirmedSessionHourRanges } = opts;
 
   const windows = computeAllocationWindows(dateStr, bounds, timezone);
   const answered = new Set(answeredWindowStarts.map((d) => d.getTime()));
@@ -168,7 +199,10 @@ export function resolveAllocationSlots(opts: {
   const dayIsOver = dateStr < nowDateStr;
 
   return windows.map((window) => {
-    if (answered.has(window.start.getTime())) {
+    if (
+      answered.has(window.start.getTime()) ||
+      isWindowCoveredBySessionHours(window, confirmedSessionHourRanges ?? [])
+    ) {
       return { window, fireTime: window.end, outcome: "answered" };
     }
 

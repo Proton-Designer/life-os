@@ -2,14 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { startWorkSession } from "@/app/(app)/business/actions";
-import { LockInSession, type SessionCheckin } from "./lock-in-session";
+import { LockInSession, type SessionHourConfirmation } from "./lock-in-session";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { Button } from "@/components/ui/button";
 
 export type ActiveSessionData = {
   id: string;
   startedAtIso: string;
-  checkins: SessionCheckin[];
+  confirmedHours: SessionHourConfirmation[];
   sessionSignalMinutes: number;
   sessionNoiseMinutes: number;
 };
@@ -53,7 +53,7 @@ export function LockInPanel({
       <LockInSession
         sessionId={session.id}
         startedAtIso={session.startedAtIso}
-        initialCheckins={session.checkins}
+        initialConfirmedHours={session.confirmedHours}
         sessionSignalMinutes={session.sessionSignalMinutes}
         sessionNoiseMinutes={session.sessionNoiseMinutes}
         onEnded={() => setSession(null)}
@@ -67,7 +67,7 @@ export function LockInPanel({
       setSession({
         id: result.id,
         startedAtIso: result.startedAt,
-        checkins: [],
+        confirmedHours: [],
         sessionSignalMinutes: 0,
         sessionNoiseMinutes: 0,
       });

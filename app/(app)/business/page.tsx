@@ -71,39 +71,35 @@ export default async function BusinessPage() {
 
   let activeSession: ActiveSessionData | null = null;
   if (activeSessionRow) {
-    // Two separate queries on purpose: checkin_time/tag_type/tag_label is
-    // the session's own activity LOG (each check-in's label, e.g. "Kill
-    // list: draft proposal") — a legitimate point-sample use, unrelated to
-    // the ratio, and it stays exactly as-is. The ratio itself must come
-    // from checkin_allocations, same one definition as every other
-    // Signal:Noise surface (2026-08-19).
-    const [{ data: sessionCheckins }, { data: sessionAllocationRows }] = await Promise.all([
-      supabase
-        .from("checkins")
-        .select("checkin_time, tag_type, tag_label, answered")
-        .eq("user_id", userId)
-        .eq("work_session_id", activeSessionRow.id)
-        .order("checkin_time", { ascending: true }),
-      supabase
-        .from("checkins")
-        .select("checkin_allocations(domain, minutes)")
-        .eq("user_id", userId)
-        .eq("work_session_id", activeSessionRow.id)
-        .eq("kind", "allocation")
-        .eq("answered", true),
-    ]);
-    const sessionAllocations = (sessionAllocationRows ?? []).flatMap((c) => c.checkin_allocations ?? []);
+    // One query serves both the ratio AND the hourly-confirm activity log
+    // now (2026-08-19) — the hourly confirm writes real checkin_allocations
+    // rows (kind='allocation'), so there's no separate point-sample
+    // activity log to preserve anymore; the old tag_type/tag_label query
+    // read a write path this session no longer uses.
+    const { data: sessionAllocationRows } = await supabase
+      .from("checkins")
+      .select("window_start, checkin_allocations(domain, minutes)")
+      .eq("user_id", userId)
+      .eq("work_session_id", activeSessionRow.id)
+      .eq("kind", "allocation")
+      .eq("answered", true)
+      .order("window_start", { ascending: true });
+
+    const rows = sessionAllocationRows ?? [];
+    const sessionAllocations = rows.flatMap((r) => r.checkin_allocations ?? []);
     const { signalMinutes: sessionSignalMinutes, noiseMinutes: sessionNoiseMinutes } =
       bucketAllocationMinutes(sessionAllocations);
+    const confirmedHours: ActiveSessionData["confirmedHours"] = rows
+      .filter((r) => r.window_start)
+      .map((r) => ({
+        hourStartIso: r.window_start as string,
+        stillOnIt: (r.checkin_allocations ?? []).some((a) => a.domain === "business"),
+      }));
+
     activeSession = {
       id: activeSessionRow.id,
       startedAtIso: activeSessionRow.started_at,
-      checkins: (sessionCheckins ?? []).map((c) => ({
-        checkinTime: c.checkin_time,
-        tagType: c.tag_type,
-        tagLabel: c.tag_label,
-        answered: c.answered,
-      })),
+      confirmedHours,
       sessionSignalMinutes,
       sessionNoiseMinutes,
     };

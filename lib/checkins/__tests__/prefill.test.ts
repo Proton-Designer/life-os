@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivePrefillAllocation } from "../prefill";
+import { derivePrefillAllocation, subtractConfirmedHours } from "../prefill";
 import type { AllocationWindow, TimeRange } from "../schedule";
 
 const window: AllocationWindow = {
@@ -230,5 +230,90 @@ describe("derivePrefillAllocation", () => {
     const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:30:00Z") };
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.business).toBe(30);
+  });
+});
+
+// 2026-08-19: hourly Lock-In confirms — the double-count guard. Per-hour,
+// not per-window (a session can be partially covered by confirmed hours
+// with the remainder still eligible for the coarse overlap credit; see
+// schedule.ts's isWindowCoveredBySessionHours for the window-level UX
+// shortcut on top of this).
+describe("subtractConfirmedHours", () => {
+  it("removes a confirmed hour from the middle of a longer session, leaving the rest", () => {
+    // Session 1pm-4pm; hours 1-2pm and 2-3pm explicitly confirmed.
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T16:00:00Z") };
+    const confirmed: TimeRange[] = [
+      { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
+      { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") },
+    ];
+    const result = subtractConfirmedHours([session], confirmed);
+    expect(result).toEqual([{ start: new Date("2026-08-10T15:00:00Z"), end: new Date("2026-08-10T16:00:00Z") }]);
+  });
+
+  it("splits a session into two remaining pieces when a confirmed hour falls in the middle", () => {
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T16:00:00Z") };
+    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }];
+    const result = subtractConfirmedHours([session], confirmed);
+    expect(result).toEqual([
+      { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
+      { start: new Date("2026-08-10T15:00:00Z"), end: new Date("2026-08-10T16:00:00Z") },
+    ]);
+  });
+
+  it("returns the session unchanged when no hours are confirmed", () => {
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") };
+    expect(subtractConfirmedHours([session], [])).toEqual([session]);
+  });
+
+  it("returns nothing when the confirmed hours fully cover the session", () => {
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") };
+    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }];
+    expect(subtractConfirmedHours([session], confirmed)).toEqual([]);
+  });
+
+  it("handles a still-active (open-ended) session, keeping it open past the last confirmed hour", () => {
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: null };
+    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") }];
+    const result = subtractConfirmedHours([session], confirmed);
+    expect(result).toEqual([{ start: new Date("2026-08-10T14:00:00Z"), end: null }]);
+  });
+
+  it("leaves a session untouched when the confirmed hour doesn't overlap it at all", () => {
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") };
+    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T16:00:00Z"), end: new Date("2026-08-10T17:00:00Z") }];
+    expect(subtractConfirmedHours([session], confirmed)).toEqual([session]);
+  });
+
+  it("processes multiple sessions independently", () => {
+    const sessionA: TimeRange = { start: new Date("2026-08-10T09:00:00Z"), end: new Date("2026-08-10T10:00:00Z") };
+    const sessionB: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") };
+    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") }];
+    const result = subtractConfirmedHours([sessionA, sessionB], confirmed);
+    expect(result).toEqual([sessionA, { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }]);
+  });
+
+  // The actual scenario from the design discussion: a "No" at 3pm-4pm must
+  // not also be coarse-credited as business via the session-overlap
+  // pre-fill for a 2h window straddling it.
+  it("end to end: a declined hour inside a still-active session is excluded from that window's business overlap credit", () => {
+    const window: AllocationWindow = {
+      start: new Date("2026-08-10T15:00:00Z"),
+      end: new Date("2026-08-10T17:00:00Z"),
+    };
+    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: null }; // still active
+    const declinedHour: TimeRange = { start: new Date("2026-08-10T15:00:00Z"), end: new Date("2026-08-10T16:00:00Z") };
+
+    const adjustedSessions = subtractConfirmedHours([session], [declinedHour]);
+    const result = derivePrefillAllocation(window, {
+      lockInSessions: adjustedSessions,
+      loggedPrayerTimes: [],
+      workoutLoggedToday: false,
+      scheduledWorkoutTime: null,
+      scheduledWorkoutDurationMinutes: null,
+    });
+    // Without the subtraction this would be 120 (full window inside the
+    // open session); with it, only the still-open 16:00-17:00 portion
+    // counts toward the coarse credit.
+    expect(result.business).toBe(60);
   });
 });

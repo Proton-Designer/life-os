@@ -8,9 +8,8 @@ vi.mock("@/app/(app)/business/actions", () => ({
 vi.mock("@/lib/checkins/compute-session-checkin-slots", () => ({
   computeSessionCheckinSlots: () => ({ dueSlot: null, missedSlots: [] }),
 }));
-vi.mock("@/app/(app)/checkin/actions", () => ({
-  recordMissedCheckin: vi.fn(),
-  getCheckinOptionsForNow: vi.fn(async () => []),
+vi.mock("@/app/(app)/checkin/session-hour-actions", () => ({
+  confirmSessionHour: vi.fn(),
 }));
 
 import { LockInPanel } from "../lock-in-panel";
@@ -43,7 +42,7 @@ describe("LockInPanel", () => {
         initialSession={{
           id: "s1",
           startedAtIso: "2026-08-15T14:00:00Z",
-          checkins: [],
+          confirmedHours: [],
           sessionSignalMinutes: 0,
           sessionNoiseMinutes: 0,
         }}
