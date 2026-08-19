@@ -6,6 +6,7 @@ import {
   resolveAllocationSlots,
   pendingQueue,
   unknownCount,
+  prayerSuppressionRanges,
   type AllocationSlot,
   type TimeRange,
   type WakeSleepBounds,
@@ -38,6 +39,8 @@ export type AllocationQueueDataSource = {
   getWorkSessions: (userId: string, dateStr: string, timezone: string) => Promise<TimeRange[]>;
   getWorkoutTime: (userId: string, dateStr: string, timezone: string) => Promise<Date | null>;
   getAnsweredWindowStarts: (userId: string, dateStr: string, timezone: string) => Promise<Date[]>;
+  /** Prayer names logged today with a real (non-missed, non-pending) status — the caller maps these to actual clock times via computePrayerWindows. */
+  getLoggedPrayerNames: (userId: string, dateStr: string) => Promise<string[]>;
 };
 
 function defaultDataSource(): AllocationQueueDataSource {
@@ -92,6 +95,16 @@ function defaultDataSource(): AllocationQueueDataSource {
         .lt("window_start", dayEnd);
       return (data ?? []).filter((r) => r.window_start).map((r) => new Date(r.window_start as string));
     },
+    async getLoggedPrayerNames(userId, dateStr) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("prayers")
+        .select("prayer_name")
+        .eq("user_id", userId)
+        .eq("date", dateStr)
+        .in("status", ["on_time", "qada"]);
+      return (data ?? []).map((r) => r.prayer_name);
+    },
   };
 }
 
@@ -101,14 +114,11 @@ function defaultDataSource(): AllocationQueueDataSource {
  * Phase 1-3 handoff left unassigned: schedule.ts and prefill.ts are pure and
  * know nothing about Supabase.
  *
- * Suppression ranges feed resolveAllocationSlots as Lock-In sessions only —
- * prayer windows are NOT suppression (a prayer doesn't block the allocation
- * clock the way a Lock-In session or explicit recurring block does; the
- * spec's suppression list is "a prayer window, a user-defined recurring
- * block... or an active Lock-In session" for schedule.ts's own purposes, but
- * prayer windows contribute to *pre-fill*, not to delaying a window's fire
- * time — nothing in the spec asks a check-in to wait out a prayer window the
- * way it waits out an active session).
+ * Suppression ranges feed resolveAllocationSlots as Lock-In sessions plus a
+ * short nominal span around every one of today's prayer times
+ * (prayerSuppressionRanges, schedule.ts) — deliberately NOT the full
+ * multi-hour validity window computePrayerWindows returns, which would
+ * silence most of the afternoon (Dhuhr's window alone runs 3+ hours).
  */
 export async function getPendingAllocationQueue(
   userId: string,
@@ -125,13 +135,27 @@ export async function getPendingAllocationQueue(
     sleepTime: profile.checkin_window_end.slice(0, 5),
   };
 
-  const [lockInSessions, workoutTime, answeredWindowStarts] = await Promise.all([
+  const [lockInSessions, workoutTime, answeredWindowStarts, loggedPrayerNames] = await Promise.all([
     dataSource.getWorkSessions(userId, dateStr, timezone),
     dataSource.getWorkoutTime(userId, dateStr, timezone),
     dataSource.getAnsweredWindowStarts(userId, dateStr, timezone),
+    dataSource.getLoggedPrayerNames(userId, dateStr),
   ]);
 
-  let prayerWindows: TimeRange[] = [];
+  // Prayer TIMES (window.start), not the hours-long validity windows
+  // computePrayerWindows returns (Dhuhr's is ~220min, Isha's ~472min) — a
+  // prior version of this file passed the raw windows straight through as
+  // pre-fill overlap ranges, which credited Deen with the entire window's
+  // overlap (~105/120 min on every afternoon check-in) regardless of
+  // whether a prayer was ever actually logged. Found by the Opus Lead's
+  // review against Ayman's real coordinates before this shipped.
+  //
+  // Two different sets, per schedule.ts's own split: `loggedPrayerTimes`
+  // (pre-fill, only prayers actually logged on_time/qada) vs every one of
+  // today's computed prayer times (suppression, prospective — applies
+  // whether or not it's been logged yet — via prayerSuppressionRanges).
+  let loggedPrayerTimes: Date[] = [];
+  let allPrayerTimes: Date[] = [];
   if (profile.location_lat !== null && profile.location_lng !== null) {
     const windows = computePrayerWindows({
       date: now,
@@ -141,12 +165,15 @@ export async function getPendingAllocationQueue(
       calcMethod: profile.prayer_calc_method as CalcMethod,
       asrMadhab: profile.asr_madhab as AsrMadhab,
     });
-    prayerWindows = Object.values(windows)
+    allPrayerTimes = Object.values(windows)
       .filter((w): w is { start: Date; end: Date } => w !== null)
-      .map((w) => ({ start: w.start, end: w.end as Date | null }));
+      .map((w) => w.start);
+    loggedPrayerTimes = loggedPrayerNames
+      .map((name) => windows[name as keyof typeof windows]?.start ?? null)
+      .filter((d): d is Date => d !== null);
   }
 
-  const suppressionRanges: TimeRange[] = lockInSessions;
+  const suppressionRanges: TimeRange[] = [...lockInSessions, ...prayerSuppressionRanges(allPrayerTimes)];
 
   const slots: AllocationSlot[] = resolveAllocationSlots({
     dateStr,
@@ -162,7 +189,7 @@ export async function getPendingAllocationQueue(
   const items: PendingAllocationItem[] = pending.map((slot) => {
     const prefill = derivePrefillAllocation(slot.window, {
       lockInSessions,
-      prayerWindows,
+      loggedPrayerTimes,
       workoutTime,
     });
     return {

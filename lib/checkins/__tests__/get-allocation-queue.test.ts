@@ -15,6 +15,7 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
     getWorkSessions: async () => [],
     getWorkoutTime: async () => null,
     getAnsweredWindowStarts: async () => [],
+    getLoggedPrayerNames: async () => [],
     ...overrides,
   };
 }
@@ -61,6 +62,39 @@ describe("getPendingAllocationQueue", () => {
       })
     );
     expect(result.items).toEqual([]);
+  });
+
+  // Regression for the bug the Opus Lead caught before ship: passing
+  // computePrayerWindows' full validity windows straight through as
+  // pre-fill overlap credited Deen with ~105/120 min on every afternoon
+  // check-in (Dhuhr's window alone runs ~220min), regardless of whether a
+  // prayer was ever logged. Only a logged prayer's actual clock time,
+  // capped at one nominal STEP, may contribute now.
+  it("caps the Deen prefill at one nominal STEP per logged prayer, never full validity-window overlap", async () => {
+    const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — inside the 14:00-16:00 window
+    const result = await getPendingAllocationQueue(
+      "user-1",
+      now,
+      baseDataSource({
+        getProfile: async () => ({
+          timezone: "America/Chicago",
+          checkin_window_start: "08:00",
+          checkin_window_end: "22:00",
+          location_lat: 33.1972, // McKinney, TX — real coordinates, not a stub
+          location_lng: -96.6398,
+          prayer_calc_method: "ISNA",
+          asr_madhab: "standard",
+        }),
+        getLoggedPrayerNames: async () => ["dhuhr"], // logged, so it should count, but only for one STEP
+      })
+    );
+
+    // Every item's deen prefill must be far below the old bug's ~105/120 —
+    // one STEP (15) is the ceiling a single logged prayer can contribute.
+    expect(result.items.length).toBeGreaterThan(0);
+    for (const item of result.items) {
+      expect(item.prefill.deen).toBeLessThanOrEqual(15);
+    }
   });
 
   it("passes the profile's own timezone through on the result", async () => {
