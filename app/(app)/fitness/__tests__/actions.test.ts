@@ -94,6 +94,24 @@ describe("Fitness actions", () => {
     );
   });
 
+  it("setWorkoutSchedule upserts duration_minutes when given, and null when omitted", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { setWorkoutSchedule } = await import("../actions");
+
+    await setWorkoutSchedule(1, "Push", "18:00", 75);
+    expect(chain.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ duration_minutes: 75 }),
+      expect.anything()
+    );
+
+    await setWorkoutSchedule(2, "Legs", "18:00");
+    expect(chain.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ duration_minutes: null }),
+      expect.anything()
+    );
+  });
+
   it("setWorkoutSchedule revalidates '/' too — Home reads workout_schedule via getWorkoutSchedule", async () => {
     const chain = makeChain();
     fromImpl = () => chain;

@@ -55,7 +55,9 @@ export async function removeHabit(habitId: string): Promise<void> {
 export async function setWorkoutSchedule(
   dayOfWeek: number,
   workoutName: string | null,
-  time: string | null
+  time: string | null,
+  /** Null means "not specified" — falls back to the nominal 30m in the check-in pre-fill (lib/checkins/prefill.ts), not an error and not coerced to a default here. */
+  durationMinutes: number | null = null
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
 
@@ -68,7 +70,7 @@ export async function setWorkoutSchedule(
     if (error) throw error;
   } else {
     const { error } = await supabase.from("workout_schedule").upsert(
-      { user_id: userId, day_of_week: dayOfWeek, workout_name: workoutName, time },
+      { user_id: userId, day_of_week: dayOfWeek, workout_name: workoutName, time, duration_minutes: durationMinutes },
       { onConflict: "user_id,day_of_week" }
     );
     if (error) throw error;

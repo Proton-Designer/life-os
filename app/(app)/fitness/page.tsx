@@ -8,7 +8,7 @@ import { buildHabitConsistencyRows } from "@/lib/fitness/habit-consistency";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { accentForActivityCount } from "@/lib/kpi-value-accent";
 import { HabitList, type HabitData } from "@/components/fitness/habit-list";
-import { WorkoutWeekGrid } from "@/components/fitness/workout-week-grid";
+import { WorkoutWeekGrid, type ScheduledWorkout } from "@/components/fitness/workout-week-grid";
 import { AdhocWorkoutForm } from "@/components/fitness/adhoc-workout-form";
 import { TodayWorkoutCard } from "@/components/fitness/today-workout-card";
 import { PageContainer } from "@/components/shell/page-container";
@@ -53,7 +53,7 @@ export default async function FitnessPage() {
         .select("habit_id, date, completed")
         .eq("user_id", userId)
         .gte("date", thirtyDaysAgoStr),
-      supabase.from("workout_schedule").select("day_of_week, workout_name").eq("user_id", userId),
+      supabase.from("workout_schedule").select("day_of_week, workout_name, duration_minutes").eq("user_id", userId),
       // One 60-day range serves today's log check, this week's count, this
       // month's count, and the streak — sliced in memory rather than four
       // separate queries.
@@ -81,8 +81,9 @@ export default async function FitnessPage() {
     dateStr
   );
 
-  const schedule: (string | null)[] = Array.from({ length: 7 }, (_, dayOfWeek) => {
-    return scheduleRows?.find((s) => s.day_of_week === dayOfWeek)?.workout_name ?? null;
+  const schedule: (ScheduledWorkout | null)[] = Array.from({ length: 7 }, (_, dayOfWeek) => {
+    const row = scheduleRows?.find((s) => s.day_of_week === dayOfWeek);
+    return row ? { workoutName: row.workout_name, durationMinutes: row.duration_minutes } : null;
   });
   const scheduledDaysThisWeek = schedule.filter(Boolean).length;
 
@@ -92,7 +93,7 @@ export default async function FitnessPage() {
   const workoutStreak = computeHabitStreak(workoutDates, dateStr);
   const loggedToday = workoutDates.includes(dateStr);
   const todayDayOfWeek = new Date(`${dateStr}T00:00:00Z`).getUTCDay();
-  const todayScheduledName = schedule[todayDayOfWeek] ?? null;
+  const todayScheduledName = schedule[todayDayOfWeek]?.workoutName ?? null;
 
   return (
     <PageContainer>
