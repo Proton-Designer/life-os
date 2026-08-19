@@ -772,6 +772,15 @@ export type Database = {
         }
         Returns: string
       }
+      upsert_session_hour: {
+        Args: {
+          p_domain: string
+          p_session_id: string
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
