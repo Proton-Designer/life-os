@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { MapPin, Moon, Bell, type LucideIcon } from "lucide-react";
 import { completeOnboarding } from "@/app/(app)/onboarding/actions";
+import { subscribeToPush } from "@/lib/pwa/push-subscribe";
 import { IosInstallPrompt } from "./ios-install-prompt";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -68,13 +69,18 @@ export function OnboardingWizard() {
   }
 
   async function enableNotifications() {
-    if (typeof Notification !== "undefined") {
-      try {
-        await Notification.requestPermission();
-      } catch {
-        // Permission API unsupported or blocked — fall back silently to
-        // the in-app badge fallback (Phase 14), not a blocking error here.
-      }
+    // Runs the FULL subscribe flow (permission -> service worker -> push
+    // subscription -> POST to the server) here, not just the permission
+    // ask — this used to only call Notification.requestPermission() and
+    // rely on register-sw.tsx's background effect to pick up the grant on
+    // a later page load, which is exactly the kind of silent gap that led
+    // to zero devices ever registering in production. The result is
+    // deliberately not surfaced here (a failure shouldn't block finishing
+    // onboarding); it's logged, and Settings offers a retry with the real
+    // reason visible.
+    const result = await subscribeToPush();
+    if (!result.ok) {
+      console.error("[push] onboarding subscribe failed:", result.reason);
     }
     finish();
   }

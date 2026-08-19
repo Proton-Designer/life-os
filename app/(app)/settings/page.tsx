@@ -1,14 +1,17 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { SettingsForm, type SettingsFormData } from "@/components/settings/settings-form";
+import { NotificationSettings } from "@/components/settings/notification-settings";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { Panel } from "@/components/ui/panel";
 
 const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "prayer", label: "Prayer" },
   { id: "location", label: "Location" },
   { id: "checkins", label: "Check-ins" },
+  { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
 ];
@@ -45,24 +48,29 @@ export default async function SettingsPage() {
             ))}
           </ul>
         </nav>
-        <SettingsForm
-          email={user.email ?? ""}
-          initial={{
-            displayName: profile?.display_name ?? "",
-            prayerCalcMethod: (profile?.prayer_calc_method as SettingsFormData["prayerCalcMethod"]) ?? "MWL",
-            asrMadhab: (profile?.asr_madhab as "standard" | "hanafi") ?? "standard",
-            location: {
-              lat: profile?.location_lat ?? null,
-              lng: profile?.location_lng ?? null,
-              label: profile?.location_label ?? null,
-              timezone: profile?.timezone ?? null,
-            },
-            checkinWindowStart: profile?.checkin_window_start?.slice(0, 5) ?? "08:00",
-            checkinWindowEnd: profile?.checkin_window_end?.slice(0, 5) ?? "22:00",
-            checkinIntervalMinutes: profile?.checkin_interval_minutes ?? 120,
-            pinLockEnabled: profile?.pin_lock_enabled ?? false,
-          }}
-        />
+        <div className="flex flex-col gap-8">
+          <SettingsForm
+            email={user.email ?? ""}
+            initial={{
+              displayName: profile?.display_name ?? "",
+              prayerCalcMethod: (profile?.prayer_calc_method as SettingsFormData["prayerCalcMethod"]) ?? "MWL",
+              asrMadhab: (profile?.asr_madhab as "standard" | "hanafi") ?? "standard",
+              location: {
+                lat: profile?.location_lat ?? null,
+                lng: profile?.location_lng ?? null,
+                label: profile?.location_label ?? null,
+                timezone: profile?.timezone ?? null,
+              },
+              checkinWindowStart: profile?.checkin_window_start?.slice(0, 5) ?? "08:00",
+              checkinWindowEnd: profile?.checkin_window_end?.slice(0, 5) ?? "22:00",
+              checkinIntervalMinutes: profile?.checkin_interval_minutes ?? 120,
+              pinLockEnabled: profile?.pin_lock_enabled ?? false,
+            }}
+          />
+          <Panel id="notifications" className="scroll-mt-24" title="Notifications">
+            <NotificationSettings />
+          </Panel>
+        </div>
       </div>
     </PageContainer>
   );

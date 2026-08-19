@@ -1,56 +1,28 @@
 "use client";
 
 import { useEffect } from "react";
-
-function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const bytes = new Uint8Array(new ArrayBuffer(rawData.length));
-  for (let i = 0; i < rawData.length; i++) {
-    bytes[i] = rawData.charCodeAt(i);
-  }
-  return bytes;
-}
+import { subscribeToPush } from "@/lib/pwa/push-subscribe";
 
 export function RegisterSw() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
-    async function register() {
-      try {
-        const registration = await navigator.serviceWorker.register("/sw.js");
+    navigator.serviceWorker.register("/sw.js").catch((err) => {
+      console.error("[push] service worker registration failed:", err);
+    });
 
-        if (!("PushManager" in window) || !("Notification" in window)) return;
-        // Only (re-)request/subscribe if permission was already granted in
-        // a prior session — onboarding handles the first ask. This is the
-        // returning-session re-check, not the initial prompt.
-        if (Notification.permission !== "granted") return;
-
-        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) return;
-
-        let subscription = await registration.pushManager.getSubscription();
-        if (!subscription) {
-          subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-          });
-        }
-
-        await fetch("/api/push/subscribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(subscription.toJSON()),
-        });
-      } catch {
-        // Push permission denied or silently failing (a known iOS PWA
-        // failure mode) — falls back to in-app badges/visual cues only,
-        // per spec. Not a blocking error.
+    // Returning-session re-check only — onboarding handles the first ask
+    // (via the same subscribeToPush, see onboarding-wizard.tsx) and
+    // Settings offers a manual retry. This effect never prompts; it only
+    // refreshes an already-granted subscription (e.g. after the browser
+    // rotated it), so a real failure here is worth knowing about even
+    // though nothing in the UI is watching for it right now.
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    subscribeToPush().then((result) => {
+      if (!result.ok) {
+        console.error("[push] background re-subscribe failed:", result.reason);
       }
-    }
-
-    register();
+    });
   }, []);
 
   return null;
