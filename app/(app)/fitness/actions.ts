@@ -95,3 +95,82 @@ export async function logWorkout(
   revalidatePath("/fitness");
   revalidatePath("/");
 }
+
+/**
+ * Assigns (or clears) a weekday's workout in the new structured model —
+ * spec §2/§4, distinct from the legacy free-text `setWorkoutSchedule`
+ * above, which stays untouched for Phase 7 to retire once nothing reads
+ * it. `workoutId: null` clears the day; `workout_name`/`time`/
+ * `duration_minutes` are left alone here since this action only ever
+ * targets the workout_id column.
+ */
+export async function assignWorkoutToDay(dayOfWeek: number, workoutId: string | null): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  if (workoutId === null) {
+    const { error } = await supabase
+      .from("workout_schedule")
+      .update({ workout_id: null })
+      .eq("user_id", userId)
+      .eq("day_of_week", dayOfWeek);
+    if (error) throw error;
+  } else {
+    // workout_name is NOT NULL on this legacy column — the new model reads
+    // workout_id as the source of truth, but the row still needs a
+    // non-null placeholder, so this snapshots the workout's current name
+    // rather than leaving a stale or empty string.
+    const { data: workout, error: fetchError } = await supabase
+      .from("workouts")
+      .select("name")
+      .eq("id", workoutId)
+      .eq("user_id", userId)
+      .single();
+    if (fetchError) throw fetchError;
+
+    const { error } = await supabase.from("workout_schedule").upsert(
+      { user_id: userId, day_of_week: dayOfWeek, workout_id: workoutId, workout_name: workout.name },
+      { onConflict: "user_id,day_of_week" }
+    );
+    if (error) throw error;
+  }
+  revalidatePath("/fitness");
+}
+
+export type ConfirmSetInput = {
+  exerciseId: string;
+  exerciseName: string;
+  position: number;
+  sets: number;
+  reps: number;
+  load: number | null;
+};
+
+/**
+ * Thin wrapper over the confirm_workout_session RPC (029) — idempotency,
+ * ownership, and the atomic session+session_sets write all live in the
+ * database function, live-proved in Phase 3. This action just shapes the
+ * payload.
+ */
+export async function confirmWorkoutSession(
+  date: string,
+  workoutId: string,
+  workoutName: string,
+  sets: ConfirmSetInput[]
+): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase.rpc("confirm_workout_session", {
+    p_date: date,
+    p_workout_id: workoutId,
+    p_workout_name: workoutName,
+    p_sets: sets.map((s) => ({
+      exerciseId: s.exerciseId,
+      exerciseName: s.exerciseName,
+      position: s.position,
+      sets: s.sets,
+      reps: s.reps,
+      load: s.load,
+    })),
+  });
+  if (error) throw error;
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}

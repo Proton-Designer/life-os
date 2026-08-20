@@ -1,27 +1,18 @@
 import { redirect } from "next/navigation";
-import { Flame, CalendarCheck, Repeat } from "lucide-react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
-import { calculateWeeklyConsistency } from "@/lib/fitness/consistency";
-import { buildHabitConsistencyRows } from "@/lib/fitness/habit-consistency";
-import { computeHabitStreak } from "@/lib/deen/habit-streak";
-import { accentForActivityCount } from "@/lib/kpi-value-accent";
-import { HabitList, type HabitData } from "@/components/fitness/habit-list";
-import { WorkoutWeekGrid, type ScheduledWorkout } from "@/components/fitness/workout-week-grid";
-import { AdhocWorkoutForm } from "@/components/fitness/adhoc-workout-form";
-import { TodayWorkoutCard } from "@/components/fitness/today-workout-card";
+import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString } from "@/lib/date-utils";
+import { weeklyVolume, type MuscleGroup } from "@/lib/fitness/volume";
+import { FitnessDayView, type DayWorkout } from "@/components/fitness/fitness-day-view";
+import type { DayCell } from "@/components/fitness/day-picker-strip";
+import { VolumeHero } from "@/components/fitness/volume-hero";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
-import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
-import { EmptyState } from "@/components/ui/empty-state";
-import { ConsistencyGrid } from "@/components/charts/consistency-grid";
+import { confirmWorkoutSession, assignWorkoutToDay } from "./actions";
 
-const HABIT_STATUS_STYLE = {
-  done: { colorVar: "--accent-business", treatment: "solid" as const, label: "Done" },
-  missed: { colorVar: "--destructive", treatment: "hollow" as const, label: "Missed" },
-};
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default async function FitnessPage() {
   const supabase = await createClient();
@@ -34,129 +25,159 @@ export default async function FitnessPage() {
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
-  const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(weekStart, i));
-  const thirtyDaysAgoStr = addDaysToDateString(dateStr, -29);
-  const sixtyDaysAgoStr = addDaysToDateString(dateStr, -59);
-  const monthPrefix = dateStr.slice(0, 7);
+  const weekDates = weekDatesFrom(weekStart);
+  const todayDayOfWeek = dayOfWeekFromDateString(dateStr);
 
-  const [{ data: habitRows }, { data: logRows }, { data: scheduleRows }, { data: workoutLogRows }] =
-    await Promise.all([
-      supabase
-        .from("custom_habits")
-        .select("id, name, created_at")
-        .eq("user_id", userId)
-        .eq("domain", "fitness")
-        .eq("archived", false)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("habit_logs")
-        .select("habit_id, date, completed")
-        .eq("user_id", userId)
-        .gte("date", thirtyDaysAgoStr),
-      supabase.from("workout_schedule").select("day_of_week, workout_name, duration_minutes, time").eq("user_id", userId),
-      // One 60-day range serves today's log check, this week's count, this
-      // month's count, and the streak — sliced in memory rather than four
-      // separate queries.
-      supabase.from("workout_logs").select("date").eq("user_id", userId).gte("date", sixtyDaysAgoStr),
-    ]);
+  const [{ data: scheduleRows }, { data: confirmedRows }, { data: savedWorkoutRows }] = await Promise.all([
+    supabase
+      .from("workout_schedule")
+      .select("day_of_week, workout_id, workouts(id, name)")
+      .eq("user_id", userId)
+      .in("day_of_week", [1, 2, 3, 4, 5]),
+    supabase
+      .from("workout_sessions")
+      .select("id, date, workout_id, session_sets(exercise_id, sets, reps, load, exercises(primary_muscles, secondary_muscles))")
+      .eq("user_id", userId)
+      .eq("source", "confirmed")
+      .gte("date", weekDates[0])
+      .lte("date", weekDates[6]),
+    supabase.from("workouts").select("id, name").eq("user_id", userId).eq("archived", false).order("name"),
+  ]);
 
-  const habits: HabitData[] = (habitRows ?? []).map((h) => ({
-    id: h.id,
-    name: h.name,
-    completedToday: logRows?.some((l) => l.habit_id === h.id && l.date === dateStr && l.completed) ?? false,
-  }));
-
-  const consistency = calculateWeeklyConsistency(
-    (habitRows ?? []).map((h) => ({ id: h.id, createdAt: h.created_at.slice(0, 10) })),
-    (logRows ?? []).map((l) => ({ habitId: l.habit_id, date: l.date, completed: l.completed })),
-    weekStart,
-    dateStr
+  const assignedWorkoutIds = Array.from(
+    new Set((scheduleRows ?? []).map((r) => r.workout_id).filter((id): id is string => id !== null))
   );
 
-  const thirtyDays = Array.from({ length: 30 }, (_, i) => addDaysToDateString(thirtyDaysAgoStr, i));
-  const consistencyRows = buildHabitConsistencyRows(
-    (habitRows ?? []).map((h) => ({ id: h.id, name: h.name, createdAt: h.created_at.slice(0, 10) })),
-    (logRows ?? []).map((l) => ({ habitId: l.habit_id, date: l.date, completed: l.completed })),
-    thirtyDays,
-    dateStr
+  const { data: workoutDetailRows } =
+    assignedWorkoutIds.length > 0
+      ? await supabase
+          .from("workouts")
+          .select(
+            "id, name, workout_exercises(exercise_id, position, target_sets, target_reps_low, target_reps_high, target_load, exercises(name, primary_muscles, secondary_muscles))"
+          )
+          .in("id", assignedWorkoutIds)
+      : { data: [] };
+
+  const exerciseIdsInPlay = Array.from(
+    new Set(
+      (workoutDetailRows ?? []).flatMap((w) => (w.workout_exercises ?? []).map((we) => we.exercise_id))
+    )
   );
 
-  const schedule: (ScheduledWorkout | null)[] = Array.from({ length: 7 }, (_, dayOfWeek) => {
-    const row = scheduleRows?.find((s) => s.day_of_week === dayOfWeek);
-    return row ? { workoutName: row.workout_name, durationMinutes: row.duration_minutes, time: row.time } : null;
+  const { data: lastSetRows } =
+    exerciseIdsInPlay.length > 0
+      ? await supabase
+          .from("session_sets")
+          .select("exercise_id, sets, reps, load, workout_sessions!inner(date, source, user_id)")
+          .eq("workout_sessions.user_id", userId)
+          .eq("workout_sessions.source", "confirmed")
+          .in("exercise_id", exerciseIdsInPlay)
+          .order("workout_sessions(date)", { ascending: false })
+      : { data: [] };
+
+  const lastTopSetByExercise = new Map<string, { load: number | null; reps: number }>();
+  for (const row of lastSetRows ?? []) {
+    if (row.exercise_id && !lastTopSetByExercise.has(row.exercise_id)) {
+      lastTopSetByExercise.set(row.exercise_id, { load: row.load, reps: row.reps });
+    }
+  }
+
+  const workoutsById = new Map<string, DayWorkout>();
+  for (const w of workoutDetailRows ?? []) {
+    workoutsById.set(w.id, {
+      id: w.id,
+      name: w.name,
+      exercises: (w.workout_exercises ?? [])
+        .sort((a, b) => a.position - b.position)
+        .map((we) => {
+          const last = lastTopSetByExercise.get(we.exercise_id) ?? null;
+          return {
+            exerciseId: we.exercise_id,
+            name: we.exercises?.name ?? "",
+            targetSets: we.target_sets,
+            targetRepsLow: we.target_reps_low,
+            targetRepsHigh: we.target_reps_high,
+            targetLoad: we.target_load,
+            lastTopSet: last ? { load: last.load, reps: last.reps, targetRepsHigh: we.target_reps_high } : null,
+          };
+        }),
+    });
+  }
+
+  const scheduleByDay = new Map(
+    (scheduleRows ?? []).map((r) => [r.day_of_week, { workoutId: r.workout_id, workoutName: r.workouts?.name ?? null }])
+  );
+
+  const days: DayCell[] = [1, 2, 3, 4, 5].map((dayOfWeek) => {
+    const entry = scheduleByDay.get(dayOfWeek);
+    return {
+      dayOfWeek,
+      label: WEEKDAY_LABELS[dayOfWeek],
+      workoutId: entry?.workoutId ?? null,
+      workoutName: entry?.workoutName ?? null,
+    };
   });
-  const scheduledDaysThisWeek = schedule.filter(Boolean).length;
 
-  const workoutDates = (workoutLogRows ?? []).map((w) => w.date);
-  const workoutsLoggedThisWeek = workoutDates.filter((d) => weekDates.includes(d)).length;
-  const workoutsThisMonth = workoutDates.filter((d) => d.startsWith(monthPrefix)).length;
-  const workoutStreak = computeHabitStreak(workoutDates, dateStr);
-  const loggedToday = workoutDates.includes(dateStr);
-  const todayDayOfWeek = new Date(`${dateStr}T00:00:00Z`).getUTCDay();
-  const todayScheduledName = schedule[todayDayOfWeek]?.workoutName ?? null;
+  const dates: Record<number, string> = {};
+  const dayLabels: Record<number, string> = {};
+  for (let dayOfWeek = 1; dayOfWeek <= 5; dayOfWeek++) {
+    dates[dayOfWeek] = weekDates[dayOfWeek];
+    dayLabels[dayOfWeek] = WEEKDAY_LABELS[dayOfWeek];
+  }
+
+  const workoutsByDay: Record<number, DayWorkout | null> = {};
+  const confirmedByDay: Record<number, boolean> = {};
+  for (let dayOfWeek = 1; dayOfWeek <= 5; dayOfWeek++) {
+    const workoutId = scheduleByDay.get(dayOfWeek)?.workoutId ?? null;
+    workoutsByDay[dayOfWeek] = workoutId ? (workoutsById.get(workoutId) ?? null) : null;
+    confirmedByDay[dayOfWeek] = workoutId
+      ? (confirmedRows ?? []).some((s) => s.date === dates[dayOfWeek] && s.workout_id === workoutId)
+      : false;
+  }
+
+  const scheduledDaysThisWeek = days.filter((d) => d.workoutId !== null).length;
+  const confirmedDaysThisWeek = Object.values(confirmedByDay).filter(Boolean).length;
+
+  const volume = weeklyVolume(
+    (confirmedRows ?? []).flatMap((session) =>
+      (session.session_sets ?? []).map((s) => ({
+        sets: s.sets,
+        primaryMuscles: (s.exercises?.primary_muscles ?? []) as MuscleGroup[],
+        secondaryMuscles: (s.exercises?.secondary_muscles ?? []) as MuscleGroup[],
+      }))
+    )
+  );
 
   return (
     <PageContainer>
       <PageHeader title="Fitness" />
 
-      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
-        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-          <TodayWorkoutCard scheduledName={todayScheduledName} logged={loggedToday} date={dateStr} accent="fitness" />
-        </div>
-        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-          <KpiCard
-            icon={Flame}
-            accent={accentForActivityCount(workoutStreak)}
-            label="Current streak"
-            value={`${workoutStreak}`}
-            caption={workoutStreak === 0 ? "Log a workout to start one" : "Keep it going"}
-          />
-        </div>
-        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-          <KpiCard
-            icon={CalendarCheck}
-            accent={accentForActivityCount(workoutsThisMonth)}
-            label="Workouts this month"
-            value={`${workoutsThisMonth}`}
-            caption={workoutsThisMonth === 0 ? "Nothing logged yet this month" : `${workoutsThisMonth} logged so far`}
-          />
-        </div>
-      </div>
+      <Link
+        href="/fitness/workouts"
+        className="min-h-11 rounded-lg border border-border/60 px-4 py-2.5 text-sm font-medium hover:bg-muted"
+      >
+        My Workouts →
+      </Link>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
-          <Panel
-            title="Habits"
-            heroValue={`${Math.round(consistency * 100)}%`}
-            caption="weekly consistency"
-          >
-            <div className="flex flex-col gap-4">
-              {habits.length > 0 ? (
-                <ConsistencyGrid rows={consistencyRows} statusStyle={HABIT_STATUS_STYLE} />
-              ) : (
-                <EmptyState
-                  icon={Repeat}
-                  message="No habits yet"
-                  action={{ label: "Add a habit", href: "#fitness-add-habit" }}
-                />
-              )}
-              <HabitList date={dateStr} habits={habits} />
-            </div>
-          </Panel>
-        </div>
-        <div className="lg:col-span-6">
-          <Panel
-            title="Workout schedule"
-            heroValue={`${workoutsLoggedThisWeek}/${scheduledDaysThisWeek || 5}`}
-            caption="workouts logged this week"
-          >
-            <WorkoutWeekGrid schedule={schedule} />
-          </Panel>
-        </div>
-      </div>
+      <Panel title="This week">
+        <VolumeHero
+          volume={volume}
+          adherence={scheduledDaysThisWeek > 0 ? { confirmed: confirmedDaysThisWeek, scheduled: scheduledDaysThisWeek } : null}
+        />
+      </Panel>
 
-      <Panel title="Log a workout">
-        <AdhocWorkoutForm date={dateStr} />
+      <Panel title="Sessions">
+        <FitnessDayView
+          days={days}
+          dates={dates}
+          dayLabels={dayLabels}
+          todayDayOfWeek={todayDayOfWeek}
+          workoutsByDay={workoutsByDay}
+          confirmedByDay={confirmedByDay}
+          savedWorkouts={savedWorkoutRows ?? []}
+          onConfirm={confirmWorkoutSession}
+          onAssign={assignWorkoutToDay}
+        />
       </Panel>
     </PageContainer>
   );
