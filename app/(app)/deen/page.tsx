@@ -25,7 +25,7 @@ import { computeHabitRollingRate, buildHabitConsistencyRows } from "@/lib/deen/h
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
 import { buildQadaBacklog, bucketQadaBacklog, totalQadaOwed } from "@/lib/deen/qada-backlog";
-import { QadaBacklogPanel } from "@/components/deen/qada-backlog-panel";
+import { QadaBacklogCard } from "@/components/deen/qada-backlog-card";
 import { bucketPagesByDay } from "@/lib/deen/quran-trend";
 import { buildPrayerConsistencyRows, computeOnTimeRate } from "@/lib/deen/prayer-consistency";
 import { NextUpHero } from "@/components/home/next-up-hero";
@@ -227,7 +227,6 @@ export default async function DeenPage() {
   const qadaBacklog = buildQadaBacklog(resolvedStatuses);
   const totalQadaBacklog = totalQadaOwed(profile?.qada_owed ?? 0, qadaBacklog.derivedCount);
   const qadaBuckets = bucketQadaBacklog(qadaBacklog.items, sevenDaysAgoStr, thirtyDaysAgoStr);
-  const qadaMissedThisMonth = qadaBuckets.last7.length + qadaBuckets.month.length;
 
   // --- Qur'an: this week's total + delta vs last week + daily trend ---
   const sessions = quranSessionRows ?? [];
@@ -324,11 +323,8 @@ export default async function DeenPage() {
           />
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-          <KpiCard
-            icon={History}
+          <QadaBacklogCard
             accent={accentForQadaBacklog(totalQadaBacklog, recentQadaCatchUps, recentMisses)}
-            label="Qada backlog"
-            value={`${totalQadaBacklog}`}
             caption={
               recentQadaCatchUps === 0 && recentMisses === 0
                 ? "None caught up in the last 7 days"
@@ -336,6 +332,8 @@ export default async function DeenPage() {
                   ? `${recentQadaCatchUps} caught up in the last 7 days`
                   : `${recentMisses} added in the last 7 days`
             }
+            buckets={qadaBuckets}
+            legacyOwed={profile?.qada_owed ?? 0}
           />
         </div>
       </div>
@@ -393,14 +391,6 @@ export default async function DeenPage() {
           </Panel>
         </div>
       </div>
-
-      <QadaBacklogPanel
-        buckets={qadaBuckets}
-        last7Count={qadaBuckets.last7.length}
-        monthCount={qadaMissedThisMonth}
-        allTimeCount={totalQadaBacklog}
-        legacyOwed={profile?.qada_owed ?? 0}
-      />
 
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
         <div className="lg:col-span-4">

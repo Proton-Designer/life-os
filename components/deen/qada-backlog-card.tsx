@@ -6,7 +6,7 @@ import { markPrayer } from "@/app/(app)/deen/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Panel } from "@/components/ui/panel";
+import { KpiCard } from "@/components/ui/kpi-card";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import type { AccentToken } from "@/lib/accent-tokens";
 import type { QadaBacklogBuckets, QadaBacklogItem } from "@/lib/deen/qada-backlog";
 import { cn } from "@/lib/utils";
 
@@ -136,11 +137,9 @@ function BacklogDialogBody({ buckets, legacyOwed }: { buckets: QadaBacklogBucket
   return (
     <div className="flex flex-col gap-5">
       <BacklogSection title="Last 7 days" items={last7} defaultExpanded onItemMarked={removeFromLast7} />
-      {/* "Earlier this month," not "This month" — the preview card's "This
-          month" number is cumulative (last7 + month), so reusing that exact
-          label here, on a bucket that deliberately excludes the last7 items
-          already shown above, would show two different numbers under the
-          same name a few inches apart. */}
+      {/* "Earlier this month," not "This month" — deliberately excludes the
+          last7 items already shown above, so it never shows a number that
+          contradicts the headline "last 7 days" figure a few inches away. */}
       <BacklogSection title="Earlier this month" items={month} defaultExpanded={false} onItemMarked={removeFromMonth} />
       <BacklogSection
         title="All time"
@@ -158,44 +157,29 @@ function BacklogDialogBody({ buckets, legacyOwed }: { buckets: QadaBacklogBucket
 }
 
 /**
- * Preview + sub-window design (2026-08-19): the full itemized list used to
- * render inline on the page — a full Panel spent on a backlog that's often
- * long-tailed. Now the Panel only ever shows three at-a-glance counts;
- * everything itemized lives behind "View backlog" in a Dialog, sectioned by
- * age so the recent (actionable) misses aren't buried under old ones.
+ * The single Qada backlog module (2026-08-20): used to be a top KPI card
+ * plus a separate full-width Panel below it with the same title and its own
+ * "View backlog" dialog — two modules telling the same story twice. Merged
+ * into one KPI-styled card: the preview number is now the Last 7 days count
+ * (the actionable, recent figure), and the dialog — sectioned by age, same
+ * as before — lives behind a "View backlog" button inside this same card.
  */
-export function QadaBacklogPanel({
+export function QadaBacklogCard({
+  accent,
+  caption,
   buckets,
-  last7Count,
-  monthCount,
-  allTimeCount,
   legacyOwed,
 }: {
+  accent: AccentToken;
+  caption: string;
   buckets: QadaBacklogBuckets;
-  last7Count: number;
-  monthCount: number;
-  allTimeCount: number;
   legacyOwed: number;
 }) {
   return (
-    <Panel title="Qada backlog">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="flex flex-col gap-0.5">
-          <span className="font-mono text-xl font-semibold tabular-nums">{last7Count}</span>
-          <span className="text-xs text-muted-foreground">Last 7 days</span>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <span className="font-mono text-xl font-semibold tabular-nums">{monthCount}</span>
-          <span className="text-xs text-muted-foreground">This month</span>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <span className="font-mono text-xl font-semibold tabular-nums">{allTimeCount}</span>
-          <span className="text-xs text-muted-foreground">All time</span>
-        </div>
-      </div>
+    <KpiCard icon={History} accent={accent} label="Qada backlog" value={`${buckets.last7.length}`} caption={caption}>
       <Dialog>
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="self-start">
+          <Button type="button" variant="outline" size="sm" className="mt-1 self-start">
             View backlog
           </Button>
         </DialogTrigger>
@@ -211,6 +195,6 @@ export function QadaBacklogPanel({
           </div>
         </DialogContent>
       </Dialog>
-    </Panel>
+    </KpiCard>
   );
 }

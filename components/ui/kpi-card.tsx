@@ -22,6 +22,7 @@ export function KpiCard({
   delta,
   sparkline,
   className,
+  children,
   ...props
 }: {
   icon: LucideIcon;
@@ -35,6 +36,9 @@ export function KpiCard({
   // card's own accent so it reads as part of the tile, not a bolted-on chart.
   sparkline?: number[];
   className?: string;
+  // Optional trailing content (e.g. a "View backlog" button + dialog) below
+  // the caption/sparkline — opt-in, so every existing plain KpiCard is unaffected.
+  children?: React.ReactNode;
 } & React.HTMLAttributes<HTMLDivElement>) {
   const colorVar = ACCENT_VAR[accent];
 
@@ -58,6 +62,7 @@ export function KpiCard({
             <Sparkline values={sparkline} colorVar={colorVar} />
           </div>
         )}
+        {children}
       </div>
     </div>
   );
