@@ -66,20 +66,25 @@ describe("moveTargetPosition", () => {
 describe("formatDaysLeft", () => {
   const now = new Date("2026-08-20T15:00:00");
 
-  it("counts whole calendar days, ignoring time of day", () => {
-    expect(formatDaysLeft("2026-09-01", now)).toBe("12 days left");
+  it("counts whole calendar days, ignoring time of day, and reads positive when comfortably ahead", () => {
+    expect(formatDaysLeft("2026-09-01", now)).toEqual({ label: "12 days left", urgency: "positive" });
   });
 
-  it("singular for exactly 1 day left", () => {
-    expect(formatDaysLeft("2026-08-21", now)).toBe("1 day left");
+  it("singular for exactly 1 day left, and reads warning inside the 1-3 day window", () => {
+    expect(formatDaysLeft("2026-08-21", now)).toEqual({ label: "1 day left", urgency: "warning" });
+    expect(formatDaysLeft("2026-08-23", now)).toEqual({ label: "3 days left", urgency: "warning" });
   });
 
-  it("reads 'Due today' for today's date regardless of current time", () => {
-    expect(formatDaysLeft("2026-08-20", now)).toBe("Due today");
+  it("4 days left is back to positive — the warning window is 1-3 days", () => {
+    expect(formatDaysLeft("2026-08-24", now)).toEqual({ label: "4 days left", urgency: "positive" });
   });
 
-  it("reads overdue, singular and plural, for a past deadline", () => {
-    expect(formatDaysLeft("2026-08-19", now)).toBe("1 day overdue");
-    expect(formatDaysLeft("2026-08-10", now)).toBe("10 days overdue");
+  it("reads 'Due today' as negative, regardless of current time", () => {
+    expect(formatDaysLeft("2026-08-20", now)).toEqual({ label: "Due today", urgency: "negative" });
+  });
+
+  it("reads overdue, singular and plural, as negative", () => {
+    expect(formatDaysLeft("2026-08-19", now)).toEqual({ label: "1 day overdue", urgency: "negative" });
+    expect(formatDaysLeft("2026-08-10", now)).toEqual({ label: "10 days overdue", urgency: "negative" });
   });
 });

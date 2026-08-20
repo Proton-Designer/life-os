@@ -50,19 +50,31 @@ export function moveTargetPosition(
   return next;
 }
 
+export type DeadlineUrgency = "positive" | "warning" | "negative";
+
 /**
  * "12 days left" rather than the raw date, for Target 1 specifically
  * (Opus Lead: "the pressure is how long is left, and the pressure is the
  * point of a target" — rows 2/3 keep the plain date). Compares calendar
  * days, not elapsed hours, so a deadline later today still reads "Due
  * today" regardless of what time it currently is.
+ *
+ * The returned `urgency` drives the badge colour (Opus Lead: green at "1
+ * day left" or "3 days overdue" would be actively misleading, since green
+ * reads as *fine* everywhere else in this app). Thresholds are a judgment
+ * call, not a ruling: overdue or due today reads negative, 1-3 days left
+ * is the warning window, 4+ days is genuinely fine.
  */
-export function formatDaysLeft(deadlineDateStr: string, now: Date): string {
+export function formatDaysLeft(deadlineDateStr: string, now: Date): { label: string; urgency: DeadlineUrgency } {
   const deadline = new Date(`${deadlineDateStr}T00:00:00`);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const deadlineDay = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
   const diffDays = Math.round((deadlineDay.getTime() - today.getTime()) / 86_400_000);
-  if (diffDays === 0) return "Due today";
-  if (diffDays < 0) return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? "" : "s"} overdue`;
-  return `${diffDays} day${diffDays === 1 ? "" : "s"} left`;
+
+  if (diffDays < 0) {
+    return { label: `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? "" : "s"} overdue`, urgency: "negative" };
+  }
+  if (diffDays === 0) return { label: "Due today", urgency: "negative" };
+  if (diffDays <= 3) return { label: `${diffDays} day${diffDays === 1 ? "" : "s"} left`, urgency: "warning" };
+  return { label: `${diffDays} days left`, urgency: "positive" };
 }
