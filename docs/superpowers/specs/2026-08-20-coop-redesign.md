@@ -61,6 +61,18 @@ move — a silent move would rewrite what he was actually working on without tel
 broken.** Same treatment as any other empty state in this system — never an error state, never a
 visible gap.
 
+**7. Weekly Agenda is bounded by status, not by a calendar week.** Neither Ayman's requirement
+("tasks for the day/week") nor the original brief fixes what stops the Agenda from accumulating
+every task ever created against Target 1 — a target's deadline can be months out, and tasks carry
+no time filter. Ruling: the Agenda lists the current target's tasks that are **not** in `complete`
+status, ordered by deadline (nulls last) then creation. Completed tasks live in the pipeline's
+Complete column and drop out of the Agenda; no calendar-week window is added. A real week filter
+would hide exactly the unfinished work he most needs to see, and would get quietest exactly when
+he's furthest behind — filtering by "not done" grows the list only when work is genuinely
+accumulating, which is information, not clutter, and it keeps one data model with one derived view
+(ruling 1) rather than adding a second axis to filter by. Adding a week window later, if wanted, is
+cheap over an unfiltered list; recovering tasks a wrong filter hid is not.
+
 ## Data model
 
 **Separate `coop_targets` and `coop_tasks` tables, not columns bolted onto the shared `tasks`
@@ -91,9 +103,20 @@ problem a 3–10 row personal list doesn't have, in exchange for precision drift
 (nullable, same enum as `status`, minus `blocked` itself since blocked isn't a status value — see
 below), `created_at`.
 
-`status` needs a `blocked` value too for the "currently blocked" read, with `blocked_from`
-recording what it should return to on unblock. A task is blocked when `status = 'blocked'`; the
-`blocked_from` column is only ever read to un-block, never used for display logic while blocked.
+`blocked` is a valid `status` value (it's the "currently blocked" read), and `blocked_from` is a
+separate column holding one of the other four values — never `'blocked'` itself, since that would
+make a blocked task's origin "blocked":
+
+```
+status       ∈ {backlog, in_progress, review, complete, blocked}   -- blocked IS a status
+blocked_from ∈ {backlog, in_progress, review, complete}            -- never 'blocked'
+```
+
+The database enforces the pairing, not just documentation of it: a CHECK constraint requires
+`blocked_from IS NOT NULL` exactly when `status = 'blocked'` and `NULL` otherwise. A blocked row
+with no origin is unrecoverable on unblock; a non-blocked row carrying a stale `blocked_from` will
+eventually get read by something that trusts it. The `blocked_from` column is only ever read to
+restore on unblock, never used for display logic while a task is blocked.
 
 ## Cascade
 
@@ -105,8 +128,8 @@ One `security invoker` plpgsql function, `complete_target(p_target_id)`:
 2. Mark the row `status = 'done'`, `completed_at = now()`, `position = null`.
 3. `UPDATE coop_targets SET position = position - 1 WHERE user_id = $1 AND position > $completed_position`
    — one statement, shifts every row below the completed one up, whether it was a target slot or a
-   stretch goal. This single statement is what makes derived target/stretch-goal status (rule 4 of
-   the data model section) fall out correctly without extra bookkeeping.
+   stretch goal. This single statement is what makes the `position <= 3` target/stretch-goal
+   derivation (see Data model, above) fall out correctly without extra bookkeeping.
 4. The RPC does **not** enforce a deadline on the row newly occupying a target slot — that would
    turn a UI nicety into a mid-cascade exception, contradicting the non-blocking promotion rule.
    The client checks the promoted row's deadline after the call and shows the prompt or the
@@ -165,7 +188,9 @@ the screen is never in a state where the old modules are gone and the new ones d
    persistent "Set a deadline" affordance if dismissed — never a fabricated date.
 4. Full target CRUD: add, remove, edit title/deadline, move to a different queue position.
 5. Weekly Agenda and the pipeline board render the same underlying rows — a status change in one
-   view is immediately reflected in the other, no separate sync step.
+   view is immediately reflected in the other, no separate sync step. Agenda shows the current
+   target's non-`complete` tasks only, ordered by deadline (nulls last) then creation — no
+   calendar-week filter (ruling 7).
 6. Blocked tasks remember and restore their prior status on unblock; `blocked_from` is never read
    for anything but that restore.
 7. Completing a target never deletes or orphans its tasks; incomplete ones get an explicit,
