@@ -24,7 +24,7 @@
 -- workout has since been deleted is a historical artifact, not something a
 -- fresh confirm call is ever re-targeting — new confirms always carry a
 -- real workout_id, so this exclusion costs nothing in practice.
-create unique index workout_sessions_confirmed_unique
+create unique index if not exists workout_sessions_confirmed_unique
   on public.workout_sessions (user_id, date, workout_id)
   where source = 'confirmed' and workout_id is not null;
 
