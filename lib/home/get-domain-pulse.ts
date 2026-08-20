@@ -4,10 +4,20 @@ import { dayOfWeekFromDateString } from "@/lib/date-utils";
 export type PulseDataSource = {
   getPrayers: (userId: string, date: string) => Promise<{ prayer_name: string; status: string }[]>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
-  getTasks: (
-    userId: string,
-    date: string
-  ) => Promise<{ domain: "school" | "co_op"; completed: boolean }[]>;
+  /** School only now — Co-op moved off the shared `tasks` table entirely (coop_targets/coop_tasks) and gets its own pipeline-driven source below. */
+  getSchoolTasks: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
+  /**
+   * Co-op's pulse used to come from the same due-date `tasks` query as
+   * School, which stopped matching Co-op's real model the moment it moved
+   * to Targets/Agenda/Pipeline (docs/superpowers/specs/2026-08-20-coop-redesign.md)
+   * — a due-date-shaped question asked of a pipeline-shaped domain, same
+   * class of drift as this file's own workout_id repoint comment.
+   * Completion of the CURRENT target's (position 1) tasks is what "Co-op
+   * progress" now actually means; with no current target, or a target
+   * with zero tasks, this returns [] and safeFraction below correctly
+   * reads that as null — nothing tracked, not zero progress.
+   */
+  getCurrentCoopTargetTaskCompletion: (userId: string) => Promise<{ completed: boolean }[]>;
   getHabits: (
     userId: string,
     date: string
@@ -53,14 +63,32 @@ function defaultDataSource(): PulseDataSource {
         .eq("date", date);
       return data ?? [];
     },
-    async getTasks(userId, date) {
+    async getSchoolTasks(userId, date) {
       const supabase = await createClient();
       const { data } = await supabase
         .from("tasks")
-        .select("domain, completed")
+        .select("completed")
         .eq("user_id", userId)
+        .eq("domain", "school")
         .eq("due_date", date);
-      return (data ?? []) as { domain: "school" | "co_op"; completed: boolean }[];
+      return data ?? [];
+    },
+    async getCurrentCoopTargetTaskCompletion(userId) {
+      const supabase = await createClient();
+      const { data: currentTarget } = await supabase
+        .from("coop_targets")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .eq("position", 1)
+        .maybeSingle();
+      if (!currentTarget) return [];
+      const { data: tasks } = await supabase
+        .from("coop_tasks")
+        .select("status")
+        .eq("user_id", userId)
+        .eq("target_id", currentTarget.id);
+      return (tasks ?? []).map((t) => ({ completed: t.status === "complete" }));
     },
     async getHabits(userId, date) {
       const supabase = await createClient();
@@ -108,10 +136,11 @@ export async function getDomainPulse(
   dataSource: PulseDataSource = defaultDataSource()
 ): Promise<DomainPulse> {
   const dayOfWeek = dayOfWeekFromDateString(date);
-  const [prayers, killList, tasks, habits, workoutSchedule, workoutSessions] = await Promise.all([
+  const [prayers, killList, schoolTasks, coopTaskCompletion, habits, workoutSchedule, workoutSessions] = await Promise.all([
     dataSource.getPrayers(userId, date),
     dataSource.getKillListItems(userId, date),
-    dataSource.getTasks(userId, date),
+    dataSource.getSchoolTasks(userId, date),
+    dataSource.getCurrentCoopTargetTaskCompletion(userId),
     dataSource.getHabits(userId, date),
     dataSource.getWorkoutSchedule(userId, dayOfWeek),
     dataSource.getWorkoutSessions(userId, date),
@@ -137,15 +166,13 @@ export async function getDomainPulse(
     habits.length + (hasScheduledWorkout ? 1 : 0)
   );
 
-  const schoolTasks = tasks.filter((t) => t.domain === "school");
-  const coOpTasks = tasks.filter((t) => t.domain === "co_op");
   const school = safeFraction(
     schoolTasks.filter((t) => t.completed).length,
     schoolTasks.length
   );
   const co_op = safeFraction(
-    coOpTasks.filter((t) => t.completed).length,
-    coOpTasks.length
+    coopTaskCompletion.filter((t) => t.completed).length,
+    coopTaskCompletion.length
   );
 
   return { deen, business, fitness, school, co_op };

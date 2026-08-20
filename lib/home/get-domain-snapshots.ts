@@ -97,12 +97,24 @@ export type DomainSnapshotDataSource = {
   getWorkoutSessionsThisWeek: (userId: string, weekStart: string) => Promise<{ workout_id: string | null; date: string }[]>;
   getFitnessHabits: (userId: string) => Promise<{ id: string; createdAt: string }[]>;
   getFitnessHabitLogs: (userId: string, weekStart: string) => Promise<{ habitId: string; date: string; completed: boolean }[]>;
-  /** Whole week, not just today — today's-due-incomplete, next-due-title, and the weekly completed count all derive from this one fetch. */
-  getTasksThisWeek: (
+  /** Whole week, not just today — today's-due-incomplete, next-due-title, and the weekly completed count all derive from this one fetch. School only now — Co-op moved off the shared `tasks` table (coop_targets/coop_tasks) and gets its own pipeline-driven source below. */
+  getSchoolTasksThisWeek: (
     userId: string,
-    domain: "school" | "co_op",
     weekStart: string
   ) => Promise<{ id: string; title: string; due_date: string | null; due_time: string | null; completed: boolean }[]>;
+  /**
+   * Co-op's snapshot used to come from the same due-date `tasks` query as
+   * School — a due-date-shaped question asked of a domain that moved to a
+   * pipeline model (docs/superpowers/specs/2026-08-20-coop-redesign.md),
+   * the same class of drift as get-domain-pulse.ts's workout_id repoint.
+   * "Progress" now means the current target's (position 1) task
+   * completion and deadlines. No current target, or a target with zero
+   * tasks, returns [] — the snapshot below must read that as nothing
+   * tracked, never as zero due/zero done.
+   */
+  getCurrentCoopTargetTasks: (
+    userId: string
+  ) => Promise<{ id: string; title: string; deadline: string | null; status: string }[]>;
   getDomainPulse: (userId: string, date: string) => Promise<DomainPulse>;
 };
 
@@ -279,16 +291,33 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .gte("date", weekStart);
       return (data ?? []).map((l) => ({ habitId: l.habit_id, date: l.date, completed: l.completed }));
     },
-    async getTasksThisWeek(userId, domain, weekStart) {
+    async getSchoolTasksThisWeek(userId, weekStart) {
       const supabase = await createClient();
       const weekEnd = addDaysToDateString(weekStart, 6);
       const { data } = await supabase
         .from("tasks")
         .select("id, title, due_date, due_time, completed")
         .eq("user_id", userId)
-        .eq("domain", domain)
+        .eq("domain", "school")
         .gte("due_date", weekStart)
         .lte("due_date", weekEnd);
+      return data ?? [];
+    },
+    async getCurrentCoopTargetTasks(userId) {
+      const supabase = await createClient();
+      const { data: currentTarget } = await supabase
+        .from("coop_targets")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .eq("position", 1)
+        .maybeSingle();
+      if (!currentTarget) return [];
+      const { data } = await supabase
+        .from("coop_tasks")
+        .select("id, title, deadline, status")
+        .eq("user_id", userId)
+        .eq("target_id", currentTarget.id);
       return data ?? [];
     },
     getDomainPulse,
@@ -350,7 +379,7 @@ export async function getDomainSnapshots(
     fitnessHabits,
     fitnessHabitLogs,
     schoolTasksThisWeek,
-    coOpTasksThisWeek,
+    currentCoopTargetTasks,
     pulse,
   ] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
@@ -366,8 +395,8 @@ export async function getDomainSnapshots(
     dataSource.getWorkoutSessionsThisWeek(userId, weekStart),
     dataSource.getFitnessHabits(userId),
     dataSource.getFitnessHabitLogs(userId, weekStart),
-    dataSource.getTasksThisWeek(userId, "school", weekStart),
-    dataSource.getTasksThisWeek(userId, "co_op", weekStart),
+    dataSource.getSchoolTasksThisWeek(userId, weekStart),
+    dataSource.getCurrentCoopTargetTasks(userId),
     dataSource.getDomainPulse(userId, dateStr),
   ]);
 
@@ -487,19 +516,37 @@ export async function getDomainSnapshots(
     pulse: pulse.fitness,
   };
 
-  // School / Co-op
+  // School — unchanged, still due-date driven.
   const dueTodaySchool = schoolTasksThisWeek.filter((t) => !t.completed && t.due_date === dateStr);
-  const dueTodayCoOp = coOpTasksThisWeek.filter((t) => !t.completed && t.due_date === dateStr);
   const school: TaskDomainSnapshot = {
     dueTodayCount: dueTodaySchool.length,
     nextDueTitle: nextDueTaskTitle(dueTodaySchool),
     completedThisWeek: schoolTasksThisWeek.filter((t) => t.completed).length,
     pulse: pulse.school,
   };
+
+  // Co-op — driven by the current target's pipeline tasks
+  // (coop_targets/coop_tasks), not the shared `tasks` table's due dates
+  // (see getCurrentCoopTargetTasks's doc comment). dueTodayCount/
+  // nextDueTitle keep the same shape as School's (deadline-day match,
+  // nearest-deadline title) since coop_tasks.deadline is the same kind of
+  // optional date field. completedThisWeek has no real week window here —
+  // coop_tasks carries no completion timestamp — so it reports the
+  // current target's total completed task count instead of a calendar-
+  // week count; a true weekly figure would need a schema addition this
+  // pass didn't make. Flagged rather than silently mislabeled.
+  const coOpNonComplete = currentCoopTargetTasks.filter((t) => t.status !== "complete");
+  const dueTodayCoOp = coOpNonComplete.filter((t) => t.deadline === dateStr);
+  const nextDueCoOp = [...coOpNonComplete].sort((a, b) => {
+    if (a.deadline === null && b.deadline === null) return 0;
+    if (a.deadline === null) return 1;
+    if (b.deadline === null) return -1;
+    return a.deadline.localeCompare(b.deadline);
+  })[0];
   const co_op: TaskDomainSnapshot = {
     dueTodayCount: dueTodayCoOp.length,
-    nextDueTitle: nextDueTaskTitle(dueTodayCoOp),
-    completedThisWeek: coOpTasksThisWeek.filter((t) => t.completed).length,
+    nextDueTitle: nextDueCoOp?.title ?? null,
+    completedThisWeek: currentCoopTargetTasks.filter((t) => t.status === "complete").length,
     pulse: pulse.co_op,
   };
 

@@ -5,7 +5,8 @@ function emptyDataSource(overrides: Partial<PulseDataSource> = {}): PulseDataSou
   return {
     getPrayers: async () => [],
     getKillListItems: async () => [],
-    getTasks: async () => [],
+    getSchoolTasks: async () => [],
+    getCurrentCoopTargetTaskCompletion: async () => [],
     getHabits: async () => [],
     getWorkoutSchedule: async () => null,
     getWorkoutSessions: async () => [],
@@ -51,10 +52,8 @@ describe("getDomainPulse", () => {
 
   it("keeps Co-op and School as independent fractions (no pooling)", async () => {
     const dataSource = emptyDataSource({
-      getTasks: async () => [
-        { domain: "school", completed: true },
-        { domain: "co_op", completed: false },
-      ],
+      getSchoolTasks: async () => [{ completed: true }],
+      getCurrentCoopTargetTaskCompletion: async () => [{ completed: false }],
     });
 
     const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
@@ -65,13 +64,19 @@ describe("getDomainPulse", () => {
 
   it("has a null School fraction when there are no school tasks today, even if Co-op has tasks", async () => {
     const dataSource = emptyDataSource({
-      getTasks: async () => [{ domain: "co_op", completed: true }],
+      getCurrentCoopTargetTaskCompletion: async () => [{ completed: true }],
     });
 
     const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
 
     expect(pulse.school).toBeNull();
     expect(pulse.co_op).toBe(1);
+  });
+
+  it("has a null Co-op fraction with no current target, or a current target with zero tasks", async () => {
+    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource());
+
+    expect(pulse.co_op).toBeNull();
   });
 
   it("counts the scheduled workout alongside habits for Fitness", async () => {

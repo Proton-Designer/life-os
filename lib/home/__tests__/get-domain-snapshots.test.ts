@@ -30,7 +30,8 @@ function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): Doma
     getWorkoutSessionsThisWeek: async () => [],
     getFitnessHabits: async () => [],
     getFitnessHabitLogs: async () => [],
-    getTasksThisWeek: async () => [],
+    getSchoolTasksThisWeek: async () => [],
+    getCurrentCoopTargetTasks: async () => [],
     getDomainPulse: async () => ZERO_PULSE,
     ...overrides,
   };
@@ -216,48 +217,91 @@ describe("getDomainSnapshots", () => {
     });
   });
 
-  describe("school / co-op", () => {
+  describe("school", () => {
     it("counts today's due, incomplete tasks and surfaces the earliest-due title", async () => {
       const dataSource = baseDataSource({
-        getTasksThisWeek: async (_userId, domain) =>
-          domain === "school"
-            ? [
-                { id: "t1", title: "Read ch 4", due_date: "2026-08-10", due_time: "14:00", completed: false },
-                { id: "t2", title: "Essay draft", due_date: "2026-08-10", due_time: "10:00", completed: false },
-                { id: "t3", title: "Already done", due_date: "2026-08-10", due_time: "09:00", completed: true },
-              ]
-            : [],
+        getSchoolTasksThisWeek: async () => [
+          { id: "t1", title: "Read ch 4", due_date: "2026-08-10", due_time: "14:00", completed: false },
+          { id: "t2", title: "Essay draft", due_date: "2026-08-10", due_time: "10:00", completed: false },
+          { id: "t3", title: "Already done", due_date: "2026-08-10", due_time: "09:00", completed: true },
+        ],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
       expect(snapshots.school.dueTodayCount).toBe(2);
       expect(snapshots.school.nextDueTitle).toBe("Essay draft");
     });
 
-    it("is independent per domain (co-op tasks don't leak into school)", async () => {
+    it("counts this week's completed tasks separately from today's due count", async () => {
       const dataSource = baseDataSource({
-        getTasksThisWeek: async (_userId, domain) =>
-          domain === "co_op"
-            ? [{ id: "c1", title: "Bring snacks", due_date: "2026-08-10", due_time: null, completed: false }]
-            : [],
+        getSchoolTasksThisWeek: async () => [
+          { id: "t1", title: "Read ch 4", due_date: "2026-08-09", due_time: null, completed: true },
+          { id: "t2", title: "Essay draft", due_date: "2026-08-10", due_time: "10:00", completed: false },
+        ],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
-      expect(snapshots.school.dueTodayCount).toBe(0);
+      expect(snapshots.school.completedThisWeek).toBe(1);
+    });
+  });
+
+  // docs/superpowers/specs/2026-08-20-coop-redesign.md, acceptance 10 —
+  // driven by the current target's pipeline tasks (coop_targets/
+  // coop_tasks), not the shared `tasks` table's due dates.
+  describe("co-op", () => {
+    it("counts non-complete tasks whose deadline is today, independent of School", async () => {
+      const dataSource = baseDataSource({
+        getSchoolTasksThisWeek: async () => [
+          { id: "s1", title: "School thing", due_date: "2026-08-10", due_time: null, completed: false },
+        ],
+        getCurrentCoopTargetTasks: async () => [
+          { id: "c1", title: "Bring snacks", deadline: "2026-08-10", status: "backlog" },
+        ],
+      });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.school.dueTodayCount).toBe(1);
       expect(snapshots.co_op.dueTodayCount).toBe(1);
       expect(snapshots.co_op.nextDueTitle).toBe("Bring snacks");
     });
 
-    it("counts this week's completed tasks separately from today's due count", async () => {
+    it("picks the nearest-deadline non-complete task, nulls last, as nextDueTitle — not just today's", async () => {
       const dataSource = baseDataSource({
-        getTasksThisWeek: async (_userId, domain) =>
-          domain === "school"
-            ? [
-                { id: "t1", title: "Read ch 4", due_date: "2026-08-09", due_time: null, completed: true },
-                { id: "t2", title: "Essay draft", due_date: "2026-08-10", due_time: "10:00", completed: false },
-              ]
-            : [],
+        getCurrentCoopTargetTasks: async () => [
+          { id: "c1", title: "No deadline", deadline: null, status: "backlog" },
+          { id: "c2", title: "Due soonest", deadline: "2026-08-12", status: "in_progress" },
+          { id: "c3", title: "Due later", deadline: "2026-08-20", status: "review" },
+        ],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
-      expect(snapshots.school.completedThisWeek).toBe(1);
+      expect(snapshots.co_op.nextDueTitle).toBe("Due soonest");
+    });
+
+    it("excludes complete tasks from dueTodayCount and nextDueTitle", async () => {
+      const dataSource = baseDataSource({
+        getCurrentCoopTargetTasks: async () => [
+          { id: "c1", title: "Finished", deadline: "2026-08-10", status: "complete" },
+        ],
+      });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.co_op.dueTodayCount).toBe(0);
+      expect(snapshots.co_op.nextDueTitle).toBeNull();
+    });
+
+    it("counts the current target's total complete tasks as completedThisWeek (no completion timestamp exists to window by calendar week)", async () => {
+      const dataSource = baseDataSource({
+        getCurrentCoopTargetTasks: async () => [
+          { id: "c1", title: "Done 1", deadline: null, status: "complete" },
+          { id: "c2", title: "Done 2", deadline: null, status: "complete" },
+          { id: "c3", title: "Still open", deadline: null, status: "backlog" },
+        ],
+      });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.co_op.completedThisWeek).toBe(2);
+    });
+
+    it("has dueTodayCount 0 and nextDueTitle null with no current target — nothing tracked, not zero progress", async () => {
+      const snapshots = await getDomainSnapshots("user-1", NOW, baseDataSource());
+      expect(snapshots.co_op.dueTodayCount).toBe(0);
+      expect(snapshots.co_op.nextDueTitle).toBeNull();
+      expect(snapshots.co_op.completedThisWeek).toBe(0);
     });
   });
 
