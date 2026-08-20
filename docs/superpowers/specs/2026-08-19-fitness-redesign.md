@@ -101,8 +101,28 @@ The real lever is **keeping honest deviation cheaper than false confirmation**:
 
 The win condition is that he rarely opens `/fitness`.
 
-- **Home** carries the one-tap confirm for the on-plan case, the daily rep-target
-  bars (§5), and the passive weight-entry affordance.
+- **Home** carries the on-plan confirm, the daily rep-target bars (§5), and the
+  passive weight-entry affordance.
+  - **Corrected 2026-08-20.** This bullet originally read "the ONE-TAP confirm,"
+    which directly contradicted §2.1's rule that no Confirm may be tapped
+    without its numbers visible. A single Home list item cannot satisfy both.
+    The contradiction was live long enough for the pre-redesign
+    `toggle_workout` priority-item — a genuine bare one-tap write to
+    `workout_logs` — to look compliant with §3.1 while violating §2.1; it was
+    found in Phase 7 by an engineer reading a file the plan never listed, not
+    by anyone reading this spec.
+  - **The correct shape:** a collapsed card that expands in place to show
+    today's planned exercises with their real numbers, with Confirm beneath
+    them. Two taps — expand, then confirm. The extra tap is the feature, not a
+    concession: the honesty argument for confirm-as-planned rests on reading
+    being free and lying being no cheaper than telling the truth. A blind
+    one-tap on Home would be the easiest path in the whole app, which is how it
+    would become the default.
+  - Must reuse the same idempotent `confirm_workout_session` RPC as the Fitness
+    page — never a second write path to `workout_sessions`. Collapsed by
+    default (Fitness is noise-tier and must not out-shout Deen or Business),
+    and absent entirely when no workout is assigned today, including the
+    week-one starter-plan case.
 - **A post-session notification** carries confirm when he isn't in the app. It
   must be killable globally and per-plan, and absent entirely when no schedule
   exists — a notification for a deliberately deprioritised domain reads as
