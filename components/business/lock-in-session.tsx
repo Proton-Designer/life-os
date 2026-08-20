@@ -30,11 +30,13 @@ export function LockInSession({
   sessionId,
   startedAtIso,
   initialStoredHours,
+  timezone,
   onEnded,
 }: {
   sessionId: string;
   startedAtIso: string;
   initialStoredHours: StoredSessionHour[];
+  timezone: string;
   onEnded: () => void;
 }) {
   const startedAt = useMemo(() => new Date(startedAtIso), [startedAtIso]);
@@ -131,7 +133,7 @@ export function LockInSession({
         </div>
       </div>
 
-      <SessionHourList hours={resolved} onEdit={editHour} disabled={isConfirming} />
+      <SessionHourList hours={resolved} onEdit={editHour} timezone={timezone} disabled={isConfirming} />
 
       {pendingIso && <SessionHourConfirm onAnswer={handleAnswer} disabled={isConfirming} />}
 

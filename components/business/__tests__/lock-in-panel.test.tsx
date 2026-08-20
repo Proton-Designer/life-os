@@ -29,18 +29,21 @@ describe("LockInPanel", () => {
           resolvedHours: [],
         }}
         todayFocusMinutes={0}
+        timezone="UTC"
       />
     );
     expect(screen.getByText(/Last session: 1h 30m/)).toBeInTheDocument();
   });
 
   it("shows no last-session line when there isn't one (first-ever session)", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0}
+        timezone="UTC" />);
     expect(screen.queryByText(/Last session/)).not.toBeInTheDocument();
   });
 
   it("still renders the Lock In button when idle", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0}
+        timezone="UTC" />);
     expect(screen.getByRole("button", { name: "Lock In" })).toBeInTheDocument();
   });
 
@@ -55,29 +58,34 @@ describe("LockInPanel", () => {
           resolvedHours: [],
         }}
         todayFocusMinutes={0}
+        timezone="UTC"
       />
     );
     expect(screen.queryByText(/Last session/)).not.toBeInTheDocument();
   });
 
   it("shows today's focus total when idle — the idle-state design fix, not just a bare button in empty space", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85}
+        timezone="UTC" />);
     expect(screen.getByText("Today")).toBeInTheDocument();
     expect(screen.getByText("1h 25m")).toBeInTheDocument();
   });
 
   it("shows a real 0m today total rather than omitting it when nothing's logged yet", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={0}
+        timezone="UTC" />);
     expect(screen.getByText("0m")).toBeInTheDocument();
   });
 
   it("defaults to showing the today total when showTodayTotal is omitted", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85}
+        timezone="UTC" />);
     expect(screen.getByText("Today")).toBeInTheDocument();
   });
 
   it("hides the today total when a caller already shows it elsewhere (showTodayTotal=false)", () => {
-    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85} showTodayTotal={false} />);
+    render(<LockInPanel initialSession={null} lastSession={null} todayFocusMinutes={85}
+        timezone="UTC" showTodayTotal={false} />);
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
     expect(screen.queryByText("1h 25m")).not.toBeInTheDocument();
   });
@@ -93,6 +101,7 @@ describe("LockInPanel", () => {
           resolvedHours: [],
         }}
         todayFocusMinutes={85}
+        timezone="UTC"
         showTodayTotal={false}
       />
     );
@@ -111,6 +120,7 @@ describe("LockInPanel", () => {
           resolvedHours: [{ hourStartIso: "2026-08-15T14:00:00.000Z", state: "missed_wasted" }],
         }}
         todayFocusMinutes={0}
+        timezone="UTC"
       />
     );
     expect(screen.getByTestId("session-hour-row-2026-08-15T14:00:00.000Z")).toBeInTheDocument();
@@ -129,10 +139,36 @@ describe("LockInPanel", () => {
           resolvedHours: [{ hourStartIso: "2026-08-15T14:00:00.000Z", state: "missed_wasted" }],
         }}
         todayFocusMinutes={0}
+        timezone="UTC"
       />
     );
     const row = screen.getByTestId("session-hour-row-2026-08-15T14:00:00.000Z");
     await user.click(row.querySelector('button[aria-label="Still on it"]')!);
     expect(setSessionHourStatusMock).toHaveBeenCalledWith("prev-1", "2026-08-15T14:00:00.000Z", "business");
+  });
+
+  // Regression (Opus Lead audit, 2026-08-20): the last-session date used
+  // to format against the RUNTIME's local zone, not the user's profile
+  // timezone. A real moment in time, unlike Fitness's plain-calendar-date
+  // bug — the fix threads the profile timezone through instead of pinning
+  // UTC.
+  it("formats the last-session date against the passed timezone, not the runtime's local zone", () => {
+    render(
+      <LockInPanel
+        initialSession={null}
+        lastSession={{
+          sessionId: "prev-1",
+          startedAtIso: "2026-08-16T02:00:00Z",
+          endedAtIso: "2026-08-16T03:00:00Z",
+          resolvedHours: [],
+        }}
+        todayFocusMinutes={0}
+        timezone="Asia/Tokyo"
+      />
+    );
+    // 2026-08-16T02:00:00Z is 11:00 AM Aug 16 in Tokyo (UTC+9) — same
+    // calendar day there, but a runtime in an earlier zone (e.g. US
+    // Central) would show Aug 15 instead if this ignored the passed zone.
+    expect(screen.getByText(/Last session: 1h 0m on Aug 16/)).toBeInTheDocument();
   });
 });

@@ -19,10 +19,12 @@ export type ResolvedHourState = SessionHourState;
 export function SessionHourList({
   hours,
   onEdit,
+  timezone,
   disabled,
 }: {
   hours: ResolvedSessionHour[];
   onEdit: (hourStartIso: string, status: "business" | "wasted") => void;
+  timezone: string;
   disabled?: boolean;
 }) {
   const rows = hours.filter((h) => h.state !== "pending");
@@ -31,7 +33,7 @@ export function SessionHourList({
   return (
     <ul className="flex flex-col gap-1.5 text-sm">
       {rows.map((hour) => (
-        <SessionHourRow key={hour.hourStartIso} hour={hour} onEdit={onEdit} disabled={disabled} />
+        <SessionHourRow key={hour.hourStartIso} hour={hour} onEdit={onEdit} timezone={timezone} disabled={disabled} />
       ))}
     </ul>
   );
@@ -40,10 +42,12 @@ export function SessionHourList({
 function SessionHourRow({
   hour,
   onEdit,
+  timezone,
   disabled,
 }: {
   hour: ResolvedSessionHour;
   onEdit: (hourStartIso: string, status: "business" | "wasted") => void;
+  timezone: string;
   disabled?: boolean;
 }) {
   const isBusinessPressed = hour.state === "confirmed_business";
@@ -56,7 +60,15 @@ function SessionHourRow({
     >
       <div className="flex flex-col">
         <span className="text-muted-foreground">
-          {new Date(hour.hourStartIso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          {/* A real moment in time, not a calendar date — must format
+              against the user's PROFILE timezone (threaded through from
+              the page), never the runtime's local zone, matching
+              allocation-checkin.tsx's formatWindowLabel. */}
+          {new Date(hour.hourStartIso).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZone: timezone,
+          })}
         </span>
         {hour.state === "missed_wasted" && <span className="text-xs text-muted-foreground">Not confirmed</span>}
       </div>

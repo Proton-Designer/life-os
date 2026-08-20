@@ -196,6 +196,7 @@ export default async function BusinessPage() {
               initialSession={activeSession}
               lastSession={lastSession}
               todayFocusMinutes={focusMinutesToday}
+              timezone={timezone}
               showTodayTotal={false}
             />
           </Panel>

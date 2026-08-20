@@ -34,10 +34,15 @@ export function LockInPanel({
   initialSession,
   lastSession,
   todayFocusMinutes,
+  timezone,
   showTodayTotal = true,
 }: {
   initialSession: ActiveSessionData | null;
   lastSession: LastSessionData | null;
+  // A real moment in time (session start), not a calendar date — must
+  // format against the user's PROFILE timezone, not the runtime's local
+  // zone. Threaded down to LockInSession and SessionHourList too.
+  timezone: string;
   // Opus Lead review (2026-08-16): idle used to be a single button in an
   // otherwise-empty 7-column panel. Required, not optional — an idle panel
   // with nothing to show isn't a state this composition should silently
@@ -61,6 +66,7 @@ export function LockInPanel({
         sessionId={session.id}
         startedAtIso={session.startedAtIso}
         initialStoredHours={session.storedHours}
+        timezone={timezone}
         onEnded={() => setSession(null)}
       />
     );
@@ -94,9 +100,14 @@ export function LockInPanel({
             {new Date(lastSession.startedAtIso).toLocaleDateString("en-US", {
               month: "short",
               day: "numeric",
+              timeZone: timezone,
             })}
           </p>
-          <LastSessionHours sessionId={lastSession.sessionId} initialHours={lastSession.resolvedHours} />
+          <LastSessionHours
+            sessionId={lastSession.sessionId}
+            initialHours={lastSession.resolvedHours}
+            timezone={timezone}
+          />
         </div>
       )}
       <Button type="button" onClick={handleLockIn} disabled={isPending} className="w-full">
@@ -113,7 +124,15 @@ export function LockInPanel({
  * an explicit edit). Local optimistic state only; setSessionHourStatus
  * itself revalidates the page.
  */
-function LastSessionHours({ sessionId, initialHours }: { sessionId: string; initialHours: ResolvedSessionHour[] }) {
+function LastSessionHours({
+  sessionId,
+  initialHours,
+  timezone,
+}: {
+  sessionId: string;
+  initialHours: ResolvedSessionHour[];
+  timezone: string;
+}) {
   const [hours, setHours] = useState(initialHours);
   const [isConfirming, startConfirming] = useTransition();
 
@@ -130,5 +149,5 @@ function LastSessionHours({ sessionId, initialHours }: { sessionId: string; init
     });
   }
 
-  return <SessionHourList hours={hours} onEdit={editHour} disabled={isConfirming} />;
+  return <SessionHourList hours={hours} onEdit={editHour} timezone={timezone} disabled={isConfirming} />;
 }

@@ -26,6 +26,7 @@ function renderSession(overrides: Partial<React.ComponentProps<typeof LockInSess
       sessionId="s1"
       startedAtIso="2026-08-15T12:00:00.000Z"
       initialStoredHours={[]}
+      timezone="UTC"
       onEnded={() => {}}
       {...overrides}
     />
