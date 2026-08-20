@@ -423,6 +423,32 @@ delt, biceps, triceps, core. Front delt is a synergist-only bucket — it is a
 secondary mover in every press, so its isolated number always undercounts true
 stimulus and should not be read as a gap.
 
+**Provenance note (2026-08-20).** The tables below are computed output from
+`lib/fitness/seed-plans.ts` via `lib/fitness/volume.ts`'s `weeklyVolume`, not
+hand arithmetic — and that is a change from how this section originally read.
+The first version of these tables was hand-computed during the brainstorm
+rounds, across several hours, before `weeklyVolume` existed as a tested
+function, with inconsistent secondary-muscle crediting between exercises (a
+press sometimes credited two secondary muscles, sometimes one). When
+`weeklyVolume` was built (Phase 2) and actually run against anatomically
+tagged versions of the same exercises (Phase 6), none of the three plans'
+totals matched the original tables — Plan C came out nearly identical in
+total (118.5 vs 117) but redistributed across muscles, while Plan A and B's
+totals diverged outright, which is what pinned the cause on inconsistent
+hand-tagging rather than a flaw in the new function. Two real errors were
+also caught in the same pass: `overhead_press` was originally tagged
+side-delt-primary (anatomically wrong — overhead pressing is
+anterior-deltoid/front-delt dominant), and Plan B and Plan C each had at
+least one muscle bucket computing over the evidence-backed 12–20
+sets/muscle/week optimum once the arithmetic was actually run — a real
+over-dosing risk given these plans are meant to stack against the starter
+plan's 500 weekly push-ups and 150 pull-ups, not a rounding difference to
+shrug off. The tags in `seed-plans.ts` are now the source of truth; the
+tables below are derived from them and that derivation is enforced by
+`lib/fitness/__tests__/seed-plans.test.ts` — a future edit to a tag that
+makes that test disagree with these tables means regenerate the tables, never
+retune the tag to force a match.
+
 #### Plan A — Rotating Upper (uniform frequency, low per-session dose)
 
 Every session touches push, pull and delts. Two alternating templates: A ×3/week,
@@ -433,33 +459,57 @@ triceps pushdown 3 ↔ hanging knee raise 3
 *Session B* — incline-angle cable press 3 ↔ seated cable row 3 · lateral raise 3 ↔
 rear-delt fly 3 · cable curl 3 ↔ cable crunch 3
 
-Weekly: back 15, side delt 15, rear delt 15, chest 15, triceps 13.5, biceps 12,
-core 12, front delt 5.
+Weekly: chest 15, back (lats) 9, back (mid/traps) 10.5, side delt 15, rear delt
+18, triceps 16.5, biceps 13.5, core 15, front delt 7.5.
 
 Rationale: highest frequency, lowest per-session fatigue — suits a beginner with
-no accumulated training fatigue. Every muscle sits inside the 12–20 optimal band.
+no accumulated training fatigue. Every bucket sits at or under the 20-set
+ceiling; back (lats) at 9 and front delt at 7.5 sit under the 12 floor other
+plans hit, which is fine here — Plan A was already inside every constraint on
+the first computed pass and needed no trim.
 
 **Ramp**: two rounds per pair for weeks 1–3 (~10 sets/muscle), then three.
 
 #### Plan B — Push / Pull / Delts+Core / Push / Pull (segmented, high per-touch dose)
 
 Fewer, bigger touches: each muscle ~2×/week at higher volume per touch, with one
-dedicated day for the parts that are usually an afterthought.
+dedicated day for the parts that are usually an afterthought. Two trim passes
+on top of the first draft, both driven by the computed numbers rather than the
+original hand estimate:
 
 - **Mon Push** — chest press 3 + incline press 3 · dips 3 + pushdown 3 · lateral raise 3 + overhead press 3
-- **Tue Pull** — pull-ups 3 + wide pulldown 3 · seated row 3 + face pull 3 · curl 3 + hammer curl 3
+- **Tue Pull** — pull-ups 3 + chest-supported row 3 · seated row 3 + face pull 3 · curl 3 + cable crunch 3
 - **Wed Delts + Core** — lateral raise 3 ↔ rear-delt fly 3 · overhead press 3 ↔ face pull 3 · hanging leg raise 3 ↔ cable crunch 3
-- **Thu Push** — as Mon, varied angles
-- **Fri Pull** — as Tue, varied grips
+- **Thu Push** — chest press 3 + cable fly 3 · pushdown 3 + lateral raise 3 · overhead press 3 + hanging knee raise 3
+- **Fri Pull** — pull-ups 3 + wide pulldown 3 · seated row 3 + face pull 3 · curl 3 + straight-arm pulldown 3
 
-Weekly: back 18, chest 15, side delt 15, triceps 15, biceps 15, rear delt 12,
-core 6, front delt 6.
+Weekly: chest 13.5, back (lats) 12, back (mid/traps) 13.5, front delt 15, side
+delt 13.5, rear delt 15, biceps 15, triceps 18, core 12.
 
-- *Back at 18* is the top of the optimal band and is a structural consequence of
-  two dedicated pull days. Flagged, not rounded down — and it is the number most
-  at risk from stacking with the starter plan's 150 weekly pull-ups.
-- *Core at 6* is the lowest of the three plans; acceptable because hanging ab
-  work is always available ad hoc via quick-add (§4).
+- *First trim* (over the 20-set ceiling): the original draft had Thu Push
+  running dips again and Fri Pull running hammer curl again — both redundant
+  with an exercise already hitting the same muscle earlier in the week — which
+  put triceps at 22.5 and biceps at 21. Thu Push's dips became cable fly (no
+  triceps secondary); Fri Pull's hammer curl became straight-arm pulldown (no
+  biceps secondary). Triceps landed at 19.5, biceps at 18, both back under 20.
+- *Second trim* (core under the floor): with the ceiling fixed, core sat at 6
+  — the lowest number in the whole set, against Ayman's stated goal of visible
+  abs, on the plan explicitly recommended once the starter plan is retired
+  (§8.3). Tue Pull's redundant second biceps isolation (hammer curl again)
+  became cable crunch; Thu Push's third chest movement (incline press, on top
+  of chest press and cable fly in the same session) became hanging knee raise.
+  Core reached 12, the floor.
+- *Third change* (fixing the real gap, not an arbitrary number): back
+  (mid/traps) sat at 10.5, just under 12 — but the reason it mattered isn't the
+  floor, it's that 150 weekly pull-ups under the starter plan is already
+  enormous **vertical**-pull volume with **zero** horizontal pulling, so
+  back (lats) at 15 here was doubling down on what the starter plan already
+  over-supplies while back (mid/traps) — the genuinely undertrained postural
+  muscles that do more for "stops looking soft" than lat width does — sat
+  low. Tue Pull's wide-grip pulldown (vertical, lats) became a second
+  chest-supported row (horizontal, mid-back). Back (lats) dropped from 15 to
+  12 — correct, not a loss, since the starter plan already covers it — and
+  back (mid/traps) rose to 13.5.
 
 Standalone this is the most conventional and most balanced of the three. **The
 right pick once the daily rep targets are retired.**
@@ -480,18 +530,32 @@ achievable without touching legs.
 2. pull-ups 3 ↔ incline press 3 · lateral raise 3 ↔ rear-delt fly 3 · hanging leg raise 3 ↔ curl 3
 3. seated row 3 ↔ chest press 3 · lateral raise 3 ↔ face pull 3 · cable woodchop 3 ↔ pushdown 3
 4. pull-ups 3 ↔ incline press 3 · lateral raise 3 ↔ rear-delt fly 3 · hanging leg raise 3 ↔ curl 3
-5. seated row 3 ↔ lateral raise 3 · face pull 3 ↔ rear-delt fly 3 · cable crunch 3 ↔ hanging leg raise 3
+5. seated row 3 ↔ lateral raise 3 · face pull 3 ↔ overhead press 3 · cable crunch 3 ↔ hanging leg raise 3
 
-Weekly: side delt 18, rear delt 18, back (mid/traps) 15, back (lats) 12, core 15,
-chest 12, biceps 12, triceps 10.5, front delt 4.5.
+Weekly: side delt 16.5, rear delt 19.5, back (mid/traps) 13.5, back (lats) 6,
+core 18, chest 12, front delt 9, biceps 13.5, triceps 13.5.
 
-**The table proves the principle**: side and rear delts reach 18 while chest sits
-at 12 — the inverse of what a conventional plan produces, and the correct inverse
-given what the starter plan already supplies.
+**The table proves the principle**: side and rear delt reach 16.5–19.5 while
+chest sits at 12 and back (lats) at 6 — the inverse of what a conventional plan
+produces, and the correct inverse given what the starter plan already supplies.
+Back (lats) at 6 stays deliberately low — the same under-train-what-the-starter-
+already-supplies principle as Plan B's third change above, not an oversight.
 
-- *Triceps at 10.5* is the lowest number across all three plans and is
-  deliberate: 500 weekly push-ups already load triceps heavily, so adding direct
-  volume here would be the clearest case of double-counting.
+- *Trim* (over the 20-set ceiling): the original draft paired face pull with
+  rear-delt fly on day 5 — both hitting rear delt in the same session, on top
+  of face pull and rear-delt fly each already appearing on three other days —
+  which put rear delt at 22.5. The first replacement tried (a second curl) was
+  wrong and caught before shipping: Plan C's whole point is under-training what
+  the starter plan over-supplies, and a second curl dumped volume straight
+  into biceps, which 150 weekly pull-ups already load heavily. The second
+  replacement tried (a third core movement in one session — day 5 already ran
+  two) pushed core to 21, over the ceiling from the other direction. Day 5's
+  rear-delt fly became overhead press instead — it still relieves the
+  rear-delt overshoot, adds nothing to biceps, and doesn't stack a third core
+  slot into one session. Rear delt landed at 19.5.
+- *Triceps at 13.5* is the lowest of the three plans and is deliberate: 500
+  weekly push-ups already load triceps heavily, so adding direct volume here
+  would be the clearest case of double-counting.
 - **This is the best companion to a continuing starter plan.**
 
 ### 8.3 Which combination to run
@@ -549,14 +613,18 @@ quick-add.
    *architecturally* but is not the better training advice. Correction issued.
 3. **Superseded (2026-08-19).** Two defects were open against the previous
    leg-inclusive plans — Plan C's chest/triceps imbalance and Plan B's rear delt
-   at 7. Both plans were replaced wholesale when Ayman ruled legs out of scope,
-   and neither defect survives into the current §8.2 tables (Plan C now runs
-   chest 12 / triceps 10.5 deliberately; Plan B's rear delt is 12). Recorded so
-   the history is legible rather than silently dropped.
-4. **Core at 6 in Plan B** is the lowest number in the current set. Judged
-   acceptable because hanging ab work is always available ad hoc via quick-add,
-   but it is the weakest number across the three plans and worth a second look
-   given "visible abs" is the stated goal.
+   at 7. Both plans were replaced wholesale when Ayman ruled legs out of scope.
+   Superseded again (2026-08-20) along with item 4 below when §8.2's tables
+   were regenerated from `weeklyVolume` — see §8.2's provenance note for why
+   the numbers moved a second time. Recorded so the history is legible rather
+   than silently dropped.
+4. **Resolved (2026-08-20).** Core at 6 in Plan B was the lowest number in the
+   set and the Lead overruled treating it as an acceptable pre-existing item —
+   "a number being pre-existing is not a reason to ship it," specifically
+   because Plan B is the standalone recommendation once the daily rep targets
+   retire, and it would have shipped with the weakest number on the thing
+   Ayman actually asked for. Fixed in the same pass that regenerated §8.2's
+   tables: core is now 12. See §8.2's Plan B trim notes for what was cut.
 5. **Plan exercise selection** wants a pass from a published program (§8.4).
 3. **`workout_logs` has no duration column at all** — duration exists only on
    `workout_schedule` (added 2026-08-19 in `023`). A structured session record
