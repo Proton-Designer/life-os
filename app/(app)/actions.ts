@@ -1,9 +1,11 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser, requireUser } from "@/lib/supabase/auth";
+import { getAuthedUser, requireUser, getProfile } from "@/lib/supabase/auth";
 import type { PriorityItem } from "@/lib/home/types";
 import { getNotifications, type NotificationItem } from "@/lib/notifications/get-notifications";
+import { markNotificationRead } from "@/lib/notifications/mark-read";
+import { localDateString } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
@@ -12,6 +14,20 @@ import { markPrayer } from "@/app/(app)/deen/actions";
 export async function getNotificationsForNow(nowIso: string): Promise<NotificationItem[]> {
   const { userId } = await requireUser();
   return getNotifications(userId, new Date(nowIso));
+}
+
+/**
+ * `nowIso` (not a pre-computed date string) so the user-local date is
+ * derived server-side from their own profile timezone, same as
+ * getNotifications itself — see that function's header for why the date
+ * must be local, never UTC.
+ */
+export async function markNotificationReadForNow(notificationKey: string, nowIso: string): Promise<void> {
+  const { userId } = await requireUser();
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const dateStr = localDateString(new Date(nowIso), timezone);
+  await markNotificationRead(userId, notificationKey, dateStr);
 }
 
 export async function signOut(): Promise<void> {

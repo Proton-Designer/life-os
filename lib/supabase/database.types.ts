@@ -490,6 +490,30 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_reads: {
+        Row: {
+          date: string
+          id: string
+          notification_key: string
+          read_at: string
+          user_id: string
+        }
+        Insert: {
+          date: string
+          id?: string
+          notification_key: string
+          read_at?: string
+          user_id?: string
+        }
+        Update: {
+          date?: string
+          id?: string
+          notification_key?: string
+          read_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       prayers: {
         Row: {
           date: string

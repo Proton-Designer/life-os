@@ -48,6 +48,7 @@ function baseItem(overrides: Partial<PriorityItem>): PriorityItem {
     domain: "deen",
     title: "x",
     dueAt: null,
+    windowEndAt: null,
     date: "2026-08-10",
     urgencyBucket: "later_today",
     completed: false,
@@ -157,6 +158,54 @@ describe("toggleItem", () => {
     const { toggleItem } = await import("../actions");
 
     await expect(toggleItem(baseItem({ actionType: "toggle_prayer" }))).rejects.toThrow();
+  });
+});
+
+describe("markNotificationReadForNow", () => {
+  beforeEach(() => {
+    fromMock.mockReset();
+    getClaimsMock.mockClear();
+  });
+
+  function makeTableAwareFrom(responses: Record<string, { data: unknown; error: unknown }>) {
+    return (table: string) => {
+      const resolved = responses[table] ?? { data: null, error: null };
+      const chain: Record<string, unknown> = {};
+      for (const method of ["select", "eq", "upsert"]) chain[method] = vi.fn(() => chain);
+      chain.maybeSingle = vi.fn(async () => resolved);
+      chain.then = (resolve: (v: typeof resolved) => void) => resolve(resolved);
+      return chain;
+    };
+  }
+
+  it("derives the date from the user's own profile timezone, not UTC, then writes it", async () => {
+    fromMock.mockImplementation(
+      makeTableAwareFrom({
+        profiles: { data: { user_id: "user-1", timezone: "America/Chicago" }, error: null },
+        notification_reads: { data: null, error: null },
+      })
+    );
+    const { markNotificationReadForNow } = await import("../actions");
+
+    // 02:30Z on the 20th is still 21:30 CDT on the 19th.
+    await markNotificationReadForNow("prayer-fajr", "2026-08-20T02:30:00.000Z");
+
+    expect(fromMock).toHaveBeenCalledWith("notification_reads");
+    const notificationReadsCall = fromMock.mock.results.find(
+      (_, i) => fromMock.mock.calls[i][0] === "notification_reads"
+    );
+    const chain = notificationReadsCall!.value as { upsert: ReturnType<typeof vi.fn> };
+    expect(chain.upsert).toHaveBeenCalledWith(
+      { user_id: "user-1", notification_key: "prayer-fajr", date: "2026-08-19" },
+      { onConflict: "user_id,notification_key,date", ignoreDuplicates: true }
+    );
+  });
+
+  it("throws if no authenticated user is present", async () => {
+    getClaimsMock.mockResolvedValueOnce({ data: null, error: null });
+    const { markNotificationReadForNow } = await import("../actions");
+
+    await expect(markNotificationReadForNow("prayer-fajr", "2026-08-20T02:30:00.000Z")).rejects.toThrow();
   });
 });
 

@@ -11,6 +11,8 @@ export type NotificationItem = {
   body: string;
   href: string;
   dueAt: string | null;
+  /** See this file's header comment — a per-day overlay, never permanent. */
+  read: boolean;
 };
 
 // Where each PriorityItem action lands once you tap it — every target id
@@ -38,12 +40,38 @@ const ACTION_BODY: Record<ActionType, string> = {
 
 /**
  * Cross-domain "what needs your input" feed for the topbar notification
- * bell. Deliberately NOT persisted — every item here is re-derived from
- * live state on each poll (same pattern as the allocation check-in queue,
- * lib/checkins/allocation-queue-context.tsx), so there is no read/dismiss
- * state to reconcile: an item disappears the moment its underlying cause
- * is resolved (prayer marked, workout confirmed, waist logged), from
- * whichever screen that happens on.
+ * bell. The SET of items is still fully re-derived from live state on
+ * every poll (same pattern as the allocation check-in queue,
+ * lib/checkins/allocation-queue-context.tsx) — an item disappears the
+ * moment its underlying cause is resolved (prayer marked, workout
+ * confirmed, waist logged), from whichever screen that happens on. That
+ * part was never persisted and still isn't.
+ *
+ * `read` is a separate overlay on top of that (migration 035,
+ * notification_reads) — it changes presentation (darkened vs. highlighted,
+ * components/shell/notifications-bell.tsx) and whether an item counts
+ * toward the bell's badge, but NEVER whether the item exists. A read item
+ * that's still unresolved stays visible; only its count contribution and
+ * styling change (2026-08-20, Ayman: "once you click on a notification it
+ * should be marked as read... stored like that").
+ *
+ * Read state is scoped to (user_id, notification_key, date) — the DATE IS
+ * LOAD-BEARING, not incidental. Every notification id here is deliberately
+ * date-agnostic ("prayer-fajr", "kill-list", "fitness-waist-due") because
+ * this function already scopes the whole computation to `now`'s local
+ * calendar day — the id recurs identically every day forever. Keying read
+ * state on id alone would mean clicking one Monday's Fajr notification
+ * permanently suppressed every future Fajr notification. `date` here is
+ * ALWAYS the user's own local date (localDateString(now, timezone)), never
+ * a UTC date — a UTC-derived date would flip to tomorrow at 7pm Chicago
+ * time and reset read state hours early (same class of bug fixed elsewhere
+ * in this build for body-metrics dates). The accepted edge case: an item
+ * that resolves and then re-arises later the SAME day stays read and won't
+ * re-increment the count — "read" means "you saw today's instance," not
+ * "this exact occurrence never happened again," and re-deriving a fresh
+ * read state per calendar day is what keeps that from becoming a permanent
+ * dismissal. Don't "simplify" the composite key down to just
+ * notification_key — that silently breaks every recurring notification.
  *
  * Reuses getPriorityItems for Deen/Business/School/Co-op — that's already
  * the canonical "what's due today" computation (Home's "Now" panel). Adds
@@ -53,23 +81,34 @@ const ACTION_BODY: Record<ActionType, string> = {
  * screen rather than completing anything blind.
  *
  * Business's Lock-In pending-hours signal (the allocation check-in queue)
- * is NOT computed here — it lives client-side in AllocationQueueProvider
- * and is merged into the bell's item list directly by NotificationsBell
- * (components/shell/notifications-bell.tsx), not re-derived through this
- * server aggregator. Folding it into this function would mean two
- * independent polls of the same underlying state (this server action's
- * 60s poll and the provider's own 60s poll) computing the same "is there
- * a pending window" answer separately — reading it straight off
- * useAllocationQueue() instead means the bell, the toast, and the (now
+ * is NOT computed here and carries no read state — it lives client-side in
+ * AllocationQueueProvider and is merged into the bell's item list directly
+ * by NotificationsBell (components/shell/notifications-bell.tsx), not
+ * re-derived through this server aggregator. Folding it into this function
+ * would mean two independent polls of the same underlying state (this
+ * server action's 60s poll and the provider's own 60s poll) computing the
+ * same "is there a pending window" answer separately — reading it straight
+ * off useAllocationQueue() instead means the bell, the toast, and the (now
  * removed) badge all ever agree, by construction, since they share one
- * poll (2026-08-20, Opus Lead: CheckinQueueBadge returning null at count
- * 0 made the check-in feature invisible 3/4 of the day — the bell
- * replaces it as the persistent surface).
+ * poll (2026-08-20, Opus Lead: CheckinQueueBadge returning null at count 0
+ * made the check-in feature invisible 3/4 of the day — the bell replaces
+ * it as the persistent surface). It stays out of read-state too, and
+ * deliberately: it already has its own click behavior (opens the sheet),
+ * its count comes from the live, still-unanswered queue rather than a read
+ * flag, and marking it "read" while the window is still open would hide
+ * the only entry point to an action with a 30-minute fuse — recreating the
+ * exact invisibility bug the bell itself was built to fix, just through a
+ * different mechanism.
  */
 export async function getNotifications(userId: string, now: Date): Promise<NotificationItem[]> {
-  const [priorityItems, fitnessItems] = await Promise.all([
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const dateStr = localDateString(now, timezone);
+
+  const [priorityItems, fitnessItems, readKeys] = await Promise.all([
     getPriorityItems(userId, now),
-    getFitnessNotificationItems(userId, now),
+    getFitnessNotificationItems(userId, dateStr),
+    getReadKeysForDate(userId, dateStr),
   ]);
 
   const fromPriority: NotificationItem[] = priorityItems.map((item) => ({
@@ -79,9 +118,10 @@ export async function getNotifications(userId: string, now: Date): Promise<Notif
     body: ACTION_BODY[item.actionType],
     href: ACTION_HREF[item.actionType](item),
     dueAt: item.dueAt ? item.dueAt.toISOString() : null,
+    read: readKeys.has(item.id),
   }));
 
-  const items = [...fromPriority, ...fitnessItems];
+  const items = [...fromPriority, ...fitnessItems.map((item) => ({ ...item, read: readKeys.has(item.id) }))];
   items.sort((a, b) => {
     const aTime = a.dueAt ? Date.parse(a.dueAt) : Infinity;
     const bTime = b.dueAt ? Date.parse(b.dueAt) : Infinity;
@@ -90,11 +130,19 @@ export async function getNotifications(userId: string, now: Date): Promise<Notif
   return items;
 }
 
-async function getFitnessNotificationItems(userId: string, now: Date): Promise<NotificationItem[]> {
+async function getReadKeysForDate(userId: string, dateStr: string): Promise<Set<string>> {
   const supabase = await createClient();
-  const profile = await getProfile();
-  const timezone = profile?.timezone ?? "UTC";
-  const dateStr = localDateString(now, timezone);
+  const { data, error } = await supabase
+    .from("notification_reads")
+    .select("notification_key")
+    .eq("user_id", userId)
+    .eq("date", dateStr);
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.notification_key));
+}
+
+async function getFitnessNotificationItems(userId: string, dateStr: string): Promise<Omit<NotificationItem, "read">[]> {
+  const supabase = await createClient();
   const todayDayOfWeek = dayOfWeekFromDateString(dateStr);
 
   const [{ data: scheduleRow }, { data: waistRow }] = await Promise.all([
@@ -114,7 +162,7 @@ async function getFitnessNotificationItems(userId: string, now: Date): Promise<N
       .maybeSingle(),
   ]);
 
-  const items: NotificationItem[] = [];
+  const items: Omit<NotificationItem, "read">[] = [];
 
   if (scheduleRow?.workout_id) {
     const { data: confirmedRow } = await supabase

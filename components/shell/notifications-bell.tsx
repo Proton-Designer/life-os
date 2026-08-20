@@ -10,24 +10,31 @@
 // below rather than living beside it as a second "something's pending"
 // indicator.
 //
-// Imports the server action directly rather than receiving it as a prop
+// Imports the server actions directly rather than receiving them as props
 // from a Server Component — same reason as allocation-checkin-gate.tsx
 // (AGENTS.md: never pass a function as a prop across the RSC boundary).
 // Domain items poll on the same 60s cadence as the allocation queue
-// (allocation-queue-context.tsx) since both are cheap, derived-at-read
-// reads with no dismiss/read state to reconcile. The check-in item itself
-// is NOT independently polled — it reads straight off
-// useAllocationQueue(), the same context the toast and the dialog read,
-// so a fired window is exactly one event surfaced on three UIs (toast,
-// bell entry, dialog), never a second independently-detected one.
+// (allocation-queue-context.tsx). Which items EXIST is still fully
+// derived at read time on every poll, no dismiss state — but which ones
+// are READ is now a real per-day overlay (migration 035,
+// lib/notifications/get-notifications.ts's header has the full reasoning,
+// including why it's scoped per day rather than permanent). Clicking a
+// domain item marks it read both locally (immediate) and server-side
+// (persisted); see handleItemClick below. The check-in item itself is NOT
+// independently polled and carries no read state of its own — it reads
+// straight off useAllocationQueue(), the same context the toast and the
+// dialog read, so a fired window is exactly one event surfaced on three
+// UIs (toast, bell entry, dialog), never a second independently-detected
+// one.
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Bell } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getNotificationsForNow } from "@/app/(app)/actions";
+import { getNotificationsForNow, markNotificationReadForNow } from "@/app/(app)/actions";
 import { useAllocationQueue } from "@/lib/checkins/allocation-queue-context";
 import type { NotificationItem } from "@/lib/notifications/get-notifications";
+import { cn } from "@/lib/utils";
 
 const POLL_MS = 60 * 1000;
 
@@ -56,11 +63,31 @@ export function NotificationsBell() {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  // Sorted to the top unconditionally: these expire in 30 minutes (the
-  // shortest fuse of anything in the list), so they outrank a prayer
-  // window or a due-today task regardless of dueAt.
+  // Marks read locally (so the count and styling update immediately,
+  // before the next 60s poll) AND persists it server-side — the two must
+  // both happen: local-only would forget on reload, server-only would lag
+  // a full poll cycle behind the click. Best-effort on the network call:
+  // if it fails, the next poll re-reads the true server state anyway, so
+  // there's nothing meaningful to retry or surface here.
+  const handleItemClick = useCallback((item: NotificationItem) => {
+    setOpen(false);
+    if (item.read) return;
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, read: true } : i)));
+    markNotificationReadForNow(item.id, new Date().toISOString()).catch(() => {});
+  }, []);
+
+  // Read items stay in the list — they're still unresolved, just already
+  // seen — they're only excluded from the count (get-notifications.ts's
+  // header explains why `read` never removes an item). The check-in entry
+  // has no read state of its own (same header) and always counts while
+  // pending.
   const checkinCount = queue.length;
-  const count = (checkinCount > 0 ? 1 : 0) + items.length;
+  const unreadCount = items.filter((item) => !item.read).length;
+  const count = (checkinCount > 0 ? 1 : 0) + unreadCount;
+  // Distinct from `count`: an all-read-but-unresolved list must still
+  // render the (darkened) items, never fall back to the empty state —
+  // `count` only tracks what's unread, not what exists.
+  const hasAnyItems = checkinCount > 0 || items.length > 0;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -82,7 +109,7 @@ export function NotificationsBell() {
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-1">
-        {count === 0 ? (
+        {!hasAnyItems ? (
           <p className="px-3 py-4 text-center text-sm text-muted-foreground">Nothing waiting on you.</p>
         ) : (
           <ul className="flex flex-col gap-0.5">
@@ -110,11 +137,18 @@ export function NotificationsBell() {
               <li key={item.id}>
                 <Link
                   href={item.href}
-                  onClick={() => setOpen(false)}
-                  className="flex flex-col gap-0.5 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                  onClick={() => handleItemClick(item)}
+                  data-testid={`notification-${item.id}`}
+                  data-read={item.read ? "true" : "false"}
+                  className={cn(
+                    "flex flex-col gap-0.5 rounded-md px-3 py-2 text-sm hover:bg-accent",
+                    item.read && "opacity-60"
+                  )}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="font-medium">{item.title}</span>
+                    <span className={cn("font-medium", item.read && "font-normal text-muted-foreground")}>
+                      {item.title}
+                    </span>
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                       {DOMAIN_LABEL[item.domain]}
                     </span>
