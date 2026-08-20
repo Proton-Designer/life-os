@@ -18,7 +18,8 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
     getAnsweredWindowStarts: async () => [],
     getLoggedPrayerNames: async () => [],
     getWorkoutLoggedToday: async () => false,
-    getConfirmedSessionHours: async () => [],
+    getSessionsForHourResolution: async () => [],
+    getStoredSessionHours: async () => [],
     ...overrides,
   };
 }
@@ -149,17 +150,23 @@ describe("getPendingAllocationQueue", () => {
     }
   });
 
-  describe("hourly Lock-In confirm wiring", () => {
-    it("does not queue a window fully covered by explicitly-confirmed session hours", async () => {
+  describe("hourly Lock-In confirm / missed-hour wiring", () => {
+    // A closed session with silence resolves every fired hour to
+    // missed_wasted (session-hour-status.ts) with no stored row at all —
+    // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md's whole
+    // point. This must be just as "resolved" as an explicit answer for the
+    // don't-re-queue check.
+    it("does not queue a window fully covered by resolved session hours, even with zero stored rows (auto-missed)", async () => {
       const now = new Date("2026-08-19T17:00:00Z"); // 12:00 CDT — well after the 08:00-10:00 window fired
-      const confirmedHours: TimeRange[] = [
-        { start: new Date("2026-08-19T13:00:00Z"), end: new Date("2026-08-19T14:00:00Z") },
-        { start: new Date("2026-08-19T14:00:00Z"), end: new Date("2026-08-19T15:00:00Z") },
-      ]; // both hours of the 08:00-10:00 CDT window explicitly confirmed
+      const session = {
+        id: "s1",
+        startedAt: new Date("2026-08-19T12:00:00Z"), // fires at 13:00Z and 14:00Z within the 13:00-15:00Z window
+        endedAt: new Date("2026-08-19T15:00:00Z"),
+      };
       const result = await getPendingAllocationQueue(
         "user-1",
         now,
-        baseDataSource({ getConfirmedSessionHours: async () => confirmedHours })
+        baseDataSource({ getSessionsForHourResolution: async () => [session], getStoredSessionHours: async () => [] })
       );
 
       expect(
@@ -167,32 +174,36 @@ describe("getPendingAllocationQueue", () => {
       ).toBe(false);
     });
 
-    // The double-count guard: a "No" hour with its own precise
-    // checkin_allocations row must not also get coarse-credited to
+    // The double-count guard: an hour with its own precise, resolved value
+    // (explicit answer or auto-missed) must not also get coarse-credited to
     // business by the raw Lock-In session overlap for the same 60
-    // minutes — otherwise a declined hour would silently reverse itself.
-    it("subtracts confirmed hours from the coarse Lock-In overlap before it reaches the prefill", async () => {
+    // minutes — otherwise the numbers would contradict each other.
+    it("subtracts resolved hours from the coarse Lock-In overlap before it reaches the prefill", async () => {
       const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — inside 14:00-16:00's queue window
       const lockIn: TimeRange = { start: new Date("2026-08-19T18:00:00Z"), end: new Date("2026-08-19T20:00:00Z") }; // 13:00-15:00 CDT
-      // Only the second hour (14:00-15:00 CDT) has been explicitly confirmed.
-      const confirmedHours: TimeRange[] = [
-        { start: new Date("2026-08-19T19:00:00Z"), end: new Date("2026-08-19T20:00:00Z") },
-      ];
-      const withConfirm = await getPendingAllocationQueue(
+      const session = { id: "s1", startedAt: new Date("2026-08-19T18:00:00Z"), endedAt: new Date("2026-08-19T19:30:00Z") }; // ended before the second hour fires, so only the stored 19:00Z hour resolves
+      // Only the second hour (14:00-15:00 CDT, i.e. 19:00Z) has been explicitly answered.
+      const storedHours = [{ sessionId: "s1", hourStartIso: "2026-08-19T19:00:00Z", domain: "wasted" as const }];
+
+      const withResolved = await getPendingAllocationQueue(
         "user-1",
         now,
-        baseDataSource({ getWorkSessions: async () => [lockIn], getConfirmedSessionHours: async () => confirmedHours })
+        baseDataSource({
+          getWorkSessions: async () => [lockIn],
+          getSessionsForHourResolution: async () => [session],
+          getStoredSessionHours: async () => storedHours,
+        })
       );
-      const withoutConfirm = await getPendingAllocationQueue(
+      const withoutResolved = await getPendingAllocationQueue(
         "user-1",
         now,
         baseDataSource({ getWorkSessions: async () => [lockIn] })
       );
 
-      const businessWith = withConfirm.items.find(
+      const businessWith = withResolved.items.find(
         (i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T19:00:00Z").getTime()
       )?.prefill.business;
-      const businessWithout = withoutConfirm.items.find(
+      const businessWithout = withoutResolved.items.find(
         (i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T19:00:00Z").getTime()
       )?.prefill.business;
 

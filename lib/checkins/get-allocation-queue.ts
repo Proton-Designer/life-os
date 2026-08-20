@@ -11,7 +11,8 @@ import {
   type TimeRange,
   type WakeSleepBounds,
 } from "./schedule";
-import { derivePrefillAllocation, subtractConfirmedHours } from "./prefill";
+import { derivePrefillAllocation, subtractResolvedHours } from "./prefill";
+import { resolveSessionHours, resolvedHourRanges } from "./session-hour-status";
 import type { Allocation } from "./allocation";
 
 export type PendingAllocationItem = {
@@ -48,8 +49,18 @@ export type AllocationQueueDataSource = {
   getLoggedPrayerNames: (userId: string, dateStr: string) => Promise<string[]>;
   /** EVIDENCE: a completed workout_logs row exists for `dateStr` — checked against `date`, never `created_at` (when it was recorded, not when it was performed). */
   getWorkoutLoggedToday: (userId: string, dateStr: string) => Promise<boolean>;
-  /** Explicitly-answered (Yes or No) hourly Lock-In confirms for `dateStr` — always concrete start/end (completed 60-min spans). */
-  getConfirmedSessionHours: (userId: string, dateStr: string, timezone: string) => Promise<TimeRange[]>;
+  /** Today's Lock-In sessions with their own identity — needed to group stored hours per session for resolveSessionHours. */
+  getSessionsForHourResolution: (
+    userId: string,
+    dateStr: string,
+    timezone: string
+  ) => Promise<{ id: string; startedAt: Date; endedAt: Date | null }[]>;
+  /** Every stored (explicitly answered or edited) hourly Lock-In row for `dateStr`, with its session and real domain. */
+  getStoredSessionHours: (
+    userId: string,
+    dateStr: string,
+    timezone: string
+  ) => Promise<{ sessionId: string; hourStartIso: string; domain: "business" | "wasted" }[]>;
 };
 
 function defaultDataSource(): AllocationQueueDataSource {
@@ -125,13 +136,29 @@ function defaultDataSource(): AllocationQueueDataSource {
         .limit(1);
       return (data ?? []).length > 0;
     },
-    async getConfirmedSessionHours(userId, dateStr, timezone) {
+    async getSessionsForHourResolution(userId, dateStr, timezone) {
+      const supabase = await createClient();
+      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("work_sessions")
+        .select("id, started_at, ended_at")
+        .eq("user_id", userId)
+        .gte("started_at", dayStart)
+        .lt("started_at", dayEnd);
+      return (data ?? []).map((s) => ({
+        id: s.id,
+        startedAt: new Date(s.started_at),
+        endedAt: s.ended_at ? new Date(s.ended_at) : null,
+      }));
+    },
+    async getStoredSessionHours(userId, dateStr, timezone) {
       const supabase = await createClient();
       const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
       const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from("checkins")
-        .select("window_start, window_end")
+        .select("window_start, work_session_id, checkin_allocations(domain)")
         .eq("user_id", userId)
         .eq("kind", "allocation")
         .eq("answered", true)
@@ -139,8 +166,15 @@ function defaultDataSource(): AllocationQueueDataSource {
         .gte("window_start", dayStart)
         .lt("window_start", dayEnd);
       return (data ?? [])
-        .filter((r): r is { window_start: string; window_end: string } => r.window_start !== null && r.window_end !== null)
-        .map((r) => ({ start: new Date(r.window_start), end: new Date(r.window_end) }));
+        .filter(
+          (r): r is { window_start: string; work_session_id: string; checkin_allocations: { domain: string }[] } =>
+            r.window_start !== null && r.work_session_id !== null && r.checkin_allocations.length > 0
+        )
+        .map((r) => ({
+          sessionId: r.work_session_id,
+          hourStartIso: r.window_start,
+          domain: r.checkin_allocations[0].domain as "business" | "wasted",
+        }));
     },
   };
 }
@@ -178,15 +212,30 @@ export async function getPendingAllocationQueue(
     answeredWindowStarts,
     loggedPrayerNames,
     workoutLoggedToday,
-    confirmedSessionHourRanges,
+    sessionsForHourResolution,
+    storedSessionHours,
   ] = await Promise.all([
     dataSource.getWorkSessions(userId, dateStr, timezone),
     dataSource.getWorkoutSchedule(userId, dateStr, timezone),
     dataSource.getAnsweredWindowStarts(userId, dateStr, timezone),
     dataSource.getLoggedPrayerNames(userId, dateStr),
     dataSource.getWorkoutLoggedToday(userId, dateStr),
-    dataSource.getConfirmedSessionHours(userId, dateStr, timezone),
+    dataSource.getSessionsForHourResolution(userId, dateStr, timezone),
+    dataSource.getStoredSessionHours(userId, dateStr, timezone),
   ]);
+
+  // Every RESOLVED hour (explicitly answered/edited, or auto-derived
+  // missed once a newer slot superseded it) across today's sessions —
+  // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md. A missed
+  // hour has no stored row (session-hour-status.ts's whole point: derive,
+  // don't write with a job) but still has a definite value that must be
+  // subtracted from the coarse Lock-In overlap credit and must stop a
+  // fully-covered window from being queued again.
+  const resolvedSessionHourRanges: TimeRange[] = sessionsForHourResolution.flatMap((session) => {
+    const storedForSession = storedSessionHours.filter((h) => h.sessionId === session.id);
+    const resolved = resolveSessionHours(session, 60, now, storedForSession);
+    return resolvedHourRanges(resolved, 60);
+  });
   const scheduledWorkoutTime = workoutSchedule?.time ?? null;
   const scheduledWorkoutDurationMinutes = workoutSchedule?.durationMinutes ?? null;
 
@@ -230,17 +279,17 @@ export async function getPendingAllocationQueue(
     suppressionRanges,
     now,
     answeredWindowStarts,
-    confirmedSessionHourRanges,
+    confirmedSessionHourRanges: resolvedSessionHourRanges,
   });
 
   const pending = pendingQueue(slots);
 
-  // Every explicitly-confirmed hour (Yes or No) is removed from the coarse
-  // session-overlap credit before it reaches pre-fill — an hour with its
-  // own precise, directly-written checkin_allocations row must never also
-  // be coarse-credited for the same 60 minutes on either side. See
-  // subtractConfirmedHours's own header in prefill.ts.
-  const adjustedLockInSessions = subtractConfirmedHours(lockInSessions, confirmedSessionHourRanges);
+  // Every resolved hour (explicitly answered/edited, or auto-derived
+  // missed) is removed from the coarse session-overlap credit before it
+  // reaches pre-fill — an hour with its own precise, definite value must
+  // never also be coarse-credited for the same 60 minutes on either side.
+  // See subtractResolvedHours's own header in prefill.ts.
+  const adjustedLockInSessions = subtractResolvedHours(lockInSessions, resolvedSessionHourRanges);
 
   const items: PendingAllocationItem[] = pending.map((slot) => {
     const prefill = derivePrefillAllocation(slot.window, {
