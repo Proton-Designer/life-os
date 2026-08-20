@@ -16,7 +16,10 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TargetsStrip } from "@/components/co-op/targets-strip";
+import { WeeklyAgenda } from "@/components/co-op/weekly-agenda";
+import { PipelineBoard } from "@/components/co-op/pipeline-board";
 import type { CoopTargetRow } from "@/lib/coop/targets";
+import type { CoopTaskRow } from "@/lib/coop/tasks";
 
 export default async function CoOpPage() {
   const supabase = await createClient();
@@ -58,6 +61,24 @@ export default async function CoOpPage() {
     title: t.title,
     deadline: t.deadline,
     position: t.position as number,
+  }));
+  const currentTarget = targets.find((t) => t.position === 1) ?? null;
+
+  const { data: coopTaskRows } = currentTarget
+    ? await supabase
+        .from("coop_tasks")
+        .select("id, title, deadline, status, blocked_from, created_at")
+        .eq("user_id", userId)
+        .eq("target_id", currentTarget.id)
+    : { data: [] };
+
+  const coopTasks: CoopTaskRow[] = (coopTaskRows ?? []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    deadline: t.deadline,
+    status: t.status as CoopTaskRow["status"],
+    blockedFrom: t.blocked_from as CoopTaskRow["blockedFrom"],
+    createdAt: t.created_at,
   }));
 
   const allTasks = taskRows ?? [];
@@ -144,12 +165,19 @@ export default async function CoOpPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
+        <div className="lg:col-span-4">
           <Panel title="Deadlines" heroValue={`${dueThisWeekCount}`} caption="due this week">
             <DeadlineList tasks={deadlineTasks} todayStr={dateStr} toggleTask={toggleTask} quiet={hasNothing} />
           </Panel>
         </div>
-        <div className="lg:col-span-6">
+        {currentTarget && (
+          <div className="lg:col-span-4">
+            <Panel title="Weekly Agenda" heroValue={`${coopTasks.length}`} caption={`for ${currentTarget.title}`}>
+              <WeeklyAgenda targetId={currentTarget.id} tasks={coopTasks} />
+            </Panel>
+          </div>
+        )}
+        <div className={currentTarget ? "lg:col-span-4" : "lg:col-span-8"}>
           <Panel
             title="Work schedule"
             heroValue={`${scheduledThisWeekCount}`}
@@ -164,6 +192,12 @@ export default async function CoOpPage() {
           </Panel>
         </div>
       </div>
+
+      {currentTarget && (
+        <Panel title="Pipeline" caption={`${currentTarget.title} — Backlog through Complete`}>
+          <PipelineBoard tasks={coopTasks} />
+        </Panel>
+      )}
 
       <Panel title="Task list" heroValue={`${openTasks.length}`} caption="open">
         <TaskList tasks={openTasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="coop" />
