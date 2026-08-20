@@ -3,8 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-utils";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
-import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
-import { TaskList, type TaskData } from "@/components/shared/task-list";
+import { addScheduleEvent, cancelScheduleOccurrence } from "./actions";
 import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/domain-schedule-view";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
@@ -28,13 +27,7 @@ export default async function CoOpPage() {
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
 
-  const [{ data: taskRows }, { data: eventRows }, { data: targetRows }] = await Promise.all([
-    supabase
-      .from("tasks")
-      .select("id, title, due_date, due_time, completed, completed_at")
-      .eq("user_id", userId)
-      .eq("domain", "co_op")
-      .order("due_date", { ascending: true, nullsFirst: false }),
+  const [{ data: eventRows }, { data: targetRows }] = await Promise.all([
     supabase
       .from("schedule_events")
       .select("id, title, is_recurring, day_of_week, event_time, event_date, cancelled_on")
@@ -72,11 +65,6 @@ export default async function CoOpPage() {
     blockedFrom: t.blocked_from as CoopTaskRow["blockedFrom"],
     createdAt: t.created_at,
   }));
-
-  const allTasks = taskRows ?? [];
-  const openTasks: TaskData[] = allTasks
-    .filter((t) => !t.completed)
-    .map((t) => ({ id: t.id, title: t.title, dueDate: t.due_date, dueTime: t.due_time, completed: t.completed }));
 
   const events: ScheduleEventData[] = (eventRows ?? []).map((e) => ({
     id: e.id,
@@ -123,10 +111,6 @@ export default async function CoOpPage() {
           <PipelineBoard tasks={coopTasks} />
         </Panel>
       )}
-
-      <Panel title="Task list" heroValue={`${openTasks.length}`} caption="open">
-        <TaskList tasks={openTasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="coop" />
-      </Panel>
     </PageContainer>
   );
 }

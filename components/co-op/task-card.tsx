@@ -86,19 +86,23 @@ export function TaskCard({
             <LockOpen /> Unblock
           </Button>
         ) : (
+          // Icon-only + unlabelled read as ambiguous cold (Opus Lead,
+          // 2026-08-20) — the lock in particular isn't an obvious "waiting
+          // on someone else," and it sat one tap from the arrows that move
+          // real work. Visible text on all three now, not just Advance.
           <>
             {canRetreat && (
-              <Button type="button" variant="ghost" size="icon-sm" disabled={isPending} onClick={onRetreat} aria-label="Move back a stage">
-                <ArrowLeft />
+              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={onRetreat} aria-label="Move back a stage">
+                <ArrowLeft /> Back
               </Button>
             )}
             {canAdvance && (
-              <Button type="button" variant="ghost" size="icon-sm" disabled={isPending} onClick={onAdvance} aria-label="Advance a stage">
-                <ArrowRight />
+              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={onAdvance} aria-label="Advance a stage">
+                <ArrowRight /> Next
               </Button>
             )}
-            <Button type="button" variant="ghost" size="icon-sm" disabled={isPending} onClick={onBlock} aria-label="Mark blocked">
-              <Lock />
+            <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={onBlock} aria-label="Mark blocked — waiting on something outside your control">
+              <Lock /> Block
             </Button>
           </>
         )}
