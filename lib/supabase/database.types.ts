@@ -1114,6 +1114,7 @@ export type Database = {
         }
         Returns: string
       }
+      delete_coop_target: { Args: { p_target_id: string }; Returns: undefined }
       get_vault_secrets: {
         Args: { secret_names: string[] }
         Returns: {
@@ -1132,6 +1133,10 @@ export type Database = {
           p_window_start: string
         }
         Returns: string
+      }
+      save_workout: {
+        Args: { p_exercises: Json; p_name: string; p_workout_id: string }
+        Returns: undefined
       }
       upsert_session_hour: {
         Args: {
