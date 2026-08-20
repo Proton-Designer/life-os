@@ -26,16 +26,18 @@ import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from ".
  *
  * Fitness has the same shape, split across two independent inputs
  * (2026-08-19, same review): `workoutLoggedToday` is EVIDENCE (a
- * workout_logs row exists for the date — the session actually happened),
- * `scheduledWorkoutTime`/`scheduledWorkoutDurationMinutes` are PLACEMENT
- * (where in the day, and how long, per workout_schedule — a plan, not
- * proof). Neither alone is enough: a scheduled-but-unlogged workout is
- * exactly the prayer-window mistake in a new shape (crediting a plan that
- * may never have happened), and a logged-but-unplaced workout has no
- * window to go in — inventing one (e.g. from workout_logs.created_at,
- * which is when it was *recorded*, not performed) risks the wrong window
- * entirely. Both present and the placement time falling in this window is
- * required; either one missing means no pre-fill, not a guess.
+ * workout_sessions row exists for the date, per the Fitness redesign's
+ * 2026-08-20 repoint off the dropped `workout_logs` — the session actually
+ * happened), `scheduledWorkoutTime`/`scheduledWorkoutDurationMinutes` are
+ * PLACEMENT (where in the day, and how long, per workout_schedule — a
+ * plan, not proof). Neither alone is enough: a scheduled-but-unlogged
+ * workout is exactly the prayer-window mistake in a new shape (crediting a
+ * plan that may never have happened), and a logged-but-unplaced workout
+ * has no window to go in — inventing one (e.g. from a session's
+ * `created_at`, which is when it was *recorded*, not performed) risks the
+ * wrong window entirely. Both present and the placement time falling in
+ * this window is required; either one missing means no pre-fill, not a
+ * guess.
  */
 
 // Fallback only, per 023_workout_schedule_duration.sql — `duration_minutes`

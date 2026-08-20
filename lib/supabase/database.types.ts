@@ -969,36 +969,6 @@ export type Database = {
           },
         ]
       }
-      workout_logs: {
-        Row: {
-          completed: boolean
-          created_at: string
-          date: string
-          id: string
-          source: string
-          user_id: string
-          workout_name: string
-        }
-        Insert: {
-          completed?: boolean
-          created_at?: string
-          date: string
-          id?: string
-          source: string
-          user_id?: string
-          workout_name: string
-        }
-        Update: {
-          completed?: boolean
-          created_at?: string
-          date?: string
-          id?: string
-          source?: string
-          user_id?: string
-          workout_name?: string
-        }
-        Relationships: []
-      }
       workout_schedule: {
         Row: {
           day_of_week: number

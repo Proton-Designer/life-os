@@ -123,21 +123,11 @@ describe("Fitness actions", () => {
     expect(revalidatePathMock).toHaveBeenCalledWith("/");
   });
 
-  it("logWorkout inserts a workout_logs row with the given source", async () => {
-    const chain = makeChain();
-    fromImpl = () => chain;
-    const { logWorkout } = await import("../actions");
-
-    await logWorkout("2026-08-10", "Push", "adhoc");
-
-    expect(fromMock).toHaveBeenCalledWith("workout_logs");
-    expect(chain.insert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_id: "user-1",
-        date: "2026-08-10",
-        workout_name: "Push",
-        source: "adhoc",
-      })
-    );
-  });
+  // logWorkout is deleted, not repointed (Fitness redesign Phase 7,
+  // 2026-08-20): its last caller (Home's toggle_workout priority item) was
+  // deleted as an architecture fix (commit 68755b8 — spec §2.1 forbids a
+  // bare one-tap completion with no numbers shown), and workout_logs
+  // itself was dropped once genuinely zero readers/writers remained
+  // (migration 033). This test asserted the old contract and is removed
+  // alongside the function it tested.
 });

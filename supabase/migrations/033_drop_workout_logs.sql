@@ -1,0 +1,21 @@
+-- Phase 7 Step 4 (Engineer 3) of docs/superpowers/plans/2026-08-20-fitness-redesign.md.
+-- Drops `workout_logs`, superseded entirely by `workout_sessions` +
+-- `session_sets` (025/026). `workout_schedule` is NOT touched — it remains
+-- the day-of-week -> workout pointer under the new model, per the Lead's
+-- explicit instruction not to over-reach.
+--
+-- Verified zero readers/writers before this migration was written, by
+-- grepping the whole tree for `workout_logs` outside supabase/migrations:
+-- every hit left is either this export-table-list entry (removed in the
+-- same commit as this migration), a doc comment describing the OLD model
+-- for context, or `app/(app)/fitness/actions.ts`'s `logWorkout` function
+-- body — which has zero remaining callers anywhere in the app (its last
+-- caller, Home's `toggle_workout` priority item, was deleted as an
+-- architecture fix, not a repoint — see commit 68755b8). `logWorkout`
+-- itself is left in place rather than removed here: that file had an
+-- uncommitted edit in flight from another engineer at the time this
+-- migration was written, and editing a shared file mid-someone-else's-save
+-- is the exact hazard flagged earlier in this same build. Dead code that
+-- references a dropped table cannot run — nothing calls it — so this is
+-- safe to drop ahead of that cleanup, not blocked by it.
+drop table public.workout_logs;

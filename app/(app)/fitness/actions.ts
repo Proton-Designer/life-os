@@ -79,23 +79,6 @@ export async function setWorkoutSchedule(
   revalidatePath("/");
 }
 
-export async function logWorkout(
-  date: string,
-  workoutName: string,
-  source: "scheduled" | "adhoc"
-): Promise<void> {
-  const { supabase, userId } = await requireUser();
-  const { error } = await supabase.from("workout_logs").insert({
-    user_id: userId,
-    date,
-    workout_name: workoutName,
-    source,
-  });
-  if (error) throw error;
-  revalidatePath("/fitness");
-  revalidatePath("/");
-}
-
 /**
  * Assigns (or clears) a weekday's workout in the new structured model —
  * spec §2/§4, distinct from the legacy free-text `setWorkoutSchedule`

@@ -12,7 +12,6 @@ const USER_SCOPED_TABLES = [
   "weekly_goals",
   "kill_list_items",
   "workout_schedule",
-  "workout_logs",
   "exercises",
   "workouts",
   "workout_exercises",
