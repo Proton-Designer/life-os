@@ -5,7 +5,7 @@ import { ListChecks } from "lucide-react";
 import { toggleItem } from "@/app/(app)/actions";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import type { PriorityItem } from "@/lib/home/types";
-import { formatRelativeDuration } from "@/lib/date-utils";
+import { formatWindowRelativeTime } from "@/lib/date-utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -22,15 +22,12 @@ const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   co_op: "Co-op",
 };
 
-// Copy of the relativeTime helper in next-up-hero.tsx (still live as the
-// Deen page's own "next prayer" hero) — "now" special-cased to a
-// capitalized label, no dueAt reads as a same-day item with nothing more
-// specific to say.
-function relativeTime(dueAt: Date | null, now: Date): string {
-  if (!dueAt) return "Today";
-  const diffMin = (dueAt.getTime() - now.getTime()) / 60_000;
-  const formatted = formatRelativeDuration(diffMin);
-  return formatted === "now" ? "Now" : formatted;
+// Thin wrapper around formatWindowRelativeTime (shared with
+// next-up-hero.tsx, the Deen page's own "next prayer" hero) — "Today" for
+// no dueAt, "Xh left" for an already-open window (e.g. a prayer whose time
+// has started but hasn't closed), "in Xh"/"Xh overdue"/"Now" otherwise.
+function relativeTime(item: PriorityItem, now: Date): string {
+  return formatWindowRelativeTime(item.dueAt, item.windowEndAt, now);
 }
 
 // The single most urgent item across the module: right_now bucket, earliest
@@ -66,7 +63,7 @@ function Row({
     });
   }
 
-  const timeText = relativeTime(item.dueAt, now);
+  const timeText = relativeTime(item, now);
   // The Now badge already says it — don't also render "Now" as the time
   // text right next to it.
   const showTimeText = !(isMostUrgent && timeText === "Now");

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
-import { formatRelativeDuration } from "@/lib/date-utils";
+import { formatWindowRelativeTime } from "@/lib/date-utils";
 import { featuredCardStyle } from "@/lib/featured-card-style";
 
 const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
@@ -18,11 +18,8 @@ const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   co_op: "Co-op",
 };
 
-function relativeTime(dueAt: Date | null, now: Date): string {
-  if (!dueAt) return "Today";
-  const diffMin = (dueAt.getTime() - now.getTime()) / 60_000;
-  const formatted = formatRelativeDuration(diffMin);
-  return formatted === "now" ? "Now" : formatted;
+function relativeTime(item: PriorityItem, now: Date): string {
+  return formatWindowRelativeTime(item.dueAt, item.windowEndAt, now);
 }
 
 // The "Next Up" slot of Home's cross-cutting KPI row (Tier 1 — same
@@ -49,7 +46,7 @@ export function NextUpHero({
         <IconChip icon={DOMAIN_ICON[item.domain]} accent={accent} />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            {DOMAIN_LABEL[item.domain]} &middot; {relativeTime(item.dueAt, now)}
+            {DOMAIN_LABEL[item.domain]} &middot; {relativeTime(item, now)}
           </p>
           <p className="mt-1 truncate text-lg font-semibold">{item.title}</p>
         </div>

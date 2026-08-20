@@ -16,6 +16,7 @@ function makeItem(overrides: Partial<PriorityItem> = {}): PriorityItem {
     domain: "deen",
     title: "Fajr",
     dueAt: null,
+    windowEndAt: null,
     date: "2026-08-11",
     urgencyBucket: "right_now",
     completed: false,

@@ -49,6 +49,29 @@ export function formatRelativeDuration(diffMinutes: number): string {
   return rounded < 0 ? `${magnitude} overdue` : `in ${magnitude}`;
 }
 
+/**
+ * Like formatRelativeDuration, but for a WINDOW rather than a hard
+ * deadline (currently: an open prayer window) — `dueAt` is when the
+ * window opens, `windowEndAt` is when it closes. Once the window has
+ * opened (dueAt has passed) but hasn't closed yet, plain
+ * formatRelativeDuration(dueAt - now) reads as "2h overdue," which is
+ * backwards: the prayer isn't late, it has 2 hours left to be prayed.
+ * This instead reports "2h left" (time until windowEndAt) for exactly
+ * that in-between state, and falls back to formatRelativeDuration's
+ * usual "in Xh" / "Xh overdue" / "now" everywhere else (before the
+ * window opens, or if windowEndAt is unknown/already passed).
+ */
+export function formatWindowRelativeTime(dueAt: Date | null, windowEndAt: Date | null, now: Date): string {
+  if (!dueAt) return "Today";
+  const startDiffMin = (dueAt.getTime() - now.getTime()) / 60_000;
+  if (startDiffMin <= 1 && windowEndAt) {
+    const remainingMin = (windowEndAt.getTime() - now.getTime()) / 60_000;
+    if (remainingMin > 1) return `${formatDurationMagnitude(remainingMin)} left`;
+  }
+  const formatted = formatRelativeDuration(startDiffMin);
+  return formatted === "now" ? "Now" : formatted;
+}
+
 /** Sunday of the week containing `dateStr` (week boundary = Sunday–Saturday, per spec). */
 export function getWeekStartDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);

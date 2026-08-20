@@ -8,6 +8,7 @@ function item(overrides: Partial<PriorityItem>): PriorityItem {
     domain: "deen",
     title: "title",
     dueAt: null,
+    windowEndAt: null,
     date: "2026-08-17",
     urgencyBucket: "later_today",
     completed: false,

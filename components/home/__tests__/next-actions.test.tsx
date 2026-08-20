@@ -21,6 +21,7 @@ function item(overrides: Partial<PriorityItem> & Pick<PriorityItem, "id" | "doma
   return {
     title: overrides.id,
     dueAt: null,
+    windowEndAt: null,
     date: "2026-08-17",
     urgencyBucket: "later_today",
     completed: false,
@@ -115,6 +116,41 @@ describe("NextActions", () => {
     expect(fajrRow).not.toBeNull();
     // The badge shows "Now" exactly once — not doubled with a second "Now" as the time text.
     expect(screen.getAllByText("Now")).toHaveLength(1);
+  });
+
+  // Regression (Ayman, 2026-08-20): Home's "Now" panel showed an open
+  // prayer window as "2h overdue" — backwards, since the window (dueAt =
+  // window start) had passed but was still open. Should read time left
+  // until the window closes instead.
+  //
+  // Fake timers here (not just nowIso) because NextActions' mount effect
+  // immediately re-ticks `now` to the real wall clock (staleTimes-cache
+  // correction, see the component's own comment) — without pinning the
+  // system clock too, that tick would overwrite the seeded time with
+  // whatever day the test actually runs on, days away from NOW_ISO.
+  it("shows time left, not overdue, for a prayer whose window has opened but not closed", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_ISO));
+    try {
+      const items = [
+        item({
+          id: "maghrib",
+          domain: "deen",
+          title: "Maghrib",
+          dueAt: new Date(NOW_MS - 120 * 60_000), // window opened 2h ago
+          windowEndAt: new Date(NOW_MS + 7 * 60_000), // closes in 7m
+          urgencyBucket: "right_now",
+        }),
+      ];
+      render(<NextActions items={items} isFreshInstall={false} nowIso={NOW_ISO} />);
+
+      const maghribRow = screen.getByText("Maghrib").closest("li");
+      expect(maghribRow).not.toBeNull();
+      expect(maghribRow!.textContent).toContain("7m left");
+      expect(maghribRow!.textContent).not.toContain("overdue");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("marks an item done via toggleItem and removes it optimistically on click", async () => {

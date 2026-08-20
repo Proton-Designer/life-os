@@ -148,6 +148,7 @@ export async function getPriorityItems(
       domain: "deen",
       title,
       dueAt,
+      windowEndAt: window ? window.end : null,
       urgencyBucket: bucket,
       completed: false,
       actionType: "toggle_prayer",
@@ -167,6 +168,7 @@ export async function getPriorityItems(
           ? next.text
           : `${incompleteKillList.length} kill-list items remaining`,
       dueAt: null,
+      windowEndAt: null,
       urgencyBucket: "later_today",
       completed: false,
       actionType: "toggle_kill_list",
@@ -183,6 +185,7 @@ export async function getPriorityItems(
       domain: task.domain,
       title: task.title,
       dueAt,
+      windowEndAt: null,
       urgencyBucket: urgencyBucket(dueAt, now),
       completed: false,
       actionType: "toggle_task",

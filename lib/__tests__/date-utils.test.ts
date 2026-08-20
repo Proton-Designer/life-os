@@ -4,6 +4,7 @@ import {
   formatTopbarDate,
   formatDurationMagnitude,
   formatRelativeDuration,
+  formatWindowRelativeTime,
 } from "../date-utils";
 
 describe("getWeekStartDate", () => {
@@ -87,5 +88,38 @@ describe("formatRelativeDuration", () => {
 
   it("rounds a fractional diff before framing", () => {
     expect(formatRelativeDuration(-40.6)).toBe("41m overdue");
+  });
+});
+
+describe("formatWindowRelativeTime", () => {
+  const NOW = new Date("2026-08-20T20:00:00.000Z");
+
+  it("shows time left, not overdue, once the window has opened but not closed — the reported bug", () => {
+    // Window opened 2h ago (18:00), closes in 2h (22:00) — this used to
+    // read "2h overdue," which is backwards: there's 2h left to pray it.
+    const dueAt = new Date("2026-08-20T18:00:00.000Z");
+    const windowEndAt = new Date("2026-08-20T22:00:00.000Z");
+    expect(formatWindowRelativeTime(dueAt, windowEndAt, NOW)).toBe("2h left");
+  });
+
+  it("still shows 'in Xh' before the window has opened", () => {
+    const dueAt = new Date("2026-08-20T22:00:00.000Z");
+    const windowEndAt = new Date("2026-08-21T00:00:00.000Z");
+    expect(formatWindowRelativeTime(dueAt, windowEndAt, NOW)).toBe("in 2h");
+  });
+
+  it("falls back to overdue framing once the window itself has closed", () => {
+    const dueAt = new Date("2026-08-20T16:00:00.000Z");
+    const windowEndAt = new Date("2026-08-20T18:00:00.000Z");
+    expect(formatWindowRelativeTime(dueAt, windowEndAt, NOW)).toBe("4h overdue");
+  });
+
+  it("falls back to plain overdue/in-X framing when there's no window (e.g. a task deadline)", () => {
+    const dueAt = new Date("2026-08-20T18:00:00.000Z");
+    expect(formatWindowRelativeTime(dueAt, null, NOW)).toBe("2h overdue");
+  });
+
+  it("returns 'Today' when there's no dueAt at all", () => {
+    expect(formatWindowRelativeTime(null, null, NOW)).toBe("Today");
   });
 });

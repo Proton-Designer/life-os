@@ -178,6 +178,7 @@ export default async function DeenPage() {
         domain: "deen",
         title: nextPrayer.name === "dhuhr" && isFriday ? "Jummah" : nextPrayer.label,
         dueAt: todayWindows?.[nextPrayer.name]?.start ?? null,
+        windowEndAt: todayWindows?.[nextPrayer.name]?.end ?? null,
         date: dateStr,
         urgencyBucket: "later_today",
         completed: false,
