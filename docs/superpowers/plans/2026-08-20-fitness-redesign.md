@@ -242,10 +242,18 @@ Spec §4. **Files:**
   an inline "add new exercise" that captures name + multi-select primary and
   secondary muscle groups. **Saving untagged must be allowed** (spec §4); do not
   gate the save button on tags.
-- [ ] **Step 3:** `workout-builder.tsx` — add/reorder (drag)/remove exercises,
-  each with target sets, a reps range, and optional target load. Reorder writes
-  `position`; the `unique (workout_id, position)` constraint means reordering
-  needs a deferred or two-phase update — handle it, don't fight it with retries.
+- [ ] **Step 3:** `workout-builder.tsx` — add/reorder/remove exercises, each with
+  target sets, a reps range, and optional target load.
+  **Reorder is up/down BUTTONS, not drag** (ruled 2026-08-20). No drag library
+  exists in this codebase and we are not adding one for a 5-8 item list; more
+  importantly, this app uses horizontal snap-scroll containers on mobile
+  (`snap-x snap-mandatory overflow-x-auto`), and a drag gesture inside a
+  horizontally-scrollable region cannot be reliably told apart from a scroll
+  without pointer-event handling that breaks differently on iOS Safari and
+  Chrome. Buttons are also keyboard-accessible and 44px-compliant for free.
+  Reorder writes `position`; the `unique (workout_id, position)` constraint
+  still applies — a swap is a transient collision. Handle it with an atomic
+  replace-all RPC or a deferred constraint; do not fight it with retries.
 - [ ] **Step 4:** Server actions in `actions.ts`. Every action re-checks
   ownership; never trust an id from the client.
 - [ ] **Step 5:** Show the live weekly volume of the workout being built, using
