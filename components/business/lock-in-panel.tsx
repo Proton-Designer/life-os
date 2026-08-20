@@ -2,21 +2,28 @@
 
 import { useState, useTransition } from "react";
 import { startWorkSession } from "@/app/(app)/business/actions";
-import { LockInSession, type SessionHourConfirmation } from "./lock-in-session";
+import { setSessionHourStatus } from "@/app/(app)/checkin/session-hour-actions";
+import { LockInSession, type StoredSessionHour } from "./lock-in-session";
+import { SessionHourList, type ResolvedSessionHour } from "./session-hour-list";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { Button } from "@/components/ui/button";
 
 export type ActiveSessionData = {
   id: string;
   startedAtIso: string;
-  confirmedHours: SessionHourConfirmation[];
-  sessionSignalMinutes: number;
-  sessionNoiseMinutes: number;
+  storedHours: StoredSessionHour[];
 };
 
 export type LastSessionData = {
+  sessionId: string;
   startedAtIso: string;
   endedAtIso: string;
+  // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md rule 3: every
+  // hour stays editable after the session ends too, reachable right here —
+  // not a separate edit-history screen. Already resolved server-side
+  // (resolveSessionHours with the real endedAt) since a closed session's
+  // hours don't need to tick.
+  resolvedHours: ResolvedSessionHour[];
 };
 
 // Optimistic local state, not router.refresh()-based — the recent
@@ -53,9 +60,7 @@ export function LockInPanel({
       <LockInSession
         sessionId={session.id}
         startedAtIso={session.startedAtIso}
-        initialConfirmedHours={session.confirmedHours}
-        sessionSignalMinutes={session.sessionSignalMinutes}
-        sessionNoiseMinutes={session.sessionNoiseMinutes}
+        initialStoredHours={session.storedHours}
         onEnded={() => setSession(null)}
       />
     );
@@ -64,13 +69,7 @@ export function LockInPanel({
   function handleLockIn() {
     startTransition(async () => {
       const result = await startWorkSession();
-      setSession({
-        id: result.id,
-        startedAtIso: result.startedAt,
-        confirmedHours: [],
-        sessionSignalMinutes: 0,
-        sessionNoiseMinutes: 0,
-      });
+      setSession({ id: result.id, startedAtIso: result.startedAt, storedHours: [] });
     });
   }
 
@@ -89,17 +88,47 @@ export function LockInPanel({
         </div>
       )}
       {lastSession && (
-        <p className="text-xs text-muted-foreground">
-          Last session: {formatElapsedDuration(lastSessionMinutesMs)} on{" "}
-          {new Date(lastSession.startedAtIso).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          })}
-        </p>
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            Last session: {formatElapsedDuration(lastSessionMinutesMs)} on{" "}
+            {new Date(lastSession.startedAtIso).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            })}
+          </p>
+          <LastSessionHours sessionId={lastSession.sessionId} initialHours={lastSession.resolvedHours} />
+        </div>
       )}
       <Button type="button" onClick={handleLockIn} disabled={isPending} className="w-full">
         Lock In
       </Button>
     </div>
   );
+}
+
+/**
+ * The "after it ends" half of the missed-hours ruling — same
+ * SessionHourList, same editHour shape as the live session, just no
+ * ticking (a closed session's hours don't change on their own, only via
+ * an explicit edit). Local optimistic state only; setSessionHourStatus
+ * itself revalidates the page.
+ */
+function LastSessionHours({ sessionId, initialHours }: { sessionId: string; initialHours: ResolvedSessionHour[] }) {
+  const [hours, setHours] = useState(initialHours);
+  const [isConfirming, startConfirming] = useTransition();
+
+  function editHour(hourStartIso: string, status: "business" | "wasted") {
+    setHours((prev) =>
+      prev.map((h) =>
+        h.hourStartIso === hourStartIso
+          ? { hourStartIso, state: status === "business" ? "confirmed_business" : "confirmed_wasted" }
+          : h
+      )
+    );
+    startConfirming(async () => {
+      await setSessionHourStatus(sessionId, hourStartIso, status);
+    });
+  }
+
+  return <SessionHourList hours={hours} onEdit={editHour} disabled={isConfirming} />;
 }

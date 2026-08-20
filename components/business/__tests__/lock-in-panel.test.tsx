@@ -1,15 +1,18 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/(app)/business/actions", () => ({
   startWorkSession: vi.fn(),
   endWorkSession: vi.fn(),
 }));
-vi.mock("@/lib/checkins/compute-session-checkin-slots", () => ({
-  computeSessionCheckinSlots: () => ({ dueSlot: null, missedSlots: [] }),
+vi.mock("@/lib/checkins/session-hour-status", () => ({
+  resolveSessionHours: () => [],
+  pendingSessionHour: () => null,
 }));
+const setSessionHourStatusMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/app/(app)/checkin/session-hour-actions", () => ({
-  confirmSessionHour: vi.fn(),
+  setSessionHourStatus: (...args: unknown[]) => setSessionHourStatusMock(...args),
 }));
 
 import { LockInPanel } from "../lock-in-panel";
@@ -19,7 +22,12 @@ describe("LockInPanel", () => {
     render(
       <LockInPanel
         initialSession={null}
-        lastSession={{ startedAtIso: "2026-08-15T14:00:00Z", endedAtIso: "2026-08-15T15:30:00Z" }}
+        lastSession={{
+          sessionId: "prev-1",
+          startedAtIso: "2026-08-15T14:00:00Z",
+          endedAtIso: "2026-08-15T15:30:00Z",
+          resolvedHours: [],
+        }}
         todayFocusMinutes={0}
       />
     );
@@ -39,14 +47,13 @@ describe("LockInPanel", () => {
   it("does not show the last-session summary once a session is active", () => {
     render(
       <LockInPanel
-        initialSession={{
-          id: "s1",
-          startedAtIso: "2026-08-15T14:00:00Z",
-          confirmedHours: [],
-          sessionSignalMinutes: 0,
-          sessionNoiseMinutes: 0,
+        initialSession={{ id: "s1", startedAtIso: "2026-08-15T14:00:00Z", storedHours: [] }}
+        lastSession={{
+          sessionId: "prev-1",
+          startedAtIso: "2026-08-14T14:00:00Z",
+          endedAtIso: "2026-08-14T15:00:00Z",
+          resolvedHours: [],
         }}
-        lastSession={{ startedAtIso: "2026-08-14T14:00:00Z", endedAtIso: "2026-08-14T15:00:00Z" }}
         todayFocusMinutes={0}
       />
     );
@@ -79,12 +86,53 @@ describe("LockInPanel", () => {
     render(
       <LockInPanel
         initialSession={null}
-        lastSession={{ startedAtIso: "2026-08-15T14:00:00Z", endedAtIso: "2026-08-15T15:30:00Z" }}
+        lastSession={{
+          sessionId: "prev-1",
+          startedAtIso: "2026-08-15T14:00:00Z",
+          endedAtIso: "2026-08-15T15:30:00Z",
+          resolvedHours: [],
+        }}
         todayFocusMinutes={85}
         showTodayTotal={false}
       />
     );
     expect(screen.getByRole("button", { name: "Lock In" })).toBeInTheDocument();
     expect(screen.getByText(/Last session: 1h 30m/)).toBeInTheDocument();
+  });
+
+  it("renders the last session's hours, editable via SessionHourList — reachable from where sessions are already looked at, not a new screen", () => {
+    render(
+      <LockInPanel
+        initialSession={null}
+        lastSession={{
+          sessionId: "prev-1",
+          startedAtIso: "2026-08-15T14:00:00Z",
+          endedAtIso: "2026-08-15T15:30:00Z",
+          resolvedHours: [{ hourStartIso: "2026-08-15T14:00:00.000Z", state: "missed_wasted" }],
+        }}
+        todayFocusMinutes={0}
+      />
+    );
+    expect(screen.getByTestId("session-hour-row-2026-08-15T14:00:00.000Z")).toBeInTheDocument();
+    expect(screen.getByText("Not confirmed")).toBeInTheDocument();
+  });
+
+  it("editing a past session's hour calls setSessionHourStatus with that session's id", async () => {
+    const user = userEvent.setup();
+    render(
+      <LockInPanel
+        initialSession={null}
+        lastSession={{
+          sessionId: "prev-1",
+          startedAtIso: "2026-08-15T14:00:00Z",
+          endedAtIso: "2026-08-15T15:30:00Z",
+          resolvedHours: [{ hourStartIso: "2026-08-15T14:00:00.000Z", state: "missed_wasted" }],
+        }}
+        todayFocusMinutes={0}
+      />
+    );
+    const row = screen.getByTestId("session-hour-row-2026-08-15T14:00:00.000Z");
+    await user.click(row.querySelector('button[aria-label="Still on it"]')!);
+    expect(setSessionHourStatusMock).toHaveBeenCalledWith("prev-1", "2026-08-15T14:00:00.000Z", "business");
   });
 });

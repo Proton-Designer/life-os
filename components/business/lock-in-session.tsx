@@ -1,14 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { computeSessionCheckinSlots } from "@/lib/checkins/compute-session-checkin-slots";
-import { confirmSessionHour } from "@/app/(app)/checkin/session-hour-actions";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { resolveSessionHours, pendingSessionHour } from "@/lib/checkins/session-hour-status";
+import { setSessionHourStatus } from "@/app/(app)/checkin/session-hour-actions";
 import { endWorkSession } from "@/app/(app)/business/actions";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { SessionHourConfirm } from "./session-hour-confirm";
+import { SessionHourList } from "./session-hour-list";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -17,74 +17,33 @@ import { featuredCardStyle } from "@/lib/featured-card-style";
 const POLL_MS = 60 * 1000;
 const INTERVAL_MINUTES = 60;
 
-/** An hourly confirm that was actually answered (Yes or No) — one real checkin_allocations row each, from confirmSessionHour. */
-export type SessionHourConfirmation = { hourStartIso: string; stillOnIt: boolean };
+/** A real, stored hourly answer or edit — one checkin_allocations row each. */
+export type StoredSessionHour = { hourStartIso: string; domain: "business" | "wasted" };
 
-// Client-only, never persisted — a missed hour deliberately writes nothing
-// (see session-hour-actions.ts's doc comment), so this is purely "what did
-// I see this tab session," not a durable record. Ayman's own note: nearly
-// free to surface, not worth a server round trip to make durable.
-type LocalMissedHour = { hourStartIso: string };
-
+// docs/superpowers/specs/2026-08-19-missed-lockin-hours.md: an hour once
+// superseded resolves to `wasted` at READ time, never written by anything
+// but the user (resolveSessionHours/pendingSessionHour, both pure — no
+// local accumulation of "missed" state needed anymore, unlike before this
+// spec, since the derivation itself now owns that and re-runs fresh every
+// tick from `storedHours` + `now`).
 export function LockInSession({
   sessionId,
   startedAtIso,
-  initialConfirmedHours,
-  sessionSignalMinutes,
-  sessionNoiseMinutes,
+  initialStoredHours,
   onEnded,
 }: {
   sessionId: string;
   startedAtIso: string;
-  initialConfirmedHours: SessionHourConfirmation[];
-  // Real allocation minutes from confirmSessionHour's own writes — the
-  // hourly confirm below is what actually populates these now (2026-08-19).
-  sessionSignalMinutes: number;
-  sessionNoiseMinutes: number;
+  initialStoredHours: StoredSessionHour[];
   onEnded: () => void;
 }) {
   const startedAt = useMemo(() => new Date(startedAtIso), [startedAtIso]);
+  const session = useMemo(() => ({ startedAt, endedAt: null }), [startedAt]);
   const [now, setNow] = useState(startedAt);
-  const [confirmedHours, setConfirmedHours] = useState<SessionHourConfirmation[]>(initialConfirmedHours);
-  const [missedHours, setMissedHours] = useState<LocalMissedHour[]>([]);
-  const [dueSlot, setDueSlot] = useState<Date | null>(null);
+  const [storedHours, setStoredHours] = useState<StoredSessionHour[]>(initialStoredHours);
   const [offerEndAfterNo, setOfferEndAfterNo] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [isConfirming, startConfirming] = useTransition();
-
-  const answeredRef = useRef(new Set(initialConfirmedHours.map((c) => new Date(c.hourStartIso).getTime())));
-  const seenMissedRef = useRef(new Set<number>());
-  const shownSlotRef = useRef<number | null>(null);
-
-  const check = useCallback(() => {
-    const nowDate = new Date();
-
-    const result = computeSessionCheckinSlots(
-      startedAt,
-      INTERVAL_MINUTES,
-      nowDate,
-      [...answeredRef.current].map((t) => new Date(t))
-    );
-
-    for (const missed of result.missedSlots) {
-      const t = missed.getTime();
-      if (!seenMissedRef.current.has(t)) {
-        seenMissedRef.current.add(t);
-        setMissedHours((prev) => [...prev, { hourStartIso: missed.toISOString() }]);
-      }
-    }
-
-    if (!result.dueSlot) {
-      setDueSlot(null);
-      return;
-    }
-
-    const dueTime = result.dueSlot.getTime();
-    if (shownSlotRef.current === dueTime) return; // already showing this slot
-
-    shownSlotRef.current = dueTime;
-    setDueSlot(result.dueSlot);
-  }, [startedAt]);
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -93,12 +52,23 @@ export function LockInSession({
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    check();
-    const interval = setInterval(check, POLL_MS);
-    return () => clearInterval(interval);
-  }, [check]);
+  const resolved = useMemo(
+    () => resolveSessionHours(session, INTERVAL_MINUTES, now, storedHours),
+    [session, now, storedHours]
+  );
+  const pendingIso = useMemo(
+    () => pendingSessionHour(session, INTERVAL_MINUTES, now, storedHours),
+    [session, now, storedHours]
+  );
+  const unconfirmedCount = resolved.filter((h) => h.state === "missed_wasted").length;
 
+  // Missed hours count as noise the moment they're superseded — the whole
+  // point of the 2026-08-19 reversal (ignoring every prompt used to be the
+  // highest-scoring path). Derived from resolved STATE, not the raw stored
+  // rows, so the ratio updates live as an hour becomes missed, same as
+  // every other surface that reads resolveSessionHours.
+  const sessionSignalMinutes = resolved.filter((h) => h.state === "confirmed_business").length * 60;
+  const sessionNoiseMinutes = resolved.filter((h) => h.state !== "confirmed_business").length * 60;
   const snDisplay = computeRatioDisplay(
     sessionSignalMinutes,
     sessionNoiseMinutes,
@@ -116,25 +86,20 @@ export function LockInSession({
     }
   }
 
-  function handleAnswer(stillOnIt: boolean) {
-    if (!dueSlot) return;
-    const hourStartIso = dueSlot.toISOString();
-    answeredRef.current.add(dueSlot.getTime());
-    setConfirmedHours((prev) => [...prev, { hourStartIso, stillOnIt }]);
-    shownSlotRef.current = null;
-    setDueSlot(null);
-    // Offer, don't force (2026-08-19, per the Lead): he may genuinely be
-    // pausing for two minutes, not abandoning the session.
-    if (!stillOnIt) setOfferEndAfterNo(true);
+  function editHour(hourStartIso: string, status: "business" | "wasted") {
+    setStoredHours((prev) => [...prev.filter((h) => h.hourStartIso !== hourStartIso), { hourStartIso, domain: status }]);
     startConfirming(async () => {
-      await confirmSessionHour(sessionId, hourStartIso, stillOnIt);
+      await setSessionHourStatus(sessionId, hourStartIso, status);
     });
   }
 
-  const activityLog = [
-    ...confirmedHours.map((c) => ({ time: c.hourStartIso, label: c.stillOnIt ? "Still on it" : "Not really", missed: false })),
-    ...missedHours.map((m) => ({ time: m.hourStartIso, label: "Missed", missed: true })),
-  ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  function handleAnswer(stillOnIt: boolean) {
+    if (!pendingIso) return;
+    editHour(pendingIso, stillOnIt ? "business" : "wasted");
+    // Offer, don't force (2026-08-19, per the Lead): he may genuinely be
+    // pausing for two minutes, not abandoning the session.
+    if (!stillOnIt) setOfferEndAfterNo(true);
+  }
 
   return (
     <div
@@ -160,28 +125,15 @@ export function LockInSession({
           >
             {snDisplay}
           </div>
-          {missedHours.length > 0 && (
-            <div className="text-xs text-muted-foreground">{missedHours.length} unconfirmed</div>
+          {unconfirmedCount > 0 && (
+            <div className="text-xs text-muted-foreground">{unconfirmedCount} unconfirmed</div>
           )}
         </div>
       </div>
 
-      {activityLog.length > 0 && (
-        <ul data-testid="lock-in-checkin-list" className="flex flex-col gap-1.5 text-sm">
-          {activityLog.map((entry) => (
-            <li key={entry.time} className="flex items-center justify-between">
-              <span className="text-muted-foreground">
-                {new Date(entry.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              </span>
-              <Badge variant={entry.missed ? "neutral" : entry.label === "Still on it" ? "positive" : "warning"}>
-                {entry.label}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-      )}
+      <SessionHourList hours={resolved} onEdit={editHour} disabled={isConfirming} />
 
-      {dueSlot && <SessionHourConfirm onAnswer={handleAnswer} disabled={isConfirming} />}
+      {pendingIso && <SessionHourConfirm onAnswer={handleAnswer} disabled={isConfirming} />}
 
       {offerEndAfterNo && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 px-3 py-2 text-sm">

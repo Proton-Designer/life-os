@@ -6,7 +6,7 @@ import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/da
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { countDaysCleared } from "@/lib/business/kill-list-cleared";
-import { bucketAllocationMinutes } from "@/lib/business/sn-ratio";
+import { resolveSessionHours } from "@/lib/checkins/session-hour-status";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
 import { GoalCard } from "@/components/shared/goal-card";
@@ -69,55 +69,71 @@ export default async function BusinessPage() {
   }) as [KillListSlotData, KillListSlotData, KillListSlotData];
   const killListCompletedToday = slots.filter((s) => s.completed).length;
 
-  let activeSession: ActiveSessionData | null = null;
-  if (activeSessionRow) {
-    // One query serves both the ratio AND the hourly-confirm activity log
-    // now (2026-08-19) — the hourly confirm writes real checkin_allocations
-    // rows (kind='allocation'), so there's no separate point-sample
-    // activity log to preserve anymore; the old tag_type/tag_label query
-    // read a write path this session no longer uses.
-    const { data: sessionAllocationRows } = await supabase
+  /**
+   * Shared by the active session and the last-completed one — one hourly
+   * Lock-In confirm/edit is exactly one checkins row (kind='allocation',
+   * answered=true) joined to its one checkin_allocations row. Session
+   * ratio and the missed-hour derivation both read this same stored shape
+   * now (2026-08-19); there's no separate point-sample query to keep in
+   * sync anymore.
+   */
+  async function fetchStoredHours(sessionId: string) {
+    const { data } = await supabase
       .from("checkins")
-      .select("window_start, checkin_allocations(domain, minutes)")
+      .select("window_start, checkin_allocations(domain)")
       .eq("user_id", userId)
-      .eq("work_session_id", activeSessionRow.id)
+      .eq("work_session_id", sessionId)
       .eq("kind", "allocation")
       .eq("answered", true)
       .order("window_start", { ascending: true });
 
-    const rows = sessionAllocationRows ?? [];
-    const sessionAllocations = rows.flatMap((r) => r.checkin_allocations ?? []);
-    const { signalMinutes: sessionSignalMinutes, noiseMinutes: sessionNoiseMinutes } =
-      bucketAllocationMinutes(sessionAllocations);
-    const confirmedHours: ActiveSessionData["confirmedHours"] = rows
-      .filter((r) => r.window_start)
+    return (data ?? [])
+      .filter((r) => r.window_start && (r.checkin_allocations ?? []).length > 0)
       .map((r) => ({
         hourStartIso: r.window_start as string,
-        stillOnIt: (r.checkin_allocations ?? []).some((a) => a.domain === "business"),
+        domain: (r.checkin_allocations ?? []).some((a) => a.domain === "business")
+          ? ("business" as const)
+          : ("wasted" as const),
       }));
+  }
 
+  let activeSession: ActiveSessionData | null = null;
+  if (activeSessionRow) {
     activeSession = {
       id: activeSessionRow.id,
       startedAtIso: activeSessionRow.started_at,
-      confirmedHours,
-      sessionSignalMinutes,
-      sessionNoiseMinutes,
+      storedHours: await fetchStoredHours(activeSessionRow.id),
     };
   }
 
   // --- Focus time today / sessions this week / last completed session ---
   const allSessions = (workSessionRows ?? []).map((s) => ({
+    id: s.id,
     startedAt: new Date(s.started_at),
     endedAt: s.ended_at ? new Date(s.ended_at) : null,
   }));
   const sessionsToday = allSessions.filter((s) => localDateString(s.startedAt, timezone) === dateStr);
   const focusMinutesToday = computeFocusTimeMinutes(sessionsToday, now);
   const completedSessions = allSessions
-    .filter((s): s is { startedAt: Date; endedAt: Date } => s.endedAt !== null)
+    .filter((s): s is { id: string; startedAt: Date; endedAt: Date } => s.endedAt !== null)
     .sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime());
-  const lastSession: LastSessionData | null = completedSessions[0]
-    ? { startedAtIso: completedSessions[0].startedAt.toISOString(), endedAtIso: completedSessions[0].endedAt.toISOString() }
-    : null;
+
+  let lastSession: LastSessionData | null = null;
+  const lastCompleted = completedSessions[0];
+  if (lastCompleted) {
+    const storedHours = await fetchStoredHours(lastCompleted.id);
+    lastSession = {
+      sessionId: lastCompleted.id,
+      startedAtIso: lastCompleted.startedAt.toISOString(),
+      endedAtIso: lastCompleted.endedAt.toISOString(),
+      resolvedHours: resolveSessionHours(
+        { startedAt: lastCompleted.startedAt, endedAt: lastCompleted.endedAt },
+        60,
+        lastCompleted.endedAt,
+        storedHours
+      ),
+    };
+  }
 
   // --- Days cleared, last 7 days ---
   const daysCleared = countDaysCleared(sevenDayKillListRows ?? []);
