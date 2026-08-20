@@ -2,7 +2,7 @@
 
 import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
-import { SEED_PLANS, STARTER_REP_GOALS, type SeedExercise, type SeedPlan } from "@/lib/fitness/seed-plans";
+import { SEED_PLANS, STARTER_REP_GOALS, type SeedExercise } from "@/lib/fitness/seed-plans";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -83,7 +83,12 @@ async function findOrCreateWorkout(supabase: TypedClient, userId: string, name: 
 /** 0=Sun … 6=Sat, matching workout_schedule.day_of_week — Mon-Fri = 1-5. */
 const WEEKDAYS = [1, 2, 3, 4, 5] as const;
 
-export async function adoptSessionPlan(planKey: SeedPlan["key"]): Promise<void> {
+// Widened to `string` (not `SeedPlan["key"]`) at the public boundary: this
+// is passed as a bound server action into WorkoutList's `onAdoptPlan`,
+// whose id comes from a plain string prop (the plan card's `id`) — a
+// narrower parameter type here would make that assignment unsound at the
+// client boundary. The runtime lookup below still validates it.
+export async function adoptSessionPlan(planKey: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   const plan = SEED_PLANS.find((p) => p.key === planKey);
   if (!plan) throw new Error(`Unknown seed plan: ${planKey}`);
