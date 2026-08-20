@@ -89,9 +89,12 @@ export type DomainSnapshotDataSource = {
   getSessionAllocations: (userId: string, sessionId: string) => Promise<AllocationRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
   getWeeklySnRatio: (userId: string, weekStart: string, timezone: string) => Promise<SignalNoiseResult>;
-  getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<{ workout_name: string; time: string | null } | null>;
+  getWorkoutSchedule: (
+    userId: string,
+    dayOfWeek: number
+  ) => Promise<{ workout_id: string | null; workout_name: string; time: string | null } | null>;
   /** Whole week, not just today — the daily "done?" check and the weekly total chip both derive from this one fetch. */
-  getWorkoutLogsThisWeek: (userId: string, weekStart: string) => Promise<{ workout_name: string; date: string }[]>;
+  getWorkoutSessionsThisWeek: (userId: string, weekStart: string) => Promise<{ workout_id: string | null; date: string }[]>;
   getFitnessHabits: (userId: string) => Promise<{ id: string; createdAt: string }[]>;
   getFitnessHabitLogs: (userId: string, weekStart: string) => Promise<{ habitId: string; date: string; completed: boolean }[]>;
   /** Whole week, not just today — today's-due-incomplete, next-due-title, and the weekly completed count all derive from this one fetch. */
@@ -242,17 +245,17 @@ export function defaultDataSource(): DomainSnapshotDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("workout_schedule")
-        .select("workout_name, time")
+        .select("workout_id, workout_name, time")
         .eq("user_id", userId)
         .eq("day_of_week", dayOfWeek)
         .maybeSingle();
       return data ?? null;
     },
-    async getWorkoutLogsThisWeek(userId, weekStart) {
+    async getWorkoutSessionsThisWeek(userId, weekStart) {
       const supabase = await createClient();
       const { data } = await supabase
-        .from("workout_logs")
-        .select("workout_name, date")
+        .from("workout_sessions")
+        .select("workout_id, date")
         .eq("user_id", userId)
         .gte("date", weekStart);
       return data ?? [];
@@ -343,7 +346,7 @@ export async function getDomainSnapshots(
     killListRows,
     weeklySnRatio,
     workoutSchedule,
-    workoutLogRowsThisWeek,
+    workoutSessionRowsThisWeek,
     fitnessHabits,
     fitnessHabitLogs,
     schoolTasksThisWeek,
@@ -360,7 +363,7 @@ export async function getDomainSnapshots(
     dataSource.getKillListItems(userId, dateStr),
     dataSource.getWeeklySnRatio(userId, weekStart, timezone),
     dataSource.getWorkoutSchedule(userId, dayOfWeek),
-    dataSource.getWorkoutLogsThisWeek(userId, weekStart),
+    dataSource.getWorkoutSessionsThisWeek(userId, weekStart),
     dataSource.getFitnessHabits(userId),
     dataSource.getFitnessHabitLogs(userId, weekStart),
     dataSource.getTasksThisWeek(userId, "school", weekStart),
@@ -466,16 +469,21 @@ export async function getDomainSnapshots(
     pulse: pulse.business,
   };
 
-  // Fitness
-  const todaysWorkoutLogs = workoutLogRowsThisWeek.filter((w) => w.date === dateStr);
-  const workoutDone = workoutSchedule
-    ? todaysWorkoutLogs.some((w) => w.workout_name === workoutSchedule.workout_name)
-    : false;
+  // Fitness — matched by workout_id (the new structured model's source of
+  // truth), not workout_name: workout_schedule.workout_id and
+  // workout_sessions.workout_id are both populated by the new confirm/assign
+  // actions (confirm_workout_session, assignWorkoutToDay), while
+  // workout_name on workout_schedule is now only a NOT NULL legacy
+  // placeholder (spec §2, workout_schedule migration 025).
+  const todaysWorkoutSessions = workoutSessionRowsThisWeek.filter((w) => w.date === dateStr);
+  const workoutDone =
+    workoutSchedule?.workout_id != null &&
+    todaysWorkoutSessions.some((w) => w.workout_id === workoutSchedule.workout_id);
   const fitness: FitnessSnapshot = {
     scheduledWorkoutName: workoutSchedule?.workout_name ?? null,
     workoutDone,
     weeklyConsistency: calculateWeeklyConsistency(fitnessHabits, fitnessHabitLogs, weekStart, dateStr),
-    workoutsThisWeek: workoutLogRowsThisWeek.length,
+    workoutsThisWeek: workoutSessionRowsThisWeek.length,
     pulse: pulse.fitness,
   };
 

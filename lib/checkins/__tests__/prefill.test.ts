@@ -87,8 +87,9 @@ describe("derivePrefillAllocation", () => {
     expect(result.deen).toBe(15);
   });
 
-  // 2026-08-19 review catch: fitness needs BOTH evidence (a workout_logs
-  // row — the session actually happened) AND placement (workout_schedule's
+  // 2026-08-19 review catch: fitness needs BOTH evidence (a workout_sessions
+  // row, per the 2026-08-20 repoint off the dropped workout_logs — the
+  // session actually happened) AND placement (workout_schedule's
   // time/duration — where it goes). Neither alone is enough: scheduled-but
   // -unlogged is the prayer-window mistake again (crediting a plan, not a
   // fact), and logged-but-unplaced has no window to go in without a guess.

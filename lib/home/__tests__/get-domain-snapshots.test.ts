@@ -27,7 +27,7 @@ function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): Doma
     getKillListItems: async () => [],
     getWeeklySnRatio: async () => ({ signalMinutes: 0, noiseMinutes: 0, otherCommitmentsMinutes: 0, wastedMinutes: 0, display: "No data" }),
     getWorkoutSchedule: async () => null,
-    getWorkoutLogsThisWeek: async () => [],
+    getWorkoutSessionsThisWeek: async () => [],
     getFitnessHabits: async () => [],
     getFitnessHabitLogs: async () => [],
     getTasksThisWeek: async () => [],
@@ -171,20 +171,29 @@ describe("getDomainSnapshots", () => {
   });
 
   describe("fitness", () => {
-    it("marks today's scheduled workout as done when a matching log exists", async () => {
+    it("marks today's scheduled workout as done when a matching session exists (matched by workout_id)", async () => {
       const dataSource = baseDataSource({
-        getWorkoutSchedule: async () => ({ workout_name: "Push day", time: null }),
-        getWorkoutLogsThisWeek: async () => [{ workout_name: "Push day", date: "2026-08-10" }],
+        getWorkoutSchedule: async () => ({ workout_id: "workout-1", workout_name: "Push day", time: null }),
+        getWorkoutSessionsThisWeek: async () => [{ workout_id: "workout-1", date: "2026-08-10" }],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
       expect(snapshots.fitness.scheduledWorkoutName).toBe("Push day");
       expect(snapshots.fitness.workoutDone).toBe(true);
     });
 
-    it("marks it not done when there's no matching log yet today", async () => {
+    it("marks it not done when there's no matching session yet today", async () => {
       const dataSource = baseDataSource({
-        getWorkoutSchedule: async () => ({ workout_name: "Push day", time: null }),
-        getWorkoutLogsThisWeek: async () => [{ workout_name: "Push day", date: "2026-08-08" }],
+        getWorkoutSchedule: async () => ({ workout_id: "workout-1", workout_name: "Push day", time: null }),
+        getWorkoutSessionsThisWeek: async () => [{ workout_id: "workout-1", date: "2026-08-08" }],
+      });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.fitness.workoutDone).toBe(false);
+    });
+
+    it("marks it not done when a session exists today but for a different workout than scheduled", async () => {
+      const dataSource = baseDataSource({
+        getWorkoutSchedule: async () => ({ workout_id: "workout-1", workout_name: "Push day", time: null }),
+        getWorkoutSessionsThisWeek: async () => [{ workout_id: "workout-2", date: "2026-08-10" }],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
       expect(snapshots.fitness.workoutDone).toBe(false);
@@ -195,11 +204,11 @@ describe("getDomainSnapshots", () => {
       expect(snapshots.fitness.scheduledWorkoutName).toBeNull();
     });
 
-    it("counts this week's total logged workouts, independent of today's schedule", async () => {
+    it("counts this week's total logged sessions, independent of today's schedule", async () => {
       const dataSource = baseDataSource({
-        getWorkoutLogsThisWeek: async () => [
-          { workout_name: "Push day", date: "2026-08-08" },
-          { workout_name: "Legs", date: "2026-08-10" },
+        getWorkoutSessionsThisWeek: async () => [
+          { workout_id: "workout-1", date: "2026-08-08" },
+          { workout_id: "workout-2", date: "2026-08-10" },
         ],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);

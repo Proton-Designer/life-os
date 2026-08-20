@@ -8,7 +8,7 @@ function emptyDataSource(overrides: Partial<PulseDataSource> = {}): PulseDataSou
     getTasks: async () => [],
     getHabits: async () => [],
     getWorkoutSchedule: async () => null,
-    getWorkoutLogs: async () => [],
+    getWorkoutSessions: async () => [],
     ...overrides,
   };
 }
@@ -77,8 +77,8 @@ describe("getDomainPulse", () => {
   it("counts the scheduled workout alongside habits for Fitness", async () => {
     const dataSource = emptyDataSource({
       getHabits: async () => [{ habitId: "h1", completed: true }],
-      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_name: "Push day" }),
-      getWorkoutLogs: async () => [{ workout_name: "Push day" }],
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_id: "workout-1" }),
+      getWorkoutSessions: async () => [{ workout_id: "workout-1" }],
     });
 
     const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
@@ -90,8 +90,8 @@ describe("getDomainPulse", () => {
   it("counts an unlogged scheduled workout as not-done for Fitness", async () => {
     const dataSource = emptyDataSource({
       getHabits: async () => [{ habitId: "h1", completed: true }],
-      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_name: "Push day" }),
-      getWorkoutLogs: async () => [],
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_id: "workout-1" }),
+      getWorkoutSessions: async () => [],
     });
 
     const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
@@ -104,5 +104,32 @@ describe("getDomainPulse", () => {
     const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource());
 
     expect(pulse.fitness).toBeNull();
+  });
+
+  it("does not count a workout_schedule row with a null workout_id as scheduled (legacy/unassigned row, new model)", async () => {
+    const dataSource = emptyDataSource({
+      getHabits: async () => [{ habitId: "h1", completed: true }],
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_id: null }),
+      getWorkoutSessions: async () => [],
+    });
+
+    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
+
+    // 1 habit done out of 1 habit only — the unassigned day-slot doesn't
+    // add a second trackable.
+    expect(pulse.fitness).toBe(1);
+  });
+
+  it("matches a scheduled workout to a session by workout_id, not by which workout happens to be scheduled elsewhere", async () => {
+    const dataSource = emptyDataSource({
+      getWorkoutSchedule: async () => ({ day_of_week: 1, workout_id: "workout-1" }),
+      getWorkoutSessions: async () => [{ workout_id: "workout-2" }],
+    });
+
+    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
+
+    // A session logged for a DIFFERENT workout than today's scheduled one
+    // must not count as today's workout being done.
+    expect(pulse.fitness).toBe(0);
   });
 });

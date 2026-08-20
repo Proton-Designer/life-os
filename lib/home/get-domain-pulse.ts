@@ -15,8 +15,8 @@ export type PulseDataSource = {
   getWorkoutSchedule: (
     userId: string,
     dayOfWeek: number
-  ) => Promise<{ day_of_week: number; workout_name: string } | null>;
-  getWorkoutLogs: (userId: string, date: string) => Promise<{ workout_name: string }[]>;
+  ) => Promise<{ day_of_week: number; workout_id: string | null } | null>;
+  getWorkoutSessions: (userId: string, date: string) => Promise<{ workout_id: string | null }[]>;
 };
 
 export type DomainPulse = {
@@ -84,17 +84,17 @@ function defaultDataSource(): PulseDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("workout_schedule")
-        .select("day_of_week, workout_name")
+        .select("day_of_week, workout_id")
         .eq("user_id", userId)
         .eq("day_of_week", dayOfWeek)
         .maybeSingle();
       return data ?? null;
     },
-    async getWorkoutLogs(userId, date) {
+    async getWorkoutSessions(userId, date) {
       const supabase = await createClient();
       const { data } = await supabase
-        .from("workout_logs")
-        .select("workout_name")
+        .from("workout_sessions")
+        .select("workout_id")
         .eq("user_id", userId)
         .eq("date", date);
       return data ?? [];
@@ -108,13 +108,13 @@ export async function getDomainPulse(
   dataSource: PulseDataSource = defaultDataSource()
 ): Promise<DomainPulse> {
   const dayOfWeek = dayOfWeekFromDateString(date);
-  const [prayers, killList, tasks, habits, workoutSchedule, workoutLogs] = await Promise.all([
+  const [prayers, killList, tasks, habits, workoutSchedule, workoutSessions] = await Promise.all([
     dataSource.getPrayers(userId, date),
     dataSource.getKillListItems(userId, date),
     dataSource.getTasks(userId, date),
     dataSource.getHabits(userId, date),
     dataSource.getWorkoutSchedule(userId, dayOfWeek),
-    dataSource.getWorkoutLogs(userId, date),
+    dataSource.getWorkoutSessions(userId, date),
   ]);
 
   const prayersDone = prayers.filter((p) => p.status !== "pending" && p.status !== "missed").length;
@@ -125,9 +125,11 @@ export async function getDomainPulse(
     killList.length
   );
 
-  const hasScheduledWorkout = workoutSchedule !== null;
+  // Matched by workout_id, not name — see get-domain-snapshots.ts's
+  // identical comment on the same repoint.
+  const hasScheduledWorkout = workoutSchedule?.workout_id != null;
   const workoutDone = hasScheduledWorkout
-    ? workoutLogs.some((w) => w.workout_name === workoutSchedule.workout_name)
+    ? workoutSessions.some((w) => w.workout_id === workoutSchedule.workout_id)
     : false;
   const habitsDone = habits.filter((h) => h.completed).length;
   const fitness = safeFraction(

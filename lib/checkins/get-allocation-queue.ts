@@ -47,7 +47,7 @@ export type AllocationQueueDataSource = {
   getAnsweredWindowStarts: (userId: string, dateStr: string, timezone: string) => Promise<Date[]>;
   /** Prayer names logged today with a real (non-missed, non-pending) status — the caller maps these to actual clock times via computePrayerWindows. */
   getLoggedPrayerNames: (userId: string, dateStr: string) => Promise<string[]>;
-  /** EVIDENCE: a completed workout_logs row exists for `dateStr` — checked against `date`, never `created_at` (when it was recorded, not when it was performed). */
+  /** EVIDENCE: a workout_sessions row exists for `dateStr` (Fitness redesign, 2026-08-20 — repointed off the dropped `workout_logs`) — checked against `date`, never `created_at` (when it was recorded, not when it was performed). Every workout_sessions row (confirmed, adhoc, or quick) represents something that actually happened, unlike the old table's `completed` flag, which this table has no equivalent of because there's no "planned but not done" row shape here. */
   getWorkoutLoggedToday: (userId: string, dateStr: string) => Promise<boolean>;
   /** Today's Lock-In sessions with their own identity — needed to group stored hours per session for resolveSessionHours. */
   getSessionsForHourResolution: (
@@ -128,11 +128,10 @@ function defaultDataSource(): AllocationQueueDataSource {
     async getWorkoutLoggedToday(userId, dateStr) {
       const supabase = await createClient();
       const { data } = await supabase
-        .from("workout_logs")
+        .from("workout_sessions")
         .select("id")
         .eq("user_id", userId)
         .eq("date", dateStr)
-        .eq("completed", true)
         .limit(1);
       return (data ?? []).length > 0;
     },

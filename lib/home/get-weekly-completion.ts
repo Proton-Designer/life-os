@@ -28,7 +28,7 @@ export async function getWeeklyCompletion(
     { data: killListRows },
     { data: taskRows },
     { data: workoutScheduleRows },
-    { data: workoutLogRows },
+    { data: workoutSessionRows },
   ] = await Promise.all([
     supabase.from("prayers").select("date, prayer_name, status").eq("user_id", userId).gte("date", sevenDaysAgoStr),
     supabase.from("kill_list_items").select("date, completed").eq("user_id", userId).gte("date", sevenDaysAgoStr),
@@ -39,7 +39,11 @@ export async function getWeeklyCompletion(
       .gte("due_date", sevenDaysAgoStr)
       .lte("due_date", todayStr),
     supabase.from("workout_schedule").select("day_of_week, workout_name").eq("user_id", userId),
-    supabase.from("workout_logs").select("date, created_at, workout_name").eq("user_id", userId).gte("date", sevenDaysAgoStr),
+    // Repointed off the dropped workout_logs (Fitness redesign, 2026-08-20)
+    // — this is a coarse "did anything happen that day" check for the
+    // completion chart, not a workout-specific match, so any session row
+    // (confirmed/adhoc/quick) counts the same as the old table's rows did.
+    supabase.from("workout_sessions").select("date").eq("user_id", userId).gte("date", sevenDaysAgoStr),
   ]);
 
   const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(sevenDaysAgoStr, i));
@@ -54,7 +58,7 @@ export async function getWeeklyCompletion(
         killList: (killListRows ?? []).filter((k) => k.date === date),
         tasks: (taskRows ?? []).filter((t) => t.due_date === date),
         hasScheduledWorkout: Boolean(scheduled),
-        workoutDone: (workoutLogRows ?? []).some((w) => w.date === date),
+        workoutDone: (workoutSessionRows ?? []).some((w) => w.date === date),
       };
     })
   );
