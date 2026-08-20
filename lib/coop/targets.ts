@@ -49,3 +49,20 @@ export function moveTargetPosition(
   if (next < 1 || next > queueLength) return null;
   return next;
 }
+
+/**
+ * "12 days left" rather than the raw date, for Target 1 specifically
+ * (Opus Lead: "the pressure is how long is left, and the pressure is the
+ * point of a target" — rows 2/3 keep the plain date). Compares calendar
+ * days, not elapsed hours, so a deadline later today still reads "Due
+ * today" regardless of what time it currently is.
+ */
+export function formatDaysLeft(deadlineDateStr: string, now: Date): string {
+  const deadline = new Date(`${deadlineDateStr}T00:00:00`);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const deadlineDay = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const diffDays = Math.round((deadlineDay.getTime() - today.getTime()) / 86_400_000);
+  if (diffDays === 0) return "Due today";
+  if (diffDays < 0) return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? "" : "s"} overdue`;
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} left`;
+}

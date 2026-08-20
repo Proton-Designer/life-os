@@ -24,6 +24,7 @@ export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
 
   const { targets, stretchGoals } = splitTargetsAndStretch(rows);
   const queueLength = rows.length;
+  const now = new Date();
 
   function resetAddForms() {
     setAddingTarget(false);
@@ -106,13 +107,15 @@ export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
         {Array.from({ length: TARGET_SLOT_COUNT }, (_, i) => i + 1).map((slot) => {
           const target = targets.find((t) => t.position === slot);
           if (!target) {
-            return <EmptyTargetSlot key={slot} onAdd={() => setAddingTarget(true)} />;
+            return <EmptyTargetSlot key={slot} slotNumber={slot} onAdd={() => setAddingTarget(true)} />;
           }
           return (
             <TargetRow
               key={target.id}
               target={target}
               isTargetSlot
+              rank={slot}
+              now={now}
               canMoveUp={moveTargetPosition(target.position, "up", queueLength) !== null}
               canMoveDown={moveTargetPosition(target.position, "down", queueLength) !== null}
               onMove={(direction) => handleMove(target.id, target.position, direction)}
@@ -161,6 +164,7 @@ export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
                 key={goal.id}
                 target={goal}
                 isTargetSlot={false}
+                now={now}
                 canMoveUp={moveTargetPosition(goal.position, "up", queueLength) !== null}
                 canMoveDown={moveTargetPosition(goal.position, "down", queueLength) !== null}
                 onMove={(direction) => handleMove(goal.id, goal.position, direction)}

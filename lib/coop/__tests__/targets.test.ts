@@ -4,6 +4,7 @@ import {
   nextTargetPosition,
   nextStretchPosition,
   moveTargetPosition,
+  formatDaysLeft,
   type CoopTargetRow,
 } from "../targets";
 
@@ -59,5 +60,26 @@ describe("moveTargetPosition", () => {
 
   it("returns null at the bottom edge moving down", () => {
     expect(moveTargetPosition(5, "down", 5)).toBeNull();
+  });
+});
+
+describe("formatDaysLeft", () => {
+  const now = new Date("2026-08-20T15:00:00");
+
+  it("counts whole calendar days, ignoring time of day", () => {
+    expect(formatDaysLeft("2026-09-01", now)).toBe("12 days left");
+  });
+
+  it("singular for exactly 1 day left", () => {
+    expect(formatDaysLeft("2026-08-21", now)).toBe("1 day left");
+  });
+
+  it("reads 'Due today' for today's date regardless of current time", () => {
+    expect(formatDaysLeft("2026-08-20", now)).toBe("Due today");
+  });
+
+  it("reads overdue, singular and plural, for a past deadline", () => {
+    expect(formatDaysLeft("2026-08-19", now)).toBe("1 day overdue");
+    expect(formatDaysLeft("2026-08-10", now)).toBe("10 days overdue");
   });
 });
