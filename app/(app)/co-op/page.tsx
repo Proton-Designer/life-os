@@ -15,6 +15,8 @@ import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { TargetsStrip } from "@/components/co-op/targets-strip";
+import type { CoopTargetRow } from "@/lib/coop/targets";
 
 export default async function CoOpPage() {
   const supabase = await createClient();
@@ -31,7 +33,7 @@ export default async function CoOpPage() {
   const weekEndIso = `${addDaysToDateString(weekStart, 7)}T00:00:00.000Z`;
   const weekStartIso = `${weekStart}T00:00:00.000Z`;
 
-  const [{ data: taskRows }, { data: eventRows }] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: targetRows }] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, due_time, completed, completed_at")
@@ -43,7 +45,20 @@ export default async function CoOpPage() {
       .select("id, title, is_recurring, day_of_week, event_time, event_date, cancelled_on")
       .eq("user_id", userId)
       .eq("domain", "co_op"),
+    supabase
+      .from("coop_targets")
+      .select("id, title, deadline, position")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .not("position", "is", null),
   ]);
+
+  const targets: CoopTargetRow[] = (targetRows ?? []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    deadline: t.deadline,
+    position: t.position as number,
+  }));
 
   const allTasks = taskRows ?? [];
   const openTasks: TaskData[] = allTasks
@@ -92,6 +107,8 @@ export default async function CoOpPage() {
           />
         </Panel>
       )}
+
+      <TargetsStrip rows={targets} />
 
       <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
