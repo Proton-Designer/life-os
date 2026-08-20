@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
+import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
 
 export type FocusMapDataSource = {
   getAllocations: (
@@ -6,6 +8,13 @@ export type FocusMapDataSource = {
     startIso: string,
     endIso: string
   ) => Promise<{ domain: string; minutes: number }[]>;
+  /** Same missed-hour-as-wasted derivation sn-ratio.ts uses — see its own doc comment for the range bound and double-count guard. */
+  getStoredAllocationSpans: (userId: string, startIso: string, endIso: string) => Promise<{ start: Date; end: Date }[]>;
+  getSessionsWithStoredHours: (
+    userId: string,
+    startIso: string,
+    endIso: string
+  ) => Promise<{ startedAt: Date; endedAt: Date | null; storedHours: { hourStartIso: string; domain: "business" | "wasted" }[] }[]>;
 };
 
 export type FocusMapSegment = { domain: string; minutes: number; pct: number };
@@ -30,7 +39,24 @@ function defaultDataSource(): FocusMapDataSource {
         .lt("window_start", endIso);
       return (data ?? []).flatMap((c) => c.checkin_allocations ?? []);
     },
+    getStoredAllocationSpans,
+    getSessionsWithStoredHours,
   };
+}
+
+/** Same missed-hour-as-wasted derivation as sn-ratio.ts's getMissedHourWasteMinutes — see that function's doc comment for the range bound and double-count guard, and session-hour-status.ts's deriveExtraMissedWasteMinutes for the underlying logic. */
+async function getMissedHourWasteMinutes(
+  userId: string,
+  startIso: string,
+  endIso: string,
+  now: Date,
+  dataSource: FocusMapDataSource
+): Promise<number> {
+  const [storedSpans, sessions] = await Promise.all([
+    dataSource.getStoredAllocationSpans(userId, startIso, endIso),
+    dataSource.getSessionsWithStoredHours(userId, startIso, endIso),
+  ]);
+  return deriveExtraMissedWasteMinutes(sessions, storedSpans, new Date(startIso), new Date(endIso), now);
 }
 
 /**
@@ -53,15 +79,24 @@ export async function getFocusMap(
   userId: string,
   range: "day" | "week",
   anchor: Date,
-  dataSource: FocusMapDataSource = defaultDataSource()
+  dataSource: FocusMapDataSource = defaultDataSource(),
+  now: Date = new Date()
 ): Promise<FocusMapResult> {
   const rangeMs = (range === "week" ? 7 : 1) * 24 * 60 * 60 * 1000;
   const end = new Date(anchor.getTime() + rangeMs);
-  const rows = await dataSource.getAllocations(userId, anchor.toISOString(), end.toISOString());
+  const startIso = anchor.toISOString();
+  const endIso = end.toISOString();
+  const [rows, extraWasted] = await Promise.all([
+    dataSource.getAllocations(userId, startIso, endIso),
+    getMissedHourWasteMinutes(userId, startIso, endIso, now, dataSource),
+  ]);
 
   const minutesByDomain = new Map<string, number>();
   for (const row of rows) {
     minutesByDomain.set(row.domain, (minutesByDomain.get(row.domain) ?? 0) + row.minutes);
+  }
+  if (extraWasted > 0) {
+    minutesByDomain.set("wasted", (minutesByDomain.get("wasted") ?? 0) + extraWasted);
   }
 
   const total = [...minutesByDomain.values()].reduce((a, b) => a + b, 0);

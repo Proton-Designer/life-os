@@ -128,15 +128,22 @@ export function resolveFireTime(window: AllocationWindow, suppressionRanges: Tim
 
 /**
  * True if every minute of `window` falls inside at least one of
- * `confirmedHourRanges` — the hourly Lock-In confirms, each an explicitly
- * answered (Yes or No) 60-minute span. Used to skip queuing a 2h window
- * that's already been fully accounted for hour-by-hour, so it isn't
- * re-asked about. Ranges are merged/coalesced first so adjacent or
- * overlapping hours combine into one continuous covered span before the
- * containment check.
+ * `resolvedHourRanges` — the hourly Lock-In hours that have a definite
+ * value, each a 60-minute span. Widened 2026-08-19
+ * (docs/superpowers/specs/2026-08-19-missed-lockin-hours.md) beyond just
+ * explicitly-answered (Yes/No) hours to also include auto-missed hours
+ * (superseded, unconfirmed, derived as wasted — see
+ * session-hour-status.ts's resolveSessionHours): a missed hour is just as
+ * "resolved" as an answered one, only its resolution came from silence
+ * instead of a tap. The still-open current due slot is deliberately NOT
+ * included by the caller — it has no definite value yet. Used to skip
+ * queuing a 2h window that's already been fully accounted for hour-by-hour
+ * (answered or missed), so it isn't re-asked about. Ranges are
+ * merged/coalesced first so adjacent or overlapping hours combine into one
+ * continuous covered span before the containment check.
  */
-export function isWindowCoveredBySessionHours(window: AllocationWindow, confirmedHourRanges: TimeRange[]): boolean {
-  const concrete = confirmedHourRanges.filter(
+export function isWindowCoveredBySessionHours(window: AllocationWindow, resolvedHourRanges: TimeRange[]): boolean {
+  const concrete = resolvedHourRanges.filter(
     (r): r is { start: Date; end: Date } => r.end !== null
   );
   if (concrete.length === 0) return false;
@@ -188,7 +195,7 @@ export function resolveAllocationSlots(opts: {
   now: Date;
   /** Window start times already answered, exact instant match. */
   answeredWindowStarts: Date[];
-  /** Explicitly-answered (Yes or No) hourly Lock-In confirms — a window fully covered by these is treated as answered too, so it's never re-asked about. */
+  /** Resolved hourly Lock-In hours — answered (Yes/No) or auto-missed (derived wasted); NOT the current pending due slot. A window fully covered by these is treated as answered too, so it's never re-asked about. */
   confirmedSessionHourRanges?: TimeRange[];
 }): AllocationSlot[] {
   const { dateStr, bounds, timezone, suppressionRanges, now, answeredWindowStarts, confirmedSessionHourRanges } = opts;

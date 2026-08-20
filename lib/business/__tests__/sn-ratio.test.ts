@@ -8,7 +8,11 @@ import {
 } from "../sn-ratio";
 
 function dataSourceWith(rows: AllocationRow[]): SnDataSource {
-  return { getAllocations: async () => rows };
+  return {
+    getAllocations: async () => rows,
+    getStoredAllocationSpans: async () => [],
+    getSessionsWithStoredHours: async () => [],
+  };
 }
 
 describe("bucketAllocationMinutes", () => {
@@ -89,6 +93,8 @@ describe("getSignalNoiseForRange", () => {
         queried = { startIso: weekStartIso, endIso: weekEndIso };
         return [];
       },
+      getStoredAllocationSpans: async () => [],
+      getSessionsWithStoredHours: async () => [],
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
     await getSignalNoiseForRange("user-1", "day", anchor, dataSource);
@@ -106,6 +112,8 @@ describe("getSignalNoiseForRange", () => {
         queried = { startIso: weekStartIso, endIso: weekEndIso };
         return [];
       },
+      getStoredAllocationSpans: async () => [],
+      getSessionsWithStoredHours: async () => [],
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
     await getSignalNoiseForRange("user-1", "week", anchor, dataSource);
@@ -129,5 +137,51 @@ describe("getSignalNoiseForRange", () => {
     expect(result.wastedMinutes).toBe(15);
     expect(result.noiseMinutes).toBe(30);
     expect(result.display).toBe("1.0 : 1");
+  });
+});
+
+// docs/superpowers/specs/2026-08-19-missed-lockin-hours.md, acceptance
+// criterion 1 (Signal:Noise must read a missed hour as wasted) and 5 (no
+// double-count — proven with real numbers, not just green assertions).
+describe("Signal:Noise reads missed Lock-In hours as wasted", () => {
+  const anchor = new Date("2026-08-19T00:00:00Z");
+  const sessionStart = new Date("2026-08-19T12:00:00.000Z");
+
+  it("a session with one answered hour, one missed hour, and one pending hour totals exactly 120min (2 resolved hours) — the pending hour contributes nothing, the missed hour adds exactly 60", async () => {
+    // 12:00 answered (business, stored, already in getAllocations' rows),
+    // 13:00 fired-and-superseded -> missed, 14:00 is the current due slot -> pending, excluded entirely.
+    const now = new Date("2026-08-19T14:05:00.000Z");
+    const dataSource: SnDataSource = {
+      getAllocations: async () => [{ domain: "business", minutes: 60 }],
+      getStoredAllocationSpans: async () => [],
+      getSessionsWithStoredHours: async () => [
+        {
+          startedAt: sessionStart,
+          endedAt: null,
+          storedHours: [{ hourStartIso: "2026-08-19T12:00:00.000Z", domain: "business" }],
+        },
+      ],
+    };
+    const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
+
+    expect(result.signalMinutes).toBe(60); // the one answered hour
+    expect(result.wastedMinutes).toBe(60); // exactly the one missed hour, not the pending one
+    expect(result.signalMinutes + result.noiseMinutes).toBe(120); // 2 resolved hours x 60min, pending hour excluded
+  });
+
+  it("does not double-count a missed hour whose surrounding 2h window was already confirmed (a wider stored row covers it)", async () => {
+    const now = new Date("2026-08-19T14:05:00.000Z");
+    const dataSource: SnDataSource = {
+      getAllocations: async () => [{ domain: "wasted", minutes: 120 }], // the confirmed 2h window's own stored total, already includes this hour
+      getStoredAllocationSpans: async () => [
+        { start: new Date("2026-08-19T12:00:00.000Z"), end: new Date("2026-08-19T14:00:00.000Z") },
+      ],
+      getSessionsWithStoredHours: async () => [{ startedAt: sessionStart, endedAt: null, storedHours: [] }],
+    };
+    const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
+
+    // Without the guard this would be 180 (120 stored + 60 re-added for the
+    // "missed" 13:00 hour the stored window already accounts for).
+    expect(result.wastedMinutes).toBe(120);
   });
 });

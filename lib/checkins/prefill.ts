@@ -59,44 +59,52 @@ function sumOverlapStepMinutes(window: AllocationWindow, ranges: TimeRange[]): n
 }
 
 /**
- * Removes every explicitly-answered (Yes or No) hourly Lock-In confirm from
- * `sessions` before they ever reach the coarse overlap-based business
- * credit above — 2026-08-19, the double-count guard for the hourly
- * confirm feature. An hour with its own precise, directly-written
- * checkin_allocations row (business for Yes, wasted for No) must never
- * ALSO be coarse-credited by session-overlap for the same 60 minutes, on
- * either side: a "No" hour double-counted as business would silently
- * reverse the very drift the confirm exists to catch, and a "Yes" hour
- * would just double-count the same real minutes twice.
+ * Removes every RESOLVED hourly Lock-In hour from `sessions` before they
+ * ever reach the coarse overlap-based business credit above — 2026-08-19,
+ * the double-count guard for the hourly confirm feature. "Resolved" means
+ * the hour has a definite value from one of two sources (widened
+ * 2026-08-19, docs/superpowers/specs/2026-08-19-missed-lockin-hours.md;
+ * originally answered-only): explicitly answered (a real
+ * checkin_allocations row, business for Yes / wasted for No), OR
+ * auto-missed — superseded and unconfirmed, DERIVED as wasted with no row
+ * written (see session-hour-status.ts's resolveSessionHours) but just as
+ * definite a value as an explicit answer for this guard's purposes. Either
+ * way, a resolved hour must never ALSO be coarse-credited by
+ * session-overlap for the same 60 minutes: a wasted hour (answered "No" or
+ * auto-missed) double-counted as business would silently reverse the very
+ * drift both the confirm and the missed-hour ruling exist to catch, and a
+ * "Yes" hour would just double-count the same real minutes twice.
  *
- * A MISSED (unanswered) hour is deliberately left alone — not subtracted —
- * and keeps falling back to the coarse credit exactly as it already did
- * before this feature existed. That's a pre-existing, already-accepted
- * inference (session presence implies probable business time); this
- * function only ever *replaces* that inference with a more precise one
- * where positive evidence (an explicit answer) exists, it never removes
- * evidence that silence would otherwise still provide.
+ * The one hour deliberately left alone — not subtracted — is the CURRENT
+ * PENDING due slot, if any: it hasn't resolved yet either way, and keeps
+ * falling back to the coarse credit exactly as every not-yet-fired hour
+ * already does. That's the only remaining case of the original
+ * already-accepted inference (session presence implies probable business
+ * time); this function replaces that inference with a precise one
+ * wherever a definite value exists (answered or missed), and only ever
+ * removes evidence for the one hour that's still genuinely unknown.
  *
- * Call once per queue-build with the day's confirmed hours, then pass the
+ * Call once per queue-build with the day's resolved hours, then pass the
  * result as `lockInSessions` into every window's derivePrefillAllocation
  * call — cheaper than re-subtracting per window, and keeps this function's
  * signature independent of any single window.
  *
  * Deliberately per-HOUR, not per-window (2026-08-19, corrects the Lead's own
- * first instinct): a window-level "is this window fully covered by confirmed
+ * first instinct): a window-level "is this window fully covered by resolved
  * hours?" check (see schedule.ts's isWindowCoveredBySessionHours, which
  * exists for the separate re-queue-suppression concern) is not sufficient
- * here. A 2h window with ONE of its two hours confirmed and the other still
- * open is not fully covered, so a window-level check leaves it alone — but
- * the confirmed hour inside it must still be subtracted, or that hour's
- * minutes get counted twice: once as its own real checkin_allocations row,
- * once again inside the coarse session-overlap credit for the window's
- * uncovered boundary hour. Subtracting per-hour handles both the
- * fully-covered and partially-covered cases correctly in one pass; do not
- * "simplify" this back to a window-coverage check.
+ * here. A 2h window with ONE of its two hours resolved and the other still
+ * open/pending is not fully covered, so a window-level check leaves it
+ * alone — but the resolved hour inside it must still be subtracted, or that
+ * hour's minutes get counted twice: once from its own real value (a stored
+ * row, or the missed-hour derivation), once again inside the coarse
+ * session-overlap credit for the window's still-pending boundary hour.
+ * Subtracting per-hour handles both the fully-covered and
+ * partially-covered cases correctly in one pass, for both answered AND
+ * missed hours; do not "simplify" this back to a window-coverage check.
  */
-export function subtractConfirmedHours(sessions: TimeRange[], confirmedHourRanges: TimeRange[]): TimeRange[] {
-  const confirmed = confirmedHourRanges.filter((r): r is { start: Date; end: Date } => r.end !== null);
+export function subtractResolvedHours(sessions: TimeRange[], resolvedHourRanges: TimeRange[]): TimeRange[] {
+  const confirmed = resolvedHourRanges.filter((r): r is { start: Date; end: Date } => r.end !== null);
   if (confirmed.length === 0) return sessions;
 
   const result: TimeRange[] = [];

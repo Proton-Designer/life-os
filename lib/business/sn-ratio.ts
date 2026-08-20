@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
+import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
+import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
 
 export type AllocationRow = { domain: string; minutes: number };
 
@@ -55,6 +57,14 @@ export function bucketAllocationMinutes(rows: AllocationRow[]): {
 
 export type SnDataSource = {
   getAllocations: (userId: string, weekStartIso: string, weekEndIso: string) => Promise<AllocationRow[]>;
+  /** Every stored allocation checkin's own [window_start, window_end) span in range, hour-level and window-level alike — used to avoid double-counting a missed hour already covered by a wider confirmed row. See getMissedHourWasteMinutes. */
+  getStoredAllocationSpans: (userId: string, startIso: string, endIso: string) => Promise<{ start: Date; end: Date }[]>;
+  /** Every Lock-In session overlapping the range, with its own stored hourly rows — feeds the same missed-hour-as-wasted derivation the live queue uses (session-hour-status.ts). */
+  getSessionsWithStoredHours: (
+    userId: string,
+    startIso: string,
+    endIso: string
+  ) => Promise<{ startedAt: Date; endedAt: Date | null; storedHours: { hourStartIso: string; domain: "business" | "wasted" }[] }[]>;
 };
 
 function defaultDataSource(): SnDataSource {
@@ -77,7 +87,32 @@ function defaultDataSource(): SnDataSource {
         .lt("window_start", weekEndIso);
       return (data ?? []).flatMap((c) => c.checkin_allocations ?? []);
     },
+    getStoredAllocationSpans,
+    getSessionsWithStoredHours,
   };
+}
+
+/**
+ * Adds acceptance criterion 1's missing piece
+ * (docs/superpowers/specs/2026-08-19-missed-lockin-hours.md): a Lock-In
+ * hour that's been superseded and never answered reads as `wasted` here
+ * too, not silently absent, without waiting for (or double-counting
+ * against) the surrounding 2h allocation window ever being confirmed. See
+ * session-hour-status.ts's deriveExtraMissedWasteMinutes for the bound
+ * (this range only) and the double-count guard (stored spans).
+ */
+async function getMissedHourWasteMinutes(
+  userId: string,
+  startIso: string,
+  endIso: string,
+  now: Date,
+  dataSource: SnDataSource
+): Promise<number> {
+  const [storedSpans, sessions] = await Promise.all([
+    dataSource.getStoredAllocationSpans(userId, startIso, endIso),
+    dataSource.getSessionsWithStoredHours(userId, startIso, endIso),
+  ]);
+  return deriveExtraMissedWasteMinutes(sessions, storedSpans, new Date(startIso), new Date(endIso), now);
 }
 
 /**
@@ -90,13 +125,29 @@ function defaultDataSource(): SnDataSource {
 export async function getWeeklySignalNoiseRatio(
   userId: string,
   weekStart: Date,
-  dataSource: SnDataSource = defaultDataSource()
+  dataSource: SnDataSource = defaultDataSource(),
+  now: Date = new Date()
 ): Promise<SignalNoiseResult> {
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const rows = await dataSource.getAllocations(userId, weekStart.toISOString(), weekEnd.toISOString());
+  const weekStartIso = weekStart.toISOString();
+  const weekEndIso = weekEnd.toISOString();
+  const [rows, extraWasted] = await Promise.all([
+    dataSource.getAllocations(userId, weekStartIso, weekEndIso),
+    getMissedHourWasteMinutes(userId, weekStartIso, weekEndIso, now, dataSource),
+  ]);
   const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows);
-  const display = computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0);
-  return { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes, display };
+  const display = computeRatioDisplay(
+    signalMinutes,
+    noiseMinutes + extraWasted,
+    signalMinutes + noiseMinutes + extraWasted > 0
+  );
+  return {
+    signalMinutes,
+    noiseMinutes: noiseMinutes + extraWasted,
+    otherCommitmentsMinutes,
+    wastedMinutes: wastedMinutes + extraWasted,
+    display,
+  };
 }
 
 /**
@@ -111,12 +162,28 @@ export async function getSignalNoiseForRange(
   userId: string,
   range: "day" | "week",
   anchor: Date,
-  dataSource: SnDataSource = defaultDataSource()
+  dataSource: SnDataSource = defaultDataSource(),
+  now: Date = new Date()
 ): Promise<SignalNoiseResult> {
   const rangeMs = (range === "week" ? 7 : 1) * 24 * 60 * 60 * 1000;
   const end = new Date(anchor.getTime() + rangeMs);
-  const rows = await dataSource.getAllocations(userId, anchor.toISOString(), end.toISOString());
+  const startIso = anchor.toISOString();
+  const endIso = end.toISOString();
+  const [rows, extraWasted] = await Promise.all([
+    dataSource.getAllocations(userId, startIso, endIso),
+    getMissedHourWasteMinutes(userId, startIso, endIso, now, dataSource),
+  ]);
   const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows);
-  const display = computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0);
-  return { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes, display };
+  const display = computeRatioDisplay(
+    signalMinutes,
+    noiseMinutes + extraWasted,
+    signalMinutes + noiseMinutes + extraWasted > 0
+  );
+  return {
+    signalMinutes,
+    noiseMinutes: noiseMinutes + extraWasted,
+    otherCommitmentsMinutes,
+    wastedMinutes: wastedMinutes + extraWasted,
+    display,
+  };
 }

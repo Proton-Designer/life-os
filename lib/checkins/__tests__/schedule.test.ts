@@ -242,7 +242,7 @@ describe("prayerSuppressionRanges", () => {
 // 2026-08-19: hourly Lock-In confirms. Full-window coverage is the UX
 // shortcut (don't re-ask about a block already fully accounted for
 // hour-by-hour) — the actual double-count guard for a *partially* covered
-// window lives in prefill.ts's subtractConfirmedHours, per-hour, since a
+// window lives in prefill.ts's subtractResolvedHours, per-hour, since a
 // window can be genuinely partially covered and this function alone can't
 // prevent double-crediting the still-uncovered portion.
 describe("isWindowCoveredBySessionHours", () => {
