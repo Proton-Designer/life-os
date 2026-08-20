@@ -86,7 +86,7 @@ export default async function CoOpPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {currentTarget && (
-          <Panel title="Weekly Agenda" heroValue={`${coopTasks.length}`} caption={`for ${currentTarget.title}`}>
+          <Panel id="weekly-agenda" className="scroll-mt-20" title="Weekly Agenda" heroValue={`${coopTasks.length}`} caption={`for ${currentTarget.title}`}>
             <WeeklyAgenda targetId={currentTarget.id} tasks={coopTasks} />
           </Panel>
         )}

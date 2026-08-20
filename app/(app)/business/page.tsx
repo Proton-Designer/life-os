@@ -149,7 +149,7 @@ export default async function BusinessPage() {
           research is expected to revisit this. "Sessions this week" is
           removed outright, per his instruction. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
+        <div id="kill-list" className="lg:col-span-6 scroll-mt-20">
           <Panel
             title="Today's kill list"
             heroValue={`${killListCompletedToday}/3`}
@@ -187,7 +187,7 @@ export default async function BusinessPage() {
             }
           />
         </div>
-        <div id="lock-in-panel" className="lg:col-span-8">
+        <div id="lock-in-panel" className="lg:col-span-8 scroll-mt-20">
           <Panel title="Lock In">
             {/* showTodayTotal={false}: the Focus-time-today card directly
                 above already shows this exact number — see LockInPanel's

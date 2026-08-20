@@ -24,7 +24,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { createExercise } from "@/app/(app)/fitness/workouts/actions";
-import { quickLogExercise, logWeight, logWaist, confirmWorkoutSession } from "@/app/(app)/fitness/actions";
+import { quickLogExercise, confirmWorkoutSession } from "@/app/(app)/fitness/actions";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -53,7 +53,6 @@ export default async function HomePage() {
     repGoalRows,
     todayRepRows,
     exerciseRows,
-    latestWaistRow,
     todayScheduleRow,
   ] = await Promise.all([
     getPriorityItems(userId, now),
@@ -79,14 +78,6 @@ export default async function HomePage() {
       .eq("user_id", userId)
       .eq("archived", false)
       .order("name"),
-    supabase
-      .from("body_metrics")
-      .select("date")
-      .eq("user_id", userId)
-      .not("waist_in", "is", null)
-      .order("date", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
     supabase
       .from("workout_schedule")
       .select("workout_id")
@@ -135,11 +126,6 @@ export default async function HomePage() {
     secondaryMuscles: e.secondary_muscles as never,
   }));
 
-  const lastWaistDate = latestWaistRow.data?.date ?? null;
-  const daysSinceWaist = lastWaistDate
-    ? Math.floor((new Date(`${dateStr}T00:00:00Z`).getTime() - new Date(`${lastWaistDate}T00:00:00Z`).getTime()) / 86_400_000)
-    : null;
-  const waistDue = daysSinceWaist === null || daysSinceWaist >= 14;
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
   const businessGoalRow = weeklyGoalsRows.find((g) => g.domain === "business") ?? null;
@@ -220,11 +206,8 @@ export default async function HomePage() {
           />
           <HomeFitnessPanel
             repGoals={repGoals}
-            waistDue={waistDue}
             quickAddExercises={quickAddExercises}
             onQuickLogExercise={quickLogExercise.bind(null, dateStr)}
-            onLogWeight={logWeight.bind(null, dateStr)}
-            onLogWaist={logWaist.bind(null, dateStr)}
             onCreateExercise={createExercise}
           />
         </div>

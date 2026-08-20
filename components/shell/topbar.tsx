@@ -2,20 +2,17 @@
 
 import Link from "next/link";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Menu, Zap } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Menu } from "lucide-react";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
-import { CheckinQueueBadge } from "./checkin-queue-badge";
+import { NotificationsBell } from "./notifications-bell";
 
 export function Topbar({
   account,
   dateLabel,
-  hasActiveLockIn,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
-  hasActiveLockIn: boolean;
 }) {
   return (
     <DialogPrimitive.Root>
@@ -43,20 +40,7 @@ export function Topbar({
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>
-          <Link
-            href="/business"
-            prefetch
-            aria-label={hasActiveLockIn ? "Lock-In session active" : "No active Lock-In session"}
-            className={cn(
-              "flex size-8 items-center justify-center rounded-full transition-colors",
-              hasActiveLockIn
-                ? "bg-accent-business/15 text-accent-business"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap className="size-4" fill={hasActiveLockIn ? "currentColor" : "none"} />
-          </Link>
-          <CheckinQueueBadge />
+          <NotificationsBell />
           <AccountBlock displayName={account.displayName} email={account.email} variant="icon-rail" />
         </div>
       </header>

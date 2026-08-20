@@ -341,7 +341,7 @@ export default async function DeenPage() {
       </div>
 
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-5">
+        <div id="prayers" className="lg:col-span-5 scroll-mt-20">
           <Panel className="h-full" title="Salah today" heroValue={`${salahDoneCount}/5`} caption={salahCaption}>
             <ul className="flex flex-col gap-2">
               {PRAYERS.map((p) => {

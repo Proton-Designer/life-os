@@ -14,6 +14,13 @@ vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
   saveAllocationCheckin: vi.fn(async () => {}),
 }));
 
+// NotificationsBell (topbar.tsx) calls this on mount — same
+// fully-client-testable rationale as the allocation-actions mock above.
+vi.mock("@/app/(app)/actions", () => ({
+  signOut: vi.fn(),
+  getNotificationsForNow: vi.fn(async () => []),
+}));
+
 import { AppShellChrome } from "../app-shell-chrome";
 
 const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
@@ -21,7 +28,7 @@ const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
 describe("AppShellChrome", () => {
   it("renders the sidebar, topbar, mobile island, and page content", () => {
     render(
-      <AppShellChrome account={ACCOUNT} dateLabel="Fri, Aug 15" hasActiveLockIn={false}>
+      <AppShellChrome account={ACCOUNT} dateLabel="Fri, Aug 15">
         <div>Page content</div>
       </AppShellChrome>
     );

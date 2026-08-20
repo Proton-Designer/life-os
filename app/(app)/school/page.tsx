@@ -134,7 +134,7 @@ export default async function SchoolPage() {
         </div>
       </div>
 
-      <Panel title="Task list" heroValue={`${openTasks.length}`} caption="open">
+      <Panel id="tasks" className="scroll-mt-20" title="Task list" heroValue={`${openTasks.length}`} caption="open">
         <TaskList tasks={openTasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="school" />
       </Panel>
     </PageContainer>

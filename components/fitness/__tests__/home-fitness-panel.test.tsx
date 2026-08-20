@@ -4,21 +4,30 @@ import { describe, expect, it, vi } from "vitest";
 import { HomeFitnessPanel } from "../home-fitness-panel";
 
 describe("HomeFitnessPanel", () => {
-  it("composes rep bars, body metrics entry, and quick-add without crashing", () => {
+  it("composes rep bars and quick-add without crashing", () => {
     render(
       <HomeFitnessPanel
         repGoals={[{ exerciseId: "e1", exerciseName: "Pull-ups", dailyTarget: 30, loggedRepsToday: 10 }]}
-        waistDue={false}
         quickAddExercises={[]}
         onQuickLogExercise={vi.fn()}
-        onLogWeight={vi.fn()}
-        onLogWaist={vi.fn()}
         onCreateExercise={vi.fn()}
       />
     );
     expect(screen.getByText("Pull-ups")).toBeInTheDocument();
-    expect(screen.getByText("Log weight")).toBeInTheDocument();
     expect(screen.getByText("+ Quick log")).toBeInTheDocument();
+  });
+
+  it("no longer renders weight/waist logging — that moved to the Fitness page's Body panel", () => {
+    render(
+      <HomeFitnessPanel
+        repGoals={[]}
+        quickAddExercises={[]}
+        onQuickLogExercise={vi.fn()}
+        onCreateExercise={vi.fn()}
+      />
+    );
+    expect(screen.queryByText("Log weight")).not.toBeInTheDocument();
+    expect(screen.queryByText("Log your waist")).not.toBeInTheDocument();
   });
 
   it("a rep-goal bar's quick-add adapts to the single onQuickLogExercise signature with sets=1 and no load", async () => {
@@ -27,11 +36,8 @@ describe("HomeFitnessPanel", () => {
     render(
       <HomeFitnessPanel
         repGoals={[{ exerciseId: "e1", exerciseName: "Pull-ups", dailyTarget: 30, loggedRepsToday: 10 }]}
-        waistDue={false}
         quickAddExercises={[]}
         onQuickLogExercise={onQuickLogExercise}
-        onLogWeight={vi.fn()}
-        onLogWaist={vi.fn()}
         onCreateExercise={vi.fn()}
       />
     );

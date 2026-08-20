@@ -8,9 +8,13 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
 
-const { signOutMock } = vi.hoisted(() => ({ signOutMock: vi.fn() }));
+const { signOutMock, getNotificationsForNowMock } = vi.hoisted(() => ({
+  signOutMock: vi.fn(),
+  getNotificationsForNowMock: vi.fn(),
+}));
 vi.mock("@/app/(app)/actions", () => ({
   signOut: signOutMock,
+  getNotificationsForNow: (...args: unknown[]) => getNotificationsForNowMock(...args),
 }));
 
 const { getAllocationQueueForNowMock } = vi.hoisted(() => ({ getAllocationQueueForNowMock: vi.fn() }));
@@ -48,7 +52,7 @@ const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
 function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) {
   return render(
     <AllocationQueueProvider>
-      <Topbar account={ACCOUNT} dateLabel="Fri, Aug 15" hasActiveLockIn={false} {...props} />
+      <Topbar account={ACCOUNT} dateLabel="Fri, Aug 15" {...props} />
     </AllocationQueueProvider>
   );
 }
@@ -56,6 +60,7 @@ function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) 
 describe("Topbar", () => {
   beforeEach(() => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    getNotificationsForNowMock.mockResolvedValue([]);
   });
 
   it("does not render a page title — PageHeader owns it, to avoid rendering it twice", () => {
@@ -108,12 +113,31 @@ describe("Topbar", () => {
   it("prefetches its own cross-screen links (navigation-prefetch-fix, Part A)", () => {
     renderTopbar();
     expect(screen.getByRole("link", { name: /life os/i })).toHaveAttribute("data-prefetch", "true");
-    expect(
-      screen.getByRole("link", { name: /no active lock-in session|lock-in session active/i })
-    ).toHaveAttribute("data-prefetch", "true");
   });
 
-  it("shows the check-in queue badge when items are pending", async () => {
+  it("shows a notification count badge when items are pending, and routes to the right screen section", async () => {
+    getNotificationsForNowMock.mockResolvedValue([
+      { id: "prayer-fajr", domain: "deen", title: "Fajr", body: "Prayer window is open", href: "/deen#prayers", dueAt: null },
+    ]);
+    const user = userEvent.setup();
+    renderTopbar();
+    expect(await screen.findByRole("button", { name: "1 notification" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "1 notification" }));
+    expect(await screen.findByRole("link", { name: /Fajr/ })).toHaveAttribute("href", "/deen#prayers");
+  });
+
+  it("shows no notification badge when nothing is pending", async () => {
+    renderTopbar();
+    expect(await screen.findByRole("button", { name: "No notifications" })).toBeInTheDocument();
+  });
+
+  // CheckinQueueBadge (a separate topbar indicator) is gone as of
+  // 2026-08-20 (Opus Lead) — it was the ONLY entry point to the check-in
+  // sheet and rendered null at count 0, so with the 30-minute answer
+  // window it was on screen ~25% of the day. The queue is folded into the
+  // bell instead, sorted first, so the bell is now the single persistent
+  // "something's pending" surface.
+  it("folds pending allocation check-ins into the bell, sorted first, and opens the sheet in place (no route change)", async () => {
     getAllocationQueueForNowMock.mockResolvedValue({
       items: [
         {
@@ -125,13 +149,31 @@ describe("Topbar", () => {
       unknownCount: 0,
       timezone: "America/Chicago",
     });
+    getNotificationsForNowMock.mockResolvedValue([
+      { id: "prayer-fajr", domain: "deen", title: "Fajr", body: "Prayer window is open", href: "/deen#prayers", dueAt: null },
+    ]);
+    const user = userEvent.setup();
     renderTopbar();
-    expect(await screen.findByRole("button", { name: "1 check-in waiting" })).toBeInTheDocument();
+
+    // Count is checkin (1) + domain notification (1) = 2, not counted separately.
+    const bellButton = await screen.findByRole("button", { name: "2 notifications" });
+    expect(screen.queryByRole("button", { name: /waiting/ })).not.toBeInTheDocument();
+
+    await user.click(bellButton);
+    const checkinItem = await screen.findByRole("button", { name: /Check-in/ });
+    const fajrItem = screen.getByRole("link", { name: /Fajr/ });
+    // Sorted first: the check-in button precedes the Fajr link in the DOM.
+    expect(checkinItem.compareDocumentPosition(fajrItem) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Tapping it opens the sheet in place — no navigation, no /checkin route.
+    await user.click(checkinItem);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); // AllocationCheckinGate isn't mounted in this tree
+    expect(window.location.pathname).not.toBe("/checkin");
   });
 
-  it("hides the check-in queue badge when nothing is pending", async () => {
+  it("shows no notification badge when nothing is pending, checkins included", async () => {
     renderTopbar();
-    await screen.findByRole("button", { name: /account menu/i });
+    expect(await screen.findByRole("button", { name: "No notifications" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /waiting/ })).not.toBeInTheDocument();
   });
 });

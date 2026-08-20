@@ -1,11 +1,18 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser } from "@/lib/supabase/auth";
+import { getAuthedUser, requireUser } from "@/lib/supabase/auth";
 import type { PriorityItem } from "@/lib/home/types";
+import { getNotifications, type NotificationItem } from "@/lib/notifications/get-notifications";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
+
+/** Client-callable wrapper — NotificationsBell polls this rather than calling the server-only getNotifications directly. */
+export async function getNotificationsForNow(nowIso: string): Promise<NotificationItem[]> {
+  const { userId } = await requireUser();
+  return getNotifications(userId, new Date(nowIso));
+}
 
 export async function signOut(): Promise<void> {
   const supabase = await createClient();

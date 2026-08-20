@@ -13,12 +13,10 @@ import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context
 export function AppShellChrome({
   account,
   dateLabel,
-  hasActiveLockIn,
   children,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
-  hasActiveLockIn: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -26,7 +24,7 @@ export function AppShellChrome({
       <div className="lg:flex lg:min-h-screen">
         <AppSidebar account={account} />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <Topbar account={account} dateLabel={dateLabel} hasActiveLockIn={hasActiveLockIn} />
+          <Topbar account={account} dateLabel={dateLabel} />
           <main className="flex-1 pb-24 lg:pb-6">{children}</main>
         </div>
         <MobileIsland />

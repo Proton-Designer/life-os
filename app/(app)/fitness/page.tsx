@@ -9,11 +9,12 @@ import { FitnessDayView } from "@/components/fitness/fitness-day-view";
 import type { DayCell } from "@/components/fitness/day-picker-strip";
 import { VolumeHero } from "@/components/fitness/volume-hero";
 import { BodyModule } from "@/components/fitness/body-module";
+import { BodyMetricsEntry } from "@/components/fitness/body-metrics-entry";
 import { DailyChecks } from "@/components/fitness/daily-checks";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
-import { confirmWorkoutSession, assignWorkoutToDay, ensureDailyCheckHabits, toggleDailyCheck } from "./actions";
+import { confirmWorkoutSession, assignWorkoutToDay, ensureDailyCheckHabits, toggleDailyCheck, logWeight, logWaist } from "./actions";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -121,6 +122,10 @@ export default async function FitnessPage() {
   const weightAvg7d =
     weightValues.length > 0 ? Math.round((weightValues.reduce((a, b) => a + b, 0) / weightValues.length) * 10) / 10 : null;
   const waist = waistRow ? { valueIn: waistRow.waist_in as number, date: waistRow.date } : null;
+  const daysSinceWaist = waist
+    ? Math.floor((new Date(`${dateStr}T00:00:00Z`).getTime() - new Date(`${waist.date}T00:00:00Z`).getTime()) / 86_400_000)
+    : null;
+  const waistDue = daysSinceWaist === null || daysSinceWaist >= 14;
 
   const { data: todayHabitLogs } = await supabase
     .from("habit_logs")
@@ -148,7 +153,7 @@ export default async function FitnessPage() {
         />
       </Panel>
 
-      <Panel title="Sessions">
+      <Panel title="Sessions" id="sessions" className="scroll-mt-20">
         <FitnessDayView
           days={days}
           dates={dates}
@@ -163,12 +168,19 @@ export default async function FitnessPage() {
       </Panel>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
+        <div id="body" className="lg:col-span-6 scroll-mt-20">
           <Panel title="Body">
-            <BodyModule weightAvg7d={weightAvg7d} waist={waist} />
+            <div className="flex flex-col gap-3">
+              <BodyModule weightAvg7d={weightAvg7d} waist={waist} />
+              <BodyMetricsEntry
+                waistDue={waistDue}
+                onLogWeight={logWeight.bind(null, dateStr)}
+                onLogWaist={logWaist.bind(null, dateStr)}
+              />
+            </div>
           </Panel>
         </div>
-        <div className="lg:col-span-6">
+        <div id="daily-checks" className="lg:col-span-6 scroll-mt-20">
           <Panel title="Daily checks">
             <DailyChecks
               proteinDone={proteinDone}
