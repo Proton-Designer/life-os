@@ -1254,3 +1254,62 @@ Fixing it by simply making the scheduled time real would have repeated the praye
 **Two live-only bugs in the Fitness field**, neither reachable from unit tests: a Radix popover seeded its local state once at mount, so save-then-reopen showed a stale unsnapped value; and Postgres `time` round-trips as `HH:MM:SS`, which a time input can't hold. Both found only by saving, closing, and reopening against a real server.
 
 **Deployed**: `970874c`. 945 tests, `tsc`/`eslint`/`next build` clean, badge/sheet flow re-verified in production at 1600 and 390 with 0 console errors.
+
+### Missed Lock-In hours count as noise — Ayman's reversal, deployed
+
+**His ruling** (2026-08-19 16:45 CDT): *"a missed check in during lock in session should be counted as
+noise, but the user can go back and update/change status of a specific hour if needed."*
+
+This **reverses** the decision the Lead and Engineer 3 had settled hours earlier. That earlier reasoning
+was sound on its own terms — session presence had been accepted evidence since before the feature, and
+treating silence as unknown would have been a behaviour change smuggled in under a bug fix. What
+overrode it was the consequence flagged to him at the time: **ignoring every hourly prompt was the
+highest-scoring path — full signal, no visible trace.** A metric whose easiest path is also its most
+flattering one measures nothing. Recorded because the overturned argument was correct-but-outweighed,
+not wrong.
+
+**The two halves are one design.** Auto-marking noise without editing punishes being deep in work or
+away from the phone — the failure mode this whole system has been designed against. Editing without
+auto-marking leaves the loophole open. Shipped together.
+
+**Design**: an hour resolves to `wasted` only once *superseded* by a newer slot (reusing
+`computeSessionCheckinSlots`'s existing grace semantics) — the current `dueSlot` stays pending, not
+noise. **Derived, never written by a job**: same stored-wins-over-derived contract as
+`prayer-status.ts`; no row exists until he edits. Every hour is editable during and after the session,
+from the Lock-In card and the completed-session card — deliberately **not** a separate history screen,
+since hours unreachable from where he already looks at sessions would make this half of the ruling
+theoretical.
+
+**`subtractConfirmedHours` → `subtractResolvedHours`**, widened to answered ∪ missed. A missed hour now
+carries a precise value, so it must be subtracted from the coarse Lock-In overlap credit — otherwise a
+window re-adds business minutes for an hour just called wasted and two surfaces contradict each other.
+Only the `dueSlot` and unfired hours keep coarse credit, correctly: they're the only hours with no
+definite value.
+
+**A gap in the Lead's spec, caught by Engineer 3**: acceptance criterion 1 said "every surface that
+reads it," but `sn-ratio.ts` and `focus-map.ts` only ever read *stored* rows for completed sessions — a
+past session's missed-but-unedited hours would have silently vanished rather than counting as noise.
+Closed with a shared `resolveSessionHours` primitive both the live queue and historical readers use, plus
+`lib/checkins/missed-hour-queries.ts` so the two range-bound queries can't drift apart between call
+sites. Historical derivation is bounded to the caller's own query range with no separate floor, and the
+reasoning is documented at `deriveExtraMissedWasteMinutes`.
+
+**Acceptance criterion 5, proven with real numbers rather than green assertions**: a session with one
+answered hour (stored, 60min business), one superseded hour (derives wasted), and one pending hour →
+signal 60, noise 60, total **exactly 120**, pending contributing zero to either side. Companion test:
+a missed hour already covered by a wider stored row adds **0** extra — without the guard it would read
+180 (120 stored + 60 re-added). Same shape verified in `focus-map.test.ts`.
+
+**Copy**: a missed hour reads **"Not confirmed"** in muted grey with neither button pressed —
+`aria-pressed` toggle semantics, no red, no destructive styling, edit affordance always visible. It is a
+default he is invited to correct, not an accusation; a row that reads as a reprimand would make him
+avoid Lock-In entirely, which is the opposite of the point.
+
+**Verified in the database, not just in tests** (Engineer 2): a real 3-hour closed session with zero
+answered hours rendered all three as "Not confirmed" with **zero rows written**; editing one via a real
+click wrote exactly one `checkin_allocations` row and left the other two absent.
+
+**Deployed**: `ed80317`. 980 tests, `tsc`/`eslint`/`next build` clean. Production verified at 1600 and
+390 across Business, Insights and Fitness — no overflow, 0 console errors, honest empty states. The
+badge correctly reads empty for the SEED account because its profile is on London time where it is
+02:13, outside the 08:00–22:00 window; it read 7 at 16:01 when London was 22:01.
