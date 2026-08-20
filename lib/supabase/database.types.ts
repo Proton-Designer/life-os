@@ -173,6 +173,80 @@ export type Database = {
           },
         ]
       }
+      coop_targets: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          deadline: string | null
+          id: string
+          position: number | null
+          status: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          position?: number | null
+          status?: string
+          title: string
+          user_id?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          position?: number | null
+          status?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      coop_tasks: {
+        Row: {
+          blocked_from: string | null
+          created_at: string
+          deadline: string | null
+          id: string
+          status: string
+          target_id: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          blocked_from?: string | null
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          status?: string
+          target_id: string
+          title: string
+          user_id?: string
+        }
+        Update: {
+          blocked_from?: string | null
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          status?: string
+          target_id?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coop_tasks_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "coop_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_habits: {
         Row: {
           archived: boolean
@@ -1030,12 +1104,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_target: { Args: { p_target_id: string }; Returns: undefined }
+      confirm_workout_session: {
+        Args: {
+          p_date: string
+          p_sets: Json
+          p_workout_id: string
+          p_workout_name: string
+        }
+        Returns: string
+      }
       get_vault_secrets: {
         Args: { secret_names: string[] }
         Returns: {
           decrypted_secret: string
           name: string
         }[]
+      }
+      reorder_coop_target: {
+        Args: { p_new_position: number; p_target_id: string }
+        Returns: undefined
       }
       save_allocation_checkin: {
         Args: {
