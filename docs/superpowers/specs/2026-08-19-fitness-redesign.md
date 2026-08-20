@@ -626,14 +626,27 @@ quick-add.
    Ayman actually asked for. Fixed in the same pass that regenerated §8.2's
    tables: core is now 12. See §8.2's Plan B trim notes for what was cut.
 5. **Plan exercise selection** wants a pass from a published program (§8.4).
-3. **`workout_logs` has no duration column at all** — duration exists only on
+6. **Plan A's back (mid/traps) sits at 10.5**, just under the 12 floor — the same
+   shape of gap the Lead fixed in Plan B by trading a vertical pull for a
+   horizontal row. Deliberately NOT fixed in the 2026-08-20 pass: the Lead had
+   already declared that round the last one, the number is a marginal
+   sub-optimum rather than a defect (Plan A's combined back is 19.5, and the
+   12–20 band is not a cliff edge), and re-opening would have been exactly the
+   endless table-tuning that call was meant to stop. Recorded so it is a known
+   characteristic rather than an oversight. **If Ayman picks Plan A, apply the
+   Plan B fix**: swap one vertical-pull movement for a chest-supported row. The
+   reasoning is the same — the starter plan supplies 150 weekly pull-ups (pure
+   vertical pulling) and zero horizontal pulling, so lats are double-counted
+   while mid-back is the genuine hole in the whole program, and mid-back is the
+   postural muscle doing most of the work for the look he described wanting.
+7. **`workout_logs` has no duration column at all** — duration exists only on
    `workout_schedule` (added 2026-08-19 in `023`). A structured session record
    makes this moot but the migration path needs stating in the implementation
    plan.
-4. **`workout_logs` has no unique constraint on (user_id, date)** — the same day
+8. **`workout_logs` has no unique constraint on (user_id, date)** — the same day
    can be logged twice. Pre-existing; decide whether the new session model needs
    one.
-5. **Notification killability** (§3.1) must be verified against the existing push
+9. **Notification killability** (§3.1) must be verified against the existing push
    infrastructure rather than assumed.
 
 ## 11. Provenance
