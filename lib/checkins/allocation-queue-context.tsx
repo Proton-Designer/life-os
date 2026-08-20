@@ -74,6 +74,21 @@ function notifyDesktop(newCount: number) {
  * provider has ever shown a toast/notification for (not just the current
  * queue) so re-polling doesn't re-notify for a window that's still pending
  * from an earlier cycle.
+ *
+ * The first load notifies too, same as any later poll — it does NOT seed
+ * a silent baseline. That silent-baseline behavior was correct under the
+ * old end-of-day expiry (a pre-existing queue on open could hold hours-old
+ * windows that had "been sitting there the whole time," which shouldn't
+ * re-notify) but is wrong under ALLOCATION_ANSWER_WINDOW_MINUTES: anything
+ * in the queue on first load fired within the last 30 minutes by
+ * construction, so there's nothing stale to protect against, and staying
+ * silent was the worst case — open the app mid-window and get no toast, no
+ * desktop notification, and a badge nobody thought to check (2026-08-20,
+ * caught by the Opus Lead against production). This assumes the provider
+ * mounts once per session (components/shell/app-shell-chrome.tsx, itself
+ * rendered from app/(app)/layout.tsx, which Next.js keeps stable across
+ * in-segment navigation) — a remounting provider would re-notify on every
+ * remount.
  */
 export function AllocationQueueProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<AllocationQueueItem[]>([]);
@@ -81,7 +96,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
   const [total, setTotal] = useState(0);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<{ item: AllocationQueueItem; newCount: number } | null>(null);
-  const seenWindowStartsRef = useRef<Set<string> | null>(null);
+  const seenWindowStartsRef = useRef<Set<string>>(new Set());
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const dismissToast = useCallback(() => {
@@ -99,22 +114,17 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
       prefilled: toPrefilledFlags(item.prefill),
     }));
 
-    // First load establishes the baseline without notifying — otherwise
-    // every app open with a pre-existing queue (e.g. after being away)
-    // would fire a notification for windows that have been sitting there
-    // the whole time, not ones that just fired.
-    if (seenWindowStartsRef.current === null) {
-      seenWindowStartsRef.current = new Set(items.map((i) => i.windowStart));
-    } else {
-      const seen = seenWindowStartsRef.current;
-      const newlyFired = items.filter((i) => !seen.has(i.windowStart));
-      if (newlyFired.length > 0) {
-        newlyFired.forEach((i) => seen.add(i.windowStart));
-        notifyDesktop(newlyFired.length);
-        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-        setToast({ item: newlyFired[newlyFired.length - 1], newCount: newlyFired.length });
-        toastTimeoutRef.current = setTimeout(() => setToast(null), TOAST_MS);
-      }
+    // No baseline-seeding special case: the first poll notifies for
+    // whatever's already pending, same as every later poll. See this
+    // function's own doc comment above for why that's correct now.
+    const seen = seenWindowStartsRef.current;
+    const newlyFired = items.filter((i) => !seen.has(i.windowStart));
+    if (newlyFired.length > 0) {
+      newlyFired.forEach((i) => seen.add(i.windowStart));
+      notifyDesktop(newlyFired.length);
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      setToast({ item: newlyFired[newlyFired.length - 1], newCount: newlyFired.length });
+      toastTimeoutRef.current = setTimeout(() => setToast(null), TOAST_MS);
     }
 
     setQueue(items);

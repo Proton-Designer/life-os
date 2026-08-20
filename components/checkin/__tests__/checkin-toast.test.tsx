@@ -39,11 +39,26 @@ describe("CheckinToast", () => {
     vi.useRealTimers();
   });
 
-  it("does not toast for a queue that's already pending on first load", async () => {
+  it("toasts exactly once for a queue that's already pending on first load — nothing in it can be stale under the 30-minute window", async () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
     renderToast();
     await act(async () => {
       await Promise.resolve();
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Check-in available");
+  });
+
+  it("does not re-toast on a later poll that returns the same still-pending item", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
+    renderToast();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
