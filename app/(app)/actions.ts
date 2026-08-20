@@ -6,7 +6,6 @@ import type { PriorityItem } from "@/lib/home/types";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
-import { logWorkout } from "@/app/(app)/fitness/actions";
 
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
@@ -75,10 +74,6 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
         { onConflict: "user_id,date,period" }
       );
       if (error) throw error;
-      break;
-    }
-    case "toggle_workout": {
-      await logWorkout(item.date, item.actionRefId, "scheduled");
       break;
     }
   }

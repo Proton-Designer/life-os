@@ -7,8 +7,7 @@ export type ActionType =
   | "toggle_kill_list"
   | "toggle_task"
   | "toggle_habit"
-  | "toggle_adhkar"
-  | "toggle_workout";
+  | "toggle_adhkar";
 
 export type PriorityItem = {
   id: string;

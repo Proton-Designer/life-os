@@ -3,12 +3,7 @@ import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
-import {
-  localDateString,
-  localWeekday,
-  resolveLocalTime,
-  dayOfWeekFromDateString,
-} from "@/lib/date-utils";
+import { localDateString, localWeekday, resolveLocalTime } from "@/lib/date-utils";
 import { urgencyBucket } from "./urgency";
 import type { PriorityItem, Domain } from "./types";
 
@@ -38,16 +33,11 @@ export type HomeTaskRow = {
   due_time: string | null;
   completed: boolean;
 };
-export type HomeWorkoutSchedule = { day_of_week: number; workout_name: string; time?: string | null };
-export type HomeWorkoutLogRow = { workout_name: string };
-
 export type HomeDataSource = {
   getProfile: (userId: string) => Promise<HomeProfile | null>;
   getPrayers: (userId: string, date: string) => Promise<HomePrayerRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<HomeKillListRow[]>;
   getTasks: (userId: string, date: string) => Promise<HomeTaskRow[]>;
-  getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<HomeWorkoutSchedule | null>;
-  getWorkoutLogs: (userId: string, date: string) => Promise<HomeWorkoutLogRow[]>;
 };
 
 // Exported for testing defaultDataSource().getProfile() in isolation — see
@@ -100,25 +90,6 @@ export function defaultDataSource(): HomeDataSource {
         .eq("due_date", date);
       return (data ?? []) as HomeTaskRow[];
     },
-    async getWorkoutSchedule(userId, dayOfWeek) {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("workout_schedule")
-        .select("day_of_week, workout_name, time")
-        .eq("user_id", userId)
-        .eq("day_of_week", dayOfWeek)
-        .maybeSingle();
-      return data ?? null;
-    },
-    async getWorkoutLogs(userId, date) {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("workout_logs")
-        .select("workout_name")
-        .eq("user_id", userId)
-        .eq("date", date);
-      return data ?? [];
-    },
   };
 }
 
@@ -131,14 +102,11 @@ export async function getPriorityItems(
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
 
-  const [prayerRows, killListRows, taskRows, workoutSchedule, workoutLogRows] =
-    await Promise.all([
-      dataSource.getPrayers(userId, dateStr),
-      dataSource.getKillListItems(userId, dateStr),
-      dataSource.getTasks(userId, dateStr),
-      dataSource.getWorkoutSchedule(userId, dayOfWeekFromDateString(dateStr)),
-      dataSource.getWorkoutLogs(userId, dateStr),
-    ]);
+  const [prayerRows, killListRows, taskRows] = await Promise.all([
+    dataSource.getPrayers(userId, dateStr),
+    dataSource.getKillListItems(userId, dateStr),
+    dataSource.getTasks(userId, dateStr),
+  ]);
 
   const items: Omit<PriorityItem, "date">[] = [];
 
@@ -222,24 +190,12 @@ export async function getPriorityItems(
     });
   }
 
-  // Fitness: today's scheduled-but-unlogged workout (an ad-hoc log with a
-  // matching name also counts as "done", per spec — no separate tracking of
-  // scheduled vs. ad-hoc completion).
-  if (workoutSchedule && !workoutLogRows.some((w) => w.workout_name === workoutSchedule.workout_name)) {
-    const dueAt = workoutSchedule.time
-      ? resolveLocalTime(dateStr, workoutSchedule.time, timezone)
-      : null;
-    items.push({
-      id: "workout",
-      domain: "fitness",
-      title: workoutSchedule.workout_name,
-      dueAt,
-      urgencyBucket: urgencyBucket(dueAt, now),
-      completed: false,
-      actionType: "toggle_workout",
-      actionRefId: workoutSchedule.workout_name,
-    });
-  }
+  // Fitness has no Home priority-item entry (Fitness redesign, 2026-08-20):
+  // the old scheduled-but-unlogged-workout item was a bare one-tap
+  // completion with no numbers shown, which spec §2.1 forbids for the new
+  // confirm flow ("no bare Confirm button that can be tapped blind"). Its
+  // replacement is a dedicated Home on-plan confirm card (spec §3.1),
+  // not a PriorityItem — deliberately not this list.
 
   items.sort((a, b) => {
     if (a.urgencyBucket !== b.urgencyBucket) {

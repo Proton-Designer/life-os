@@ -146,25 +146,11 @@ describe("toggleItem", () => {
     );
   });
 
-  it("inserts a workout_logs row with source 'scheduled' for toggle_workout", async () => {
-    const chain = makeChain();
-    fromMock.mockReturnValue(chain);
-    const { toggleItem } = await import("../actions");
-
-    await toggleItem(
-      baseItem({ actionType: "toggle_workout", actionRefId: "Push", date: "2026-08-10" })
-    );
-
-    expect(fromMock).toHaveBeenCalledWith("workout_logs");
-    expect(chain.insert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_id: "user-1",
-        date: "2026-08-10",
-        workout_name: "Push",
-        source: "scheduled",
-      })
-    );
-  });
+  // toggle_workout is deleted, not repointed (Fitness redesign Phase 7,
+  // 2026-08-20): it was a bare one-tap workout completion with no numbers
+  // shown, which spec §2.1 forbids for the new confirm flow regardless of
+  // which table it wrote to. This test asserted the old contract and is
+  // removed along with the code it tested, not because it started failing.
 
   it("throws if no authenticated user is present", async () => {
     getClaimsMock.mockResolvedValueOnce({ data: null, error: null });
