@@ -1313,3 +1313,61 @@ click wrote exactly one `checkin_allocations` row and left the other two absent.
 390 across Business, Insights and Fitness — no overflow, 0 console errors, honest empty states. The
 badge correctly reads empty for the SEED account because its profile is on London time where it is
 02:13, outside the 08:00–22:00 window; it read 7 at 16:01 when London was 22:01.
+
+---
+
+## 2026-08-20 — Cross-agent commit contamination via the shared git INDEX
+
+**Three agents share one working directory and therefore one `.git/index`.** We already had a rule
+against `git add -A` (2026-08-18). It was not enough, and today showed exactly where the gap is.
+
+**What happened.** Engineer 3 `git rm`-staged four dead Fitness components and their tests
+(`today-workout-card.tsx`, `adhoc-workout-form.tsx`, `habit-list.tsx`, `workout-week-grid.tsx`) and had
+not yet committed. Engineer 2 then staged their own 19 Phase 5 files and ran `git commit`. The result,
+**42b78ca**, is titled *"Fitness redesign Phase 5: Home surfaces, Body module, daily checks"* and
+contains **only Engineer 3's 7 deletions, 687 lines, and none of Phase 5**. Engineer 2's actual work was
+still uncommitted afterwards; they re-committed it as **21bcfec** (19 files, verified clean).
+
+**Root cause, in two layers.**
+1. `git commit` with no pathspec commits **the entire index**, regardless of who staged what. Our
+   "stage explicit paths only" rule governs `git add` and says nothing about `git commit`. Two agents
+   with overlapping stage-then-commit windows means whoever commits first absorbs the other's staged
+   work under their own message.
+2. Engineer 2 self-diagnosed a second contributing trap: they filtered `git status` through
+   `grep -E "^[MA]"`, which **silently hides `D`-status entries**. Staged deletions are precisely the
+   file-existence-changing operation most likely to belong to someone else, and the filter made them
+   invisible. Filtering git-status output in a shared index is itself the hazard.
+
+**THE RULE, effective 2026-08-20 — pathspec-limited commits:**
+
+```
+git commit -m "message" -- path/one path/two
+```
+
+Paths passed to `git commit` limit it to exactly those paths and ignore the rest of the index entirely.
+It is immune to whatever anyone else has staged, whenever they staged it. **No bare `git commit -m` in
+this repo.** Same for removals: `git rm`, then `git commit -m "..." -- <the removed paths>`. And check
+full, unfiltered `git status --short` immediately before committing — never a grep of it.
+
+**42b78ca is NOT being rewritten.** A rebase changes files under two actively-editing engineers, which
+is a worse risk than a mislabelled commit — the same call made on 2026-08-18. The commit stands; this
+entry is the record. Substantively nothing is wrong: the deletions were correct and Phase 4 had already
+stopped rendering those components. It is an attribution defect, not a code defect.
+
+| Commit | Message says | Actually contains |
+|---|---|---|
+| `42b78ca` | Phase 5: Home surfaces, Body module, daily checks | Engineer 3's 7 deletions (687 lines), no Phase 5 |
+| `21bcfec` | Phase 5: Home surfaces, Body module, daily checks | The real 19 Phase 5 files |
+
+**A related Lead error, recorded because it shaped the response.** Earlier the same hour the Lead saw
+four dirty files in `lib/home/` that two engineers were both working in, and warned of a same-file
+collision *without reading the diffs*. It was wrong — `get-domain-pulse.ts` was 100% Engineer 1's
+(17 co-op mentions, 0 `toggle_workout`) and Engineer 3 was in three different files. Engineer 1 had
+already said their diff contained no `toggle_workout` and the Lead re-asserted the hazard anyway. The
+correction was issued to both. Engineer 3 then pushed back on the correction with the *actual* instance
+above — the hazard was real, in a mechanism nobody had named, and accepting the Lead's correction would
+have left it undocumented.
+
+**Still the real fix, still not done:** separate git worktrees per agent. Every incident of this class
+(2026-08-18's `git add -A`, today's shared index) traces to one working directory shared by three
+writers. The rules above are mitigations, not a cure.
