@@ -2,6 +2,7 @@
 
 Date: 2026-08-19
 Status: design approved in outline by Ayman; plan contents pending his review
+Revision: 2026-08-19 — legs removed from scope per Ayman; §8 rewritten upper-body only
 Participants: Opus Lead, Engineer 2 (lorzr3x4, UX/layout), Engineer 3 (jazdm6pt, evidence/data model)
 
 ## 1. The finding that drives everything
@@ -188,10 +189,11 @@ content. Therefore:
 - **Concurrency is supported; staggering is recommended.** Because the rep target
   and session plans occupy different objects and surfaces, the app can run them
   simultaneously and must not forbid it. But the *training* advice is to run the
-  starter alone for 2–4 weeks first — see §8.1. The architectural point still
-  matters: the starting plan has zero leg and zero posterior-chain volume and
-  cannot serve the recomposition goal alone, so it must be able to stack rather
-  than replace.
+  starter alone for 2–4 weeks first — see §8.3. The architectural point still
+  matters: the starting plan trains only vertical pulling and horizontal
+  pushing — no horizontal pull, no direct side or rear delt, no direct core — so
+  it cannot serve the goal alone and must be able to stack rather than replace.
+  (Legs are out of scope entirely by Ayman's ruling — see §8.)
 
 ### 5.1 Grease-the-groove parameters
 
@@ -310,6 +312,10 @@ intentions today," and reviving the old visualisation risks reviving the old
 1. **"Hit protein target"** — with the numeric target (~130–150 g) shown **once**
    as a small non-interactive reference caption.
 2. **"8,000+ steps"** — target user-adjustable in a settings affordance.
+   **Promoted to load-bearing by the no-legs ruling (§8):** with no leg sessions
+   in any plan, walking is the only lower-body loading and a large share of daily
+   energy expenditure. Its copy should read as a real training input, not a
+   wellness nicety.
 
 **Hard copy constraints** (not style preferences):
 
@@ -360,127 +366,155 @@ work) and a multi-use cable machine. **No barbell, no bench, no free weights.**
 method best predicted both hypertrophy and strength in the 2025 dose-response
 meta-regression (Pelland et al.).
 
-**Unilateral convention** (Engineer 3, stated explicitly because it changes every
-table): an exercise done "X sets per leg" credits that muscle **X**, not 2X. Each
-leg only needs its own effective dose; summing both legs into one number would
-overstate weekly volume. A fully unilateral pair also costs ~2 extra minutes,
-pushing those sessions to ~30–30.5 min — flagged where it happens.
+**Scope ruling (2026-08-19, Ayman): NO LEG TRAINING.** All three plans are
+upper-body and core only. This was an explicit instruction, not an oversight, and
+it supersedes the earlier equipment-gap discussion about loading quads and
+hamstrings without free weights — that problem no longer needs solving because
+the muscle group is out of scope.
 
-**The equipment gap, stated not papered over**: loading quads and hamstrings is
-genuinely hard without free weights. The lever throughout is **single-leg work**
-(split squats, step-ups, single-leg cable RDLs) — halving the load requirement is
-what keeps a cable stack sufficient.
+**The tradeoff, stated once and then accepted.** Legs are roughly half of total
+muscle mass. Removing them:
+- slows the *muscle gain* half of recomposition, since the largest available pool
+  of new tissue is off the table;
+- removes the highest per-session energy cost in the program, so **the fat-loss
+  half now leans almost entirely on diet and daily steps** rather than training.
 
-### 8.1 The stacking constraint (important)
+Two design consequences follow, and both are already in this spec rather than
+being new asks:
+1. The **step floor (§7) is promoted from a nice-to-have to the primary
+   lower-body and NEAT stimulus.** With no leg sessions, walking is the only
+   lower-body loading and a meaningful share of daily energy expenditure. Its
+   copy should reflect that it is load-bearing, not decorative.
+2. The **protein check (§7) matters more, not less** — with less total training
+   stimulus, the diet side is a larger fraction of the outcome.
+
+**Set crediting**: fractional — primary mover = 1 set, secondary = 0.5. This
+method best predicted both hypertrophy and strength in the 2025 dose-response
+meta-regression (Pelland et al.).
+
+### 8.1 The stacking constraint (now the dominant constraint)
 
 500 push-ups + 150 pull-ups per week ≈ 40 sets of chest and 33 sets of back. The
-optimal range is 12–20 sets/muscle/week. **His starter plan alone puts his upper
+optimal range is 12–20 sets/muscle/week. **The starter plan alone puts the upper
 body at roughly double the top of that range.**
 
 Qualifier: grease-the-groove sets are submaximal and the set-volume literature
 comes from sets near failure, so these do not credit 1:1 toward hypertrophy. But
 they are unambiguously real joint and tendon load.
 
-**Consequence: a balanced 5-day plan stacked on the starter would over-train the
-upper body.** Plan 3 exists specifically to be the correct companion.
+**Removing legs makes this constraint sharper, not softer.** Previously a legs
+pair absorbed a third of every session's volume. With legs gone, the entire
+5×30min budget lands on a smaller number of muscles that the starter plan is
+*already* hammering. A naive "same sessions, minus the legs pair" would push
+chest, back and arms far past useful.
 
-The three differ by **organising principle**, not by dose — all three share an
-identical 5×30min budget, so a dose axis would have made them reskins.
+**Therefore the plans below do NOT redistribute the freed leg volume into more
+chest and back.** They spend it on the parts push-ups and pull-ups do not train:
+side and rear delts, horizontal pulling, and direct core. Sessions also drop from
+three pairs to a mix — see each plan's time note.
 
-### Plan A — Rotating Full Body (uniform frequency, low per-session dose)
+### 8.2 The three plans
 
-Two alternating templates: A ×3/week, B ×2/week.
+All differ by **organising principle**, not by dose — they share an identical
+5×30min budget, so a dose axis would make them reskins.
 
-*Session A* — chest press 3 ↔ pull-ups 3 · squat (bilateral) 3 ↔ single-leg RDL
-2/leg · shoulder press 3 ↔ face pull 3
-*Session B* — incline press 3 ↔ row 3 · single-leg step-up 3/leg ↔ leg curl 3 ·
-curl 3 ↔ hanging knee raise 3
+Muscle buckets in play: chest, back (lats), back (mid/traps), side delt, rear
+delt, biceps, triceps, core. Front delt is a synergist-only bucket — it is a
+secondary mover in every press, so its isolated number always undercounts true
+stimulus and should not be read as a gap.
 
-Weekly: chest 15, triceps 12, back 15, biceps 13.5, rear delt 10, quads 15,
-hamstrings 12, glutes 10.5, shoulders 9, abs 6, front delt 5.
+#### Plan A — Rotating Upper (uniform frequency, low per-session dose)
 
-Everything ≥9, most at 12–15.
-- *Front delt (5)* is a synergist-only bucket — it is a secondary mover in every
-  press, so its isolated number always undercounts true stimulus. Not a gap.
-- *Shoulders (9) rather than 10+* is the honest cost of keeping the rear-delt fix
-  (Session A's third pair goes to face pull rather than a second shoulder
-  movement). A tradeoff, not a miss.
+Every session touches push, pull and delts. Two alternating templates: A ×3/week,
+B ×2/week. Three pairs, 3 rounds, ≈28.5 min.
 
-**Ramp**: two rounds per pair for weeks 1–3 (~10 sets/muscle), then three. 15
-sets/muscle is upper-band — appropriate for a recomping beginner *after* a ramp,
-not from day one.
+*Session A* — cable chest press 3 ↔ pull-ups 3 · lateral raise 3 ↔ face pull 3 ·
+triceps pushdown 3 ↔ hanging knee raise 3
+*Session B* — incline-angle cable press 3 ↔ seated cable row 3 · lateral raise 3 ↔
+rear-delt fly 3 · cable curl 3 ↔ cable crunch 3
 
-### Plan B — Push / Pull / Legs / Upper / Lower (segmented, high per-touch dose)
+Weekly: back 15, side delt 15, rear delt 15, chest 15, triceps 13.5, biceps 12,
+core 12, front delt 5.
 
-Mon Push · Tue Pull · Wed Legs · Thu Upper · Fri Lower. Each muscle ~2×/week at
-higher volume per touch.
+Rationale: highest frequency, lowest per-session fatigue — suits a beginner with
+no accumulated training fatigue. Every muscle sits inside the 12–20 optimal band.
 
-Weekly: quads 18, back 15, triceps 13.5, biceps 13.5, shoulders 12, hamstrings
-12, chest 10.5, glutes 9, rear delt 7, abs 6, front delt 3.5.
+**Ramp**: two rounds per pair for weeks 1–3 (~10 sets/muscle), then three.
 
-- *Quads at 18* is genuinely high and is a structural consequence of PPL+UL —
-  legs split two ways while upper splits three. Flagged, not rounded down.
-- *Rear delt at 7* is the one place across all three plans that falls short of
-  the 10+ target; the time budget had no room for a third face-pull dose without
-  cutting something else. **Unresolved — see §10.**
-- *Lower* repeats Legs' movements as a deliberate simplification; a real version
-  varies angle week to week without changing the credit maths.
+#### Plan B — Push / Pull / Delts+Core / Push / Pull (segmented, high per-touch dose)
 
-Standalone this is the most balanced of the three. **The right pick if he is NOT
-running the pull-up/push-up starter.**
+Fewer, bigger touches: each muscle ~2×/week at higher volume per touch, with one
+dedicated day for the parts that are usually an afterthought.
 
-### Plan C — Lagging-Area Frequency (asymmetric frequency, weak point favoured)
+- **Mon Push** — chest press 3 + incline press 3 · dips 3 + pushdown 3 · lateral raise 3 + overhead press 3
+- **Tue Pull** — pull-ups 3 + wide pulldown 3 · seated row 3 + face pull 3 · curl 3 + hammer curl 3
+- **Wed Delts + Core** — lateral raise 3 ↔ rear-delt fly 3 · overhead press 3 ↔ face pull 3 · hanging leg raise 3 ↔ cable crunch 3
+- **Thu Push** — as Mon, varied angles
+- **Fri Pull** — as Tue, varied grips
 
-Organising principle, and the reason this is not a reskin: **the equipment
-ceiling limits LOAD, not FREQUENCY.** Frequency is the lever that isn't blocked,
-so it is spent deliberately on the weak point — a legs pair appears in *every*
-session regardless of that day's upper-body emphasis.
+Weekly: back 18, chest 15, side delt 15, triceps 15, biceps 15, rear delt 12,
+core 6, front delt 6.
 
-Three push-days + two pull-days, each = 2 upper pairs + 1 legs pair:
+- *Back at 18* is the top of the optimal band and is a structural consequence of
+  two dedicated pull days. Flagged, not rounded down — and it is the number most
+  at risk from stacking with the starter plan's 150 weekly pull-ups.
+- *Core at 6* is the lowest of the three plans; acceptable because hanging ab
+  work is always available ad hoc via quick-add (§4).
 
-1. chest press 3 ↔ shoulder press 3 · RDL 2/leg ↔ step-up 2/leg · lateral raise 3 ↔ pushdown 3
-2. pull-ups 3 ↔ row 3 · squat 3 ↔ leg curl 3 · face pull 3 ↔ curl 3
-3. incline press 3 ↔ shoulder press 3 · step-up 2/leg ↔ leg curl 2 · lateral raise 3 ↔ pushdown 3
-4. pull-ups 3 ↔ row 3 · RDL 2/leg ↔ squat 2 · face pull 3 ↔ curl 3
-5. chest press 3 ↔ shoulder press 3 · step-up 2/leg ↔ RDL 2/leg · knee raise 3 ↔ face pull 3
+Standalone this is the most conventional and most balanced of the three. **The
+right pick once the daily rep targets are retired.**
 
-Weekly: triceps 15, shoulders 15, back 12, biceps 12, quads 11, hamstrings 11,
-rear delt 10, chest 9, glutes 8.5, abs 3, front delt 3.
+#### Plan C — V-Taper Priority (asymmetric frequency, weak point favoured)
 
-**The table proves the principle works**: quads and hamstrings both reach 11/week
-from small daily doses — matching Plan B's dedicated-day approach while using
-lighter per-set load each time (2/leg unilateral rather than a committed
-bilateral block). That is the direct answer to the equipment gap.
+Organising principle, and the reason this is not a reskin: **push-ups and pull-ups
+train the chest, lats and arms heavily and train side delts, rear delts,
+horizontal pulling and direct core almost not at all.** Frequency is spent
+deliberately on that deficit — a delt pair and a core movement appear in *every*
+session, while chest and lat volume is held deliberately low.
 
-- *Known defect, must be fixed before shipping*: chest (9) undershoots relative
-  to triceps and shoulders (15/15), because every push day pairs a press with a
-  second press-pattern movement and both credit triceps. **Fix: replace one push
-  day's second shoulder-press slot with a second chest angle.** Recorded as
-  as-designed numbers so the defect is visible rather than silently patched.
-- *Abs at 3* is low; acceptable given hanging ab work is already available
-  ad hoc via quick-add.
+This also serves the stated aesthetic goal directly: **visible abs plus shoulder
+width is the V-taper that makes a skinny-fat frame read as fit**, and it is
+achievable without touching legs.
 
-### 8.1 Which combination to run
+1. chest press 3 ↔ seated row 3 · lateral raise 3 ↔ face pull 3 · cable crunch 3 ↔ pushdown 3
+2. pull-ups 3 ↔ incline press 3 · lateral raise 3 ↔ rear-delt fly 3 · hanging leg raise 3 ↔ curl 3
+3. seated row 3 ↔ chest press 3 · lateral raise 3 ↔ face pull 3 · cable woodchop 3 ↔ pushdown 3
+4. pull-ups 3 ↔ incline press 3 · lateral raise 3 ↔ rear-delt fly 3 · hanging leg raise 3 ↔ curl 3
+5. seated row 3 ↔ lateral raise 3 · face pull 3 ↔ rear-delt fly 3 · cable crunch 3 ↔ hanging leg raise 3
+
+Weekly: side delt 18, rear delt 18, back (mid/traps) 15, back (lats) 12, core 15,
+chest 12, biceps 12, triceps 10.5, front delt 4.5.
+
+**The table proves the principle**: side and rear delts reach 18 while chest sits
+at 12 — the inverse of what a conventional plan produces, and the correct inverse
+given what the starter plan already supplies.
+
+- *Triceps at 10.5* is the lowest number across all three plans and is
+  deliberate: 500 weekly push-ups already load triceps heavily, so adding direct
+  volume here would be the clearest case of double-counting.
+- **This is the best companion to a continuing starter plan.**
+
+### 8.3 Which combination to run
 
 **The starter plan should run AHEAD of a session plan for 2–4 weeks, not
-simultaneously from day one.** Engineer 3's reasoning, adopted: stacking a cable
-session's pull-ups and rows on top of an already-substantial daily pulling volume
-in week one risks real overreach *before the ramp has done its job*. The starter
-plan IS the on-ramp.
+simultaneously from day one.** Stacking a cable session's pull-ups and rows on
+top of already-substantial daily pulling volume in week one risks real overreach
+*before the ramp has done its job*. The starter plan IS the on-ramp.
 
 If both are wanted from day one anyway, the mitigation is trimming the session
 plan's pull-focused pairs for the first few weeks — not running both at full
 dose.
 
 After the on-ramp, **Plan C is the best companion to a continuing starter plan**
-(minimal pulling overlap, trains what pull-ups and push-ups cannot). Plan A or B
-are the better standalone picks once the daily rep targets are retired.
+(it deliberately under-trains exactly what push-ups and pull-ups over-train).
+Plan A or B are the better standalone picks once the daily rep targets are
+retired.
 
-Note this is a *training* recommendation, not an architectural one: the two
-objects are orthogonal (§5) and the app supports running them concurrently. The
+This is a *training* recommendation, not an architectural one: the two objects
+are orthogonal (§5) and the app supports running them concurrently. The
 staggering is advice, not a constraint the software should enforce.
 
-### 8.2 Honest caveat on plan contents
+### 8.4 Honest caveat on plan contents
 
 Exercise prescription has injury stakes. These plans are derived from the volume
 and frequency literature cited, not from a certified programming source, and the
@@ -509,16 +543,21 @@ quick-add.
 1. **⚠️ DECISION FOR AYMAN — deload weeks.** Engineer 3 recommends a deload every
    4–6 weeks (~40–50% volume cut for a few days). This modifies "5 days a week"
    as he specified it, so it is *not* being inserted silently. His call.
-2. **⚠️ DECISION FOR AYMAN — starter/plan sequencing.** §8.1 recommends running
+2. **⚠️ DECISION FOR AYMAN — starter/plan sequencing.** §8.3 recommends running
    the starter plan alone for 2–4 weeks before adding a session plan. The Lead
    originally told him they could run concurrently from day one; that is true
    *architecturally* but is not the better training advice. Correction issued.
-3. **Plan C has a known chest/triceps imbalance** (chest 9 vs triceps 15) with a
-   named one-exercise fix that must be applied before shipping (§8, Plan C).
-4. **Plan B's rear delt (7) is unresolved** — the one target across all three
-   plans not met within the time budget. Engineer 3 flagged rather than forced
-   it.
-5. **Plan exercise selection** wants a pass from a published program (§8.2).
+3. **Superseded (2026-08-19).** Two defects were open against the previous
+   leg-inclusive plans — Plan C's chest/triceps imbalance and Plan B's rear delt
+   at 7. Both plans were replaced wholesale when Ayman ruled legs out of scope,
+   and neither defect survives into the current §8.2 tables (Plan C now runs
+   chest 12 / triceps 10.5 deliberately; Plan B's rear delt is 12). Recorded so
+   the history is legible rather than silently dropped.
+4. **Core at 6 in Plan B** is the lowest number in the current set. Judged
+   acceptable because hanging ab work is always available ad hoc via quick-add,
+   but it is the weakest number across the three plans and worth a second look
+   given "visible abs" is the stated goal.
+5. **Plan exercise selection** wants a pass from a published program (§8.4).
 3. **`workout_logs` has no duration column at all** — duration exists only on
    `workout_schedule` (added 2026-08-19 in `023`). A structured session record
    makes this moot but the migration path needs stating in the implementation
