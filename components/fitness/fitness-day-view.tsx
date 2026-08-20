@@ -2,14 +2,11 @@
 
 import { useState } from "react";
 import { DayPickerStrip, type DayCell } from "./day-picker-strip";
-import { SessionDetailPanel, type SessionExercise, type ConfirmSet } from "./session-detail-panel";
+import { SessionDetailPanel, type ConfirmSet } from "./session-detail-panel";
 import { AssignWorkoutPicker, type AssignableWorkout } from "./assign-workout-picker";
+import type { DayWorkout } from "@/lib/fitness/load-workout-details";
 
-export type DayWorkout = {
-  id: string;
-  name: string;
-  exercises: SessionExercise[];
-};
+export type { DayWorkout };
 
 export function FitnessDayView({
   days,

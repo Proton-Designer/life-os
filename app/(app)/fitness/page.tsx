@@ -2,15 +2,18 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString, addDaysToDateString } from "@/lib/date-utils";
 import { weeklyVolume, type MuscleGroup } from "@/lib/fitness/volume";
-import { FitnessDayView, type DayWorkout } from "@/components/fitness/fitness-day-view";
+import { loadWorkoutDetails, type DayWorkout } from "@/lib/fitness/load-workout-details";
+import { FitnessDayView } from "@/components/fitness/fitness-day-view";
 import type { DayCell } from "@/components/fitness/day-picker-strip";
 import { VolumeHero } from "@/components/fitness/volume-hero";
+import { BodyModule } from "@/components/fitness/body-module";
+import { DailyChecks } from "@/components/fitness/daily-checks";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
-import { confirmWorkoutSession, assignWorkoutToDay } from "./actions";
+import { confirmWorkoutSession, assignWorkoutToDay, ensureDailyCheckHabits, toggleDailyCheck } from "./actions";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -48,61 +51,7 @@ export default async function FitnessPage() {
     new Set((scheduleRows ?? []).map((r) => r.workout_id).filter((id): id is string => id !== null))
   );
 
-  const { data: workoutDetailRows } =
-    assignedWorkoutIds.length > 0
-      ? await supabase
-          .from("workouts")
-          .select(
-            "id, name, workout_exercises(exercise_id, position, target_sets, target_reps_low, target_reps_high, target_load, exercises(name, primary_muscles, secondary_muscles))"
-          )
-          .in("id", assignedWorkoutIds)
-      : { data: [] };
-
-  const exerciseIdsInPlay = Array.from(
-    new Set(
-      (workoutDetailRows ?? []).flatMap((w) => (w.workout_exercises ?? []).map((we) => we.exercise_id))
-    )
-  );
-
-  const { data: lastSetRows } =
-    exerciseIdsInPlay.length > 0
-      ? await supabase
-          .from("session_sets")
-          .select("exercise_id, sets, reps, load, workout_sessions!inner(date, source, user_id)")
-          .eq("workout_sessions.user_id", userId)
-          .eq("workout_sessions.source", "confirmed")
-          .in("exercise_id", exerciseIdsInPlay)
-          .order("workout_sessions(date)", { ascending: false })
-      : { data: [] };
-
-  const lastTopSetByExercise = new Map<string, { load: number | null; reps: number }>();
-  for (const row of lastSetRows ?? []) {
-    if (row.exercise_id && !lastTopSetByExercise.has(row.exercise_id)) {
-      lastTopSetByExercise.set(row.exercise_id, { load: row.load, reps: row.reps });
-    }
-  }
-
-  const workoutsById = new Map<string, DayWorkout>();
-  for (const w of workoutDetailRows ?? []) {
-    workoutsById.set(w.id, {
-      id: w.id,
-      name: w.name,
-      exercises: (w.workout_exercises ?? [])
-        .sort((a, b) => a.position - b.position)
-        .map((we) => {
-          const last = lastTopSetByExercise.get(we.exercise_id) ?? null;
-          return {
-            exerciseId: we.exercise_id,
-            name: we.exercises?.name ?? "",
-            targetSets: we.target_sets,
-            targetRepsLow: we.target_reps_low,
-            targetRepsHigh: we.target_reps_high,
-            targetLoad: we.target_load,
-            lastTopSet: last ? { load: last.load, reps: last.reps, targetRepsHigh: we.target_reps_high } : null,
-          };
-        }),
-    });
-  }
+  const workoutsById = await loadWorkoutDetails(supabase, userId, assignedWorkoutIds);
 
   const scheduleByDay = new Map(
     (scheduleRows ?? []).map((r) => [r.day_of_week, { workoutId: r.workout_id, workoutName: r.workouts?.name ?? null }])
@@ -148,6 +97,39 @@ export default async function FitnessPage() {
     )
   );
 
+  const sevenDaysAgoStr = addDaysToDateString(dateStr, -6);
+  const [{ data: weightRows }, { data: waistRow }, dailyCheckHabitIds] = await Promise.all([
+    supabase
+      .from("body_metrics")
+      .select("weight_lb")
+      .eq("user_id", userId)
+      .not("weight_lb", "is", null)
+      .gte("date", sevenDaysAgoStr)
+      .lte("date", dateStr),
+    supabase
+      .from("body_metrics")
+      .select("waist_in, date")
+      .eq("user_id", userId)
+      .not("waist_in", "is", null)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    ensureDailyCheckHabits(),
+  ]);
+
+  const weightValues = (weightRows ?? []).map((r) => r.weight_lb as number);
+  const weightAvg7d =
+    weightValues.length > 0 ? Math.round((weightValues.reduce((a, b) => a + b, 0) / weightValues.length) * 10) / 10 : null;
+  const waist = waistRow ? { valueIn: waistRow.waist_in as number, date: waistRow.date } : null;
+
+  const { data: todayHabitLogs } = await supabase
+    .from("habit_logs")
+    .select("habit_id, completed")
+    .in("habit_id", [dailyCheckHabitIds.protein, dailyCheckHabitIds.steps])
+    .eq("date", dateStr);
+  const proteinDone = todayHabitLogs?.some((l) => l.habit_id === dailyCheckHabitIds.protein && l.completed) ?? false;
+  const stepsDone = todayHabitLogs?.some((l) => l.habit_id === dailyCheckHabitIds.steps && l.completed) ?? false;
+
   return (
     <PageContainer>
       <PageHeader title="Fitness" />
@@ -179,6 +161,23 @@ export default async function FitnessPage() {
           onAssign={assignWorkoutToDay}
         />
       </Panel>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-6">
+          <Panel title="Body">
+            <BodyModule weightAvg7d={weightAvg7d} waist={waist} />
+          </Panel>
+        </div>
+        <div className="lg:col-span-6">
+          <Panel title="Daily checks">
+            <DailyChecks
+              proteinDone={proteinDone}
+              stepsDone={stepsDone}
+              onToggle={toggleDailyCheck.bind(null, dateStr)}
+            />
+          </Panel>
+        </div>
+      </div>
     </PageContainer>
   );
 }

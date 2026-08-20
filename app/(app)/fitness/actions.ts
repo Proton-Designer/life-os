@@ -135,6 +135,122 @@ export async function assignWorkoutToDay(dayOfWeek: number, workoutId: string | 
   revalidatePath("/fitness");
 }
 
+/**
+ * Quick-add — a bare single-exercise session, no workout wrapper (spec §4).
+ * Scattered same-day entries deliberately stay separate rows; this never
+ * merges into an existing session or asks "which one."
+ */
+export async function quickLogExercise(
+  date: string,
+  exerciseId: string,
+  exerciseName: string,
+  sets: number,
+  reps: number,
+  load: number | null
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { data: session, error: sessionError } = await supabase
+    .from("workout_sessions")
+    .insert({ user_id: userId, date, workout_id: null, workout_name: null, source: "quick" })
+    .select("id")
+    .single();
+  if (sessionError) throw sessionError;
+
+  const { error: setError } = await supabase.from("session_sets").insert({
+    session_id: session.id,
+    user_id: userId,
+    exercise_id: exerciseId,
+    exercise_name: exerciseName,
+    position: 1,
+    sets,
+    reps,
+    load,
+  });
+  if (setError) throw setError;
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
+
+const DAILY_CHECK_HABIT_NAMES = { protein: "Hit protein target", steps: "8,000+ steps" } as const;
+
+/**
+ * Find-or-create against custom_habits (spec §7's revival), backstopped by
+ * migration 034's partial unique index — a concurrent double-call here
+ * just hits the index's unique_violation on the losing insert, which is
+ * caught and ignored rather than surfaced as an error.
+ */
+export async function ensureDailyCheckHabits(): Promise<{ protein: string; steps: string }> {
+  const { supabase, userId } = await requireUser();
+  for (const name of Object.values(DAILY_CHECK_HABIT_NAMES)) {
+    const { error } = await supabase
+      .from("custom_habits")
+      .insert({ user_id: userId, domain: "fitness", name })
+      .select("id");
+    if (error && error.code !== "23505") throw error;
+  }
+  const { data, error } = await supabase
+    .from("custom_habits")
+    .select("id, name")
+    .eq("user_id", userId)
+    .eq("domain", "fitness")
+    .eq("archived", false)
+    .in("name", Object.values(DAILY_CHECK_HABIT_NAMES));
+  if (error) throw error;
+  const protein = data?.find((h) => h.name === DAILY_CHECK_HABIT_NAMES.protein)?.id;
+  const steps = data?.find((h) => h.name === DAILY_CHECK_HABIT_NAMES.steps)?.id;
+  if (!protein || !steps) throw new Error("Failed to ensure daily check habits");
+  return { protein, steps };
+}
+
+export async function toggleDailyCheck(date: string, kind: "protein" | "steps"): Promise<void> {
+  const habitIds = await ensureDailyCheckHabits();
+  await toggleHabit(habitIds[kind], date);
+}
+
+/**
+ * Weight and waist share body_metrics but write independently (spec §6's
+ * different rhythms) — each fetches the existing row first and preserves
+ * the other column, since a plain upsert on the shared (user_id, date) key
+ * would otherwise null out whichever field wasn't part of this call.
+ */
+export async function logWeight(date: string, weightLb: number): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { data: existing } = await supabase
+    .from("body_metrics")
+    .select("waist_in")
+    .eq("user_id", userId)
+    .eq("date", date)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("body_metrics")
+    .upsert(
+      { user_id: userId, date, weight_lb: weightLb, waist_in: existing?.waist_in ?? null },
+      { onConflict: "user_id,date" }
+    );
+  if (error) throw error;
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
+
+export async function logWaist(date: string, waistIn: number): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { data: existing } = await supabase
+    .from("body_metrics")
+    .select("weight_lb")
+    .eq("user_id", userId)
+    .eq("date", date)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("body_metrics")
+    .upsert(
+      { user_id: userId, date, waist_in: waistIn, weight_lb: existing?.weight_lb ?? null },
+      { onConflict: "user_id,date" }
+    );
+  if (error) throw error;
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
+
 export type ConfirmSetInput = {
   exerciseId: string;
   exerciseName: string;

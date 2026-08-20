@@ -8,17 +8,23 @@ import { getHomeExtras } from "@/lib/home/get-home-extras";
 import { getDayShape } from "@/lib/home/get-day-shape";
 import { computeDayRibbon } from "@/lib/home/day-ribbon";
 import { getActiveWorkSession } from "@/lib/business/active-session";
-import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
+import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString, dayOfWeekFromDateString } from "@/lib/date-utils";
+import { isGoalActiveOn } from "@/lib/fitness/rep-goal";
 import { NextActions } from "@/components/home/next-actions";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyFocus } from "@/components/home/weekly-focus";
 import { WeeklyGoalStrip } from "@/components/home/weekly-goal-strip";
 import { DomainStatusStack } from "@/components/home/domain-status-stack";
 import { DayRibbon } from "@/components/home/day-ribbon";
+import { HomeFitnessPanel } from "@/components/fitness/home-fitness-panel";
+import { HomeOnPlanCard } from "@/components/fitness/home-on-plan-card";
+import { loadWorkoutDetails } from "@/lib/fitness/load-workout-details";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { createExercise } from "@/app/(app)/fitness/workouts/actions";
+import { quickLogExercise, logWeight, logWaist, confirmWorkoutSession } from "@/app/(app)/fitness/actions";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -35,8 +41,21 @@ export default async function HomePage() {
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
+  const todayDayOfWeek = dayOfWeekFromDateString(dateStr);
 
-  const [items, snapshots, extras, dayShape, weeklyGoalsResult, activeSession] = await Promise.all([
+  const [
+    items,
+    snapshots,
+    extras,
+    dayShape,
+    weeklyGoalsResult,
+    activeSession,
+    repGoalRows,
+    todayRepRows,
+    exerciseRows,
+    latestWaistRow,
+    todayScheduleRow,
+  ] = await Promise.all([
     getPriorityItems(userId, now),
     getDomainSnapshots(userId, now),
     getHomeExtras(userId, now, profile),
@@ -48,7 +67,79 @@ export default async function HomePage() {
       .eq("week_start_date", weekStart)
       .in("domain", ["deen", "business"]),
     getActiveWorkSession(userId),
+    supabase
+      .from("rep_goals")
+      .select("exercise_id, daily_target, active_days, exercises(name)")
+      .eq("user_id", userId)
+      .eq("archived", false),
+    supabase.from("session_sets").select("exercise_id, reps, workout_sessions!inner(date, user_id)").eq("workout_sessions.user_id", userId).eq("workout_sessions.date", dateStr),
+    supabase
+      .from("exercises")
+      .select("id, name, primary_muscles, secondary_muscles")
+      .eq("user_id", userId)
+      .eq("archived", false)
+      .order("name"),
+    supabase
+      .from("body_metrics")
+      .select("date")
+      .eq("user_id", userId)
+      .not("waist_in", "is", null)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("workout_schedule")
+      .select("workout_id")
+      .eq("user_id", userId)
+      .eq("day_of_week", todayDayOfWeek)
+      .maybeSingle(),
   ]);
+
+  const todayWorkoutId = todayScheduleRow.data?.workout_id ?? null;
+  let todayWorkout = null;
+  let todayWorkoutConfirmed = false;
+  if (todayWorkoutId) {
+    const [detailsById, { data: confirmedRow }] = await Promise.all([
+      loadWorkoutDetails(supabase, userId, [todayWorkoutId]),
+      supabase
+        .from("workout_sessions")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("date", dateStr)
+        .eq("workout_id", todayWorkoutId)
+        .eq("source", "confirmed")
+        .maybeSingle(),
+    ]);
+    todayWorkout = detailsById.get(todayWorkoutId) ?? null;
+    todayWorkoutConfirmed = confirmedRow !== null;
+  }
+
+  const loggedRepsTodayByExercise = new Map<string, number>();
+  for (const row of todayRepRows.data ?? []) {
+    if (!row.exercise_id) continue;
+    loggedRepsTodayByExercise.set(row.exercise_id, (loggedRepsTodayByExercise.get(row.exercise_id) ?? 0) + row.reps);
+  }
+  const repGoals = (repGoalRows.data ?? [])
+    .filter((g) => isGoalActiveOn(g.active_days, todayDayOfWeek))
+    .map((g) => ({
+      exerciseId: g.exercise_id,
+      exerciseName: g.exercises?.name ?? "",
+      dailyTarget: g.daily_target,
+      loggedRepsToday: loggedRepsTodayByExercise.get(g.exercise_id) ?? 0,
+    }));
+
+  const quickAddExercises = (exerciseRows.data ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
+    primaryMuscles: e.primary_muscles as never,
+    secondaryMuscles: e.secondary_muscles as never,
+  }));
+
+  const lastWaistDate = latestWaistRow.data?.date ?? null;
+  const daysSinceWaist = lastWaistDate
+    ? Math.floor((new Date(`${dateStr}T00:00:00Z`).getTime() - new Date(`${lastWaistDate}T00:00:00Z`).getTime()) / 86_400_000)
+    : null;
+  const waistDue = daysSinceWaist === null || daysSinceWaist >= 14;
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
   const businessGoalRow = weeklyGoalsRows.find((g) => g.domain === "business") ?? null;
@@ -118,6 +209,26 @@ export default async function HomePage() {
           </Panel>
         </div>
       </div>
+
+      <Panel title="Fitness">
+        <div className="flex flex-col gap-3">
+          <HomeOnPlanCard
+            date={dateStr}
+            workout={todayWorkout}
+            alreadyConfirmed={todayWorkoutConfirmed}
+            onConfirm={confirmWorkoutSession}
+          />
+          <HomeFitnessPanel
+            repGoals={repGoals}
+            waistDue={waistDue}
+            quickAddExercises={quickAddExercises}
+            onQuickLogExercise={quickLogExercise.bind(null, dateStr)}
+            onLogWeight={logWeight.bind(null, dateStr)}
+            onLogWaist={logWaist.bind(null, dateStr)}
+            onCreateExercise={createExercise}
+          />
+        </div>
+      </Panel>
 
       <Panel title="The day's shape">
         {ribbonLayout ? (
