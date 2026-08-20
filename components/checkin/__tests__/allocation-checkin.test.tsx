@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AllocationCheckin, minutesAtPointer } from "../allocation-checkin";
 import { emptyAllocation, type Allocation, type DomainKey } from "@/lib/checkins/allocation";
@@ -28,13 +28,13 @@ describe("AllocationCheckin", () => {
     );
   }
 
-  it("renders every domain row with a formatted minutes value, showing an em-dash for zero", () => {
+  it("renders every domain row with a formatted minutes value, showing '0m' for zero", () => {
     renderCheckin({ initialAllocation: alloc({ deen: 15, business: 60 }) });
     expect(screen.getByText("Deen")).toBeInTheDocument();
     expect(screen.getByText("15m")).toBeInTheDocument();
     expect(screen.getByText("1h 00m")).toBeInTheDocument();
-    // School/Fitness/Co-op are all zero — at least one "—" per unset domain.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
+    // School/Fitness/Co-op are all zero — at least one "0m" per unset domain.
+    expect(screen.getAllByText("0m").length).toBeGreaterThanOrEqual(3);
   });
 
   it("derives and renders Wasted from the allocation, never as an input", () => {
@@ -76,7 +76,7 @@ describe("AllocationCheckin", () => {
     expect(plus).toBeDisabled();
     await user.click(plus);
     // Still 0 — nothing happened, and it was disabled rather than a silent no-op.
-    expect(within(screen.getByTestId("row-business")).getByText("—")).toBeInTheDocument();
+    expect(within(screen.getByTestId("row-business")).getByText("0m")).toBeInTheDocument();
   });
 
   it("selecting a domain marks it selected and dims the others", async () => {
@@ -94,6 +94,47 @@ describe("AllocationCheckin", () => {
     await user.click(select);
     await user.click(select);
     expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "false");
+  });
+
+  it("clicking outside the bar and the domain rows clears the selection", async () => {
+    const user = userEvent.setup();
+    renderCheckin({ initialAllocation: alloc({ deen: 15 }) });
+    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "true");
+    await user.click(screen.getByText("Unassigned time counts as wasted."));
+    expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "false");
+  });
+
+  it("selecting a different domain reassigns selection without clearing it first", async () => {
+    const user = userEvent.setup();
+    renderCheckin({ initialAllocation: alloc({ deen: 15, business: 15 }) });
+    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Business" }));
+    expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "false");
+    expect(screen.getByTestId("row-business")).toHaveAttribute("data-selected", "true");
+  });
+
+  it("shows the drag cursor on the bar as soon as a domain is selected, even at 0 minutes", async () => {
+    const user = userEvent.setup();
+    renderCheckin({ initialAllocation: alloc({ deen: 0 }) });
+    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    expect(screen.getByTestId("allocation-bar").className).toMatch(/cursor-ew-resize/);
+  });
+
+  it("pressing the bar for a selected domain still at 0 starts a small block instead of doing nothing", async () => {
+    const user = userEvent.setup();
+    renderCheckin({ initialAllocation: alloc({ deen: 0 }) });
+    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    fireEvent.pointerDown(screen.getByTestId("allocation-bar"), { clientX: 0, pointerId: 1 });
+    expect(within(screen.getByTestId("row-deen")).getByText("5m")).toBeInTheDocument();
+  });
+
+  it("does not start a block from a bar press when the pool is already full", async () => {
+    const user = userEvent.setup();
+    renderCheckin({ initialAllocation: alloc({ deen: 0, business: 120 }) });
+    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    fireEvent.pointerDown(screen.getByTestId("allocation-bar"), { clientX: 0, pointerId: 1 });
+    expect(within(screen.getByTestId("row-deen")).getByText("0m")).toBeInTheDocument();
   });
 
   it("exposes the selected domain's segment as a slider with correct aria bounds", async () => {

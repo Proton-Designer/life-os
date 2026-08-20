@@ -2,6 +2,7 @@ import { AppSidebar } from "./app-sidebar";
 import { Topbar } from "./topbar";
 import { MobileIsland } from "./mobile-island";
 import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-gate";
+import { CheckinToast } from "@/components/checkin/checkin-toast";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
 
 // The sync, fully client-testable half of the shell — AppShell (the server
@@ -30,6 +31,7 @@ export function AppShellChrome({
         </div>
         <MobileIsland />
         <AllocationCheckinGate />
+        <CheckinToast />
       </div>
     </AllocationQueueProvider>
   );

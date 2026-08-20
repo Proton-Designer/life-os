@@ -35,8 +35,9 @@ describe("getPendingAllocationQueue", () => {
   });
 
   it("surfaces a fired, unanswered window as a pending item with a prefill derived from real data", async () => {
-    // 08:00-10:00 CDT window; now is well after it fired and answered=[].
-    const now = new Date("2026-08-19T17:00:00Z"); // 12:00 CDT
+    // 08:00-10:00 CDT window (fires 15:00Z); now is shortly after it fired
+    // (within ALLOCATION_ANSWER_WINDOW_MINUTES) and answered=[].
+    const now = new Date("2026-08-19T15:05:00Z"); // 10:05 CDT
     const lockIn = {
       start: new Date("2026-08-19T13:15:00Z"), // 08:15 CDT, inside the first window
       end: new Date("2026-08-19T13:45:00Z"),
@@ -104,7 +105,7 @@ describe("getPendingAllocationQueue", () => {
   // 2026-08-19, requested directly by Ayman: a real workout duration must
   // win over the nominal 30-minute guess when the schedule row has one.
   it("uses the real workout duration for the fitness prefill when logged AND scheduled", async () => {
-    const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — well after the 12:00-14:00 window fired
+    const now = new Date("2026-08-19T19:05:00Z"); // 14:05 CDT — shortly after the 12:00-14:00 window fired
     const result = await getPendingAllocationQueue(
       "user-1",
       now,
@@ -118,7 +119,7 @@ describe("getPendingAllocationQueue", () => {
   });
 
   it("falls back to the nominal fitness default when the schedule row has no duration set", async () => {
-    const now = new Date("2026-08-19T21:00:00Z");
+    const now = new Date("2026-08-19T19:05:00Z"); // shortly after the 12:00-14:00 CDT window fired
     const result = await getPendingAllocationQueue(
       "user-1",
       now,
@@ -135,7 +136,7 @@ describe("getPendingAllocationQueue", () => {
   // a scheduled-but-never-logged workout must never credit Fitness — a
   // plan isn't evidence the session happened.
   it("does not credit fitness for a scheduled workout that was never logged", async () => {
-    const now = new Date("2026-08-19T21:00:00Z");
+    const now = new Date("2026-08-19T19:05:00Z"); // shortly after the 12:00-14:00 CDT window fired
     const result = await getPendingAllocationQueue(
       "user-1",
       now,
@@ -145,6 +146,7 @@ describe("getPendingAllocationQueue", () => {
       })
     );
 
+    expect(result.items.length).toBeGreaterThan(0);
     for (const item of result.items) {
       expect(item.prefill.fitness).toBe(0);
     }

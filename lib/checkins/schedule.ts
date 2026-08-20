@@ -1,4 +1,4 @@
-import { localDateString, resolveLocalTime } from "@/lib/date-utils";
+import { resolveLocalTime } from "@/lib/date-utils";
 
 /**
  * Check-in allocation scheduling — pure functions, no React, no I/O.
@@ -31,6 +31,25 @@ export const ALLOCATION_WINDOW_MINUTES = 120;
  * single logged prayer maps to exactly one step, never a fraction of one.
  */
 export const NOMINAL_PRAYER_MINUTES = 15;
+
+/**
+ * How long a fired window stays answerable before it's permanently
+ * `expired_unknown` — replaces the original day-boundary rule (Ayman's
+ * 2026-08-20 ruling). The day-boundary version existed because the
+ * previous short-fuse design (~4h) died with zero working notifications
+ * (0/23 check-ins ever answered) — a short fuse with no way to know a
+ * window had fired was indistinguishable from a window that silently
+ * vanished. That's fixed now: a real desktop + in-app notification fires
+ * the moment a window becomes answerable (see
+ * allocation-queue-context.tsx), which restores the original
+ * memory-reliability argument for a short fuse and rules out backlogging
+ * — a check-in answered an hour after the fact is a guess, not data. A
+ * missed window still never counts against Signal:Noise (unknownCount
+ * below; sn-ratio.ts only ever sums real, answered allocation rows) —
+ * this constant only changes how long a window stays answerable, not
+ * whether skipping it is penalized.
+ */
+export const ALLOCATION_ANSWER_WINDOW_MINUTES = 30;
 
 /**
  * A short suppression span around a prayer's actual clock time (its
@@ -174,18 +193,9 @@ export type AllocationSlot = {
  * Resolves every window's state for `dateStr` — the retroactive queue's
  * source of truth.
  *
- * Expiry is at the LOCAL END OF THE DAY the window belongs to, not a fixed
- * hour count after firing. This deliberately overrides the spec's original
- * ~4-hour figure: with real pre-fill (Lock-In sessions, prayer windows, a
- * scheduled workout — see prefill.ts), most of a window is a *confirmation*
- * of already-logged data, not free recall, so the memory-reliability
- * argument for a short fuse mostly doesn't apply to it. A same-day floor
- * still bounds the queue to at most one day's worth of windows, and matches
- * the day-boundary reset this app already uses elsewhere (Reflection).
- * Production evidence (0/23 check-ins ever answered, generation silently
- * dead since 8/15) is the other half of the argument: a short fuse plus no
- * working push notifications is how the previous system died. The queue
- * this produces IS the primary path, not a fallback.
+ * A fired window stays `pending_queue` for ALLOCATION_ANSWER_WINDOW_MINUTES
+ * past its fire time, then permanently `expired_unknown` — see that
+ * constant's own comment for why this replaced the old day-boundary rule.
  */
 export function resolveAllocationSlots(opts: {
   dateStr: string;
@@ -202,8 +212,6 @@ export function resolveAllocationSlots(opts: {
 
   const windows = computeAllocationWindows(dateStr, bounds, timezone);
   const answered = new Set(answeredWindowStarts.map((d) => d.getTime()));
-  const nowDateStr = localDateString(now, timezone);
-  const dayIsOver = dateStr < nowDateStr;
 
   return windows.map((window) => {
     if (
@@ -218,8 +226,8 @@ export function resolveAllocationSlots(opts: {
     // Genuinely unresolved (still inside an open-ended range, e.g. a
     // Lock-In session with no ended_at yet) is NOT the same as "fired and
     // nobody answered" — we don't yet know if/when this will fire, so it
-    // can't be marked unknown just because the calendar day has passed.
-    // Stays "upcoming" until the interruption actually ends.
+    // can't be marked unknown just because time has passed. Stays
+    // "upcoming" until the interruption actually ends.
     if (fireTime === null) {
       return { window, fireTime, outcome: "upcoming" };
     }
@@ -227,7 +235,12 @@ export function resolveAllocationSlots(opts: {
       return { window, fireTime, outcome: "upcoming" };
     }
 
-    return { window, fireTime, outcome: dayIsOver ? "expired_unknown" : "pending_queue" };
+    const minutesSinceFire = (now.getTime() - fireTime.getTime()) / 60_000;
+    return {
+      window,
+      fireTime,
+      outcome: minutesSinceFire > ALLOCATION_ANSWER_WINDOW_MINUTES ? "expired_unknown" : "pending_queue",
+    };
   });
 }
 

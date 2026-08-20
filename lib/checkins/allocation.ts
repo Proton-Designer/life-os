@@ -13,6 +13,17 @@
 export const TOTAL_MINUTES = 120;
 export const STEP = 15;
 
+/**
+ * A press on the bar for a domain still at 0 (no drag yet, nothing to
+ * "grab") creates this starter block instead of doing nothing — the bar
+ * segment at 0 minutes renders at 0% width, so there was never a
+ * draggable target to begin with. Deliberately not STEP: this is a
+ * one-time "start here" tap, not a drag increment, and 5 reads as a
+ * placeholder nudge rather than a real allocation. The very next drag
+ * or increment/decrement still snaps to STEP as usual.
+ */
+export const STARTER_BLOCK_MINUTES = 5;
+
 export type DomainKey = "deen" | "business" | "school" | "fitness" | "co_op";
 
 export const DOMAIN_KEYS: DomainKey[] = ["deen", "business", "school", "fitness", "co_op"];

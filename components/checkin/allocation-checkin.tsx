@@ -18,10 +18,11 @@
 // allowed, it just answers "what minute is the pointer over," and the
 // untrusted result is handed straight to setMinutes for the actual clamp.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DOMAIN_KEYS,
   TOTAL_MINUTES,
+  STARTER_BLOCK_MINUTES,
   emptyAllocation,
   wastedMinutes,
   increment,
@@ -42,9 +43,14 @@ const DOMAIN_LABEL: Record<DomainKey, string> = {
   co_op: "Co-op",
 };
 
-/** "—" at 0, "15m" under an hour, "1h 00m" (always zero-padded) at/over. */
+/**
+ * "0m" at 0, "15m" under an hour, "1h 00m" (always zero-padded) at/over.
+ * Was an em dash at 0 — sitting immediately left of the row's real "−"
+ * decrement button, it read as a second, larger minus sign next to the
+ * real one. "0m" removes the ambiguity.
+ */
 function formatMinutes(n: number): string {
-  if (n === 0) return "—";
+  if (n === 0) return "0m";
   const h = Math.floor(n / 60);
   const m = n % 60;
   if (h === 0) return `${m}m`;
@@ -110,6 +116,7 @@ export function AllocationCheckin({
   const [isSaving, setIsSaving] = useState(false);
   const [now] = useState(() => new Date());
   const barRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
   const draggingRef = useRef<DomainKey | null>(null);
 
   const wasted = wastedMinutes(allocation);
@@ -118,6 +125,23 @@ export function AllocationCheckin({
   const selectDomain = useCallback((domain: DomainKey) => {
     setSelected((prev) => (prev === domain ? null : domain));
   }, []);
+
+  // Clicking/tapping anywhere outside the bar and the domain rows clears
+  // the selection — previously only re-tapping the exact same domain did.
+  // The bar itself is exempted because a press there acts on the selected
+  // domain (starts/adjusts its block, see handleBarPointerDown) rather
+  // than dismissing it.
+  useEffect(() => {
+    if (!selected) return;
+    function handlePointerDownOutside(e: PointerEvent) {
+      const target = e.target as Node;
+      if (barRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      setSelected(null);
+    }
+    document.addEventListener("pointerdown", handlePointerDownOutside);
+    return () => document.removeEventListener("pointerdown", handlePointerDownOutside);
+  }, [selected]);
 
   function handleIncrement(domain: DomainKey) {
     setAllocation((prev) => increment(prev, domain));
@@ -143,23 +167,39 @@ export function AllocationCheckin({
     }
   }
 
-  function handlePointerDown(domain: DomainKey, e: React.PointerEvent<HTMLDivElement>) {
-    if (selected !== domain) return;
+  // Handlers live on the whole bar, not each domain's own segment — a
+  // domain at 0 minutes renders its segment at 0% width (nothing to
+  // receive a pointer event, no drag cursor could ever show), so the bar
+  // itself is the only hit target that's reliably there regardless of the
+  // selected domain's current value.
+  function handleBarPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!selected) return;
+    const domain = selected;
+    // A press on the bar for a domain still at 0 has nothing to drag from
+    // — start it at a small block instead of requiring a drag gesture to
+    // originate from a zero-width target.
+    setAllocation((prev) => {
+      if (prev[domain] > 0) return prev;
+      const room = wastedMinutes(prev);
+      if (room === 0) return prev;
+      return { ...prev, [domain]: Math.min(STARTER_BLOCK_MINUTES, room) };
+    });
     draggingRef.current = domain;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   }
 
-  function handlePointerMove(domain: DomainKey, e: React.PointerEvent<HTMLDivElement>) {
-    if (draggingRef.current !== domain || !barRef.current) return;
+  function handleBarPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const domain = draggingRef.current;
+    if (!domain || !barRef.current) return;
     const rect = barRef.current.getBoundingClientRect();
     const requested = minutesAtPointer(e.clientX, rect, allocation, domain);
     setAllocation((prev) => setMinutes(prev, domain, requested));
   }
 
-  function handlePointerUp(domain: DomainKey, e: React.PointerEvent<HTMLDivElement>) {
-    if (draggingRef.current !== domain) return;
+  function handleBarPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
     draggingRef.current = null;
-    e.currentTarget.releasePointerCapture(e.pointerId);
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
   }
 
   async function handleDone() {
@@ -182,23 +222,26 @@ export function AllocationCheckin({
 
       <div
         ref={barRef}
-        className="flex h-6 w-full overflow-hidden rounded-full bg-muted"
+        data-testid="allocation-bar"
+        onPointerDown={handleBarPointerDown}
+        onPointerMove={handleBarPointerMove}
+        onPointerUp={handleBarPointerUp}
+        onPointerCancel={handleBarPointerUp}
+        className={cn(
+          "flex h-6 w-full overflow-hidden rounded-full bg-muted",
+          selected && "cursor-ew-resize touch-none"
+        )}
         role="presentation"
       >
         {DOMAIN_KEYS.map((domain) => {
           const minutes = allocation[domain];
           const isSelected = selected === domain;
-          const segment = (
+          return (
             <div
               key={domain}
-              onPointerDown={(e) => handlePointerDown(domain, e)}
-              onPointerMove={(e) => handlePointerMove(domain, e)}
-              onPointerUp={(e) => handlePointerUp(domain, e)}
-              onPointerCancel={(e) => handlePointerUp(domain, e)}
               className={cn(
                 "h-full transition-[width] duration-150 ease-out motion-reduce:transition-none",
-                selected && !isSelected && "opacity-40",
-                isSelected && "cursor-ew-resize touch-none"
+                selected && !isSelected && "opacity-40"
               )}
               style={{
                 width: `${(minutes / TOTAL_MINUTES) * 100}%`,
@@ -206,7 +249,6 @@ export function AllocationCheckin({
               }}
             />
           );
-          return segment;
         })}
         <div
           className={cn(
@@ -217,7 +259,7 @@ export function AllocationCheckin({
         />
       </div>
 
-      <ul className="flex flex-col gap-2">
+      <ul ref={listRef} className="flex flex-col gap-2">
         {DOMAIN_KEYS.map((domain) => {
           const Icon = DOMAIN_ICON[domain];
           const minutes = allocation[domain];

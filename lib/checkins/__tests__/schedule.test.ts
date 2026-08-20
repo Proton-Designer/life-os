@@ -104,13 +104,18 @@ describe("resolveAllocationSlots", () => {
     expect(slots[1].outcome).toBe("upcoming");
   });
 
-  it("builds a multi-item queue when several windows fired unanswered — the normal case, not an edge case", () => {
-    const now = new Date("2026-08-10T22:00:00Z"); // 17:00 CDT — 08-10, 10-12, 12-2, 2-4 have all closed
+  it("builds a multi-item queue when a long suppression delays several windows' fire times into the same answer band", () => {
+    // A long interruption (e.g. an extended Lock-In session) can push
+    // several windows' fire times to land close together once it ends,
+    // so more than one can be genuinely pending_queue at once even under
+    // the tightened ALLOCATION_ANSWER_WINDOW_MINUTES fuse.
+    const longSuppression: TimeRange = { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T20:59:00Z") };
+    const now = new Date("2026-08-10T21:05:00Z"); // 5-6 minutes after each delayed/natural fire time
     const slots = resolveAllocationSlots({
       dateStr: "2026-08-10",
       bounds,
       timezone: TZ,
-      suppressionRanges: [],
+      suppressionRanges: [longSuppression],
       now,
       answeredWindowStarts: [],
     });
@@ -135,8 +140,8 @@ describe("resolveAllocationSlots", () => {
     expect(pendingQueue(slots)).toHaveLength(0);
   });
 
-  it("expires every unanswered window once the day it belongs to is over", () => {
-    const now = new Date("2026-08-12T00:00:00Z"); // two days later
+  it("expires an unanswered window once ALLOCATION_ANSWER_WINDOW_MINUTES have passed since it fired", () => {
+    const now = new Date("2026-08-10T15:31:00Z"); // window fired at 15:00Z, 31 minutes ago
     const slots = resolveAllocationSlots({
       dateStr: "2026-08-10",
       bounds,
@@ -145,11 +150,12 @@ describe("resolveAllocationSlots", () => {
       now,
       answeredWindowStarts: [],
     });
+    expect(slots[0].outcome).toBe("expired_unknown");
     expect(pendingQueue(slots)).toHaveLength(0);
-    expect(unknownCount(slots)).toBe(7);
+    expect(unknownCount(slots)).toBe(1);
   });
 
-  it("does not expire a window still suppressed by an open-ended range even after its own day is over", () => {
+  it("does not expire a window still suppressed by an open-ended range, no matter how much time has passed", () => {
     // A Lock-In session that started yesterday and, per the data available,
     // has still never ended — resolveFireTime can't resolve a fire time for
     // it, so it stays unresolved rather than being falsely marked unknown.
@@ -163,16 +169,16 @@ describe("resolveAllocationSlots", () => {
       now,
       answeredWindowStarts: [],
     });
-    // The window overlapping the still-open session is unresolved (day-over
-    // rule only fires once we actually have a fire time to compare) — NOT
+    // The window overlapping the still-open session is unresolved — there's
+    // no fire time to measure the answer window against — NOT
     // expired_unknown, since we don't yet know if/when it fires.
     expect(slots[0].fireTime).toBeNull();
     expect(slots[0].outcome).toBe("upcoming");
     expect(unknownCount(slots)).toBe(0);
   });
 
-  it("keeps a window unanswered-but-still-queued at day's own last instant, not yet expired", () => {
-    const now = new Date("2026-08-10T15:30:00Z"); // still 8/10 locally
+  it("keeps a window unanswered-but-still-queued right up to the edge of the answer window, not yet expired", () => {
+    const now = new Date("2026-08-10T15:29:59Z"); // fired at 15:00Z, 29m59s ago — just inside 30m
     const slots = resolveAllocationSlots({
       dateStr: "2026-08-10",
       bounds,
@@ -181,6 +187,7 @@ describe("resolveAllocationSlots", () => {
       now,
       answeredWindowStarts: [],
     });
+    expect(slots[0].outcome).toBe("pending_queue");
     expect(unknownCount(slots)).toBe(0);
   });
 });
