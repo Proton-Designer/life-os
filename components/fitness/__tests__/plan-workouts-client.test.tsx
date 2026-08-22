@@ -1,6 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
 import { PlanWorkoutsClient } from "../workouts/plan-workouts-client";
 import type { ExerciseOption } from "../exercise-picker";
 import type { PlanDraft } from "@/lib/fitness/plan-types";
@@ -29,6 +34,7 @@ function setup(overrides: Partial<Parameters<typeof PlanWorkoutsClient>[0]> = {}
   const deletePlan = vi.fn().mockResolvedValue(undefined);
   const activatePlan = vi.fn().mockResolvedValue(undefined);
   const deactivateSlot = vi.fn().mockResolvedValue(undefined);
+  const createPlanFromTemplate = vi.fn().mockResolvedValue({ id: "template-plan" });
   render(
     <PlanWorkoutsClient
       initialPlans={[microPlan]}
@@ -39,10 +45,11 @@ function setup(overrides: Partial<Parameters<typeof PlanWorkoutsClient>[0]> = {}
       deletePlan={deletePlan}
       activatePlan={activatePlan}
       deactivateSlot={deactivateSlot}
+      createPlanFromTemplate={createPlanFromTemplate}
       {...overrides}
     />
   );
-  return { savePlan, deletePlan, activatePlan, deactivateSlot };
+  return { savePlan, deletePlan, activatePlan, deactivateSlot, createPlanFromTemplate };
 }
 
 describe("PlanWorkoutsClient", () => {
@@ -82,6 +89,7 @@ describe("PlanWorkoutsClient", () => {
     const user = userEvent.setup();
     const { savePlan } = setup({ initialPlans: [] });
     await user.click(screen.getByRole("button", { name: "+ Create workout" }));
+    await user.click(screen.getByRole("button", { name: "Create from scratch" }));
     await user.type(screen.getByLabelText("New workout name"), "Second plan");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: /Micro/ }));
@@ -92,5 +100,16 @@ describe("PlanWorkoutsClient", () => {
 
     expect(savePlan).toHaveBeenCalledWith(expect.objectContaining({ kind: "micro", name: "Second plan" }));
     expect(screen.getByTestId("plan-list")).toBeInTheDocument();
+  });
+
+  it("starting from a template calls createPlanFromTemplate with the chosen key and returns to the list", async () => {
+    const user = userEvent.setup();
+    const { createPlanFromTemplate } = setup();
+    await user.click(screen.getByRole("button", { name: "+ Create workout" }));
+    await user.click(screen.getByRole("button", { name: "Start from a template" }));
+    await user.click(screen.getByRole("button", { name: /Starter Reps/ }));
+
+    expect(createPlanFromTemplate).toHaveBeenCalledWith("starter_reps");
+    expect(await screen.findByTestId("plan-list")).toBeInTheDocument();
   });
 });

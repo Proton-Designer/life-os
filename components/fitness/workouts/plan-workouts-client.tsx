@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { expandPlanToWeek } from "@/lib/fitness/plan-schedule";
 import type { ActivePlans, PlanDraft, PlanKind } from "@/lib/fitness/plan-types";
 import type { ExerciseOption } from "../exercise-picker";
 import type { MuscleGroup } from "@/lib/fitness/volume";
 import { PlanList } from "./plan-list";
-import { NewPlanFlow } from "./new-plan-flow";
+import { NewPlanFlow, type TemplateKey } from "./new-plan-flow";
 import { MicroBuilder } from "./micro-builder";
 import { RoutineBuilder } from "./routine-builder";
 import { HourlyWeekCalendar } from "./hourly-week-calendar";
@@ -38,6 +39,7 @@ export function PlanWorkoutsClient({
   deletePlan,
   activatePlan,
   deactivateSlot,
+  createPlanFromTemplate,
 }: {
   initialPlans: PlanDraft[];
   initialActivePlans: ActivePlans;
@@ -51,11 +53,21 @@ export function PlanWorkoutsClient({
   deletePlan: (planId: string) => Promise<void>;
   activatePlan: (planId: string, kind: PlanKind) => Promise<void>;
   deactivateSlot: (kind: PlanKind) => Promise<void>;
+  createPlanFromTemplate: (key: TemplateKey) => Promise<{ id: string }>;
 }) {
+  const router = useRouter();
   const [plans, setPlans] = useState<PlanDraft[]>(initialPlans);
   const [activePlans, setActivePlans] = useState<ActivePlans>(initialActivePlans);
   const [mode, setMode] = useState<Mode>({ view: "list" });
   const [previewedPlanId, setPreviewedPlanId] = useState<string | null>(null);
+
+  // Syncs local state when the Server Component parent re-fetches (e.g.
+  // after createPlanFromTemplate's router.refresh() below) — a template
+  // materializes sessions/exercises this client never had locally, so
+  // there's nothing to merge in optimistically; a fresh server read is the
+  // only correct source for it.
+  useEffect(() => setPlans(initialPlans), [initialPlans]);
+  useEffect(() => setActivePlans(initialActivePlans), [initialActivePlans]);
 
   async function handleSave(draft: PlanDraft): Promise<{ id: string }> {
     const result = await savePlan(draft);
@@ -100,10 +112,21 @@ export function PlanWorkoutsClient({
     );
   }, [previewedPlanId, plans, activePlans]);
 
+  async function handleCreateFromTemplate(key: TemplateKey) {
+    await createPlanFromTemplate(key);
+    // The template's sessions/exercises exist only server-side now — refetch
+    // rather than guessing their shape into local state.
+    router.refresh();
+    setMode({ view: "list" });
+  }
+
   if (mode.view === "new") {
     return (
       <div className="flex flex-col gap-4">
-        <NewPlanFlow onChosen={(kind, name) => setMode({ view: "builder", plan: emptyDraft(kind, name) })} />
+        <NewPlanFlow
+          onChosen={(kind, name) => setMode({ view: "builder", plan: emptyDraft(kind, name) })}
+          onCreateFromTemplate={handleCreateFromTemplate}
+        />
       </div>
     );
   }
