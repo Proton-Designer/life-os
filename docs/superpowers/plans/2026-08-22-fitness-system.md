@@ -179,3 +179,86 @@ Phase 2 depends only on the **type contract above**, not on Phase 1 landing — 
 - Idempotency: confirm the same session twice concurrently; adopt the same plan twice.
 - **The shim**: after activating, editing, and deleting a plan, assert `workout_schedule` still yields correct results for all nine readers. Home, check-ins, and notifications must be loaded in a browser and checked.
 - E2E: there is currently **no** `e2e/fitness.spec.ts`. Add one covering create → activate → log → confirm.
+
+---
+
+## Type contract, part 2 — plan authoring (added by Lead after Phase 2 kickoff)
+
+Part 1 covered only the read side (`DailyLogItem`, `WeekDayStatus`). The authoring
+shapes were missing, which is precisely the gap that produces two incompatible
+versions of the same type. Both engineers code against these; only the Lead amends them.
+
+```ts
+export type PlanKind = "micro" | "routine";
+/** 0=Sun .. 6=Sat, repo-wide convention. Presets expand to this on save; the preset name is never persisted. */
+export type ScheduleDays = number[];
+
+export type WorkoutPlanSummary = {
+  id: string; name: string; kind: PlanKind;
+  itemCount: number;          // micro exercises, or sessions
+  isActive: boolean;
+};
+
+export type MicroExerciseDraft = {
+  id: string | null;          // null = not yet persisted
+  exerciseId: string; name: string;
+  scheduleDays: ScheduleDays;
+  goalType: "daily_total" | "frequency";
+  goalValue: number;          // reps if daily_total, bouts if frequency
+  notes: string | null;
+};
+
+export type SessionExerciseDraft = {
+  id: string | null;
+  exerciseId: string; name: string;
+  durationMinutes: number;    // REQUIRED
+  loadLb: number | null; targetSets: number | null; targetReps: number | null;
+};
+
+export type SessionDraft = {
+  id: string | null; name: string;
+  scheduleDays: ScheduleDays;
+  startTime: string | null;   // "HH:MM" local, null = unscheduled band
+  exercises: SessionExerciseDraft[];
+};
+
+export type PlanDraft =
+  | { kind: "micro";   id: string | null; name: string; exercises: MicroExerciseDraft[] }
+  | { kind: "routine"; id: string | null; name: string; sessions: SessionDraft[] };
+
+export type ActivePlans = { microPlanId: string | null; routinePlanId: string | null };
+```
+
+### The integration seam — get this exactly right
+
+`expandPlanToWeek` (Engineer A, `lib/fitness/plan-schedule.ts`) must return exactly this,
+and it is what BOTH week calendars render — the generic preview inside the builder and the
+detailed hourly one at the bottom of My Workouts:
+
+```ts
+export type WeekPreviewItem =
+  | { kind: "micro";   name: string; goalLabel: string }   // always an all-day band
+  | { kind: "session"; name: string; startTime: string | null; durationMinutes: number };
+
+/** keyed 0..6, Sunday first */
+export type WeekPreview = Record<number, WeekPreviewItem[]>;
+
+export function expandPlanToWeek(draft: PlanDraft): WeekPreview;
+```
+
+Taking a `PlanDraft` rather than a persisted plan is deliberate: the builder's preview must
+update live from unsaved state, so the same pure function serves both the live preview and
+the saved-plan calendar. One function, no second implementation to drift.
+
+### Server action signatures (Engineer A implements, Engineer B calls)
+
+```ts
+savePlan(draft: PlanDraft): Promise<{ id: string }>   // create when id === null, else full replace
+deletePlan(planId: string): Promise<void>             // clears the slot if active (on delete set null)
+activatePlan(planId: string, kind: PlanKind): Promise<void>
+deactivateSlot(kind: PlanKind): Promise<void>
+```
+
+`savePlan` is a full replace of the plan's children, following the existing `save_workout`
+RPC pattern — delete-and-reinsert inside one transaction, so positions never collide.
+Every one of these must re-sync `workout_schedule` when it touches the active routine plan.
