@@ -10,15 +10,14 @@ import type { Database } from "@/lib/supabase/database.types";
 /**
  * Seed plans become templates (Lead's ruling, 2026-08-22 —
  * docs/superpowers/plans/2026-08-22-fitness-system.md). Replaces the old
- * adoptSessionPlan/adoptStarterPlan (app/(app)/fitness/adopt-plan-action.ts,
- * which flattened into loose `workouts` rows / `rep_goals`). This writes
- * ONLY the new plan tables — never workouts, workout_exercises, or
- * rep_goals — and once materialised, a template is JUST a plan: nothing in
- * the schema records where it came from, it lists/edits/deletes/activates
- * like anything hand-built. adopt-plan-action.ts and its callers are
- * deleted once B's rebuilt My Workouts page no longer imports them (B
- * removes the references first, per the Lead's deletion-order ruling —
- * this file does not touch that one).
+ * adoptSessionPlan/adoptStarterPlan (formerly
+ * app/(app)/fitness/adopt-plan-action.ts, deleted once B's rebuilt My
+ * Workouts page no longer imported them — deletion-order ruling, B removed
+ * the references first), which flattened into loose `workouts` rows /
+ * `rep_goals`. This writes ONLY the new plan tables — never workouts,
+ * workout_exercises, or rep_goals — and once materialised, a template is
+ * JUST a plan: nothing in the schema records where it came from, it
+ * lists/edits/deletes/activates like anything hand-built.
  *
  * Per-exercise duration_minutes has no source in seed-plans.ts (the old
  * model never needed one) — DEFAULT_SEED_EXERCISE_DURATION_MINUTES is a
