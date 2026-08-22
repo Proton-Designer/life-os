@@ -85,14 +85,17 @@ export default async function FitnessPage() {
     durationMinutes: (s.plan_session_exercises ?? []).reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0),
   }));
 
-  // --- Today's logged sets (micro progress) and the week's confirmed
-  // plan-session dates (This Week's status + Daily Log's confirmedToday) -
-  const [{ data: todaySetRows }, { data: weekConfirmedRows }, sessionDetailsById] = await Promise.all([
+  // --- The week's logged sets (micro progress, today AND every other day
+  // — This Week needs per-day micro completion, not just today's) and the
+  // week's confirmed plan-session dates (This Week's status + Daily Log's
+  // confirmedToday) ------------------------------------------------------
+  const [{ data: weekSetRows }, { data: weekConfirmedRows }, sessionDetailsById] = await Promise.all([
     supabase
       .from("session_sets")
       .select("exercise_id, sets, reps, workout_sessions!inner(date, user_id)")
       .eq("workout_sessions.user_id", userId)
-      .eq("workout_sessions.date", dateStr),
+      .gte("workout_sessions.date", weekDates[0])
+      .lte("workout_sessions.date", weekDates[6]),
     supabase
       .from("workout_sessions")
       .select("date, plan_session_id")
@@ -108,28 +111,46 @@ export default async function FitnessPage() {
     ),
   ]);
 
+  // Keyed `${date}:${exerciseId}` — This Week's per-day micro completion
+  // needs every day in the range, not just today; today's Daily Log
+  // aggregates below are just this same map filtered to dateStr.
+  const totalByDateExercise = new Map<string, number>();
+  const boutsByDateExercise = new Map<string, number>();
+  for (const row of weekSetRows ?? []) {
+    if (!row.exercise_id) continue;
+    const key = `${row.workout_sessions.date}:${row.exercise_id}`;
+    totalByDateExercise.set(key, (totalByDateExercise.get(key) ?? 0) + row.sets * row.reps);
+    boutsByDateExercise.set(key, (boutsByDateExercise.get(key) ?? 0) + 1);
+  }
   const todayTotalByExercise = new Map<string, number>();
   const todayBoutsByExercise = new Map<string, number>();
-  for (const row of todaySetRows ?? []) {
-    if (!row.exercise_id) continue;
+  for (const row of weekSetRows ?? []) {
+    if (!row.exercise_id || row.workout_sessions.date !== dateStr) continue;
     todayTotalByExercise.set(row.exercise_id, (todayTotalByExercise.get(row.exercise_id) ?? 0) + row.sets * row.reps);
     todayBoutsByExercise.set(row.exercise_id, (todayBoutsByExercise.get(row.exercise_id) ?? 0) + 1);
   }
 
   const confirmedByDateAndSession = new Set((weekConfirmedRows ?? []).map((r) => `${r.date}:${r.plan_session_id}`));
 
-  // --- Cycle anchor: defaults to today on first read (logic-gap
-  // resolution #6 — "default the anchor to the first plan activation
-  // date"). Persisted lazily here rather than at plan-activation time
-  // (simpler than threading it through 3 separate action files) — an
-  // insert-if-missing, idempotent on the primary key. --------------------
+  // --- Cycle anchor: defaults to today on first read WHERE A PLAN IS
+  // ACTIVE (logic-gap resolution #6 — "default the anchor to the first
+  // plan activation date"; 2026-08-22 review catch — anchoring on a
+  // plan-less visit makes Cycle 1 meaningless from the start). Persisted
+  // lazily here rather than at plan-activation time (simpler than
+  // threading it through 3 separate action files) — an insert-if-missing,
+  // idempotent on the primary key. THIS IS A WRITE ON A READ PATH — do not
+  // "simplify" it into a plain select; a page view is what creates the
+  // anchor row the first time a plan is active. With no anchor and no
+  // active plan, `cycle` stays null and the Cycle Progress module renders
+  // nothing rather than a fabricated Cycle 1. -----------------------------
+  const hasActivePlan = microPlanId !== null || routinePlanId !== null;
   const { data: anchorRow } = await supabase.from("fitness_cycle_anchor").select("anchor_date").eq("user_id", userId).maybeSingle();
   let anchorDate = anchorRow?.anchor_date ?? null;
-  if (!anchorDate) {
+  if (!anchorDate && hasActivePlan) {
     anchorDate = dateStr;
     await supabase.from("fitness_cycle_anchor").upsert({ user_id: userId, anchor_date: anchorDate }, { onConflict: "user_id" });
   }
-  const cycle = cycleForDate(anchorDate, dateStr);
+  const cycle = anchorDate ? cycleForDate(anchorDate, dateStr) : null;
 
   // --- Benchmark exercises: whatever the active micro plan references
   // (typically pull-ups/push-ups) — logCycleBenchmark works for any set. --
@@ -185,16 +206,18 @@ export default async function FitnessPage() {
   // Deltas: most recent benchmark strictly before this cycle's start vs
   // the most recent on/after it — "vs previous cycle" per the spec's
   // confirmed decision, not a running all-time PR.
-  const deltas: BenchmarkDelta[] = benchmarkExercises.map((ex) => {
-    const rows = (benchmarkRows ?? []).filter((r) => r.exercise_id === ex.exerciseId);
-    const current = rows.find((r) => r.date >= cycle.startDate)?.max_reps ?? null;
-    const previous = rows.find((r) => r.date < cycle.startDate)?.max_reps ?? null;
-    return { exerciseId: ex.exerciseId, name: ex.name, current, previous };
-  });
+  const deltas: BenchmarkDelta[] = cycle
+    ? benchmarkExercises.map((ex) => {
+        const rows = (benchmarkRows ?? []).filter((r) => r.exercise_id === ex.exerciseId);
+        const current = rows.find((r) => r.date >= cycle.startDate)?.max_reps ?? null;
+        const previous = rows.find((r) => r.date < cycle.startDate)?.max_reps ?? null;
+        return { exerciseId: ex.exerciseId, name: ex.name, current, previous };
+      })
+    : [];
 
-  const benchmarkAlreadyLoggedThisWindow = (benchmarkRows ?? []).some(
-    (r) => r.date >= addDaysToDateString(cycle.endDate, -(BENCHMARK_WINDOW_DAYS - 1))
-  );
+  const benchmarkAlreadyLoggedThisWindow = cycle
+    ? (benchmarkRows ?? []).some((r) => r.date >= addDaysToDateString(cycle.endDate, -(BENCHMARK_WINDOW_DAYS - 1)))
+    : false;
 
   // --- Daily Log ----------------------------------------------------------
   const microToday = (microExerciseRows ?? []).filter((e) => e.schedule_days.includes(todayDayOfWeek));
@@ -235,7 +258,7 @@ export default async function FitnessPage() {
       { metric: "waist", lastValue: waist?.valueIn ?? null, lastDate: waist?.date ?? null, dueToday: waistDue },
     ],
     benchmark:
-      isInBenchmarkWindow(cycle, BENCHMARK_WINDOW_DAYS) && !benchmarkAlreadyLoggedThisWindow
+      cycle && isInBenchmarkWindow(cycle, BENCHMARK_WINDOW_DAYS) && !benchmarkAlreadyLoggedThisWindow
         ? { cycleNumber: cycle.cycleNumber, dueBy: cycle.endDate }
         : null,
   };
@@ -245,14 +268,29 @@ export default async function FitnessPage() {
   for (const [id, detail] of sessionDetailsById) sessionDetailsBySessionId[id] = { exercises: detail.exercises };
 
   // --- This week ------------------------------------------------------
+  // Micro-goal completion is a per-day binary too (2026-08-22 review catch
+  // — "30 pull-ups TODAY... resets at midnight, that IS a single-day
+  // binary"), computed the same way pendingDailyLog decides done-ness:
+  // daily_total against the day's summed reps, frequency against the
+  // day's bout count. A day is `completed` only when BOTH every scheduled
+  // micro goal AND every scheduled session are done — partial progress on
+  // either is not completed. This matters concretely: Ayman's live
+  // configuration is Starter Reps (micro-only, no routine plan), so
+  // without this, This Week would show no status on any day for the only
+  // plan he actually runs.
+  const dayMicroDoneFor = (dayScheduledMicro: NonNullable<typeof microExerciseRows>, date: string): boolean =>
+    dayScheduledMicro.every((e) => {
+      const done = e.goal_type === "daily_total" ? (totalByDateExercise.get(`${date}:${e.exercise_id}`) ?? 0) : (boutsByDateExercise.get(`${date}:${e.exercise_id}`) ?? 0);
+      return done >= e.goal_value;
+    });
+
   const thisWeekDays: ThisWeekDay[] = weekDates.map((date, i) => {
     const dow = i;
-    const microItems = (microExerciseRows ?? [])
-      .filter((e) => e.schedule_days.includes(dow))
-      .map((e) => ({
-        name: e.exercises?.name ?? "",
-        goalLabel: e.goal_type === "daily_total" ? `${e.goal_value} reps` : `${e.goal_value}x`,
-      }));
+    const dayMicroExercises = (microExerciseRows ?? []).filter((e) => e.schedule_days.includes(dow));
+    const microItems = dayMicroExercises.map((e) => ({
+      name: e.exercises?.name ?? "",
+      goalLabel: e.goal_type === "daily_total" ? `${e.goal_value} reps` : `${e.goal_value}x`,
+    }));
     const daySessions = sessions
       .filter((s) => s.scheduleDays.includes(dow))
       .map((s) => ({
@@ -261,8 +299,9 @@ export default async function FitnessPage() {
         durationMinutes: s.durationMinutes,
         confirmed: confirmedByDateAndSession.has(`${date}:${s.id}`),
       }));
-    const status =
-      daySessions.length > 0 ? weekDayStatus(date, dateStr, daySessions.every((s) => s.confirmed)) : null;
+    const hasScheduledItems = dayMicroExercises.length > 0 || daySessions.length > 0;
+    const completed = dayMicroDoneFor(dayMicroExercises, date) && daySessions.every((s) => s.confirmed);
+    const status = hasScheduledItems ? weekDayStatus(date, dateStr, completed) : null;
     return { dateStr: date, dayLabel: WEEKDAY_LABELS[dow], isToday: date === dateStr, microItems, sessions: daySessions, status };
   });
 
@@ -335,15 +374,19 @@ export default async function FitnessPage() {
       </Panel>
 
       <Panel title="Cycle Progress checks">
-        <CycleProgressPanel
-          cycleNumber={cycle.cycleNumber}
-          daysLeft={cycle.daysLeft}
-          weightAvg7d={weightAvg7d}
-          waist={waist}
-          deltas={deltas}
-          benchmarkExercises={benchmarkExercises}
-          onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
-        />
+        {cycle ? (
+          <CycleProgressPanel
+            cycleNumber={cycle.cycleNumber}
+            daysLeft={cycle.daysLeft}
+            weightAvg7d={weightAvg7d}
+            waist={waist}
+            deltas={deltas}
+            benchmarkExercises={benchmarkExercises}
+            onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">Activate a workout plan to start tracking cycles.</p>
+        )}
       </Panel>
     </PageContainer>
   );
