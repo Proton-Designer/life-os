@@ -124,17 +124,29 @@ export async function savePlan(draft: PlanDraft): Promise<{ id: string }> {
     }
   }
 
-  await syncWorkoutScheduleForActiveRoutine(supabase, userId);
+  // clearIfInactive: this draft's own routine plan, if it isn't currently
+  // active, has never contributed rows to workout_schedule — nothing to
+  // clear. If it IS active, routinePlanId is non-null inside the sync
+  // function and the full-rederive branch fires regardless of this flag.
+  await syncWorkoutScheduleForActiveRoutine(supabase, userId, { clearIfInactive: draft.kind === "routine" });
   revalidateFitness();
   return { id: planId };
 }
 
 export async function deletePlan(planId: string): Promise<void> {
   const { supabase, userId } = await requireUser();
+  const { data: activeBefore, error: activeError } = await supabase
+    .from("active_workout_plans")
+    .select("routine_plan_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (activeError) throw activeError;
+  const wasActiveRoutine = activeBefore?.routine_plan_id === planId;
+
   // ON DELETE SET NULL (037) clears whichever slot held this plan.
   const { error } = await supabase.from("workout_plans").delete().eq("id", planId).eq("user_id", userId);
   if (error) throw error;
-  await syncWorkoutScheduleForActiveRoutine(supabase, userId);
+  await syncWorkoutScheduleForActiveRoutine(supabase, userId, { clearIfInactive: wasActiveRoutine });
   revalidateFitness();
 }
 
@@ -162,13 +174,13 @@ export async function activatePlan(planId: string, kind: PlanKind): Promise<void
   const { supabase, userId } = await requireUser();
   await requireOwnedPlan(supabase, userId, planId, kind);
   await setActiveSlot(supabase, userId, kind, planId);
-  await syncWorkoutScheduleForActiveRoutine(supabase, userId);
+  await syncWorkoutScheduleForActiveRoutine(supabase, userId, { clearIfInactive: kind === "routine" });
   revalidateFitness();
 }
 
 export async function deactivateSlot(kind: PlanKind): Promise<void> {
   const { supabase, userId } = await requireUser();
   await setActiveSlot(supabase, userId, kind, null);
-  await syncWorkoutScheduleForActiveRoutine(supabase, userId);
+  await syncWorkoutScheduleForActiveRoutine(supabase, userId, { clearIfInactive: kind === "routine" });
   revalidateFitness();
 }

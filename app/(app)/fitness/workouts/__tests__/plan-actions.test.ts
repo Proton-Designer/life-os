@@ -25,10 +25,11 @@ function makeChain(responses: Record<string, unknown> = {}) {
 const getClaimsMock = vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null }));
 let tableResponses: Record<string, { data: unknown; error: unknown }>;
 const chainsByTable: Record<string, ReturnType<typeof makeChain>> = {};
-const fromMock = vi.fn((table: string) => {
+function defaultFromImpl(table: string) {
   if (!chainsByTable[table]) chainsByTable[table] = makeChain(tableResponses[table] ?? {});
   return chainsByTable[table];
-});
+}
+const fromMock = vi.fn(defaultFromImpl);
 const revalidatePathMock = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -40,6 +41,7 @@ describe("plan-actions", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();
     fromMock.mockClear();
+    fromMock.mockImplementation(defaultFromImpl);
     revalidatePathMock.mockClear();
     tableResponses = {
       active_workout_plans: { data: { micro_plan_id: null, routine_plan_id: null }, error: null },
@@ -71,9 +73,21 @@ describe("plan-actions", () => {
     expect(chainsByTable.plan_micro_exercises.insert).toHaveBeenCalledWith([
       expect.objectContaining({ plan_id: "plan-1", exercise_id: "ex-1", position: 1, goal_type: "daily_total", goal_value: 30 }),
     ]);
-    // The shim: reads the active slot and rewrites workout_schedule on every save.
+    // The shim: reads the active slot on every save, but a micro-plan save
+    // never concerns the routine slot — with no active routine plan, it
+    // must NOT touch workout_schedule at all (2026-08-22 review catch).
     expect(fromMock).toHaveBeenCalledWith("active_workout_plans");
-    expect(chainsByTable.workout_schedule.delete).toHaveBeenCalled();
+    expect(fromMock).not.toHaveBeenCalledWith("workout_schedule");
+  });
+
+  it("does not wipe legacy workout_schedule rows when saving a micro plan with no active routine plan", async () => {
+    tableResponses.workout_plans = { data: { id: "plan-legacy" }, error: null };
+    tableResponses.active_workout_plans = { data: { micro_plan_id: null, routine_plan_id: null }, error: null };
+    const { savePlan } = await import("../plan-actions");
+
+    await savePlan({ kind: "micro", id: null, name: "M", exercises: [] });
+
+    expect(fromMock).not.toHaveBeenCalledWith("workout_schedule");
   });
 
   it("savePlan (routine, edit) updates the plan name, replaces sessions+exercises, and re-syncs when it's the active routine", async () => {
@@ -120,8 +134,9 @@ describe("plan-actions", () => {
     expect(chainsByTable.workout_schedule.delete).toHaveBeenCalled();
   });
 
-  it("deletePlan deletes the owned plan and still re-syncs workout_schedule", async () => {
+  it("deletePlan deletes the owned plan; does not touch workout_schedule when there's no active routine plan at all", async () => {
     tableResponses.workout_plans = { data: null, error: null };
+    tableResponses.active_workout_plans = { data: { micro_plan_id: null, routine_plan_id: null }, error: null };
     const { deletePlan } = await import("../plan-actions");
 
     await deletePlan("plan-3");
@@ -129,6 +144,43 @@ describe("plan-actions", () => {
     expect(chainsByTable.workout_plans.delete).toHaveBeenCalled();
     expect(chainsByTable.workout_plans.eq).toHaveBeenCalledWith("id", "plan-3");
     expect(fromMock).toHaveBeenCalledWith("active_workout_plans");
+    expect(fromMock).not.toHaveBeenCalledWith("workout_schedule");
+  });
+
+  it("deletePlan still fully re-derives workout_schedule when a DIFFERENT plan is the active routine", async () => {
+    tableResponses.workout_plans = { data: null, error: null };
+    tableResponses.active_workout_plans = { data: { micro_plan_id: null, routine_plan_id: "some-other-plan" }, error: null };
+    const { deletePlan } = await import("../plan-actions");
+
+    await deletePlan("plan-3");
+
+    expect(chainsByTable.workout_schedule.delete).toHaveBeenCalled();
+  });
+
+  it("deletePlan clears workout_schedule when the deleted plan WAS the active routine", async () => {
+    tableResponses.workout_plans = { data: null, error: null };
+    // ON DELETE SET NULL means by the time the sync's own read runs (after
+    // the delete), the active row's routine_plan_id is already null — the
+    // pre-delete read is what tells deletePlan this plan was the routine
+    // slot, so clearIfInactive is passed through correctly either way.
+    let readCount = 0;
+    fromMock.mockImplementation((table: string) => {
+      if (!chainsByTable[table]) chainsByTable[table] = makeChain(tableResponses[table] ?? {});
+      if (table === "active_workout_plans") {
+        const chain = chainsByTable[table];
+        chain.maybeSingle = vi.fn(async () => {
+          readCount++;
+          return readCount === 1
+            ? { data: { micro_plan_id: null, routine_plan_id: "plan-4" }, error: null }
+            : { data: { micro_plan_id: null, routine_plan_id: null }, error: null };
+        });
+      }
+      return chainsByTable[table];
+    });
+    const { deletePlan } = await import("../plan-actions");
+
+    await deletePlan("plan-4");
+
     expect(chainsByTable.workout_schedule.delete).toHaveBeenCalled();
   });
 

@@ -27,8 +27,33 @@ type TypedClient = SupabaseClient<Database>;
  * wins that day's row. This is a best-effort mirror for the nine legacy
  * readers, not a lossless one; This Week (Phase 3) is the real
  * uncollapsed view for that case.
+ *
+ * `clearIfInactive` (2026-08-22 review catch, the Lead): when there is NO
+ * active routine plan, this function does nothing UNLESS the caller passes
+ * `clearIfInactive: true` — meaning the mutation that just happened
+ * genuinely concerned the routine slot (activatePlan/deactivateSlot with
+ * kind "routine", or deletePlan of whatever plan WAS the active routine
+ * before the delete). Without that guard, a micro-plan save calling this
+ * unconditionally would delete every workout_schedule row for the user
+ * with nothing to reinsert — silently wiping legacy per-day assignments
+ * (still live via assignWorkoutToDay until Phase 3 replaces the Sessions
+ * panel) that have nothing to do with the plan being saved. The
+ * unconditional-call-from-every-action principle stays; the destructive
+ * branch is now conditional instead.
+ *
+ * Not transactional (delete-then-insert, two round trips): a failure
+ * between them leaves workout_schedule genuinely empty until the next
+ * successful sync, and that failure mode is invisible rather than loud —
+ * "Home shows no workout today" with no error anywhere is what a broken
+ * sync looks like from the outside. Same accepted trade-off as
+ * save_workout/createWorkoutWithExercises, documented here because an
+ * empty result gives no clue where to look.
  */
-export async function syncWorkoutScheduleForActiveRoutine(supabase: TypedClient, userId: string): Promise<void> {
+export async function syncWorkoutScheduleForActiveRoutine(
+  supabase: TypedClient,
+  userId: string,
+  options: { clearIfInactive?: boolean } = {}
+): Promise<void> {
   const { data: active, error: activeError } = await supabase
     .from("active_workout_plans")
     .select("routine_plan_id")
@@ -36,11 +61,18 @@ export async function syncWorkoutScheduleForActiveRoutine(supabase: TypedClient,
     .maybeSingle();
   if (activeError) throw activeError;
 
+  const routinePlanId = active?.routine_plan_id ?? null;
+
+  if (!routinePlanId) {
+    if (options.clearIfInactive) {
+      const { error: deleteError } = await supabase.from("workout_schedule").delete().eq("user_id", userId);
+      if (deleteError) throw deleteError;
+    }
+    return;
+  }
+
   const { error: deleteError } = await supabase.from("workout_schedule").delete().eq("user_id", userId);
   if (deleteError) throw deleteError;
-
-  const routinePlanId = active?.routine_plan_id ?? null;
-  if (!routinePlanId) return;
 
   const { data: sessions, error: sessionsError } = await supabase
     .from("plan_sessions")
