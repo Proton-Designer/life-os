@@ -273,3 +273,101 @@ export async function confirmWorkoutSession(
   revalidatePath("/fitness");
   revalidatePath("/");
 }
+
+/**
+ * The plan-session equivalent of confirmWorkoutSession — no RPC (038 added
+ * plan_session_id but didn't add a matching function), so idempotency is
+ * handled here in JS the same way confirm_workout_session (029) handles it
+ * in SQL: insert the parent row first, and on the unique-violation this
+ * migration's own workout_sessions_plan_session_unique index throws for a
+ * same-day repeat, treat it as success (already confirmed) rather than an
+ * error. The session_sets insert only runs after the parent insert
+ * succeeds, so a repeat call can never leave a duplicate or partial write.
+ */
+export async function confirmPlanSession(
+  date: string,
+  sessionId: string,
+  sessionName: string,
+  sets: ConfirmSetInput[]
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { data: session, error: sessionError } = await supabase
+    .from("workout_sessions")
+    .insert({ user_id: userId, date, workout_id: null, workout_name: sessionName, source: "confirmed", plan_session_id: sessionId })
+    .select("id")
+    .single();
+
+  if (sessionError) {
+    if (sessionError.code === "23505") {
+      revalidatePath("/fitness");
+      revalidatePath("/");
+      return;
+    }
+    throw sessionError;
+  }
+
+  const { error: setsError } = await supabase.from("session_sets").insert(
+    sets.map((s) => ({
+      session_id: session.id,
+      user_id: userId,
+      exercise_id: s.exerciseId,
+      exercise_name: s.exerciseName,
+      position: s.position,
+      sets: s.sets,
+      reps: s.reps,
+      load: s.load,
+    }))
+  );
+  if (setsError) throw setsError;
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
+
+export type BenchmarkRepsInput = { exerciseId: string; maxReps: number };
+
+/**
+ * Cycle Progress checks' benchmark form (spec's confirmed decision: weight,
+ * waist, max pull-ups, max push-ups at each 4-week boundary). Weight/waist
+ * share body_metrics with the daily entry, same read-existing-then-upsert
+ * pattern as logWeight/logWaist so one doesn't null out the other; reps go
+ * to fitness_benchmarks (039), one upsert per exercise rather than a fixed
+ * pull-ups/push-ups shape, so this works for whatever exercises the user's
+ * plans actually reference.
+ */
+export async function logCycleBenchmark(
+  date: string,
+  weightLb: number | null,
+  waistIn: number | null,
+  reps: BenchmarkRepsInput[]
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+
+  if (weightLb !== null || waistIn !== null) {
+    const { data: existing } = await supabase
+      .from("body_metrics")
+      .select("weight_lb, waist_in")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .maybeSingle();
+    const { error } = await supabase
+      .from("body_metrics")
+      .upsert(
+        { user_id: userId, date, weight_lb: weightLb ?? existing?.weight_lb ?? null, waist_in: waistIn ?? existing?.waist_in ?? null },
+        { onConflict: "user_id,date" }
+      );
+    if (error) throw error;
+  }
+
+  for (const r of reps) {
+    const { error } = await supabase
+      .from("fitness_benchmarks")
+      .upsert(
+        { user_id: userId, date, exercise_id: r.exerciseId, max_reps: r.maxReps },
+        { onConflict: "user_id,date,exercise_id" }
+      );
+    if (error) throw error;
+  }
+
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
