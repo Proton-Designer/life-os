@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString, addDaysToDateString } from "@/lib/date-utils";
 import { weeklyVolume, type MuscleGroup } from "@/lib/fitness/volume";
+import { isGoalActiveOn } from "@/lib/fitness/rep-goal";
 import { loadWorkoutDetails, type DayWorkout } from "@/lib/fitness/load-workout-details";
 import { FitnessDayView } from "@/components/fitness/fitness-day-view";
 import type { DayCell } from "@/components/fitness/day-picker-strip";
@@ -11,10 +12,20 @@ import { VolumeHero } from "@/components/fitness/volume-hero";
 import { BodyModule } from "@/components/fitness/body-module";
 import { BodyMetricsEntry } from "@/components/fitness/body-metrics-entry";
 import { DailyChecks } from "@/components/fitness/daily-checks";
+import { FitnessLogPanel } from "@/components/fitness/fitness-log-panel";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
-import { confirmWorkoutSession, assignWorkoutToDay, ensureDailyCheckHabits, toggleDailyCheck, logWeight, logWaist } from "./actions";
+import { createExercise } from "./workouts/actions";
+import {
+  confirmWorkoutSession,
+  assignWorkoutToDay,
+  ensureDailyCheckHabits,
+  toggleDailyCheck,
+  logWeight,
+  logWaist,
+  quickLogExercise,
+} from "./actions";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -32,7 +43,14 @@ export default async function FitnessPage() {
   const weekDates = weekDatesFrom(weekStart);
   const todayDayOfWeek = dayOfWeekFromDateString(dateStr);
 
-  const [{ data: scheduleRows }, { data: confirmedRows }, { data: savedWorkoutRows }] = await Promise.all([
+  const [
+    { data: scheduleRows },
+    { data: confirmedRows },
+    { data: savedWorkoutRows },
+    { data: repGoalRows },
+    { data: todayRepRows },
+    { data: exerciseRows },
+  ] = await Promise.all([
     supabase
       .from("workout_schedule")
       .select("day_of_week, workout_id, workouts(id, name)")
@@ -46,7 +64,53 @@ export default async function FitnessPage() {
       .gte("date", weekDates[0])
       .lte("date", weekDates[6]),
     supabase.from("workouts").select("id, name").eq("user_id", userId).eq("archived", false).order("name"),
+    // Interim logging surface (Ayman, 2026-08-22): Home's Fitness panel —
+    // the only general "log anything" affordance in the app — was removed
+    // as part of the fitness rebuild. Until the real Daily Log module
+    // ships (Phase 3), the starter plan's rep-goal bars and quick-add move
+    // here so logging an exercise stays possible. Still reads rep_goals
+    // directly (036's data migration also mirrored these rows into a real
+    // "Starter Reps" micro plan, but nothing reads plan_micro_exercises
+    // for progress yet) — this whole block is replaced wholesale once
+    // Daily Log derives the same numbers from the plan tables.
+    supabase
+      .from("rep_goals")
+      .select("exercise_id, daily_target, active_days, exercises(name)")
+      .eq("user_id", userId)
+      .eq("archived", false),
+    supabase
+      .from("session_sets")
+      .select("exercise_id, reps, workout_sessions!inner(date, user_id)")
+      .eq("workout_sessions.user_id", userId)
+      .eq("workout_sessions.date", dateStr),
+    supabase
+      .from("exercises")
+      .select("id, name, primary_muscles, secondary_muscles")
+      .eq("user_id", userId)
+      .eq("archived", false)
+      .order("name"),
   ]);
+
+  const loggedRepsTodayByExercise = new Map<string, number>();
+  for (const row of todayRepRows ?? []) {
+    if (!row.exercise_id) continue;
+    loggedRepsTodayByExercise.set(row.exercise_id, (loggedRepsTodayByExercise.get(row.exercise_id) ?? 0) + row.reps);
+  }
+  const repGoals = (repGoalRows ?? [])
+    .filter((g) => isGoalActiveOn(g.active_days, todayDayOfWeek))
+    .map((g) => ({
+      exerciseId: g.exercise_id,
+      exerciseName: g.exercises?.name ?? "",
+      dailyTarget: g.daily_target,
+      loggedRepsToday: loggedRepsTodayByExercise.get(g.exercise_id) ?? 0,
+    }));
+
+  const quickAddExercises = (exerciseRows ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
+    primaryMuscles: e.primary_muscles as never,
+    secondaryMuscles: e.secondary_muscles as never,
+  }));
 
   const assignedWorkoutIds = Array.from(
     new Set((scheduleRows ?? []).map((r) => r.workout_id).filter((id): id is string => id !== null))
@@ -145,6 +209,15 @@ export default async function FitnessPage() {
       >
         My Workouts →
       </Link>
+
+      <Panel title="Log">
+        <FitnessLogPanel
+          repGoals={repGoals}
+          quickAddExercises={quickAddExercises}
+          onQuickLogExercise={quickLogExercise.bind(null, dateStr)}
+          onCreateExercise={createExercise}
+        />
+      </Panel>
 
       <Panel title="This week">
         <VolumeHero
