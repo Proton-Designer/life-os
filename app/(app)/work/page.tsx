@@ -80,7 +80,7 @@ export default async function CoOpPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Co-op" />
+      <PageHeader title="Work" />
 
       <TargetsStrip rows={targets} />
 

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { TargetRow, EmptyTargetSlot } from "@/components/co-op/target-row";
 import { SetDeadlineDialog } from "@/components/co-op/set-deadline-dialog";
 import { splitTargetsAndStretch, moveTargetPosition, TARGET_SLOT_COUNT, type CoopTargetRow } from "@/lib/coop/targets";
-import { addTarget, addStretchGoal, editTarget, removeTarget, completeTarget, moveTarget } from "@/app/(app)/co-op/targets-actions";
+import { addTarget, addStretchGoal, editTarget, removeTarget, completeTarget, moveTarget } from "@/app/(app)/work/targets-actions";
 
 // "use server" actions are imported and invoked directly from this client
 // component rather than passed down as props from the server page — the

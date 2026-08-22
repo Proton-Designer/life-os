@@ -12,7 +12,7 @@ const DOMAIN_LABEL: Record<PeekDomain, string> = {
   business: "Business",
   fitness: "Fitness",
   school: "School",
-  co_op: "Co-op",
+  co_op: "Work",
 };
 
 function PulseRing({ pct, colorVar }: { pct: number; colorVar: string }) {

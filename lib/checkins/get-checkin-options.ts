@@ -91,7 +91,7 @@ export async function getCheckinOptions(
 
   // Less-central domains live under "Something else," per spec.
   options.push({ tagType: "school", refId: null, label: "School", primary: false });
-  options.push({ tagType: "co_op", refId: null, label: "Co-op", primary: false });
+  options.push({ tagType: "co_op", refId: null, label: "Work", primary: false });
 
   return options;
 }

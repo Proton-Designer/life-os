@@ -16,7 +16,7 @@ export type TaskData = {
 };
 
 // Literal, complete class strings (not runtime-interpolated) so Tailwind's
-// build-time scanner can find every one of them — School and Co-op share
+// build-time scanner can find every one of them — School and Work share
 // this component but must not share a color, so the accent is prop-driven.
 const COMPLETED_CLASS: Record<AccentToken, string> = {
   deen: "border-accent-deen bg-accent-deen",

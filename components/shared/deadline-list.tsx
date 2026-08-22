@@ -24,7 +24,7 @@ export function DeadlineList({
   todayStr: string;
   toggleTask: (id: string) => Promise<void>;
   // Opus Lead review (2026-08-16): when a page-level empty state is already
-  // announcing there's nothing here (Co-op's "No active co-op" panel), this
+  // announcing there's nothing here (Work's "No active co-op" panel), this
   // panel's own "Add a task" CTA becomes a second identical prompt stacked
   // right below the first — the same double-CTA problem fixed on Deen's
   // Habit Builder. Quiet mode keeps the panel (and its real message) but

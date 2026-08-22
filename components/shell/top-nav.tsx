@@ -14,8 +14,8 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; accent: Accent
   { href: "/business", label: "Business", icon: DOMAIN_ICON.business, accent: "business" },
   { href: "/fitness", label: "Fitness", icon: DOMAIN_ICON.fitness, accent: "fitness" },
   { href: "/school", label: "School", icon: DOMAIN_ICON.school, accent: "school" },
-  // Co-op shares School's accent color (per spec's pulse-strip fold-in decision).
-  { href: "/co-op", label: "Co-op", icon: DOMAIN_ICON.co_op, accent: "school" },
+  // Work shares School's accent color (per spec's pulse-strip fold-in decision).
+  { href: "/work", label: "Work", icon: DOMAIN_ICON.co_op, accent: "school" },
 ];
 
 function isActive(pathname: string, href: string) {

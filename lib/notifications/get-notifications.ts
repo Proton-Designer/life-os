@@ -25,7 +25,7 @@ export type NotificationItem = {
 const ACTION_HREF: Record<ActionType, (item: { domain: Domain }) => string> = {
   toggle_prayer: () => "/deen#prayers",
   toggle_kill_list: () => "/business#kill-list",
-  toggle_task: (item) => (item.domain === "co_op" ? "/co-op#weekly-agenda" : "/school#tasks"),
+  toggle_task: (item) => (item.domain === "co_op" ? "/work#weekly-agenda" : "/school#tasks"),
   toggle_habit: () => "/deen",
   toggle_adhkar: () => "/deen",
 };
@@ -73,7 +73,7 @@ const ACTION_BODY: Record<ActionType, string> = {
  * dismissal. Don't "simplify" the composite key down to just
  * notification_key — that silently breaks every recurring notification.
  *
- * Reuses getPriorityItems for Deen/Business/School/Co-op — that's already
+ * Reuses getPriorityItems for Deen/Business/School/Work — that's already
  * the canonical "what's due today" computation (Home's "Now" panel). Adds
  * the two Fitness signals that deliberately have no PriorityItem entry
  * (spec 2026-08-20: Fitness confirm can't be a bare blind tap) but still

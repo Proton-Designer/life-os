@@ -97,13 +97,13 @@ export type DomainSnapshotDataSource = {
   getWorkoutSessionsThisWeek: (userId: string, weekStart: string) => Promise<{ workout_id: string | null; date: string }[]>;
   getFitnessHabits: (userId: string) => Promise<{ id: string; createdAt: string }[]>;
   getFitnessHabitLogs: (userId: string, weekStart: string) => Promise<{ habitId: string; date: string; completed: boolean }[]>;
-  /** Whole week, not just today — today's-due-incomplete, next-due-title, and the weekly completed count all derive from this one fetch. School only now — Co-op moved off the shared `tasks` table (coop_targets/coop_tasks) and gets its own pipeline-driven source below. */
+  /** Whole week, not just today — today's-due-incomplete, next-due-title, and the weekly completed count all derive from this one fetch. School only now — Work moved off the shared `tasks` table (coop_targets/coop_tasks) and gets its own pipeline-driven source below. */
   getSchoolTasksThisWeek: (
     userId: string,
     weekStart: string
   ) => Promise<{ id: string; title: string; due_date: string | null; due_time: string | null; completed: boolean }[]>;
   /**
-   * Co-op's snapshot used to come from the same due-date `tasks` query as
+   * Work's snapshot used to come from the same due-date `tasks` query as
    * School — a due-date-shaped question asked of a domain that moved to a
    * pipeline model (docs/superpowers/specs/2026-08-20-coop-redesign.md),
    * the same class of drift as get-domain-pulse.ts's workout_id repoint.
@@ -525,7 +525,7 @@ export async function getDomainSnapshots(
     pulse: pulse.school,
   };
 
-  // Co-op — driven by the current target's pipeline tasks
+  // Work — driven by the current target's pipeline tasks
   // (coop_targets/coop_tasks), not the shared `tasks` table's due dates
   // (see getCurrentCoopTargetTasks's doc comment). dueTodayCount/
   // nextDueTitle keep the same shape as School's (deadline-day match,

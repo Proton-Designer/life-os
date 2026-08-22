@@ -7,8 +7,12 @@ function noop() {
   return Promise.resolve();
 }
 
+// GoalCard now owns the read-view/edit-toggle/save behavior itself (see
+// components/shared/__tests__/goal-card.test.tsx for that coverage) —
+// WeeklyFocus's own tests just confirm it wires the right goal data,
+// showQuranTarget, and save callback into each domain's GoalCard.
 describe("WeeklyFocus", () => {
-  it("shows the Deen headline and milestones when a Deen goal exists", () => {
+  it("shows the Deen headline, milestones, and Qur'an progress when a Deen goal exists", () => {
     render(
       <WeeklyFocus
         deen={{ headline: "Finish Juz 5", milestones: ["Read after Fajr", "Review with tutor"], quranPages: 12, quranTarget: 20 }}
@@ -21,35 +25,10 @@ describe("WeeklyFocus", () => {
     expect(screen.getByText("Finish Juz 5")).toBeInTheDocument();
     expect(screen.getByText("Read after Fajr")).toBeInTheDocument();
     expect(screen.getByText("Review with tutor")).toBeInTheDocument();
-  });
-
-  it("shows the Qur'an progress line only when a quranTarget is set", () => {
-    render(
-      <WeeklyFocus
-        deen={{ headline: "Finish Juz 5", milestones: [], quranPages: 12, quranTarget: 20 }}
-        business={null}
-        showPlanningNudge={false}
-        onSaveDeen={noop}
-        onSaveBusiness={noop}
-      />
-    );
     expect(screen.getByText("Qur'an 12/20 pages")).toBeInTheDocument();
   });
 
-  it("omits the Qur'an progress line when quranTarget is null", () => {
-    render(
-      <WeeklyFocus
-        deen={{ headline: "Finish Juz 5", milestones: [], quranPages: 12, quranTarget: null }}
-        business={null}
-        showPlanningNudge={false}
-        onSaveDeen={noop}
-        onSaveBusiness={noop}
-      />
-    );
-    expect(screen.queryByText(/Qur'an/)).not.toBeInTheDocument();
-  });
-
-  it("shows the Business headline and milestones when a Business goal exists", () => {
+  it("shows the Business headline and milestones when a Business goal exists, with no Qur'an line", () => {
     render(
       <WeeklyFocus
         deen={null}
@@ -61,74 +40,34 @@ describe("WeeklyFocus", () => {
     );
     expect(screen.getByText("Close 3 deals")).toBeInTheDocument();
     expect(screen.getByText("Follow up with lead A")).toBeInTheDocument();
+    expect(screen.queryByText(/Qur'an/)).not.toBeInTheDocument();
   });
 
-  it("labels each block with its domain name when a goal is set, so the attribution is visible", () => {
-    render(
-      <WeeklyFocus
-        deen={{ headline: "Finish Juz 5", milestones: [], quranPages: 0, quranTarget: null }}
-        business={{ headline: "Close 3 deals", milestones: [] }}
-        showPlanningNudge={false}
-        onSaveDeen={noop}
-        onSaveBusiness={noop}
-      />
-    );
-    expect(screen.getByText("Deen")).toBeInTheDocument();
-    expect(screen.getByText("Business")).toBeInTheDocument();
-  });
-
-  it("opens straight into the editable goal form for a domain with no goal set yet, no read-only link to click through", () => {
+  it("opens straight into the editable goal form for a domain with no goal set yet", () => {
     render(<WeeklyFocus deen={null} business={null} showPlanningNudge={false} onSaveDeen={noop} onSaveBusiness={noop} />);
-    // GoalCard renders the domain title as a heading, and a headline input per domain.
-    expect(screen.getAllByText("Deen").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Business").length).toBeGreaterThan(0);
     expect(screen.getAllByPlaceholderText("This week's headline goal")).toHaveLength(2);
   });
 
-  it("shows a pencil edit control on a domain that already has a goal, and switches to the editable form on click", async () => {
-    render(
-      <WeeklyFocus
-        deen={{ headline: "Finish Juz 5", milestones: [], quranPages: 0, quranTarget: null }}
-        business={{ headline: "Close 3 deals", milestones: [] }}
-        showPlanningNudge={false}
-        onSaveDeen={noop}
-        onSaveBusiness={noop}
-      />
-    );
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Edit this week's Deen goal" }));
-
-    expect(screen.getByPlaceholderText("This week's headline goal")).toHaveValue("Finish Juz 5");
-  });
-
-  it("calls the domain's own save callback with the edited headline, and returns to the read view after saving", async () => {
-    // Props stay whatever the test passed in — a real page revalidates and
-    // streams a fresh `deen` prop after the server action resolves (same
-    // reliance as the Co-op TargetRow/TaskCard edit-toggle pattern), which
-    // this render-only test doesn't simulate. Starting from an existing
-    // (non-null) goal, rather than null, keeps the post-save read view from
-    // rendering a goal that's still null.
-    // business is set (not null) so it stays in read view — otherwise both
-    // domains open into edit mode at once and their identical "This week's
-    // headline goal" placeholders collide.
+  it("routes each domain's edited headline to its own save callback", async () => {
     const onSaveDeen = vi.fn(() => Promise.resolve());
+    const onSaveBusiness = vi.fn(() => Promise.resolve());
     render(
       <WeeklyFocus
         deen={{ headline: "Finish Juz 5", milestones: [], quranPages: 0, quranTarget: null }}
         business={{ headline: "Close 3 deals", milestones: [] }}
         showPlanningNudge={false}
         onSaveDeen={onSaveDeen}
-        onSaveBusiness={noop}
+        onSaveBusiness={onSaveBusiness}
       />
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Edit this week's Deen goal" }));
+    await user.click(screen.getByRole("button", { name: "Edit Deen" }));
     await user.clear(screen.getByPlaceholderText("This week's headline goal"));
     await user.type(screen.getByPlaceholderText("This week's headline goal"), "Finish Juz 10");
     await user.click(screen.getByRole("button", { name: "Save goal" }));
 
     expect(onSaveDeen).toHaveBeenCalledWith("Finish Juz 10", [], undefined);
-    expect(await screen.findByText("Finish Juz 5")).toBeInTheDocument();
+    expect(onSaveBusiness).not.toHaveBeenCalled();
   });
 
   it("shows the weekend planning nudge when showPlanningNudge is true", () => {

@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the Co-op Weekly Agenda + pipeline board — no React,
+ * Pure helpers for the Work Weekly Agenda + pipeline board — no React,
  * no I/O. docs/superpowers/specs/2026-08-20-coop-redesign.md.
  *
  * Agenda and pipeline are ONE set of rows, not two (Opus Lead ruling 1):

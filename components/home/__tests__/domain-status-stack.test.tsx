@@ -30,7 +30,7 @@ describe("DomainStatusStack", () => {
   it("renders all 5 domains as links to their own page", () => {
     render(<DomainStatusStack snapshots={SNAPSHOTS} />);
     expect(screen.getByRole("link", { name: /Deen/ })).toHaveAttribute("href", "/deen");
-    expect(screen.getByRole("link", { name: /Co-op/ })).toHaveAttribute("href", "/co-op");
+    expect(screen.getByRole("link", { name: /Work/ })).toHaveAttribute("href", "/work");
   });
 
   it("shows a domain-appropriate live metric per row", () => {

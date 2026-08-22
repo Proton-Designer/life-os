@@ -4,15 +4,15 @@ import { dayOfWeekFromDateString } from "@/lib/date-utils";
 export type PulseDataSource = {
   getPrayers: (userId: string, date: string) => Promise<{ prayer_name: string; status: string }[]>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
-  /** School only now — Co-op moved off the shared `tasks` table entirely (coop_targets/coop_tasks) and gets its own pipeline-driven source below. */
+  /** School only now — Work moved off the shared `tasks` table entirely (coop_targets/coop_tasks) and gets its own pipeline-driven source below. */
   getSchoolTasks: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
   /**
-   * Co-op's pulse used to come from the same due-date `tasks` query as
-   * School, which stopped matching Co-op's real model the moment it moved
+   * Work's pulse used to come from the same due-date `tasks` query as
+   * School, which stopped matching Work's real model the moment it moved
    * to Targets/Agenda/Pipeline (docs/superpowers/specs/2026-08-20-coop-redesign.md)
    * — a due-date-shaped question asked of a pipeline-shaped domain, same
    * class of drift as this file's own workout_id repoint comment.
-   * Completion of the CURRENT target's (position 1) tasks is what "Co-op
+   * Completion of the CURRENT target's (position 1) tasks is what "Work
    * progress" now actually means; with no current target, or a target
    * with zero tasks, this returns [] and safeFraction below correctly
    * reads that as null — nothing tracked, not zero progress.

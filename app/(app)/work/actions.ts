@@ -8,10 +8,10 @@ export async function addScheduleEvent(
   options: { isRecurring: boolean; dayOfWeek?: number; eventDate?: string; eventTime?: string }
 ): Promise<void> {
   await addScheduleEventCore("co_op", title, options);
-  revalidatePath("/co-op");
+  revalidatePath("/work");
 }
 
 export async function cancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
   await cancelScheduleOccurrenceCore(eventId, date);
-  revalidatePath("/co-op");
+  revalidatePath("/work");
 }

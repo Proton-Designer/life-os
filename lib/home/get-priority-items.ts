@@ -176,7 +176,7 @@ export async function getPriorityItems(
     });
   }
 
-  // School / Co-op: tasks due today
+  // School / Work: tasks due today
   for (const task of taskRows) {
     if (task.completed || !task.due_date) continue;
     const dueAt = task.due_time ? resolveLocalTime(task.due_date, task.due_time, timezone) : null;

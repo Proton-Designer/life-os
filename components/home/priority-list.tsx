@@ -13,7 +13,7 @@ const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
   business: "Business",
   fitness: "Fitness",
   school: "School",
-  co_op: "Co-op",
+  co_op: "Work",
 };
 
 const DOMAIN_ACCENT_CLASS: Record<PriorityItem["domain"], string> = {

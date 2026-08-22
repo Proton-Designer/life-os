@@ -34,7 +34,7 @@ describe("MobileIsland", () => {
     expect(screen.getAllByTestId(/^mobile-island-item-/)).toHaveLength(5);
   });
 
-  it("reveals Fitness and Co-op links when tapping More", async () => {
+  it("reveals Fitness and Work links when tapping More", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);
 
@@ -43,7 +43,7 @@ describe("MobileIsland", () => {
     await user.click(screen.getByRole("button", { name: /more/i }));
 
     expect(screen.getByRole("link", { name: /fitness/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /co-op/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /work/i })).toBeInTheDocument();
   });
 
   it("marks the active route with aria-current", () => {
@@ -78,6 +78,6 @@ describe("MobileIsland", () => {
     }
     await user.click(screen.getByRole("button", { name: /more/i }));
     expect(screen.getByRole("link", { name: /fitness/i })).toHaveAttribute("data-prefetch", "true");
-    expect(screen.getByRole("link", { name: /co-op/i })).toHaveAttribute("data-prefetch", "true");
+    expect(screen.getByRole("link", { name: /work/i })).toHaveAttribute("data-prefetch", "true");
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
@@ -8,12 +9,22 @@ import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import type { Domain } from "@/lib/home/types";
 
+/**
+ * Read view by default, an editable form only while `editing` — a goal
+ * that's never been set opens straight into the form (nothing to read yet).
+ * Saving returns to the read view (2026-08-21: previously the form was the
+ * only view this component had, on both Home and Business; the toggle
+ * behavior built for Home's "This week's focus" is now the one and only
+ * behavior, so every caller gets it for free instead of Home re-implementing
+ * it as its own wrapper around a form-only GoalCard).
+ */
 export function GoalCard({
   title,
   domain,
   headline: initialHeadline,
   milestones: initialMilestones,
   quranPageTarget: initialQuranPageTarget,
+  quranPagesRead,
   showQuranTarget,
   locked,
   onSave,
@@ -24,6 +35,8 @@ export function GoalCard({
   headline: string;
   milestones: string[];
   quranPageTarget?: number | null;
+  /** Current progress against quranPageTarget, shown in the read view only ("Qur'an X/Y pages"). */
+  quranPagesRead?: number;
   showQuranTarget?: boolean;
   locked: boolean;
   onSave: (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
@@ -33,6 +46,7 @@ export function GoalCard({
    * stays domain-agnostic; the wording itself belongs to the page. */
   emptyStateFraming?: React.ReactNode;
 }) {
+  const [editing, setEditing] = useState(!initialHeadline && initialMilestones.length === 0);
   const [isPending, startTransition] = useTransition();
   const [headline, setHeadline] = useState(initialHeadline);
   const [milestonesText, setMilestonesText] = useState(initialMilestones.join("\n"));
@@ -47,17 +61,56 @@ export function GoalCard({
       .split("\n")
       .map((m) => m.trim())
       .filter(Boolean);
-    startTransition(() =>
-      onSave(headline, milestones, quranPageTarget ? Number(quranPageTarget) : undefined)
+    startTransition(async () => {
+      await onSave(headline, milestones, quranPageTarget ? Number(quranPageTarget) : undefined);
+      setEditing(false);
+    });
+  }
+
+  const header = (
+    <h3 className="flex items-center justify-between gap-2.5 text-sm font-semibold text-muted-foreground">
+      <span className="flex items-center gap-2.5">
+        <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
+        {title}
+      </span>
+      {!editing && !locked && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setEditing(true)}
+          aria-label={`Edit ${title}`}
+        >
+          <Pencil />
+        </Button>
+      )}
+    </h3>
+  );
+
+  if (!editing) {
+    return (
+      <div className="flex flex-col gap-1.5 rounded-2xl border border-border/40 bg-card p-4">
+        {header}
+        <p className="font-medium">{initialHeadline}</p>
+        {initialMilestones.length > 0 && (
+          <ul className="list-inside list-disc text-sm text-muted-foreground">
+            {initialMilestones.map((m, i) => (
+              <li key={i}>{m}</li>
+            ))}
+          </ul>
+        )}
+        {showQuranTarget && initialQuranPageTarget != null && (
+          <p className="text-sm text-muted-foreground">
+            Qur&apos;an {quranPagesRead ?? 0}/{initialQuranPageTarget} pages
+          </p>
+        )}
+      </div>
     );
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
-      <h3 className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground">
-        <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
-        {title}
-      </h3>
+      {header}
       {emptyStateFraming && !initialHeadline && initialMilestones.length === 0 && (
         <p className="text-xs text-muted-foreground">{emptyStateFraming}</p>
       )}

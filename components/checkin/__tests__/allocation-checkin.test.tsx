@@ -33,7 +33,7 @@ describe("AllocationCheckin", () => {
     expect(screen.getByText("Deen")).toBeInTheDocument();
     expect(screen.getByText("15m")).toBeInTheDocument();
     expect(screen.getByText("1h 00m")).toBeInTheDocument();
-    // School/Fitness/Co-op are all zero — at least one "0m" per unset domain.
+    // School/Fitness/Work are all zero — at least one "0m" per unset domain.
     expect(screen.getAllByText("0m").length).toBeGreaterThanOrEqual(3);
   });
 
@@ -167,7 +167,7 @@ describe("AllocationCheckin", () => {
 
   it("a full allocation is keyboard-completable without ever dragging — every control is a real, focusable button", () => {
     renderCheckin({ initialAllocation: emptyAllocation() });
-    for (const domain of ["Deen", "Business", "School", "Fitness", "Co-op"]) {
+    for (const domain of ["Deen", "Business", "School", "Fitness", "Work"]) {
       const plus = screen.getByRole("button", { name: `Increase ${domain}` });
       const minus = screen.getByRole("button", { name: `Decrease ${domain}` });
       const select = screen.getByRole("button", { name: `Select ${domain}` });

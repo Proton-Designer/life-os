@@ -43,7 +43,7 @@ const DOMAIN_LABEL: Record<NotificationItem["domain"], string> = {
   business: "Business",
   fitness: "Fitness",
   school: "School",
-  co_op: "Co-op",
+  co_op: "Work",
 };
 
 export function NotificationsBell() {

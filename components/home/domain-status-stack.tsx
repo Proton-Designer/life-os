@@ -10,7 +10,7 @@ const DOMAIN_LABEL: Record<keyof DomainSnapshots, string> = {
   business: "Business",
   fitness: "Fitness",
   school: "School",
-  co_op: "Co-op",
+  co_op: "Work",
 };
 
 const DOMAIN_HREF: Record<keyof DomainSnapshots, string> = {
@@ -18,7 +18,7 @@ const DOMAIN_HREF: Record<keyof DomainSnapshots, string> = {
   business: "/business",
   fitness: "/fitness",
   school: "/school",
-  co_op: "/co-op",
+  co_op: "/work",
 };
 
 function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {

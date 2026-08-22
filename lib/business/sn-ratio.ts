@@ -21,7 +21,7 @@ const OTHER_COMMITMENT_DOMAINS = new Set(["school", "fitness", "co_op"]);
  * (docs/superpowers/specs/2026-08-19-checkin-allocation-system.md):
  * Signal = Deen + Business, his stated priorities — "after deen, my
  * priority is business... I can't include everything under signal, it has
- * to be priority based." Noise = School + Fitness + Co-op + Wasted —
+ * to be priority based." Noise = School + Fitness + Work + Wasted —
  * everything else. Sleep is outside the measurement window entirely and
  * never queried, so it's neither signal nor noise, not just excluded here.
  *

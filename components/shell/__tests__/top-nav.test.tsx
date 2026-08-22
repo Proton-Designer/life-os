@@ -30,7 +30,7 @@ import { TopNav } from "../top-nav";
 describe("TopNav", () => {
   it("renders an icon for every nav item", () => {
     render(<TopNav />);
-    for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Co-op"]) {
+    for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work"]) {
       const link = screen.getByRole("link", { name: new RegExp(label, "i") });
       expect(link.querySelector("svg")).toBeInTheDocument();
     }
@@ -58,7 +58,7 @@ describe("TopNav", () => {
 
   it("prefetches every link, including the brand mark and Settings (navigation-prefetch-fix, Part A)", () => {
     render(<TopNav />);
-    for (const label of ["Life OS", "Home", "Deen", "Business", "Fitness", "School", "Co-op", "Settings"]) {
+    for (const label of ["Life OS", "Home", "Deen", "Business", "Fitness", "School", "Work", "Settings"]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") });
       expect(link).toHaveAttribute("data-prefetch", "true");
     }

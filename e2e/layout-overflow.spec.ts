@@ -16,7 +16,7 @@ const AUTHED_ROUTES = [
   "/business",
   "/fitness",
   "/school",
-  "/co-op",
+  "/work",
   "/insights",
   "/settings",
   "/onboarding",

@@ -13,7 +13,7 @@ import {
   retreatTask,
   blockTask,
   unblockTask,
-} from "@/app/(app)/co-op/tasks-actions";
+} from "@/app/(app)/work/tasks-actions";
 
 /**
  * The creation-and-list surface over the current target's tasks (Opus

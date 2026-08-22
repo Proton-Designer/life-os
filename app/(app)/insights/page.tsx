@@ -66,7 +66,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   business: "Business",
   school: "School",
   fitness: "Fitness",
-  co_op: "Co-op",
+  co_op: "Work",
   wasted: "Wasted",
 };
 

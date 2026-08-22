@@ -107,7 +107,7 @@ export function defaultDataSource(): DayShapeDataSource {
 
 /**
  * Today's prayers as windows+derived-status, plus the day's other activity
- * blocks (scheduled workout, timed School/Co-op tasks, focus/Lock-In
+ * blocks (scheduled workout, timed School/Work tasks, focus/Lock-In
  * sessions) — the raw material for DayRibbon. Genuinely new data assembly,
  * not a re-render of the old point-marker version: this is the one place
  * "here's my whole day's shape" exists cross-domain in the app.

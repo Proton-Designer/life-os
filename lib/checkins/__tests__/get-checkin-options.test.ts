@@ -56,7 +56,7 @@ describe("getCheckinOptions", () => {
     expect(noise).toMatchObject({ primary: true, refId: null });
   });
 
-  it("always lists School and Co-op as non-primary ('Something else') options", async () => {
+  it("always lists School and Work as non-primary ('Something else') options", async () => {
     const now = new Date("2026-08-10T18:00:00Z");
     const options = await getCheckinOptions("user-1", now, emptyDataSource());
 

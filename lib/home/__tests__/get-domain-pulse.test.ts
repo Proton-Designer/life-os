@@ -50,7 +50,7 @@ describe("getDomainPulse", () => {
     expect(pulse.business).toBeCloseTo(2 / 3);
   });
 
-  it("keeps Co-op and School as independent fractions (no pooling)", async () => {
+  it("keeps Work and School as independent fractions (no pooling)", async () => {
     const dataSource = emptyDataSource({
       getSchoolTasks: async () => [{ completed: true }],
       getCurrentCoopTargetTaskCompletion: async () => [{ completed: false }],
@@ -62,7 +62,7 @@ describe("getDomainPulse", () => {
     expect(pulse.co_op).toBeCloseTo(0 / 1);
   });
 
-  it("has a null School fraction when there are no school tasks today, even if Co-op has tasks", async () => {
+  it("has a null School fraction when there are no school tasks today, even if Work has tasks", async () => {
     const dataSource = emptyDataSource({
       getCurrentCoopTargetTaskCompletion: async () => [{ completed: true }],
     });
@@ -73,7 +73,7 @@ describe("getDomainPulse", () => {
     expect(pulse.co_op).toBe(1);
   });
 
-  it("has a null Co-op fraction with no current target, or a current target with zero tasks", async () => {
+  it("has a null Work fraction with no current target, or a current target with zero tasks", async () => {
     const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource());
 
     expect(pulse.co_op).toBeNull();

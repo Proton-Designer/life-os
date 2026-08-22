@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the Co-op Targets strip — no React, no I/O.
+ * Pure helpers for the Work Targets strip — no React, no I/O.
  * docs/superpowers/specs/2026-08-20-coop-redesign.md.
  *
  * "Target" vs "stretch goal" is never stored as its own flag — it's

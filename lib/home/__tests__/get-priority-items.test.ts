@@ -104,7 +104,7 @@ describe("getPriorityItems", () => {
     expect(items.find((i) => i.actionRefId === "isha")).toBeUndefined();
   });
 
-  it("orders items due at the exact same moment by domain priority (Deen before School/Co-op)", async () => {
+  it("orders items due at the exact same moment by domain priority (Deen before School/Work)", async () => {
     const now = new Date("2026-08-10T00:00:00Z");
     const times = calculatePrayerTimes({
       date: now,

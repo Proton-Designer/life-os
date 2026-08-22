@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Life OS",
-  description: "A personal productivity dashboard for Deen, Business, Fitness, School, and Co-op.",
+  description: "A personal productivity dashboard for Deen, Business, Fitness, School, and Work.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

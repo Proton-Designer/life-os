@@ -10,15 +10,15 @@ vi.mock("@/lib/tasks/actions-core", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathMock(path) }));
 
-// Co-op stopped reading/writing the shared `tasks` table entirely once the
+// Work stopped reading/writing the shared `tasks` table entirely once the
 // old "Task list" panel was removed (Opus Lead, 2026-08-20) — two task
 // systems on one page (coop_tasks-backed Agenda/Pipeline, tasks-backed
 // Task list) meant anything typed into the old panel silently went
 // nowhere: never in the Agenda, never in the Pipeline, and no longer
-// counted toward Home's Co-op progress after the snapshot rewire. Only
+// counted toward Home's Work progress after the snapshot rewire. Only
 // the schedule actions (Work schedule, which Ayman explicitly kept) are
 // left in this file.
-describe("Co-op actions", () => {
+describe("Work actions", () => {
   beforeEach(() => {
     addScheduleEventCoreMock.mockClear();
     cancelScheduleOccurrenceCoreMock.mockClear();
@@ -31,7 +31,7 @@ describe("Co-op actions", () => {
     await addScheduleEvent("Shift", { isRecurring: true, dayOfWeek: 2 });
 
     expect(addScheduleEventCoreMock).toHaveBeenCalledWith("co_op", "Shift", { isRecurring: true, dayOfWeek: 2 });
-    expect(revalidatePathMock).toHaveBeenCalledWith("/co-op");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 
   it("cancelScheduleOccurrence passes through the event id and date, and revalidates", async () => {
@@ -40,6 +40,6 @@ describe("Co-op actions", () => {
     await cancelScheduleOccurrence("event-1", "2026-08-24");
 
     expect(cancelScheduleOccurrenceCoreMock).toHaveBeenCalledWith("event-1", "2026-08-24");
-    expect(revalidatePathMock).toHaveBeenCalledWith("/co-op");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 });

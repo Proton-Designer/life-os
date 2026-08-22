@@ -40,7 +40,7 @@ const DOMAIN_LABEL: Record<DomainKey, string> = {
   business: "Business",
   school: "School",
   fitness: "Fitness",
-  co_op: "Co-op",
+  co_op: "Work",
 };
 
 /**

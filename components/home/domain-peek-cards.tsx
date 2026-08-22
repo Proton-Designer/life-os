@@ -146,7 +146,7 @@ const CARD_HREF: Record<PeekDomain, string> = {
   business: "/business",
   fitness: "/fitness",
   school: "/school",
-  co_op: "/co-op",
+  co_op: "/work",
 };
 
 export const ALL_PEEK_DOMAINS: PeekDomain[] = ["deen", "business", "fitness", "school", "co_op"];

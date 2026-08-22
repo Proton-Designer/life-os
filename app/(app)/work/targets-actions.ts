@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { nextStretchPosition, nextTargetPosition, splitTargetsAndStretch, type CoopTargetRow } from "@/lib/coop/targets";
 
 function revalidateCoop(): void {
-  revalidatePath("/co-op");
+  revalidatePath("/work");
   revalidatePath("/");
 }
 

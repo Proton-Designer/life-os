@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { nextStage, previousStage, type CoopTaskStatus } from "@/lib/coop/tasks";
 
 function revalidateCoop(): void {
-  revalidatePath("/co-op");
+  revalidatePath("/work");
   revalidatePath("/");
 }
 

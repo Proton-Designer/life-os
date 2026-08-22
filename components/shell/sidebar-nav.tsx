@@ -24,7 +24,7 @@ const SECTIONS: NavSection[] = [
       { href: "/business", label: "Business", icon: DOMAIN_ICON.business, accent: "business" },
       { href: "/fitness", label: "Fitness", icon: DOMAIN_ICON.fitness, accent: "fitness" },
       { href: "/school", label: "School", icon: DOMAIN_ICON.school, accent: "school" },
-      { href: "/co-op", label: "Co-op", icon: DOMAIN_ICON.co_op, accent: "coop" },
+      { href: "/work", label: "Work", icon: DOMAIN_ICON.co_op, accent: "coop" },
     ],
   },
   {

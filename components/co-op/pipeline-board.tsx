@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { TaskCard } from "@/components/co-op/task-card";
 import { groupByStage, blockedTasks, type CoopTaskRow, type CoopTaskStatus } from "@/lib/coop/tasks";
-import { editTask, removeTask, advanceTask, retreatTask, blockTask, unblockTask } from "@/app/(app)/co-op/tasks-actions";
+import { editTask, removeTask, advanceTask, retreatTask, blockTask, unblockTask } from "@/app/(app)/work/tasks-actions";
 
 const COLUMN_LABELS: Record<Exclude<CoopTaskStatus, "blocked">, string> = {
   backlog: "Backlog",

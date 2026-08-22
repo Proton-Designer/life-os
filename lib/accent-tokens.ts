@@ -20,7 +20,7 @@ export const ACCENT_VAR: Record<AccentToken, string> = {
   warning: "--accent-warning",
 };
 
-// Which accent token a domain renders with. Co-op used to fold onto School's
+// Which accent token a domain renders with. Work used to fold onto School's
 // accent (a real bug — the two are indistinguishable the moment they appear
 // together, e.g. in the Focus Map) until the 2026-08-15 structural refactor
 // gave it its own --accent-coop.

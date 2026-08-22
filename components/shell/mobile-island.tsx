@@ -28,7 +28,7 @@ const PRIMARY_ITEMS: {
 
 const MORE_ITEMS = [
   { href: "/fitness", label: "Fitness", icon: DOMAIN_ICON.fitness },
-  { href: "/co-op", label: "Co-op", icon: DOMAIN_ICON.co_op },
+  { href: "/work", label: "Work", icon: DOMAIN_ICON.co_op },
 ] as const;
 
 function isActive(pathname: string, href: string) {

@@ -155,7 +155,7 @@ function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]
  * loggedPrayerMinutes above), a workout that's BOTH logged AND scheduled
  * with a time falling inside this window -> fitness, using the schedule's
  * real `duration_minutes` when set and only falling back to
- * NOMINAL_WORKOUT_MINUTES when it isn't. School and Co-op have no data
+ * NOMINAL_WORKOUT_MINUTES when it isn't. School and Work have no data
  * source to guess from, so they're always left at 0 — genuinely unknown,
  * not silently assumed zero-effort.
  *

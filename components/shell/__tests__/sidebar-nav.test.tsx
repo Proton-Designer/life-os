@@ -46,7 +46,7 @@ describe("SidebarNav", () => {
       "Business",
       "Fitness",
       "School",
-      "Co-op",
+      "Work",
       "Insights",
       "Settings",
     ]) {
@@ -78,13 +78,13 @@ describe("SidebarNav", () => {
     expect(insights).not.toHaveAttribute("aria-current");
   });
 
-  it("gives Co-op its own coop accent, not School's", () => {
+  it("gives Work its own coop accent, not School's", () => {
     render(<SidebarNav variant="expanded" />);
     // Simulate co-op active by re-rendering isn't possible with the module
-    // mock fixed to /deen — assert instead that Co-op's underlying accent
+    // mock fixed to /deen — assert instead that Work's underlying accent
     // wiring is independent by checking the rendered link exists distinctly
     // from School's and that neither hardcodes the other's test id.
-    const coop = screen.getByRole("link", { name: "Co-op" });
+    const coop = screen.getByRole("link", { name: "Work" });
     const school = screen.getByRole("link", { name: "School" });
     expect(coop).not.toBe(school);
   });
@@ -124,7 +124,7 @@ describe("SidebarNav", () => {
       "Business",
       "Fitness",
       "School",
-      "Co-op",
+      "Work",
       "Insights",
       "Settings",
     ]) {
