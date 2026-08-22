@@ -262,3 +262,41 @@ deactivateSlot(kind: PlanKind): Promise<void>
 `savePlan` is a full replace of the plan's children, following the existing `save_workout`
 RPC pattern — delete-and-reinsert inside one transaction, so positions never collide.
 Every one of these must re-sync `workout_schedule` when it touches the active routine plan.
+
+---
+
+## Ruling: seed plans become TEMPLATES (Lead, 2026-08-22)
+
+Engineer A asked whether `adoptSessionPlan` / `adoptStarterPlan` survive, since B is
+replacing their only entry point. They do — but not in their current shape.
+
+**Why they survive.** Plans A/B/C were researched and volume-tuned specifically for
+Ayman's equipment, schedule, and recomp goal, with the per-muscle weekly tables in
+`lib/fitness/seed-plans.ts` as their source of truth. Ayman's requirements describe a
+list of *user-created* workouts and say nothing about seeds — but he asked for those
+three plans earlier in the same build, and "you can rebuild them by hand in the builder"
+is not a real answer. Discarding them would throw away the most considered content in
+the feature.
+
+**What replaces the two adopt actions.** One function, writing ONLY the new plan tables
+and never `workouts` / `workout_exercises` / `rep_goals`:
+
+```ts
+export type TemplateKey = "starter_reps" | "plan_a" | "plan_b" | "plan_c";
+
+/** Materialises a template into a real, fully editable workout_plan and activates
+ *  the matching slot (starter_reps → micro, plan_a|b|c → routine). Idempotent by
+ *  (user_id, lower(name)) — re-running returns the existing plan rather than a duplicate. */
+createPlanFromTemplate(key: TemplateKey): Promise<{ id: string }>
+```
+
+Once materialised a template is **just a plan** — it appears in the list, edits, deletes,
+and activates like any other. There is no "template" state at runtime and nothing in the
+schema records that a plan came from one. Templates are a starting point, not a category.
+
+`adoptSessionPlan`, `adoptStarterPlan`, and `components/fitness/starter-plan-toggle.tsx`
+are deleted. Ordering matters in a shared tree: **B removes the references first, then A
+deletes the files.** A must not delete something B's page still imports.
+
+**Entry point.** B's new-plan flow gains a template branch: create from scratch, or start
+from a template. Placement is B's call; existence is not optional.
