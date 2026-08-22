@@ -59,10 +59,10 @@ describe("WeeklyGoalStrip", () => {
     expect(screen.queryByText(/Set this week's Business goal/)).not.toBeInTheDocument();
   });
 
-  it("all links go to /weekly-planning and prefetch", () => {
+  it("all links jump to Home's own This week's focus panel and prefetch", () => {
     render(<WeeklyGoalStrip deen={{ headline: "Finish Juz 5" }} business={null} />);
     for (const link of screen.getAllByRole("link")) {
-      expect(link).toHaveAttribute("href", "/weekly-planning");
+      expect(link).toHaveAttribute("href", "#weekly-focus");
       expect(link).toHaveAttribute("data-prefetch", "true");
     }
   });

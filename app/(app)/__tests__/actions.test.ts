@@ -209,6 +209,72 @@ describe("markNotificationReadForNow", () => {
   });
 });
 
+describe("saveWeeklyGoal", () => {
+  function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
+    const chain: Record<string, unknown> = {};
+    for (const method of ["select", "eq", "upsert", "update"]) chain[method] = vi.fn(() => chain);
+    chain.maybeSingle = vi.fn(async () => resolvedValue);
+    chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
+    return chain as {
+      select: ReturnType<typeof vi.fn>;
+      eq: ReturnType<typeof vi.fn>;
+      upsert: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      maybeSingle: ReturnType<typeof vi.fn>;
+    };
+  }
+
+  beforeEach(() => {
+    fromMock.mockReset();
+    getClaimsMock.mockClear();
+  });
+
+  // 2026-08-13 is a Thursday in the week starting Sunday 2026-08-09.
+  const NOW = new Date("2026-08-13T18:00:00Z");
+
+  it("upserts this week's goal keyed by (user_id, week_start_date, domain)", async () => {
+    const profileChain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
+    const weeklyGoalsChain = makeChain({ data: null, error: null }); // no prior week row
+    fromMock.mockImplementation((table: string) => (table === "profiles" ? profileChain : weeklyGoalsChain));
+    const { saveWeeklyGoal } = await import("../actions");
+
+    await saveWeeklyGoal("deen", "Read more Qur'an", ["Finish Juz 5"], 50, NOW);
+
+    expect(weeklyGoalsChain.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "user-1",
+        week_start_date: "2026-08-09",
+        domain: "deen",
+        headline: "Read more Qur'an",
+        milestones: ["Finish Juz 5"],
+        quran_page_target: 50,
+      }),
+      expect.objectContaining({ onConflict: "user_id,week_start_date,domain" })
+    );
+  });
+
+  it("locks last week's row if it exists and isn't already locked", async () => {
+    const profileChain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
+    const weeklyGoalsChain = makeChain({ data: { id: "prev-1", locked: false }, error: null });
+    fromMock.mockImplementation((table: string) => (table === "profiles" ? profileChain : weeklyGoalsChain));
+    const { saveWeeklyGoal } = await import("../actions");
+
+    await saveWeeklyGoal("business", "Close 3 deals", [], undefined, NOW);
+
+    expect(weeklyGoalsChain.update).toHaveBeenCalledWith({ locked: true });
+  });
+
+  it("does not error when no prior week exists (first-ever week)", async () => {
+    const profileChain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
+    const weeklyGoalsChain = makeChain({ data: null, error: null });
+    fromMock.mockImplementation((table: string) => (table === "profiles" ? profileChain : weeklyGoalsChain));
+    const { saveWeeklyGoal } = await import("../actions");
+
+    await expect(saveWeeklyGoal("deen", "First week goal", [], undefined, NOW)).resolves.not.toThrow();
+    expect(weeklyGoalsChain.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("signOut", () => {
   beforeEach(() => {
     signOutMock.mockClear();

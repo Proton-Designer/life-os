@@ -16,7 +16,7 @@ function GoalSlot({ domain, goal }: { domain: Domain; goal: GoalStripEntry }) {
   const content = goal ? goal.headline : `Set this week's ${DOMAIN_LABEL[domain]} goal →`;
   return (
     <Link
-      href="/weekly-planning"
+      href="#weekly-focus"
       prefetch
       className={`flex min-h-11 min-w-0 items-center hover:underline ${DOMAIN_ACCENT_CLASS[domain]}`}
     >
@@ -33,7 +33,7 @@ export function WeeklyGoalStrip({ deen, business }: { deen: GoalStripEntry; busi
       <span className="shrink-0 text-xs font-medium uppercase tracking-wide">This week</span>
       {neitherSet ? (
         <Link
-          href="/weekly-planning"
+          href="#weekly-focus"
           prefetch
           className="flex min-h-11 min-w-0 items-center hover:text-foreground hover:underline"
         >

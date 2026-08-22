@@ -92,7 +92,6 @@ describe("Topbar", () => {
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Insights" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Weekly Planning" })).toBeInTheDocument();
   });
 
   it("closes the drawer on Escape", async () => {

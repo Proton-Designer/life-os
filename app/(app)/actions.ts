@@ -5,7 +5,7 @@ import { getAuthedUser, requireUser, getProfile } from "@/lib/supabase/auth";
 import type { PriorityItem } from "@/lib/home/types";
 import { getNotifications, type NotificationItem } from "@/lib/notifications/get-notifications";
 import { markNotificationRead } from "@/lib/notifications/mark-read";
-import { localDateString } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
@@ -99,6 +99,59 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
       if (error) throw error;
       break;
     }
+  }
+
+  revalidatePath("/");
+}
+
+/**
+ * Weekly goal editing (2026-08-20: relocated from the removed Weekly
+ * Planning page into Home's "This week's focus" panel — see
+ * components/home/weekly-focus.tsx). Behavior unchanged: upserts this
+ * week's row, then locks last week's row on this week's first save, per
+ * the "past weeks are locked/read-only once the week ends" rule.
+ */
+export async function saveWeeklyGoal(
+  domain: "deen" | "business",
+  headline: string,
+  milestones: string[],
+  quranPageTarget?: number,
+  now: Date = new Date()
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const currentWeekStart = getWeekStartDate(localDateString(now, timezone));
+  const previousWeekStart = addDaysToDateString(currentWeekStart, -7);
+
+  const { error: upsertError } = await supabase.from("weekly_goals").upsert(
+    {
+      user_id: userId,
+      week_start_date: currentWeekStart,
+      domain,
+      headline,
+      milestones,
+      quran_page_target: quranPageTarget ?? null,
+    },
+    { onConflict: "user_id,week_start_date,domain" }
+  );
+  if (upsertError) throw upsertError;
+
+  const { data: previousWeek } = await supabase
+    .from("weekly_goals")
+    .select("id, locked")
+    .eq("user_id", userId)
+    .eq("week_start_date", previousWeekStart)
+    .eq("domain", domain)
+    .maybeSingle();
+
+  if (previousWeek && !previousWeek.locked) {
+    const { error: lockError } = await supabase
+      .from("weekly_goals")
+      .update({ locked: true })
+      .eq("id", previousWeek.id);
+    if (lockError) throw lockError;
   }
 
   revalidatePath("/");

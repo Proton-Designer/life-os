@@ -31,7 +31,7 @@ export function KpiCard({
   value: React.ReactNode;
   caption: string;
   delta?: { direction: DeltaDirection; text: string };
-  // Optional inline trend (Weekly Planning's recap tiles) — same Sparkline
+  // Optional inline trend (Insights' Week over week recap tiles) — same Sparkline
   // primitive already used in Reflection/Qur'an, colored to match the
   // card's own accent so it reads as part of the tile, not a bolted-on chart.
   sparkline?: number[];

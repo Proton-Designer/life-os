@@ -130,7 +130,7 @@ export function NextActions({
       <EmptyState
         icon={ListChecks}
         message={isFreshInstall ? "Welcome — head into a domain tab to get started" : "You're all clear"}
-        action={{ label: "Plan the week", href: "/weekly-planning" }}
+        action={{ label: "Plan the week", href: "#weekly-focus" }}
       />
     );
   }

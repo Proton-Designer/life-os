@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { Home, TrendingUp, CalendarRange, Settings, type LucideIcon } from "lucide-react";
+import { Home, TrendingUp, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -29,10 +29,7 @@ const SECTIONS: NavSection[] = [
   },
   {
     label: "REVIEW",
-    items: [
-      { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
-      { href: "/weekly-planning", label: "Weekly Planning", icon: CalendarRange, accent: "info" },
-    ],
+    items: [{ href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" }],
   },
   {
     label: "SYSTEM",

@@ -35,7 +35,7 @@ describe("NextActions", () => {
   it("shows the all-clear empty state with a planning link when nothing is pending", () => {
     render(<NextActions items={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
     expect(screen.getByText("You're all clear")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Plan the week" })).toHaveAttribute("href", "/weekly-planning");
+    expect(screen.getByRole("link", { name: "Plan the week" })).toHaveAttribute("href", "#weekly-focus");
   });
 
   it("shows the fresh-install copy instead when isFreshInstall and nothing is pending", () => {

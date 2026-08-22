@@ -25,6 +25,7 @@ import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { createExercise } from "@/app/(app)/fitness/workouts/actions";
 import { quickLogExercise, confirmWorkoutSession } from "@/app/(app)/fitness/actions";
+import { saveWeeklyGoal } from "@/app/(app)/actions";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -179,6 +180,8 @@ export default async function HomePage() {
 
       <WeeklyGoalStrip deen={deenGoal} business={businessGoal} />
 
+      <DomainStatusStack snapshots={snapshots} title="Sector progress" />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
           <Panel title="Now">
@@ -225,15 +228,16 @@ export default async function HomePage() {
         )}
       </Panel>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-8">
-          <Panel title="This week's focus">
-            <WeeklyFocus deen={deenGoal} business={businessGoal} showPlanningNudge={showPlanningNudge} />
-          </Panel>
-        </div>
-        <div className="lg:col-span-4">
-          <DomainStatusStack snapshots={snapshots} title="Sector progress" />
-        </div>
+      <div id="weekly-focus" className="scroll-mt-20">
+        <Panel title="This week's focus">
+          <WeeklyFocus
+            deen={deenGoal}
+            business={businessGoal}
+            showPlanningNudge={showPlanningNudge}
+            onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
+            onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
+          />
+        </Panel>
       </div>
     </PageContainer>
   );

@@ -38,7 +38,7 @@ describe("SidebarNav", () => {
     expect(screen.getByText("SYSTEM")).toBeInTheDocument();
   });
 
-  it("renders every one of the 9 routes with an icon", () => {
+  it("renders every one of the 8 routes with an icon", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
@@ -48,7 +48,6 @@ describe("SidebarNav", () => {
       "School",
       "Co-op",
       "Insights",
-      "Weekly Planning",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -70,7 +69,7 @@ describe("SidebarNav", () => {
     expect(inactive.style.color).toBe("");
   });
 
-  it("tints Home/Insights/Weekly Planning/Settings with the info accent when active", () => {
+  it("tints Home/Insights/Settings with the info accent when active", () => {
     render(<SidebarNav variant="expanded" />);
     // Deen is active per the mocked pathname; Insights is not, so it should
     // carry no tint — this just confirms it *would* use info, not a domain
@@ -127,7 +126,6 @@ describe("SidebarNav", () => {
       "School",
       "Co-op",
       "Insights",
-      "Weekly Planning",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });

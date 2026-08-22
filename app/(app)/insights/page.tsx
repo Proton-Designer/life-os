@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Radar, Volume2, Target } from "lucide-react";
+import { Radar, Volume2, Target, Flame, CheckCircle2, BookOpen } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
@@ -10,6 +10,7 @@ import { getWeeklyCompletion } from "@/lib/home/get-weekly-completion";
 import { bucketSignalNoiseByWeek, type SnAllocationRow, type WeekBoundary } from "@/lib/business/sn-trend";
 import { getSignalNoiseForRange } from "@/lib/business/sn-ratio";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
+import { buildWeeklyRecap, type WeekWindow } from "@/lib/weekly-planning/weekly-recap";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -25,6 +26,37 @@ import { AreaChart } from "@/components/charts/area-chart";
 import { BarChart } from "@/components/charts/bar-chart";
 
 const SN_WEEK_COUNT = 6;
+const RECAP_WEEK_COUNT = 6;
+
+// Opus Lead review (2026-08-16, originally on the now-removed Weekly
+// Planning page): BarChart's own empty state only fires when `bars` itself
+// is empty — with 6 weeks of real zero *values* it still renders a live (if
+// invisible) chart. In a small-multiples grid a bare axis reads as "nothing
+// happened," which is defensible, but with two of four panels empty at once
+// it's a lot of dead space. A compact line beats an invisible chart.
+function SmallMultiple({
+  label,
+  bars,
+  colorVar,
+}: {
+  label: string;
+  bars: { label: string; value: number }[];
+  colorVar: string;
+}) {
+  const hasData = bars.some((b) => b.value !== 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      {hasData ? (
+        <BarChart bars={bars} colorVar={colorVar} highlightIndex={bars.length - 1} />
+      ) : (
+        <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
+          No data this window
+        </p>
+      )}
+    </div>
+  );
+}
 
 // Allocation domains (2026-08-19: converted off the old tag_type vocabulary
 // — kill_list/workout/school_co_op/noise/other_work don't exist in this
@@ -101,8 +133,37 @@ export default async function InsightsPage({
     label: new Date(`${ws}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
   }));
 
+  // --- Week over week recap (2026-08-20: relocated here from the removed
+  // Weekly Planning page) — strictly the last RECAP_WEEK_COUNT *completed*
+  // weeks (ending at previousWeekStart), deliberately not the same window
+  // as snWeeks above, which runs through the current still-accruing week.
+  const recapWeekStarts = Array.from({ length: RECAP_WEEK_COUNT }, (_, i) =>
+    addDaysToDateString(previousWeekStart, -7 * (RECAP_WEEK_COUNT - 1 - i))
+  );
+  const recapWeeks: WeekWindow[] = recapWeekStarts.map((ws) => ({
+    weekStart: ws,
+    label: new Date(`${ws}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+  }));
+  const recapSnWeeks: WeekBoundary[] = recapWeekStarts.map((ws, i) => ({
+    weekStartIso: resolveLocalTime(ws, "00:00", timezone).toISOString(),
+    weekEndIso: resolveLocalTime(addDaysToDateString(ws, 7), "00:00", timezone).toISOString(),
+    label: recapWeeks[i].label,
+  }));
+  const earliestRecapWeekStart = recapWeekStarts[0];
+
   const supabase = await createClient();
-  const [{ segments }, kpis, weeklyCompletion, { data: snCheckinRows }, rangeSn] = await Promise.all([
+  const [
+    { segments },
+    kpis,
+    weeklyCompletion,
+    { data: snCheckinRows },
+    rangeSn,
+    { data: recapPrayerRows },
+    { data: recapKillListRows },
+    { data: recapQuranRows },
+    { data: recapCheckinRows },
+    { data: previousDeenGoal },
+  ] = await Promise.all([
     getFocusMap(userId, range, anchor),
     getInsightsKpis(userId, weekStart, previousWeekStart, timezone),
     getWeeklyCompletion(userId, now, profile),
@@ -113,6 +174,37 @@ export default async function InsightsPage({
       .eq("kind", "allocation")
       .gte("window_start", snWeeks[0].weekStartIso),
     getSignalNoiseForRange(userId, range, anchor),
+    supabase
+      .from("prayers")
+      .select("date, status")
+      .eq("user_id", userId)
+      .gte("date", earliestRecapWeekStart)
+      .lt("date", weekStart),
+    supabase
+      .from("kill_list_items")
+      .select("date, completed")
+      .eq("user_id", userId)
+      .gte("date", earliestRecapWeekStart)
+      .lt("date", weekStart),
+    supabase
+      .from("quran_sessions")
+      .select("date, pages_read")
+      .eq("user_id", userId)
+      .gte("date", earliestRecapWeekStart)
+      .lt("date", weekStart),
+    supabase
+      .from("checkins")
+      .select("window_start, checkin_allocations(domain, minutes)")
+      .eq("user_id", userId)
+      .eq("kind", "allocation")
+      .gte("window_start", recapSnWeeks[0].weekStartIso),
+    supabase
+      .from("weekly_goals")
+      .select("quran_page_target")
+      .eq("user_id", userId)
+      .eq("domain", "deen")
+      .eq("week_start_date", previousWeekStart)
+      .maybeSingle(),
   ]);
 
   const hasFocusData = segments.length > 0;
@@ -136,6 +228,20 @@ export default async function InsightsPage({
     value: w.noiseMinutes === 0 ? w.signalMinutes / 15 : Math.round((w.signalMinutes / w.noiseMinutes) * 10) / 10,
   }));
   const hasAnySnWeekData = snByWeek.some((w) => w.signalMinutes + w.noiseMinutes > 0);
+
+  // --- Week over week recap (relocated from Weekly Planning) ---
+  const recap = buildWeeklyRecap(recapPrayerRows ?? [], recapKillListRows ?? [], recapQuranRows ?? [], recapWeeks);
+  const recapSnAllocationRows: SnAllocationRow[] = (recapCheckinRows ?? []).flatMap((c) =>
+    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes }))
+  );
+  const recapSnByWeek = bucketSignalNoiseByWeek(recapSnAllocationRows, recapSnWeeks);
+  const recapSnBars = recapSnByWeek.map((w) => ({
+    label: w.label,
+    value: w.noiseMinutes === 0 ? w.signalMinutes / 15 : Math.round((w.signalMinutes / w.noiseMinutes) * 10) / 10,
+  }));
+  const lastWeekRecap = recap[recap.length - 1];
+  const priorWeekRecap = recap[recap.length - 2];
+  const lastWeekRecapSn = recapSnByWeek[recapSnByWeek.length - 1];
 
   const weeklyAvgPct = Math.round(
     weeklyCompletion.weeklyCompletionPct.reduce((a, b) => a + b, 0) / weeklyCompletion.weeklyCompletionPct.length
@@ -254,6 +360,83 @@ export default async function InsightsPage({
           />
         </Panel>
       )}
+
+      {/* Week over week (2026-08-20: relocated from the removed Weekly
+          Planning page, whole and unchanged — its goal-editing half moved
+          to Home's "This week's focus" panel instead). Strictly the last 6
+          COMPLETED weeks (ends at last week), unlike the current-week-
+          inclusive Signal:Noise panel above. */}
+      <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-4">
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Flame}
+            accent="deen"
+            label="Prayers on time"
+            value={`${lastWeekRecap.prayersOnTime}/35`}
+            caption="last week"
+            sparkline={recap.map((r) => r.prayersOnTime)}
+            delta={
+              priorWeekRecap
+                ? {
+                    direction: lastWeekRecap.prayersOnTime >= priorWeekRecap.prayersOnTime ? "up" : "down",
+                    text: `${lastWeekRecap.prayersOnTime - priorWeekRecap.prayersOnTime >= 0 ? "+" : ""}${lastWeekRecap.prayersOnTime - priorWeekRecap.prayersOnTime}`,
+                  }
+                : undefined
+            }
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={CheckCircle2}
+            accent="business"
+            label="Days cleared"
+            value={`${lastWeekRecap.killListDaysCleared}/7`}
+            caption="kill list, last week"
+            sparkline={recap.map((r) => r.killListDaysCleared)}
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={BookOpen}
+            accent="deen"
+            label="Qur'an pages"
+            value={`${lastWeekRecap.quranPages}`}
+            caption={previousDeenGoal?.quran_page_target ? `target: ${previousDeenGoal.quran_page_target}` : "last week"}
+            sparkline={recap.map((r) => r.quranPages)}
+          />
+        </div>
+        <div className="w-[78vw] shrink-0 snap-start md:w-auto">
+          <KpiCard
+            icon={Target}
+            accent="business"
+            label="Signal:Noise"
+            value={lastWeekRecapSn.signalMinutes + lastWeekRecapSn.noiseMinutes === 0 ? "—" : lastWeekRecapSn.display}
+            caption={lastWeekRecapSn.signalMinutes + lastWeekRecapSn.noiseMinutes === 0 ? "No check-ins last week" : "last week"}
+            sparkline={recapSnBars.map((b) => b.value)}
+          />
+        </div>
+      </div>
+
+      <Panel title="Week over week">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          <SmallMultiple
+            label="Prayers on time"
+            bars={recap.map((r) => ({ label: r.label, value: r.prayersOnTime }))}
+            colorVar="--series-deen"
+          />
+          <SmallMultiple
+            label="Days cleared"
+            bars={recap.map((r) => ({ label: r.label, value: r.killListDaysCleared }))}
+            colorVar="--series-business"
+          />
+          <SmallMultiple
+            label="Qur'an pages"
+            bars={recap.map((r) => ({ label: r.label, value: r.quranPages }))}
+            colorVar="--series-deen"
+          />
+          <SmallMultiple label="Signal:Noise" bars={recapSnBars} colorVar="--series-business" />
+        </div>
+      </Panel>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-7">

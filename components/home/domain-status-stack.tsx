@@ -1,4 +1,4 @@
-import { ListRow } from "@/components/ui/list-row";
+import Link from "next/link";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ProgressRing } from "@/components/charts/progress-ring";
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
@@ -43,32 +43,41 @@ function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {
 }
 
 // The ONLY place Home shows domain-scoped status, per the one-metric rule.
+// Horizontal, not a vertical list (2026-08-20 relocation to the top of
+// Home) — each sector is its own card with name+metric on one side and the
+// progress ring on the other ("side by side" per Ayman), snap-scrolling on
+// mobile like every other top-of-page strip in this app (Deen/Insights/
+// Weekly Planning's own KPI rows) rather than a bespoke mobile treatment.
 export function DomainStatusStack({ snapshots, title }: { snapshots: DomainSnapshots; title?: string }) {
   const domains: (keyof DomainSnapshots)[] = ["deen", "business", "fitness", "school", "co_op"];
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-card px-3">
-      {title && <div className="px-1 pt-3 text-sm font-medium">{title}</div>}
-      <div className="divide-y divide-border/40">
+    <div className="flex flex-col gap-2">
+      {title && <p className="text-sm font-medium">{title}</p>}
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:grid md:grid-cols-5 md:overflow-visible">
         {domains.map((domain) => {
           const accent = DOMAIN_ACCENT[domain === "co_op" ? "co_op" : domain];
           const pulse = snapshots[domain].pulse;
           return (
-            <ListRow
+            <Link
               key={domain}
               href={DOMAIN_HREF[domain]}
-              leading={<IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />}
-              label={DOMAIN_LABEL[domain]}
-              meta={metricFor(domain, snapshots)}
-              trailing={
-                <ProgressRing
-                  pct={pulse === null ? null : Math.round(pulse * 100)}
-                  colorVar={ACCENT_VAR[accent]}
-                  size={44}
-                  strokeWidth={4}
-                />
-              }
-            />
+              className="flex w-[46vw] shrink-0 snap-start items-center justify-between gap-2 rounded-2xl border border-border/40 bg-card p-3 text-left transition-colors hover:bg-foreground/[0.03] md:w-auto"
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{DOMAIN_LABEL[domain]}</p>
+                  <p className="truncate text-xs text-muted-foreground">{metricFor(domain, snapshots)}</p>
+                </div>
+              </div>
+              <ProgressRing
+                pct={pulse === null ? null : Math.round(pulse * 100)}
+                colorVar={ACCENT_VAR[accent]}
+                size={40}
+                strokeWidth={4}
+              />
+            </Link>
           );
         })}
       </div>

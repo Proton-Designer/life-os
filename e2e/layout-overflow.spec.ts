@@ -18,7 +18,6 @@ const AUTHED_ROUTES = [
   "/school",
   "/co-op",
   "/insights",
-  "/weekly-planning",
   "/settings",
   "/onboarding",
 ];
