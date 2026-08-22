@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { expandPlanToWeek } from "@/lib/fitness/plan-schedule";
 import type { ActivePlans, PlanDraft, PlanKind } from "@/lib/fitness/plan-types";
 import type { ExerciseOption } from "../exercise-picker";
@@ -55,19 +54,25 @@ export function PlanWorkoutsClient({
   deactivateSlot: (kind: PlanKind) => Promise<void>;
   createPlanFromTemplate: (key: TemplateKey) => Promise<{ id: string }>;
 }) {
-  const router = useRouter();
   const [plans, setPlans] = useState<PlanDraft[]>(initialPlans);
   const [activePlans, setActivePlans] = useState<ActivePlans>(initialActivePlans);
   const [mode, setMode] = useState<Mode>({ view: "list" });
   const [previewedPlanId, setPreviewedPlanId] = useState<string | null>(null);
 
-  // Syncs local state when the Server Component parent re-fetches (e.g.
-  // after createPlanFromTemplate's router.refresh() below) — a template
-  // materializes sessions/exercises this client never had locally, so
-  // there's nothing to merge in optimistically; a fresh server read is the
-  // only correct source for it.
-  useEffect(() => setPlans(initialPlans), [initialPlans]);
-  useEffect(() => setActivePlans(initialActivePlans), [initialActivePlans]);
+  // Deliberately NOT synced from `initialPlans`/`initialActivePlans` via a
+  // useEffect on every prop change. Every action here (savePlan, deletePlan,
+  // activatePlan, deactivateSlot, createPlanFromTemplate) calls
+  // revalidatePath, and Next.js automatically re-renders this route's Server
+  // Components as part of resolving that same transition — a blanket
+  // useEffect resyncing on every resulting prop change raced against this
+  // component's own optimistic setPlans/setActivePlans calls and clobbered
+  // them with props from a still-in-flight refetch (reproduced live against
+  // the SEED account: a saved plan briefly existed in the DB but the list
+  // rendered "No workout plans yet" right after Save). Optimistic state
+  // updates below are the source of truth for the four actions that HAVE
+  // full draft data to update it with; createPlanFromTemplate is the one
+  // exception (it returns only an id, not the plan's materialized content)
+  // and forces a full reload rather than trusting this same race.
 
   async function handleSave(draft: PlanDraft): Promise<{ id: string }> {
     const result = await savePlan(draft);
@@ -114,10 +119,11 @@ export function PlanWorkoutsClient({
 
   async function handleCreateFromTemplate(key: TemplateKey) {
     await createPlanFromTemplate(key);
-    // The template's sessions/exercises exist only server-side now — refetch
-    // rather than guessing their shape into local state.
-    router.refresh();
-    setMode({ view: "list" });
+    // The template's sessions/exercises exist only server-side now, and
+    // there's no draft to update local state with optimistically — a full
+    // reload is the only correct source, not router.refresh() (see the
+    // comment above on why a soft refresh here raced against local state).
+    window.location.reload();
   }
 
   if (mode.view === "new") {

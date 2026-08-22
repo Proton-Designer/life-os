@@ -1,11 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
-
 import { PlanWorkoutsClient } from "../workouts/plan-workouts-client";
 import type { ExerciseOption } from "../exercise-picker";
 import type { PlanDraft } from "@/lib/fitness/plan-types";
@@ -102,7 +97,17 @@ describe("PlanWorkoutsClient", () => {
     expect(screen.getByTestId("plan-list")).toBeInTheDocument();
   });
 
-  it("starting from a template calls createPlanFromTemplate with the chosen key and returns to the list", async () => {
+  it("starting from a template calls createPlanFromTemplate with the chosen key and reloads the page", async () => {
+    // A materialized template has content (sessions/exercises) this client
+    // never fetched, so there's no optimistic update to apply — the
+    // component forces a full reload rather than souring local state via a
+    // race against Next's own automatic post-Server-Action refetch (see the
+    // component's comment). Stubbing reload() since jsdom doesn't implement
+    // real navigation.
+    const reload = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", { value: { ...originalLocation, reload }, writable: true });
+
     const user = userEvent.setup();
     const { createPlanFromTemplate } = setup();
     await user.click(screen.getByRole("button", { name: "+ Create workout" }));
@@ -110,6 +115,8 @@ describe("PlanWorkoutsClient", () => {
     await user.click(screen.getByRole("button", { name: /Starter Reps/ }));
 
     expect(createPlanFromTemplate).toHaveBeenCalledWith("starter_reps");
-    expect(await screen.findByTestId("plan-list")).toBeInTheDocument();
+    await vi.waitFor(() => expect(reload).toHaveBeenCalled());
+
+    Object.defineProperty(window, "location", { value: originalLocation, writable: true });
   });
 });

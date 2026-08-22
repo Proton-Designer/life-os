@@ -8,22 +8,44 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 //
 // playwright.config.ts runs fully serial against ONE real live account with
 // no data isolation — every test here creates only a distinctively-named
-// throwaway plan and deletes it before finishing (wrapped in try/finally so
-// cleanup runs even if an assertion above it fails), and never leaves a
-// slot pointed at test data. The one exception (the template test) never
-// mutates anything in the first place — see its comment.
+// throwaway plan (or, for the template test, a real template plan it tears
+// back down) and deletes it before finishing, wrapped in try/finally so
+// cleanup runs even if an assertion above it fails, and never leaves a slot
+// pointed at test data.
 
 const TEST_PLAN_NAME = "E2E Fitness Test Plan";
 
 async function deleteTestPlanIfPresent(page: import("@playwright/test").Page) {
-  const row = page.getByTestId("plan-rows").getByText(TEST_PLAN_NAME, { exact: false });
-  if (!(await row.isVisible().catch(() => false))) return;
-  const li = page.locator("li").filter({ hasText: TEST_PLAN_NAME });
+  await deletePlanRowIfPresent(page, TEST_PLAN_NAME);
+}
+
+async function deletePlanRowIfPresent(page: import("@playwright/test").Page, planName: string) {
+  const li = page.locator("li").filter({ hasText: planName });
+  if (!(await li.isVisible().catch(() => false))) return;
   await li.getByRole("button", { name: "Delete" }).click();
   // Two possible confirm strings depending on whether it's the active plan
   // (plan-list.tsx) — click whichever "Delete" appears in the confirm row.
   await li.getByRole("button", { name: "Delete" }).click();
-  await expect(page.locator("li").filter({ hasText: TEST_PLAN_NAME })).toHaveCount(0);
+  await expect(page.locator("li").filter({ hasText: planName })).toHaveCount(0);
+}
+
+/**
+ * The SEED test account (distinct from whichever account has real exercise
+ * data — verified by hand this session) starts with an EMPTY exercise
+ * library, so this can't assume any exercise already exists. Falls back to
+ * the picker's own "+ Add as a new exercise" flow, which is idempotent in
+ * practice: once created, later runs find it via the exact-match branch
+ * instead of creating a duplicate.
+ */
+async function selectOrCreateExercise(page: import("@playwright/test").Page, name: string) {
+  await page.getByLabel("Search exercises").fill(name);
+  const exactMatch = page.getByRole("button", { name, exact: true });
+  if (await exactMatch.isVisible().catch(() => false)) {
+    await exactMatch.click();
+    return;
+  }
+  await page.getByRole("button", { name: `+ Add "${name}" as a new exercise` }).click();
+  await page.getByRole("button", { name: "Add exercise" }).click();
 }
 
 test("create-from-scratch: a micro plan can be built, appears in the list, and is deletable", async ({ page }) => {
@@ -37,12 +59,7 @@ test("create-from-scratch: a micro plan can be built, appears in the list, and i
     await page.getByLabel("New workout name").fill(TEST_PLAN_NAME);
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: /^Micro/ }).click();
-
-    // "Pull-ups" already exists in this account's exercise library (the
-    // starter plan uses it) — reusing it avoids permanently adding a new
-    // exercise row for a throwaway test plan.
-    await page.getByLabel("Search exercises").fill("Pull-ups");
-    await page.getByRole("button", { name: "Pull-ups", exact: true }).click();
+    await selectOrCreateExercise(page, "Pull-ups");
     await expect(page.getByTestId("micro-row-0")).toBeVisible();
 
     await page.getByRole("button", { name: /^Save/ }).click();
@@ -74,8 +91,7 @@ test("activate and delete-with-active-warning: activating a plan updates the slo
     await page.getByLabel("New workout name").fill(TEST_PLAN_NAME);
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: /^Micro/ }).click();
-    await page.getByLabel("Search exercises").fill("Pull-ups");
-    await page.getByRole("button", { name: "Pull-ups", exact: true }).click();
+    await selectOrCreateExercise(page, "Pull-ups");
     await page.getByRole("button", { name: /^Save/ }).click();
 
     const testRow = page.locator("li").filter({ hasText: TEST_PLAN_NAME });
@@ -102,27 +118,44 @@ test("activate and delete-with-active-warning: activating a plan updates the slo
   }
 });
 
-// Idempotent by design (createPlanFromTemplate finds-or-creates by name) —
-// only runs when the seeded account's active micro plan is already "Starter
-// Reps" (true after migration 036's data conversion), so re-choosing it is a
-// verified no-op rather than a mutation this test would need to undo.
-test("create-from-template: re-choosing the account's existing Starter Reps template is a no-op", async ({ page }) => {
+test("create-from-template: choosing Starter Reps materializes and activates it, restoring whatever was active before", async ({
+  page,
+}) => {
   await page.goto("/fitness/workouts");
   await dismissCheckinDialogIfPresent(page);
 
   const microSlot = page.getByTestId("active-slot-micro");
-  const before = await microSlot.textContent();
-  test.skip(
-    !before?.includes("Starter Reps"),
-    "This account's active micro plan isn't Starter Reps in this run — skipping to avoid reassigning a real slot"
-  );
+  const priorText = (await microSlot.textContent()) ?? "";
+  const alreadyStarterReps = priorText.includes("Starter Reps");
+  // createPlanFromTemplate is idempotent by name (find-or-create) — if
+  // Starter Reps is already the active micro plan, re-choosing it is a
+  // verified no-op and there's nothing to clean up afterward. Otherwise
+  // (empty account, or some other plan active) this genuinely materializes
+  // and activates it, so it must be torn down and the prior state restored.
+  const priorActiveName =
+    alreadyStarterReps || priorText.includes("none selected")
+      ? null
+      : (await microSlot.locator("span").last().textContent())?.trim() || null;
 
-  await page.getByRole("button", { name: "+ Create workout" }).click();
-  await page.getByRole("button", { name: "Start from a template" }).click();
-  await page.getByRole("button", { name: /^Starter Reps/ }).click();
+  try {
+    await page.getByRole("button", { name: "+ Create workout" }).click();
+    await page.getByRole("button", { name: "Start from a template" }).click();
+    await page.getByRole("button", { name: /^Starter Reps/ }).click();
 
-  await expect(page.getByTestId("plan-list")).toBeVisible();
-  await expect(microSlot).toContainText("Starter Reps");
+    await expect(page.getByTestId("plan-list")).toBeVisible();
+    await expect(microSlot).toContainText("Starter Reps");
+  } finally {
+    if (!alreadyStarterReps) {
+      await deletePlanRowIfPresent(page, "Starter Reps");
+      if (priorActiveName) {
+        const priorRow = page.locator("li").filter({ hasText: priorActiveName });
+        if (await priorRow.getByRole("button", { name: "Activate" }).isVisible().catch(() => false)) {
+          await priorRow.getByRole("button", { name: "Activate" }).click();
+          await expect(microSlot).toContainText(priorActiveName);
+        }
+      }
+    }
+  }
 });
 
 // The /fitness screen itself (Daily Log, This week, Cycle Progress checks)
