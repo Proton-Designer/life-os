@@ -49,6 +49,29 @@ type TypedClient = SupabaseClient<Database>;
  * save_workout/createWorkoutWithExercises, documented here because an
  * empty result gives no clue where to look.
  */
+
+/**
+ * workout_schedule.duration_minutes carries a CHECK constraint from the
+ * legacy manual-entry model (023_workout_schedule_duration.sql): null, or
+ * 15-240 inclusive AND a multiple of 15 — every value that model ever
+ * wrote came from a 15-minute-increment picker. plan_session_exercises'
+ * durations are free-entry integers (the builder even defaults new
+ * exercises to 10) and their SUM across a session has no reason to land on
+ * a multiple of 15 — inserting it raw 500s the whole activate/save/delete
+ * request the moment a real routine plan's total isn't already a multiple
+ * of 15 (caught live, 2026-08-23: a 2-session plan with default-duration
+ * exercises crashed activatePlan outright). Round to the nearest 15 and
+ * clamp into the constraint's own range; a zero/negative/NaN sum (no
+ * exercises, or all durations stripped by upstream sanitization) becomes
+ * null — "not specified," the same fallback the legacy column already
+ * documents for "no duration recorded."
+ */
+function normalizeScheduleDurationMinutes(rawMinutes: number): number | null {
+  if (!Number.isFinite(rawMinutes) || rawMinutes <= 0) return null;
+  const rounded = Math.round(rawMinutes / 15) * 15;
+  return Math.min(240, Math.max(15, rounded));
+}
+
 export async function syncWorkoutScheduleForActiveRoutine(
   supabase: TypedClient,
   userId: string,
@@ -106,7 +129,7 @@ export async function syncWorkoutScheduleForActiveRoutine(
         workout_id: session.workout_id,
         workout_name: session.name,
         time: session.start_time,
-        duration_minutes: durationMinutes > 0 ? durationMinutes : null,
+        duration_minutes: normalizeScheduleDurationMinutes(durationMinutes),
       });
     }
   }

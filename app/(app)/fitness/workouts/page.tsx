@@ -81,7 +81,14 @@ export default async function WorkoutsPage() {
           id: session.id,
           name: session.name,
           scheduleDays: session.schedule_days ?? [],
-          startTime: session.start_time,
+          // Postgres `time` columns come back as "HH:MM:SS" — every
+          // consumer of SessionDraft.startTime (day-grid.ts's
+          // minutesFromMidnight strictly, the <input type="time"> in
+          // routine-builder.tsx implicitly) expects "HH:MM" and the
+          // former THROWS on the extra seconds. Caught live, 2026-08-23:
+          // editing/previewing any session with a start time crashed
+          // HourlyWeekCalendar outright.
+          startTime: session.start_time ? session.start_time.slice(0, 5) : null,
           exercises: (session.plan_session_exercises ?? [])
             .slice()
             .sort((a, b) => a.position - b.position)

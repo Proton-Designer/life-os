@@ -99,7 +99,9 @@ export default async function FitnessPage() {
     id: s.id,
     name: s.name,
     scheduleDays: s.schedule_days,
-    startTime: s.start_time,
+    // Postgres `time` -> "HH:MM:SS"; display wants "HH:MM" (same fix as
+    // workouts/page.tsx's identical read).
+    startTime: s.start_time ? s.start_time.slice(0, 5) : null,
     durationMinutes: (s.plan_session_exercises ?? []).reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0),
   }));
 
