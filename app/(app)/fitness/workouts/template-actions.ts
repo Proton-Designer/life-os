@@ -152,6 +152,16 @@ async function materializeSessionPlan(supabase: TypedClient, userId: string, pla
     if (scheduleDays.length === 0) continue;
     position += 1;
 
+    // Backing workouts row (040) — see savePlan's identical comment. A
+    // freshly-materialized template session is always first-persisted, so
+    // this always creates rather than reuses.
+    const { data: workoutRow, error: workoutError } = await supabase
+      .from("workouts")
+      .insert({ user_id: userId, name: workout.name })
+      .select("id")
+      .single();
+    if (workoutError) throw workoutError;
+
     const { data: session, error: sessionError } = await supabase
       .from("plan_sessions")
       .insert({
@@ -161,6 +171,7 @@ async function materializeSessionPlan(supabase: TypedClient, userId: string, pla
         position,
         schedule_days: scheduleDays,
         start_time: null,
+        workout_id: workoutRow.id,
       })
       .select("id")
       .single();

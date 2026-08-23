@@ -76,14 +76,14 @@ export async function syncWorkoutScheduleForActiveRoutine(
 
   const { data: sessions, error: sessionsError } = await supabase
     .from("plan_sessions")
-    .select("name, position, schedule_days, start_time, plan_session_exercises(duration_minutes)")
+    .select("name, position, schedule_days, start_time, workout_id, plan_session_exercises(duration_minutes)")
     .eq("plan_id", routinePlanId)
     .order("position");
   if (sessionsError) throw sessionsError;
 
   const rowByDay = new Map<
     number,
-    { user_id: string; day_of_week: number; workout_id: null; workout_name: string; time: string | null; duration_minutes: number | null }
+    { user_id: string; day_of_week: number; workout_id: string | null; workout_name: string; time: string | null; duration_minutes: number | null }
   >();
 
   for (const session of sessions ?? []) {
@@ -94,10 +94,16 @@ export async function syncWorkoutScheduleForActiveRoutine(
     );
     for (const day of session.schedule_days ?? []) {
       if (rowByDay.has(day)) continue;
+      // workout_id (040): the legacy mirror two Home readers key completion
+      // off (get-domain-snapshots.ts's workoutDone, get-domain-pulse.ts's
+      // hasScheduledWorkout both require it non-null AND matching
+      // workout_sessions.workout_id, not just present) — plan_session_id
+      // stays the source of truth for new code, this is purely so the old
+      // readers still light up correctly.
       rowByDay.set(day, {
         user_id: userId,
         day_of_week: day,
-        workout_id: null,
+        workout_id: session.workout_id,
         workout_name: session.name,
         time: session.start_time,
         duration_minutes: durationMinutes > 0 ? durationMinutes : null,

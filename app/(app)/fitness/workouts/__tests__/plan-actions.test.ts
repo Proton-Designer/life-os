@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 function makeChain(responses: Record<string, unknown> = {}) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "upsert", "update", "insert", "delete"]) {
+  for (const method of ["select", "eq", "not", "in", "order", "upsert", "update", "insert", "delete"]) {
     chain[method] = vi.fn(() => chain);
   }
   const resolved = { data: responses.data ?? null, error: responses.error ?? null };
@@ -12,6 +12,8 @@ function makeChain(responses: Record<string, unknown> = {}) {
   return chain as {
     select: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
+    not: ReturnType<typeof vi.fn>;
+    in: ReturnType<typeof vi.fn>;
     order: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -19,6 +21,7 @@ function makeChain(responses: Record<string, unknown> = {}) {
     delete: ReturnType<typeof vi.fn>;
     single: ReturnType<typeof vi.fn>;
     maybeSingle: ReturnType<typeof vi.fn>;
+    then: (resolve: (v: { data: unknown; error: unknown }) => void) => void;
   };
 }
 
@@ -47,6 +50,7 @@ describe("plan-actions", () => {
       active_workout_plans: { data: { micro_plan_id: null, routine_plan_id: null }, error: null },
       workout_schedule: { data: null, error: null },
       plan_sessions: { data: [], error: null },
+      workouts: { data: { id: "workout-1" }, error: null },
     };
     for (const key of Object.keys(chainsByTable)) delete chainsByTable[key];
   });
@@ -134,6 +138,81 @@ describe("plan-actions", () => {
     expect(chainsByTable.workout_schedule.delete).toHaveBeenCalled();
   });
 
+  it("savePlan (routine, edit): reuses a kept session's backing workout_id by session id, archives a removed session's, creates fresh for a brand-new one", async () => {
+    tableResponses.workout_plans = { data: { id: "plan-2", kind: "routine" }, error: null };
+    tableResponses.active_workout_plans = { data: { micro_plan_id: null, routine_plan_id: null }, error: null };
+    let sessionInsertCall = 0;
+    let workoutInsertCall = 0;
+    const { savePlan } = await import("../plan-actions");
+    fromMock.mockImplementation((table: string) => {
+      if (!chainsByTable[table]) chainsByTable[table] = makeChain(tableResponses[table] ?? {});
+      const chain = chainsByTable[table];
+      // Guarded so repeated .from(table) calls (the loop calls .from
+      // once per session) don't stomp the mock's own call history each
+      // time — every real query builder call goes through the SAME
+      // vi.fn(), only set up once here.
+      if (table === "plan_sessions" && !("insertOverridden" in chain)) {
+        // The pre-delete read (select("id, workout_id")) resolves via the
+        // default chain.then; only .insert (the reinsert loop) needs a
+        // distinct id-generating override.
+        chain.then = (resolve: (v: { data: unknown; error: unknown }) => void) =>
+          resolve({
+            data: [
+              { id: "session-kept", workout_id: "workout-kept" },
+              { id: "session-removed", workout_id: "workout-removed" },
+            ],
+            error: null,
+          });
+        chain.insert = vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn(async () => {
+              sessionInsertCall++;
+              return { data: { id: `session-new-${sessionInsertCall}` }, error: null };
+            }),
+          })),
+        }));
+        (chain as Record<string, unknown>).insertOverridden = true;
+      }
+      if (table === "workouts" && !("insertOverridden" in chain)) {
+        chain.insert = vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn(async () => {
+              workoutInsertCall++;
+              return { data: { id: `workout-new-${workoutInsertCall}` }, error: null };
+            }),
+          })),
+        }));
+        (chain as Record<string, unknown>).insertOverridden = true;
+      }
+      return chain;
+    });
+
+    await savePlan({
+      kind: "routine",
+      id: "plan-2",
+      name: "Push / Pull",
+      sessions: [
+        { id: "session-kept", name: "Push Day", scheduleDays: [1], startTime: "07:00", exercises: [] },
+        { id: null, name: "New Day", scheduleDays: [2], startTime: null, exercises: [] },
+      ],
+    });
+
+    // Removed session's backing row is archived, not deleted.
+    expect(chainsByTable.workouts.update).toHaveBeenCalledWith({ archived: true });
+    expect(chainsByTable.workouts.in).toHaveBeenCalledWith("id", ["workout-removed"]);
+    // Only ONE fresh workouts row created — for the brand-new session, not the kept one.
+    expect(workoutInsertCall).toBe(1);
+    // The kept session's reinsert carries its OLD workout_id, not a new one.
+    expect(chainsByTable.plan_sessions.insert).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ name: "Push Day", workout_id: "workout-kept" })
+    );
+    expect(chainsByTable.plan_sessions.insert).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ name: "New Day", workout_id: "workout-new-1" })
+    );
+  });
+
   it("deletePlan deletes the owned plan; does not touch workout_schedule when there's no active routine plan at all", async () => {
     tableResponses.workout_plans = { data: null, error: null };
     tableResponses.active_workout_plans = { data: { micro_plan_id: null, routine_plan_id: null }, error: null };
@@ -145,6 +224,21 @@ describe("plan-actions", () => {
     expect(chainsByTable.workout_plans.eq).toHaveBeenCalledWith("id", "plan-3");
     expect(fromMock).toHaveBeenCalledWith("active_workout_plans");
     expect(fromMock).not.toHaveBeenCalledWith("workout_schedule");
+  });
+
+  it("deletePlan archives every session's backing workout_id before the cascade", async () => {
+    tableResponses.workout_plans = { data: null, error: null };
+    tableResponses.active_workout_plans = { data: { micro_plan_id: null, routine_plan_id: null }, error: null };
+    tableResponses.plan_sessions = {
+      data: [{ workout_id: "workout-a" }, { workout_id: "workout-b" }],
+      error: null,
+    };
+    const { deletePlan } = await import("../plan-actions");
+
+    await deletePlan("plan-3");
+
+    expect(chainsByTable.workouts.update).toHaveBeenCalledWith({ archived: true });
+    expect(chainsByTable.workouts.in).toHaveBeenCalledWith("id", ["workout-a", "workout-b"]);
   });
 
   it("deletePlan still fully re-derives workout_schedule when a DIFFERENT plan is the active routine", async () => {

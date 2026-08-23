@@ -33,6 +33,15 @@ function defaultFromImpl(table: string) {
     }));
     (chainsByTable[table] as Record<string, unknown>).insertOverridden = true;
   }
+  if (table === "workouts" && !("insertOverridden" in chainsByTable[table])) {
+    // The backing-workouts-row-per-session materialization (040) — each
+    // call gets a fresh id, same pattern as exercises' find-or-create.
+    let w = 0;
+    chainsByTable[table].insert = vi.fn(() => ({
+      select: vi.fn(() => ({ single: vi.fn(async () => ({ data: { id: `workout-${++w}` }, error: null })) })),
+    }));
+    (chainsByTable[table] as Record<string, unknown>).insertOverridden = true;
+  }
   if (table === "plan_sessions" && !("insertOverridden" in chainsByTable[table])) {
     chainsByTable[table].insert = vi.fn(() => ({
       select: vi.fn(() => ({

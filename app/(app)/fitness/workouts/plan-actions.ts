@@ -87,12 +87,52 @@ export async function savePlan(draft: PlanDraft): Promise<{ id: string }> {
       if (insertError) throw insertError;
     }
   } else {
+    // Each session needs a stable backing `workouts` row (040) so
+    // workout_schedule.workout_id / workout_sessions.workout_id have
+    // something real to match against — two Home readers require that
+    // non-null match to register "workout done," and a null workout_id is
+    // otherwise silently dead for completion (2026-08-23 review catch).
+    // Matched by session id, not name (a rename must not orphan the row or
+    // alias two sessions onto one), so existing sessions' workout_ids are
+    // read BEFORE the delete-then-reinsert below wipes plan_sessions.
+    const { data: oldSessionRows, error: oldSessionsError } = await supabase
+      .from("plan_sessions")
+      .select("id, workout_id")
+      .eq("plan_id", planId);
+    if (oldSessionsError) throw oldSessionsError;
+    const workoutIdByOldSessionId = new Map((oldSessionRows ?? []).map((s) => [s.id, s.workout_id]));
+
+    const keptSessionIds = new Set(draft.sessions.map((s) => s.id).filter((id): id is string => id !== null));
+    const orphanedWorkoutIds = (oldSessionRows ?? [])
+      .filter((s) => !keptSessionIds.has(s.id) && s.workout_id !== null)
+      .map((s) => s.workout_id as string);
+    if (orphanedWorkoutIds.length > 0) {
+      const { error: archiveError } = await supabase
+        .from("workouts")
+        .update({ archived: true })
+        .in("id", orphanedWorkoutIds)
+        .eq("user_id", userId);
+      if (archiveError) throw archiveError;
+    }
+
     // Cascades to plan_session_exercises via ON DELETE CASCADE (036).
     const { error: deleteError } = await supabase.from("plan_sessions").delete().eq("plan_id", planId);
     if (deleteError) throw deleteError;
 
     for (let i = 0; i < draft.sessions.length; i++) {
       const session = draft.sessions[i];
+
+      let workoutId = session.id ? (workoutIdByOldSessionId.get(session.id) ?? null) : null;
+      if (workoutId === null) {
+        const { data: workoutRow, error: workoutError } = await supabase
+          .from("workouts")
+          .insert({ user_id: userId, name: session.name })
+          .select("id")
+          .single();
+        if (workoutError) throw workoutError;
+        workoutId = workoutRow.id;
+      }
+
       const { data: sessionRow, error: sessionError } = await supabase
         .from("plan_sessions")
         .insert({
@@ -102,6 +142,7 @@ export async function savePlan(draft: PlanDraft): Promise<{ id: string }> {
           position: i + 1,
           schedule_days: session.scheduleDays,
           start_time: session.startTime,
+          workout_id: workoutId,
         })
         .select("id")
         .single();
@@ -142,6 +183,25 @@ export async function deletePlan(planId: string): Promise<void> {
     .maybeSingle();
   if (activeError) throw activeError;
   const wasActiveRoutine = activeBefore?.routine_plan_id === planId;
+
+  // Archive every session's backing workouts row (040) before the cascade
+  // deletes plan_sessions — deleting a whole plan deletes all its
+  // sessions, same "deleting a session archives its row" rule as savePlan.
+  const { data: sessionsToArchive, error: sessionsError } = await supabase
+    .from("plan_sessions")
+    .select("workout_id")
+    .eq("plan_id", planId)
+    .not("workout_id", "is", null);
+  if (sessionsError) throw sessionsError;
+  const workoutIdsToArchive = (sessionsToArchive ?? []).map((s) => s.workout_id as string);
+  if (workoutIdsToArchive.length > 0) {
+    const { error: archiveError } = await supabase
+      .from("workouts")
+      .update({ archived: true })
+      .in("id", workoutIdsToArchive)
+      .eq("user_id", userId);
+    if (archiveError) throw archiveError;
+  }
 
   // ON DELETE SET NULL (037) clears whichever slot held this plan.
   const { error } = await supabase.from("workout_plans").delete().eq("id", planId).eq("user_id", userId);

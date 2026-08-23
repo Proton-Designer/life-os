@@ -1,0 +1,25 @@
+-- Fitness system rebuild, Phase 1 continued (Engineer A) — the
+-- workout_schedule shim's second-order bug, caught in the live shim check
+-- (2026-08-23, the Lead's ruling): two of the nine legacy readers
+-- (lib/home/get-domain-snapshots.ts's `workoutDone`,
+-- lib/home/get-domain-pulse.ts's `hasScheduledWorkout`) key off
+-- workout_schedule.workout_id / workout_sessions.workout_id being
+-- non-null AND matching, not just present — a null workout_id is fine for
+-- DISPLAY (the legacy free-text path's original use case) but silently
+-- dead for completion. A plan session IS confirmable, so it needs a real
+-- workout_id both readers can match against.
+--
+-- plan_session_id stays the truth for all new code; workout_id here is
+-- the legacy mirror — the same relationship workout_schedule.workout_id
+-- already has to workout_id everywhere else, one table deeper. Not a
+-- name-matched find-or-create (a renamed session would orphan its row and
+-- silently create a second one; two sessions sharing a name across plans
+-- would alias onto one id and light "workout done" on the wrong day) —
+-- explicit FK, set once when a session is first persisted (savePlan /
+-- createPlanFromTemplate) and reused by session id on every subsequent
+-- save. `on delete set null`: the workouts row is archived, not deleted,
+-- when its session is removed (matches the app-wide archive-don't-delete
+-- convention), so this FK never actually fires SET NULL in practice, but
+-- it's the correct passive behavior over CASCADE regardless.
+alter table public.plan_sessions
+  add column workout_id uuid null references public.workouts(id) on delete set null;

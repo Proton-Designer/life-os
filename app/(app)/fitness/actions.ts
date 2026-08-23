@@ -291,9 +291,31 @@ export async function confirmPlanSession(
   sets: ConfirmSetInput[]
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+
+  // workout_id (040) — the legacy mirror two Home readers key completion
+  // off (get-domain-snapshots.ts's workoutDone, get-domain-pulse.ts's
+  // hasScheduledWorkout), matched against workout_schedule.workout_id
+  // (lib/fitness/sync-workout-schedule.ts writes the same plan_sessions
+  // value there). Read from the source of truth (plan_sessions.workout_id)
+  // rather than trusted client input.
+  const { data: planSession, error: planSessionError } = await supabase
+    .from("plan_sessions")
+    .select("workout_id")
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (planSessionError) throw planSessionError;
+
   const { data: session, error: sessionError } = await supabase
     .from("workout_sessions")
-    .insert({ user_id: userId, date, workout_id: null, workout_name: sessionName, source: "confirmed", plan_session_id: sessionId })
+    .insert({
+      user_id: userId,
+      date,
+      workout_id: planSession?.workout_id ?? null,
+      workout_name: sessionName,
+      source: "confirmed",
+      plan_session_id: sessionId,
+    })
     .select("id")
     .single();
 

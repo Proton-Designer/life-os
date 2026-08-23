@@ -714,6 +714,7 @@ export type Database = {
           schedule_days: number[]
           start_time: string | null
           user_id: string
+          workout_id: string | null
         }
         Insert: {
           id?: string
@@ -723,6 +724,7 @@ export type Database = {
           schedule_days?: number[]
           start_time?: string | null
           user_id?: string
+          workout_id?: string | null
         }
         Update: {
           id?: string
@@ -732,6 +734,7 @@ export type Database = {
           schedule_days?: number[]
           start_time?: string | null
           user_id?: string
+          workout_id?: string | null
         }
         Relationships: [
           {
@@ -739,6 +742,13 @@ export type Database = {
             columns: ["plan_id"]
             isOneToOne: false
             referencedRelation: "workout_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_sessions_workout_id_fkey"
+            columns: ["workout_id"]
+            isOneToOne: false
+            referencedRelation: "workouts"
             referencedColumns: ["id"]
           },
         ]
