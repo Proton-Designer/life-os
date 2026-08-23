@@ -134,6 +134,7 @@ declare
   g record;
   v_plan_id uuid;
   v_position int;
+  v_earliest_created timestamptz;
 begin
   for u in
     select distinct user_id from public.rep_goals where not archived
@@ -143,8 +144,21 @@ begin
       where user_id = u.user_id and lower(name) = lower('Starter Reps') and not archived;
 
     if v_plan_id is null then
-      insert into public.workout_plans (user_id, name, kind)
-      values (u.user_id, 'Starter Reps', 'micro')
+      -- created_at is backdated to the original rep_goals row's creation
+      -- time, not `now()` (2026-08-22 review catch, the Lead): This
+      -- Week's per-day status floors "Missed" at a plan's own created_at,
+      -- so a migration-time created_at would make every day before the
+      -- migration ran look like the plan never existed there either —
+      -- wrong in the opposite direction, hiding real missed days rather
+      -- than fabricating them. The starter plan's true origin is when the
+      -- user first set the rep goals, which this migration is preserving,
+      -- not replacing.
+      select min(created_at) into v_earliest_created
+        from public.rep_goals
+        where user_id = u.user_id and not archived;
+
+      insert into public.workout_plans (user_id, name, kind, created_at)
+      values (u.user_id, 'Starter Reps', 'micro', coalesce(v_earliest_created, now()))
       returning id into v_plan_id;
 
       v_position := 0;

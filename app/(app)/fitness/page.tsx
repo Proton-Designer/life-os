@@ -53,11 +53,29 @@ export default async function FitnessPage() {
 
   const planIds = [microPlanId, routinePlanId].filter((id): id is string => id !== null);
   const { data: planRows } =
-    planIds.length > 0 ? await supabase.from("workout_plans").select("id, name").in("id", planIds) : { data: [] };
+    planIds.length > 0 ? await supabase.from("workout_plans").select("id, name, created_at").in("id", planIds) : { data: [] };
   const planNameById = new Map((planRows ?? []).map((p) => [p.id, p.name]));
   const activePlanNames = [microPlanId, routinePlanId]
     .map((id) => (id ? planNameById.get(id) : null))
     .filter((name): name is string => !!name);
+
+  // This Week's floor (2026-08-22 review catch): a day before the plan
+  // supplying its items even EXISTED cannot be Missed — activating Starter
+  // Reps on a Thursday night must not retroactively accuse Monday–Wednesday
+  // of failure. Floored per-plan (not per-user) because a routine plan
+  // activated later than the micro plan must not inherit the micro plan's
+  // longer history, and vice versa. Local date, not UTC — same class of bug
+  // as everything else that's touched a calendar date in this build. The
+  // plan's own creation DAY counts as "existed" even if created at 22:50 —
+  // one real hour of the day is still real; this is a deliberate choice,
+  // not an oversight (the Lead's ruling, 2026-08-22).
+  const planCreatedLocalDate = (planId: string | null): string | null => {
+    if (!planId) return null;
+    const createdAt = planRows?.find((p) => p.id === planId)?.created_at;
+    return createdAt ? localDateString(new Date(createdAt), timezone) : null;
+  };
+  const microPlanStartDate = planCreatedLocalDate(microPlanId);
+  const routinePlanStartDate = planCreatedLocalDate(routinePlanId);
 
   // --- Active micro plan's exercises (all schedule_days — used by both
   // Daily Log's today filter and This Week's per-day expansion) ---------
@@ -286,19 +304,23 @@ export default async function FitnessPage() {
 
   const thisWeekDays: ThisWeekDay[] = weekDates.map((date, i) => {
     const dow = i;
-    const dayMicroExercises = (microExerciseRows ?? []).filter((e) => e.schedule_days.includes(dow));
+    // Days before the plan's own creation date have nothing scheduled —
+    // the plan didn't exist yet, so there is nothing to show or judge.
+    const microPlanExistedThisDay = microPlanStartDate !== null && date >= microPlanStartDate;
+    const routinePlanExistedThisDay = routinePlanStartDate !== null && date >= routinePlanStartDate;
+    const dayMicroExercises = microPlanExistedThisDay
+      ? (microExerciseRows ?? []).filter((e) => e.schedule_days.includes(dow))
+      : [];
     const microItems = dayMicroExercises.map((e) => ({
       name: e.exercises?.name ?? "",
       goalLabel: e.goal_type === "daily_total" ? `${e.goal_value} reps` : `${e.goal_value}x`,
     }));
-    const daySessions = sessions
-      .filter((s) => s.scheduleDays.includes(dow))
-      .map((s) => ({
-        name: s.name,
-        startTime: s.startTime,
-        durationMinutes: s.durationMinutes,
-        confirmed: confirmedByDateAndSession.has(`${date}:${s.id}`),
-      }));
+    const daySessions = (routinePlanExistedThisDay ? sessions.filter((s) => s.scheduleDays.includes(dow)) : []).map((s) => ({
+      name: s.name,
+      startTime: s.startTime,
+      durationMinutes: s.durationMinutes,
+      confirmed: confirmedByDateAndSession.has(`${date}:${s.id}`),
+    }));
     const hasScheduledItems = dayMicroExercises.length > 0 || daySessions.length > 0;
     const completed = dayMicroDoneFor(dayMicroExercises, date) && daySessions.every((s) => s.confirmed);
     const status = hasScheduledItems ? weekDayStatus(date, dateStr, completed) : null;
