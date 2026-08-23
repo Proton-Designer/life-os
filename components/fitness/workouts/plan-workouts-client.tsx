@@ -70,6 +70,19 @@ function emptyDraft(kind: PlanKind, name: string): PlanDraft {
  * new-plan-flow.tsx's template buttons, both builders' Save), which is
  * what makes calling the optimistic dispatch inside them valid — see
  * https://react.dev/reference/react/useOptimistic.
+ *
+ * Dispatching before awaiting the server action (true optimism, see the
+ * handlers below) is safe here specifically because this project reads
+ * and writes through Supabase's session pooler against a single primary,
+ * no read replicas — the post-action revalidation refetch can only ever
+ * observe the write it's revalidating for as already committed, since
+ * Next only revalidates after the Server Action's own promise resolves.
+ * Verified live, 2026-08-23 (Opus Lead + Engineer B): 30 watched delete/
+ * activate/deactivate cycles, zero instances of the optimistic value
+ * reverting to stale data before correcting. If this project ever routes
+ * reads to a replica, that guarantee breaks and this whole pattern needs
+ * re-examining — a lagging replica read landing inside the revalidation
+ * window would revert a genuinely-completed mutation back into view.
  */
 export function PlanWorkoutsClient({
   initialPlans,
