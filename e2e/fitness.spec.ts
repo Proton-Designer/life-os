@@ -89,15 +89,23 @@ async function reconcileFitnessBaseline(
   secret: string,
   baseline: Awaited<ReturnType<typeof fitnessResidueSnapshot>>
 ) {
-  let current = await fitnessResidueSnapshot(page, baseURL, secret);
-  if (current.fitnessCycleAnchor > baseline.fitnessCycleAnchor) {
+  // Polled, not a single snapshot: PlanWorkoutsClient dispatches its
+  // delete/activate/deactivate optimistic update BEFORE awaiting the
+  // server action (true optimism, see that component's own comment), so
+  // the UI can show "gone" a beat before the underlying DB write actually
+  // commits. Caught live, 2026-08-23: a one-shot residue check right after
+  // the UI confirmed deletion read the row mid-flight and failed a test
+  // whose cleanup was, in fact, correct — just not finished yet.
+  const initial = await fitnessResidueSnapshot(page, baseURL, secret);
+  if (initial.fitnessCycleAnchor > baseline.fitnessCycleAnchor) {
     const res = await page.request.delete(`${baseURL}/api/test/clear-fitness-cycle-anchor`, {
       headers: { "x-e2e-secret": secret },
     });
     expect(res.ok()).toBe(true);
-    current = await fitnessResidueSnapshot(page, baseURL, secret);
   }
-  expect(current).toEqual(baseline);
+  await expect
+    .poll(async () => fitnessResidueSnapshot(page, baseURL, secret), { timeout: 10_000, intervals: [250, 500, 1000] })
+    .toEqual(baseline);
 }
 
 test("create-from-scratch: a micro plan can be built, appears in the list, and is deletable", async ({ page, baseURL }) => {
@@ -288,8 +296,24 @@ test("fitness screen: Workout Plan strip, Daily Log, This week, and Cycle Progre
 
     const testRow = page.locator("li").filter({ hasText: TEST_PLAN_NAME });
     await expect(testRow).toBeVisible();
+    const testRowTestId = await testRow.getAttribute("data-testid");
+    const testPlanId = testRowTestId!.replace("plan-row-", "");
     await testRow.getByRole("button", { name: "Activate" }).click();
     await expect(microSlot).toContainText(TEST_PLAN_NAME);
+
+    // /fitness/workouts' own optimistic update can show "activated" a beat
+    // before the underlying setActiveSlot write actually commits (same
+    // class of race as reconcileFitnessBaseline's — see its comment).
+    // /fitness reads active_workout_plans fresh on the server, so
+    // navigating there too early can still render "none selected" even
+    // though the click genuinely worked. Poll the DB-backed residue
+    // endpoint until the write is confirmed committed before moving on.
+    await expect
+      .poll(async () => (await fitnessResidueSnapshot(page, baseURL, secret!)).activeMicroPlanId, {
+        timeout: 10_000,
+        intervals: [250, 500, 1000],
+      })
+      .toBe(testPlanId);
 
     await page.goto("/fitness");
     await dismissCheckinDialogIfPresent(page);
