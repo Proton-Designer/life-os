@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useOptimistic, useState } from "react";
 import { expandPlanToWeek } from "@/lib/fitness/plan-schedule";
 import type { ActivePlans, PlanDraft, PlanKind } from "@/lib/fitness/plan-types";
 import type { ExerciseOption } from "../exercise-picker";
@@ -14,6 +14,33 @@ import { mergeWeekPreviews } from "./day-grid";
 
 type Mode = { view: "list" } | { view: "new" } | { view: "builder"; plan: PlanDraft };
 
+type PlansAction = { type: "upsert"; plan: PlanDraft } | { type: "remove"; planId: string };
+
+function plansReducer(state: PlanDraft[], action: PlansAction): PlanDraft[] {
+  if (action.type === "upsert") {
+    return [...state.filter((p) => p.id !== action.plan.id), action.plan];
+  }
+  return state.filter((p) => p.id !== action.planId);
+}
+
+type ActiveAction =
+  | { type: "activate"; planId: string; kind: PlanKind }
+  | { type: "deactivate"; kind: PlanKind }
+  | { type: "clearSlotsHolding"; planId: string };
+
+function activeReducer(state: ActivePlans, action: ActiveAction): ActivePlans {
+  if (action.type === "activate") {
+    return action.kind === "micro" ? { ...state, microPlanId: action.planId } : { ...state, routinePlanId: action.planId };
+  }
+  if (action.type === "deactivate") {
+    return action.kind === "micro" ? { ...state, microPlanId: null } : { ...state, routinePlanId: null };
+  }
+  return {
+    microPlanId: state.microPlanId === action.planId ? null : state.microPlanId,
+    routinePlanId: state.routinePlanId === action.planId ? null : state.routinePlanId,
+  };
+}
+
 function emptyDraft(kind: PlanKind, name: string): PlanDraft {
   return kind === "micro" ? { kind, id: null, name, exercises: [] } : { kind, id: null, name, sessions: [] };
 }
@@ -24,10 +51,25 @@ function emptyDraft(kind: PlanKind, name: string): PlanDraft {
  * tapping a plan row in the list previews it here WITHOUT activating it
  * (spec row 5 + gap resolution).
  *
- * The list/builder switch lives here as client state, same reasoning as
- * the pre-existing WorkoutsClient — every server action passed in is a
- * real bound reference from the Server Component parent (RSC boundary,
- * AGENTS.md), never wrapped in a new arrow function at this layer.
+ * `plans`/`activePlans` are useOptimistic over the Server Component's own
+ * props, not a useState mirror kept in sync by hand — same pattern as
+ * components/home/next-actions.tsx. Every action here (savePlan,
+ * deletePlan, activatePlan, deactivateSlot, createPlanFromTemplate) calls
+ * revalidatePath, and Next.js automatically re-renders this route's Server
+ * Components as part of resolving that same transition. An earlier version
+ * of this file kept `plans` in a separate useState synced from props via a
+ * blanket useEffect — that resynced on EVERY one of those refetches and
+ * raced against this component's own optimistic updates, reproduced live
+ * against the real account: a plan existed in the database but the list
+ * rendered "No workout plans yet" right after Save (Opus Lead, 2026-08-22).
+ * useOptimistic removes the race structurally: there's no second copy of
+ * the state to go stale, so there's nothing for the auto-refetch to
+ * clobber — its fresh props simply become the new base state once the
+ * dispatching transition settles. Every mutation handler below is called
+ * from a `startTransition` in its caller (plan-list.tsx's row actions,
+ * new-plan-flow.tsx's template buttons, both builders' Save), which is
+ * what makes calling the optimistic dispatch inside them valid — see
+ * https://react.dev/reference/react/useOptimistic.
  */
 export function PlanWorkoutsClient({
   initialPlans,
@@ -54,54 +96,47 @@ export function PlanWorkoutsClient({
   deactivateSlot: (kind: PlanKind) => Promise<void>;
   createPlanFromTemplate: (key: TemplateKey) => Promise<{ id: string }>;
 }) {
-  const [plans, setPlans] = useState<PlanDraft[]>(initialPlans);
-  const [activePlans, setActivePlans] = useState<ActivePlans>(initialActivePlans);
+  const [plans, dispatchPlans] = useOptimistic(initialPlans, plansReducer);
+  const [activePlans, dispatchActive] = useOptimistic(initialActivePlans, activeReducer);
   const [mode, setMode] = useState<Mode>({ view: "list" });
   const [previewedPlanId, setPreviewedPlanId] = useState<string | null>(null);
 
-  // Deliberately NOT synced from `initialPlans`/`initialActivePlans` via a
-  // useEffect on every prop change. Every action here (savePlan, deletePlan,
-  // activatePlan, deactivateSlot, createPlanFromTemplate) calls
-  // revalidatePath, and Next.js automatically re-renders this route's Server
-  // Components as part of resolving that same transition — a blanket
-  // useEffect resyncing on every resulting prop change raced against this
-  // component's own optimistic setPlans/setActivePlans calls and clobbered
-  // them with props from a still-in-flight refetch (reproduced live against
-  // the SEED account: a saved plan briefly existed in the DB but the list
-  // rendered "No workout plans yet" right after Save). Optimistic state
-  // updates below are the source of truth for the four actions that HAVE
-  // full draft data to update it with; createPlanFromTemplate is the one
-  // exception (it returns only an id, not the plan's materialized content)
-  // and forces a full reload rather than trusting this same race.
-
+  // handleSave is the one handler that dispatches AFTER awaiting, not
+  // before: a brand-new plan (draft.id === null) has no id to render
+  // optimistically until the server assigns one, so there's nothing
+  // truthful to show before the round trip completes. The other three
+  // handlers dispatch first (true optimism, matching next-actions.tsx's
+  // Row.handleClick) since planId/kind are already known upfront.
   async function handleSave(draft: PlanDraft): Promise<{ id: string }> {
     const result = await savePlan(draft);
-    const saved: PlanDraft = { ...draft, id: result.id } as PlanDraft;
-    setPlans((prev) => {
-      const withoutThis = prev.filter((p) => p.id !== saved.id);
-      return [...withoutThis, saved];
-    });
+    dispatchPlans({ type: "upsert", plan: { ...draft, id: result.id } as PlanDraft });
     return result;
   }
 
   async function handleDelete(planId: string) {
-    await deletePlan(planId);
-    setPlans((prev) => prev.filter((p) => p.id !== planId));
-    setActivePlans((prev) => ({
-      microPlanId: prev.microPlanId === planId ? null : prev.microPlanId,
-      routinePlanId: prev.routinePlanId === planId ? null : prev.routinePlanId,
-    }));
+    dispatchPlans({ type: "remove", planId });
+    dispatchActive({ type: "clearSlotsHolding", planId });
     if (previewedPlanId === planId) setPreviewedPlanId(null);
+    await deletePlan(planId);
   }
 
   async function handleActivate(planId: string, kind: PlanKind) {
+    dispatchActive({ type: "activate", planId, kind });
     await activatePlan(planId, kind);
-    setActivePlans((prev) => (kind === "micro" ? { ...prev, microPlanId: planId } : { ...prev, routinePlanId: planId }));
   }
 
   async function handleDeactivate(kind: PlanKind) {
+    dispatchActive({ type: "deactivate", kind });
     await deactivateSlot(kind);
-    setActivePlans((prev) => (kind === "micro" ? { ...prev, microPlanId: null } : { ...prev, routinePlanId: null }));
+  }
+
+  async function handleCreateFromTemplate(key: TemplateKey) {
+    await createPlanFromTemplate(key);
+    // No draft to dispatch optimistically (a template's materialized
+    // sessions/exercises are server-only) — the automatic post-Server-
+    // Action refetch delivers the new plan via fresh props, same as any
+    // other revalidatePath-backed mutation here.
+    setMode({ view: "list" });
   }
 
   const calendarPreview = useMemo(() => {
@@ -116,15 +151,6 @@ export function PlanWorkoutsClient({
       routine ? expandPlanToWeek(routine) : {}
     );
   }, [previewedPlanId, plans, activePlans]);
-
-  async function handleCreateFromTemplate(key: TemplateKey) {
-    await createPlanFromTemplate(key);
-    // The template's sessions/exercises exist only server-side now, and
-    // there's no draft to update local state with optimistically — a full
-    // reload is the only correct source, not router.refresh() (see the
-    // comment above on why a soft refresh here raced against local state).
-    window.location.reload();
-  }
 
   if (mode.view === "new") {
     return (

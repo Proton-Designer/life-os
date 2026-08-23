@@ -25,26 +25,20 @@ const microPlan: PlanDraft = {
 };
 
 function setup(overrides: Partial<Parameters<typeof PlanWorkoutsClient>[0]> = {}) {
-  const savePlan = vi.fn().mockResolvedValue({ id: "new-plan" });
-  const deletePlan = vi.fn().mockResolvedValue(undefined);
-  const activatePlan = vi.fn().mockResolvedValue(undefined);
-  const deactivateSlot = vi.fn().mockResolvedValue(undefined);
-  const createPlanFromTemplate = vi.fn().mockResolvedValue({ id: "template-plan" });
-  render(
-    <PlanWorkoutsClient
-      initialPlans={[microPlan]}
-      initialActivePlans={{ microPlanId: null, routinePlanId: null }}
-      allExercises={exercises}
-      onCreateExercise={vi.fn()}
-      savePlan={savePlan}
-      deletePlan={deletePlan}
-      activatePlan={activatePlan}
-      deactivateSlot={deactivateSlot}
-      createPlanFromTemplate={createPlanFromTemplate}
-      {...overrides}
-    />
-  );
-  return { savePlan, deletePlan, activatePlan, deactivateSlot, createPlanFromTemplate };
+  const defaults = {
+    initialPlans: [microPlan],
+    initialActivePlans: { microPlanId: null, routinePlanId: null },
+    allExercises: exercises,
+    onCreateExercise: vi.fn(),
+    savePlan: vi.fn().mockResolvedValue({ id: "new-plan" }),
+    deletePlan: vi.fn().mockResolvedValue(undefined),
+    activatePlan: vi.fn().mockResolvedValue(undefined),
+    deactivateSlot: vi.fn().mockResolvedValue(undefined),
+    createPlanFromTemplate: vi.fn().mockResolvedValue({ id: "template-plan" }),
+  };
+  const props = { ...defaults, ...overrides };
+  render(<PlanWorkoutsClient {...props} />);
+  return props;
 }
 
 describe("PlanWorkoutsClient", () => {
@@ -55,8 +49,13 @@ describe("PlanWorkoutsClient", () => {
   });
 
   it("activating a plan calls activatePlan and updates the active slot", async () => {
+    // A never-resolving promise keeps the transition pending, so we observe
+    // the optimistic update itself — useOptimistic's value only persists
+    // while its dispatching transition is pending; once activatePlan
+    // resolves, it reverts to the (unchanged in this unit test) base props,
+    // same as next-actions.test.tsx's equivalent case.
     const user = userEvent.setup();
-    const { activatePlan } = setup();
+    const { activatePlan } = setup({ activatePlan: vi.fn(() => new Promise<void>(() => {})) });
     await user.click(screen.getByRole("button", { name: "Activate" }));
     expect(activatePlan).toHaveBeenCalledWith("plan-1", "micro");
     expect(screen.getByTestId("active-slot-micro").textContent).toContain("Starter");
@@ -72,7 +71,10 @@ describe("PlanWorkoutsClient", () => {
 
   it("deleting the active plan warns it's the active plan, then clears the slot on confirm", async () => {
     const user = userEvent.setup();
-    const { deletePlan } = setup({ initialActivePlans: { microPlanId: "plan-1", routinePlanId: null } });
+    const { deletePlan } = setup({
+      initialActivePlans: { microPlanId: "plan-1", routinePlanId: null },
+      deletePlan: vi.fn(() => new Promise<void>(() => {})), // see the activate test above for why
+    });
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByText("This is your active plan. Delete anyway?")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete" }));
@@ -97,17 +99,12 @@ describe("PlanWorkoutsClient", () => {
     expect(screen.getByTestId("plan-list")).toBeInTheDocument();
   });
 
-  it("starting from a template calls createPlanFromTemplate with the chosen key and reloads the page", async () => {
-    // A materialized template has content (sessions/exercises) this client
-    // never fetched, so there's no optimistic update to apply — the
-    // component forces a full reload rather than souring local state via a
-    // race against Next's own automatic post-Server-Action refetch (see the
-    // component's comment). Stubbing reload() since jsdom doesn't implement
-    // real navigation.
-    const reload = vi.fn();
-    const originalLocation = window.location;
-    Object.defineProperty(window, "location", { value: { ...originalLocation, reload }, writable: true });
-
+  it("starting from a template calls createPlanFromTemplate with the chosen key and returns to the list", async () => {
+    // No optimistic dispatch here — a template's materialized content
+    // (sessions/exercises) only exists server-side, so this relies on
+    // Next's own automatic post-Server-Action refetch to deliver the new
+    // plan via fresh props (unreachable from a jsdom unit test; this only
+    // asserts the call and the view transition, not the refetched content).
     const user = userEvent.setup();
     const { createPlanFromTemplate } = setup();
     await user.click(screen.getByRole("button", { name: "+ Create workout" }));
@@ -115,8 +112,6 @@ describe("PlanWorkoutsClient", () => {
     await user.click(screen.getByRole("button", { name: /Starter Reps/ }));
 
     expect(createPlanFromTemplate).toHaveBeenCalledWith("starter_reps");
-    await vi.waitFor(() => expect(reload).toHaveBeenCalled());
-
-    Object.defineProperty(window, "location", { value: originalLocation, writable: true });
+    expect(await screen.findByTestId("plan-list")).toBeInTheDocument();
   });
 });
