@@ -16,6 +16,7 @@ function emptyDataSource(overrides: Partial<HomeDataSource> = {}): HomeDataSourc
     getPrayers: async () => [],
     getKillListItems: async () => [],
     getTasks: async () => [],
+    getFitness: async () => ({ microPlanName: null, microTotals: [], microFreqs: [], sessions: [] }),
     ...overrides,
   };
 }
@@ -152,9 +153,9 @@ describe("getPriorityItems", () => {
   // The two toggle_workout tests that lived here are deleted, not
   // repointed (Fitness redesign Phase 7, 2026-08-20): the item they
   // asserted was a bare one-tap workout completion with no numbers shown,
-  // which spec §2.1 forbids for the new confirm flow. Fitness now has no
-  // Home priority-item entry at all — see the comment in
-  // get-priority-items.ts where that block used to be.
+  // which spec §2.1 forbids for the new confirm flow. See the
+  // "fitness row" describe block below for the current replacement
+  // (docs/superpowers/specs/2026-08-23-home-fitness-row.md).
 
   it("orders items with no specific due time by domain priority (Business before School)", async () => {
     const now = new Date("2026-08-10T18:00:00Z");
@@ -178,5 +179,85 @@ describe("getPriorityItems", () => {
     const order = items.map((i) => i.actionRefId);
 
     expect(order.indexOf("k1")).toBeLessThan(order.indexOf("school1"));
+  });
+
+  // Home "Now" fitness row — docs/superpowers/specs/2026-08-23-home-fitness-row.md.
+  // One row max, naming today's workout; never a bare toggle.
+  describe("fitness row", () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+
+    it("emits a row titled with the session's own name when a session is scheduled and unconfirmed", async () => {
+      const dataSource = emptyDataSource({
+        getFitness: async () => ({
+          microPlanName: null,
+          microTotals: [],
+          microFreqs: [],
+          sessions: [{ sessionId: "s1", name: "Push Day A", durationMinutes: 45, startTime: null, confirmedToday: false }],
+        }),
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      const fitnessItem = items.find((i) => i.domain === "fitness");
+
+      expect(fitnessItem).toBeDefined();
+      expect(fitnessItem?.title).toBe("Push Day A");
+      expect(fitnessItem?.actionType).toBe("open_fitness");
+      expect(fitnessItem?.actionRefId).toBe("s1");
+    });
+
+    it("emits a row titled with the active micro plan's name when only micro goals are unmet", async () => {
+      const dataSource = emptyDataSource({
+        getFitness: async () => ({
+          microPlanName: "Starter Reps",
+          microTotals: [{ exerciseId: "e1", name: "Pull-ups", target: 30, loggedToday: 10, notes: null }],
+          microFreqs: [],
+          sessions: [],
+        }),
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      const fitnessItem = items.find((i) => i.domain === "fitness");
+
+      expect(fitnessItem).toBeDefined();
+      expect(fitnessItem?.title).toBe("Starter Reps");
+      expect(fitnessItem?.actionType).toBe("open_fitness");
+    });
+
+    it("shows only the session's name (never both, never concatenated) when both a session and micro goals are pending", async () => {
+      const dataSource = emptyDataSource({
+        getFitness: async () => ({
+          microPlanName: "Starter Reps",
+          microTotals: [{ exerciseId: "e1", name: "Pull-ups", target: 30, loggedToday: 0, notes: null }],
+          microFreqs: [],
+          sessions: [{ sessionId: "s1", name: "Push Day A", durationMinutes: 45, startTime: null, confirmedToday: false }],
+        }),
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      const fitnessItems = items.filter((i) => i.domain === "fitness");
+
+      expect(fitnessItems).toHaveLength(1);
+      expect(fitnessItems[0].title).toBe("Push Day A");
+    });
+
+    it("emits no fitness row when nothing is scheduled today", async () => {
+      const dataSource = emptyDataSource();
+      const items = await getPriorityItems("user-1", now, dataSource);
+      expect(items.some((i) => i.domain === "fitness")).toBe(false);
+    });
+
+    it("emits no fitness row once the session is confirmed and every micro goal is met", async () => {
+      const dataSource = emptyDataSource({
+        getFitness: async () => ({
+          microPlanName: "Starter Reps",
+          microTotals: [{ exerciseId: "e1", name: "Pull-ups", target: 30, loggedToday: 30, notes: null }],
+          microFreqs: [],
+          sessions: [{ sessionId: "s1", name: "Push Day A", durationMinutes: 45, startTime: null, confirmedToday: true }],
+        }),
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      expect(items.some((i) => i.domain === "fitness")).toBe(false);
+    });
   });
 });

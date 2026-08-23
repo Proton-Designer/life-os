@@ -3,7 +3,8 @@ import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
-import { localDateString, localWeekday, resolveLocalTime } from "@/lib/date-utils";
+import { localDateString, localWeekday, resolveLocalTime, dayOfWeekFromDateString } from "@/lib/date-utils";
+import { buildDailyLog, pendingDailyLog, type MicroTotalInput, type MicroFreqInput, type SessionInput } from "@/lib/fitness/daily-log";
 import { urgencyBucket } from "./urgency";
 import type { PriorityItem, Domain } from "./types";
 
@@ -33,11 +34,28 @@ export type HomeTaskRow = {
   due_time: string | null;
   completed: boolean;
 };
+/**
+ * Everything getPriorityItems needs to reconstruct today's DailyLogInputs
+ * for the micro/session archetypes only — dailyChecks/bodyMetrics/
+ * benchmark are deliberately absent, since Home's fitness row (spec:
+ * docs/superpowers/specs/2026-08-23-home-fitness-row.md) never surfaces
+ * them. `microPlanName` is the active micro plan's own name (the row's
+ * title when micro goals are what's pending) — buildDailyLog's micro
+ * items carry exercise names, never the plan's.
+ */
+export type HomeFitnessData = {
+  microPlanName: string | null;
+  microTotals: MicroTotalInput[];
+  microFreqs: MicroFreqInput[];
+  sessions: SessionInput[];
+};
+
 export type HomeDataSource = {
   getProfile: (userId: string) => Promise<HomeProfile | null>;
   getPrayers: (userId: string, date: string) => Promise<HomePrayerRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<HomeKillListRow[]>;
   getTasks: (userId: string, date: string) => Promise<HomeTaskRow[]>;
+  getFitness: (userId: string, date: string, dayOfWeek: number) => Promise<HomeFitnessData>;
 };
 
 // Exported for testing defaultDataSource().getProfile() in isolation — see
@@ -90,6 +108,94 @@ export function defaultDataSource(): HomeDataSource {
         .eq("due_date", date);
       return (data ?? []) as HomeTaskRow[];
     },
+    async getFitness(userId, date, dayOfWeek) {
+      const supabase = await createClient();
+      const empty: HomeFitnessData = { microPlanName: null, microTotals: [], microFreqs: [], sessions: [] };
+
+      const { data: activeRow } = await supabase
+        .from("active_workout_plans")
+        .select("micro_plan_id, routine_plan_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const microPlanId = activeRow?.micro_plan_id ?? null;
+      const routinePlanId = activeRow?.routine_plan_id ?? null;
+      if (!microPlanId && !routinePlanId) return empty;
+
+      const [microPlanResult, microExerciseResult, todaySetsResult, sessionResult, confirmedResult] = await Promise.all([
+        microPlanId
+          ? supabase.from("workout_plans").select("name").eq("id", microPlanId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        microPlanId
+          ? supabase
+              .from("plan_micro_exercises")
+              .select("exercise_id, schedule_days, goal_type, goal_value, notes, exercises(name)")
+              .eq("plan_id", microPlanId)
+          : Promise.resolve({ data: [] }),
+        microPlanId
+          ? supabase
+              .from("session_sets")
+              .select("exercise_id, sets, reps, workout_sessions!inner(date, user_id)")
+              .eq("workout_sessions.user_id", userId)
+              .eq("workout_sessions.date", date)
+          : Promise.resolve({ data: [] }),
+        routinePlanId
+          ? supabase
+              .from("plan_sessions")
+              .select("id, name, schedule_days, start_time, plan_session_exercises(duration_minutes)")
+              .eq("plan_id", routinePlanId)
+          : Promise.resolve({ data: [] }),
+        routinePlanId
+          ? supabase
+              .from("workout_sessions")
+              .select("plan_session_id")
+              .eq("user_id", userId)
+              .eq("date", date)
+              .eq("source", "confirmed")
+              .not("plan_session_id", "is", null)
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const totalByExercise = new Map<string, number>();
+      const boutsByExercise = new Map<string, number>();
+      for (const row of todaySetsResult.data ?? []) {
+        if (!row.exercise_id) continue;
+        totalByExercise.set(row.exercise_id, (totalByExercise.get(row.exercise_id) ?? 0) + row.sets * row.reps);
+        boutsByExercise.set(row.exercise_id, (boutsByExercise.get(row.exercise_id) ?? 0) + 1);
+      }
+
+      const microToday = (microExerciseResult.data ?? []).filter((e) => e.schedule_days.includes(dayOfWeek));
+      const microTotals: MicroTotalInput[] = microToday
+        .filter((e) => e.goal_type === "daily_total")
+        .map((e) => ({
+          exerciseId: e.exercise_id,
+          name: e.exercises?.name ?? "",
+          target: e.goal_value,
+          loggedToday: totalByExercise.get(e.exercise_id) ?? 0,
+          notes: e.notes,
+        }));
+      const microFreqs: MicroFreqInput[] = microToday
+        .filter((e) => e.goal_type === "frequency")
+        .map((e) => ({
+          exerciseId: e.exercise_id,
+          name: e.exercises?.name ?? "",
+          target: e.goal_value,
+          boutsToday: boutsByExercise.get(e.exercise_id) ?? 0,
+          notes: e.notes,
+        }));
+
+      const confirmedSessionIds = new Set((confirmedResult.data ?? []).map((r) => r.plan_session_id));
+      const sessions: SessionInput[] = (sessionResult.data ?? [])
+        .filter((s) => s.schedule_days.includes(dayOfWeek))
+        .map((s) => ({
+          sessionId: s.id,
+          name: s.name,
+          durationMinutes: (s.plan_session_exercises ?? []).reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0),
+          startTime: s.start_time,
+          confirmedToday: confirmedSessionIds.has(s.id),
+        }));
+
+      return { microPlanName: microPlanResult.data?.name ?? null, microTotals, microFreqs, sessions };
+    },
   };
 }
 
@@ -102,10 +208,12 @@ export async function getPriorityItems(
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
 
-  const [prayerRows, killListRows, taskRows] = await Promise.all([
+  const dayOfWeek = dayOfWeekFromDateString(dateStr);
+  const [prayerRows, killListRows, taskRows, fitnessData] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
     dataSource.getKillListItems(userId, dateStr),
     dataSource.getTasks(userId, dateStr),
+    dataSource.getFitness(userId, dateStr, dayOfWeek),
   ]);
 
   const items: Omit<PriorityItem, "date">[] = [];
@@ -193,12 +301,44 @@ export async function getPriorityItems(
     });
   }
 
-  // Fitness has no Home priority-item entry (Fitness redesign, 2026-08-20):
-  // the old scheduled-but-unlogged-workout item was a bare one-tap
-  // completion with no numbers shown, which spec §2.1 forbids for the new
-  // confirm flow ("no bare Confirm button that can be tapped blind"). Its
-  // replacement is a dedicated Home on-plan confirm card (spec §3.1),
-  // not a PriorityItem — deliberately not this list.
+  // Fitness: at most one row, naming today's workout — never a bare
+  // complete-with-one-tap item (fitness spec §2.1 forbids blind
+  // confirmation, and rep goals aren't binary anyway). Reuses
+  // buildDailyLog/pendingDailyLog (lib/fitness/daily-log.ts) rather than
+  // re-deriving "is today's workout done" here — a second implementation
+  // would drift from the Fitness screen and the two surfaces would
+  // disagree about whether the day is complete (docs/superpowers/specs/
+  // 2026-08-23-home-fitness-row.md). dailyChecks/bodyMetrics/benchmark are
+  // deliberately omitted — those are Fitness-screen concerns, not part of
+  // "the workout's name." A scheduled, unconfirmed SESSION outranks micro
+  // goals (the larger, fixed-shape commitment); title is never both/
+  // concatenated.
+  const fitnessPending = pendingDailyLog(
+    buildDailyLog({
+      microTotals: fitnessData.microTotals,
+      microFreqs: fitnessData.microFreqs,
+      sessions: fitnessData.sessions,
+      dailyChecks: [],
+      bodyMetrics: [],
+      benchmark: null,
+    })
+  );
+  const pendingSession = fitnessPending.find((i) => i.kind === "session");
+  const hasPendingMicro = fitnessPending.some((i) => i.kind === "micro_total" || i.kind === "micro_freq");
+  const fitnessTitle = pendingSession ? pendingSession.name : hasPendingMicro ? fitnessData.microPlanName : null;
+  if (fitnessTitle) {
+    items.push({
+      id: "fitness-today",
+      domain: "fitness",
+      title: fitnessTitle,
+      dueAt: null,
+      windowEndAt: null,
+      urgencyBucket: "later_today",
+      completed: false,
+      actionType: "open_fitness",
+      actionRefId: pendingSession ? pendingSession.sessionId : "micro",
+    });
+  }
 
   items.sort((a, b) => {
     if (a.urgencyBucket !== b.urgencyBucket) {

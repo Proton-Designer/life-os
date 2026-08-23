@@ -99,6 +99,14 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
       if (error) throw error;
       break;
     }
+    case "open_fitness": {
+      // Navigates (next-actions.tsx renders a Link, not a checkbox) — never
+      // toggles. Throws rather than silently no-opping so a future change
+      // that accidentally routes this into the toggle path fails loudly
+      // instead of half-working (docs/superpowers/specs/
+      // 2026-08-23-home-fitness-row.md).
+      throw new Error("open_fitness items navigate to /fitness and cannot be toggled");
+    }
   }
 
   revalidatePath("/");

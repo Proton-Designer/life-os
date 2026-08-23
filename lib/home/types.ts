@@ -7,7 +7,9 @@ export type ActionType =
   | "toggle_kill_list"
   | "toggle_task"
   | "toggle_habit"
-  | "toggle_adhkar";
+  | "toggle_adhkar"
+  /** Navigates to /fitness — never toggles. See toggleItem, which throws rather than no-ops for this type. */
+  | "open_fitness";
 
 export type PriorityItem = {
   id: string;

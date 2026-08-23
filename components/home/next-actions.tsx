@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useOptimistic, useState, useTransition } from "react";
-import { ListChecks } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, ListChecks } from "lucide-react";
 import { toggleItem } from "@/app/(app)/actions";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import type { PriorityItem } from "@/lib/home/types";
@@ -67,6 +68,31 @@ function Row({
   // The Now badge already says it — don't also render "Now" as the time
   // text right next to it.
   const showTimeText = !(isMostUrgent && timeText === "Now");
+
+  // Fitness never completes with a bare tap here (fitness spec §2.1: a
+  // blind tap produces rubber-stamped data, and rep goals aren't binary
+  // anyway) — it navigates to /fitness instead, and renders a chevron
+  // where every other row renders its checkbox so it doesn't read as
+  // tappable-to-complete. See docs/superpowers/specs/
+  // 2026-08-23-home-fitness-row.md and toggleItem, which throws rather
+  // than silently no-opping if this ever reaches the toggle path.
+  if (item.actionType === "open_fitness") {
+    return (
+      <li>
+        <Link
+          href="/fitness"
+          className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-accent/50"
+        >
+          <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">{DOMAIN_LABEL[item.domain]}</span>
+          <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
+          {isMostUrgent && <Badge variant="info">Now</Badge>}
+          {showTimeText && <span className="shrink-0 text-xs text-muted-foreground">{timeText}</span>}
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        </Link>
+      </li>
+    );
+  }
 
   return (
     <li className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-accent/50">

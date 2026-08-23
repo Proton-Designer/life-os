@@ -28,6 +28,7 @@ const ACTION_HREF: Record<ActionType, (item: { domain: Domain }) => string> = {
   toggle_task: (item) => (item.domain === "co_op" ? "/work#weekly-agenda" : "/school#tasks"),
   toggle_habit: () => "/deen",
   toggle_adhkar: () => "/deen",
+  open_fitness: () => "/fitness",
 };
 
 const ACTION_BODY: Record<ActionType, string> = {
@@ -36,6 +37,7 @@ const ACTION_BODY: Record<ActionType, string> = {
   toggle_task: "Due today",
   toggle_habit: "Waiting on you today",
   toggle_adhkar: "Waiting on you today",
+  open_fitness: "Today's workout is waiting",
 };
 
 /**

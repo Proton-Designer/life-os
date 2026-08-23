@@ -159,6 +159,17 @@ describe("toggleItem", () => {
 
     await expect(toggleItem(baseItem({ actionType: "toggle_prayer" }))).rejects.toThrow();
   });
+
+  // Home's fitness row navigates (next-actions.tsx renders a Link, not a
+  // checkbox) and must never toggle — throwing rather than silently
+  // no-opping means a future change that accidentally routes it into the
+  // toggle path fails loudly instead of half-working (docs/superpowers/
+  // specs/2026-08-23-home-fitness-row.md).
+  it("throws for open_fitness rather than silently no-opping", async () => {
+    const { toggleItem } = await import("../actions");
+
+    await expect(toggleItem(baseItem({ actionType: "open_fitness", actionRefId: "micro" }))).rejects.toThrow();
+  });
 });
 
 describe("markNotificationReadForNow", () => {
