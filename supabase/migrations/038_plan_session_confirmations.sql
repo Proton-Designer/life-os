@@ -13,3 +13,14 @@ alter table public.workout_sessions
 create unique index workout_sessions_plan_session_unique
   on public.workout_sessions (user_id, date, plan_session_id)
   where source = 'confirmed' and plan_session_id is not null;
+
+-- NOTE (2026-08-23, the Lead): since migration 040 started populating
+-- workout_id on every plan-session confirm too (the legacy-reader mirror),
+-- a duplicate confirm now trips the OLDER workout_sessions_confirmed_unique
+-- (029, keyed on workout_id) before Postgres ever evaluates this index —
+-- confirmed live via a real double-confirm against the actual database.
+-- Not a bug: confirmPlanSession's catch only checks the SQLSTATE
+-- ("23505"), never which constraint fired, so idempotency still holds via
+-- the older index either way. But this index is therefore currently
+-- unreachable in practice for a plan-session confirm — a future reader
+-- finding it here should not assume it's the one doing the work.
