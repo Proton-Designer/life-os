@@ -150,25 +150,37 @@ export default async function FitnessPage() {
 
   const confirmedByDateAndSession = new Set((weekConfirmedRows ?? []).map((r) => `${r.date}:${r.plan_session_id}`));
 
-  // --- Cycle anchor: defaults to today on first read WHERE A PLAN IS
-  // ACTIVE (logic-gap resolution #6 — "default the anchor to the first
-  // plan activation date"; 2026-08-22 review catch — anchoring on a
-  // plan-less visit makes Cycle 1 meaningless from the start). Persisted
-  // lazily here rather than at plan-activation time (simpler than
-  // threading it through 3 separate action files) — an insert-if-missing,
-  // idempotent on the primary key. THIS IS A WRITE ON A READ PATH — do not
-  // "simplify" it into a plain select; a page view is what creates the
-  // anchor row the first time a plan is active. With no anchor and no
-  // active plan, `cycle` stays null and the Cycle Progress module renders
-  // nothing rather than a fabricated Cycle 1. -----------------------------
+  // --- Cycle anchor: defaults to the active plan's own true start date on
+  // first read WHERE A PLAN IS ACTIVE (logic-gap resolution #6; 2026-08-22
+  // review catch — anchoring on a plan-less visit makes Cycle 1
+  // meaningless from the start; anchoring on "today" rather than the
+  // plan's real created_at drifts the same way the This Week floor bug
+  // did, just smaller). Persisted lazily here rather than at
+  // plan-activation time (simpler than threading it through 3 separate
+  // action files) — an insert-if-missing, idempotent on the primary key.
+  // THIS IS A WRITE ON A READ PATH — do not "simplify" it into a plain
+  // select; a page view is what creates the anchor row the first time a
+  // plan is active.
+  //
+  // GATING THE READ, NOT JUST THE INSERT (2026-08-23 review catch): an
+  // anchor row can outlive the plan that created it — deactivating a plan
+  // does NOT delete the anchor (real cycle history for someone who comes
+  // back later shouldn't get re-anchored to whenever they happen to
+  // reopen the app). That means `hasActivePlan` alone decided whether to
+  // WRITE a new anchor, but a stale anchor from a now-inactive plan (or
+  // one that predates this gate entirely) would still render a cycle with
+  // nothing active — the exact fabricated-Cycle-1 bug, via a second path.
+  // `cycle` is therefore null whenever there's no active plan, full stop,
+  // regardless of whether an anchor row exists. -----------------------------
   const hasActivePlan = microPlanId !== null || routinePlanId !== null;
   const { data: anchorRow } = await supabase.from("fitness_cycle_anchor").select("anchor_date").eq("user_id", userId).maybeSingle();
   let anchorDate = anchorRow?.anchor_date ?? null;
   if (!anchorDate && hasActivePlan) {
-    anchorDate = dateStr;
+    const planStartDates = [microPlanStartDate, routinePlanStartDate].filter((d): d is string => d !== null).sort();
+    anchorDate = planStartDates[0] ?? dateStr;
     await supabase.from("fitness_cycle_anchor").upsert({ user_id: userId, anchor_date: anchorDate }, { onConflict: "user_id" });
   }
-  const cycle = anchorDate ? cycleForDate(anchorDate, dateStr) : null;
+  const cycle = anchorDate && hasActivePlan ? cycleForDate(anchorDate, dateStr) : null;
 
   // --- Benchmark exercises: whatever the active micro plan references
   // (typically pull-ups/push-ups) — logCycleBenchmark works for any set. --
