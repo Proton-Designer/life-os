@@ -29,9 +29,16 @@ function formatTime(time: string): string {
  * purely about seeing the week's real detail at a glance, which that
  * generic component (shared with Work/Co-op) doesn't carry.
  */
-export function ClassScheduleWeek({ events, weekDates }: { events: ClassScheduleEvent[]; weekDates: string[] }) {
-  const todayStr = weekDates.find((_, i) => i === new Date().getDay()) ?? weekDates[0];
-
+export function ClassScheduleWeek({
+  events,
+  weekDates,
+  todayStr,
+}: {
+  events: ClassScheduleEvent[];
+  weekDates: string[];
+  /** The user's own local date (e.g. localDateString(now, profile.timezone)) — never derived from `new Date()` here, which would run on the SERVER's local day-of-week, not the user's (AGENTS.md: this class of bug has shipped twice). */
+  todayStr: string;
+}) {
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-7" data-testid="class-schedule-week">
       {DAY_LABELS.map((label, dow) => {
