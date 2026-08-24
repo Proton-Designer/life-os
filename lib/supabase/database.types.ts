@@ -968,10 +968,13 @@ export type Database = {
           created_at: string
           day_of_week: number | null
           domain: string
+          end_time: string | null
           event_date: string | null
           event_time: string | null
           id: string
+          instructor: string | null
           is_recurring: boolean
+          location: string | null
           title: string
           user_id: string
         }
@@ -980,10 +983,13 @@ export type Database = {
           created_at?: string
           day_of_week?: number | null
           domain: string
+          end_time?: string | null
           event_date?: string | null
           event_time?: string | null
           id?: string
+          instructor?: string | null
           is_recurring?: boolean
+          location?: string | null
           title: string
           user_id?: string
         }
@@ -992,10 +998,13 @@ export type Database = {
           created_at?: string
           day_of_week?: number | null
           domain?: string
+          end_time?: string | null
           event_date?: string | null
           event_time?: string | null
           id?: string
+          instructor?: string | null
           is_recurring?: boolean
+          location?: string | null
           title?: string
           user_id?: string
         }
