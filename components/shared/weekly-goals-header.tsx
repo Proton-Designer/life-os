@@ -5,7 +5,7 @@ import { Pencil } from "lucide-react";
 import { IconChip } from "@/components/ui/icon-chip";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { GoalCard } from "@/components/shared/goal-card";
+import { GoalCard, isGoalHeadlineSet } from "@/components/shared/goal-card";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { DOMAIN_ACCENT, ACCENT_VAR } from "@/lib/accent-tokens";
 import { cn } from "@/lib/utils";
@@ -41,6 +41,12 @@ function GoalSlot({
   const accent = DOMAIN_ACCENT[domain];
   const Icon = DOMAIN_ICON[domain];
   const [open, setOpen] = useState(false);
+  // A row can exist with a blank (or whitespace-only) headline — clearing a
+  // goal is legitimate, and saveWeeklyGoal deliberately doesn't reject an
+  // empty string. Treat that the same as "no goal set" here rather than
+  // rendering a blank line with no way back to the prompt (Opus Lead,
+  // 2026-08-24 — Ayman can reach this himself: pencil, clear, save).
+  const isSet = !!goal && isGoalHeadlineSet(goal.headline);
 
   async function handleSave(headline: string, milestones: string[], quranPageTarget?: number) {
     await onSave(headline, milestones, quranPageTarget);
@@ -57,8 +63,8 @@ function GoalSlot({
         >
           {DOMAIN_LABEL[domain]}
         </span>
-        {goal ? (
-          <p className="truncate text-sm font-medium">{goal.headline}</p>
+        {isSet ? (
+          <p className="truncate text-sm font-medium">{goal!.headline}</p>
         ) : (
           <p className="text-sm text-muted-foreground">Set this week&apos;s {DOMAIN_LABEL[domain]} goal</p>
         )}

@@ -9,6 +9,16 @@ import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import type { Domain } from "@/lib/home/types";
 
+// The one place "is this headline actually set" gets decided — a
+// whitespace-only headline counts as unset, same as empty. Exported so
+// callers (weekly-goals-header.tsx's read-view prompt) share this exact
+// definition instead of inventing their own notion of blank (Opus Lead,
+// 2026-08-24: two different definitions of "blank" in one feature is how
+// this class of bug gets reintroduced).
+export function isGoalHeadlineSet(headline: string): boolean {
+  return headline.trim().length > 0;
+}
+
 /**
  * Read view by default, an editable form only while `editing` — a goal
  * that's never been set opens straight into the form (nothing to read yet).
@@ -53,7 +63,9 @@ export function GoalCard({
    * unchanged: edit mode only when there's nothing to read yet. */
   defaultEditing?: boolean;
 }) {
-  const [editing, setEditing] = useState(defaultEditing ?? (!initialHeadline && initialMilestones.length === 0));
+  const [editing, setEditing] = useState(
+    defaultEditing ?? (!isGoalHeadlineSet(initialHeadline) && initialMilestones.length === 0)
+  );
   const [isPending, startTransition] = useTransition();
   const [headline, setHeadline] = useState(initialHeadline);
   const [milestonesText, setMilestonesText] = useState(initialMilestones.join("\n"));

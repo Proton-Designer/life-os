@@ -90,4 +90,52 @@ describe("WeeklyGoalsHeader", () => {
     expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
     expect(screen.getByText(/Set this week's Business goal/)).toBeInTheDocument();
   });
+
+  // A row can exist with a blank headline — saveWeeklyGoal deliberately
+  // doesn't reject an empty string, since clearing a goal is legitimate
+  // (Opus Lead, 2026-08-24). The slot must fall back to the same "Set this
+  // week's X goal" prompt as a genuinely unset (null) goal, not a blank line
+  // with no way back to the prompt.
+  describe("a blank headline reads as unset, same as no goal at all", () => {
+    it("treats an empty-string headline as unset, for both Deen and Business", () => {
+      render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "", milestones: [] }}
+          business={{ headline: "", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+        />
+      );
+      expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+      expect(screen.getByText(/Set this week's Business goal/)).toBeInTheDocument();
+    });
+
+    it("treats a whitespace-only headline as unset, for both Deen and Business", () => {
+      render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "   ", milestones: [] }}
+          business={{ headline: "\n\t ", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+        />
+      );
+      expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+      expect(screen.getByText(/Set this week's Business goal/)).toBeInTheDocument();
+    });
+
+    it("still shows a real headline normally, for both Deen and Business", () => {
+      render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "Finish Juz 5", milestones: [] }}
+          business={{ headline: "Close 3 deals", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+        />
+      );
+      expect(screen.getByText("Finish Juz 5")).toBeInTheDocument();
+      expect(screen.getByText("Close 3 deals")).toBeInTheDocument();
+      expect(screen.queryByText(/Set this week's Deen goal/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Set this week's Business goal/)).not.toBeInTheDocument();
+    });
+  });
 });

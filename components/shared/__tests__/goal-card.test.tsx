@@ -59,6 +59,14 @@ describe("GoalCard", () => {
     expect(screen.queryByRole("button", { name: "Save goal" })).toBeInTheDocument();
   });
 
+  // A whitespace-only headline is the same as no headline at all — cleared
+  // via the form, it should still count as "nothing to read yet" rather than
+  // a read view showing literal whitespace (Opus Lead, 2026-08-24).
+  it("also opens straight into the editable form when the saved headline is whitespace-only", () => {
+    render(<GoalCard title="Business" domain="business" headline="   " milestones={[]} locked={false} onSave={vi.fn()} />);
+    expect(screen.getByPlaceholderText("This week's headline goal")).toBeInTheDocument();
+  });
+
   it("defaults to a read view — headline and milestones as bullets, no form — once a goal exists", () => {
     render(
       <GoalCard
