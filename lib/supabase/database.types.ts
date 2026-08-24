@@ -407,6 +407,81 @@ export type Database = {
           },
         ]
       }
+      distraction_events: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          reflection_entry_id: string | null
+          reflection_tier: number | null
+          trigger_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          reflection_entry_id?: string | null
+          reflection_tier?: number | null
+          trigger_id: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          reflection_entry_id?: string | null
+          reflection_tier?: number | null
+          trigger_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distraction_events_reflection_entry_id_fkey"
+            columns: ["reflection_entry_id"]
+            isOneToOne: false
+            referencedRelation: "reflection_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "distraction_events_trigger_id_fkey"
+            columns: ["trigger_id"]
+            isOneToOne: false
+            referencedRelation: "distraction_triggers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      distraction_triggers: {
+        Row: {
+          archived: boolean
+          created_at: string
+          description: string | null
+          domain: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          archived?: boolean
+          created_at?: string
+          description?: string | null
+          domain: string
+          id?: string
+          name: string
+          user_id?: string
+        }
+        Update: {
+          archived?: boolean
+          created_at?: string
+          description?: string | null
+          domain?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       exercises: {
         Row: {
           archived: boolean
@@ -1130,6 +1205,92 @@ export type Database = {
         }
         Relationships: []
       }
+      trigger_action_plans: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          supersede_reason: string | null
+          superseded_at: string | null
+          trigger_id: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          supersede_reason?: string | null
+          superseded_at?: string | null
+          trigger_id: string
+          user_id?: string
+          version: number
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          supersede_reason?: string | null
+          superseded_at?: string | null
+          trigger_id?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trigger_action_plans_trigger_id_fkey"
+            columns: ["trigger_id"]
+            isOneToOne: false
+            referencedRelation: "distraction_triggers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trigger_plan_outcomes: {
+        Row: {
+          created_at: string
+          date: string
+          followed: boolean
+          id: string
+          plan_id: string
+          trigger_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          followed: boolean
+          id?: string
+          plan_id: string
+          trigger_id: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          followed?: boolean
+          id?: string
+          plan_id?: string
+          trigger_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trigger_plan_outcomes_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "trigger_action_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trigger_plan_outcomes_trigger_id_fkey"
+            columns: ["trigger_id"]
+            isOneToOne: false
+            referencedRelation: "distraction_triggers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       weekly_goals: {
         Row: {
           created_at: string
@@ -1401,6 +1562,16 @@ export type Database = {
           name: string
         }[]
       }
+      record_plan_outcome: {
+        Args: {
+          p_date: string
+          p_followed: boolean
+          p_new_plan_body?: string
+          p_reason?: string
+          p_trigger_id: string
+        }
+        Returns: undefined
+      }
       reorder_coop_target: {
         Args: { p_new_position: number; p_target_id: string }
         Returns: undefined
@@ -1412,6 +1583,19 @@ export type Database = {
           p_window_start: string
         }
         Returns: string
+      }
+      save_trigger_plan: {
+        Args: { p_body: string; p_reason?: string; p_trigger_id: string }
+        Returns: {
+          body: string
+          created_at: string
+          id: string
+          supersede_reason: string | null
+          superseded_at: string | null
+          trigger_id: string
+          user_id: string
+          version: number
+        }
       }
       save_workout: {
         Args: { p_exercises: Json; p_name: string; p_workout_id: string }

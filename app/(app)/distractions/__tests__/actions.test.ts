@@ -13,7 +13,11 @@ function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: nu
 
 const getClaimsMock = vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null }));
 let fromImpl: (table: string) => ReturnType<typeof makeChain>;
-let rpcMock = vi.fn(async () => ({ data: null, error: null }));
+type RpcResult = { data: unknown; error: { message: string } | null };
+let rpcMock: ReturnType<typeof vi.fn<(name: string, args?: unknown) => Promise<RpcResult>>> = vi.fn(async () => ({
+  data: null,
+  error: null,
+}));
 const fromMock = vi.fn((table: string) => fromImpl(table));
 const revalidatePathMock = vi.fn();
 
@@ -67,14 +71,14 @@ describe("recordPlanOutcome", () => {
     });
   });
 
-  it("omits newPlanBody as null when not provided", async () => {
+  it("leaves newPlanBody undefined when not provided (RPC default applies)", async () => {
     const { recordPlanOutcome } = await import("../actions");
 
     await recordPlanOutcome({ triggerId: "t1", followed: false });
 
     expect(rpcMock).toHaveBeenCalledWith(
       "record_plan_outcome",
-      expect.objectContaining({ p_trigger_id: "t1", p_followed: false, p_new_plan_body: null })
+      expect.objectContaining({ p_trigger_id: "t1", p_followed: false, p_new_plan_body: undefined })
     );
   });
 

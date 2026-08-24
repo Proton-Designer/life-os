@@ -134,7 +134,6 @@ export async function saveActionPlan(triggerId: string, body: string): Promise<v
     const { error } = await supabase.rpc("save_trigger_plan", {
       p_trigger_id: triggerId,
       p_body: body,
-      p_reason: null,
     });
     if (error) throw error;
   }
@@ -168,7 +167,7 @@ export async function recordPlanOutcome(input: {
     p_trigger_id: input.triggerId,
     p_followed: input.followed,
     p_date: date,
-    p_new_plan_body: input.newPlanBody ?? null,
+    p_new_plan_body: input.newPlanBody,
   });
   if (error) throw new Error(error.message);
 
