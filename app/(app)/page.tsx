@@ -38,19 +38,22 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, snapshots, extras, dayShape, weeklyGoalsResult, activeSession] = await Promise.all([
-    getPriorityItems(userId, now),
-    getDomainSnapshots(userId, now),
-    getHomeExtras(userId, now, profile),
-    getDayShape(userId, now),
-    supabase
-      .from("weekly_goals")
-      .select("domain, headline, milestones, quran_page_target")
-      .eq("user_id", userId)
-      .eq("week_start_date", weekStart)
-      .in("domain", ["deen", "business"]),
-    getActiveWorkSession(userId),
-  ]);
+  const [items, snapshots, extras, dayShape, weeklyGoalsResult, activeSession, triggers, distractionsToday] =
+    await Promise.all([
+      getPriorityItems(userId, now),
+      getDomainSnapshots(userId, now),
+      getHomeExtras(userId, now, profile),
+      getDayShape(userId, now),
+      supabase
+        .from("weekly_goals")
+        .select("domain, headline, milestones, quran_page_target")
+        .eq("user_id", userId)
+        .eq("week_start_date", weekStart)
+        .in("domain", ["deen", "business"]),
+      getActiveWorkSession(userId),
+      getAllTriggers(supabase, userId, dateStr),
+      getTodayDistractionCount(supabase, userId, dateStr),
+    ]);
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
@@ -119,6 +122,8 @@ export default async function HomePage() {
               focusMinutesToday={extras.focusTimeMinutes}
               sessionCount={extras.focusSessionCount}
               activeSession={activeSessionForFocusModule}
+              distractionsToday={distractionsToday}
+              triggers={triggers}
             />
           </Panel>
         </div>
