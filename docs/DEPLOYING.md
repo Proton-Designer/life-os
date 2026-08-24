@@ -34,9 +34,31 @@ from a worktree pinned to the exact commit:
 
     git worktree add /tmp/deploy-<sha> <sha>
     cp .env.local /tmp/deploy-<sha>/
+    mkdir -p /tmp/deploy-<sha>/.vercel
+    cp .vercel/project.json /tmp/deploy-<sha>/.vercel/    # <-- see Trap 3
     cd /tmp/deploy-<sha>
     npx vercel@50.0.1 deploy --prod --yes --token "$VERCEL_TOKEN"
     cd - && git worktree remove /tmp/deploy-<sha>
+
+## Trap 3 — a worktree has no `.vercel/`, so the CLI silently creates a NEW project
+
+`.vercel/` is gitignored, so `git worktree add` does not carry it over. Without
+`.vercel/project.json` the CLI does not error — it treats the directory as an
+unlinked project and **creates a brand new Vercel project named after the
+directory**, then deploys there. Production is untouched, so nothing looks
+broken, and the build fails a minute later with:
+
+    Missing NEXT_PUBLIC_SUPABASE_URL environment variable
+
+which reads like an env problem and is actually a wrong-project problem — the
+new project has none of `tracking-app`'s environment variables. Hit on
+2026-08-24 (Opus Lead), which is why the `cp .vercel/project.json` line above
+exists. If you have already done it, delete the stray project:
+
+    npx vercel@50.0.1 project rm <dir-name> --token "$VERCEL_TOKEN"
+
+Verify the link before deploying — `cat .vercel/project.json` in the worktree
+must say `"projectName":"tracking-app"`.
 
 A worktree touches nothing in the shared directory. Never `git stash`,
 `git reset --hard`, `git checkout -- <path>`, or `git clean` here to get a clean
