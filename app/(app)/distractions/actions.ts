@@ -3,11 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
-import type { DistractionDomain } from "@/lib/distractions/types";
+import { getTriggersForDomain } from "@/lib/distractions/queries";
+import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
 
 async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string) {
   const { data: profile } = await supabase.from("profiles").select("timezone").eq("user_id", userId).maybeSingle();
   return localDateString(new Date(), profile?.timezone ?? "UTC");
+}
+
+/**
+ * The capture dialog (client component) can't call lib/distractions/queries.ts
+ * directly — that module talks to Supabase server-side. This is the thin
+ * "use server" wrapper it calls instead, same idiom as every other client
+ * component that imports a server action straight into its own file.
+ */
+export async function listTriggersForDomain(domain: DistractionDomain): Promise<TriggerSummary[]> {
+  const { supabase, userId } = await requireUser();
+  const date = await todayForUser(supabase, userId);
+  return getTriggersForDomain(supabase, userId, date, domain);
 }
 
 /**

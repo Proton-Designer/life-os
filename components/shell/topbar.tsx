@@ -1,23 +1,54 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Menu } from "lucide-react";
+import { CalendarDays, Menu } from "lucide-react";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
 import { NotificationsBell } from "./notifications-bell";
+import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
+import { Button } from "@/components/ui/button";
+import { isReviewOpen } from "@/lib/distractions/plan-rules";
+
+const TICK_MS = 60 * 1000;
 
 export function Topbar({
   account,
   dateLabel,
+  nowIso,
+  timezone,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
+  // Seeded from the server so first paint matches the server render (same
+  // pattern as next-actions.tsx's nowIso) — the Review button's visibility
+  // must not hydration-mismatch. Ticks afterward so it appears without a
+  // full navigation once 9pm/4am actually passes while the tab is open.
+  nowIso: string;
+  timezone: string;
 }) {
+  const [now, setNow] = useState(() => new Date(nowIso));
+  useEffect(() => {
+    // The immediate tick matters as much as the nowIso seed above: with
+    // next.config.ts's staleTimes.dynamic at 3600s, a cache-hit revisit can
+    // serve an RSC payload with an hour-old nowIso baked in, and without
+    // this call the Review button would stay wrong for up to another 60s
+    // until the interval below first fires — missing for up to a minute
+    // right at 9pm/4am, the one moment it matters. Runs after hydration, so
+    // it doesn't reintroduce the mismatch the nowIso seed prevents.
+    const tick = () => setNow(new Date());
+    tick();
+    const interval = setInterval(tick, TICK_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  const reviewOpen = isReviewOpen(now, timezone);
+
   return (
     <DialogPrimitive.Root>
       <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md md:px-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-1 items-center gap-3">
           <DialogPrimitive.Trigger asChild>
             <button
               type="button"
@@ -38,10 +69,33 @@ export function Topbar({
             Life OS
           </Link>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* Centre — directly under the Life OS mark (spec: "middle of the
+            top bar ... right under where it says Life OS"). */}
+        <div className="flex flex-1 items-center justify-center gap-2">
+          <DistractionCaptureDialog />
+          {reviewOpen && (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/review">Review</Link>
+            </Button>
+          )}
+        </div>
+
+        <div className="flex flex-1 items-center justify-end gap-3">
           <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>
           <NotificationsBell />
-          <AccountBlock displayName={account.displayName} email={account.email} variant="icon-rail" />
+          {/* Replaces the account icon here (spec: "remove the user profile
+              icon at the top right ... replace that button with a calendar
+              button"). Sign-out is unaffected — AccountBlock still renders
+              in the lg/xl sidebar (app-sidebar.tsx) and in this same
+              topbar's mobile drawer below, neither of which this touches. */}
+          <Link
+            href="/calendar"
+            aria-label="Open calendar"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          >
+            <CalendarDays className="size-5" />
+          </Link>
         </div>
       </header>
 

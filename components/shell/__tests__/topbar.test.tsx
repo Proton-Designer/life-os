@@ -52,7 +52,13 @@ const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
 function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) {
   return render(
     <AllocationQueueProvider>
-      <Topbar account={ACCOUNT} dateLabel="Fri, Aug 15" {...props} />
+      <Topbar
+        account={ACCOUNT}
+        dateLabel="Fri, Aug 15"
+        nowIso="2026-08-15T18:00:00.000-05:00"
+        timezone="America/Chicago"
+        {...props}
+      />
     </AllocationQueueProvider>
   );
 }
@@ -104,9 +110,50 @@ describe("Topbar", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("renders the account trigger", () => {
+  it("renders the account trigger inside the drawer (replaced by a calendar link in the topbar itself)", async () => {
+    const user = userEvent.setup();
     renderTopbar();
-    expect(screen.getByRole("button", { name: /account menu/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /account menu/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /open menu/i }));
+    expect(await screen.findByRole("button", { name: /account menu/i })).toBeInTheDocument();
+  });
+
+  it("shows a calendar link in place of the account icon at the top right", () => {
+    renderTopbar();
+    expect(screen.getByRole("link", { name: /open calendar/i })).toHaveAttribute("href", "/calendar");
+  });
+
+  it("shows the Distractions button in the topbar", () => {
+    renderTopbar();
+    expect(screen.getByRole("button", { name: /distractions/i })).toBeInTheDocument();
+  });
+
+  // Fake timers here (not just nowIso) because Topbar's mount effect
+  // immediately re-ticks `now` to the real wall clock (staleTimes-cache
+  // correction, see the component's own comment) — without pinning the
+  // system clock too, that tick would overwrite the seeded time with
+  // whatever real time the test actually runs at.
+  it("hides the Review link before 9pm local", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T20:59:00.000-05:00"));
+    try {
+      renderTopbar({ nowIso: "2026-08-15T20:59:00.000-05:00", timezone: "America/Chicago" });
+      expect(screen.queryByRole("link", { name: "Review" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the Review link once local time is past 9pm", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T21:00:00.000-05:00"));
+    try {
+      renderTopbar({ nowIso: "2026-08-15T21:00:00.000-05:00", timezone: "America/Chicago" });
+      expect(screen.getByRole("link", { name: "Review" })).toHaveAttribute("href", "/review");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("prefetches its own cross-screen links (navigation-prefetch-fix, Part A)", () => {

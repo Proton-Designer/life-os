@@ -12,8 +12,15 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     email: user?.email ?? "",
   };
 
+  const now = new Date();
+
   return (
-    <AppShellChrome account={account} dateLabel={formatTopbarDate(new Date(), timezone)}>
+    <AppShellChrome
+      account={account}
+      dateLabel={formatTopbarDate(now, timezone)}
+      nowIso={now.toISOString()}
+      timezone={timezone}
+    >
       {children}
     </AppShellChrome>
   );

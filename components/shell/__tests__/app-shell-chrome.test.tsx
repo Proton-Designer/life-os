@@ -28,7 +28,12 @@ const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
 describe("AppShellChrome", () => {
   it("renders the sidebar, topbar, mobile island, and page content", () => {
     render(
-      <AppShellChrome account={ACCOUNT} dateLabel="Fri, Aug 15">
+      <AppShellChrome
+        account={ACCOUNT}
+        dateLabel="Fri, Aug 15"
+        nowIso="2026-08-15T18:00:00.000-05:00"
+        timezone="America/Chicago"
+      >
         <div>Page content</div>
       </AppShellChrome>
     );
