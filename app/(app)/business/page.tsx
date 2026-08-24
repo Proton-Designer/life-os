@@ -6,6 +6,7 @@ import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
+import { getActiveWorkSession } from "@/lib/business/active-session";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
 import { GoalCard } from "@/components/shared/goal-card";
 import { LockInPanel, type ActiveSessionData } from "@/components/business/lock-in-panel";
@@ -27,7 +28,7 @@ export default async function BusinessPage() {
   const weekStart = getWeekStartDate(dateStr);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ data: killListRows }, { data: weeklyGoal }, { data: activeSessionRow }, { data: workSessionRows }] =
+  const [{ data: killListRows }, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }] =
     await Promise.all([
       supabase
         .from("kill_list_items")
@@ -42,14 +43,24 @@ export default async function BusinessPage() {
         .eq("domain", "business")
         .eq("week_start_date", weekStart)
         .maybeSingle(),
-      supabase.from("work_sessions").select("id, started_at").eq("user_id", userId).is("ended_at", null).maybeSingle(),
+      // Kind-agnostic — startWorkSession's single-active-session guard
+      // blocks a new session of EITHER kind while one is running, so this
+      // page must know about a running Deep Study session too, even though
+      // it only ever displays a Deep Work one (2026-08-24 Lead review: a
+      // deep_work-only query here let this page offer a Lock In button the
+      // guard would then refuse, for a session it never told the user
+      // about).
+      getActiveWorkSession(userId),
       // Today's focus time is the only thing this range still feeds — the
       // last-completed-session summary it also used to feed was removed
-      // (2026-08-21, per Ayman: drop the "Last session: ..." line).
+      // (2026-08-21, per Ayman: drop the "Last session: ..." line). Still
+      // deep_work only — this is a Business-domain metric, unlike the guard
+      // check above.
       supabase
         .from("work_sessions")
         .select("id, started_at, ended_at")
         .eq("user_id", userId)
+        .eq("kind", "deep_work")
         .gte("started_at", thirtyDaysAgoIso)
         .order("started_at", { ascending: false }),
     ]);
@@ -61,12 +72,17 @@ export default async function BusinessPage() {
   const killListCompletedToday = slots.filter((s) => s.completed).length;
 
   let activeSession: ActiveSessionData | null = null;
-  if (activeSessionRow) {
+  // "Deep Study in progress" — this page has no presence for that session
+  // (it's Business-scoped; Deep Study surfaces solely through the Home
+  // Focus module) but must still disable its own Lock In button while it's
+  // running, or the guard refuses an action this page just offered.
+  let otherKindActiveLabel: string | null = null;
+  if (anyActiveSession?.kind === "deep_work") {
     const { data } = await supabase
       .from("checkins")
       .select("window_start, checkin_allocations(domain)")
       .eq("user_id", userId)
-      .eq("work_session_id", activeSessionRow.id)
+      .eq("work_session_id", anyActiveSession.id)
       .eq("kind", "allocation")
       .eq("answered", true)
       .order("window_start", { ascending: true });
@@ -78,7 +94,9 @@ export default async function BusinessPage() {
           ? ("business" as const)
           : ("wasted" as const),
       }));
-    activeSession = { id: activeSessionRow.id, startedAtIso: activeSessionRow.started_at, storedHours };
+    activeSession = { id: anyActiveSession.id, startedAtIso: anyActiveSession.startedAt, storedHours };
+  } else if (anyActiveSession?.kind === "deep_study") {
+    otherKindActiveLabel = "Deep Study in progress";
   }
 
   // --- Focus time today ---
@@ -125,6 +143,7 @@ export default async function BusinessPage() {
             todayFocusMinutes={focusMinutesToday}
             timezone={timezone}
             showTodayTotal={false}
+            disabledReason={otherKindActiveLabel}
           />
         </div>
       </div>

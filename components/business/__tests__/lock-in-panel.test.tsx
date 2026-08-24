@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/(app)/business/actions", () => ({
@@ -10,6 +11,7 @@ vi.mock("@/lib/checkins/session-hour-status", () => ({
   pendingSessionHour: () => null,
 }));
 
+import { startWorkSession } from "@/app/(app)/business/actions";
 import { LockInPanel } from "../lock-in-panel";
 
 describe("LockInPanel", () => {
@@ -54,5 +56,31 @@ describe("LockInPanel", () => {
       />
     );
     expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
+  });
+
+  it("disables Lock In and explains why when a Deep Study session is running elsewhere (2026-08-24 fix — the guard blocks either kind)", () => {
+    render(
+      <LockInPanel
+        initialSession={null}
+        todayFocusMinutes={0}
+        timezone="UTC"
+        disabledReason="Deep Study in progress"
+      />
+    );
+    expect(screen.getByText(/Deep Study in progress/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lock In" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "finish it on Home" })).toHaveAttribute("href", "/");
+  });
+
+  it("shows a legible message instead of crashing when startWorkSession still throws (a race the guard lost)", async () => {
+    vi.mocked(startWorkSession).mockRejectedValue(new Error("A work session is already active"));
+    const user = userEvent.setup();
+    render(<LockInPanel initialSession={null} todayFocusMinutes={0} timezone="UTC" />);
+
+    await user.click(screen.getByRole("button", { name: "Lock In" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/already running/)).toBeInTheDocument();
+    });
   });
 });

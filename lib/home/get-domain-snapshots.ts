@@ -213,10 +213,18 @@ export function defaultDataSource(): DomainSnapshotDataSource {
     },
     async getActiveWorkSession(userId) {
       const supabase = await createClient();
+      // Business-domain snapshot only (feeds BusinessSnapshot.activeSession,
+      // the peek card's "locked in" summary) — deep_work only, per the
+      // Deep Work/Deep Study split (2026-08-24). A deep_study session has no
+      // Business-domain presence; it surfaces solely through the Home Focus
+      // module. Deliberately a different query from
+      // lib/business/active-session.ts's kind-agnostic getActiveWorkSession,
+      // which the Home page uses for "is anything running at all."
       const { data } = await supabase
         .from("work_sessions")
         .select("id, started_at")
         .eq("user_id", userId)
+        .eq("kind", "deep_work")
         .is("ended_at", null)
         .maybeSingle();
       return data ? { id: data.id, startedAt: data.started_at } : null;

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { startWorkSession } from "@/app/(app)/business/actions";
 import { LockInSession, type StoredSessionHour } from "./lock-in-session";
@@ -21,6 +22,7 @@ export function LockInPanel({
   todayFocusMinutes,
   timezone,
   showTodayTotal = true,
+  disabledReason = null,
 }: {
   initialSession: ActiveSessionData | null;
   // A real moment in time (session start), not a calendar date — must
@@ -40,9 +42,18 @@ export function LockInPanel({
   // don't delete the display outright, or a caller with no adjacent card
   // silently loses the guarantee above.
   showTodayTotal?: boolean;
+  // Deep Work/Deep Study split (2026-08-24, Lead review): the single-active-
+  // session guard in startWorkSession blocks a new session of EITHER kind
+  // while one is running, but this page only ever shows a deep_work
+  // session — a deep_study session elsewhere is invisible here otherwise,
+  // which let this panel offer a Lock In button the guard would then
+  // refuse, for a session the page never told the user about. When set,
+  // disables Lock In and explains why instead.
+  disabledReason?: string | null;
 }) {
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   if (session) {
     return (
@@ -57,9 +68,18 @@ export function LockInPanel({
   }
 
   function handleLockIn() {
+    setError(null);
     startTransition(async () => {
-      const result = await startWorkSession();
-      setSession({ id: result.id, startedAtIso: result.startedAt, storedHours: [] });
+      try {
+        const result = await startWorkSession("deep_work");
+        setSession({ id: result.id, startedAtIso: result.startedAt, storedHours: [] });
+      } catch {
+        // The guard can still lose a race (two tabs, a double-click) even
+        // after disabledReason covers the known cross-kind case — surface
+        // it as a legible inline message, not an unhandled rejection that
+        // crashes the page (2026-08-24, Lead review).
+        setError("A Lock-In session is already running. Reload to see it.");
+      }
     });
   }
 
@@ -73,7 +93,16 @@ export function LockInPanel({
           </p>
         </div>
       )}
-      <Button type="button" onClick={handleLockIn} disabled={isPending} className="w-full">
+      {disabledReason && (
+        <p className="text-xs text-muted-foreground">
+          {disabledReason} —{" "}
+          <Link href="/" prefetch className="underline hover:text-foreground">
+            finish it on Home
+          </Link>
+        </p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button type="button" onClick={handleLockIn} disabled={isPending || !!disabledReason} className="w-full">
         Lock In
       </Button>
     </div>

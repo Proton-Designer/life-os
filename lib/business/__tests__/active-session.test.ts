@@ -32,15 +32,15 @@ describe("getActiveWorkSession", () => {
     expect(result).toBeNull();
   });
 
-  it("maps an active session row to { id, startedAt }", async () => {
+  it("maps an active session row to { id, startedAt, kind }", async () => {
     maybeSingleMock.mockResolvedValue({
-      data: { id: "session-1", started_at: "2026-08-17T17:00:00.000Z" },
+      data: { id: "session-1", started_at: "2026-08-17T17:00:00.000Z", kind: "deep_study" },
       error: null,
     });
     const { getActiveWorkSession } = await import("../active-session");
 
     const result = await getActiveWorkSession("user-1");
 
-    expect(result).toEqual({ id: "session-1", startedAt: "2026-08-17T17:00:00.000Z" });
+    expect(result).toEqual({ id: "session-1", startedAt: "2026-08-17T17:00:00.000Z", kind: "deep_study" });
   });
 });

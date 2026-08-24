@@ -1332,6 +1332,7 @@ export type Database = {
           created_at: string
           ended_at: string | null
           id: string
+          kind: string
           started_at: string
           user_id: string
         }
@@ -1339,6 +1340,7 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           id?: string
+          kind?: string
           started_at?: string
           user_id?: string
         }
@@ -1346,6 +1348,7 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           id?: string
+          kind?: string
           started_at?: string
           user_id?: string
         }

@@ -94,7 +94,7 @@ describe("Business actions", () => {
     );
   });
 
-  it("startWorkSession throws when an active session already exists for this user", async () => {
+  it("startWorkSession throws when an active session already exists for this user, regardless of the requested kind", async () => {
     const chain = makeChain({
       data: { id: "existing-session" },
       error: null,
@@ -102,11 +102,11 @@ describe("Business actions", () => {
     fromImpl = () => chain;
     const { startWorkSession } = await import("../actions");
 
-    await expect(startWorkSession()).rejects.toThrow();
+    await expect(startWorkSession("deep_study")).rejects.toThrow();
     expect(chain.insert).not.toHaveBeenCalled();
   });
 
-  it("startWorkSession inserts a new work_sessions row and returns it when no active session exists", async () => {
+  it("startWorkSession inserts a new work_sessions row with the requested kind and returns it when no active session exists", async () => {
     let call = 0;
     const chain = makeChain();
     // First maybeSingle() call (the active-session check) resolves null;
@@ -119,10 +119,10 @@ describe("Business actions", () => {
     fromImpl = () => chain;
     const { startWorkSession } = await import("../actions");
 
-    const result = await startWorkSession();
+    const result = await startWorkSession("deep_study");
 
     expect(fromMock).toHaveBeenCalledWith("work_sessions");
-    expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1" }));
+    expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1", kind: "deep_study" }));
     expect(result).toEqual({ id: "new-session", startedAt: "2026-08-15T14:00:00.000Z" });
     expect(call).toBe(1);
   });

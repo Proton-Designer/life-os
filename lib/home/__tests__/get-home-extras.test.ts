@@ -37,10 +37,14 @@ describe("getHomeExtras", () => {
     vi.doUnmock("@/lib/supabase/server");
   });
 
-  it("computes focus time and session count from whatever rows the (correctly-bounded) query returns", async () => {
+  it("splits focus time and session count by kind, deep_work and deep_study counted separately", async () => {
     vi.resetModules();
     const chain = makeChain({
-      data: [{ started_at: "2026-08-17T14:00:00Z", ended_at: "2026-08-17T15:00:00Z" }],
+      data: [
+        { started_at: "2026-08-17T14:00:00Z", ended_at: "2026-08-17T15:00:00Z", kind: "deep_work" },
+        { started_at: "2026-08-17T16:00:00Z", ended_at: "2026-08-17T16:30:00Z", kind: "deep_study" },
+        { started_at: "2026-08-17T17:00:00Z", ended_at: "2026-08-17T17:20:00Z", kind: "deep_study" },
+      ],
       error: null,
     });
     vi.doMock("@/lib/supabase/server", () => ({
@@ -51,8 +55,25 @@ describe("getHomeExtras", () => {
     const now = new Date("2026-08-17T20:00:00.000Z");
     const result = await getHomeExtras("user-1", now, { timezone: "America/Chicago" });
 
-    expect(result.focusSessionCount).toBe(1);
-    expect(result.focusTimeMinutes).toBe(60);
+    expect(result.deepWork).toEqual({ minutes: 60, sessions: 1 });
+    expect(result.deepStudy).toEqual({ minutes: 50, sessions: 2 });
+
+    vi.doUnmock("@/lib/supabase/server");
+  });
+
+  it("returns zeroed extras for both kinds when no sessions exist today", async () => {
+    vi.resetModules();
+    const chain = makeChain({ data: [], error: null });
+    vi.doMock("@/lib/supabase/server", () => ({
+      createClient: async () => ({ from: vi.fn(() => chain) }),
+    }));
+
+    const { getHomeExtras } = await import("../get-home-extras");
+    const now = new Date("2026-08-17T20:00:00.000Z");
+    const result = await getHomeExtras("user-1", now, { timezone: "America/Chicago" });
+
+    expect(result.deepWork).toEqual({ minutes: 0, sessions: 0 });
+    expect(result.deepStudy).toEqual({ minutes: 0, sessions: 0 });
 
     vi.doUnmock("@/lib/supabase/server");
   });

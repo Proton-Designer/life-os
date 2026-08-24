@@ -84,8 +84,14 @@ export async function saveBusinessWeeklyGoal(
  * single-user app, per the design spec). Checked with a read-then-write
  * rather than a DB unique partial index, matching this codebase's existing
  * fail-loud-in-the-action style (see toggleKillListItem).
+ *
+ * The guard is deliberately kind-agnostic — you cannot be doing deep work
+ * and deep study at once, so it checks for ANY active session regardless of
+ * kind, not just a same-kind one.
  */
-export async function startWorkSession(): Promise<{ id: string; startedAt: string }> {
+export async function startWorkSession(
+  kind: "deep_work" | "deep_study"
+): Promise<{ id: string; startedAt: string }> {
   const { supabase, userId } = await requireUser();
 
   const { data: active } = await supabase
@@ -101,12 +107,13 @@ export async function startWorkSession(): Promise<{ id: string; startedAt: strin
 
   const { data, error } = await supabase
     .from("work_sessions")
-    .insert({ user_id: userId })
+    .insert({ user_id: userId, kind })
     .select("id, started_at")
     .single();
   if (error) throw error;
 
   revalidatePath("/business");
+  revalidatePath("/");
   return { id: data.id, startedAt: data.started_at };
 }
 
@@ -132,4 +139,5 @@ export async function endWorkSession(sessionId: string): Promise<void> {
   if (error) throw error;
 
   revalidatePath("/business");
+  revalidatePath("/");
 }
