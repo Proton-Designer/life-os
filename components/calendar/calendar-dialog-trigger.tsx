@@ -52,6 +52,15 @@ export function CalendarDialogTrigger({
     if (next && !data && !loading) void load();
   }
 
+  // `data` is a plain useState snapshot fetched once on open — a server
+  // revalidatePath() from saveWeeklyGoal doesn't reach into it. These
+  // wrappers MUST `await load()` before returning: GoalSlot's own onSave
+  // handler only calls `setOpen(false)` (closing the nested goal-edit
+  // dialog) after this promise resolves, so the refetch completes and
+  // `data` is fresh before the user ever sees the inner dialog close.
+  // Making this fire-and-forget (dropping the `await` or returning early)
+  // reintroduces a real bug: the calendar popup behind the closed dialog
+  // would keep showing the pre-edit headline until closed and reopened.
   async function handleSaveDeen(headline: string, milestones: string[], quranPageTarget?: number) {
     await onSaveDeen(headline, milestones, quranPageTarget);
     await load();
