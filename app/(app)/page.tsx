@@ -8,11 +8,12 @@ import { getHomeExtras } from "@/lib/home/get-home-extras";
 import { getDayShape } from "@/lib/home/get-day-shape";
 import { computeDayRibbon } from "@/lib/home/day-ribbon";
 import { getActiveWorkSession } from "@/lib/business/active-session";
+import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextActions } from "@/components/home/next-actions";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyFocus } from "@/components/home/weekly-focus";
-import { WeeklyGoalStrip } from "@/components/home/weekly-goal-strip";
+import { WeeklyGoalsHeader } from "@/components/shared/weekly-goals-header";
 import { DomainStatusStack } from "@/components/home/domain-status-stack";
 import { DayRibbon } from "@/components/home/day-ribbon";
 import { PageContainer } from "@/components/shell/page-container";
@@ -102,7 +103,7 @@ export default async function HomePage() {
     <PageContainer>
       <PageHeader title="Home" />
 
-      <WeeklyGoalStrip deen={deenGoal} business={businessGoal} />
+      <WeeklyGoalsHeader deen={deenGoal} business={businessGoal} />
 
       <DomainStatusStack snapshots={snapshots} title="Sector progress" />
 
