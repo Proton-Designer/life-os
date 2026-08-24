@@ -4,6 +4,7 @@ import { useEffect, useRef, useTransition } from "react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
 import { formatRelativeDuration, formatDurationMagnitude } from "@/lib/date-utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DayRibbonLayout, RibbonSpanState } from "@/lib/home/day-ribbon";
 
 const SPAN_STATE_CLASS: Record<RibbonSpanState, string> = {
@@ -162,18 +163,44 @@ export function DayRibbon({
                 carries that message. */}
             {layout.blocks.length > 0 && (
               <div className="relative z-10 mt-8 h-4 rounded-full bg-background/30">
-                {layout.blocks.map((b, i) => (
-                  <div
-                    key={i}
-                    title={b.label}
-                    className="absolute top-0 h-full rounded-full opacity-80"
-                    style={{
-                      left: `${b.startPct}%`,
-                      width: `${Math.max(1, b.endPct - b.startPct)}%`,
-                      backgroundColor: `var(${b.colorVar})`,
-                    }}
-                  />
-                ))}
+                {layout.blocks.map((b, i) =>
+                  b.detail ? (
+                    <Popover key={i}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`${b.detail.title}, ${b.detail.timeRange}`}
+                          className="absolute top-0 h-full rounded-full opacity-80 transition-opacity hover:opacity-100"
+                          style={{
+                            left: `${b.startPct}%`,
+                            width: `${Math.max(1, b.endPct - b.startPct)}%`,
+                            backgroundColor: `var(${b.colorVar})`,
+                          }}
+                        />
+                      </PopoverTrigger>
+                      <PopoverContent align="center" className="w-64">
+                        <p className="text-sm font-medium">{b.detail.title}</p>
+                        <p className="text-xs text-muted-foreground">{b.detail.timeRange}</p>
+                        {b.detail.location && <p className="text-xs text-muted-foreground">{b.detail.location}</p>}
+                        {b.detail.instructor && <p className="text-xs text-muted-foreground">{b.detail.instructor}</p>}
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    // No detail to show (e.g. a focus session) — a plain,
+                    // non-interactive block rather than a dead affordance
+                    // that looks tappable and does nothing.
+                    <div
+                      key={i}
+                      title={b.label}
+                      className="absolute top-0 h-full rounded-full opacity-80"
+                      style={{
+                        left: `${b.startPct}%`,
+                        width: `${Math.max(1, b.endPct - b.startPct)}%`,
+                        backgroundColor: `var(${b.colorVar})`,
+                      }}
+                    />
+                  )
+                )}
               </div>
             )}
           </div>

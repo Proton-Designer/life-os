@@ -175,4 +175,35 @@ describe("DayRibbon", () => {
     expect(screen.getByText(/complete/i)).toBeInTheDocument();
     expect(screen.queryByText("now")).not.toBeInTheDocument();
   });
+
+  // Overnight session 2026-08-23/24 — a block only becomes clickable when
+  // it carries a detail payload; one with nothing to show must render as
+  // plain, non-interactive chrome rather than a dead affordance.
+  it("opens a detail popover when a block with a detail payload is clicked", async () => {
+    const user = userEvent.setup();
+    const withDetail: DayRibbonLayout = {
+      ...LAYOUT,
+      blocks: [
+        {
+          label: "CS-3341-HON",
+          colorVar: "--series-school",
+          startPct: 10,
+          endPct: 30,
+          detail: { title: "CS-3341-HON", timeRange: "8:30 AM–9:45 AM", location: "ECSN 2.120", instructor: "N. Ruozzi", domain: "school" },
+        },
+      ],
+    };
+    render(<DayRibbon layout={withDetail} todayStr="2026-08-15" timezone="UTC" />);
+
+    await user.click(screen.getByRole("button", { name: /CS-3341-HON, 8:30 AM–9:45 AM/ }));
+    expect(screen.getByText("ECSN 2.120")).toBeInTheDocument();
+    expect(screen.getByText("N. Ruozzi")).toBeInTheDocument();
+  });
+
+  it("renders a block with no detail as non-interactive — no button role at all", () => {
+    render(<DayRibbon layout={LAYOUT} todayStr="2026-08-15" timezone="UTC" />);
+    // LAYOUT's one block ("Deep work") carries no detail — only the five
+    // prayer-mark buttons should exist, none for the activity block.
+    expect(screen.getAllByRole("button")).toHaveLength(5);
+  });
 });
