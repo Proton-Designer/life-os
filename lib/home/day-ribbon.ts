@@ -22,9 +22,21 @@ export type RibbonActivityDetail = {
   domain: string;
 };
 
+/**
+ * What kind of activity a block represents — drives both its icon and its
+ * accessible label (Ayman, overnight session 2026-08-24: bare colored bars
+ * carried no indicator at all of what a block WAS). "class" is a School
+ * schedule_event, "work" a Co-op one; "fitness" a scheduled workout; "task"
+ * a timed School/Work deadline; "focus" a Lock-In work session. Kept in
+ * sync with the weekly calendar's own vocabulary (components/calendar) —
+ * the two surfaces must not disagree on what a block's kind means.
+ */
+export type RibbonActivityKind = "class" | "work" | "fitness" | "task" | "focus";
+
 export type RibbonActivityInput = {
   label: string;
   colorVar: string;
+  kind: RibbonActivityKind;
   start: Date;
   end: Date | null;
   detail?: RibbonActivityDetail;
@@ -41,11 +53,20 @@ export type RibbonPrayerSpan = {
   endPct: number;
   windowStart: Date;
   windowEnd: Date;
+  /** Which of the two label rows this span's button renders in — 0 is the
+   * default row, 1 is bumped down to avoid overlapping an adjacent label
+   * whose midpoint landed too close to this one's (see
+   * LABEL_COLLISION_THRESHOLD_PCT below). Computed here, in the pure layout
+   * function, rather than left to the component as CSS guesswork — Ayman's
+   * report, 2026-08-24: Asr and Maghrib's labels rendered on top of each
+   * other, reading as "AsrMaghrib". */
+  labelRow: 0 | 1;
 };
 
 export type RibbonActivityBlock = {
   label: string;
   colorVar: string;
+  kind: RibbonActivityKind;
   startPct: number;
   endPct: number;
   detail?: RibbonActivityDetail;
@@ -115,16 +136,40 @@ export function computeDayRibbon({
     placeable[0].window.end
   );
 
-  const spans: RibbonPrayerSpan[] = placeable.map((p) => ({
-    name: p.name,
-    label: p.label,
-    status: p.status,
-    state: spanState(p.status),
-    startPct: pctOf(p.window.start, rangeStart, rangeEnd),
-    endPct: pctOf(p.window.end, rangeStart, rangeEnd),
-    windowStart: p.window.start,
-    windowEnd: p.window.end,
-  }));
+  // Two label rows' minimum separation, in percent of the ribbon's full
+  // width, below which adjacent prayer labels would visually overlap
+  // (label text is roughly 70-90px wide against the ribbon's 640px
+  // min-width track, so ~8% of the track separates two label centers
+  // before their text touches).
+  const LABEL_COLLISION_THRESHOLD_PCT = 8;
+
+  const spans: RibbonPrayerSpan[] = [];
+  let previousMidpointPct: number | null = null;
+  let previousLabelRow: 0 | 1 = 0;
+  for (const p of placeable) {
+    const startPct = pctOf(p.window.start, rangeStart, rangeEnd);
+    const endPct = pctOf(p.window.end, rangeStart, rangeEnd);
+    const midpointPct = (startPct + endPct) / 2;
+    const labelRow: 0 | 1 =
+      previousMidpointPct !== null && Math.abs(midpointPct - previousMidpointPct) < LABEL_COLLISION_THRESHOLD_PCT
+        ? previousLabelRow === 0
+          ? 1
+          : 0
+        : 0;
+    spans.push({
+      name: p.name,
+      label: p.label,
+      status: p.status,
+      state: spanState(p.status),
+      startPct,
+      endPct,
+      windowStart: p.window.start,
+      windowEnd: p.window.end,
+      labelRow,
+    });
+    previousMidpointPct = midpointPct;
+    previousLabelRow = labelRow;
+  }
 
   const nowPct = pctOf(now, rangeStart, rangeEnd);
   const nowPosition: DayRibbonLayout["nowPosition"] =
@@ -133,6 +178,7 @@ export function computeDayRibbon({
   const blocks: RibbonActivityBlock[] = activities.map((a) => ({
     label: a.label,
     colorVar: a.colorVar,
+    kind: a.kind,
     startPct: pctOf(a.start, rangeStart, rangeEnd),
     endPct: pctOf(a.end ?? now, rangeStart, rangeEnd),
     detail: a.detail,

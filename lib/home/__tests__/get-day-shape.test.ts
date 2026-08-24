@@ -95,14 +95,16 @@ describe("getDayShape", () => {
       NOW,
       dataSource({
         getFocusSessions: async () => [
-          { started_at: "2026-08-15T14:00:00Z", ended_at: "2026-08-15T15:30:00Z" },
-          { started_at: "2026-08-15T16:30:00Z", ended_at: null },
+          { started_at: "2026-08-15T14:00:00Z", ended_at: "2026-08-15T15:30:00Z", kind: "deep_work" },
+          { started_at: "2026-08-15T16:30:00Z", ended_at: null, kind: "deep_study" },
         ],
       })
     );
-    const sessionBlocks = result.activities.filter((a) => a.label === "Focus session");
+    const sessionBlocks = result.activities.filter((a) => a.kind === "focus");
     expect(sessionBlocks).toHaveLength(2);
+    expect(sessionBlocks[0].label).toBe("Deep Work");
     expect(sessionBlocks[0].end).toEqual(new Date("2026-08-15T15:30:00Z"));
+    expect(sessionBlocks[1].label).toBe("Deep Study");
     expect(sessionBlocks[1].end).toBeNull();
   });
 
@@ -146,6 +148,7 @@ describe("getDayShape", () => {
       const block = result.activities[0];
       expect(block.label).toBe("CS-3341-HON");
       expect(block.colorVar).toBe("--series-school");
+      expect(block.kind).toBe("class");
       expect(block.end).toEqual(new Date("2026-08-15T09:45:00.000Z"));
       expect(block.detail).toEqual({
         title: "CS-3341-HON",
@@ -165,6 +168,7 @@ describe("getDayShape", () => {
         })
       );
       expect(result.activities[0].colorVar).toBe("--series-coop");
+      expect(result.activities[0].kind).toBe("work");
     });
 
     it("falls back to a nominal duration when end_time is null", async () => {

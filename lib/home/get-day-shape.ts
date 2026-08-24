@@ -40,7 +40,7 @@ export type DayShapeProfile = {
 export type DayShapePrayerRow = { prayer_name: string; status: string };
 export type DayShapeWorkoutSchedule = { workout_name: string; time: string | null };
 export type DayShapeTaskRow = { title: string; domain: "school" | "co_op"; due_time: string };
-export type DayShapeSessionRow = { started_at: string; ended_at: string | null };
+export type DayShapeSessionRow = { started_at: string; ended_at: string | null; kind: "deep_work" | "deep_study" };
 export type DayShapeScheduleEventRow = {
   title: string;
   domain: string;
@@ -119,11 +119,11 @@ export function defaultDataSource(): DayShapeDataSource {
       const dayEnd = resolveLocalTime(addDaysToDateString(date, 1), "00:00", timezone).toISOString();
       const { data } = await supabase
         .from("work_sessions")
-        .select("started_at, ended_at")
+        .select("started_at, ended_at, kind")
         .eq("user_id", userId)
         .gte("started_at", dayStart)
         .lt("started_at", dayEnd);
-      return data ?? [];
+      return (data ?? []) as DayShapeSessionRow[];
     },
     async getScheduleEvents(userId, date, dayOfWeek) {
       const supabase = await createClient();
@@ -194,6 +194,7 @@ export async function getDayShape(
     activities.push({
       label: workoutSchedule.workout_name,
       colorVar: "--series-fitness",
+      kind: "fitness",
       start,
       end: new Date(start.getTime() + NOMINAL_WORKOUT_MS),
     });
@@ -204,6 +205,7 @@ export async function getDayShape(
     activities.push({
       label: task.title,
       colorVar: task.domain === "school" ? "--series-school" : "--series-coop",
+      kind: "task",
       start,
       end: new Date(start.getTime() + NOMINAL_TASK_MS),
     });
@@ -211,8 +213,12 @@ export async function getDayShape(
 
   for (const session of focusSessions) {
     activities.push({
-      label: "Focus session",
+      // migration 044 (Engineer A, 2026-08-24): work_sessions now splits
+      // into "deep_work"/"deep_study" — every pre-existing row backfilled
+      // to deep_work, so this is never undefined for a real row.
+      label: session.kind === "deep_study" ? "Deep Study" : "Deep Work",
       colorVar: "--series-business",
+      kind: "focus",
       start: new Date(session.started_at),
       end: session.ended_at ? new Date(session.ended_at) : null,
     });
@@ -233,6 +239,7 @@ export async function getDayShape(
     activities.push({
       label: event.title,
       colorVar: event.domain === "school" ? "--series-school" : "--series-coop",
+      kind: event.domain === "school" ? "class" : "work",
       start,
       end,
       detail: {

@@ -97,7 +97,7 @@ describe("computeDayRibbon", () => {
   it("positions activity blocks by their real start/end timestamps", () => {
     const layout = computeDayRibbon({
       prayers: [...PRAYERS],
-      activities: [{ label: "Deep work", colorVar: "--series-business", start: DHUHR_START, end: ASR_START }],
+      activities: [{ label: "Deep work", colorVar: "--series-business", kind: "focus", start: DHUHR_START, end: ASR_START }],
       now: ISHA_START,
     });
     const dhuhrSpan = layout?.spans.find((s) => s.name === "dhuhr");
@@ -109,7 +109,7 @@ describe("computeDayRibbon", () => {
   it("clamps an ongoing (no end yet) activity block to 'now'", () => {
     const layout = computeDayRibbon({
       prayers: [...PRAYERS],
-      activities: [{ label: "Lock-In", colorVar: "--series-business", start: DHUHR_START, end: null }],
+      activities: [{ label: "Lock-In", colorVar: "--series-business", kind: "focus", start: DHUHR_START, end: null }],
       now: ASR_START,
     });
     expect(layout?.blocks[0].endPct).toBe(layout?.nowPct);
@@ -122,6 +122,7 @@ describe("computeDayRibbon", () => {
         {
           label: "Late night",
           colorVar: "--series-noise",
+          kind: "task",
           start: new Date("2026-08-16T10:00:00Z"),
           end: new Date("2026-08-16T11:00:00Z"),
         },
@@ -137,12 +138,71 @@ describe("computeDayRibbon", () => {
     const layout = computeDayRibbon({
       prayers: [...PRAYERS],
       activities: [
-        { label: "CS-3341-HON", colorVar: "--series-school", start: DHUHR_START, end: ASR_START, detail },
-        { label: "Focus session", colorVar: "--series-business", start: DHUHR_START, end: ASR_START },
+        { label: "CS-3341-HON", colorVar: "--series-school", kind: "class", start: DHUHR_START, end: ASR_START, detail },
+        { label: "Focus session", colorVar: "--series-business", kind: "focus", start: DHUHR_START, end: ASR_START },
       ],
       now: ISHA_START,
     });
     expect(layout?.blocks[0].detail).toEqual(detail);
     expect(layout?.blocks[1].detail).toBeUndefined();
+  });
+
+  // Ayman's report, 2026-08-24: Asr's and Maghrib's labels rendered on top
+  // of each other, reading as one merged "AsrMaghrib" string — his real
+  // prayer times for that day.
+  describe("prayer label collision avoidance (labelRow)", () => {
+    it("bumps Maghrib's label to the second row when its midpoint lands close to Asr's — Ayman's real case", () => {
+      const layout = computeDayRibbon({
+        prayers: [
+          { name: "fajr", label: "Fajr", status: "on_time", window: { start: new Date("2026-08-24T05:45:00Z"), end: new Date("2026-08-24T13:30:00Z") } },
+          { name: "dhuhr", label: "Dhuhr", status: "on_time", window: { start: new Date("2026-08-24T13:30:00Z"), end: new Date("2026-08-24T18:11:00Z") } },
+          { name: "asr", label: "Asr", status: "on_time", window: { start: new Date("2026-08-24T18:11:00Z"), end: new Date("2026-08-24T20:03:00Z") } },
+          { name: "maghrib", label: "Maghrib", status: "on_time", window: { start: new Date("2026-08-24T20:03:00Z"), end: new Date("2026-08-24T21:33:00Z") } },
+          { name: "isha", label: "Isha", status: "upcoming", window: { start: new Date("2026-08-24T21:33:00Z"), end: new Date("2026-08-25T05:44:00Z") } },
+        ],
+        activities: [],
+        now: new Date("2026-08-24T19:00:00Z"),
+      });
+      const rowByName = Object.fromEntries(layout!.spans.map((s) => [s.name, s.labelRow]));
+      expect(rowByName.fajr).toBe(0);
+      expect(rowByName.dhuhr).toBe(0);
+      expect(rowByName.asr).toBe(0);
+      expect(rowByName.maghrib).toBe(1); // the exact pair Ayman reported
+      expect(rowByName.isha).toBe(0);
+    });
+
+    it("a single placeable span always renders on row 0", () => {
+      const onlyFajr = PRAYERS.map((p) => (p.name === "fajr" ? p : { ...p, window: null }));
+      const layout = computeDayRibbon({ prayers: onlyFajr, activities: [], now: FAJR_START });
+      expect(layout?.spans).toHaveLength(1);
+      expect(layout?.spans[0].labelRow).toBe(0);
+    });
+
+    it("alternates rows through a run of three consecutive too-close labels", () => {
+      // Fajr and Isha keep the overall range wide (a full day) so Dhuhr/Asr/
+      // Maghrib's 5-minute-apart cluster in the middle is genuinely tight
+      // as a PERCENT of the range — three real prayers crammed into one
+      // small window is the realistic version of "too close," not three
+      // prayers spanning the whole range by themselves.
+      const tight = computeDayRibbon({
+        prayers: [
+          { name: "fajr", label: "Fajr", status: "on_time", window: { start: FAJR_START, end: FAJR_END } },
+          { name: "dhuhr", label: "Dhuhr", status: "on_time", window: { start: new Date("2026-08-15T15:00:00Z"), end: new Date("2026-08-15T15:05:00Z") } },
+          { name: "asr", label: "Asr", status: "on_time", window: { start: new Date("2026-08-15T15:05:00Z"), end: new Date("2026-08-15T15:10:00Z") } },
+          { name: "maghrib", label: "Maghrib", status: "on_time", window: { start: new Date("2026-08-15T15:10:00Z"), end: new Date("2026-08-15T15:15:00Z") } },
+          { name: "isha", label: "Isha", status: "upcoming", window: { start: ISHA_START, end: ISHA_END } },
+        ],
+        activities: [],
+        now: DHUHR_START,
+      });
+      expect(tight?.spans.map((s) => s.labelRow)).toEqual([0, 0, 1, 0, 0]);
+    });
+
+    it("alternates rows across all five spans sharing the exact same midpoint", () => {
+      const sameWindow = { start: new Date("2026-08-24T13:00:00Z"), end: new Date("2026-08-24T13:10:00Z") };
+      const identical = PRAYERS.map((p) => ({ ...p, window: sameWindow }));
+      const layout = computeDayRibbon({ prayers: identical, activities: [], now: new Date("2026-08-24T13:00:00Z") });
+      expect(layout?.spans.map((s) => s.labelRow)).toEqual([0, 1, 0, 1, 0]);
+    });
   });
 });

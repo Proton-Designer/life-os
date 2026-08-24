@@ -29,6 +29,7 @@ export function GoalCard({
   locked,
   onSave,
   emptyStateFraming,
+  defaultEditing,
 }: {
   title: string;
   domain: Domain;
@@ -45,8 +46,14 @@ export function GoalCard({
    * hasn't opted in (or already has real data) never sees it. GoalCard
    * stays domain-agnostic; the wording itself belongs to the page. */
   emptyStateFraming?: React.ReactNode;
+  /** Overrides the initial editing state — e.g. a caller that opens this
+   * card straight into a dialog from an explicit "edit" affordance wants
+   * the form immediately, not a redundant extra click into edit mode
+   * (components/shared/weekly-goals-header.tsx). Omitted, behavior is
+   * unchanged: edit mode only when there's nothing to read yet. */
+  defaultEditing?: boolean;
 }) {
-  const [editing, setEditing] = useState(!initialHeadline && initialMilestones.length === 0);
+  const [editing, setEditing] = useState(defaultEditing ?? (!initialHeadline && initialMilestones.length === 0));
   const [isPending, startTransition] = useTransition();
   const [headline, setHeadline] = useState(initialHeadline);
   const [milestonesText, setMilestonesText] = useState(initialMilestones.join("\n"));

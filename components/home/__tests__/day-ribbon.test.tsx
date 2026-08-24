@@ -29,6 +29,7 @@ const LAYOUT: DayRibbonLayout = {
       endPct: 10,
       windowStart: RANGE_START,
       windowEnd: new Date("2026-08-15T11:30:00Z"),
+      labelRow: 0,
     },
     {
       name: "dhuhr",
@@ -39,6 +40,7 @@ const LAYOUT: DayRibbonLayout = {
       endPct: 60,
       windowStart: new Date("2026-08-15T16:56:00Z"),
       windowEnd: new Date("2026-08-15T20:49:00Z"),
+      labelRow: 0,
     },
     {
       name: "asr",
@@ -49,6 +51,7 @@ const LAYOUT: DayRibbonLayout = {
       endPct: 75,
       windowStart: new Date("2026-08-15T20:49:00Z"),
       windowEnd: new Date("2026-08-15T23:59:00Z"),
+      labelRow: 0,
     },
     {
       name: "maghrib",
@@ -59,6 +62,7 @@ const LAYOUT: DayRibbonLayout = {
       endPct: 85,
       windowStart: new Date("2026-08-16T00:59:00Z"),
       windowEnd: new Date("2026-08-16T02:40:00Z"),
+      labelRow: 1,
     },
     {
       name: "isha",
@@ -69,9 +73,10 @@ const LAYOUT: DayRibbonLayout = {
       endPct: 100,
       windowStart: new Date("2026-08-16T02:40:00Z"),
       windowEnd: RANGE_END,
+      labelRow: 0,
     },
   ],
-  blocks: [{ label: "Deep work", colorVar: "--series-business", startPct: 10, endPct: 30 }],
+  blocks: [{ label: "Deep work", colorVar: "--series-business", kind: "focus", startPct: 10, endPct: 30 }],
 };
 
 describe("DayRibbon", () => {
@@ -187,6 +192,7 @@ describe("DayRibbon", () => {
         {
           label: "CS-3341-HON",
           colorVar: "--series-school",
+          kind: "class",
           startPct: 10,
           endPct: 30,
           detail: { title: "CS-3341-HON", timeRange: "8:30 AM–9:45 AM", location: "ECSN 2.120", instructor: "N. Ruozzi", domain: "school" },

@@ -12,7 +12,6 @@ import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/que
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextActions } from "@/components/home/next-actions";
 import { FocusModule } from "@/components/home/focus-module";
-import { WeeklyFocus } from "@/components/home/weekly-focus";
 import { WeeklyGoalsHeader } from "@/components/shared/weekly-goals-header";
 import { DomainStatusStack } from "@/components/home/domain-status-stack";
 import { DayRibbon } from "@/components/home/day-ribbon";
@@ -97,7 +96,7 @@ export default async function HomePage() {
   }
 
   const activeSessionForFocusModule = activeSession
-    ? { id: activeSession.id, startedAtIso: activeSession.startedAt }
+    ? { id: activeSession.id, startedAtIso: activeSession.startedAt, kind: activeSession.kind }
     : null;
 
   const ribbonLayout = computeDayRibbon({ prayers: dayShape.prayers, activities: dayShape.activities, now });
@@ -106,7 +105,13 @@ export default async function HomePage() {
     <PageContainer>
       <PageHeader title="Home" />
 
-      <WeeklyGoalsHeader deen={deenGoal} business={businessGoal} />
+      <WeeklyGoalsHeader
+        deen={deenGoal}
+        business={businessGoal}
+        onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
+        onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
+        showPlanningNudge={showPlanningNudge}
+      />
 
       <DomainStatusStack snapshots={snapshots} title="Sector progress" />
 
@@ -119,8 +124,10 @@ export default async function HomePage() {
         <div className="lg:col-span-4">
           <Panel title="Focus">
             <FocusModule
-              focusMinutesToday={extras.focusTimeMinutes}
-              sessionCount={extras.focusSessionCount}
+              deepWorkMinutes={extras.deepWork.minutes}
+              deepWorkSessions={extras.deepWork.sessions}
+              deepStudyMinutes={extras.deepStudy.minutes}
+              deepStudySessions={extras.deepStudy.sessions}
               activeSession={activeSessionForFocusModule}
               distractionsToday={distractionsToday}
               triggers={triggers}
@@ -140,18 +147,6 @@ export default async function HomePage() {
           />
         )}
       </Panel>
-
-      <div id="weekly-focus" className="scroll-mt-20">
-        <Panel title="This week's focus">
-          <WeeklyFocus
-            deen={deenGoal}
-            business={businessGoal}
-            showPlanningNudge={showPlanningNudge}
-            onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
-            onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
-          />
-        </Panel>
-      </div>
     </PageContainer>
   );
 }

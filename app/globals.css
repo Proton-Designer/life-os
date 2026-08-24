@@ -132,6 +132,11 @@
   /* Oxblood/ember glow used in the body's radial-gradient background layer */
   --glow-oxblood: #2b0e13;
 
+  /* White glow for the one module on Home meant to stand out from the rest
+     of the gray-bordered panels — This Week's Focus (Ayman, overnight
+     session 2026-08-24). Second member of the --glow-* family. */
+  --glow-white: #ffffff;
+
   /* Chart series colors — a separate role from the brand accents above.
      Brand accents stay bright/badge-friendly; these are re-stepped darker
      (OKLCH L 0.48-0.67) and validated as a SET (adjacent CVD/normal-vision

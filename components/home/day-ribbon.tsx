@@ -1,11 +1,43 @@
 "use client";
 
 import { useEffect, useRef, useTransition } from "react";
+import { ListChecks, Timer, type LucideIcon } from "lucide-react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
 import { formatRelativeDuration, formatDurationMagnitude } from "@/lib/date-utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { DayRibbonLayout, RibbonSpanState } from "@/lib/home/day-ribbon";
+import { DOMAIN_ICON } from "@/lib/domain-icons";
+import type { DayRibbonLayout, RibbonSpanState, RibbonActivityKind } from "@/lib/home/day-ribbon";
+
+// An activity block must never be color-only (accessibility, and the dark
+// theme's translucent blocks make color alone even harder to tell apart) —
+// every block gets an icon plus a short label, never bare color (Ayman,
+// overnight session 2026-08-24). class/work/fitness reuse the same glyphs
+// their domain uses everywhere else in the app; task/focus have no domain
+// icon of their own.
+const RIBBON_KIND_ICON: Record<RibbonActivityKind, LucideIcon> = {
+  class: DOMAIN_ICON.school,
+  work: DOMAIN_ICON.co_op,
+  fitness: DOMAIN_ICON.fitness,
+  task: ListChecks,
+  focus: Timer,
+};
+
+const RIBBON_KIND_LABEL: Record<RibbonActivityKind, string> = {
+  class: "Class",
+  work: "Work",
+  fitness: "Fitness",
+  task: "Task",
+  focus: "Focus",
+};
+
+// Second label row is bumped further below the track than the first —
+// lib/home/day-ribbon.ts's labelRow decides WHICH row; this just says how
+// far down each row sits.
+const LABEL_ROW_TOP: Record<0 | 1, string> = {
+  0: "calc(50% + 1.25rem)",
+  1: "calc(50% + 3rem)",
+};
 
 const SPAN_STATE_CLASS: Record<RibbonSpanState, string> = {
   logged: "bg-accent-deen",
@@ -116,7 +148,7 @@ export function DayRibbon({
               <div className="absolute inset-y-0 right-0 bg-background/45" style={{ left: `${layout.nowPct}%` }} />
             )}
 
-            <div className="relative h-24">
+            <div className="relative h-32">
               <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-border/50" />
               {layout.nowPosition === "within" && (
                 <div
@@ -144,8 +176,8 @@ export function DayRibbon({
                   disabled={isPending}
                   aria-label={`${s.label}, ${formatTime(s.windowStart, timezone)}–${formatTime(s.windowEnd, timezone)}${s.state === "logged" ? " (logged)" : s.state === "missed" ? " (missed)" : " — mark on time"}`}
                   onClick={() => handleMark(s.name)}
-                  className="absolute top-[calc(50%+1.25rem)] z-10 flex -translate-x-1/2 flex-col items-center gap-0.5 disabled:opacity-50"
-                  style={{ left: `${(s.startPct + s.endPct) / 2}%` }}
+                  className="absolute z-10 flex -translate-x-1/2 flex-col items-center gap-0.5 disabled:opacity-50"
+                  style={{ left: `${(s.startPct + s.endPct) / 2}%`, top: LABEL_ROW_TOP[s.labelRow] }}
                 >
                   <span className="whitespace-nowrap text-sm font-medium">{s.label}</span>
                   <span className="whitespace-nowrap text-xs text-muted-foreground">
@@ -162,21 +194,37 @@ export function DayRibbon({
                 that looks like UI. The invitation line above already
                 carries that message. */}
             {layout.blocks.length > 0 && (
-              <div className="relative z-10 mt-8 h-4 rounded-full bg-background/30">
-                {layout.blocks.map((b, i) =>
-                  b.detail ? (
+              <div className="relative z-10 mt-8 h-7 rounded-full bg-background/30">
+                {layout.blocks.map((b, i) => {
+                  const Icon = RIBBON_KIND_ICON[b.kind];
+                  const kindLabel = RIBBON_KIND_LABEL[b.kind];
+                  const blockStyle = {
+                    left: `${b.startPct}%`,
+                    width: `${Math.max(1, b.endPct - b.startPct)}%`,
+                    minWidth: "1.75rem",
+                    backgroundColor: `var(${b.colorVar})`,
+                  };
+                  // A block too narrow for its label keeps the icon (never
+                  // color-only) and carries the full label in
+                  // aria-label/title instead of clipping into
+                  // unreadable text.
+                  const content = (
+                    <>
+                      <Icon className="size-3.5 shrink-0 text-background" aria-hidden />
+                      <span className="truncate text-[10px] leading-none font-medium text-background">{b.label}</span>
+                    </>
+                  );
+                  return b.detail ? (
                     <Popover key={i}>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          aria-label={`${b.detail.title}, ${b.detail.timeRange}`}
-                          className="absolute top-0 h-full rounded-full opacity-80 transition-opacity hover:opacity-100"
-                          style={{
-                            left: `${b.startPct}%`,
-                            width: `${Math.max(1, b.endPct - b.startPct)}%`,
-                            backgroundColor: `var(${b.colorVar})`,
-                          }}
-                        />
+                          aria-label={`${kindLabel}: ${b.detail.title}, ${b.detail.timeRange}`}
+                          className="absolute top-0 flex h-full items-center gap-1 overflow-hidden rounded-full px-1.5 opacity-80 transition-opacity hover:opacity-100"
+                          style={blockStyle}
+                        >
+                          {content}
+                        </button>
                       </PopoverTrigger>
                       <PopoverContent align="center" className="w-64">
                         <p className="text-sm font-medium">{b.detail.title}</p>
@@ -191,16 +239,14 @@ export function DayRibbon({
                     // that looks tappable and does nothing.
                     <div
                       key={i}
-                      title={b.label}
-                      className="absolute top-0 h-full rounded-full opacity-80"
-                      style={{
-                        left: `${b.startPct}%`,
-                        width: `${Math.max(1, b.endPct - b.startPct)}%`,
-                        backgroundColor: `var(${b.colorVar})`,
-                      }}
-                    />
-                  )
-                )}
+                      title={`${kindLabel}: ${b.label}`}
+                      className="absolute top-0 flex h-full items-center gap-1 overflow-hidden rounded-full px-1.5 opacity-80"
+                      style={blockStyle}
+                    >
+                      {content}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
