@@ -17,9 +17,18 @@ const PRAYER_LABEL: Record<PrayerName, string> = {
 // A workout's real duration isn't tracked anywhere in this schema — a
 // nominal 45-minute band makes it visible on the timeline without claiming
 // false precision. Same reasoning for a timed task's 15-minute band: it's a
-// due instant, not a tracked duration.
+// due instant, not a tracked duration. schedule_events (042) DOES carry a
+// real end_time for classes/work seeded via scripts/seed-schedule.ts — the
+// nominal 60-minute fallback below only applies to an event added through
+// the generic "add schedule event" UI, which still doesn't collect one.
 const NOMINAL_WORKOUT_MS = 45 * 60_000;
 const NOMINAL_TASK_MS = 15 * 60_000;
+const NOMINAL_SCHEDULE_EVENT_MS = 60 * 60_000;
+
+function formatTimeRange(start: Date, end: Date, timezone: string): string {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" });
+  return `${fmt.format(start)}–${fmt.format(end)}`;
+}
 
 export type DayShapeProfile = {
   location_lat: number | null;
@@ -32,6 +41,18 @@ export type DayShapePrayerRow = { prayer_name: string; status: string };
 export type DayShapeWorkoutSchedule = { workout_name: string; time: string | null };
 export type DayShapeTaskRow = { title: string; domain: "school" | "co_op"; due_time: string };
 export type DayShapeSessionRow = { started_at: string; ended_at: string | null };
+export type DayShapeScheduleEventRow = {
+  title: string;
+  domain: string;
+  is_recurring: boolean;
+  day_of_week: number | null;
+  event_date: string | null;
+  event_time: string | null;
+  end_time: string | null;
+  location: string | null;
+  instructor: string | null;
+  cancelled_on: string | null;
+};
 
 export type DayShapeDataSource = {
   getProfile: (userId: string) => Promise<DayShapeProfile | null>;
@@ -39,6 +60,8 @@ export type DayShapeDataSource = {
   getWorkoutSchedule: (userId: string, dayOfWeek: number) => Promise<DayShapeWorkoutSchedule | null>;
   getTimedTasks: (userId: string, date: string) => Promise<DayShapeTaskRow[]>;
   getFocusSessions: (userId: string, date: string, timezone: string) => Promise<DayShapeSessionRow[]>;
+  /** Today's recurring + one-off schedule_events (classes, work) — school and co_op domains only. */
+  getScheduleEvents: (userId: string, date: string, dayOfWeek: number) => Promise<DayShapeScheduleEventRow[]>;
 };
 
 export function defaultDataSource(): DayShapeDataSource {
@@ -102,6 +125,16 @@ export function defaultDataSource(): DayShapeDataSource {
         .lt("started_at", dayEnd);
       return data ?? [];
     },
+    async getScheduleEvents(userId, date, dayOfWeek) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("schedule_events")
+        .select("title, domain, is_recurring, day_of_week, event_date, event_time, end_time, location, instructor, cancelled_on")
+        .eq("user_id", userId)
+        .in("domain", ["school", "co_op"])
+        .or(`and(is_recurring.eq.true,day_of_week.eq.${dayOfWeek}),and(is_recurring.eq.false,event_date.eq.${date})`);
+      return (data ?? []) as DayShapeScheduleEventRow[];
+    },
   };
 }
 
@@ -121,11 +154,13 @@ export async function getDayShape(
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
 
-  const [prayerRows, workoutSchedule, timedTasks, focusSessions] = await Promise.all([
+  const dayOfWeek = dayOfWeekFromDateString(dateStr);
+  const [prayerRows, workoutSchedule, timedTasks, focusSessions, scheduleEvents] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
-    dataSource.getWorkoutSchedule(userId, dayOfWeekFromDateString(dateStr)),
+    dataSource.getWorkoutSchedule(userId, dayOfWeek),
     dataSource.getTimedTasks(userId, dateStr),
     dataSource.getFocusSessions(userId, dateStr, timezone),
+    dataSource.getScheduleEvents(userId, dateStr, dayOfWeek),
   ]);
 
   const hasLocation = profile?.location_lat != null && profile?.location_lng != null;
@@ -180,6 +215,33 @@ export async function getDayShape(
       colorVar: "--series-business",
       start: new Date(session.started_at),
       end: session.ended_at ? new Date(session.ended_at) : null,
+    });
+  }
+
+  // Classes and work — a new SOURCE for the existing activity-block
+  // mechanism, not a new one (overnight session 2026-08-23/24). A class
+  // cancelled for today's specific occurrence must not render at all, same
+  // rule the School page enforces (§3 of the spec) — schedule_events'
+  // `cancelled_on` is a single-date exception on the recurring pattern, not
+  // a status flag, so this is a plain equality check against today.
+  for (const event of scheduleEvents) {
+    if (!event.event_time || event.cancelled_on === dateStr) continue;
+    const start = resolveLocalTime(dateStr, event.event_time, timezone);
+    const end = event.end_time
+      ? resolveLocalTime(dateStr, event.end_time, timezone)
+      : new Date(start.getTime() + NOMINAL_SCHEDULE_EVENT_MS);
+    activities.push({
+      label: event.title,
+      colorVar: event.domain === "school" ? "--series-school" : "--series-coop",
+      start,
+      end,
+      detail: {
+        title: event.title,
+        timeRange: formatTimeRange(start, end, timezone),
+        location: event.location ?? undefined,
+        instructor: event.instructor ?? undefined,
+        domain: event.domain,
+      },
     });
   }
 

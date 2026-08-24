@@ -131,4 +131,18 @@ describe("computeDayRibbon", () => {
     expect(layout?.blocks[0].startPct).toBe(100);
     expect(layout?.blocks[0].endPct).toBe(100);
   });
+
+  it("passes an activity's detail payload through to its block, and leaves it undefined when absent", () => {
+    const detail = { title: "CS-3341-HON", timeRange: "8:30 AM–9:45 AM", location: "ECSN 2.120", instructor: "N. Ruozzi", domain: "school" };
+    const layout = computeDayRibbon({
+      prayers: [...PRAYERS],
+      activities: [
+        { label: "CS-3341-HON", colorVar: "--series-school", start: DHUHR_START, end: ASR_START, detail },
+        { label: "Focus session", colorVar: "--series-business", start: DHUHR_START, end: ASR_START },
+      ],
+      now: ISHA_START,
+    });
+    expect(layout?.blocks[0].detail).toEqual(detail);
+    expect(layout?.blocks[1].detail).toBeUndefined();
+  });
 });

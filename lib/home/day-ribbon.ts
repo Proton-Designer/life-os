@@ -7,7 +7,28 @@ export type RibbonPrayerInput = {
   window: PrayerWindow | null;
   status: EffectivePrayerStatus;
 };
-export type RibbonActivityInput = { label: string; colorVar: string; start: Date; end: Date | null };
+/**
+ * Present only for activities that should open a detail popover on click
+ * (classes, work) — omitted for focus sessions and anything else that has
+ * nothing further to show. The caller renders a non-interactive block
+ * rather than a dead affordance when this is absent (overnight session
+ * 2026-08-23/24, docs/superpowers/specs/2026-08-23-schedule-calendar.md §4).
+ */
+export type RibbonActivityDetail = {
+  title: string;
+  timeRange: string;
+  location?: string;
+  instructor?: string;
+  domain: string;
+};
+
+export type RibbonActivityInput = {
+  label: string;
+  colorVar: string;
+  start: Date;
+  end: Date | null;
+  detail?: RibbonActivityDetail;
+};
 
 export type RibbonSpanState = "logged" | "pending" | "upcoming" | "missed";
 
@@ -27,6 +48,7 @@ export type RibbonActivityBlock = {
   colorVar: string;
   startPct: number;
   endPct: number;
+  detail?: RibbonActivityDetail;
 };
 
 export type DayRibbonLayout = {
@@ -113,6 +135,7 @@ export function computeDayRibbon({
     colorVar: a.colorVar,
     startPct: pctOf(a.start, rangeStart, rangeEnd),
     endPct: pctOf(a.end ?? now, rangeStart, rangeEnd),
+    detail: a.detail,
   }));
 
   return { rangeStart, rangeEnd, spans, now, nowPct, nowPosition, blocks };
