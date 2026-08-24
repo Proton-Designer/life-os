@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   computeAxis,
   layoutDaySessions,
@@ -19,6 +20,15 @@ import {
  * have cost more than this ~120-line purpose-built grid; told to Opus
  * Lead as the reuse-vs-fork call (overnight session 2026-08-23/24).
  */
+export type CalendarItemKind = "class" | "work" | "fitness" | "task";
+
+export type CalendarItemDetail = {
+  timeRange: string;
+  location?: string;
+  instructor?: string;
+  domainLabel: string;
+};
+
 export type CalendarItem = {
   id: string;
   dayOfWeek: number; // 0=Sun..6=Sat
@@ -27,11 +37,17 @@ export type CalendarItem = {
   startMinutes: number; // 0-1439
   durationMinutes: number;
   colorVar: string;
+  kind: CalendarItemKind;
+  detail?: CalendarItemDetail;
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Below this, a squeezed column stops being a legible calendar — the day scrolls horizontally past it instead. */
-const MIN_COLUMN_PX = 88;
+const MIN_COLUMN_PX = 96;
+const GUTTER_PX = 48;
+const HOUR_ROW_PX = 48;
+/** A block shorter than this can't hold a legible label without overflowing its own box — the color + click target still carries the information. */
+const MIN_LABEL_MINUTES = 20;
 
 function hourLabel(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -40,6 +56,19 @@ function hourLabel(minutes: number): string {
   return `${displayHour}${suffix}`;
 }
 
+/**
+ * Grid alignment fix (Ayman, 2026-08-24 screenshot: "elements are
+ * overlapping across different days, the day columns aren't clear"). The
+ * old layout used TWO separate `grid-cols-7` grids (one for day labels, one
+ * for tracks) inside a `minWidth`-on-children track — a child wider than
+ * its 1fr track painted over its neighbour instead of widening the column,
+ * and the label grid could drift out of alignment with the track grid
+ * whenever that happened. Fixed by using ONE grid — a single
+ * `gridTemplateColumns` (gutter + 7 `minmax(MIN,1fr)` day columns) shared
+ * by every row via CSS grid auto-flow, all inside ONE horizontal-scroll
+ * container so labels scroll with their columns. The hour gutter is
+ * `sticky left-0` so it stays put while the day columns scroll.
+ */
 export function WeekHourGrid({ items, todayDayOfWeek }: { items: CalendarItem[]; todayDayOfWeek?: number }) {
   const allTimed: TimedSession[] = items.map((i) => ({
     id: i.id,
@@ -50,26 +79,29 @@ export function WeekHourGrid({ items, todayDayOfWeek }: { items: CalendarItem[];
   const axis = computeAxis(allTimed);
   const hourMarks: number[] = [];
   for (let m = Math.ceil(axis.startMin / 60) * 60; m <= axis.endMin; m += 60) hourMarks.push(m);
+  const bodyHeightPx = hourMarks.length * HOUR_ROW_PX;
 
   return (
-    <div className="flex flex-col gap-2" data-testid="week-hour-grid">
-      <div className="grid grid-cols-[3rem_1fr] gap-2">
-        <div />
-        <div className="grid grid-cols-7 gap-2">
-          {DAY_LABELS.map((label, dow) => (
-            <span
-              key={dow}
-              data-testid={`week-hour-grid-day-label-${dow}`}
-              className={cn("text-xs", dow === todayDayOfWeek ? "font-semibold text-accent-info" : "text-muted-foreground")}
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-      </div>
+    <div className="overflow-x-auto" data-testid="week-hour-grid">
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: `${GUTTER_PX}px repeat(7, minmax(${MIN_COLUMN_PX}px, 1fr))` }}
+      >
+        <div className="sticky left-0 z-20 bg-background" />
+        {DAY_LABELS.map((label, dow) => (
+          <div
+            key={dow}
+            data-testid={`week-hour-grid-day-label-${dow}`}
+            className={cn(
+              "border-b border-border pb-2 text-center text-xs",
+              dow === todayDayOfWeek ? "font-semibold text-accent-info" : "text-muted-foreground"
+            )}
+          >
+            {label}
+          </div>
+        ))}
 
-      <div className="grid grid-cols-[3rem_1fr] gap-2">
-        <div className="relative" style={{ height: `${hourMarks.length * 3}rem` }}>
+        <div className="sticky left-0 z-20 relative bg-background" style={{ height: `${bodyHeightPx}px` }}>
           {hourMarks.map((m) => (
             <span
               key={m}
@@ -81,59 +113,82 @@ export function WeekHourGrid({ items, todayDayOfWeek }: { items: CalendarItem[];
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-2 overflow-x-auto" style={{ height: `${hourMarks.length * 3}rem` }}>
-          {DAY_LABELS.map((_, dow) => {
-            const dayItems = items.filter((i) => i.dayOfWeek === dow);
-            const layout = layoutDaySessions(
-              dayItems.map((i) => ({ id: i.id, name: i.title, startMinutes: i.startMinutes, durationMinutes: i.durationMinutes }))
-            );
-            const itemById = new Map(dayItems.map((i) => [i.id, i]));
+        {DAY_LABELS.map((_, dow) => {
+          const dayItems = items.filter((i) => i.dayOfWeek === dow);
+          const layout = layoutDaySessions(
+            dayItems.map((i) => ({ id: i.id, name: i.title, startMinutes: i.startMinutes, durationMinutes: i.durationMinutes }))
+          );
+          const itemById = new Map(dayItems.map((i) => [i.id, i]));
 
-            return (
-              <div
-                key={dow}
-                data-testid={`week-hour-grid-track-${dow}`}
-                className={cn(
-                  "relative rounded-lg border",
-                  dow === todayDayOfWeek ? "border-accent-info/50" : "border-border/40"
-                )}
-                style={{ minWidth: MIN_COLUMN_PX }}
-              >
-                {hourMarks.map((m) => (
-                  <div
-                    key={m}
-                    className="absolute left-0 right-0 border-t border-border/20"
-                    style={{ top: `${positionPct(m, axis.startMin, axis.endMin)}%` }}
-                  />
-                ))}
-                {layout.map(({ session, columnIndex, columnCount }) => {
-                  const item = itemById.get(session.id)!;
-                  const startPct = positionPct(session.startMinutes, axis.startMin, axis.endMin);
-                  const endPct = positionPct(session.startMinutes + session.durationMinutes, axis.startMin, axis.endMin);
-                  const widthPct = 100 / columnCount;
-                  return (
-                    <div
-                      key={session.id}
-                      data-testid={`week-hour-grid-item-${session.id}`}
-                      title={item.subtitle ? `${item.title} — ${item.subtitle}` : item.title}
-                      className="absolute overflow-hidden rounded-md px-1 py-0.5 text-[10px] font-medium opacity-90"
-                      style={{
-                        top: `${startPct}%`,
-                        height: `${Math.max(endPct - startPct, 2)}%`,
-                        left: `${widthPct * columnIndex}%`,
-                        width: `${widthPct}%`,
-                        backgroundColor: `color-mix(in oklch, var(${item.colorVar}) 22%, transparent)`,
-                        color: `var(${item.colorVar})`,
-                      }}
-                    >
-                      {item.title}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+          return (
+            <div
+              key={dow}
+              data-testid={`week-hour-grid-track-${dow}`}
+              className={cn(
+                "relative border-l border-border last:border-r",
+                dow === todayDayOfWeek && "bg-accent-info/[0.06]"
+              )}
+              style={{ height: `${bodyHeightPx}px` }}
+            >
+              {hourMarks.map((m) => (
+                <div
+                  key={m}
+                  className="absolute left-0 right-0 border-t border-border/30"
+                  style={{ top: `${positionPct(m, axis.startMin, axis.endMin)}%` }}
+                />
+              ))}
+              {layout.map(({ session, columnIndex, columnCount }) => {
+                const item = itemById.get(session.id)!;
+                const startPct = positionPct(session.startMinutes, axis.startMin, axis.endMin);
+                const endPct = positionPct(session.startMinutes + session.durationMinutes, axis.startMin, axis.endMin);
+                const widthPct = 100 / columnCount;
+                const showLabel = item.durationMinutes >= MIN_LABEL_MINUTES;
+                const label = item.subtitle ? `${item.title} — ${item.subtitle}` : item.title;
+                const trigger = (
+                  <button
+                    key={session.id}
+                    type="button"
+                    data-testid={`week-hour-grid-item-${session.id}`}
+                    aria-label={item.detail ? `${label}, ${item.detail.timeRange}` : label}
+                    className="absolute overflow-hidden rounded-md border px-1.5 py-0.5 text-left text-[10px] leading-tight font-medium outline-none focus-visible:ring-2 focus-visible:ring-accent-info"
+                    style={{
+                      top: `${startPct}%`,
+                      height: `${Math.max(endPct - startPct, 2)}%`,
+                      left: `calc(${widthPct * columnIndex}% + 2px)`,
+                      width: `calc(${widthPct}% - 4px)`,
+                      backgroundColor: `color-mix(in oklch, var(${item.colorVar}) 30%, var(--card))`,
+                      borderColor: `color-mix(in oklch, var(${item.colorVar}) 55%, transparent)`,
+                      color: `var(${item.colorVar})`,
+                    }}
+                  >
+                    {showLabel && <span className="block truncate">{item.title}</span>}
+                  </button>
+                );
+
+                if (!item.detail) return trigger;
+
+                return (
+                  <Popover key={session.id}>
+                    <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+                    <PopoverContent>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {item.detail.domainLabel}
+                        </span>
+                        <span className="text-sm font-medium">{item.title}</span>
+                        <span className="text-xs text-muted-foreground">{item.detail.timeRange}</span>
+                        {item.detail.location && <span className="text-xs text-muted-foreground">{item.detail.location}</span>}
+                        {item.detail.instructor && (
+                          <span className="text-xs text-muted-foreground">{item.detail.instructor}</span>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

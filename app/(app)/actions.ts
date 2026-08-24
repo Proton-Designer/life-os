@@ -163,4 +163,10 @@ export async function saveWeeklyGoal(
   }
 
   revalidatePath("/");
+  // Home and the /calendar route now share this same WeeklyGoalsHeader
+  // component and Server Action — the route's own server-rendered data
+  // needs revalidating too, not just Home's (the topbar's calendar dialog
+  // refetches its own client-side copy after save instead of relying on
+  // this).
+  revalidatePath("/calendar");
 }

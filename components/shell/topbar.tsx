@@ -3,13 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { CalendarDays, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
 import { NotificationsBell } from "./notifications-bell";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
+import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
 import { Button } from "@/components/ui/button";
 import { isReviewOpen } from "@/lib/distractions/plan-rules";
+import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
+
+type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
 const TICK_MS = 60 * 1000;
 
@@ -18,6 +22,9 @@ export function Topbar({
   dateLabel,
   nowIso,
   timezone,
+  getWeekCalendar,
+  onSaveDeen,
+  onSaveBusiness,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
@@ -27,6 +34,9 @@ export function Topbar({
   // full navigation once 9pm/4am actually passes while the tab is open.
   nowIso: string;
   timezone: string;
+  getWeekCalendar: () => Promise<WeekCalendarData>;
+  onSaveDeen: SaveGoalAction;
+  onSaveBusiness: SaveGoalAction;
 }) {
   const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
@@ -99,14 +109,11 @@ export function Topbar({
               icon at the top right ... replace that button with a calendar
               button"). Sign-out is unaffected — AccountBlock still renders
               in the lg/xl sidebar (app-sidebar.tsx) and in this same
-              topbar's mobile drawer below, neither of which this touches. */}
-          <Link
-            href="/calendar"
-            aria-label="Open calendar"
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          >
-            <CalendarDays className="size-5" />
-          </Link>
+              topbar's mobile drawer below, neither of which this touches.
+              A popup, not a navigation (Ayman, 2026-08-24: "should be a
+              popup, easy to look at and easy to cancel out of") — the
+              /calendar route itself still exists for e2e and direct links. */}
+          <CalendarDialogTrigger getWeekCalendar={getWeekCalendar} onSaveDeen={onSaveDeen} onSaveBusiness={onSaveBusiness} />
         </div>
       </header>
 

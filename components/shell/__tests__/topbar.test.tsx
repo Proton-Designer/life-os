@@ -57,6 +57,9 @@ function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) 
         dateLabel="Fri, Aug 15"
         nowIso="2026-08-15T18:00:00.000-05:00"
         timezone="America/Chicago"
+        getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
+        onSaveDeen={async () => {}}
+        onSaveBusiness={async () => {}}
         {...props}
       />
     </AllocationQueueProvider>
@@ -119,9 +122,20 @@ describe("Topbar", () => {
     expect(await screen.findByRole("button", { name: /account menu/i })).toBeInTheDocument();
   });
 
-  it("shows a calendar link in place of the account icon at the top right", () => {
+  it("shows a calendar button (opening a popup, not a navigation) in place of the account icon at the top right", () => {
     renderTopbar();
-    expect(screen.getByRole("link", { name: /open calendar/i })).toHaveAttribute("href", "/calendar");
+    expect(screen.getByRole("button", { name: /open calendar/i })).toBeInTheDocument();
+  });
+
+  it("opens the calendar popup on click, fetching data only then (not eagerly on mount)", async () => {
+    const getWeekCalendar = vi.fn(async () => ({ items: [], undatedDeadlines: [], deen: null, business: null }));
+    const user = userEvent.setup();
+    renderTopbar({ getWeekCalendar });
+
+    expect(getWeekCalendar).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /open calendar/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(getWeekCalendar).toHaveBeenCalledTimes(1);
   });
 
   it("shows the Distractions button in the topbar", () => {

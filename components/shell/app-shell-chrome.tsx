@@ -4,6 +4,9 @@ import { MobileIsland } from "./mobile-island";
 import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-gate";
 import { CheckinToast } from "@/components/checkin/checkin-toast";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
+import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
+
+type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
 // The sync, fully client-testable half of the shell — AppShell (the server
 // component) fetches account/session data and hands it here. Split out
@@ -15,12 +18,18 @@ export function AppShellChrome({
   dateLabel,
   nowIso,
   timezone,
+  getWeekCalendar,
+  onSaveDeen,
+  onSaveBusiness,
   children,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
   nowIso: string;
   timezone: string;
+  getWeekCalendar: () => Promise<WeekCalendarData>;
+  onSaveDeen: SaveGoalAction;
+  onSaveBusiness: SaveGoalAction;
   children: React.ReactNode;
 }) {
   return (
@@ -28,7 +37,15 @@ export function AppShellChrome({
       <div className="lg:flex lg:min-h-screen">
         <AppSidebar account={account} />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <Topbar account={account} dateLabel={dateLabel} nowIso={nowIso} timezone={timezone} />
+          <Topbar
+            account={account}
+            dateLabel={dateLabel}
+            nowIso={nowIso}
+            timezone={timezone}
+            getWeekCalendar={getWeekCalendar}
+            onSaveDeen={onSaveDeen}
+            onSaveBusiness={onSaveBusiness}
+          />
           <main className="flex-1 pb-24 lg:pb-6">{children}</main>
         </div>
         <MobileIsland />
