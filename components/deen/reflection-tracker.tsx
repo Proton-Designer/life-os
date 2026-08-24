@@ -2,8 +2,8 @@
 
 import { useOptimistic, useTransition } from "react";
 import { logReflectionEntry, decrementReflectionEntry } from "@/app/(app)/deen/actions";
-import { buildReflectionStrip, type ReflectionEntry } from "@/lib/deen/reflection-strip";
-import { ReflectionIntensityStrip } from "./reflection-intensity-strip";
+import { type ReflectionEntry } from "@/lib/deen/reflection-strip";
+import { ReflectionMonthCalendar } from "./reflection-month-calendar";
 import { ReflectionTimeOfDay } from "./reflection-time-of-day";
 import { cn } from "@/lib/utils";
 
@@ -56,8 +56,6 @@ export function ReflectionTracker({
     });
   }
 
-  const strip = buildReflectionStrip(optimisticEntries, todayStr);
-
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-3 gap-2">
@@ -88,7 +86,7 @@ export function ReflectionTracker({
 
       <p className="text-xs text-muted-foreground">Resets daily at midnight — history is never deleted.</p>
 
-      <ReflectionIntensityStrip days={strip} />
+      <ReflectionMonthCalendar entries={optimisticEntries} todayStr={todayStr} />
       <ReflectionTimeOfDay entries={optimisticEntries} timezone={timezone} />
     </div>
   );

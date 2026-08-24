@@ -68,6 +68,12 @@ export default async function DeenPage() {
   const sixtyDaysAgoStr = addDaysToDateString(dateStr, -59);
   const thirtyDaysAgoStr = addDaysToDateString(dateStr, -29);
   const sevenDaysAgoStr = addDaysToDateString(dateStr, -6);
+  // The monthly reflection calendar (spec 2026-08-23 §7) needs every entry
+  // back to the 1st of the CURRENT month, not just a rolling 30 days — in a
+  // 31-day month on the 31st, "30 days back" lands on the 2nd and silently
+  // drops the 1st. Whichever bound is earlier wins; the query only grows.
+  const monthStartStr = `${dateStr.slice(0, 8)}01`;
+  const reflectionSinceStr = monthStartStr < thirtyDaysAgoStr ? monthStartStr : thirtyDaysAgoStr;
 
   const [
     { data: prayerHistoryRows },
@@ -77,7 +83,6 @@ export default async function DeenPage() {
     { data: habitRows },
     { data: habitLogRows },
     { data: currentFocusRow },
-    { data: previousFocusRow },
     { data: sunnahLogRows },
   ] = await Promise.all([
     // One 60-day range query serves today's status, the 30-day consistency
@@ -101,7 +106,7 @@ export default async function DeenPage() {
       .from("reflection_entries")
       .select("date, tier, created_at")
       .eq("user_id", userId)
-      .gte("date", thirtyDaysAgoStr),
+      .gte("date", reflectionSinceStr),
     supabase.from("deen_habits").select("id, name, committed_date, anchor_cue").eq("user_id", userId).eq("archived", false),
     supabase
       .from("deen_habit_logs")
@@ -113,12 +118,6 @@ export default async function DeenPage() {
       .select("habit_id")
       .eq("user_id", userId)
       .eq("week_start_date", weekStart)
-      .maybeSingle(),
-    supabase
-      .from("deen_weekly_focus")
-      .select("habit_id")
-      .eq("user_id", userId)
-      .eq("week_start_date", previousWeekStart)
       .maybeSingle(),
     supabase.from("sunnah_logs").select("prayer_name, slot, completed").eq("user_id", userId).eq("date", dateStr).eq("completed", true),
   ]);
@@ -405,7 +404,6 @@ export default async function DeenPage() {
               todayStr={dateStr}
               habits={deenHabits}
               currentFocusHabitId={currentFocusRow?.habit_id ?? null}
-              previousFocusHabitId={previousFocusRow?.habit_id ?? null}
               habitConsistencyRows={habitConsistencyRows}
             />
           </Panel>
@@ -413,7 +411,7 @@ export default async function DeenPage() {
       </div>
 
       <Panel title="Prayer consistency, last 30 days" heroValue={`${onTimeRate}%`} caption="On-time rate over the window">
-        <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} />
+        <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} showDateLabels />
       </Panel>
     </PageContainer>
   );

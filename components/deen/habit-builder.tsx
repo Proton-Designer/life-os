@@ -248,13 +248,11 @@ export function HabitBuilder({
   todayStr,
   habits: initialHabits,
   currentFocusHabitId,
-  previousFocusHabitId,
   habitConsistencyRows,
 }: {
   todayStr: string;
   habits: DeenHabitData[];
   currentFocusHabitId: string | null;
-  previousFocusHabitId: string | null;
   /** One ConsistencyGrid row per active habit — a single shared grid, not
    * one grid per habit, so the cross-habit comparison ("one habit's
    * carrying, another's gone dark") is visible at a glance. See redesign
@@ -265,7 +263,6 @@ export function HabitBuilder({
   const [focusHabitId, setFocusHabitId] = useState(currentFocusHabitId);
   const [showPicker, setShowPicker] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
-  const [isContinuing, startContinueTransition] = useTransition();
 
   function handleToggle(habitId: string, completed: boolean) {
     setHabits((prev) => prev.map((h) => (h.id === habitId ? { ...h, completedToday: completed } : h)));
@@ -296,20 +293,11 @@ export function HabitBuilder({
     );
   }
 
-  function continueWithPrevious() {
-    if (!previousFocusHabitId) return;
-    startContinueTransition(async () => {
-      await setWeeklyFocus(previousFocusHabitId);
-      handleFocusChosen(previousFocusHabitId);
-    });
-  }
-
   const activeBuild = habits.filter((h) => habitStage(h.committedDate, todayStr) === "active_build");
   const stabilized = habits.filter((h) => habitStage(h.committedDate, todayStr) === "stabilized");
   const locked = habits.filter((h) => habitStage(h.committedDate, todayStr) === "locked");
 
   const focusHabit = habits.find((h) => h.id === focusHabitId) ?? null;
-  const previousFocusHabit = habits.find((h) => h.id === previousFocusHabitId) ?? null;
 
   const visibleRows = showAllRows ? habitConsistencyRows : habitConsistencyRows.slice(0, VISIBLE_HABIT_ROWS);
   const hiddenRowCount = habitConsistencyRows.length - VISIBLE_HABIT_ROWS;
@@ -358,20 +346,13 @@ export function HabitBuilder({
       ) : (
         // Only when there's already at least one habit to pick a focus
         // from — with zero habits, the EmptyState below already owns the
-        // "add one" prompt, and a second "Add a habit" button here would
-        // just be the same redundant-tiny-links problem in a new outfit.
+        // "add one" prompt. Spec (2026-08-23 §5): the old "Pick this week's
+        // focus habit" dashed prompt (plus its "Continue with X" branch) is
+        // replaced outright by one plain button.
         habits.length > 0 && (
-          <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border/60 p-4">
-            <p className="text-sm text-muted-foreground">Pick this week&apos;s focus habit.</p>
-            {previousFocusHabit && (
-              <Button type="button" variant="outline" disabled={isContinuing} onClick={continueWithPrevious}>
-                Continue with {previousFocusHabit.name}
-              </Button>
-            )}
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowPicker(true)}>
-              Add a habit
-            </Button>
-          </div>
+          <Button type="button" variant="outline" onClick={() => setShowPicker(true)}>
+            Create New Habit
+          </Button>
         )
       )}
 
@@ -403,7 +384,7 @@ export function HabitBuilder({
           {habitConsistencyRows.length > 0 && (
             <div className="flex flex-col gap-2">
               <h3 className="text-xs font-medium text-muted-foreground">Last 30 days</h3>
-              <ConsistencyGrid rows={visibleRows} statusStyle={HABIT_STATUS_STYLE} />
+              <ConsistencyGrid rows={visibleRows} statusStyle={HABIT_STATUS_STYLE} showDateLabels />
               {hiddenRowCount > 0 && (
                 <button
                   type="button"

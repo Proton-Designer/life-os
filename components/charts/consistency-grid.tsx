@@ -21,12 +21,25 @@ export type ConsistencyStatusStyle = { colorVar: string; treatment: CellTreatmen
 // below the 15-floor hard fail), and that floor holds regardless of the
 // per-cell aria-label/tooltip, which are assistive/on-demand, not the
 // at-a-glance read this grid exists for.
+/** "2026-08-15" -> "8/15" — short enough to sit above a 16-22px column. */
+function formatShortDate(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
 export function ConsistencyGrid({
   rows,
   statusStyle,
+  showDateLabels = false,
 }: {
   rows: ConsistencyRow[];
   statusStyle: Record<string, ConsistencyStatusStyle>;
+  /** Opt-in, backward-compatible (2026-08-23 spec §8/§9): one row of date
+   * labels above the columns, each read top-to-bottom via vertical-rl so a
+   * label per square isn't needed. Every existing caller renders unchanged
+   * when this is absent. Assumes every row shares the same date sequence as
+   * rows[0] — true for every current caller (one shared day range per grid). */
+  showDateLabels?: boolean;
 }) {
   const [hovered, setHovered] = useState<{ row: number; col: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -53,6 +66,23 @@ export function ConsistencyGrid({
     <div className="flex flex-col gap-3">
       <div ref={scrollRef} className="overflow-x-auto">
         <div className="flex w-fit flex-col gap-1">
+          {showDateLabels && rows.length > 0 && (
+            <div className="flex items-end gap-2">
+              <span aria-hidden="true" className="sticky left-0 z-20 w-16 shrink-0 bg-card" />
+              <div className="flex gap-[2px]">
+                {rows[0].cells.map((cell) => (
+                  <div key={cell.date} className="flex w-4 shrink-0 justify-center sm:w-[22px]">
+                    <span
+                      className="whitespace-nowrap text-[9px] leading-none text-muted-foreground"
+                      style={{ writingMode: "vertical-rl" }}
+                    >
+                      {formatShortDate(cell.date)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {rows.map((row, rowIndex) => (
             <div key={row.label} className="flex items-center gap-2">
               <span className="sticky left-0 z-20 w-16 shrink-0 truncate bg-card pr-1 text-xs text-muted-foreground">

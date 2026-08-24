@@ -31,7 +31,7 @@ describe("ReflectionTracker", () => {
 
     await user.click(screen.getByRole("button", { name: /Light/i }));
 
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("1", { selector: ".text-lg" })).toBeInTheDocument();
     expect(logMock).toHaveBeenCalledWith(1);
   });
 
@@ -74,9 +74,10 @@ describe("ReflectionTracker", () => {
     expect(screen.getByText(/never deleted/i)).toBeInTheDocument();
   });
 
-  it("composes the 30-day intensity strip, not the old sparklines", () => {
+  it("composes the monthly reflection calendar, not the old 30-day strip", () => {
     render(<ReflectionTracker entries={[]} todayStr="2026-08-15" timezone="UTC" />);
-    expect(screen.getByText(/of the last 30 days clear/)).toBeInTheDocument();
+    expect(screen.getByText("August 2026")).toBeInTheDocument();
+    expect(screen.getAllByTestId("reflection-month-cell").length).toBeGreaterThan(0);
   });
 
   it("composes the time-of-day view", () => {

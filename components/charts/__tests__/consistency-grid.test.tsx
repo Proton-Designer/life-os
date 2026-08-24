@@ -93,6 +93,36 @@ describe("ConsistencyGrid", () => {
     expect(screen.getByText("Fajr").className).toContain("sticky");
   });
 
+  it("omits date labels by default — every existing caller renders unchanged", () => {
+    render(
+      <ConsistencyGrid
+        rows={[{ label: "Fajr", cells: [{ date: "2026-08-15", status: "on_time" }] }]}
+        statusStyle={STATUS_STYLE}
+      />
+    );
+    expect(screen.queryByText("8/15")).not.toBeInTheDocument();
+  });
+
+  it("shows one row of date labels above the columns when showDateLabels is set", () => {
+    render(
+      <ConsistencyGrid
+        rows={[
+          {
+            label: "Fajr",
+            cells: [
+              { date: "2026-08-14", status: "on_time" },
+              { date: "2026-08-15", status: "missed" },
+            ],
+          },
+        ]}
+        statusStyle={STATUS_STYLE}
+        showDateLabels
+      />
+    );
+    expect(screen.getByText("8/14")).toBeInTheDocument();
+    expect(screen.getByText("8/15")).toBeInTheDocument();
+  });
+
   it("renders a legend showing every status's treatment and label", () => {
     render(
       <ConsistencyGrid

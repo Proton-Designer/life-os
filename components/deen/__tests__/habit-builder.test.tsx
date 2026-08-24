@@ -29,7 +29,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ id: "a" }), habit({ id: "b", committedDate: "2026-07-01" }), habit({ id: "c", committedDate: "2026-06-01" })]}
         currentFocusHabitId="a"
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -44,7 +43,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ streak: 5, rollingRate: { done: 10, total: 15 } })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -58,7 +56,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ streak: 0 })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -67,7 +64,7 @@ describe("HabitBuilder", () => {
 
   it("collapses the three redundant 'None yet.' stage columns into one shared EmptyState when there are no habits at all", () => {
     render(
-      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />
     );
     expect(screen.getByText("No habits started yet")).toBeInTheDocument();
     expect(screen.queryAllByText("None yet.").length).toBe(0);
@@ -80,7 +77,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ committedDate: "2026-08-15" })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -94,7 +90,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit()]}
         currentFocusHabitId="h1"
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -110,7 +105,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ id: "a" })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -125,7 +119,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit()]}
         currentFocusHabitId="h1"
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -134,17 +127,26 @@ describe("HabitBuilder", () => {
     expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
   });
 
-  it("offers a real Add a habit button when habits exist but no focus is set this week", () => {
+  it("offers a Create New Habit button when habits exist but no focus is set this week", () => {
     render(
       <HabitBuilder
         todayStr="2026-08-15"
         habits={[habit()]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
-    expect(screen.getByRole("button", { name: /add a habit/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create new habit/i })).toBeInTheDocument();
+    expect(screen.queryByText(/pick this week/i)).not.toBeInTheDocument();
+  });
+
+  it("opens the habit picker from the Create New Habit button", async () => {
+    const user = userEvent.setup();
+    render(
+      <HabitBuilder todayStr="2026-08-15" habits={[habit()]} currentFocusHabitId={null} habitConsistencyRows={[]} />
+    );
+    await user.click(screen.getByRole("button", { name: /create new habit/i }));
+    expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
   });
 
   it("lets you cancel out of the habit picker without picking anything, restoring the previous view", async () => {
@@ -154,7 +156,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit()]}
         currentFocusHabitId="h1"
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -171,7 +172,7 @@ describe("HabitBuilder", () => {
   it("cancel from the picker doesn't create or select anything", async () => {
     const user = userEvent.setup();
     render(
-      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />
     );
 
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
@@ -188,7 +189,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ anchorCue: "Fajr", name: "Gym" })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -204,7 +204,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ anchorCue: null, name: "Read Qur'an daily" })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
@@ -215,7 +214,7 @@ describe("HabitBuilder", () => {
   it("the create-habit form has separate name and cue fields, not one sentence-shaped input", async () => {
     const user = userEvent.setup();
     render(
-      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />
     );
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
     expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
@@ -227,7 +226,7 @@ describe("HabitBuilder", () => {
     vi.mocked(createDeenHabit).mockResolvedValue({ id: "new-habit" });
     const user = userEvent.setup();
     render(
-      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} previousFocusHabitId={null} habitConsistencyRows={[]} />
+      <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />
     );
 
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
@@ -251,7 +250,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ id: "a", name: "Unrelated A" }), habit({ id: "b", name: "Unrelated B" })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={[
           { label: "Grid habit A", cells: [{ date: "2026-08-15", status: "done" }] },
           { label: "Grid habit B", cells: [{ date: "2026-08-15", status: "missed" }] },
@@ -278,7 +276,6 @@ describe("HabitBuilder", () => {
         todayStr="2026-08-15"
         habits={[habit({ id: "dummy", name: "Unrelated stage-column habit" })]}
         currentFocusHabitId={null}
-        previousFocusHabitId={null}
         habitConsistencyRows={rows}
       />
     );
