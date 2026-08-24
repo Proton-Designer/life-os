@@ -34,9 +34,19 @@ function GoalCard({ domain, goal }: { domain: GoalDomain; goal: WeeklyGoalEntry 
           {DOMAIN_LABEL[domain]}
         </span>
         {goal ? (
-          <p className="truncate text-sm font-medium">{goal.headline}</p>
+          <Link
+            href="/#weekly-focus"
+            prefetch
+            className="min-h-11 truncate text-sm font-medium hover:underline"
+          >
+            {goal.headline}
+          </Link>
         ) : (
-          <Link href="#weekly-focus" prefetch className="min-h-11 text-sm text-muted-foreground hover:text-foreground hover:underline">
+          <Link
+            href="/#weekly-focus"
+            prefetch
+            className="min-h-11 text-sm text-muted-foreground hover:text-foreground hover:underline"
+          >
             Set this week&apos;s {DOMAIN_LABEL[domain]} goal →
           </Link>
         )}

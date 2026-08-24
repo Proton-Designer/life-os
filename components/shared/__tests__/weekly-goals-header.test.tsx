@@ -17,6 +17,11 @@ describe("WeeklyGoalsHeader", () => {
     expect(screen.queryByRole("link", { name: /Set this week's Business goal/ })).not.toBeInTheDocument();
   });
 
+  it("makes a SET goal's headline clickable too, not just the empty-state prompt", () => {
+    render(<WeeklyGoalsHeader deen={{ headline: "Finish Surah Kahf" }} business={null} />);
+    expect(screen.getByRole("link", { name: "Finish Surah Kahf" })).toHaveAttribute("href", "/#weekly-focus");
+  });
+
   it("renders both cards even when neither goal is set", () => {
     render(<WeeklyGoalsHeader deen={null} business={null} />);
     expect(screen.getByRole("link", { name: /Set this week's Deen goal/ })).toBeInTheDocument();
