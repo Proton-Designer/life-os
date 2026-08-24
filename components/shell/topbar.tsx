@@ -48,7 +48,7 @@ export function Topbar({
   return (
     <DialogPrimitive.Root>
       <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md md:px-6">
-        <div className="flex flex-1 items-center gap-3">
+        <div className="flex flex-1 items-center gap-3 sm:flex-none">
           <DialogPrimitive.Trigger asChild>
             <button
               type="button"
@@ -71,8 +71,19 @@ export function Topbar({
         </div>
 
         {/* Centre — directly under the Life OS mark (spec: "middle of the
-            top bar ... right under where it says Life OS"). */}
-        <div className="flex flex-1 items-center justify-center gap-2">
+            top bar ... right under where it says Life OS"). Below sm, the
+            three flex-1 siblings keep this centred well enough (the date
+            label is hidden, so the right group is narrow). At sm+ the date
+            label appears and the right group's content (date label + bell +
+            calendar link) can't shrink below its own width, so as a flex-1
+            sibling it steals width from this group and drags it left of
+            true centre. Fixed by taking this group out of flex flow at sm+
+            and centring it on the header box directly (position: sticky on
+            the header already establishes the containing block — no extra
+            `relative` needed, and adding one would clobber the sticky
+            positioning since `position` is a single property), independent
+            of the two side groups' widths. */}
+        <div className="flex flex-1 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:flex-none sm:-translate-x-1/2">
           <DistractionCaptureDialog />
           {reviewOpen && (
             <Button asChild variant="outline" size="sm">
@@ -81,7 +92,7 @@ export function Topbar({
           )}
         </div>
 
-        <div className="flex flex-1 items-center justify-end gap-3">
+        <div className="flex flex-1 items-center justify-end gap-3 sm:flex-none">
           <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>
           <NotificationsBell />
           {/* Replaces the account icon here (spec: "remove the user profile
