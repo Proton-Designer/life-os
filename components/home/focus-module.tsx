@@ -55,7 +55,9 @@ function DistractionsSection({
     <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-3">
       <div>
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Distractions</p>
-        <p className="font-mono text-lg font-semibold tabular-nums">{distractionsToday}</p>
+        <p data-testid="home-distractions-count" className="font-mono text-lg font-semibold tabular-nums">
+          {distractionsToday}
+        </p>
       </div>
       <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(true)}>
         Action Plan

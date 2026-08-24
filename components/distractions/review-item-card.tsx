@@ -70,7 +70,7 @@ export function ReviewItemCard({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
+    <div data-testid="review-item-card" className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <IconChip icon={DOMAIN_ICON[trigger.domain]} accent={DOMAIN_ACCENT[trigger.domain]} size="sm" />
