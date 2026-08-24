@@ -10,6 +10,7 @@ import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurr
 import { TaskList, type TaskData } from "@/components/shared/task-list";
 import { DeadlineList } from "@/components/shared/deadline-list";
 import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/domain-schedule-view";
+import { ClassScheduleWeek, type ClassScheduleEvent } from "@/components/school/class-schedule-week";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -39,7 +40,7 @@ export default async function SchoolPage() {
       .order("due_date", { ascending: true, nullsFirst: false }),
     supabase
       .from("schedule_events")
-      .select("id, title, is_recurring, day_of_week, event_time, event_date, cancelled_on")
+      .select("id, title, is_recurring, day_of_week, event_time, end_time, location, instructor, event_date, cancelled_on")
       .eq("user_id", userId)
       .eq("domain", "school"),
   ]);
@@ -61,6 +62,21 @@ export default async function SchoolPage() {
     eventDate: e.event_date,
     cancelledOn: e.cancelled_on,
   }));
+
+  // The richer week view (§3: time range, room, instructor) only covers
+  // recurring classes — a one-off event has no day_of_week to place it on.
+  const classScheduleEvents: ClassScheduleEvent[] = (eventRows ?? [])
+    .filter((e) => e.is_recurring && e.day_of_week !== null)
+    .map((e) => ({
+      id: e.id,
+      title: e.title,
+      dayOfWeek: e.day_of_week as number,
+      eventTime: e.event_time,
+      endTime: e.end_time,
+      location: e.location,
+      instructor: e.instructor,
+      cancelledOn: e.cancelled_on,
+    }));
 
   const dueTodayCount = openTasks.filter((t) => t.dueDate === dateStr).length;
   const overdueCount = countOverdue(
@@ -133,6 +149,10 @@ export default async function SchoolPage() {
           </Panel>
         </div>
       </div>
+
+      <Panel title="This week's classes">
+        <ClassScheduleWeek events={classScheduleEvents} weekDates={weekDates} todayStr={dateStr} />
+      </Panel>
 
       <Panel id="tasks" className="scroll-mt-20" title="Task list" heroValue={`${openTasks.length}`} caption="open">
         <TaskList tasks={openTasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="school" />
