@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isReviewOpen, mustRewrite, rankTriggersForCapture, rankTriggersForPlanList } from "../plan-rules";
+import { isReviewOpen, mustRewrite, rankTriggersForCapture, rankTriggersForPlanList, reviewDateFor } from "../plan-rules";
 import type { TriggerSummary } from "../types";
 
 function trigger(overrides: Partial<TriggerSummary> = {}): TriggerSummary {
@@ -82,19 +82,24 @@ describe("rankTriggersForPlanList", () => {
 });
 
 describe("isReviewOpen", () => {
-  it("false before 9 PM local", () => {
+  it("false at 20:59 (just before the 9 PM open)", () => {
     const now = new Date("2026-08-23T20:59:00-05:00");
     expect(isReviewOpen(now, "America/Chicago")).toBe(false);
   });
 
-  it("true at exactly 9 PM local", () => {
+  it("true at exactly 21:00", () => {
     const now = new Date("2026-08-23T21:00:00-05:00");
     expect(isReviewOpen(now, "America/Chicago")).toBe(true);
   });
 
-  it("true after 9 PM local", () => {
-    const now = new Date("2026-08-23T23:30:00-05:00");
+  it("true at 00:30 — the post-midnight tail, a realistic hour to actually open it", () => {
+    const now = new Date("2026-08-24T00:30:00-05:00");
     expect(isReviewOpen(now, "America/Chicago")).toBe(true);
+  });
+
+  it("false at exactly 04:00 — the tail has closed", () => {
+    const now = new Date("2026-08-24T04:00:00-05:00");
+    expect(isReviewOpen(now, "America/Chicago")).toBe(false);
   });
 
   it("respects a different timezone than the machine's", () => {
@@ -102,5 +107,22 @@ describe("isReviewOpen", () => {
     const now = new Date("2026-08-23T15:00:00-05:00");
     expect(isReviewOpen(now, "America/Chicago")).toBe(false);
     expect(isReviewOpen(now, "Europe/London")).toBe(true);
+  });
+});
+
+describe("reviewDateFor", () => {
+  it("targets today at 21:00", () => {
+    const now = new Date("2026-08-23T21:00:00-05:00");
+    expect(reviewDateFor(now, "America/Chicago")).toBe("2026-08-23");
+  });
+
+  it("targets YESTERDAY at 00:30 — the triggers logged before midnight, not an empty new day", () => {
+    const now = new Date("2026-08-24T00:30:00-05:00");
+    expect(reviewDateFor(now, "America/Chicago")).toBe("2026-08-23");
+  });
+
+  it("still targets yesterday right at the 04:00 boundary's edge (03:59)", () => {
+    const now = new Date("2026-08-24T03:59:00-05:00");
+    expect(reviewDateFor(now, "America/Chicago")).toBe("2026-08-23");
   });
 });

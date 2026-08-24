@@ -1,3 +1,4 @@
+import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import type { TriggerSummary } from "./types";
 
 export const REVIEW_AVAILABLE_HOUR = 21; // 9 PM local
@@ -29,10 +30,33 @@ export function rankTriggersForPlanList(triggers: TriggerSummary[]): TriggerSumm
   return triggers.filter((t) => t.currentPlan !== null).sort(compareByLastOccurredDesc);
 }
 
-/** True once local time is past REVIEW_AVAILABLE_HOUR. Pure — takes `now` and tz. */
-export function isReviewOpen(now: Date, timezone: string): boolean {
-  const hour = Number(
+function localHour(now: Date, timezone: string): number {
+  return Number(
     new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hourCycle: "h23" }).format(now)
   );
-  return hour >= REVIEW_AVAILABLE_HOUR;
+}
+
+/**
+ * The review's day boundary is NOT plain midnight (the Lead, 2026-08-24):
+ * "after 9 PM" taken literally breaks the moment he opens it after
+ * midnight — a realistic hour — silently rolling over to a new, empty day
+ * and making yesterday's triggers permanently unreviewable. So the review
+ * stays open through a 4 AM tail, and both isReviewOpen and reviewDateFor
+ * share that same window. Distraction CAPTURE is unaffected — it keeps the
+ * ordinary midnight boundary via localDateString, same as every other
+ * per-day number in the app; only the review screen gets this extension.
+ */
+const REVIEW_TAIL_END_HOUR = 4;
+
+/** True from REVIEW_AVAILABLE_HOUR through REVIEW_TAIL_END_HOUR the following morning. Pure — takes `now` and tz. */
+export function isReviewOpen(now: Date, timezone: string): boolean {
+  const hour = localHour(now, timezone);
+  return hour >= REVIEW_AVAILABLE_HOUR || hour < REVIEW_TAIL_END_HOUR;
+}
+
+/** The local date the review screen targets — yesterday during the post-midnight tail, otherwise today. */
+export function reviewDateFor(now: Date, timezone: string): string {
+  const hour = localHour(now, timezone);
+  const today = localDateString(now, timezone);
+  return hour < REVIEW_TAIL_END_HOUR ? addDaysToDateString(today, -1) : today;
 }
