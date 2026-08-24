@@ -58,3 +58,4 @@ node_modules/
 /playwright/.auth/
 /.playwright-mcp/
 .scratch-verify/
+.backups/
