@@ -53,16 +53,26 @@ describe("Business actions", () => {
     );
   });
 
-  it("toggleKillListItem flips completed from false to true, scoped to the authenticated user", async () => {
+  it("toggleKillListItem flips completed from false to true and stamps completed_at, scoped to the authenticated user", async () => {
     const chain = makeChain({ data: { completed: false }, error: null });
     fromImpl = () => chain;
     const { toggleKillListItem } = await import("../actions");
 
     await toggleKillListItem("item-1");
 
-    expect(chain.update).toHaveBeenCalledWith({ completed: true });
+    expect(chain.update).toHaveBeenCalledWith({ completed: true, completed_at: expect.any(String) });
     expect(chain.eq).toHaveBeenCalledWith("id", "item-1");
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  it("toggleKillListItem flips completed from true back to false and clears completed_at", async () => {
+    const chain = makeChain({ data: { completed: true }, error: null });
+    fromImpl = () => chain;
+    const { toggleKillListItem } = await import("../actions");
+
+    await toggleKillListItem("item-1");
+
+    expect(chain.update).toHaveBeenCalledWith({ completed: false, completed_at: null });
   });
 
   it("toggleKillListItem throws (rather than silently no-op'ing) when the item doesn't exist or isn't the user's", async () => {

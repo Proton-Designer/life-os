@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { PriorityItem } from "@/lib/home/types";
+import type { PriorityItem, CompletedItem } from "@/lib/home/types";
 
 vi.mock("@/app/(app)/actions", () => ({
   toggleItem: vi.fn(async () => {}),
@@ -31,29 +31,50 @@ function item(overrides: Partial<PriorityItem> & Pick<PriorityItem, "id" | "doma
   };
 }
 
+function completedItem(overrides: Partial<CompletedItem> & Pick<CompletedItem, "id" | "domain">): CompletedItem {
+  return {
+    title: overrides.id,
+    actionType: "toggle_task",
+    actionRefId: overrides.id,
+    completedAtIso: "2026-08-17T18:00:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("NextActions", () => {
-  it("shows the all-clear empty state with a planning link when nothing is pending", () => {
-    render(<NextActions items={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+  it("shows the all-clear empty state with a planning link when nothing is pending or completed", () => {
+    render(<NextActions items={[]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
     expect(screen.getByText("You're all clear")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Plan the week" })).toHaveAttribute("href", "#weekly-focus");
   });
 
   it("shows the fresh-install copy instead when isFreshInstall and nothing is pending", () => {
-    render(<NextActions items={[]} isFreshInstall nowIso={NOW_ISO} />);
+    render(<NextActions items={[]} completedToday={[]} isFreshInstall nowIso={NOW_ISO} />);
     expect(screen.getByText("Welcome — head into a domain tab to get started")).toBeInTheDocument();
   });
 
-  it("renders one row per domain with its title and domain label", () => {
+  it("does not show the all-clear state when there's nothing pending but something was completed today", () => {
+    render(
+      <NextActions
+        items={[]}
+        completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
+        isFreshInstall={false}
+        nowIso={NOW_ISO}
+      />
+    );
+    expect(screen.queryByText("You're all clear")).not.toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+  });
+
+  it("renders one row per domain with its title", () => {
     const items = [
       item({ id: "fajr", domain: "deen", title: "Fajr" }),
       item({ id: "kill-list", domain: "business", title: "Ship the proposal" }),
     ];
-    render(<NextActions items={items} isFreshInstall={false} nowIso={NOW_ISO} />);
+    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
 
     expect(screen.getByText("Fajr")).toBeInTheDocument();
-    expect(screen.getByText("Deen")).toBeInTheDocument();
     expect(screen.getByText("Ship the proposal")).toBeInTheDocument();
-    expect(screen.getByText("Business")).toBeInTheDocument();
   });
 
   it("corrects a stale nowIso (a Router-Cache-served hour-old payload) via the effect's immediate tick", () => {
@@ -70,52 +91,68 @@ describe("NextActions", () => {
         urgencyBucket: "later_today",
       }),
     ];
-    render(<NextActions items={items} isFreshInstall={false} nowIso={staleNowIso} />);
+    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={staleNowIso} />);
     expect(screen.getByText("in 45m")).toBeInTheDocument();
   });
 
-  it("badges only the single earliest right_now item as Now", () => {
-    const items = [
-      item({
-        id: "fajr",
-        domain: "deen",
-        title: "Fajr",
-        dueAt: new Date(NOW_MS + 10 * 60_000),
-        urgencyBucket: "right_now",
-      }),
-      item({
-        id: "workout",
-        domain: "fitness",
-        title: "Run",
-        dueAt: new Date(NOW_MS + 60 * 60_000),
-        urgencyBucket: "right_now",
-      }),
-      item({ id: "task-1", domain: "school", title: "Essay", urgencyBucket: "later_today" }),
-    ];
-    render(<NextActions items={items} isFreshInstall={false} nowIso={NOW_ISO} />);
+  it("shows Now (only once) for the single earliest right_now item", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_ISO));
+    try {
+      const items = [
+        item({
+          id: "fajr",
+          domain: "deen",
+          title: "Fajr",
+          dueAt: new Date(NOW_MS + 10 * 60_000),
+          urgencyBucket: "right_now",
+        }),
+        item({
+          id: "workout",
+          domain: "fitness",
+          title: "Run",
+          dueAt: new Date(NOW_MS + 60 * 60_000),
+          urgencyBucket: "right_now",
+        }),
+        item({ id: "task-1", domain: "school", title: "Essay", urgencyBucket: "later_today" }),
+      ];
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
 
-    expect(screen.getAllByText("Now")).toHaveLength(1);
-    const fajrRow = screen.getByText("Fajr").closest("li");
-    expect(fajrRow).not.toBeNull();
-    expect(fajrRow!.textContent).toContain("Now");
+      expect(screen.getAllByText(/^Now/)).toHaveLength(1);
+      const fajrRow = screen.getByText("Fajr").closest("li");
+      expect(fajrRow).not.toBeNull();
+      expect(fajrRow!.textContent).toContain("Now");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("suppresses the redundant relative-time text when the badged item's time would also read Now", () => {
-    const items = [
-      item({
-        id: "fajr",
-        domain: "deen",
-        title: "Fajr",
-        dueAt: new Date(NOW_MS), // due this instant — formatRelativeDuration("Now")
-        urgencyBucket: "right_now",
-      }),
-    ];
-    render(<NextActions items={items} isFreshInstall={false} nowIso={NOW_ISO} />);
+    // Fake timers, same reason as the window-status test below — without
+    // pinning the clock, the mount effect's immediate re-tick to the real
+    // wall clock would make this item read as several days overdue instead
+    // of "Now".
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_ISO));
+    try {
+      const items = [
+        item({
+          id: "fajr",
+          domain: "deen",
+          title: "Fajr",
+          dueAt: new Date(NOW_MS), // due this instant — formatRelativeDuration("Now")
+          urgencyBucket: "right_now",
+        }),
+      ];
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
 
-    const fajrRow = screen.getByText("Fajr").closest("li");
-    expect(fajrRow).not.toBeNull();
-    // The badge shows "Now" exactly once — not doubled with a second "Now" as the time text.
-    expect(screen.getAllByText("Now")).toHaveLength(1);
+      const fajrRow = screen.getByText("Fajr").closest("li");
+      expect(fajrRow).not.toBeNull();
+      // "Now" shows exactly once — not doubled into "Now · Now".
+      expect(fajrRow!.textContent?.match(/Now/g)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // Regression (Ayman, 2026-08-20): Home's "Now" panel showed an open
@@ -142,7 +179,7 @@ describe("NextActions", () => {
           urgencyBucket: "right_now",
         }),
       ];
-      render(<NextActions items={items} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
 
       const maghribRow = screen.getByText("Maghrib").closest("li");
       expect(maghribRow).not.toBeNull();
@@ -153,19 +190,34 @@ describe("NextActions", () => {
     }
   });
 
-  it("marks an item done via toggleItem and removes it optimistically on click", async () => {
-    // A never-resolving promise keeps the transition pending, so we observe
-    // the optimistic removal itself rather than useOptimistic reverting once
-    // the (unchanged) items prop settles back in after the action resolves.
-    vi.mocked(toggleItem).mockImplementation(() => new Promise(() => {}));
-    const items = [item({ id: "fajr", domain: "deen", title: "Fajr" })];
-    const user = userEvent.setup();
-    render(<NextActions items={items} isFreshInstall={false} nowIso={NOW_ISO} />);
+  it("marks an item done via toggleItem instantly (checkbox+strikethrough), then removes it from the active list after the confirm beat", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.mocked(toggleItem).mockResolvedValue(undefined);
+      const items = [item({ id: "fajr", domain: "deen", title: "Fajr" })];
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
 
-    const button = screen.getByRole("button", { name: 'Mark "Fajr" done' });
-    await user.click(button);
+      const button = screen.getByRole("button", { name: 'Mark "Fajr" done' });
+      await user.click(button);
 
-    expect(toggleItem).toHaveBeenCalledWith(items[0]);
-    expect(screen.queryByText("Fajr")).not.toBeInTheDocument();
+      expect(toggleItem).toHaveBeenCalledWith(items[0]);
+      // Still on screen immediately — instant visual response, not yet removed.
+      expect(screen.getByText("Fajr")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(600);
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: 'Mark "Fajr" done' })).not.toBeInTheDocument();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a fitness row that navigates to /fitness instead of completing in place", () => {
+    const items = [item({ id: "fitness-today", domain: "fitness", title: "Push Day A", actionType: "open_fitness" })];
+    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+
+    expect(screen.getByRole("link", { name: /Push Day A/ })).toHaveAttribute("href", "/fitness");
   });
 });

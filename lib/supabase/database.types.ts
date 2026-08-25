@@ -600,6 +600,7 @@ export type Database = {
       kill_list_items: {
         Row: {
           completed: boolean
+          completed_at: string | null
           created_at: string
           date: string
           id: string
@@ -609,6 +610,7 @@ export type Database = {
         }
         Insert: {
           completed?: boolean
+          completed_at?: string | null
           created_at?: string
           date: string
           id?: string
@@ -618,6 +620,7 @@ export type Database = {
         }
         Update: {
           completed?: boolean
+          completed_at?: string | null
           created_at?: string
           date?: string
           id?: string

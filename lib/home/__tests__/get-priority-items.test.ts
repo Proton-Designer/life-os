@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPriorityItems, type HomeDataSource } from "../get-priority-items";
+import { getPriorityItems, getCompletedItemsToday, type HomeDataSource } from "../get-priority-items";
 import { calculatePrayerTimes } from "../../prayer-times/calculate";
 
 const CHICAGO_PROFILE = {
@@ -36,7 +36,7 @@ describe("getPriorityItems", () => {
 
     const dataSource = emptyDataSource({
       getPrayers: async () => [
-        { id: "p1", prayer_name: "dhuhr", status: "pending" },
+        { id: "p1", prayer_name: "dhuhr", status: "pending", logged_at: null },
       ],
     });
 
@@ -60,6 +60,7 @@ describe("getPriorityItems", () => {
           due_date: "2026-08-10",
           due_time: null,
           completed: false,
+          completed_at: null,
         },
       ],
     });
@@ -76,7 +77,7 @@ describe("getPriorityItems", () => {
     const now = new Date("2026-08-10T18:00:00Z");
     const dataSource = emptyDataSource({
       getPrayers: async () => [
-        { id: "p1", prayer_name: "fajr", status: "on_time" },
+        { id: "p1", prayer_name: "fajr", status: "on_time", logged_at: null },
       ],
     });
 
@@ -105,6 +106,55 @@ describe("getPriorityItems", () => {
     expect(items.find((i) => i.actionRefId === "isha")).toBeUndefined();
   });
 
+  it("always shows the kill list's first incomplete item's own text, never a count of how many remain", async () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+    const dataSource = emptyDataSource({
+      getKillListItems: async () => [
+        { id: "k1", text: "Call the vendor", completed: false, position: 0, completed_at: null },
+        { id: "k2", text: "Send the proposal", completed: false, position: 1, completed_at: null },
+        { id: "k3", text: "Review contract", completed: false, position: 2, completed_at: null },
+      ],
+    });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+    const killItem = items.find((i) => i.id === "kill-list");
+
+    expect(killItem?.title).toBe("Call the vendor");
+    expect(killItem?.actionRefId).toBe("k1");
+  });
+
+  it("advances to the next kill-list item's own text once the first is completed — never a count, at any remaining size", async () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+    const dataSource = emptyDataSource({
+      getKillListItems: async () => [
+        { id: "k1", text: "Call the vendor", completed: true, position: 0, completed_at: null },
+        { id: "k2", text: "Send the proposal", completed: false, position: 1, completed_at: null },
+        { id: "k3", text: "Review contract", completed: false, position: 2, completed_at: null },
+      ],
+    });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+    const killItem = items.find((i) => i.id === "kill-list");
+
+    expect(killItem?.title).toBe("Send the proposal");
+    expect(killItem?.actionRefId).toBe("k2");
+  });
+
+  it("emits no kill-list row once all three items are completed", async () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+    const dataSource = emptyDataSource({
+      getKillListItems: async () => [
+        { id: "k1", text: "Call the vendor", completed: true, position: 0, completed_at: null },
+        { id: "k2", text: "Send the proposal", completed: true, position: 1, completed_at: null },
+        { id: "k3", text: "Review contract", completed: true, position: 2, completed_at: null },
+      ],
+    });
+
+    const items = await getPriorityItems("user-1", now, dataSource);
+
+    expect(items.some((i) => i.id === "kill-list")).toBe(false);
+  });
+
   it("orders items due at the exact same moment by domain priority (Deen before School/Work)", async () => {
     const now = new Date("2026-08-10T00:00:00Z");
     const times = calculatePrayerTimes({
@@ -122,7 +172,7 @@ describe("getPriorityItems", () => {
     const mm = String(dhuhrLocal.getUTCMinutes()).padStart(2, "0");
 
     const dataSource = emptyDataSource({
-      getPrayers: async () => [{ id: "p1", prayer_name: "dhuhr", status: "pending" }],
+      getPrayers: async () => [{ id: "p1", prayer_name: "dhuhr", status: "pending", logged_at: null }],
       getTasks: async () => [
         {
           id: "school1",
@@ -131,6 +181,7 @@ describe("getPriorityItems", () => {
           due_date: "2026-08-10",
           due_time: `${hh}:${mm}`,
           completed: false,
+          completed_at: null,
         },
         {
           id: "coop1",
@@ -139,6 +190,7 @@ describe("getPriorityItems", () => {
           due_date: "2026-08-10",
           due_time: `${hh}:${mm}`,
           completed: false,
+          completed_at: null,
         },
       ],
     });
@@ -161,7 +213,7 @@ describe("getPriorityItems", () => {
     const now = new Date("2026-08-10T18:00:00Z");
     const dataSource = emptyDataSource({
       getKillListItems: async () => [
-        { id: "k1", text: "Ship the landing page", completed: false, position: 0 },
+        { id: "k1", text: "Ship the landing page", completed: false, position: 0, completed_at: null },
       ],
       getTasks: async () => [
         {
@@ -171,6 +223,7 @@ describe("getPriorityItems", () => {
           due_date: "2026-08-10",
           due_time: null,
           completed: false,
+          completed_at: null,
         },
       ],
     });
@@ -258,6 +311,66 @@ describe("getPriorityItems", () => {
 
       const items = await getPriorityItems("user-1", now, dataSource);
       expect(items.some((i) => i.domain === "fitness")).toBe(false);
+    });
+  });
+
+  describe("getCompletedItemsToday", () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+
+    it("includes an on_time or qada prayer with its logged_at as completedAtIso", async () => {
+      const dataSource = emptyDataSource({
+        getPrayers: async () => [
+          { id: "p1", prayer_name: "fajr", status: "on_time", logged_at: "2026-08-10T11:00:00Z" },
+          { id: "p2", prayer_name: "dhuhr", status: "qada", logged_at: "2026-08-10T17:00:00Z" },
+          { id: "p3", prayer_name: "asr", status: "pending", logged_at: null },
+        ],
+      });
+
+      const items = await getCompletedItemsToday("user-1", now, dataSource);
+      const ids = items.map((i) => i.actionRefId);
+
+      expect(ids).toEqual(["fajr", "dhuhr"]);
+      expect(items.find((i) => i.actionRefId === "fajr")?.completedAtIso).toBe("2026-08-10T11:00:00Z");
+    });
+
+    it("includes a completed kill-list item with its completed_at as completedAtIso", async () => {
+      const dataSource = emptyDataSource({
+        getKillListItems: async () => [
+          { id: "k1", text: "Call the vendor", completed: true, position: 0, completed_at: "2026-08-10T15:00:00Z" },
+          { id: "k2", text: "Send the proposal", completed: false, position: 1, completed_at: null },
+        ],
+      });
+
+      const items = await getCompletedItemsToday("user-1", now, dataSource);
+
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ domain: "business", title: "Call the vendor", actionRefId: "k1" });
+    });
+
+    it("includes a completed task with its completed_at as completedAtIso", async () => {
+      const dataSource = emptyDataSource({
+        getTasks: async () => [
+          {
+            id: "t1",
+            domain: "school",
+            title: "Read chapter 4",
+            due_date: "2026-08-10",
+            due_time: null,
+            completed: true,
+            completed_at: "2026-08-10T16:00:00Z",
+          },
+        ],
+      });
+
+      const items = await getCompletedItemsToday("user-1", now, dataSource);
+
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ domain: "school", title: "Read chapter 4", actionRefId: "t1" });
+    });
+
+    it("returns nothing when nothing was completed today", async () => {
+      const items = await getCompletedItemsToday("user-1", now, emptyDataSource());
+      expect(items).toEqual([]);
     });
   });
 });

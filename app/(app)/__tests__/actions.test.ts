@@ -83,7 +83,7 @@ describe("toggleItem", () => {
     );
   });
 
-  it("updates kill_list_items.completed by id for toggle_kill_list", async () => {
+  it("updates kill_list_items.completed and stamps completed_at by id for toggle_kill_list", async () => {
     const chain = makeChain();
     fromMock.mockReturnValue(chain);
     const { toggleItem } = await import("../actions");
@@ -91,12 +91,12 @@ describe("toggleItem", () => {
     await toggleItem(baseItem({ actionType: "toggle_kill_list", actionRefId: "kill-item-1" }));
 
     expect(fromMock).toHaveBeenCalledWith("kill_list_items");
-    expect(chain.update).toHaveBeenCalledWith({ completed: true });
+    expect(chain.update).toHaveBeenCalledWith({ completed: true, completed_at: expect.any(String) });
     expect(chain.eq).toHaveBeenCalledWith("id", "kill-item-1");
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
-  it("updates tasks.completed by id for toggle_task", async () => {
+  it("updates tasks.completed and stamps completed_at by id for toggle_task", async () => {
     const chain = makeChain();
     fromMock.mockReturnValue(chain);
     const { toggleItem } = await import("../actions");
@@ -104,7 +104,7 @@ describe("toggleItem", () => {
     await toggleItem(baseItem({ actionType: "toggle_task", actionRefId: "task-1" }));
 
     expect(fromMock).toHaveBeenCalledWith("tasks");
-    expect(chain.update).toHaveBeenCalledWith({ completed: true });
+    expect(chain.update).toHaveBeenCalledWith({ completed: true, completed_at: expect.any(String) });
     expect(chain.eq).toHaveBeenCalledWith("id", "task-1");
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { Inbox } from "lucide-react";
-import { getPriorityItems } from "@/lib/home/get-priority-items";
+import { getPriorityItems, getCompletedItemsToday } from "@/lib/home/get-priority-items";
 import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { getHomeExtras } from "@/lib/home/get-home-extras";
 import { getDayShape } from "@/lib/home/get-day-shape";
@@ -37,9 +37,10 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, snapshots, extras, dayShape, weeklyGoalsResult, activeSession, triggers, distractionsToday] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, activeSession, triggers, distractionsToday] =
     await Promise.all([
       getPriorityItems(userId, now),
+      getCompletedItemsToday(userId, now),
       getDomainSnapshots(userId, now),
       getHomeExtras(userId, now, profile),
       getDayShape(userId, now),
@@ -118,7 +119,12 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
           <Panel title="Now">
-            <NextActions items={items} isFreshInstall={isFreshInstall} nowIso={now.toISOString()} />
+            <NextActions
+              items={items}
+              completedToday={completedToday}
+              isFreshInstall={isFreshInstall}
+              nowIso={now.toISOString()}
+            />
           </Panel>
         </div>
         <div className="lg:col-span-4">

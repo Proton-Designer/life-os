@@ -34,9 +34,10 @@ export async function toggleKillListItem(id: string): Promise<void> {
     throw new Error("Kill list item not found");
   }
 
+  const nowCompleted = !existing.completed;
   const { error } = await supabase
     .from("kill_list_items")
-    .update({ completed: !existing.completed })
+    .update({ completed: nowCompleted, completed_at: nowCompleted ? new Date().toISOString() : null })
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;

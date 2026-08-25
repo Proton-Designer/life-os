@@ -11,6 +11,23 @@ export type ActionType =
   /** Navigates to /fitness — never toggles. See toggleItem, which throws rather than no-ops for this type. */
   | "open_fitness";
 
+/**
+ * An item completed TODAY (local day), for the Completed section beneath
+ * Home's Now module — 2026-08-25 tap-to-complete redesign. Not a
+ * PriorityItem: those are strictly the pending/actionable set, and mixing
+ * "still due" and "already done" into one shape/list invited exactly the
+ * kind of bug where a completed row silently reappears as pending.
+ */
+export type CompletedItem = {
+  id: string;
+  domain: Domain;
+  title: string;
+  actionType: ActionType;
+  actionRefId: string;
+  /** Real completion instant where the source records one (tasks.completed_at, prayers.logged_at, kill_list_items.completed_at) — every current source does. */
+  completedAtIso: string;
+};
+
 export type PriorityItem = {
   id: string;
   domain: Domain;

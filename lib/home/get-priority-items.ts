@@ -6,7 +6,7 @@ import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/praye
 import { localDateString, localWeekday, resolveLocalTime, dayOfWeekFromDateString } from "@/lib/date-utils";
 import { buildDailyLog, pendingDailyLog, type MicroTotalInput, type MicroFreqInput, type SessionInput } from "@/lib/fitness/daily-log";
 import { urgencyBucket } from "./urgency";
-import type { PriorityItem, Domain } from "./types";
+import type { PriorityItem, CompletedItem, Domain } from "./types";
 
 const DOMAIN_PRIORITY: Record<Domain, number> = {
   deen: 0,
@@ -24,8 +24,14 @@ export type HomeProfile = {
   asr_madhab: string;
 };
 
-export type HomePrayerRow = { id: string; prayer_name: string; status: string };
-export type HomeKillListRow = { id: string; text: string; completed: boolean; position: number };
+export type HomePrayerRow = { id: string; prayer_name: string; status: string; logged_at: string | null };
+export type HomeKillListRow = {
+  id: string;
+  text: string;
+  completed: boolean;
+  position: number;
+  completed_at: string | null;
+};
 export type HomeTaskRow = {
   id: string;
   domain: "school" | "co_op";
@@ -33,6 +39,7 @@ export type HomeTaskRow = {
   due_date: string | null;
   due_time: string | null;
   completed: boolean;
+  completed_at: string | null;
 };
 /**
  * Everything getPriorityItems needs to reconstruct today's DailyLogInputs
@@ -84,7 +91,7 @@ export function defaultDataSource(): HomeDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("prayers")
-        .select("id, prayer_name, status")
+        .select("id, prayer_name, status, logged_at")
         .eq("user_id", userId)
         .eq("date", date);
       return data ?? [];
@@ -93,7 +100,7 @@ export function defaultDataSource(): HomeDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("kill_list_items")
-        .select("id, text, completed, position")
+        .select("id, text, completed, position, completed_at")
         .eq("user_id", userId)
         .eq("date", date)
         .order("position", { ascending: true });
@@ -103,7 +110,7 @@ export function defaultDataSource(): HomeDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("tasks")
-        .select("id, domain, title, due_date, due_time, completed")
+        .select("id, domain, title, due_date, due_time, completed, completed_at")
         .eq("user_id", userId)
         .eq("due_date", date);
       return (data ?? []) as HomeTaskRow[];
@@ -264,17 +271,19 @@ export async function getPriorityItems(
     });
   }
 
-  // Business: kill list, rolled into a single item per spec
+  // Business: kill list, rolled into a single item per spec — always the
+  // first incomplete item's own text, never a count (Ayman, 2026-08-24:
+  // "it should instead give the first item ... it shouldn't display a
+  // count/reminder of them"). Completing it surfaces the next one on its
+  // own next render, since actionRefId is that item's real id — no extra
+  // logic needed here for the "automatically advances" behavior.
   const incompleteKillList = killListRows.filter((k) => !k.completed);
   if (incompleteKillList.length > 0) {
     const next = incompleteKillList[0];
     items.push({
       id: "kill-list",
       domain: "business",
-      title:
-        incompleteKillList.length === 1
-          ? next.text
-          : `${incompleteKillList.length} kill-list items remaining`,
+      title: next.text,
       dueAt: null,
       windowEndAt: null,
       urgencyBucket: "later_today",
@@ -351,6 +360,88 @@ export async function getPriorityItems(
   });
 
   return items.map((item) => ({ ...item, date: dateStr }));
+}
+
+/**
+ * Everything completed TODAY (local day) across the same three sources
+ * getPriorityItems reads — feeds the Completed section beneath Home's Now
+ * module (2026-08-25 tap-to-complete redesign). Fitness is deliberately
+ * absent: it never completes via this pipeline (open_fitness always
+ * navigates to /fitness instead — see getPriorityItems's own fitness
+ * section), so it has nothing to report here either.
+ *
+ * Runs its own fetch of the same three sources rather than sharing
+ * getPriorityItems' single Promise.all — kept separate (a second round
+ * trip when a caller needs both) rather than changing getPriorityItems'
+ * return shape, which lib/notifications/get-notifications.ts also depends
+ * on as-is.
+ */
+export async function getCompletedItemsToday(
+  userId: string,
+  now: Date,
+  dataSource: HomeDataSource = defaultDataSource()
+): Promise<CompletedItem[]> {
+  const profile = await dataSource.getProfile(userId);
+  const timezone = profile?.timezone ?? "UTC";
+  const dateStr = localDateString(now, timezone);
+  const isFriday = localWeekday(now, timezone) === "Friday";
+
+  const [prayerRows, killListRows, taskRows] = await Promise.all([
+    dataSource.getPrayers(userId, dateStr),
+    dataSource.getKillListItems(userId, dateStr),
+    dataSource.getTasks(userId, dateStr),
+  ]);
+
+  const items: CompletedItem[] = [];
+
+  for (const row of prayerRows) {
+    if (row.status !== "on_time" && row.status !== "qada") continue;
+    if (!row.logged_at) continue;
+    const title =
+      row.prayer_name === "dhuhr" && isFriday
+        ? "Jummah"
+        : row.prayer_name.charAt(0).toUpperCase() + row.prayer_name.slice(1);
+    items.push({
+      id: `prayer-${row.prayer_name}`,
+      domain: "deen",
+      title,
+      actionType: "toggle_prayer",
+      actionRefId: row.prayer_name,
+      completedAtIso: row.logged_at,
+    });
+  }
+
+  for (const row of killListRows) {
+    if (!row.completed || !row.completed_at) continue;
+    items.push({
+      id: `kill-list-${row.id}`,
+      domain: "business",
+      title: row.text,
+      actionType: "toggle_kill_list",
+      actionRefId: row.id,
+      completedAtIso: row.completed_at,
+    });
+  }
+
+  // Known scope limit: dataSource.getTasks filters by due_date = today (the
+  // same query getPriorityItems already makes), so a task due on another
+  // day but completed today won't appear here — only ones both due AND
+  // completed today. Fixing that needs a completed_at-bounded query
+  // instead, a real change beyond this pass; flagged, not silently assumed
+  // correct.
+  for (const task of taskRows) {
+    if (!task.completed || !task.completed_at) continue;
+    items.push({
+      id: `task-${task.id}`,
+      domain: task.domain,
+      title: task.title,
+      actionType: "toggle_task",
+      actionRefId: task.id,
+      completedAtIso: task.completed_at,
+    });
+  }
+
+  return items;
 }
 
 /**

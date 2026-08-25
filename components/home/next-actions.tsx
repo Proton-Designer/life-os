@@ -1,27 +1,19 @@
 "use client";
 
-import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ListChecks } from "lucide-react";
 import { toggleItem } from "@/app/(app)/actions";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
-import type { PriorityItem } from "@/lib/home/types";
+import type { PriorityItem, CompletedItem } from "@/lib/home/types";
 import { formatWindowRelativeTime } from "@/lib/date-utils";
 import { IconChip } from "@/components/ui/icon-chip";
-import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { TaskRowList, type TaskRowItem, type TaskLogValue, type TaskLogResult } from "@/components/shared/task-row-list";
 
 const TICK_MS = 60 * 1000;
-
-const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
-  deen: "Deen",
-  business: "Business",
-  fitness: "Fitness",
-  school: "School",
-  co_op: "Work",
-};
 
 // Thin wrapper around formatWindowRelativeTime (shared with
 // next-up-hero.tsx, the Deen page's own "next prayer" hero) — "Today" for
@@ -44,80 +36,66 @@ function mostUrgentId(items: PriorityItem[]): string | null {
   return earliest.id;
 }
 
-function Row({
-  item,
-  now,
-  isMostUrgent,
-  onComplete,
-}: {
-  item: PriorityItem;
-  now: Date;
-  isMostUrgent: boolean;
-  onComplete: (item: PriorityItem) => void;
-}) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleClick() {
-    startTransition(async () => {
-      onComplete(item);
-      await toggleItem(item);
-    });
-  }
-
+// "Now · in 2h" would be redundant with itself when the window's own time
+// text already reads "Now" — collapse to just "Now" in that case.
+function metaFor(item: PriorityItem, now: Date, isMostUrgent: boolean): string {
   const timeText = relativeTime(item, now);
-  // The Now badge already says it — don't also render "Now" as the time
-  // text right next to it.
-  const showTimeText = !(isMostUrgent && timeText === "Now");
+  if (isMostUrgent && timeText !== "Now") return `Now · ${timeText}`;
+  return timeText;
+}
 
-  // Fitness never completes with a bare tap here (fitness spec §2.1: a
-  // blind tap produces rubber-stamped data, and rep goals aren't binary
-  // anyway) — it navigates to /fitness instead, and renders a chevron
-  // where every other row renders its checkbox so it doesn't read as
-  // tappable-to-complete. See docs/superpowers/specs/
-  // 2026-08-23-home-fitness-row.md and toggleItem, which throws rather
-  // than silently no-opping if this ever reaches the toggle path.
-  if (item.actionType === "open_fitness") {
-    return (
-      <li>
-        <Link
-          href="/fitness"
-          className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-accent/50"
-        >
-          <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">{DOMAIN_LABEL[item.domain]}</span>
-          <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
-          {isMostUrgent && <Badge variant="info">Now</Badge>}
-          {showTimeText && <span className="shrink-0 text-xs text-muted-foreground">{timeText}</span>}
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        </Link>
-      </li>
-    );
-  }
+function toTaskRowItem(item: PriorityItem, now: Date, isMostUrgent: boolean): TaskRowItem {
+  return {
+    id: item.id,
+    title: item.title,
+    domain: item.domain,
+    meta: metaFor(item, now, isMostUrgent),
+    mode: "toggle",
+  };
+}
 
+function toCompletedTaskRowItem(item: CompletedItem): TaskRowItem {
+  return {
+    id: item.id,
+    title: item.title,
+    domain: item.domain,
+    mode: "toggle",
+    completedAtIso: item.completedAtIso,
+  };
+}
+
+// Fitness never completes with a bare tap here (fitness spec §2.1: a blind
+// tap produces rubber-stamped data, and rep goals aren't binary anyway) —
+// it navigates to /fitness instead. Kept outside TaskRowList entirely
+// (neither "toggle" nor "log" fits "navigate away"), rendered as its own
+// row alongside the shared list. See docs/superpowers/specs/
+// 2026-08-23-home-fitness-row.md and toggleItem, which throws rather than
+// silently no-opping if this ever reaches the toggle path.
+function FitnessRow({ item, now, isMostUrgent }: { item: PriorityItem; now: Date; isMostUrgent: boolean }) {
+  const meta = metaFor(item, now, isMostUrgent);
   return (
-    <li className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-accent/50">
-      <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
-      <span className="shrink-0 text-xs font-medium text-muted-foreground">{DOMAIN_LABEL[item.domain]}</span>
-      <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
-      {isMostUrgent && <Badge variant="info">Now</Badge>}
-      {showTimeText && <span className="shrink-0 text-xs text-muted-foreground">{timeText}</span>}
-      <button
-        type="button"
-        aria-label={`Mark "${item.title}" done`}
-        disabled={isPending}
-        onClick={handleClick}
-        className="size-5 shrink-0 rounded-full border border-border transition-opacity disabled:opacity-50"
-      />
+    <li>
+      <Link
+        href="/fitness"
+        className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/50"
+      >
+        <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
+        <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
+        {meta && <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>}
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      </Link>
     </li>
   );
 }
 
 export function NextActions({
   items,
+  completedToday,
   isFreshInstall,
   nowIso,
 }: {
   items: PriorityItem[];
+  completedToday: CompletedItem[];
   isFreshInstall: boolean;
   // Unlike priority-list.tsx's null-first pattern (which falls back to the
   // server-computed urgencyBucket while `now` is unset), this module has no
@@ -129,10 +107,9 @@ export function NextActions({
   nowIso: string;
 }) {
   const nextActions = selectNextActionPerDomain(items);
-  const [optimisticItems, removeOptimistically] = useOptimistic(
-    nextActions,
-    (state, removedId: string) => state.filter((i) => i.id !== removedId)
-  );
+  const fitnessItem = nextActions.find((i) => i.actionType === "open_fitness") ?? null;
+  const taskable = nextActions.filter((i) => i.actionType !== "open_fitness");
+  const byId = new Map(taskable.map((i) => [i.id, i]));
 
   const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
@@ -151,7 +128,7 @@ export function NextActions({
     return () => clearInterval(interval);
   }, []);
 
-  if (optimisticItems.length === 0) {
+  if (taskable.length === 0 && completedToday.length === 0 && !fitnessItem) {
     return (
       <EmptyState
         icon={ListChecks}
@@ -161,19 +138,34 @@ export function NextActions({
     );
   }
 
-  const mostUrgent = mostUrgentId(optimisticItems);
+  const mostUrgent = mostUrgentId(nextActions);
+  const rowItems: TaskRowItem[] = [
+    ...taskable.map((item) => toTaskRowItem(item, now, item.id === mostUrgent)),
+    ...completedToday.map(toCompletedTaskRowItem),
+  ];
+
+  async function handleComplete(row: TaskRowItem) {
+    const original = byId.get(row.id);
+    if (!original) throw new Error(`Unknown Now-module item: ${row.id}`);
+    await toggleItem(original);
+  }
+
+  // Every current Now-module item is one-tap (mode: "toggle") — nothing
+  // here produces a "log" row yet, so this exists only to satisfy
+  // TaskRowList's contract. A future log-mode item (e.g. a Quran-pages row)
+  // would replace this with a real implementation, not extend a stub.
+  async function handleLog(_row: TaskRowItem, _value: TaskLogValue): Promise<TaskLogResult> {
+    throw new Error("Home's Now module has no log-mode items");
+  }
 
   return (
-    <ul className="flex flex-col gap-1">
-      {optimisticItems.map((item) => (
-        <Row
-          key={item.id}
-          item={item}
-          now={now}
-          isMostUrgent={item.id === mostUrgent}
-          onComplete={(i) => removeOptimistically(i.id)}
-        />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-1">
+      <TaskRowList items={rowItems} onComplete={handleComplete} onLog={handleLog} />
+      {fitnessItem && (
+        <ul className="flex flex-col gap-1">
+          <FitnessRow item={fitnessItem} now={now} isMostUrgent={fitnessItem.id === mostUrgent} />
+        </ul>
+      )}
+    </div>
   );
 }
