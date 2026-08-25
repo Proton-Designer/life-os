@@ -6,7 +6,7 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // storageState) rather than logging in itself.
 
 test.describe("Home", () => {
-  test("renders the Now module, Focus module, the day's shape, weekly focus, and sector progress", async ({
+  test("renders the Now module, Focus module, the day's shape, This Week's Focus, and sector progress", async ({
     page,
   }) => {
     await page.goto("/");
@@ -45,11 +45,19 @@ test.describe("Home", () => {
         .or(dayShapePanel.getByText("Set your location in Settings"))
     ).toBeVisible();
 
-    // Weekly focus — Deen and Business blocks are always labeled, whether a
-    // goal is set this week or not (see weekly-focus.tsx's GoalBlock).
-    const weeklyFocusPanel = page.locator("[data-panel]", { hasText: "This week's focus" });
-    await expect(weeklyFocusPanel.getByText("Deen", { exact: true })).toBeVisible();
-    await expect(weeklyFocusPanel.getByText("Business", { exact: true })).toBeVisible();
+    // This Week's Focus — the combined goals module (2026-08-24: replaced
+    // the separate bottom "This week's focus" Panel; not a [data-panel] at
+    // all, see weekly-goals-header.tsx's data-testid). Deen and Business are
+    // always labeled whether a goal is set this week or not, and — since
+    // this module is now the ONLY place weekly goals are editable — each
+    // slot's edit pencil must be present too, or a regression here would
+    // silently make goals uneditable with no other signal.
+    const weeklyGoalsHeader = page.getByTestId("weekly-goals-header");
+    await expect(weeklyGoalsHeader.getByText("This Week's Focus")).toBeVisible();
+    await expect(weeklyGoalsHeader.getByText("Deen", { exact: true })).toBeVisible();
+    await expect(weeklyGoalsHeader.getByText("Business", { exact: true })).toBeVisible();
+    await expect(weeklyGoalsHeader.getByRole("button", { name: "Edit Deen goal" })).toBeVisible();
+    await expect(weeklyGoalsHeader.getByRole("button", { name: "Edit Business goal" })).toBeVisible();
 
     // Sector progress (DomainStatusStack, not wrapped in a Panel — see its
     // own component comment) — checked via each row's own metric text.
