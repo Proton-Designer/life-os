@@ -4,6 +4,13 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // Isha, specifically: it's the last prayer of the day, so at almost any hour
 // this run happens, today's Isha is the prayer least likely to already carry
 // a real logged status the test would need to preserve exactly.
+// PRE-RUN STATE MATTERS: prayer-row.tsx treats a click on an ALREADY-ACTIVE
+// status as a deliberate misclick correction and DELETES the row. So if a
+// previous run (or a manual session) left Isha already on-time, this spec's
+// first click unmarks it instead of marking it, and the run fails in a way
+// that looks like a product bug. Bit three separate runs on 2026-08-24/25.
+// The spec restores Isha to neutral at the end for exactly this reason — if
+// you are debugging a failure here, check the stored status FIRST.
 const PRAYER_NAME = "isha";
 const PRAYER_LABEL = "Isha";
 const STATUS_LABELS = ["On-time", "Qada", "Missed"] as const;
