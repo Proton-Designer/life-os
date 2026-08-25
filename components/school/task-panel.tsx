@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { TaskRowList, type TaskRowItem, type TaskLogValue, type TaskLogResult } from "@/components/shared/task-row-list";
+import { TaskRowList, type TaskRowItem } from "@/components/shared/task-row-list";
 
 /**
  * School's own tap-to-complete task list (2026-08-25 rollout of
@@ -45,19 +45,20 @@ export function SchoolTaskPanel({
     await toggleTask(item.id);
   }
 
-  // No count/choice tasks exist on School's list today — this exists only
-  // to satisfy TaskRowList's contract (mirrors Home's next-actions.tsx).
-  async function handleLog(_item: TaskRowItem, _value: TaskLogValue): Promise<TaskLogResult> {
-    throw new Error("School's task list has no log-mode items");
-  }
-
   async function handleRemove(item: TaskRowItem) {
     await removeTask(item.id);
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <TaskRowList items={items} onComplete={handleComplete} onLog={handleLog} onRemove={handleRemove} />
+      {/* No count/choice tasks exist on School's list today — onLog is
+          omitted rather than passed as a throwing stub. TaskRowList
+          degrades a log-mode row to inert (disabled, console.error) when
+          onLog is absent instead of throwing, so a future log-mode school
+          task fails visibly/quietly rather than as an exception thrown
+          inside a transition on a screen Ayman uses daily (Opus Lead,
+          2026-08-25 — the same ruling A applied to next-actions.tsx). */}
+      <TaskRowList items={items} onComplete={handleComplete} onRemove={handleRemove} />
       <form onSubmit={handleAdd} className="flex gap-2">
         <Input id="task-list-add" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task" />
         <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-40" />
