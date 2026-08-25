@@ -76,7 +76,12 @@ function KillListSlot({
   }
 
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3">
+    <li className="flex items-center gap-1 rounded-lg border border-border/40 pr-2">
+      {/* The whole slot is the tap target, not just the circle (Ayman:
+          "tapped or clicked anywhere on its box") — Edit stays its own
+          separate control since it's a different action. Toggling was
+          already instant via useOptimistic (applied synchronously before
+          the awaited action resolves); this only widens the target. */}
       <button
         type="button"
         disabled={isPending || !slot.id}
@@ -88,19 +93,24 @@ function KillListSlot({
           })
         }
         aria-label={optimisticCompleted ? "Mark incomplete" : "Mark complete"}
-        className={cn(
-          "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",
-          optimisticCompleted ? "border-accent-business bg-accent-business" : "border-border"
-        )}
-      />
-      <span className={cn("flex-1 text-sm", optimisticCompleted && "text-muted-foreground line-through")}>
-        {slot.text}
-      </span>
-      {optimisticCompleted && <Badge variant="positive">Done</Badge>}
+        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+      >
+        <span
+          aria-hidden
+          className={cn(
+            "size-5 shrink-0 rounded-full border transition-colors",
+            optimisticCompleted ? "border-accent-business bg-accent-business" : "border-border"
+          )}
+        />
+        <span className={cn("min-w-0 flex-1 truncate text-sm", optimisticCompleted && "text-muted-foreground line-through")}>
+          {slot.text}
+        </span>
+        {optimisticCompleted && <Badge variant="positive">Done</Badge>}
+      </button>
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="text-xs text-muted-foreground hover:text-foreground"
+        className="shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
       >
         Edit
       </button>
