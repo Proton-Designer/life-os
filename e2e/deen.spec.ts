@@ -45,10 +45,22 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
     }
   }
 
-  await prayerRow.getByRole("button", { name: "On-time" }).click();
-  await expect(prayerRow.getByRole("button", { name: "On-time" }).locator("span")).toHaveClass(
-    /text-accent-business/
-  );
+  const onTimeButton = prayerRow.getByRole("button", { name: "On-time" });
+  await onTimeButton.click();
+  await expect(onTimeButton.locator("span")).toHaveClass(/text-accent-business/);
+  // The class check above can pass on the OPTIMISTIC paint alone —
+  // PrayerRow's handleClick calls setOptimisticStatus synchronously, then
+  // `await markPrayer(...)` inside the same transition — so it resolves a
+  // tick after the click, well before the Supabase round trip actually
+  // lands. Racing straight into goto("/") from there was a real, previously
+  // undiagnosed bug in THIS FILE (not the product): Home's fresh server
+  // render could still read the pre-write row. Wait for the real mutation
+  // to settle instead of inferring it from something that paints early —
+  // the button carries `disabled={isPending}` (prayer-row.tsx), and
+  // isPending only clears once the awaited markPrayer call has actually
+  // resolved, so waiting for it to re-enable is waiting for the write
+  // itself, not a proxy for it like `networkidle` would be.
+  await expect(onTimeButton).toBeEnabled();
 
   // Reflects on Home: a logged (non-pending) prayer is excluded from the
   // priority list entirely (lib/home/get-priority-items.ts).
@@ -61,7 +73,15 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
     await page.goto("/deen");
     await dismissCheckinDialogIfPresent(page);
     const restoreSalahPanel = page.locator("[data-panel]").filter({ has: page.getByText("Salah today", { exact: true }) });
-    await restoreSalahPanel.locator("li", { hasText: PRAYER_LABEL }).getByRole("button", { name: priorStatusLabel }).click();
+    const restoreButton = restoreSalahPanel
+      .locator("li", { hasText: PRAYER_LABEL })
+      .getByRole("button", { name: priorStatusLabel });
+    await restoreButton.click();
+    // Same discipline as the mark above: wait for the restore write to
+    // actually settle before the test ends, not just its optimistic paint
+    // — otherwise Mobile Chrome's run (workers:1, same account, right
+    // after this one) could start against a still-in-flight write.
+    await expect(restoreButton).toBeEnabled();
   } else {
     const cleanup = await page.request.delete(`${baseURL}/api/test/clear-prayer`, {
       headers: { "x-e2e-secret": secret! },
