@@ -82,7 +82,18 @@ export function WeekHourGrid({ items, todayDayOfWeek }: { items: CalendarItem[];
   const bodyHeightPx = hourMarks.length * HOUR_ROW_PX;
 
   return (
-    <div className="overflow-x-auto" data-testid="week-hour-grid">
+    // overflow-x-auto alone leaves overflow-y computed as `auto` too — CSS
+    // coerces ANY "visible" axis to "auto" when its pair isn't visible, so
+    // `overflow-y-visible` here would get silently forced back to `auto`
+    // by the spec, not actually fix anything. A second, trapped vertical
+    // scroller inside the dialog's own one. Ayman: "two scrolling options
+    // ... remove the calendar scrolling, just attach it to the popup."
+    // overflow-y-hidden isn't subject to that coercion (it's already
+    // non-visible) — this container never constrains its own height
+    // (bodyHeightPx sizes it to its content), so there's nothing to clip;
+    // it just guarantees no inner vertical scrollbar can ever render,
+    // leaving the dialog as the one scroller.
+    <div className="overflow-x-auto overflow-y-hidden" data-testid="week-hour-grid">
       <div
         className="grid"
         style={{ gridTemplateColumns: `${GUTTER_PX}px repeat(7, minmax(${MIN_COLUMN_PX}px, 1fr))` }}

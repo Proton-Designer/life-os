@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import { WeekHourGrid, type CalendarItem } from "../week-hour-grid";
 
 describe("WeekHourGrid", () => {
+  it("has no independent vertical scroller of its own (the enclosing dialog is the only scroller)", () => {
+    // Ayman: "two scrolling options ... remove the calendar scrolling, just
+    // attach it to the popup." overflow-x-auto alone leaves overflow-y
+    // computed as auto too (CSS coerces a "visible" axis to "auto" when its
+    // pair isn't) — a real regression risk if someone reaches for
+    // overflow-y-visible here instead of overflow-y-hidden.
+    render(<WeekHourGrid items={[]} />);
+    const root = screen.getByTestId("week-hour-grid");
+    expect(root.className).toContain("overflow-y-hidden");
+    expect(root.className).toContain("overflow-x-auto");
+  });
+
   it("renders all seven day tracks", () => {
     render(<WeekHourGrid items={[]} />);
     for (let d = 0; d <= 6; d++) {
