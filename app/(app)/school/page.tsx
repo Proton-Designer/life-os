@@ -2,12 +2,13 @@ import { redirect } from "next/navigation";
 import { CalendarClock, AlertTriangle, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { countOverdue, countCompletedInWeek } from "@/lib/tasks/task-metrics";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { accentForActivityCount } from "@/lib/kpi-value-accent";
 import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
-import { TaskList, type TaskData } from "@/components/shared/task-list";
+import type { TaskRowItem } from "@/components/shared/task-row-list";
+import { SchoolTaskPanel } from "@/components/school/task-panel";
 import { DeadlineList } from "@/components/shared/deadline-list";
 import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/domain-schedule-view";
 import { ClassScheduleWeek, type ClassScheduleEvent } from "@/components/school/class-schedule-week";
@@ -15,6 +16,8 @@ import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
+
+type TaskData = { id: string; title: string; dueDate: string | null; dueTime: string | null; completed: boolean };
 
 export default async function SchoolPage() {
   const supabase = await createClient();
@@ -52,6 +55,29 @@ export default async function SchoolPage() {
   const deadlineTasks = openTasks
     .filter((t): t is TaskData & { dueDate: string } => t.dueDate !== null)
     .map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate, dueTime: t.dueTime }));
+
+  // Today's completed tasks for the task list's Completed section — new
+  // data (the list previously fetched/rendered openTasks only). Bounds are
+  // the LOCAL day resolved through the profile's timezone, not a naive UTC
+  // string range (the exact class of bug Item A fixed for prayer windows —
+  // see resolveLocalTime's own callers in get-day-shape.ts).
+  const todayStartIso = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+  const todayEndIso = resolveLocalTime(addDaysToDateString(dateStr, 1), "00:00", timezone).toISOString();
+  const completedTodayTasks = allTasks
+    .filter(
+      (t): t is typeof t & { completed_at: string } =>
+        t.completed && t.completed_at !== null && t.completed_at >= todayStartIso && t.completed_at < todayEndIso
+    )
+    .sort((a, b) => (a.completed_at < b.completed_at ? -1 : 1));
+
+  const taskRowItems: TaskRowItem[] = [
+    ...openTasks.map(
+      (t): TaskRowItem => ({ id: t.id, title: t.title, domain: "school", meta: t.dueDate ?? undefined, mode: "toggle" })
+    ),
+    ...completedTodayTasks.map(
+      (t): TaskRowItem => ({ id: t.id, title: t.title, domain: "school", mode: "toggle", completedAtIso: t.completed_at })
+    ),
+  ];
 
   const events: ScheduleEventData[] = (eventRows ?? []).map((e) => ({
     id: e.id,
@@ -155,7 +181,7 @@ export default async function SchoolPage() {
       </Panel>
 
       <Panel id="tasks" className="scroll-mt-20" title="Task list" heroValue={`${openTasks.length}`} caption="open">
-        <TaskList tasks={openTasks} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} accent="school" />
+        <SchoolTaskPanel items={taskRowItems} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} />
       </Panel>
     </PageContainer>
   );
