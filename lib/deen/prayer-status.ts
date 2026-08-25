@@ -1,6 +1,6 @@
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName, type PrayerWindow } from "@/lib/prayer-times/windows";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
-import { localDateString, addDaysToDateString } from "@/lib/date-utils";
+import { localDateString, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 
 export type StoredPrayerStatus = "on_time" | "qada" | "missed";
 export type EffectivePrayerStatus = "upcoming" | "pending" | "on_time" | "qada" | "missed";
@@ -76,9 +76,14 @@ export function resolvePrayerStatuses(opts: {
         dayResult[name] = stored ?? "missed";
       }
     } else {
+      // computePrayerWindows now derives its own local calendar day from a
+      // real instant + timezone (2026-08-25 fix) — noon local is a safely
+      // mid-day instant for `date` regardless of DST/offset sign, unlike a
+      // UTC-midnight stand-in, which the function would now re-derive as
+      // the PREVIOUS local day in any timezone behind UTC.
       const windows =
         withinFloor && hasLocation
-          ? computePrayerWindows({ date: new Date(`${date}T00:00:00Z`), lat, lng, timezone, calcMethod, asrMadhab })
+          ? computePrayerWindows({ date: resolveLocalTime(date, "12:00", timezone), lat, lng, timezone, calcMethod, asrMadhab })
           : null;
       for (const name of PRAYER_NAMES) {
         const row = rows.find((r) => r.date === date && r.prayer_name === name);
