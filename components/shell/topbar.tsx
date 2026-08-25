@@ -8,8 +8,8 @@ import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
 import { NotificationsBell } from "./notifications-bell";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
+import { ReviewDialogTrigger } from "@/components/distractions/review-dialog-trigger";
 import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
-import { Button } from "@/components/ui/button";
 import { isReviewOpen } from "@/lib/distractions/plan-rules";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 
@@ -95,11 +95,13 @@ export function Topbar({
             of the two side groups' widths. */}
         <div className="flex flex-1 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:flex-none sm:-translate-x-1/2">
           <DistractionCaptureDialog />
-          {reviewOpen && (
-            <Button asChild variant="outline" size="sm">
-              <Link href="/review">Review</Link>
-            </Button>
-          )}
+          {/* Popup, not a navigation (Ayman: "change the 'Review' tab/
+              screen at the top into a popup module ... like the
+              distractions popup") — the /review route itself still exists
+              for e2e/direct links. Gating stays on the TRIGGER's
+              visibility, not inside the dialog: the button only renders
+              during the 9pm-4am window, same as before. */}
+          {reviewOpen && <ReviewDialogTrigger />}
         </div>
 
         <div className="flex flex-1 items-center justify-end gap-3 sm:flex-none">

@@ -23,6 +23,15 @@ vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
   saveAllocationCheckin: vi.fn(),
 }));
 
+// ReviewDialogTrigger (rendered by Topbar when reviewOpen) imports this
+// directly — same "use client" imports "use server" pattern as
+// DistractionCaptureDialog, mocked here for the same no-real-Supabase
+// reason as the two actions modules above.
+const { getReviewDataMock } = vi.hoisted(() => ({ getReviewDataMock: vi.fn() }));
+vi.mock("@/app/(app)/review/actions", () => ({
+  getReviewData: (...args: unknown[]) => getReviewDataMock(...args),
+}));
+
 // Real next/link never forwards `prefetch` to the DOM (destructured out,
 // consumed internally), so intercept it before Link eats it. Mirrors real
 // rendering for every other prop this file's other assertions rely on.
@@ -70,6 +79,7 @@ describe("Topbar", () => {
   beforeEach(() => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
     getNotificationsForNowMock.mockResolvedValue([]);
+    getReviewDataMock.mockResolvedValue({ dateLabel: "Saturday 15 Aug", groups: [] });
   });
 
   it("does not render a page title — PageHeader owns it, to avoid rendering it twice", () => {
@@ -148,23 +158,30 @@ describe("Topbar", () => {
   // correction, see the component's own comment) — without pinning the
   // system clock too, that tick would overwrite the seeded time with
   // whatever real time the test actually runs at.
-  it("hides the Review link before 9pm local", () => {
+  it("hides the Review button (popup trigger) before 9pm local", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T20:59:00.000-05:00"));
     try {
       renderTopbar({ nowIso: "2026-08-15T20:59:00.000-05:00", timezone: "America/Chicago" });
-      expect(screen.queryByRole("link", { name: "Review" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("shows the Review link once local time is past 9pm", () => {
+  it("shows the Review button once local time is past 9pm, opening a popup rather than navigating", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T21:00:00.000-05:00"));
     try {
       renderTopbar({ nowIso: "2026-08-15T21:00:00.000-05:00", timezone: "America/Chicago" });
-      expect(screen.getByRole("link", { name: "Review" })).toHaveAttribute("href", "/review");
+      const reviewButton = screen.getByRole("button", { name: "Review" });
+      expect(reviewButton).not.toHaveAttribute("href");
+
+      vi.useRealTimers(); // userEvent needs real timers
+      const user = userEvent.setup();
+      await user.click(reviewButton);
+      expect(await screen.findByRole("dialog", { name: /Review/ })).toBeInTheDocument();
+      expect(getReviewDataMock).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
