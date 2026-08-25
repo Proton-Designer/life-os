@@ -8,6 +8,46 @@ const PRAYER_NAME = "isha";
 const PRAYER_LABEL = "Isha";
 const STATUS_LABELS = ["On-time", "Qada", "Missed"] as const;
 
+/**
+ * Waits for a mutation click to fully settle before it's safe to navigate
+ * away. Two things have to both be true, not just one:
+ *
+ * 1. The Server Action's own response has to come back — PrayerRow's
+ *    handleClick calls setOptimisticStatus synchronously and `await
+ *    markPrayer(...)` after, in the same transition, so a class assertion
+ *    right after the click can pass on the OPTIMISTIC paint alone, a tick
+ *    before the real Supabase round trip lands.
+ * 2. The page has to stay put until ALL of that click's network activity
+ *    is done, not just the first response — `page.goto()` tears down the
+ *    current page's execution context, which cancels any of ITS still-
+ *    in-flight requests. A live capture showed one click fan out into ~5
+ *    sequential POSTs (the action itself plus revalidation chatter); racing
+ *    a navigation in before the last one finishes can silently abort the
+ *    write entirely — not just read it stale, actually never persist it.
+ *    That's what two earlier "fixes" here missed: `await
+ *    expect(button).toBeEnabled()` (isPending flips true on React's NEXT
+ *    render, not synchronously with the click, so a poll can land in that
+ *    gap and pass immediately) and waiting for a single matching response
+ *    (the first of the ~5 isn't reliably the last one, and navigating away
+ *    right after it fired straight into the cancellation window above).
+ *    Confirmed directly: an isolated click followed immediately by
+ *    `page.goto()` left the `prayers` row missing entirely — not stale,
+ *    genuinely never written — while the same click followed by
+ *    `waitForLoadState("networkidle")` on the SAME page, before
+ *    navigating anywhere, committed reliably across 5/5 repeated runs.
+ *
+ * `networkidle` is doing something different here than the network-idle
+ * call this suite's other rulings tonight correctly rejected as a proxy on
+ * the DESTINATION page (waiting long enough for a race to probably have
+ * resolved). This is on the SOURCE page, before ever navigating: not
+ * inferring completion from elapsed time, but refusing to cancel the real
+ * request by leaving before it's actually done.
+ */
+async function clickAndSettle(page: import("@playwright/test").Page, button: import("@playwright/test").Locator) {
+  await button.click();
+  await page.waitForLoadState("networkidle");
+}
+
 // Relies on the shared authenticated session (e2e/auth.setup.ts).
 test("marking a prayer on-time reflects on both /deen and Home", async ({ page, baseURL }) => {
   const secret = process.env.E2E_TEST_SECRET;
@@ -46,21 +86,8 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
   }
 
   const onTimeButton = prayerRow.getByRole("button", { name: "On-time" });
-  await onTimeButton.click();
+  await clickAndSettle(page, onTimeButton);
   await expect(onTimeButton.locator("span")).toHaveClass(/text-accent-business/);
-  // The class check above can pass on the OPTIMISTIC paint alone —
-  // PrayerRow's handleClick calls setOptimisticStatus synchronously, then
-  // `await markPrayer(...)` inside the same transition — so it resolves a
-  // tick after the click, well before the Supabase round trip actually
-  // lands. Racing straight into goto("/") from there was a real, previously
-  // undiagnosed bug in THIS FILE (not the product): Home's fresh server
-  // render could still read the pre-write row. Wait for the real mutation
-  // to settle instead of inferring it from something that paints early —
-  // the button carries `disabled={isPending}` (prayer-row.tsx), and
-  // isPending only clears once the awaited markPrayer call has actually
-  // resolved, so waiting for it to re-enable is waiting for the write
-  // itself, not a proxy for it like `networkidle` would be.
-  await expect(onTimeButton).toBeEnabled();
 
   // Reflects on Home: a logged (non-pending) prayer is excluded from the
   // priority list entirely (lib/home/get-priority-items.ts).
@@ -76,12 +103,7 @@ test("marking a prayer on-time reflects on both /deen and Home", async ({ page, 
     const restoreButton = restoreSalahPanel
       .locator("li", { hasText: PRAYER_LABEL })
       .getByRole("button", { name: priorStatusLabel });
-    await restoreButton.click();
-    // Same discipline as the mark above: wait for the restore write to
-    // actually settle before the test ends, not just its optimistic paint
-    // — otherwise Mobile Chrome's run (workers:1, same account, right
-    // after this one) could start against a still-in-flight write.
-    await expect(restoreButton).toBeEnabled();
+    await clickAndSettle(page, restoreButton);
   } else {
     const cleanup = await page.request.delete(`${baseURL}/api/test/clear-prayer`, {
       headers: { "x-e2e-secret": secret! },
