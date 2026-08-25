@@ -19,3 +19,17 @@ Hit twice during the 2026-08-15/16 structural refactor (Phase D's `AreaChart` `y
 **No lint rule enforces this** — evaluated `eslint-plugin-react-server-components` in Phase H (2026-08-16) and rejected it: the package is explicitly self-described by its own author as "an experiment," hasn't been published since May 2024, and its only rule (`use-client`) checks directive placement, not prop serializability — it would not have caught either incident above. No better-maintained alternative exists as of this writing. Re-evaluate the ecosystem periodically; until then, this paragraph is the enforcement mechanism.
 
 **When touching a page.tsx that passes props into a Client Component**, mentally check every prop: is it a function? If yes, is it a real Server Action reference (fine) or a closure/inline arrow (not fine)? Verify by actually loading the page in a browser and checking the console — not by `tsc`/`vitest` alone.
+
+## Never derive a calendar date from a raw `Date` — always from the user's timezone
+
+Hit **three times in one night** (2026-08-24/25), in three different layers:
+
+1. **Shipping code, live for months.** `lib/prayer-times/calculate.ts` built its Julian date from `date.getUTCFullYear()/getUTCMonth()/getUTCDate()`. Ayman is `America/Chicago` (UTC−5), so from **19:00 local onward it is already tomorrow in UTC** and the app computed *tomorrow's* prayer times. Five production callers were affected — Day's Shape, the Now module, sector progress, the allocation queue, and the Deen Next-Prayer KPI. Symptom was oblique: activity blocks collapsed to zero width at the left edge of the ribbon, because every one of today's events fell before the (tomorrow) range start and clamped to 0%. Fixed in `03ab12b` by normalising **inside** `computePrayerWindows` — one point, not five call sites.
+2. **Hand-written SQL.** Postgres `current_date` is UTC. Seeding a "today" row at 22:05 CDT creates it dated tomorrow. (The app's own SQL is clean — audited 2026-08-25, zero occurrences of `current_date`/`now()::date` in `supabase/` or query code. Every date arrives as an explicit string computed in the app layer. Keep it that way.)
+3. **Test fixtures.** A spec picked "today" from the runner's clock and silently created tasks dated tomorrow relative to the account's local day.
+
+**The rule:** a calendar date is a function of an instant *and a timezone*. Never `new Date()`, `getUTCDate()`, or `current_date` as a stand-in. Use `localDateString(now, timezone)`, and for day bounds use `resolveLocalTime(dateStr, "00:00", timezone)` — **not** `` `${dateStr}T00:00:00Z` ``, which treats an already-local date as a UTC boundary and pulls in the previous evening (that exact bug has shipped twice; see the comment in `lib/home/get-home-extras.ts`).
+
+**Watch for the inverse too.** A function that normalises internally will *re-localise* a pseudo-instant like `new Date(\`${dateStr}T00:00:00Z\`)` a day backward in any zone behind UTC. If you pass a date-derived anchor into such a function, make it a real local instant — noon local is safest, being maximally far from both midnight boundaries.
+
+**Tests must pin the boundary**, not just the happy path: the same local time either side of the UTC rollover (e.g. 18:59 and 19:01 CDT) must produce identical results, and at least one timezone *east* of UTC, where the bug inverts.
