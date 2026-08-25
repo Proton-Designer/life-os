@@ -128,16 +128,6 @@ export function NextActions({
     return () => clearInterval(interval);
   }, []);
 
-  if (taskable.length === 0 && completedToday.length === 0 && !fitnessItem) {
-    return (
-      <EmptyState
-        icon={ListChecks}
-        message={isFreshInstall ? "Welcome — head into a domain tab to get started" : "You're all clear"}
-        action={{ label: "Plan the week", href: "#weekly-focus" }}
-      />
-    );
-  }
-
   const mostUrgent = mostUrgentId(nextActions);
   const rowItems: TaskRowItem[] = [
     ...taskable.map((item) => toTaskRowItem(item, now, item.id === mostUrgent)),
@@ -150,6 +140,24 @@ export function NextActions({
     await toggleItem(original);
   }
 
+  // The "all clear" message means nothing is currently ACTIONABLE — which
+  // includes the fitness row, even though it never flows through
+  // TaskRowList's own items. Showing "You're all clear" above a still-
+  // pending workout would be a lie (2026-08-25 Lead review), so this is
+  // suppressed whenever fitnessItem exists, regardless of taskable/
+  // completedToday. When suppressed, TaskRowList's active region renders
+  // nothing (a clean gap) and the fitness row is the only thing that says
+  // "something's still due" — its own Completed section (if any) still
+  // renders independently below that gap, since finishing everything ELSE
+  // today is still worth showing even with the workout outstanding.
+  const emptyStateNode = fitnessItem ? null : (
+    <EmptyState
+      icon={ListChecks}
+      message={isFreshInstall ? "Welcome — head into a domain tab to get started" : "You're all clear"}
+      action={{ label: "Plan the week", href: "#weekly-focus" }}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-1">
       {/* onLog omitted — every current Now-module item is one-tap
@@ -157,7 +165,7 @@ export function NextActions({
           degrades a log-mode row to inert (rather than throwing) if one
           ever shows up without this, so omitting it here is safe, not a
           landmine. */}
-      <TaskRowList items={rowItems} onComplete={handleComplete} />
+      <TaskRowList items={rowItems} onComplete={handleComplete} emptyState={emptyStateNode} />
       {fitnessItem && (
         <ul className="flex flex-col gap-1">
           <FitnessRow item={fitnessItem} now={now} isMostUrgent={fitnessItem.id === mostUrgent} />

@@ -285,6 +285,29 @@ describe("TaskRowList", () => {
     expect(screen.getByText("Nothing here")).toBeInTheDocument();
   });
 
+  it("shows the caller's emptyState ABOVE the Completed section when nothing is pending but something is completed — the production regression (2026-08-25)", async () => {
+    const onComplete = vi.fn(async () => {});
+    const onLog = vi.fn(async (): Promise<TaskLogResult> => ({ completed: false }));
+    const user = userEvent.setup();
+    render(
+      <TaskRowList
+        items={[toggleItem({ id: "t1", title: "Fajr", completedAtIso: "2026-08-17T10:00:00.000Z" })]}
+        onComplete={onComplete}
+        onLog={onLog}
+        emptyState={<p>All clear</p>}
+      />
+    );
+
+    // Previously the active region rendered a bare empty <ul> instead of
+    // emptyState the moment ANYTHING was completed, so this message was
+    // silently suppressed exactly in this state — nothing pending, but not
+    // literally nothing overall.
+    expect(screen.getByText("All clear")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Completed" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Completed" }));
+    expect(screen.getByText("Fajr")).toBeInTheDocument();
+  });
+
   it("omitting onLog is safe when nothing is log-mode (Home's usage)", () => {
     const onComplete = vi.fn(async () => {});
     render(<TaskRowList items={[toggleItem({ id: "t1", title: "Fajr" })]} onComplete={onComplete} />);

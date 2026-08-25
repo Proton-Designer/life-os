@@ -439,7 +439,18 @@ export function TaskRowList({
 
   return (
     <div className="flex flex-col gap-1">
-      {pending.length === 0 && completed.length === 0 ? (
+      {/* Whenever nothing is PENDING, show emptyState — regardless of
+          whether anything is completed. The previous condition
+          (`pending.length === 0 && completed.length === 0`) suppressed
+          emptyState the moment anything was completed, rendering a bare
+          empty <ul> with no "all clear" message above a populated
+          Completed section — the exact state a user lands in every time
+          they finish everything for the day (Lead review, 2026-08-25: "a
+          reason to show more, not to suppress the message"). The Completed
+          section below is unconditional on its own `completed.length > 0`
+          check either way, so this only changes what fills the gap above
+          it. */}
+      {pending.length === 0 ? (
         emptyState
       ) : (
         <ul className="flex flex-col gap-1">

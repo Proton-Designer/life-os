@@ -42,28 +42,110 @@ function completedItem(overrides: Partial<CompletedItem> & Pick<CompletedItem, "
 }
 
 describe("NextActions", () => {
-  it("shows the all-clear empty state with a planning link when nothing is pending or completed", () => {
-    render(<NextActions items={[]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
-    expect(screen.getByText("You're all clear")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Plan the week" })).toHaveAttribute("href", "#weekly-focus");
+  // The four (active, completed) combinations, explicitly — the regression
+  // this covers (2026-08-25, caught in production): "nothing pending, but
+  // something completed today" rendered a blank gap (an empty <ul>) with
+  // no "all clear" message above the Completed section, because the old
+  // condition only showed the empty state when BOTH active and completed
+  // were empty, instead of whenever active alone was empty. This is the
+  // single most common end-of-day state once the app is in real use.
+  describe("the four active/completed combinations", () => {
+    it("nothing at all: shows the all-clear empty state with a planning link, no Completed section", () => {
+      render(<NextActions items={[]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      expect(screen.getByText("You're all clear")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Plan the week" })).toHaveAttribute("href", "#weekly-focus");
+      expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+    });
+
+    it("only active: shows the row, no all-clear message, no Completed section", () => {
+      render(
+        <NextActions
+          items={[item({ id: "fajr", domain: "deen", title: "Fajr" })]}
+          completedToday={[]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+        />
+      );
+      expect(screen.getByText("Fajr")).toBeInTheDocument();
+      expect(screen.queryByText("You're all clear")).not.toBeInTheDocument();
+      expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+    });
+
+    it("only completed: STILL shows the all-clear message (nothing left to DO), plus the Completed section beneath it — the production regression", async () => {
+      const user = userEvent.setup();
+      render(
+        <NextActions
+          items={[]}
+          completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+        />
+      );
+      expect(screen.getByText("You're all clear")).toBeInTheDocument();
+      const completedToggle = screen.getByRole("button", { name: "Completed" });
+      expect(completedToggle).toBeInTheDocument();
+      await user.click(completedToggle);
+      expect(screen.getByText("Fajr")).toBeInTheDocument();
+    });
+
+    it("both active and completed: shows the active row, no all-clear message, plus the Completed section", async () => {
+      const user = userEvent.setup();
+      render(
+        <NextActions
+          items={[item({ id: "dhuhr", domain: "deen", title: "Dhuhr" })]}
+          completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+        />
+      );
+      expect(screen.getByText("Dhuhr")).toBeInTheDocument();
+      expect(screen.queryByText("You're all clear")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Completed" }));
+      expect(screen.getByText("Fajr")).toBeInTheDocument();
+    });
+  });
+
+  // The fitness row lives outside TaskRowList entirely (navigate-away, not
+  // toggle/log), so it needs its own deliberate call: "all clear" would be
+  // a lie while a workout is still outstanding, regardless of what the
+  // active/completed task combinations look like.
+  describe("fitness interacting with the all-clear message", () => {
+    it("fitness pending, nothing else: shows the fitness row, no all-clear message, no Completed section", () => {
+      render(
+        <NextActions
+          items={[item({ id: "fitness-today", domain: "fitness", title: "Push Day A", actionType: "open_fitness" })]}
+          completedToday={[]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+        />
+      );
+      expect(screen.getByRole("link", { name: /Push Day A/ })).toBeInTheDocument();
+      expect(screen.queryByText("You're all clear")).not.toBeInTheDocument();
+      expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+    });
+
+    it("fitness pending plus something completed: shows the fitness row AND the Completed section, but no all-clear message", async () => {
+      const user = userEvent.setup();
+      render(
+        <NextActions
+          items={[item({ id: "fitness-today", domain: "fitness", title: "Push Day A", actionType: "open_fitness" })]}
+          completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+        />
+      );
+      expect(screen.getByRole("link", { name: /Push Day A/ })).toBeInTheDocument();
+      expect(screen.queryByText("You're all clear")).not.toBeInTheDocument();
+      const completedToggle = screen.getByRole("button", { name: "Completed" });
+      expect(completedToggle).toBeInTheDocument();
+      await user.click(completedToggle);
+      expect(screen.getByText("Fajr")).toBeInTheDocument();
+    });
   });
 
   it("shows the fresh-install copy instead when isFreshInstall and nothing is pending", () => {
     render(<NextActions items={[]} completedToday={[]} isFreshInstall nowIso={NOW_ISO} />);
     expect(screen.getByText("Welcome — head into a domain tab to get started")).toBeInTheDocument();
-  });
-
-  it("does not show the all-clear state when there's nothing pending but something was completed today", () => {
-    render(
-      <NextActions
-        items={[]}
-        completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
-        isFreshInstall={false}
-        nowIso={NOW_ISO}
-      />
-    );
-    expect(screen.queryByText("You're all clear")).not.toBeInTheDocument();
-    expect(screen.getByText("Completed")).toBeInTheDocument();
   });
 
   it("renders one row per domain with its title", () => {
