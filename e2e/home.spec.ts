@@ -19,12 +19,20 @@ test.describe("Home", () => {
       nowPanel.getByRole("button", { name: /^Mark ".*" done$/ }).first().or(nowPanel.getByText(/all clear|Welcome/))
     ).toBeVisible();
 
-    // Focus module — idle (Lock In button) or active (a live elapsed timer
-    // plus "Open session →") are the only two valid states.
+    // Focus module — idle (both Deep Work and Deep Study rows, each with its
+    // own Lock In button distinguished by accessible name — see
+    // focus-module.tsx's aria-label, 2026-08-24 Deep Work/Deep Study split)
+    // or active (a live elapsed timer plus an End session button, and
+    // "Open session →" only for a deep_work session) are the only valid
+    // states.
     const focusPanel = page.locator("[data-panel]").filter({ has: page.getByText("Focus", { exact: true }) });
-    await expect(
-      focusPanel.getByRole("button", { name: "Lock In" }).or(focusPanel.getByRole("link", { name: "Open session →" }))
-    ).toBeVisible();
+    const endSessionButton = focusPanel.getByRole("button", { name: "End session" });
+    if (await endSessionButton.count()) {
+      await expect(endSessionButton).toBeVisible();
+    } else {
+      await expect(focusPanel.getByRole("button", { name: "Lock In — Deep Work" })).toBeVisible();
+      await expect(focusPanel.getByRole("button", { name: "Lock In — Deep Study" })).toBeVisible();
+    }
 
     // The day's shape (2026-08-17 day-shape spec — revived DayRibbon with
     // spans + overlay). Either the real ribbon (a headline status line is

@@ -84,9 +84,15 @@ describe("FocusModule", () => {
     expect(screen.getByText("2 sessions today")).toBeInTheDocument();
   });
 
-  it("shows a Lock In button for each kind when idle", () => {
+  it("gives each Lock In button a distinct accessible name, not two identical 'Lock In' buttons", () => {
     render(<FocusModule {...IDLE_PROPS} />);
-    expect(screen.getAllByRole("button", { name: "Lock In" })).toHaveLength(2);
+    // Visible text stays "Lock In" for both (aria-label carries the
+    // distinction) — asserted via the accessible name below, which a
+    // screen reader announces, and separately via the visible text still
+    // reading "Lock In" for sighted users (Lead review, 2026-08-24: two
+    // buttons sharing one accessible name is a real defect, not cosmetic).
+    expect(screen.getByRole("button", { name: "Lock In — Deep Work" })).toHaveTextContent("Lock In");
+    expect(screen.getByRole("button", { name: "Lock In — Deep Study" })).toHaveTextContent("Lock In");
   });
 
   it("swaps to the active view after Deep Work Lock In resolves, without a page reload", async () => {
@@ -97,14 +103,13 @@ describe("FocusModule", () => {
     const user = userEvent.setup();
     render(<FocusModule {...IDLE_PROPS} />);
 
-    const [deepWorkButton] = screen.getAllByRole("button", { name: "Lock In" });
-    await user.click(deepWorkButton);
+    await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
 
     expect(startWorkSession).toHaveBeenCalledWith("deep_work");
     await waitFor(() => {
       expect(screen.getByText(/Deep Work — locked in/)).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
   });
 
   it("swaps to the active view after Deep Study Lock In resolves", async () => {
@@ -115,8 +120,7 @@ describe("FocusModule", () => {
     const user = userEvent.setup();
     render(<FocusModule {...IDLE_PROPS} />);
 
-    const [, deepStudyButton] = screen.getAllByRole("button", { name: "Lock In" });
-    await user.click(deepStudyButton);
+    await user.click(screen.getByRole("button", { name: "Lock In — Deep Study" }));
 
     expect(startWorkSession).toHaveBeenCalledWith("deep_study");
     await waitFor(() => {
@@ -134,7 +138,8 @@ describe("FocusModule", () => {
       />
     );
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("href", "/business");
-    expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
   });
 
   it("renders the active view directly when an active deep_study session is passed in, with no Open session link", () => {
@@ -145,7 +150,8 @@ describe("FocusModule", () => {
       />
     );
     expect(screen.queryByRole("link", { name: "Open session →" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
   });
 
   it("prefetches the Open session link (navigation-prefetch-fix, Part A)", () => {
@@ -172,7 +178,8 @@ describe("FocusModule", () => {
 
     expect(endWorkSession).toHaveBeenCalledWith("s1");
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: "Lock In" })).toHaveLength(2);
+      expect(screen.getByRole("button", { name: "Lock In — Deep Work" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Lock In — Deep Study" })).toBeInTheDocument();
     });
   });
 
@@ -181,8 +188,7 @@ describe("FocusModule", () => {
     const user = userEvent.setup();
     render(<FocusModule {...IDLE_PROPS} />);
 
-    const [deepWorkButton] = screen.getAllByRole("button", { name: "Lock In" });
-    await user.click(deepWorkButton);
+    await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
 
     await waitFor(() => {
       expect(screen.getByText(/already running/)).toBeInTheDocument();

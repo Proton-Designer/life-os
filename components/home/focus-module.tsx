@@ -96,7 +96,21 @@ function IdleRow({
           {sessions === 0 ? "No sessions yet today" : `${sessions} session${sessions === 1 ? "" : "s"} today`}
         </p>
       </div>
-      <Button type="button" onClick={onLockIn} disabled={disabled} className="shrink-0 self-stretch px-6">
+      {/* Visible text stays the app-wide "Lock In" verb (Lead review,
+          2026-08-24) — aria-label carries the kind distinction for
+          assistive tech without changing the visual design. Two buttons
+          both named "Lock In" with only a visually-adjacent label to tell
+          them apart is a real accessibility defect (a screen-reader user
+          hears "Lock In button" twice with no way to distinguish), caught
+          by e2e/home.spec.ts's strict-mode getByRole failure once it
+          resolved two matches instead of one. */}
+      <Button
+        type="button"
+        onClick={onLockIn}
+        disabled={disabled}
+        aria-label={`Lock In — ${KIND_LABEL[kind]}`}
+        className="shrink-0 self-stretch px-6"
+      >
         Lock In
       </Button>
     </div>
