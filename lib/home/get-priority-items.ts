@@ -3,7 +3,7 @@ import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
-import { localDateString, localWeekday, resolveLocalTime, dayOfWeekFromDateString } from "@/lib/date-utils";
+import { localDateString, localWeekday, resolveLocalTime, dayOfWeekFromDateString, addDaysToDateString } from "@/lib/date-utils";
 import { buildDailyLog, pendingDailyLog, type MicroTotalInput, type MicroFreqInput, type SessionInput } from "@/lib/fitness/daily-log";
 import { urgencyBucket } from "./urgency";
 import type { PriorityItem, CompletedItem, Domain } from "./types";
@@ -62,6 +62,8 @@ export type HomeDataSource = {
   getPrayers: (userId: string, date: string) => Promise<HomePrayerRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<HomeKillListRow[]>;
   getTasks: (userId: string, date: string) => Promise<HomeTaskRow[]>;
+  /** Tasks completed within [dayStartIso, dayEndIso) — independent of due_date, unlike getTasks. Feeds getCompletedItemsToday: "completed today" means completed_at fell today, not due_date = today. */
+  getTasksCompletedBetween: (userId: string, dayStartIso: string, dayEndIso: string) => Promise<HomeTaskRow[]>;
   getFitness: (userId: string, date: string, dayOfWeek: number) => Promise<HomeFitnessData>;
 };
 
@@ -113,6 +115,17 @@ export function defaultDataSource(): HomeDataSource {
         .select("id, domain, title, due_date, due_time, completed, completed_at")
         .eq("user_id", userId)
         .eq("due_date", date);
+      return (data ?? []) as HomeTaskRow[];
+    },
+    async getTasksCompletedBetween(userId, dayStartIso, dayEndIso) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("tasks")
+        .select("id, domain, title, due_date, due_time, completed, completed_at")
+        .eq("user_id", userId)
+        .eq("completed", true)
+        .gte("completed_at", dayStartIso)
+        .lt("completed_at", dayEndIso);
       return (data ?? []) as HomeTaskRow[];
     },
     async getFitness(userId, date, dayOfWeek) {
@@ -386,10 +399,18 @@ export async function getCompletedItemsToday(
   const dateStr = localDateString(now, timezone);
   const isFriday = localWeekday(now, timezone) === "Friday";
 
+  // Bounds must be the LOCAL day converted to instants, not a UTC-day
+  // string — `${dateStr}T00:00:00Z` treats an already-local date as if it
+  // were a UTC boundary, off by the timezone offset (the exact bug fixed
+  // in lib/home/get-home-extras.ts and, tonight, in the prayer-window
+  // layer — same trap, don't reintroduce it here).
+  const dayStartIso = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+  const dayEndIso = resolveLocalTime(addDaysToDateString(dateStr, 1), "00:00", timezone).toISOString();
+
   const [prayerRows, killListRows, taskRows] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
     dataSource.getKillListItems(userId, dateStr),
-    dataSource.getTasks(userId, dateStr),
+    dataSource.getTasksCompletedBetween(userId, dayStartIso, dayEndIso),
   ]);
 
   const items: CompletedItem[] = [];
@@ -423,14 +444,12 @@ export async function getCompletedItemsToday(
     });
   }
 
-  // Known scope limit: dataSource.getTasks filters by due_date = today (the
-  // same query getPriorityItems already makes), so a task due on another
-  // day but completed today won't appear here — only ones both due AND
-  // completed today. Fixing that needs a completed_at-bounded query
-  // instead, a real change beyond this pass; flagged, not silently assumed
-  // correct.
+  // Completed_at-bounded (getTasksCompletedBetween), independent of
+  // due_date — "completed today" means completed today, whatever day it
+  // was originally due (Lead ruling, 2026-08-25). The completed_at !=null
+  // check is defensive only — the query itself already enforces it.
   for (const task of taskRows) {
-    if (!task.completed || !task.completed_at) continue;
+    if (!task.completed_at) continue;
     items.push({
       id: `task-${task.id}`,
       domain: task.domain,

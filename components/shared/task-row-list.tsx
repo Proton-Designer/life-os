@@ -105,7 +105,8 @@ function ActiveRow({
 }: {
   item: TaskRowItem;
   onComplete: (item: TaskRowItem) => Promise<void>;
-  onOpenLog: (item: TaskRowItem) => void;
+  /** Absent when the caller never wired onLog — a log-mode row then renders inert rather than throwing (see the effect below). */
+  onOpenLog?: (item: TaskRowItem) => void;
   onRemove?: (item: TaskRowItem) => Promise<void>;
 }) {
   const [justCompleted, setJustCompleted] = useState(false);
@@ -113,9 +114,23 @@ function ActiveRow({
   const [isPending, startTransition] = useTransition();
   const [isRemoving, setIsRemoving] = useState(false);
 
+  const inertLog = item.mode === "log" && !onOpenLog;
+  useEffect(() => {
+    if (inertLog) {
+      // Degrade visibly (an inert row), never explode (a thrown exception
+      // mid-tap on Home's most-used screen) — a caller that renders a
+      // log-mode item without wiring onLog is a real bug, but the failure
+      // mode for the PERSON using the app must be "nothing happens," not a
+      // crash (Lead review, 2026-08-25).
+      console.error(
+        `TaskRowList: item "${item.id}" has mode: "log" but no onLog handler was provided — rendering it inert.`
+      );
+    }
+  }, [inertLog, item.id]);
+
   function handleClick() {
     if (item.mode === "log") {
-      onOpenLog(item);
+      onOpenLog?.(item);
       return;
     }
     if (justCompleted || isPending) return;
@@ -160,9 +175,9 @@ function ActiveRow({
       <button
         type="button"
         onClick={handleClick}
-        disabled={isPending}
+        disabled={isPending || inertLog}
         aria-label={item.mode === "log" ? `Log ${item.title}` : `Mark "${item.title}" done`}
-        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default"
+        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
       >
         <Checkbox checked={justCompleted} />
         <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
@@ -339,8 +354,17 @@ export function TaskRowList({
   items: TaskRowItem[];
   /** Reject (throw) to leave the row uncompleted and show an inline error — never let this resolve silently on failure. */
   onComplete: (item: TaskRowItem) => Promise<void>;
-  /** Return `{completed:true}` when this log fully met the item's target — the row animates into Completed exactly like a one-tap item. Otherwise return `{completed:false, current}` so the row shows updated progress. */
-  onLog: (item: TaskRowItem, value: TaskLogValue) => Promise<TaskLogResult>;
+  /**
+   * Optional — omit entirely if this list never has a `mode: "log"` item
+   * (e.g. Home today). Return `{completed:true}` when a log fully met the
+   * item's target — the row animates into Completed exactly like a one-tap
+   * item. Otherwise return `{completed:false, current}` so the row shows
+   * updated progress. If a log-mode item DOES show up without this
+   * provided, that row renders inert (tap does nothing) rather than
+   * throwing — a caller bug should never crash mid-tap on a screen this
+   * central (Lead review, 2026-08-25).
+   */
+  onLog?: (item: TaskRowItem, value: TaskLogValue) => Promise<TaskLogResult>;
   /**
    * Optional — only pass this for lists of user-created rows a domain
    * screen lets you delete outright (e.g. School's task list). Home does
@@ -394,6 +418,7 @@ export function TaskRowList({
   }
 
   async function handleLogSubmit(item: TaskRowItem, value: TaskLogValue) {
+    if (!onLog) return;
     const result = await onLog(item, value);
     if (result.completed) {
       await sleep(COMPLETE_ANIMATION_MS);
@@ -423,7 +448,7 @@ export function TaskRowList({
               key={item.id}
               item={item}
               onComplete={handleComplete}
-              onOpenLog={setLogItem}
+              onOpenLog={onLog ? setLogItem : undefined}
               onRemove={onRemove ? handleRemove : undefined}
             />
           ))}

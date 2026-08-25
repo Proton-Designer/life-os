@@ -11,7 +11,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
-import { TaskRowList, type TaskRowItem, type TaskLogValue, type TaskLogResult } from "@/components/shared/task-row-list";
+import { TaskRowList, type TaskRowItem } from "@/components/shared/task-row-list";
 
 const TICK_MS = 60 * 1000;
 
@@ -150,17 +150,14 @@ export function NextActions({
     await toggleItem(original);
   }
 
-  // Every current Now-module item is one-tap (mode: "toggle") — nothing
-  // here produces a "log" row yet, so this exists only to satisfy
-  // TaskRowList's contract. A future log-mode item (e.g. a Quran-pages row)
-  // would replace this with a real implementation, not extend a stub.
-  async function handleLog(_row: TaskRowItem, _value: TaskLogValue): Promise<TaskLogResult> {
-    throw new Error("Home's Now module has no log-mode items");
-  }
-
   return (
     <div className="flex flex-col gap-1">
-      <TaskRowList items={rowItems} onComplete={handleComplete} onLog={handleLog} />
+      {/* onLog omitted — every current Now-module item is one-tap
+          (mode: "toggle"), so there's nothing to wire yet. TaskRowList
+          degrades a log-mode row to inert (rather than throwing) if one
+          ever shows up without this, so omitting it here is safe, not a
+          landmine. */}
+      <TaskRowList items={rowItems} onComplete={handleComplete} />
       {fitnessItem && (
         <ul className="flex flex-col gap-1">
           <FitnessRow item={fitnessItem} now={now} isMostUrgent={fitnessItem.id === mostUrgent} />

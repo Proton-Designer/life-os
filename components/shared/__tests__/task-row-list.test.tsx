@@ -284,4 +284,31 @@ describe("TaskRowList", () => {
 
     expect(screen.getByText("Nothing here")).toBeInTheDocument();
   });
+
+  it("omitting onLog is safe when nothing is log-mode (Home's usage)", () => {
+    const onComplete = vi.fn(async () => {});
+    render(<TaskRowList items={[toggleItem({ id: "t1", title: "Fajr" })]} onComplete={onComplete} />);
+
+    expect(screen.getByRole("button", { name: 'Mark "Fajr" done' })).toBeInTheDocument();
+  });
+
+  it("degrades a log-mode row to inert (no crash, console.error) when onLog was never provided", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onComplete = vi.fn(async () => {});
+    const user = userEvent.setup();
+    render(
+      <TaskRowList
+        items={[logItem({ id: "f1", title: "Pull-ups", log: { kind: "count", unit: "reps", target: 30, current: 10 } })]}
+        onComplete={onComplete}
+      />
+    );
+
+    const row = screen.getByRole("button", { name: "Log Pull-ups" });
+    expect(row).toBeDisabled();
+    await user.click(row);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('item "f1"'));
+    consoleError.mockRestore();
+  });
 });

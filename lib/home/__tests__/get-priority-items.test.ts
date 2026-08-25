@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getPriorityItems, getCompletedItemsToday, type HomeDataSource } from "../get-priority-items";
 import { calculatePrayerTimes } from "../../prayer-times/calculate";
 
@@ -16,6 +16,7 @@ function emptyDataSource(overrides: Partial<HomeDataSource> = {}): HomeDataSourc
     getPrayers: async () => [],
     getKillListItems: async () => [],
     getTasks: async () => [],
+    getTasksCompletedBetween: async () => [],
     getFitness: async () => ({ microPlanName: null, microTotals: [], microFreqs: [], sessions: [] }),
     ...overrides,
   };
@@ -347,25 +348,70 @@ describe("getPriorityItems", () => {
       expect(items[0]).toMatchObject({ domain: "business", title: "Call the vendor", actionRefId: "k1" });
     });
 
-    it("includes a completed task with its completed_at as completedAtIso", async () => {
+    it("includes a completed task with its completed_at as completedAtIso — reads getTasksCompletedBetween, not getTasks", async () => {
+      const getTasks = vi.fn(async () => []);
       const dataSource = emptyDataSource({
-        getTasks: async () => [
-          {
-            id: "t1",
-            domain: "school",
-            title: "Read chapter 4",
-            due_date: "2026-08-10",
-            due_time: null,
-            completed: true,
-            completed_at: "2026-08-10T16:00:00Z",
-          },
-        ],
+        getTasks,
+        getTasksCompletedBetween: async (userId, dayStartIso, dayEndIso) => {
+          expect(dayStartIso).toBe("2026-08-10T05:00:00.000Z"); // local midnight in Chicago (UTC-5)
+          expect(dayEndIso).toBe("2026-08-11T05:00:00.000Z");
+          return [
+            {
+              id: "t1",
+              domain: "school",
+              title: "Read chapter 4",
+              due_date: "2026-08-05", // due a different day — still counts, since "completed today" is completed_at-scoped, not due_date-scoped
+              due_time: null,
+              completed: true,
+              completed_at: "2026-08-10T16:00:00Z",
+            },
+          ];
+        },
       });
 
       const items = await getCompletedItemsToday("user-1", now, dataSource);
 
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ domain: "school", title: "Read chapter 4", actionRefId: "t1" });
+      // getPriorityItems' own due-date-scoped query is never consulted here.
+      expect(getTasks).not.toHaveBeenCalled();
+    });
+
+    it("bounds the completed-task window by the LOCAL day, not a naive UTC-date string, near midnight either side", async () => {
+      // 23:30 local (Chicago, UTC-5) on 2026-08-10 is 2026-08-11T04:30:00Z —
+      // still "today" (Aug 10) locally, must fall inside [dayStartIso, dayEndIso).
+      const at2330Local = new Date("2026-08-11T04:30:00.000Z");
+      let bounds2330: [string, string] | null = null;
+      await getCompletedItemsToday(
+        "user-1",
+        at2330Local,
+        emptyDataSource({
+          getTasksCompletedBetween: async (userId, dayStartIso, dayEndIso) => {
+            bounds2330 = [dayStartIso, dayEndIso];
+            return [];
+          },
+        })
+      );
+      expect(bounds2330).toEqual(["2026-08-10T05:00:00.000Z", "2026-08-11T05:00:00.000Z"]);
+
+      // 00:30 local on 2026-08-11 is 2026-08-11T05:30:00Z — already "today"
+      // (Aug 11) locally, must fall inside the NEXT day's bounds, not the
+      // ones above. The naive `${dateStr}T00:00:00Z` bug would instead
+      // compute Aug 11's UTC midnight (5h too early), pulling this instant
+      // in as "yesterday."
+      const at0030Local = new Date("2026-08-11T05:30:00.000Z");
+      let bounds0030: [string, string] | null = null;
+      await getCompletedItemsToday(
+        "user-1",
+        at0030Local,
+        emptyDataSource({
+          getTasksCompletedBetween: async (userId, dayStartIso, dayEndIso) => {
+            bounds0030 = [dayStartIso, dayEndIso];
+            return [];
+          },
+        })
+      );
+      expect(bounds0030).toEqual(["2026-08-11T05:00:00.000Z", "2026-08-12T05:00:00.000Z"]);
     });
 
     it("returns nothing when nothing was completed today", async () => {
