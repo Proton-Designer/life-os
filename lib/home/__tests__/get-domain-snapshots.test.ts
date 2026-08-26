@@ -8,6 +8,7 @@ const CHICAGO_PROFILE = {
   prayer_calc_method: "MWL" as const,
   asr_madhab: "standard" as const,
   created_at: "2026-01-01T00:00:00Z",
+  tracking_started_on: null,
 };
 
 const ZERO_PULSE = { deen: 0, business: 0, fitness: 0, school: 0, co_op: 0 };

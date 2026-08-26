@@ -2,7 +2,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, PRAYER_NAMES } from "@/lib/prayer-times/windows";
-import { effectivePrayerStatus, resolvePrayerStatuses, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
+import {
+  effectivePrayerStatus,
+  resolvePrayerStatuses,
+  computeTrackingFloorDateStr,
+  type StoredPrayerStatus,
+} from "@/lib/deen/prayer-status";
 import { buildQadaBacklog } from "@/lib/deen/qada-backlog";
 import {
   localDateString,
@@ -71,6 +76,7 @@ export type DomainSnapshotDataSource = {
     prayer_calc_method: string;
     asr_madhab: string;
     created_at: string;
+    tracking_started_on: string | null;
   } | null>;
   getPrayers: (userId: string, date: string) => Promise<{ prayer_name: string; status: string }[]>;
   /** Raw prayer rows from `sinceDate` on — used only for the last two days
@@ -133,6 +139,7 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         prayer_calc_method: profile.prayer_calc_method,
         asr_madhab: profile.asr_madhab,
         created_at: profile.created_at,
+        tracking_started_on: profile.tracking_started_on,
       };
     },
     async getPrayers(userId, date) {
@@ -363,10 +370,10 @@ export async function getDomainSnapshots(
   // handled (on_time/qada) or missed, so missed = totalSlots - handled.
   // Only T-1 and T can still have an open window relative to `now`, and
   // keep the real resolvePrayerStatuses resolve against a 2-day row fetch.
-  const accountCreatedDateStr = localDateString(
-    profile?.created_at ? new Date(profile.created_at) : now,
-    timezone
-  );
+  // Floored so nothing before tracking began can be derived as missed —
+  // see computeTrackingFloorDateStr's own doc comment for the full "why"
+  // (R7's account wipe, migration 051).
+  const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
   const qadaFloorDateStr = addDaysToDateString(dateStr, -59);
   const twoDaysAgoStr = addDaysToDateString(dateStr, -2);
   const oneDayAgoStr = addDaysToDateString(dateStr, -1);

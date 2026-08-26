@@ -2,7 +2,7 @@
 
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, datesInMonth } from "@/lib/date-utils";
-import { resolvePrayerStatuses, type EffectivePrayerStatus } from "@/lib/deen/prayer-status";
+import { resolvePrayerStatuses, computeTrackingFloorDateStr, type EffectivePrayerStatus } from "@/lib/deen/prayer-status";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 
@@ -18,15 +18,6 @@ export type SalahDaySummary = {
    * with zero prayers logged (`hasData: true, doneCount: 0`) is a real
    * fact and IS allowed to render as empty; the distinction that matters
    * is "never tracked" vs "tracked and empty," not the number itself.
-   *
-   * KNOWN GAP, flagged to the Lead (2026-08-26): the floor used here is
-   * `profiles.created_at`, which R7's account wipe deliberately does not
-   * reset — so immediately after the wipe, every day between the
-   * account's original signup and yesterday will read `hasData: true`
-   * (wrongly) with `doneCount: 0`, because resolvePrayerStatuses's own
-   * floor still thinks tracking started months ago. If the Lead's ruling
-   * adds a dedicated tracking-start column, swap `accountCreatedDateStr`
-   * below for it — that's the only line this function needs changed.
    */
   hasData: boolean;
 };
@@ -41,7 +32,7 @@ export async function getSalahMonthSummary(year: number, month: number): Promise
   const asrMadhab = (profile?.asr_madhab ?? "standard") as AsrMadhab;
   const now = new Date();
   const todayStr = localDateString(now, timezone);
-  const accountCreatedDateStr = localDateString(profile?.created_at ? new Date(profile.created_at) : now, timezone);
+  const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
 
   const dates = datesInMonth(year, month);
   const { data: rows, error } = await supabase
@@ -93,7 +84,7 @@ export async function getSalahDayDetail(date: string): Promise<SalahDayDetail[]>
   const calcMethod = (profile?.prayer_calc_method ?? "ISNA") as CalcMethod;
   const asrMadhab = (profile?.asr_madhab ?? "standard") as AsrMadhab;
   const now = new Date();
-  const accountCreatedDateStr = localDateString(profile?.created_at ? new Date(profile.created_at) : now, timezone);
+  const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
 
   const { data: rows, error } = await supabase
     .from("prayers")

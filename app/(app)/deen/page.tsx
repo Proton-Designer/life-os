@@ -6,6 +6,7 @@ import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, type PrayerName } from "@/lib/prayer-times/windows";
 import {
   resolvePrayerStatuses,
+  computeTrackingFloorDateStr,
   type EffectivePrayerStatus,
 } from "@/lib/deen/prayer-status";
 import type { SunnahSlot } from "@/lib/deen/sunnah";
@@ -131,12 +132,10 @@ export default async function DeenPage() {
 
   // --- Prayer windows + derived statuses (never written, only ever read) ---
   // Windowed, not instants: a prayer's status is derived at read time from
-  // its window against `now`, floored at the account's own creation date so
-  // nothing before the account existed can be derived as missed.
-  const accountCreatedDateStr = localDateString(
-    profile?.created_at ? new Date(profile.created_at) : now,
-    timezone
-  );
+  // its window against `now`, floored so nothing before tracking began can
+  // be derived as missed — see computeTrackingFloorDateStr's own doc
+  // comment for the full "why" (R7's account wipe, migration 051).
+  const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
   const sixtyDayDates = Array.from({ length: 60 }, (_, i) => addDaysToDateString(sixtyDaysAgoStr, i));
   const resolvedStatuses = resolvePrayerStatuses({
     rows: allPrayerRows,

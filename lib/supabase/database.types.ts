@@ -960,6 +960,7 @@ export type Database = {
           prayer_calc_method: string
           qada_owed: number
           timezone: string
+          tracking_started_on: string | null
           traveling_mode: boolean
           user_id: string
         }
@@ -980,6 +981,7 @@ export type Database = {
           prayer_calc_method?: string
           qada_owed?: number
           timezone?: string
+          tracking_started_on?: string | null
           traveling_mode?: boolean
           user_id: string
         }
@@ -1000,6 +1002,7 @@ export type Database = {
           prayer_calc_method?: string
           qada_owed?: number
           timezone?: string
+          tracking_started_on?: string | null
           traveling_mode?: boolean
           user_id?: string
         }

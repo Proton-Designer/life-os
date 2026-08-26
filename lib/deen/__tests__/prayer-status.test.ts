@@ -7,7 +7,7 @@ vi.mock("@/lib/prayer-times/windows", async (importOriginal) => {
 });
 
 import { computePrayerWindows } from "@/lib/prayer-times/windows";
-import { effectivePrayerStatus, resolvePrayerStatuses } from "../prayer-status";
+import { effectivePrayerStatus, resolvePrayerStatuses, computeTrackingFloorDateStr } from "../prayer-status";
 
 const WINDOW: PrayerWindow = {
   start: new Date("2026-08-10T10:00:00Z"),
@@ -218,5 +218,48 @@ describe("resolvePrayerStatuses", () => {
       });
       expect(computePrayerWindows).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+// 2026-08-26, Opus Lead ruling correcting R7: profiles.created_at is the
+// wrong floor for "don't derive missed" once prayer history has been
+// wiped without moving it — tracking_started_on exists specifically to
+// let a fresh-start account re-floor without touching created_at.
+describe("computeTrackingFloorDateStr", () => {
+  it("uses tracking_started_on as-is when set, ignoring created_at entirely", () => {
+    const profile = { tracking_started_on: "2026-08-26", created_at: "2020-01-01T00:00:00Z" };
+    expect(computeTrackingFloorDateStr(profile, "America/Chicago", new Date("2026-08-26T12:00:00Z"))).toBe(
+      "2026-08-26"
+    );
+  });
+
+  it("falls back to created_at's local date when tracking_started_on is null", () => {
+    const profile = { tracking_started_on: null, created_at: "2026-08-10T00:00:00Z" };
+    expect(computeTrackingFloorDateStr(profile, "America/Chicago", new Date("2026-08-26T12:00:00Z"))).toBe(
+      "2026-08-09" // UTC midnight Aug 10 is 2026-08-09 19:00 in Chicago (UTC-5)
+    );
+  });
+
+  it("falls back to now's local date when profile itself is null", () => {
+    expect(computeTrackingFloorDateStr(null, "America/Chicago", new Date("2026-08-26T12:00:00Z"))).toBe("2026-08-26");
+  });
+
+  // The inverse-bug boundary (AGENTS.md): tracking_started_on is a plain
+  // calendar date, not an instant. Naively doing
+  // `localDateString(new Date(trackingStartedOn), timezone)` would parse it
+  // as UTC midnight and re-localize it a day BACKWARD in any timezone
+  // behind UTC. Pinned on both sides: a zone behind UTC (Chicago) and one
+  // east of UTC (Karachi), where the naive bug would instead push the date
+  // FORWARD were the mistake made in the other direction.
+  it("never shifts tracking_started_on by a day in a timezone behind UTC (Chicago, UTC-5)", () => {
+    const profile = { tracking_started_on: "2026-08-26", created_at: "2020-01-01T00:00:00Z" };
+    expect(computeTrackingFloorDateStr(profile, "America/Chicago", new Date("2026-08-26T02:00:00Z"))).toBe(
+      "2026-08-26"
+    );
+  });
+
+  it("never shifts tracking_started_on by a day in a timezone east of UTC (Karachi, UTC+5)", () => {
+    const profile = { tracking_started_on: "2026-08-26", created_at: "2020-01-01T00:00:00Z" };
+    expect(computeTrackingFloorDateStr(profile, "Asia/Karachi", new Date("2026-08-26T22:00:00Z"))).toBe("2026-08-26");
   });
 });

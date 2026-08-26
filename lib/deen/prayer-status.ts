@@ -6,6 +6,38 @@ export type StoredPrayerStatus = "on_time" | "qada" | "missed";
 export type EffectivePrayerStatus = "upcoming" | "pending" | "on_time" | "qada" | "missed";
 
 /**
+ * The "don't derive missed before this date" floor `resolvePrayerStatuses`
+ * takes as `accountCreatedDateStr` — computed here once so its three
+ * call sites (deen/page.tsx, lib/home/get-domain-snapshots.ts,
+ * app/(app)/deen/salah-calendar-actions.ts) can't drift into three
+ * different answers.
+ *
+ * `tracking_started_on` (migration 051, Opus Lead ruling correcting R7)
+ * wins when set. It exists because `profiles.created_at` — a user's real
+ * signup date — is the wrong floor once prayer history has been wiped:
+ * deleting every `prayers` row without also moving this floor would read
+ * every day since signup as 5/5 missed, reconstructing exactly the false
+ * history a wipe is meant to remove. Falls back to `created_at`'s local
+ * date for any account that never gets `tracking_started_on` set (a fresh
+ * signup, or an account from before this column existed).
+ *
+ * `tracking_started_on` is a plain Postgres `date` — already a calendar
+ * date, not an instant — and is used as-is. Routing it through
+ * `new Date(...)` + `localDateString` (the treatment `created_at`, a real
+ * timestamp, needs) would parse it as UTC midnight and re-localize it a
+ * day backward in any timezone behind UTC — the exact inverse-bug case
+ * AGENTS.md calls out.
+ */
+export function computeTrackingFloorDateStr(
+  profile: { tracking_started_on: string | null; created_at: string } | null,
+  timezone: string,
+  now: Date
+): string {
+  if (profile?.tracking_started_on) return profile.tracking_started_on;
+  return localDateString(profile?.created_at ? new Date(profile.created_at) : now, timezone);
+}
+
+/**
  * Derived at read time, never written on read (no cron, no race with a
  * user's tap, correct the instant a window closes). A stored status always
  * wins — the user's own record is the truth and derivation only fills
