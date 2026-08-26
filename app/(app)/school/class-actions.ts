@@ -211,13 +211,31 @@ export async function removeClassSyllabus(classId: string) {
   revalidatePath("/school");
 }
 
+export type SyllabusFileKind = "pdf" | "docx" | "other";
+
+/**
+ * Extension lives on the server, next to the actual path — the client
+ * switches on a closed union it can't get wrong rather than sniffing the
+ * URL string itself. "other" covers legacy .doc (in the bucket's allowed
+ * MIME list, migration 048) and anything else docx-preview can't render;
+ * it must land on an honest "can't preview" fallback, never the iframe.
+ */
+function syllabusFileKind(path: string): SyllabusFileKind {
+  const ext = path.toLowerCase().split(".").pop();
+  if (ext === "pdf") return "pdf";
+  if (ext === "docx") return "docx";
+  return "other";
+}
+
 /**
  * Mints a fresh, short-lived signed URL on every call — never stored,
  * never cached across requests, never embedded in a page's own RSC
  * payload ahead of actually being viewed. The bucket is private; this is
  * the only way to ever read a syllabus object.
  */
-export async function getClassSyllabusUrl(classId: string): Promise<string | null> {
+export async function getClassSyllabusUrl(
+  classId: string
+): Promise<{ url: string; kind: SyllabusFileKind } | null> {
   const { supabase, userId } = await requireUser();
   const { data: row, error } = await supabase
     .from("classes")
@@ -232,5 +250,5 @@ export async function getClassSyllabusUrl(classId: string): Promise<string | nul
     .from(SYLLABUS_BUCKET)
     .createSignedUrl(row.syllabus_path, SYLLABUS_SIGNED_URL_TTL_SECONDS);
   if (signError) throw signError;
-  return data.signedUrl;
+  return { url: data.signedUrl, kind: syllabusFileKind(row.syllabus_path) };
 }
