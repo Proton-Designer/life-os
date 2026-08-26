@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -137,15 +137,26 @@ describe("Topbar", () => {
     expect(screen.getByRole("button", { name: /open calendar/i })).toBeInTheDocument();
   });
 
-  it("opens the calendar popup on click, fetching data only then (not eagerly on mount)", async () => {
+  it("prefetches calendar data shortly after mount (idle callback) and paints it instantly on open, still revalidating behind it", async () => {
+    // 2026-08-26 (Opus Lead, C1 perf fix): CalendarDialogTrigger no longer
+    // waits for a click to fetch — an idle-time prefetch after mount warms
+    // its module-scope cache so an open with no preceding hover (touch,
+    // keyboard) isn't a cold fetch either. Every open still revalidates
+    // behind whatever's cached (stale-while-revalidate, load-bearing for
+    // correctness — schedule/goal data can change from other screens
+    // between opens), so a click after the prefetch triggers one more call,
+    // not zero.
     const getWeekCalendar = vi.fn(async () => ({ items: [], undatedDeadlines: [], deen: null, business: null }));
     const user = userEvent.setup();
     renderTopbar({ getWeekCalendar });
 
-    expect(getWeekCalendar).not.toHaveBeenCalled();
+    await waitFor(() => expect(getWeekCalendar).toHaveBeenCalledTimes(1));
+
     await user.click(screen.getByRole("button", { name: /open calendar/i }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(getWeekCalendar).toHaveBeenCalledTimes(1);
+    // Painted from the prefetch — no spinner despite the revalidation below.
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    await waitFor(() => expect(getWeekCalendar).toHaveBeenCalledTimes(2));
   });
 
   it("shows the Distractions button in the topbar", () => {

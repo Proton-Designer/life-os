@@ -115,7 +115,13 @@ export function Topbar({
               A popup, not a navigation (Ayman, 2026-08-24: "should be a
               popup, easy to look at and easy to cancel out of") — the
               /calendar route itself still exists for e2e and direct links. */}
-          <CalendarDialogTrigger getWeekCalendar={getWeekCalendar} onSaveDeen={onSaveDeen} onSaveBusiness={onSaveBusiness} />
+          <CalendarDialogTrigger
+            accountKey={account.email}
+            timezone={timezone}
+            getWeekCalendar={getWeekCalendar}
+            onSaveDeen={onSaveDeen}
+            onSaveBusiness={onSaveBusiness}
+          />
         </div>
       </header>
 

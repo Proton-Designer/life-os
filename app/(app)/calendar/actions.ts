@@ -2,7 +2,6 @@
 
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString } from "@/lib/date-utils";
-import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import type { CalendarItem } from "@/components/calendar/week-hour-grid";
 import type { WeeklyGoalEntry } from "@/components/shared/weekly-goals-header";
@@ -49,7 +48,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
 
-  const [{ data: eventRows }, { data: weeklyGoalsRows }, { data: taskRows }, { data: activePlanRow }, snapshots] =
+  const [{ data: eventRows }, { data: weeklyGoalsRows }, { data: taskRows }, { data: activePlanRow }, { data: quranSessionRows }] =
     await Promise.all([
       supabase
         .from("schedule_events")
@@ -69,31 +68,43 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         .eq("completed", false)
         .in("due_date", weekDates),
       supabase.from("active_workout_plans").select("routine_plan_id").eq("user_id", userId).maybeSingle(),
-      getDomainSnapshots(userId, now),
+      // Replaces a call to getDomainSnapshots (Home's whole-app 16-query
+      // fan-out) that ran here just to read two numbers — perf fix,
+      // 2026-08-26 (Ayman: calendar popup 1-2s open latency). The other
+      // number, quranTarget, is already sitting unused in the
+      // weekly_goals row fetched above (quran_page_target), so only this
+      // one targeted query was actually needed.
+      supabase.from("quran_sessions").select("pages_read").eq("user_id", userId).gte("date", weekStart),
     ]);
 
-  const cancelledDates = await getCancelledDatesByEvent(
-    supabase,
-    userId,
-    (eventRows ?? []).map((e) => e.id)
-  );
-
+  // Both of these depend on results from the Promise.all above (event ids,
+  // the active plan id) so neither can join it directly, but they don't
+  // depend on EACH OTHER — running them together here instead of as two
+  // sequential awaits still collapses this from 3 round trips to 2.
   const routinePlanId = activePlanRow?.routine_plan_id ?? null;
-  const { data: sessionRows } = routinePlanId
-    ? await supabase
-        .from("plan_sessions")
-        .select("id, name, schedule_days, start_time, plan_session_exercises(duration_minutes)")
-        .eq("plan_id", routinePlanId)
-    : { data: [] };
+  const [cancelledDates, { data: sessionRows }] = await Promise.all([
+    getCancelledDatesByEvent(
+      supabase,
+      userId,
+      (eventRows ?? []).map((e) => e.id)
+    ),
+    routinePlanId
+      ? supabase
+          .from("plan_sessions")
+          .select("id, name, schedule_days, start_time, plan_session_exercises(duration_minutes)")
+          .eq("plan_id", routinePlanId)
+      : Promise.resolve({ data: [] }),
+  ]);
 
+  const quranWeekPages = (quranSessionRows ?? []).reduce((sum, s) => sum + s.pages_read, 0);
   const deenGoalRow = (weeklyGoalsRows ?? []).find((g) => g.domain === "deen") ?? null;
   const businessGoalRow = (weeklyGoalsRows ?? []).find((g) => g.domain === "business") ?? null;
   const deen: WeeklyGoalEntry = deenGoalRow
     ? {
         headline: deenGoalRow.headline,
         milestones: (deenGoalRow.milestones as string[] | null) ?? [],
-        quranPages: snapshots.deen.quranWeekPages,
-        quranTarget: snapshots.deen.quranWeeklyTarget,
+        quranPages: quranWeekPages,
+        quranTarget: deenGoalRow.quran_page_target,
       }
     : null;
   const business: WeeklyGoalEntry = businessGoalRow
