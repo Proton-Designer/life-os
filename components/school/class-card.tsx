@@ -1,0 +1,63 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ClassDetailDialog } from "@/components/school/class-detail-dialog";
+import type { ClassCardData } from "@/lib/school/get-class-cards";
+
+/**
+ * One class's card in the School screen's classes grid (item 6b, Ayman's
+ * spec, verbatim): abbreviated name; below it in smaller text the real
+ * code, room and teacher; a task-due-this-week count; an upcoming test
+ * name+date; a "View" button top-right opening the expanded class view.
+ *
+ * Purely presentational — takes already-shaped data, fetches nothing
+ * itself (lib/school/get-class-cards.ts does the shaping), same pattern
+ * as WeekCalendarView/HabitBuilder elsewhere in this app. `short_name`
+ * falls back to `code` when null (Opus Lead ruling: seeding it is a
+ * hand-run data step, not guaranteed to have happened yet, so a class
+ * without one must still render correctly, not as a blank).
+ */
+export function ClassCard({ data, timezone }: { data: ClassCardData; timezone: string }) {
+  const [open, setOpen] = useState(false);
+  const displayName = data.shortName ?? data.code;
+
+  return (
+    <>
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">{displayName}</h3>
+            <p className="truncate text-xs text-muted-foreground">
+              {data.code}
+              {data.room && ` · ${data.room}`}
+              {data.instructor && ` · ${data.instructor}`}
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+            View
+          </Button>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="font-mono text-lg font-semibold tabular-nums">{data.tasksDueThisWeek}</span>
+            <span className="text-xs text-muted-foreground">
+              task{data.tasksDueThisWeek === 1 ? "" : "s"} due this week
+            </span>
+          </div>
+          {data.upcomingAssessment ? (
+            <div className="flex flex-col items-end text-right">
+              <span className="truncate text-sm font-medium">{data.upcomingAssessment.name}</span>
+              <span className="text-xs text-muted-foreground">{data.upcomingAssessment.date}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">No upcoming test</span>
+          )}
+        </div>
+      </div>
+
+      <ClassDetailDialog open={open} onOpenChange={setOpen} classData={data} timezone={timezone} />
+    </>
+  );
+}
