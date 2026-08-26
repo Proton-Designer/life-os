@@ -141,4 +141,73 @@ test.describe("Cross-device realtime sync", () => {
       await contextB.close();
     }
   });
+
+  // Migration 053 (2026-08-26, same batch): Work (co_op) writes exclusively
+  // to coop_tasks/coop_targets, a completely separate table family from
+  // the shared `tasks` table School/Business/etc. use — it was NOT in the
+  // realtime publication until this batch, so it was the one domain where
+  // "logging tasks from any screen and domain" (Ayman's own words) still
+  // silently didn't sync. Same two-context shape as the prayer test above,
+  // proving the UI path end to end — not just that the table is in the
+  // publication, which the mechanism being identical to the working tables
+  // is exactly the kind of assumption that would let a real gap through.
+  test("advancing a Work task's stage in one browser context reflects in a second context, with no manual reload or interaction there", async ({
+    browser,
+    baseURL,
+  }) => {
+    const secret = process.env.E2E_TEST_SECRET;
+    test.skip(!secret, "E2E_TEST_SECRET not set — see .env.local");
+
+    const contextA = await browser.newContext({ storageState: "playwright/.auth/user.json" });
+    const contextB = await browser.newContext({ storageState: "playwright/.auth/user.json" });
+    const pageA = await contextA.newPage();
+    const pageB = await contextB.newPage();
+
+    try {
+      // The Pipeline board only renders with an active position-1 target —
+      // SEED has none by default, so this test establishes its own known
+      // task in Backlog before either page loads (same discipline as the
+      // prayer test's clear-prayer call above).
+      const setup = await pageA.request.post(`${baseURL}/api/test/reset-coop-pipeline`, {
+        headers: { "x-e2e-secret": secret! },
+      });
+      expect(setup.ok()).toBe(true);
+      const { taskTitle } = (await setup.json()) as { taskTitle: string };
+
+      await pageA.goto("/work");
+      await pageB.goto("/work");
+
+      // The same task also renders in the Weekly Agenda panel (each with
+      // its own "Advance a stage" button) — scope to the Pipeline panel
+      // specifically, same [data-panel] discipline as the Deen/Salah test
+      // above, rather than assuming the task's title or button is unique
+      // on the page.
+      const pipelinePanelA = pageA.locator("[data-panel]").filter({ has: pageA.getByText("Pipeline", { exact: true }) });
+      const pipelinePanelB = pageB.locator("[data-panel]").filter({ has: pageB.getByText("Pipeline", { exact: true }) });
+
+      // Baseline: the task is in Backlog on both pages, not In Progress.
+      await expect(pipelinePanelB.getByText("Backlog (1)")).toBeVisible();
+
+      // Give both contexts' RealtimeSyncProvider a moment to actually
+      // reach SUBSCRIBED before the mutation fires — same reasoning as the
+      // prayer test's wait above.
+      await pageB.waitForTimeout(1500);
+
+      // The mutation happens in context A only — context B is never
+      // clicked, reloaded, or otherwise driven again after this point.
+      await pipelinePanelA.getByRole("button", { name: "Advance a stage" }).click();
+
+      // Debounce (400ms) + a real RSC round trip — B's board should move
+      // the task out of Backlog and into In Progress with no reload.
+      await expect(pipelinePanelB.getByText("In Progress (1)")).toBeVisible({ timeout: 10_000 });
+      await expect(pipelinePanelB.getByText("Backlog (0)")).toBeVisible();
+    } finally {
+      const cleanup = await pageA.request.delete(`${baseURL}/api/test/reset-coop-pipeline`, {
+        headers: { "x-e2e-secret": secret! },
+      });
+      expect(cleanup.ok()).toBe(true);
+      await contextA.close();
+      await contextB.close();
+    }
+  });
 });

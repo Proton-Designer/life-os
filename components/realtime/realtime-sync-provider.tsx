@@ -21,8 +21,17 @@ import { createClient } from "@/lib/supabase/client";
  */
 
 // Deliberately scoped — see supabase/migrations/049_realtime_publication.sql
-// for the full "why these and not more" reasoning. Kept in sync with that
-// migration's ALTER PUBLICATION list; add a table in both places together.
+// (and 053, which closed the Work/co_op gap 049 left) for the full "why
+// these and not more" reasoning. Kept in sync with those migrations'
+// ALTER PUBLICATION lists; add a table in both places together.
+//
+// `scheduleRefresh` below is table-agnostic — it doesn't branch on which
+// table changed, just calls router.refresh() on the CURRENT route. That's
+// deliberate: it means coop_tasks/coop_targets need no special handling
+// here to reach the Work screen or Home's Work sector card — whichever
+// route is mounted re-fetches from the server the same way any other
+// table's change does. A table-keyed refresh would have needed its own
+// wiring per table; this doesn't.
 const SYNCED_TABLES = [
   "prayers",
   "sunnah_logs",
@@ -33,6 +42,8 @@ const SYNCED_TABLES = [
   "body_metrics",
   "workout_sessions",
   "session_sets",
+  "coop_tasks",
+  "coop_targets",
 ] as const;
 
 // A burst of writes (e.g. confirming a workout session inserts several

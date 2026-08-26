@@ -93,6 +93,8 @@ describe("RealtimeSyncProvider", () => {
         "body_metrics",
         "workout_sessions",
         "session_sets",
+        "coop_tasks",
+        "coop_targets",
       ])
     );
     // Every subscription is filtered server-side to this user's own
