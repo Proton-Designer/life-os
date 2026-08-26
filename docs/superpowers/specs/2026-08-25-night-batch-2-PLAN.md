@@ -232,3 +232,22 @@ tomorrow (2026-08-26) as part of the wipe.
 Checked and NOT a problem: the same "keep the plan, delete the progress" shape
 could synthesize missed *workouts*, but his account has 1 active plan and **zero
 `plan_sessions`**, so no past day has a scheduled session to derive a miss from.
+
+## ⚠ HEAD IS BROKEN AT PAUSE — fix first on resume
+
+`app/(app)/work/page.tsx:7` imports `addScheduleEvent` from `./actions`, but
+`e0fe782` renamed that surface (`addWorkHours`, `updateWorkHours`,
+`removeWorkHours`, `addOneOffWorkShift`, `setWorkHoursOverride`,
+`removeWorkHoursOverride`). The import no longer resolves, so **`tsc` fails and
+`/work` will not build at HEAD.**
+
+B believed page.tsx was left dirty in the working tree; it is not — it is
+unmodified, so the breakage is **committed**, not local. `components/work/`
+(WorkScheduleWeek, new/unwired) is the only untracked path.
+
+Nothing can be deployed until this is fixed. B's first action on resume:
+finish `work/page.tsx` — drop `DomainScheduleView`, wire `WorkScheduleWeek` +
+the not-yet-built `WorkHoursEditorDialog` — then the Cancel-this-week verdict.
+
+Also landed just before the pause: `631a921` (C) — Salah calendar data layer and
+the migration 051 `tracking_started_on` floor fix that gates the R7 wipe.
