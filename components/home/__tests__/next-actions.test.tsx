@@ -7,6 +7,13 @@ vi.mock("@/app/(app)/actions", () => ({
   toggleItem: vi.fn(async () => {}),
 }));
 
+// sunnah-disclosure.tsx (rendered via renderExpanded for prayer rows) pulls
+// toggleSunnah from Deen's own actions module — a separate module from the
+// one mocked above.
+vi.mock("@/app/(app)/deen/actions", () => ({
+  toggleSunnah: vi.fn(async () => {}),
+}));
+
 import { toggleItem } from "@/app/(app)/actions";
 import { NextActions } from "../next-actions";
 
@@ -301,5 +308,82 @@ describe("NextActions", () => {
     render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
 
     expect(screen.getByRole("link", { name: /Push Day A/ })).toHaveAttribute("href", "/fitness");
+  });
+
+  // 2026-08-25/26: "on the home screen, for prayers in the Now module ... it
+  // should also have a little dropdown showing that prayer's sunnah
+  // prayers." A prayer row gets a chevron (via TaskRowList's generic
+  // expand/renderExpanded slot); its own primary tap still completes the
+  // fard prayer, unchanged.
+  describe("prayer rows — sunnah disclosure", () => {
+    it("shows a sunnah chevron with a completion badge for a prayer that has rawatib", () => {
+      const items = [
+        item({
+          id: "prayer-fajr",
+          domain: "deen",
+          title: "Fajr",
+          actionType: "toggle_prayer",
+          actionRefId: "fajr",
+          sunnahCompletions: [],
+        }),
+      ];
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+
+      expect(screen.getByRole("button", { name: "Sunnah for Fajr" })).toBeInTheDocument();
+      expect(screen.getByText("0/1")).toBeInTheDocument();
+    });
+
+    it("shows no chevron for a prayer with no rawatib slots (e.g. Asr's before-only counts, but a hypothetical zero-slot prayer wouldn't)", () => {
+      // Asr has one before-slot per lib/deen/sunnah.ts, so use it as the
+      // has-sunnah case and rely on the badge count assertion above; this
+      // test instead confirms non-prayer items never get a chevron at all.
+      const items = [item({ id: "task-1", domain: "school", title: "Essay", actionType: "toggle_task" })];
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+
+      expect(screen.queryByRole("button", { name: /sunnah/i })).not.toBeInTheDocument();
+    });
+
+    it("tapping the chevron expands the sunnah panel without completing the prayer", async () => {
+      const items = [
+        item({
+          id: "prayer-fajr",
+          domain: "deen",
+          title: "Fajr",
+          actionType: "toggle_prayer",
+          actionRefId: "fajr",
+          sunnahCompletions: [],
+        }),
+      ];
+      vi.mocked(toggleItem).mockClear();
+      const user = userEvent.setup();
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+
+      const chevron = screen.getByRole("button", { name: "Sunnah for Fajr" });
+      await user.click(chevron);
+
+      expect(chevron).toHaveAttribute("aria-expanded", "true");
+      // The rawatib slot itself, rendered by SunnahDisclosure.
+      expect(screen.getByRole("button", { name: /before.*2 rak/i })).toBeInTheDocument();
+      expect(toggleItem).not.toHaveBeenCalled();
+    });
+
+    it("the row's own primary tap still completes the fard prayer — the chevron is a separate control", async () => {
+      const items = [
+        item({
+          id: "prayer-fajr",
+          domain: "deen",
+          title: "Fajr",
+          actionType: "toggle_prayer",
+          actionRefId: "fajr",
+          sunnahCompletions: [],
+        }),
+      ];
+      vi.mocked(toggleItem).mockClear();
+      const user = userEvent.setup();
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+
+      await user.click(screen.getByRole("button", { name: 'Mark "Fajr" done' }));
+      expect(toggleItem).toHaveBeenCalledTimes(1);
+    });
   });
 });

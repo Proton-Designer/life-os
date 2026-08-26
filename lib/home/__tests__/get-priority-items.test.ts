@@ -14,6 +14,7 @@ function emptyDataSource(overrides: Partial<HomeDataSource> = {}): HomeDataSourc
   return {
     getProfile: async () => CHICAGO_PROFILE,
     getPrayers: async () => [],
+    getSunnahCompletions: async () => [],
     getKillListItems: async () => [],
     getTasks: async () => [],
     getTasksCompletedBetween: async () => [],
@@ -48,6 +49,32 @@ describe("getPriorityItems", () => {
     expect(dhuhrItem?.urgencyBucket).toBe("right_now");
     expect(dhuhrItem?.actionType).toBe("toggle_prayer");
     expect(dhuhrItem?.domain).toBe("deen");
+  });
+
+  it("carries a prayer's already-completed sunnah slots on its PriorityItem, scoped to that prayer only", async () => {
+    const now = new Date("2026-08-10T00:00:00Z");
+    const times = calculatePrayerTimes({
+      date: now,
+      lat: CHICAGO_PROFILE.location_lat,
+      lng: CHICAGO_PROFILE.location_lng,
+      timezoneOffsetMinutes: -300,
+      calcMethod: "MWL",
+      asrMadhab: "standard",
+    });
+    const thirtyMinBeforeDhuhr = new Date(times.dhuhr.getTime() - 30 * 60_000);
+
+    const dataSource = emptyDataSource({
+      getPrayers: async () => [{ id: "p1", prayer_name: "dhuhr", status: "pending", logged_at: null }],
+      getSunnahCompletions: async () => [
+        { prayer_name: "dhuhr", slot: "before" },
+        { prayer_name: "fajr", slot: "before" },
+      ],
+    });
+
+    const items = await getPriorityItems("user-1", thirtyMinBeforeDhuhr, dataSource);
+    const dhuhrItem = items.find((i) => i.actionRefId === "dhuhr");
+
+    expect(dhuhrItem?.sunnahCompletions).toEqual(["before"]);
   });
 
   it("buckets a task due today with no time as later_today", async () => {

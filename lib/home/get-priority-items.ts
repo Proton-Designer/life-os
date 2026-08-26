@@ -25,6 +25,8 @@ export type HomeProfile = {
 };
 
 export type HomePrayerRow = { id: string; prayer_name: string; status: string; logged_at: string | null };
+/** A single completed rawatib slot for one prayer today — same shape Deen's own page reads from sunnah_logs. */
+export type HomeSunnahRow = { prayer_name: string; slot: string };
 export type HomeKillListRow = {
   id: string;
   text: string;
@@ -60,6 +62,8 @@ export type HomeFitnessData = {
 export type HomeDataSource = {
   getProfile: (userId: string) => Promise<HomeProfile | null>;
   getPrayers: (userId: string, date: string) => Promise<HomePrayerRow[]>;
+  /** Reuses the exact query app/(app)/deen/page.tsx already runs against sunnah_logs — do not write a second one. */
+  getSunnahCompletions: (userId: string, date: string) => Promise<HomeSunnahRow[]>;
   getKillListItems: (userId: string, date: string) => Promise<HomeKillListRow[]>;
   getTasks: (userId: string, date: string) => Promise<HomeTaskRow[]>;
   /** Tasks completed within [dayStartIso, dayEndIso) — independent of due_date, unlike getTasks. Feeds getCompletedItemsToday: "completed today" means completed_at fell today, not due_date = today. */
@@ -96,6 +100,16 @@ export function defaultDataSource(): HomeDataSource {
         .select("id, prayer_name, status, logged_at")
         .eq("user_id", userId)
         .eq("date", date);
+      return data ?? [];
+    },
+    async getSunnahCompletions(userId, date) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("sunnah_logs")
+        .select("prayer_name, slot")
+        .eq("user_id", userId)
+        .eq("date", date)
+        .eq("completed", true);
       return data ?? [];
     },
     async getKillListItems(userId, date) {
@@ -229,8 +243,9 @@ export async function getPriorityItems(
   const dateStr = localDateString(now, timezone);
 
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
-  const [prayerRows, killListRows, taskRows, fitnessData] = await Promise.all([
+  const [prayerRows, sunnahRows, killListRows, taskRows, fitnessData] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
+    dataSource.getSunnahCompletions(userId, dateStr),
     dataSource.getKillListItems(userId, dateStr),
     dataSource.getTasks(userId, dateStr),
     dataSource.getFitness(userId, dateStr, dayOfWeek),
@@ -275,6 +290,9 @@ export async function getPriorityItems(
       id: `prayer-${prayerName}`,
       domain: "deen",
       title,
+      sunnahCompletions: sunnahRows
+        .filter((s) => s.prayer_name === prayerName)
+        .map((s) => s.slot as "before" | "after" | "witr"),
       dueAt,
       windowEndAt: window ? window.end : null,
       urgencyBucket: bucket,

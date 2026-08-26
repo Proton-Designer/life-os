@@ -32,6 +32,14 @@ export type PriorityItem = {
   id: string;
   domain: Domain;
   title: string;
+  /**
+   * Populated only for `actionType: "toggle_prayer"` items — the rawatib
+   * slots ("before"/"after"/"witr", per lib/deen/sunnah.ts) already logged
+   * for this prayer today. Lets Home's Now module render the same sunnah
+   * disclosure Deen's own PrayerRow does (2026-08-25/26). Undefined for
+   * every other actionType.
+   */
+  sunnahCompletions?: ("before" | "after" | "witr")[];
   dueAt: Date | null;
   /**
    * When this item is a WINDOW (currently only prayers — dueAt is the

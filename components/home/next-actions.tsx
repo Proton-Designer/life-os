@@ -12,6 +12,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { TaskRowList, type TaskRowItem } from "@/components/shared/task-row-list";
+import { SunnahDisclosure } from "@/components/deen/sunnah-disclosure";
+import { sunnahForPrayer } from "@/lib/deen/sunnah";
+import type { PrayerName } from "@/lib/prayer-times/windows";
 
 const TICK_MS = 60 * 1000;
 
@@ -44,13 +47,25 @@ function metaFor(item: PriorityItem, now: Date, isMostUrgent: boolean): string {
   return timeText;
 }
 
+// A prayer row gets the same sunnah disclosure Deen's own PrayerRow shows
+// (2026-08-25/26, Opus Lead ruling) — a chevron marker here, rendered via
+// TaskRowList's generic renderExpanded (see NextActions' own renderExpanded
+// below). Every other item type gets no `expand` at all, so no chevron
+// renders for them.
 function toTaskRowItem(item: PriorityItem, now: Date, isMostUrgent: boolean): TaskRowItem {
+  const hasSunnah = item.actionType === "toggle_prayer" && sunnahForPrayer(item.actionRefId as PrayerName).length > 0;
   return {
     id: item.id,
     title: item.title,
     domain: item.domain,
     meta: metaFor(item, now, isMostUrgent),
     mode: "toggle",
+    expand: hasSunnah
+      ? {
+          ariaLabel: `Sunnah for ${item.title}`,
+          badge: `${(item.sunnahCompletions ?? []).length}/${sunnahForPrayer(item.actionRefId as PrayerName).length}`,
+        }
+      : undefined,
   };
 }
 
@@ -140,6 +155,24 @@ export function NextActions({
     await toggleItem(original);
   }
 
+  // TaskRowList is generic and never learns what's inside an `expand`
+  // panel — it just calls this. Today the only row that ever sets `expand`
+  // is a prayer row (toTaskRowItem above), so this only ever renders
+  // SunnahDisclosure, but the shared component has no dependency on that
+  // being true.
+  function renderExpanded(row: TaskRowItem, collapse: () => void) {
+    const original = byId.get(row.id);
+    if (!original || original.actionType !== "toggle_prayer") return null;
+    return (
+      <SunnahDisclosure
+        date={original.date}
+        prayerName={original.actionRefId as PrayerName}
+        sunnahCompletions={original.sunnahCompletions ?? []}
+        onCollapse={collapse}
+      />
+    );
+  }
+
   // The "all clear" message means nothing is currently ACTIONABLE — which
   // includes the fitness row, even though it never flows through
   // TaskRowList's own items. Showing "You're all clear" above a still-
@@ -165,7 +198,7 @@ export function NextActions({
           degrades a log-mode row to inert (rather than throwing) if one
           ever shows up without this, so omitting it here is safe, not a
           landmine. */}
-      <TaskRowList items={rowItems} onComplete={handleComplete} emptyState={emptyStateNode} />
+      <TaskRowList items={rowItems} onComplete={handleComplete} emptyState={emptyStateNode} renderExpanded={renderExpanded} />
       {fitnessItem && (
         <ul className="flex flex-col gap-1">
           <FitnessRow item={fitnessItem} now={now} isMostUrgent={fitnessItem.id === mostUrgent} />

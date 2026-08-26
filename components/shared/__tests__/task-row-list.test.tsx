@@ -334,4 +334,105 @@ describe("TaskRowList", () => {
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('item "f1"'));
     consoleError.mockRestore();
   });
+
+  describe("expand / renderExpanded (2026-08-25/26 chevron disclosure)", () => {
+    it("renders no chevron for a row with no `expand` marker, even when renderExpanded is provided", () => {
+      const onComplete = vi.fn(async () => {});
+      render(
+        <TaskRowList
+          items={[toggleItem({ id: "t1", title: "Fajr" })]}
+          onComplete={onComplete}
+          renderExpanded={() => <div>panel</div>}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /sunnah/i })).not.toBeInTheDocument();
+    });
+
+    it("renders no chevron for an `expand` row when renderExpanded was never provided", () => {
+      const onComplete = vi.fn(async () => {});
+      render(
+        <TaskRowList
+          items={[toggleItem({ id: "t1", title: "Fajr", expand: { ariaLabel: "Sunnah for Fajr" } })]}
+          onComplete={onComplete}
+        />
+      );
+      expect(screen.queryByRole("button", { name: "Sunnah for Fajr" })).not.toBeInTheDocument();
+    });
+
+    it("shows the chevron's badge and expands the panel on tap, without completing the row", async () => {
+      const onComplete = vi.fn(async () => {});
+      const user = userEvent.setup();
+      render(
+        <TaskRowList
+          items={[toggleItem({ id: "t1", title: "Fajr", expand: { ariaLabel: "Sunnah for Fajr", badge: "1/1" } })]}
+          onComplete={onComplete}
+          renderExpanded={(item) => <div data-testid="panel">Sunnah panel for {item.title}</div>}
+        />
+      );
+
+      expect(screen.getByText("1/1")).toBeInTheDocument();
+      expect(screen.queryByTestId("panel")).not.toBeInTheDocument();
+
+      const chevron = screen.getByRole("button", { name: "Sunnah for Fajr" });
+      expect(chevron).toHaveAttribute("aria-expanded", "false");
+      await user.click(chevron);
+
+      expect(chevron).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByTestId("panel")).toHaveTextContent("Sunnah panel for Fajr");
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it("a tap on the chevron does not also fire the row's own complete handler (sibling, not nested)", async () => {
+      const onComplete = vi.fn(async () => {});
+      const user = userEvent.setup();
+      render(
+        <TaskRowList
+          items={[toggleItem({ id: "t1", title: "Fajr", expand: { ariaLabel: "Sunnah for Fajr" } })]}
+          onComplete={onComplete}
+          renderExpanded={() => <div>panel</div>}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Sunnah for Fajr" }));
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it("the primary row tap still completes the item — the chevron is a separate control", async () => {
+      const onComplete = vi.fn(async () => {});
+      const user = userEvent.setup();
+      render(
+        <TaskRowList
+          items={[toggleItem({ id: "t1", title: "Fajr", expand: { ariaLabel: "Sunnah for Fajr" } })]}
+          onComplete={onComplete}
+          renderExpanded={() => <div>panel</div>}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: 'Mark "Fajr" done' }));
+      expect(onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("the expanded panel's `collapse` callback closes it, same as re-clicking the chevron", async () => {
+      const onComplete = vi.fn(async () => {});
+      const user = userEvent.setup();
+      render(
+        <TaskRowList
+          items={[toggleItem({ id: "t1", title: "Fajr", expand: { ariaLabel: "Sunnah for Fajr" } })]}
+          onComplete={onComplete}
+          renderExpanded={(_item, collapse) => (
+            <button type="button" onClick={collapse}>
+              Auto-collapse now
+            </button>
+          )}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Sunnah for Fajr" }));
+      expect(screen.getByRole("button", { name: "Auto-collapse now" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Auto-collapse now" }));
+      expect(screen.queryByRole("button", { name: "Auto-collapse now" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Sunnah for Fajr" })).toHaveAttribute("aria-expanded", "false");
+    });
+  });
 });

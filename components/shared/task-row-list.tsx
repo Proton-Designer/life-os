@@ -47,6 +47,16 @@ export type TaskRowItem = {
   log?: TaskLogSpec;
   /** Set once completed. Absent/null items render in the active list. */
   completedAtIso?: string | null;
+  /**
+   * Optional chevron-disclosure marker (2026-08-25/26, Opus Lead ruling).
+   * When present, ActiveRow renders a chevron button beside the row —
+   * separate from the row's own tap target, stopPropagation'd — that
+   * toggles an expanded panel below it, rendered via TaskRowList's
+   * `renderExpanded` prop. TaskRowList has no idea what's inside that
+   * panel (today: Home's sunnah disclosure for a prayer row) — it only
+   * knows a row wants one.
+   */
+  expand?: { ariaLabel: string; badge?: string };
 };
 
 export type TaskLogResult = {
@@ -102,17 +112,37 @@ function ActiveRow({
   onComplete,
   onOpenLog,
   onRemove,
+  renderExpanded,
 }: {
   item: TaskRowItem;
   onComplete: (item: TaskRowItem) => Promise<void>;
   /** Absent when the caller never wired onLog — a log-mode row then renders inert rather than throwing (see the effect below). */
   onOpenLog?: (item: TaskRowItem) => void;
   onRemove?: (item: TaskRowItem) => Promise<void>;
+  /**
+   * See TaskRowItem.expand — the panel content for a row that opts into a
+   * chevron disclosure. `collapse` lets that content ask to be closed
+   * (e.g. an auto-collapse timer), same as it closing via the chevron
+   * itself.
+   *
+   * STRUCTURAL GUARANTEE (Lead review, 2026-08-25/26): ActiveRow renders
+   * this as a SIBLING of the row's own clickable button, never nested
+   * inside it — a click inside whatever you return here cannot bubble
+   * into the row's onComplete/onOpenLog handler. This matters concretely
+   * on Home, where the row's primary tap completes a fard prayer: without
+   * this guarantee, a tap inside a sunnah disclosure would silently also
+   * mark the fard prayer done. Don't ALSO rely on this alone, though — the
+   * content you return should stopPropagation on its own interactive
+   * elements too (see SunnahDisclosure), since a future caller nesting
+   * differently is a mistake this contract can't catch for them.
+   */
+  renderExpanded?: (item: TaskRowItem, collapse: () => void) => React.ReactNode;
 }) {
   const [justCompleted, setJustCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isRemoving, setIsRemoving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const inertLog = item.mode === "log" && !onOpenLog;
   useEffect(() => {
@@ -166,38 +196,56 @@ function ActiveRow({
   }
 
   return (
-    <li className="flex items-center">
-      {/* The whole row is the tap target (Ayman: "tapped or clicked
-          anywhere on its box"), not just a small circle — real
-          min-height for a comfortable touch target. Sized flex-1 so the
-          sibling Remove button (when present) sits outside it, never
-          nested inside. */}
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={isPending || inertLog}
-        aria-label={item.mode === "log" ? `Log ${item.title}` : `Mark "${item.title}" done`}
-        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
-      >
-        <Checkbox checked={justCompleted} />
-        <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm transition-colors duration-300",
-            justCompleted && "text-muted-foreground line-through decoration-accent-business"
-          )}
+    <li className="flex flex-col">
+      <div className="flex items-center">
+        {/* The whole row is the tap target (Ayman: "tapped or clicked
+            anywhere on its box"), not just a small circle — real
+            min-height for a comfortable touch target. Sized flex-1 so the
+            sibling chevron/Remove controls (when present) sit outside it,
+            never nested inside. */}
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={isPending || inertLog}
+          aria-label={item.mode === "log" ? `Log ${item.title}` : `Mark "${item.title}" done`}
+          className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
         >
-          {item.title}
-        </span>
-        {item.mode === "log" && item.log?.kind === "count" && (
-          <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-            {item.log.current}/{item.log.target} {item.log.unit}
+          <Checkbox checked={justCompleted} />
+          <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm transition-colors duration-300",
+              justCompleted && "text-muted-foreground line-through decoration-accent-business"
+            )}
+          >
+            {item.title}
           </span>
+          {item.mode === "log" && item.log?.kind === "count" && (
+            <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+              {item.log.current}/{item.log.target} {item.log.unit}
+            </span>
+          )}
+          {item.meta && <span className="shrink-0 text-xs text-muted-foreground">{item.meta}</span>}
+        </button>
+        {item.expand && renderExpanded && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={item.expand.ariaLabel}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/40"
+          >
+            {item.expand.badge && <span className="font-mono tabular-nums">{item.expand.badge}</span>}
+            <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} aria-hidden />
+          </button>
         )}
-        {item.meta && <span className="shrink-0 text-xs text-muted-foreground">{item.meta}</span>}
-      </button>
-      {onRemove && <RemoveButton title={item.title} onClick={handleRemove} />}
+        {onRemove && <RemoveButton title={item.title} onClick={handleRemove} />}
+      </div>
       {error && <p className="px-3 pb-1 text-xs text-destructive">{error}</p>}
+      {expanded && item.expand && renderExpanded && renderExpanded(item, () => setExpanded(false))}
     </li>
   );
 }
@@ -350,6 +398,7 @@ export function TaskRowList({
   onLog,
   onRemove,
   emptyState,
+  renderExpanded,
 }: {
   items: TaskRowItem[];
   /** Reject (throw) to leave the row uncompleted and show an inline error — never let this resolve silently on failure. */
@@ -378,6 +427,8 @@ export function TaskRowList({
    */
   onRemove?: (item: TaskRowItem) => Promise<void>;
   emptyState?: React.ReactNode;
+  /** See TaskRowItem.expand. Omit entirely if no item in this list ever sets `expand` — the chevron itself only renders when both are present. */
+  renderExpanded?: (item: TaskRowItem, collapse: () => void) => React.ReactNode;
 }) {
   const [optimisticItems, applyOptimistic] = useOptimistic(items, (state, action: OptimisticAction) => {
     if (action.type === "complete") {
@@ -461,6 +512,7 @@ export function TaskRowList({
               onComplete={handleComplete}
               onOpenLog={onLog ? setLogItem : undefined}
               onRemove={onRemove ? handleRemove : undefined}
+              renderExpanded={renderExpanded}
             />
           ))}
         </ul>
