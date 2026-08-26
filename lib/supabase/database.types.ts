@@ -209,6 +209,87 @@ export type Database = {
           },
         ]
       }
+      class_assessments: {
+        Row: {
+          class_id: string
+          created_at: string
+          date: string
+          id: string
+          name: string
+          task_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          date: string
+          id?: string
+          name: string
+          task_id?: string | null
+          type: string
+          user_id?: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          date?: string
+          id?: string
+          name?: string
+          task_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_assessments_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_assessments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      classes: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          instructor: string | null
+          room: string | null
+          short_name: string | null
+          syllabus_path: string | null
+          user_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          instructor?: string | null
+          room?: string | null
+          short_name?: string | null
+          syllabus_path?: string | null
+          user_id?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          instructor?: string | null
+          room?: string | null
+          short_name?: string | null
+          syllabus_path?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       coop_targets: {
         Row: {
           completed_at: string | null
@@ -1079,6 +1160,7 @@ export type Database = {
         Row: {
           cancelled_on: string | null
           class_group_id: string | null
+          class_id: string | null
           created_at: string
           day_of_week: number | null
           domain: string
@@ -1095,6 +1177,7 @@ export type Database = {
         Insert: {
           cancelled_on?: string | null
           class_group_id?: string | null
+          class_id?: string | null
           created_at?: string
           day_of_week?: number | null
           domain: string
