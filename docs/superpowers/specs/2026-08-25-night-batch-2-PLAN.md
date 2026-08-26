@@ -18,7 +18,7 @@ Status vocabulary: `BACKLOG` → `DEV` → `TEST` → `VERIFY` → `ITERATE` →
 | 2 | Cross-device live sync (prayers, tasks, everywhere) | A | BACKLOG | Root cause known — see Ruling R1 |
 | 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | Weight/waist relocated to CycleProgressPanel/BodyModule as on-demand log (no task semantics). Lead caught a real regression on first pass: the two custom_habits rows (protein/steps) stayed live and unarchived, feeding Home's fitness pulse/snapshot denominator with no way left to complete them — archived on SEED, applied to real account by Lead; toggleDailyCheck/ensureDailyCheckHabits + the clear-daily-check test route deleted outright, confirmed via grep nothing can recreate the rows |
 | 4 | Work schedule: today highlight, edit-hours popup, real times | B | DEV | Also verify "Cancel this week" actually works |
-| 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | TEST | Wizard (6bea95d) + module/migration 050 (87119ee) landed; tsc/vitest clean, live-verifying next |
+| 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | VERIFY | Wizard (6bea95d) + module/migration 050 (87119ee) landed; live-verified against SEED (wizard 3-step flow incl. date chip, grouping/KPI update, Edit-dialog remove) — console clean, DB state confirmed via psql, test task cleaned up |
 | 6a | Schema: `classes`, `class_assessments`, syllabus storage bucket | C | BACKLOG | Migration 048 + first Supabase Storage bucket in the app |
 | 6b | School: per-class cards grid | C | BACKLOG | Six classes, data-driven |
 | 6c | School: expanded class view (assessments, syllabus, class task list) | C | BACKLOG | Reuses B's wizard from item 5 |
@@ -105,3 +105,64 @@ class-view files C creates), `app/(app)/work/**`, `components/shared/domain-sche
 `lib/supabase/database.types.ts`
 
 Migration numbers: **048 = C, 049 = A, 050 = B.**
+
+---
+
+# Batch 3 — added 2026-08-25 23:24 CDT
+
+| # | Item | Owner | Status | Notes |
+|---|---|---|---|---|
+| B3-1 | Topbar: date to left; Check-in icon top right; order Check-in / Calendar / Notifications | B | BACKLOG | Remove the 2h window entirely; glow every 2h instead |
+| B3-2 | Deen: "Salah today" → "Salah" + View More monthly calendar (#/5 rings, day → edit) | C | BACKLOG | Scrollable past/future months |
+| B3-3 | Business: kill list View More (week/month/3mo) + "Incompleted this Week" | B | BACKLOG | Day → items popup, status editable |
+| B3-4 | **Fresh-start data wipe of Ayman's real account** | Lead | BACKLOG | Destructive. See R7. Runs AFTER all verification, BEFORE deploy |
+
+## R7 — the data wipe is destructive and irreversible; back it up first
+
+Ayman explicitly and specifically authorized this, listing what goes and what
+stays. It is not a judgement call and it is not to be second-guessed. But it is
+irreversible, it targets his **real production account**, and there is no staging
+copy of that data anywhere.
+
+**Therefore: `pg_dump` the affected tables to a local file BEFORE deleting
+anything.** If he wakes up and says "actually I wanted my prayer streak," the
+answer must not be "it's gone." The backup is not a reason to be careless — it's
+the cheap insurance that makes a one-way door reversible for a few hours.
+
+**REMOVE (his account; SEED gets the same treatment so the two stay comparable):**
+- all weekly goals, current and past
+- all prayer data — `prayers`, sunnah logs, qada log, streaks
+- all habits and their logs/insights/progress (`deen_habits`, `deen_habit_logs`,
+  `custom_habits`, `habit_logs`, `deen_weekly_focus`)
+- all reflections
+- all past fitness *progress* — sessions, sets, body metrics, benchmarks, cycles
+- all kill-list data
+
+**KEEP — explicitly named by him, do not touch:**
+- school classes (`classes`, `schedule_events` for school) — "set in stone"
+- work schedule (`schedule_events` for work)
+- **fitness PLANS** (`workout_plans`, `plan_sessions`, `plan_session_exercises`,
+  `plan_micro_exercises`, `active_workout_plans`, `exercises`) — "keep the fitness
+  plans though, just not the progress"
+- the profile itself, and anything else not named above
+
+**"Start counting from tomorrow"** is a consequence of empty history, not a
+setting to write. Delete the rows; do not fabricate an epoch/start-date column.
+
+Verify with before/after row counts per table, and confirm the KEEP list is
+untouched by counting those too.
+
+## R8 — commit discipline corrected (2026-08-25 23:24)
+
+`git commit -m "msg" -- <paths>` **ignores the index** and commits working-tree
+state for those paths. My earlier standing instruction to always use that form
+was wrong; it caused one cross-engineer misattribution tonight (`87119ee`).
+
+**Correct flow for everyone, for the rest of this project:**
+
+    git add <explicit paths>
+    git diff --cached          # authoritative — exactly what will be committed
+    git commit -m "msg"        # NO pathspec
+
+The index is a snapshot: once staged, a concurrent save by another engineer into
+one of your files cannot enter your commit. A pathspec commit has no snapshot.

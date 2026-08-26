@@ -33,3 +33,40 @@ Hit **three times in one night** (2026-08-24/25), in three different layers:
 **Watch for the inverse too.** A function that normalises internally will *re-localise* a pseudo-instant like `new Date(\`${dateStr}T00:00:00Z\`)` a day backward in any zone behind UTC. If you pass a date-derived anchor into such a function, make it a real local instant — noon local is safest, being maximally far from both midnight boundaries.
 
 **Tests must pin the boundary**, not just the happy path: the same local time either side of the UTC rollover (e.g. 18:59 and 19:01 CDT) must produce identical results, and at least one timezone *east* of UTC, where the bug inverts.
+
+## `git commit -- <paths>` ignores the index — never use it in a shared tree
+
+Several agents edit this working tree simultaneously. The obvious defence —
+"only ever commit explicit paths" — is **not** what it appears to be:
+
+```
+git commit -m "msg" -- <paths>     # WRONG in a shared tree
+```
+
+Git's documentation is explicit: when a pathspec is given on the command line,
+it commits the contents of the matching files *without recording the changes
+already staged*. It reads the **working tree**, not the index. So anything
+another agent has saved into one of your files between your last check and the
+commit lands in your commit, under your name — and any staging you did first is
+silently discarded.
+
+That is not hypothetical. On 2026-08-25 an engineer deliberately isolated a
+colleague's uncommitted line out of the index with `git apply --cached`, then
+committed with a pathspec, and the line went in anyway (`87119ee`).
+
+**Use the index instead, and verify it:**
+
+```
+git add <explicit paths>
+git diff --cached          # authoritative: exactly what will be committed
+git commit -m "msg"        # no pathspec
+```
+
+The index is a **snapshot**. Once you `git add`, a concurrent save by another
+agent into one of your files cannot enter your commit. A pathspec commit has no
+snapshot at all, so even a correct `git diff HEAD -- <paths>` a second earlier
+can be invalidated by someone else's editor flushing in the gap.
+
+Still applies as before: explicit paths only, `git diff HEAD -- <path>` on every
+file before you stage it, and never `git add -A`, `git commit -a`, `git stash`,
+`git reset --hard`, `git checkout --`, or `git clean` in the shared tree.
