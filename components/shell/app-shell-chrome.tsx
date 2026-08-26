@@ -4,6 +4,7 @@ import { MobileIsland } from "./mobile-island";
 import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-gate";
 import { CheckinToast } from "@/components/checkin/checkin-toast";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
+import { RealtimeSyncProvider } from "@/components/realtime/realtime-sync-provider";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
@@ -35,19 +36,18 @@ export function AppShellChrome({
   onSaveBusiness: SaveGoalAction;
   children: React.ReactNode;
 }) {
-  // Unused until RealtimeSyncProvider is re-mounted — see the comment below.
-  void userId;
   return (
     <AllocationQueueProvider>
-      {/* RealtimeSyncProvider is deliberately NOT mounted yet (batch 2, item 2, 2026-08-26
-          — see e2e/realtime-sync.spec.ts for the writeup). The mechanism reaches
-          SUBSCRIBED with a correct filter and auth token, and an isolated Node
-          client reliably receives postgres_changes events for the same table +
-          filter, but the browser client intermittently receives nothing for a
-          live write with no confirmed root cause. Mounting it would mean an
-          unreliable sync layer on Ayman's phone, which is worse than the bug it
-          fixes. `userId` is still threaded through so re-enabling this later is
-          a one-line change. */}
+      {/* Re-mounted 2026-08-26 (batch 2 afternoon): root cause found and
+          fixed — see components/realtime/realtime-sync-provider.tsx's own
+          comment and e2e/realtime-sync.spec.ts's history. The old
+          intermittent-silence bug was a session-restore race: subscribing
+          before createBrowserClient's async cookie session restore
+          resolves joins the channel under the anon role forever (RLS then
+          matches zero rows, but the channel still reports SUBSCRIBED).
+          The provider now awaits the session and sets realtime auth
+          itself before ever building the channel. */}
+      <RealtimeSyncProvider userId={userId} />
       <div className="lg:flex lg:min-h-screen">
         <AppSidebar account={account} />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">

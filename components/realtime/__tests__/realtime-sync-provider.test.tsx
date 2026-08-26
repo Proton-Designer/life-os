@@ -30,10 +30,15 @@ function makeFakeChannel() {
 let fakeChannel: ReturnType<typeof makeFakeChannel>;
 const channelMock = vi.fn(() => fakeChannel);
 
+const getSessionMock = vi.fn(async () => ({ data: { session: { access_token: "real-jwt" } } }));
+const setAuthMock = vi.fn(async () => {});
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(() => ({
     channel: channelMock,
     removeChannel: removeChannelMock,
+    auth: { getSession: getSessionMock },
+    realtime: { setAuth: setAuthMock },
   })),
 }));
 
@@ -48,7 +53,19 @@ describe("RealtimeSyncProvider", () => {
     refreshMock.mockReset();
     removeChannelMock.mockReset();
     channelMock.mockClear();
+    getSessionMock.mockClear();
+    getSessionMock.mockImplementation(async () => ({ data: { session: { access_token: "real-jwt" } } }));
+    setAuthMock.mockClear();
   });
+
+  // Every real subscribe now happens after two awaited steps
+  // (getSession() then setAuth()) — flush both before asserting on the
+  // channel, matching the real join()'s shape.
+  async function flushJoin() {
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  }
 
   afterEach(() => {
     cleanup();
@@ -60,8 +77,9 @@ describe("RealtimeSyncProvider", () => {
     expect(channelMock).not.toHaveBeenCalled();
   });
 
-  it("subscribes to every synced table, filtered to the signed-in user's own rows", () => {
+  it("subscribes to every synced table, filtered to the signed-in user's own rows", async () => {
     render(<RealtimeSyncProvider userId="user-1" />);
+    await flushJoin();
 
     const tables = onCalls.map((c) => c.table);
     expect(tables).toEqual(
@@ -87,6 +105,7 @@ describe("RealtimeSyncProvider", () => {
 
   it("debounces a burst of change events into a single router.refresh()", async () => {
     render(<RealtimeSyncProvider userId="user-1" />);
+    await flushJoin();
 
     // Simulate 5 rapid-fire postgres_changes events (e.g. confirming a
     // workout session inserts several session_sets rows at once).
@@ -97,12 +116,45 @@ describe("RealtimeSyncProvider", () => {
     expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 
+  // ROOT CAUSE (2026-08-26): a channel's postgres_changes RLS scoping is
+  // fixed at JOIN time, and a session restored from cookies is async — a
+  // subscribe() that races ahead of that restore joins under the anon
+  // role forever, even though the socket looks healthy afterward. The fix
+  // is to await the session and set realtime auth ourselves BEFORE ever
+  // building the channel, deterministically — never subscribe first and
+  // hope the SDK's own internal auth listener has already caught up.
+  it("waits for the session and sets realtime auth before ever subscribing — not after", async () => {
+    let resolveSession!: (v: { data: { session: { access_token: string } } }) => void;
+    getSessionMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSession = resolve;
+        })
+    );
+
+    render(<RealtimeSyncProvider userId="user-1" />);
+    await vi.advanceTimersByTimeAsync(0);
+    // getSession() hasn't resolved yet — the channel must not exist, and
+    // subscribe() must not have been called. This is exactly the race
+    // that used to silently break sync: subscribing before the session
+    // resolves joins under the anon role forever.
+    expect(channelMock).not.toHaveBeenCalled();
+    expect(setAuthMock).not.toHaveBeenCalled();
+
+    resolveSession({ data: { session: { access_token: "real-jwt" } } });
+    await flushJoin();
+
+    // setAuth must be called (and awaited) before the channel is ever built.
+    expect(setAuthMock).toHaveBeenCalledWith("real-jwt");
+    expect(channelMock).toHaveBeenCalledTimes(1);
+    const setAuthOrder = setAuthMock.mock.invocationCallOrder[0];
+    const channelOrder = channelMock.mock.invocationCallOrder[0];
+    expect(setAuthOrder).toBeLessThan(channelOrder);
+  });
+
   it("does not refresh on the initial subscribe — only on a RE-subscribe (reconnect)", async () => {
     render(<RealtimeSyncProvider userId="user-1" />);
-    // The actual .subscribe() call is deferred by one microtask (dodges
-    // React Strict Mode's dev-only double-invoke — see the component's
-    // own comment), so subscribeCallback isn't set until this flushes.
-    await vi.advanceTimersByTimeAsync(0);
+    await flushJoin();
 
     subscribeCallback!("SUBSCRIBED");
     await vi.advanceTimersByTimeAsync(400);
@@ -115,19 +167,32 @@ describe("RealtimeSyncProvider", () => {
     expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 
-  it("cleans up the channel on unmount", () => {
+  it("cleans up the channel on unmount", async () => {
     const { unmount } = render(<RealtimeSyncProvider userId="user-1" />);
+    await flushJoin();
     unmount();
     expect(removeChannelMock).toHaveBeenCalledWith(fakeChannel);
   });
 
-  it("re-subscribes (a new channel) if the signed-in user changes", () => {
+  it("a phantom Strict-Mode first mount never subscribes at all — its cleanup cancels the join before the awaited session resolves", async () => {
+    const { unmount } = render(<RealtimeSyncProvider userId="user-1" />);
+    // Unmount immediately, before getSession() has resolved — simulates
+    // Strict Mode's dev-only double-invoke's phantom first mount.
+    unmount();
+    await flushJoin();
+    expect(channelMock).not.toHaveBeenCalled();
+    expect(removeChannelMock).not.toHaveBeenCalled();
+  });
+
+  it("re-subscribes (a new channel) if the signed-in user changes", async () => {
     const { rerender } = render(<RealtimeSyncProvider userId="user-1" />);
+    await flushJoin();
     expect(channelMock).toHaveBeenCalledTimes(1);
 
     const secondChannel = makeFakeChannel();
     channelMock.mockReturnValueOnce(secondChannel);
     rerender(<RealtimeSyncProvider userId="user-2" />);
+    await flushJoin();
 
     expect(removeChannelMock).toHaveBeenCalledWith(fakeChannel);
     expect(channelMock).toHaveBeenCalledTimes(2);

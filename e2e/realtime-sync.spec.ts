@@ -14,64 +14,58 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 const PRAYER_NAME = "maghrib";
 const PRAYER_LABEL = "Maghrib";
 
-// HELD — 2026-08-26, Opus Lead's call. RealtimeSyncProvider is NOT mounted
-// (see the comment in components/shell/app-shell-chrome.tsx), so this test
-// is red by construction until it's re-enabled. Skipped rather than deleted
-// because the mechanism, the migration, the debounce logic, and the RLS
-// negative test are all real and want to ship tomorrow — only the mount
-// point and this test are dormant.
+// RE-ENABLED 2026-08-26 (batch 2, afternoon). Root cause found, fixed, and
+// proven with a deterministic (non-flaky) repro — full writeup below for
+// anyone who needs the history; the mechanism this test exercises is no
+// longer held.
 //
-// What's confirmed working (verified live against the real DB tonight):
-//   - supabase/migrations/049_realtime_publication.sql is applied; all 9
-//     tables are in the `supabase_realtime` publication.
-//   - RLS is enforced on the postgres_changes stream itself, independent of
-//     the client-side `filter:` — proved with an unfiltered subscription as
-//     SEED plus a synthetic other-user row inserted directly via SQL: SEED
-//     received nothing for the other user's row.
-//   - RealtimeSyncProvider's debounce (burst of writes -> one refresh) and
-//     unmount cleanup are unit-tested and correct
-//     (components/realtime/__tests__/realtime-sync-provider.test.tsx).
-//   - Found and fixed a real bug: React Strict Mode's dev-only
-//     double-invoke was sending the server a phx_join immediately followed
-//     by a phx_leave for the SAME (schema, table, filter) content before
-//     the first join's reply ever came back. Deferring the actual
-//     `channel.subscribe()` call by one microtask means the phantom first
-//     mount's cleanup cancels it before any phx_join is sent, so only the
-//     mount that survives to the next tick ever joins — no join/leave
-//     churn at all. This is real and correct, but it turned out NOT to be
-//     the reason events go missing (see below).
+// ROOT CAUSE: a channel's postgres_changes RLS scoping is fixed at JOIN
+// time. `createBrowserClient`'s session restore from cookies is
+// asynchronous (GoTrueClient.initialize()); the previous provider deferred
+// `channel.subscribe()` by only one microtask (a fix for a real but
+// SEPARATE bug — see below), which is nowhere near long enough to
+// guarantee the session has finished restoring. When `subscribe()` won
+// that race, the join went out under the anon role. RLS then matched zero
+// rows for postgres_changes on that channel FOREVER — and critically, the
+// channel still reported SUBSCRIBED, and a later `realtime.setAuth()`
+// call (the SDK's own internal auth-state listener catching up, or an
+// explicit call) updated the socket's general auth but did NOT
+// retroactively re-scope the already-established postgres_changes
+// registration. This is why the symptom looked "healthy": correct filter,
+// correct eventual access token on the socket, SUBSCRIBED status — and
+// still zero events, permanently, for that one page load.
 //
-// What's still broken, unexplained, and the actual reason this is held:
-//   A standalone Node script (supabase-js directly, no @supabase/ssr, no
-//   React) that signs in, subscribes to `prayers` with the exact same
-//   filter our provider uses, and waits for a raw SQL INSERT/UPDATE,
-//   RELIABLY receives the postgres_changes event — reproduced repeatedly,
-//   including with 9 tables bound on one channel (matching the provider
-//   exactly) and with a filter list containing the SEED user's id.
+// Proven deterministically (no browser, no timing luck) with a standalone
+// script: subscribe with only the anon key attached, THEN sign in
+// (triggering the SDK's normal self-heal `setAuth()` push) — the event
+// never arrives. Reverse the order — resolve the session BEFORE
+// subscribing — and the identical write arrives in well under a second,
+// every time. This is why the previous investigation's "auth timing ruled
+// out" conclusion was wrong: it checked whether the socket held a correct
+// token by the time SUBSCRIBED fired, which is always true (the post-join
+// self-heal guarantees it) — not whether the token was already correct at
+// the moment the join was SENT, which is the actual determining factor.
 //
-//   The real browser app, from a clean single mount (confirmed SUBSCRIBED,
-//   correct access token attached to the socket, server-echoed binding ids
-//   matching what was requested), INTERMITTENTLY receives nothing for a
-//   live write — reproduced multiple times tonight, including immediately
-//   after a full dev-server restart with no other tab, script, or test
-//   context connected. Ruled out as the cause: auth timing (session is
-//   present and attached before SUBSCRIBED fires), the Strict-Mode churn
-//   above (fixed, problem persisted), multi-table binding (works fine in
-//   the isolated Node reproduction), and the client-side filter string
-//   (byte-identical to the working Node case). Not ruled out: something
-//   server-side about multiple simultaneous or recently-superseded
-//   subscriptions to identical (schema, table, filter) content — the
-//   server assigns the SAME numeric binding id to that content across
-//   unrelated channels/connections, which smells like a shared/dedup'd
-//   registration that this session did not get to the bottom of.
+// FIX: RealtimeSyncProvider (components/realtime/realtime-sync-provider.tsx)
+// now `await`s `supabase.auth.getSession()` and explicitly calls
+// `supabase.realtime.setAuth(session.access_token)` itself BEFORE ever
+// building the channel — never subscribing first and trusting the SDK's
+// internal listener to have already caught up. This also naturally
+// subsumes the earlier Strict-Mode double-invoke fix (a real, separate bug
+// — the dev-only double-invoke sent a phx_join immediately followed by a
+// phx_leave for the same filter content, which the one-microtask defer
+// dodged): the join is now gated behind a genuinely async step, so a
+// phantom first mount's cleanup always cancels before that step resolves.
 //
-// Next engineer: don't re-derive the above — start by reproducing the
-// "isolated Node script works, live single-tab browser session doesn't"
-// split with fresh debug instrumentation, then chase the server-side dedup
-// theory specifically (e.g. what happens with only ONE ever-connected
-// subscriber to that filter content, in total, project-wide, at the time
-// of the write).
-test.describe.skip("Cross-device realtime sync — HELD, see the block comment above", () => {
+// Also confirmed still holding from the original investigation: RLS is
+// enforced on the postgres_changes stream itself, independent of the
+// client-side `filter:` (an unfiltered subscription as SEED, plus a
+// synthetic other-user row inserted directly via SQL, received nothing for
+// the other user's row); debounce and unmount cleanup are unit-tested
+// (components/realtime/__tests__/realtime-sync-provider.test.tsx, which
+// now also covers the session-restore race directly with a mocked delayed
+// getSession()).
+test.describe("Cross-device realtime sync", () => {
   test("marking a prayer in one browser context reflects in a second context, with no manual reload or interaction there", async ({
     browser,
     baseURL,

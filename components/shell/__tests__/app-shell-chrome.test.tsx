@@ -35,6 +35,8 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(() => ({
     channel: vi.fn(() => mockChannel),
     removeChannel: vi.fn(),
+    auth: { getSession: vi.fn(async () => ({ data: { session: null } })) },
+    realtime: { setAuth: vi.fn(async () => {}) },
   })),
 }));
 

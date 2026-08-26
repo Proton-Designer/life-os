@@ -58,34 +58,65 @@ export function RealtimeSyncProvider({ userId }: { userId: string | null }) {
     }
 
     const supabase = createClient();
-    // One channel, one subscription per synced table — `user_id=eq.` is a
-    // Postgres Changes server-side filter (not a client-side discard), so
-    // Postgres itself only ever sends this client events for its own
-    // rows; RLS on the publication's tables is the second, independent
-    // layer underneath that filter, not a substitute for it.
-    const channel = supabase.channel(`realtime-sync:${userId}:${Math.random().toString(36).slice(2)}`);
-    for (const table of SYNCED_TABLES) {
-      channel.on(
-        "postgres_changes",
-        { event: "*", schema: "public", table, filter: `user_id=eq.${userId}` },
-        scheduleRefresh
-      );
-    }
-
-    // React Strict Mode's dev-only double-invoke (mount, cleanup, mount)
-    // otherwise sends the server a phx_join immediately followed by a
-    // phx_leave for the SAME (schema, table, filter) content — diagnosed
-    // live: this leaves the surviving second mount's channel reporting
-    // "SUBSCRIBED" while the server's underlying postgres_changes
-    // registration for that content was torn down by the first mount's
-    // leave and never actually re-attached, so no event ever arrives.
-    // Deferring the actual join by a tick means the phantom first mount's
-    // cleanup cancels it before any phx_join is ever sent — only a mount
-    // that survives to the next microtask (the real one) ever joins, so
-    // no leave/rejoin churn happens at all.
     let cancelled = false;
-    Promise.resolve().then(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    async function join() {
+      // ROOT CAUSE (found 2026-08-26, deterministic repro in the PR/commit
+      // this comment shipped with): a channel's postgres_changes RLS
+      // scoping is fixed at JOIN time. `createBrowserClient`'s session
+      // restore from cookies is ASYNC (GoTrueClient.initialize()) — if
+      // channel.subscribe() fires before that resolves, the join goes out
+      // under the anon role, RLS then matches zero rows for the lifetime
+      // of that channel, and the channel still reports SUBSCRIBED. A
+      // *later* auth-state-triggered `realtime.setAuth()` (the SDK's own
+      // internal self-heal, or another explicit call) updates the socket's
+      // general auth but does NOT retroactively re-scope the
+      // already-established postgres_changes registration — proved by
+      // signing in a NODE client (no React, no Strict Mode) after an
+      // anon-role join: the socket ends up holding a valid session JWT,
+      // status stays SUBSCRIBED throughout, and the event still never
+      // arrives. Only a join whose access_token was already valid at
+      // subscribe-call time ever receives anything.
+      //
+      // The fix: never let `subscribe()` race the session restore.
+      // `getSession()` awaits GoTrueClient's own initialize() — the same
+      // promise the SDK's internal auth listener depends on — so by the
+      // time it resolves we have a definitive answer, and we set the
+      // realtime auth OURSELVES from it rather than trusting the internal
+      // listener to have already fired first (unspecified ordering, not
+      // worth relying on).
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (cancelled) return;
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+      if (cancelled) return;
+
+      // One channel, one subscription per synced table — `user_id=eq.` is
+      // a Postgres Changes server-side filter (not a client-side
+      // discard), so Postgres itself only ever sends this client events
+      // for its own rows; RLS on the publication's tables is the second,
+      // independent layer underneath that filter, not a substitute for
+      // it.
+      channel = supabase.channel(`realtime-sync:${userId}:${Math.random().toString(36).slice(2)}`);
+      for (const table of SYNCED_TABLES) {
+        channel.on(
+          "postgres_changes",
+          { event: "*", schema: "public", table, filter: `user_id=eq.${userId}` },
+          scheduleRefresh
+        );
+      }
+
+      // React Strict Mode's dev-only double-invoke (mount, cleanup,
+      // mount) is naturally handled here too: the phantom first mount's
+      // cleanup sets `cancelled` before this async function ever reaches
+      // its first await's resolution (getSession() is never instant), so
+      // only the mount that survives ever calls subscribe() at all — no
+      // dedicated defer-by-a-tick hack needed once the join is already
+      // gated behind a real async step.
       channel.subscribe((status, err) => {
         if (status !== "SUBSCRIBED") {
           if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
@@ -107,13 +138,15 @@ export function RealtimeSyncProvider({ userId }: { userId: string | null }) {
         }
         hasSubscribedOnceRef.current = true;
       });
-    });
+    }
+
+    join();
 
     return () => {
       cancelled = true;
       if (debounceRef.current !== null) clearTimeout(debounceRef.current);
       hasSubscribedOnceRef.current = false;
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [userId, router]);
 
