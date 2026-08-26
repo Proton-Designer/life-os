@@ -89,21 +89,28 @@ test.describe("TaskRowList — tap to complete", () => {
     // --- Cleanup: remove the test task via School's Remove control ---
     await page.goto("/school");
     await dismissCheckinDialogIfPresent(page);
-    // Scoped to #tasks specifically (2026-08-26, B's School rebuild):
-    // /school now has a SECOND "Completed" button — components/school/
-    // completed-tasks-dialog.tsx's own KPI-strip trigger, entirely
-    // separate from TaskRowList's own inline collapsed section here. An
-    // unscoped page.getByRole("button", { name: "Completed" }) resolves
-    // ambiguously (strict-mode violation), which .catch(() => false)
-    // silently swallowed into "not visible" — skipping the click,
-    // leaving TaskRowList's own section collapsed, and timing out 30s
-    // later waiting for a Remove button that could never appear. Not a
-    // product bug: two distinct, correctly-labeled controls that happen
-    // to share a name is fine UI-wise, this spec just needed to say
-    // which one it meant.
+    // Scoped to #tasks: /school also has components/school/
+    // completed-tasks-dialog.tsx's own "Completed tasks" KPI-strip
+    // trigger — a real second control, not a naming collision (Opus
+    // Lead, 2026-08-26: it WAS colliding with TaskRowList's own
+    // "Completed" section-toggle here, an accessibility bug fixed by
+    // renaming the KPI button rather than by scoping around it — see
+    // 18410c2). Playwright's getByRole name matching is substring by
+    // default, so "Completed tasks" still matches a bare `name:
+    // "Completed"` query — #tasks keeps this locator resolving to
+    // TaskRowList's own toggle specifically, not disambiguating two
+    // same-named controls (there aren't any anymore).
     const schoolTaskPanel = page.locator("#tasks");
     const schoolCompletedToggle = schoolTaskPanel.getByRole("button", { name: "Completed" });
-    if (await schoolCompletedToggle.isVisible().catch(() => false)) {
+    // No .catch() here — a locator scoped this tightly should never
+    // throw a strict-mode ambiguity error, and if it does, that's a real
+    // regression this spec should fail loudly on, not swallow into a
+    // silent skip (Opus Lead, 2026-08-26: a catch-all that turns every
+    // error into a falsy boolean hides the next real one too).
+    // isVisible() itself already returns false, not a rejection, when
+    // the toggle simply doesn't exist yet (nothing completed) — that's
+    // the only "not visible" case this needed to handle.
+    if (await schoolCompletedToggle.isVisible()) {
       await schoolCompletedToggle.click();
     }
     await schoolTaskPanel.getByRole("button", { name: `Remove ${taskTitle}` }).click();
