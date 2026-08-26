@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { uploadClassSyllabus, removeClassSyllabus, getClassSyllabusUrl } from "@/app/(app)/school/class-actions";
 import { Button } from "@/components/ui/button";
-import { SyllabusViewerDialog } from "@/components/school/syllabus-viewer-dialog";
+import { SyllabusViewerDialog, type SyllabusViewerResult } from "@/components/school/syllabus-viewer-dialog";
 
 /**
  * Right half of the expanded class view (item 6c): upload, view (in a
@@ -19,7 +19,7 @@ export function SyllabusPanel({ classId, hasSyllabus }: { classId: string; hasSy
   const [isPending, startTransition] = useTransition();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [viewerResult, setViewerResult] = useState<SyllabusViewerResult | null>(null);
 
   function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -35,8 +35,8 @@ export function SyllabusPanel({ classId, hasSyllabus }: { classId: string; hasSy
 
   function view() {
     startTransition(async () => {
-      const url = await getClassSyllabusUrl(classId);
-      setSignedUrl(url);
+      const result = await getClassSyllabusUrl(classId);
+      setViewerResult(result);
       setViewerOpen(true);
     });
   }
@@ -88,7 +88,7 @@ export function SyllabusPanel({ classId, hasSyllabus }: { classId: string; hasSy
         </Button>
       )}
 
-      <SyllabusViewerDialog open={viewerOpen} onOpenChange={setViewerOpen} signedUrl={signedUrl} />
+      <SyllabusViewerDialog open={viewerOpen} onOpenChange={setViewerOpen} result={viewerResult} />
     </div>
   );
 }
