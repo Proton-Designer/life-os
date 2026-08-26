@@ -108,7 +108,7 @@ test.describe("School — expanded class view", () => {
   // passing. Engineers: drop the `.fixme` locally to check your own work.
   // ---------------------------------------------------------------------
 
-  test.fixme("opens fully populated with no loading states — the waterfall is gone", async ({ page }) => {
+  test("opens fully populated with no loading states — the waterfall is gone", async ({ page }) => {
     await openSchool(page);
 
     // The failure being guarded against is a dialog that paints, THEN
@@ -127,7 +127,7 @@ test.describe("School — expanded class view", () => {
     await expect(dialog.getByText(/Loading tasks/i)).toHaveCount(0);
   });
 
-  test.fixme("Edit swaps itself for Save and Cancel, and Cancel genuinely rolls back", async ({ page }) => {
+  test("Edit swaps itself for Save and Cancel, and Cancel genuinely rolls back", async ({ page }) => {
     await openSchool(page);
     const dialog = await openClass(page, "Lin Alg");
 
@@ -159,7 +159,7 @@ test.describe("School — expanded class view", () => {
     await expect(reopened.getByText(/MATH 2418/).first()).toBeVisible();
   });
 
-  test.fixme("adding a task does not re-ask for the class, and dates read 'Sep. 3rd'", async ({ page }) => {
+  test("adding a task does not re-ask for the class, and dates read 'Sep. 3rd'", async ({ page }) => {
     await openSchool(page);
     const dialog = await openClass(page, "Ameri Studies");
 

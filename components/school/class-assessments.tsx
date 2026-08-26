@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { addClassAssessment, deleteClassAssessment, type AssessmentType } from "@/app/(app)/school/class-actions";
+import { useState } from "react";
+import { Trash2 } from "lucide-react";
+import type { AssessmentType } from "@/app/(app)/school/class-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatShortDate } from "@/lib/date-utils";
 
 export type ClassAssessment = {
   id: string;
@@ -22,26 +22,41 @@ const TYPE_LABEL: Record<AssessmentType, string> = {
 };
 
 /**
- * Left half of the expanded class view (item 6c, verbatim spec): a list
- * (name, type, date) plus an Add button that opens a popup asking for
- * **type first**, then name+date — Ayman's exact ordering, not a single
- * combined form. Adding writes through `addClassAssessment`, which also
- * creates the linked task (Ruling R5) — this component never touches
- * `tasks` directly.
+ * Left half of the expanded class view (item 6c / B2 redesign, 2026-08-26
+ * afternoon batch). class-detail-dialog.tsx owns the `assessments` array
+ * and hands it down with onAdd/onUpdate/onRemove callbacks.
  *
- * A null `task_id` (the task was deleted independently through the main
- * list — schema comment in migration 048) renders with no "view task"
- * affordance; it's not an error state, just means the checklist item is
- * gone while the academic record survives.
+ * Add is available regardless of `editing` and commits immediately (the
+ * parent's onAdd calls the server right away, matching the e2e spec's
+ * expectation that adding a task/assessment never requires entering edit
+ * mode first) — it creates a new, independent row, which isn't "editing"
+ * an existing one. Only EXISTING rows are staged: once `editing` is true
+ * they become inline-editable and gain a Remove button, and those changes
+ * only commit on the dialog's outer Save (or discard on Cancel). Add still
+ * asks type-first-then-details (Ayman's exact ordering, unchanged from the
+ * original build) — a UX property of the ADD flow itself, unrelated to
+ * whether existing rows are currently staged for edit.
  */
-export function ClassAssessments({ classId, initialAssessments }: { classId: string; initialAssessments: ClassAssessment[] }) {
-  const router = useRouter();
-  const [assessments, setAssessments] = useState(initialAssessments);
+export function ClassAssessments({
+  assessments,
+  editing,
+  todayStr,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  assessments: ClassAssessment[];
+  editing: boolean;
+  /** Reference year for formatShortDate — never derive it from a raw Date (AGENTS.md). */
+  todayStr: string;
+  onAdd: (input: { name: string; type: AssessmentType; date: string }) => void;
+  onUpdate: (id: string, patch: Partial<{ name: string; type: AssessmentType; date: string }>) => void;
+  onRemove: (id: string) => void;
+}) {
   const [addStep, setAddStep] = useState<"closed" | "type" | "details">("closed");
   const [pendingType, setPendingType] = useState<AssessmentType | null>(null);
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
-  const [isPending, startTransition] = useTransition();
 
   function openAdd() {
     setAddStep("type");
@@ -58,104 +73,135 @@ export function ClassAssessments({ classId, initialAssessments }: { classId: str
   function submitDetails(e: React.FormEvent) {
     e.preventDefault();
     if (!pendingType || !name.trim() || !date) return;
-    const trimmedName = name.trim();
-    startTransition(async () => {
-      await addClassAssessment(classId, trimmedName, pendingType, date);
-      setAssessments((prev) =>
-        [...prev, { id: `pending-${Date.now()}`, name: trimmedName, type: pendingType, date, task_id: null }].sort((a, b) =>
-          a.date < b.date ? -1 : 1
-        )
-      );
-      setAddStep("closed");
-      router.refresh();
-    });
+    onAdd({ name: name.trim(), type: pendingType, date });
+    setAddStep("closed");
   }
 
-  function remove(id: string) {
-    startTransition(async () => {
-      await deleteClassAssessment(id);
-      setAssessments((prev) => prev.filter((a) => a.id !== id));
-    });
-  }
+  const hasLinkedTask = assessments.some((a) => a.task_id !== null);
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">Assessments</h3>
+        {/* Add is available regardless of `editing` — it creates a new,
+            independent row rather than modifying an existing one, so it's
+            not part of the staged edit/Save/Cancel contract (same reasoning
+            as the task wizard: only per-row edit/remove of EXISTING items
+            is staged). Commits immediately via onAdd. */}
         <Button type="button" variant="outline" size="sm" onClick={openAdd}>
-          Add
+          Add assessment
         </Button>
       </div>
 
       {assessments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No assessments yet.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-muted-foreground">
-              <th className="pb-1 font-normal">Name</th>
-              <th className="pb-1 font-normal">Type</th>
-              <th className="pb-1 font-normal">Date</th>
-              <th className="pb-1" />
-            </tr>
-          </thead>
-          <tbody>
-            {assessments.map((a) => (
-              <tr key={a.id} className="border-t border-border/40">
-                <td className="py-1.5">{a.name}</td>
-                <td className="py-1.5 text-muted-foreground">{TYPE_LABEL[a.type]}</td>
-                <td className="py-1.5 font-mono text-xs tabular-nums">{a.date}</td>
-                <td className="py-1.5 text-right">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => remove(a.id)}
-                    aria-label={`Remove ${a.name}`}
-                  >
-                    Remove
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <Dialog open={addStep !== "closed"} onOpenChange={(next) => !next && setAddStep("closed")}>
-        <DialogContent className="sm:max-w-sm">
-          {addStep === "type" ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>Assessment type</DialogTitle>
-              </DialogHeader>
-              <div className="flex flex-col gap-2">
-                {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
-                  <Button key={type} type="button" variant="outline" onClick={() => chooseType(type)}>
-                    {TYPE_LABEL[type]}
-                  </Button>
-                ))}
+        <div className="flex flex-col gap-1">
+          {/* Fixed column widths (name flexes, type/date/actions don't) so a
+              long name never pushes the date into the Remove button — the
+              exact collision Ayman's screenshot showed in the old <table>. */}
+          <div className="grid grid-cols-[1fr_7rem_6.5rem_1.75rem] gap-3 px-1 text-xs text-muted-foreground">
+            <span>Name</span>
+            <span>Type</span>
+            <span>Date</span>
+            <span aria-hidden />
+          </div>
+          {assessments.map((a) =>
+            editing ? (
+              <div
+                key={a.id}
+                className="grid grid-cols-[1fr_7rem_6.5rem_1.75rem] items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5"
+              >
+                <Input
+                  value={a.name}
+                  onChange={(e) => onUpdate(a.id, { name: e.target.value })}
+                  aria-label={`Name for ${a.name || "new assessment"}`}
+                  className="h-8"
+                />
+                <select
+                  value={a.type}
+                  onChange={(e) => onUpdate(a.id, { type: e.target.value as AssessmentType })}
+                  aria-label={`Type for ${a.name || "new assessment"}`}
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                >
+                  {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
+                    <option key={type} value={type}>
+                      {TYPE_LABEL[type]}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  type="date"
+                  value={a.date}
+                  onChange={(e) => onUpdate(a.id, { date: e.target.value })}
+                  aria-label={`Date for ${a.name || "new assessment"}`}
+                  className="h-8 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => onRemove(a.id)}
+                  aria-label={`Remove ${a.name || "this assessment"}`}
+                  className="justify-self-end rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                </button>
               </div>
-            </>
-          ) : (
-            pendingType && (
-              <>
-                <DialogHeader>
-                  <DialogTitle>{TYPE_LABEL[pendingType]} details</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={submitDetails} className="flex flex-col gap-3">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoFocus />
-                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-                  <Button type="submit" disabled={isPending || !name.trim() || !date}>
-                    Add
-                  </Button>
-                </form>
-              </>
+            ) : (
+              <div
+                key={a.id}
+                className="grid grid-cols-[1fr_7rem_6.5rem_1.75rem] items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0"
+              >
+                <span className="truncate">{a.name}</span>
+                <span className="text-muted-foreground">{TYPE_LABEL[a.type]}</span>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {formatShortDate(a.date, todayStr)}
+                </span>
+                <span aria-hidden />
+              </div>
             )
           )}
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
+
+      {editing && hasLinkedTask && (
+        <p className="text-xs text-muted-foreground">Removing an assessment also removes its linked task.</p>
+      )}
+
+      {/* Inline, not a nested Dialog — this dialog already sits inside
+          class-detail-dialog.tsx's own Dialog, and a Dialog-in-Dialog can
+          leave the outer one `aria-hidden` after the inner one closes
+          (Radix). habit-editor-dialog.tsx hit this same shape and solved it
+          the same way: a plain view state instead of nesting. */}
+      {addStep === "type" && (
+        <div className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Assessment type</p>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
+              <Button key={type} type="button" variant="outline" size="sm" onClick={() => chooseType(type)}>
+                {TYPE_LABEL[type]}
+              </Button>
+            ))}
+          </div>
+          <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => setAddStep("closed")}>
+            Cancel
+          </Button>
+        </div>
+      )}
+      {addStep === "details" && pendingType && (
+        <form onSubmit={submitDetails} className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
+          <p className="text-xs font-medium text-muted-foreground">{TYPE_LABEL[pendingType]} details</p>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoFocus />
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setAddStep("closed")}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={!name.trim() || !date}>
+              Add
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
