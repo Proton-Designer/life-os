@@ -1,57 +1,54 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// The account's own "today" (SEED's profile timezone) is not necessarily
-// the test runner machine's UTC day — using `new Date().toISOString()` to
-// pick "today" for a due-date field is exactly the class of bug this
-// whole feature fixed elsewhere (get-home-extras.ts, tonight's prayer-
-// window fix). Read it from the topbar's own dateLabel (e.g. "Mon, Aug
-// 24") instead, which is computed server-side from the real profile
-// timezone via formatTopbarDate.
-async function todaysDateString(page: Page): Promise<string> {
-  const label = await page.locator("header").getByText(/^\w{3}, \w{3} \d{1,2}$/).textContent();
-  if (!label) throw new Error("Could not read the topbar date label");
-  const match = label.match(/(\w{3}) (\d{1,2})/);
-  if (!match) throw new Error(`Unrecognized topbar date label: "${label}"`);
-  const [, monthName, day] = match;
-  const monthIndex = MONTHS.indexOf(monthName);
-  if (monthIndex === -1) throw new Error(`Unrecognized month in topbar date label: "${label}"`);
-  const year = new Date().getFullYear();
-  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
 
 // Exercises the shared TaskRowList component (2026-08-25 tap-to-complete
 // redesign) end to end: instant tap-anywhere completion on Home's Now
 // module, the collapsed-by-default Completed section, and persistence
-// across a reload. Uses School's task-add form to create a fresh, isolated
-// pending item (its own client wrapper, components/school/task-panel.tsx,
-// is a real TaskRowList caller) rather than relying on whatever the SEED
-// account's existing state happens to be — Home's Now module only ever
-// shows the SINGLE next item per domain, so pre-existing completed rows
-// from other tests can't be relied on to still be pending.
+// across a reload.
 //
-// Cleans up the task it creates via TaskRowList's own Remove control on
-// /school, so this spec is safe to re-run and doesn't accumulate SEED
-// clutter run over run.
+// Creates and removes its task through School's current task flow
+// (2026-08-26 afternoon batch: TaskWizardDialog + TaskListModule +
+// TaskEditDialog replaced the old task-panel.tsx add form this spec
+// originally drove — that component is deleted). Uses the wizard's "Today"
+// quick-pick chip rather than typing a date, so the due date is computed
+// through the account's own local timezone (the wizard's own
+// `localDateString` call) instead of this spec re-deriving "today" itself —
+// the class of bug this app has shipped from raw-Date day math before.
+//
+// Cleans up the task it creates via the test-only clear-task route
+// (app/api/test/clear-task), not through the UI: the current redesign scopes
+// both TaskListModule and TaskEditDialog on /school to open (not completed)
+// tasks, and neither Home's Now module nor School's KPI dialogs wire
+// TaskRowList's onRemove — so once this spec completes the task (which it
+// must, to test persistence-across-reload), there is no in-app path left to
+// remove or revert it. Same "no UI affordance to undo this" shape as
+// clear-prayer/clear-sunnah/clear-distraction-trigger.
 
 test.describe("TaskRowList — tap to complete", () => {
   test("completing a task on Home's Now module is instant, moves it into the collapsed Completed section, and persists across reload", async ({
     page,
+    baseURL,
   }) => {
+    const secret = process.env.E2E_TEST_SECRET;
+    if (!secret) test.skip(true, "E2E_TEST_SECRET not set — see .env.local");
+
     const taskTitle = `Playwright tap-to-complete ${Date.now()}`;
 
-    // --- Create a fresh pending task due today, via School's add form ---
+    // --- Create a fresh pending task due today, via School's task wizard ---
     await page.goto("/school");
     await dismissCheckinDialogIfPresent(page);
-    const todayStr = await todaysDateString(page);
     const taskPanel = page.locator("#tasks");
-    await taskPanel.getByPlaceholder("Add a task").fill(taskTitle);
-    // School's add form has no default due date — set it explicitly to
-    // today, per the account's OWN local day (not the test runner's).
-    await taskPanel.locator('input[type="date"]').fill(todayStr);
     await taskPanel.getByRole("button", { name: "Add" }).click();
+
+    await page.getByRole("dialog", { name: "Which class?" }).getByRole("button", { name: "Generic" }).click();
+    await page
+      .getByRole("dialog", { name: "What type of task?" })
+      .getByRole("button", { name: "Homework/Assignment" })
+      .click();
+    const describeDialog = page.getByRole("dialog", { name: "Describe the task" });
+    await describeDialog.getByPlaceholder("Description").fill(taskTitle);
+    await describeDialog.getByRole("button", { name: "Today" }).click();
+    await describeDialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(taskPanel.getByText(taskTitle)).toBeVisible();
 
     // --- Complete it via Home's Now module, whole-row tap ---
@@ -86,34 +83,11 @@ test.describe("TaskRowList — tap to complete", () => {
     await nowPanelAfterReload.getByRole("button", { name: "Completed" }).click();
     await expect(nowPanelAfterReload.getByText(taskTitle)).toBeVisible();
 
-    // --- Cleanup: remove the test task via School's Remove control ---
-    await page.goto("/school");
-    await dismissCheckinDialogIfPresent(page);
-    // Scoped to #tasks: /school also has components/school/
-    // completed-tasks-dialog.tsx's own "Completed tasks" KPI-strip
-    // trigger — a real second control, not a naming collision (Opus
-    // Lead, 2026-08-26: it WAS colliding with TaskRowList's own
-    // "Completed" section-toggle here, an accessibility bug fixed by
-    // renaming the KPI button rather than by scoping around it — see
-    // 18410c2). Playwright's getByRole name matching is substring by
-    // default, so "Completed tasks" still matches a bare `name:
-    // "Completed"` query — #tasks keeps this locator resolving to
-    // TaskRowList's own toggle specifically, not disambiguating two
-    // same-named controls (there aren't any anymore).
-    const schoolTaskPanel = page.locator("#tasks");
-    const schoolCompletedToggle = schoolTaskPanel.getByRole("button", { name: "Completed" });
-    // No .catch() here — a locator scoped this tightly should never
-    // throw a strict-mode ambiguity error, and if it does, that's a real
-    // regression this spec should fail loudly on, not swallow into a
-    // silent skip (Opus Lead, 2026-08-26: a catch-all that turns every
-    // error into a falsy boolean hides the next real one too).
-    // isVisible() itself already returns false, not a rejection, when
-    // the toggle simply doesn't exist yet (nothing completed) — that's
-    // the only "not visible" case this needed to handle.
-    if (await schoolCompletedToggle.isVisible()) {
-      await schoolCompletedToggle.click();
-    }
-    await schoolTaskPanel.getByRole("button", { name: `Remove ${taskTitle}` }).click();
-    await expect(schoolTaskPanel.getByText(taskTitle)).toBeHidden();
+    // --- Cleanup: no UI path removes a completed task (see file comment) ---
+    const cleanup = await page.request.delete(`${baseURL}/api/test/clear-task`, {
+      headers: { "x-e2e-secret": secret! },
+      data: { title: taskTitle },
+    });
+    expect(cleanup.ok()).toBe(true);
   });
 });

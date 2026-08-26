@@ -69,7 +69,7 @@ test.describe("Sunnah disclosure — auto-collapse and the fard-prayer isolation
     await page.goto("/deen");
     await dismissCheckinDialogIfPresent(page);
 
-    const salahPanel = page.locator("[data-panel]").filter({ has: page.getByText("Salah today", { exact: true }) });
+    const salahPanel = page.locator("[data-panel]").filter({ has: page.getByText("Salah", { exact: true }) });
     const asrRow = salahPanel.locator("li", { hasText: "Asr" });
     const chevron = asrRow.getByRole("button", { name: "Sunnah for Asr" });
     await expect(chevron).toBeVisible();
