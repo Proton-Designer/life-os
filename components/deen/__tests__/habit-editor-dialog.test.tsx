@@ -17,7 +17,7 @@ const {
   setDeenHabitStageOverrideMock: vi.fn(async () => {}),
   setDeenHabitCommittedDateMock: vi.fn(async () => {}),
   setDeenHabitLogStatusMock: vi.fn(async () => {}),
-  getDeenHabitLogRangeMock: vi.fn(async () => [] as { date: string; completed: boolean }[]),
+  getDeenHabitLogRangeMock: vi.fn(async (_habitId: string, _start: string, _end: string) => [] as { date: string; completed: boolean }[]),
 }));
 
 vi.mock("@/app/(app)/deen/actions", () => ({
@@ -63,6 +63,53 @@ describe("HabitEditorDialog", () => {
     renderDialog([habit({ id: "a", committedDate: "2026-08-20" })]); // Active Build only
     const noneMessages = screen.getAllByText("None in this stage.");
     expect(noneMessages).toHaveLength(2); // Stabilized and Locked, not Active Build
+  });
+
+  // Every other test in this file uses a single-habit list — cheap to write,
+  // but it means the main screen's grouping across all three stages
+  // simultaneously, and the Advanced screen's multi-habit switcher (only
+  // rendered when habits.length > 1), had never actually been exercised
+  // (Opus Lead review, 2026-08-26). Both matter: three independent `.filter`
+  // calls could silently drop a habit that matches none of them, or double
+  // it if two matched, and the Select-driven habit switch has its own
+  // effect-dependency logic (reloading logs, resetting committed_date) that
+  // a single-habit render can't touch at all.
+  it("renders all three stage groups populated at once, with no group empty and no habit duplicated or dropped", () => {
+    renderDialog([
+      habit({ id: "a", name: "Active habit", committedDate: "2026-08-20" }), // 6 days in
+      habit({ id: "b", name: "Stabilized habit", committedDate: "2026-08-05" }), // 21 days in
+      habit({ id: "c", name: "Locked habit", committedDate: "2026-07-01" }), // 56 days in
+    ]);
+    expect(screen.queryByText("None in this stage.")).not.toBeInTheDocument();
+    expect(screen.getByText("Active habit")).toBeInTheDocument();
+    expect(screen.getByText("Stabilized habit")).toBeInTheDocument();
+    expect(screen.getByText("Locked habit")).toBeInTheDocument();
+    expect(screen.getAllByText(/^(Active|Stabilized|Locked) habit$/)).toHaveLength(3);
+  });
+
+  it("Advanced screen: switching the habit selector reloads that habit's committed_date and day logs", async () => {
+    getDeenHabitLogRangeMock.mockImplementation(async (habitId: string) =>
+      habitId === "b" ? [{ date: TODAY, completed: true }] : []
+    );
+    const user = userEvent.setup();
+    renderDialog([
+      habit({ id: "a", name: "First habit", committedDate: "2026-08-01" }),
+      habit({ id: "b", name: "Second habit", committedDate: "2026-08-10" }),
+    ]);
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+
+    // Defaults to the first habit.
+    expect(await screen.findByLabelText("Started on")).toHaveValue("2026-08-01");
+    expect(getDeenHabitLogRangeMock).toHaveBeenCalledWith("a", expect.any(String), TODAY);
+
+    // Switch via the Select — only rendered because there's more than one habit.
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Second habit" }));
+
+    expect(await screen.findByLabelText("Started on")).toHaveValue("2026-08-10");
+    expect(getDeenHabitLogRangeMock).toHaveBeenCalledWith("b", expect.any(String), TODAY);
+    const todayRow = (await screen.findByText(TODAY)).closest("li")!;
+    expect(within(todayRow).getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
   it("groups a habit by its overridden stage, not the date-derived one", () => {
