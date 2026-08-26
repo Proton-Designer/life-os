@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, clickAndSettle } from "./helpers";
 
 // Isha, specifically: it's the last prayer of the day, so at almost any hour
 // this run happens, today's Isha is the prayer least likely to already carry
@@ -15,45 +15,11 @@ const PRAYER_NAME = "isha";
 const PRAYER_LABEL = "Isha";
 const STATUS_LABELS = ["On-time", "Qada", "Missed"] as const;
 
-/**
- * Waits for a mutation click to fully settle before it's safe to navigate
- * away. Two things have to both be true, not just one:
- *
- * 1. The Server Action's own response has to come back — PrayerRow's
- *    handleClick calls setOptimisticStatus synchronously and `await
- *    markPrayer(...)` after, in the same transition, so a class assertion
- *    right after the click can pass on the OPTIMISTIC paint alone, a tick
- *    before the real Supabase round trip lands.
- * 2. The page has to stay put until ALL of that click's network activity
- *    is done, not just the first response — `page.goto()` tears down the
- *    current page's execution context, which cancels any of ITS still-
- *    in-flight requests. A live capture showed one click fan out into ~5
- *    sequential POSTs (the action itself plus revalidation chatter); racing
- *    a navigation in before the last one finishes can silently abort the
- *    write entirely — not just read it stale, actually never persist it.
- *    That's what two earlier "fixes" here missed: `await
- *    expect(button).toBeEnabled()` (isPending flips true on React's NEXT
- *    render, not synchronously with the click, so a poll can land in that
- *    gap and pass immediately) and waiting for a single matching response
- *    (the first of the ~5 isn't reliably the last one, and navigating away
- *    right after it fired straight into the cancellation window above).
- *    Confirmed directly: an isolated click followed immediately by
- *    `page.goto()` left the `prayers` row missing entirely — not stale,
- *    genuinely never written — while the same click followed by
- *    `waitForLoadState("networkidle")` on the SAME page, before
- *    navigating anywhere, committed reliably across 5/5 repeated runs.
- *
- * `networkidle` is doing something different here than the network-idle
- * call this suite's other rulings tonight correctly rejected as a proxy on
- * the DESTINATION page (waiting long enough for a race to probably have
- * resolved). This is on the SOURCE page, before ever navigating: not
- * inferring completion from elapsed time, but refusing to cancel the real
- * request by leaving before it's actually done.
- */
-async function clickAndSettle(page: import("@playwright/test").Page, button: import("@playwright/test").Locator) {
-  await button.click();
-  await page.waitForLoadState("networkidle");
-}
+// clickAndSettle now lives in ./helpers (2026-08-26, item 6 e2e batch) —
+// the same source-page-networkidle reasoning applies to every mutating
+// click in this suite, not just this file's own. See its doc comment
+// there for the full "why not toBeEnabled(), why not the first response"
+// history.
 
 // Relies on the shared authenticated session (e2e/auth.setup.ts).
 test("marking a prayer on-time reflects on both /deen and Home", async ({ page, baseURL }) => {
