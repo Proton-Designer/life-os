@@ -31,15 +31,15 @@ create index schedule_events_class_group_id_idx on public.schedule_events (class
 -- entered." (That's exactly what produced Ayman's "you missed my Tuesday
 -- class" report: the Tuesday row WAS there, just silently hidden.)
 --
--- This table is the real, multi-date, auditable fix. `cancelled_on` is
--- deliberately NOT dropped or backfilled here — three readers outside
--- School's ownership tonight (lib/home/get-day-shape.ts,
--- app/(app)/calendar/actions.ts, app/(app)/work/page.tsx) still read it and
--- are not part of this migration; touching them is routed through Opus
--- Lead. School's own readers (ClassScheduleWeek, DomainScheduleView,
--- lib/tasks/schedule-metrics.ts) read this table as the source of truth;
--- `cancelled_on` keeps getting mirrored (last-cancelled-date only) on every
--- cancel so those three untouched readers see no behavior change.
+-- This table is the real, multi-date, auditable fix, and the single source
+-- of truth going forward. Every reader in the repo (ClassScheduleWeek,
+-- DomainScheduleView, lib/tasks/schedule-metrics.ts, lib/home/get-day-shape.ts,
+-- app/(app)/calendar/actions.ts, app/(app)/work/page.tsx) was migrated onto
+-- it in this same commit, through the shared lib/tasks/schedule-cancellations.ts
+-- helper — none hand-roll their own lookup. `cancelled_on` is written and
+-- read by nothing as of this migration (see the deprecation comment on the
+-- column below); it is kept in the schema, not dropped, only until verified
+-- dead in prod.
 create table public.schedule_event_cancellations (
   id uuid primary key default gen_random_uuid(),
   event_id uuid not null references public.schedule_events(id) on delete cascade,
