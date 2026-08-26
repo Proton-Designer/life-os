@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import {
   addTaskCore,
+  updateTaskCore,
   toggleTaskCore,
   removeTaskCore,
   addScheduleEventCore,
@@ -18,14 +19,24 @@ function assertUuid(value: string, label: string) {
   if (!UUID_RE.test(value)) throw new Error(`${label} is not a valid id`);
 }
 
-export async function addTask(
-  title: string,
-  dueDate?: string,
-  dueTime?: string,
-  taskType?: TaskType,
-  classEventId?: string
+export async function addTask(input: {
+  title: string;
+  dueDate?: string;
+  dueTime?: string;
+  taskType?: TaskType;
+  taskTypeOtherLabel?: string;
+  classId?: string | null;
+}): Promise<void> {
+  await addTaskCore({ domain: "school", ...input });
+  revalidatePath("/school");
+  revalidatePath("/");
+}
+
+export async function updateTask(
+  id: string,
+  input: { title: string; dueDate?: string; taskType?: TaskType; taskTypeOtherLabel?: string; classId?: string | null }
 ): Promise<void> {
-  await addTaskCore("school", title, dueDate, dueTime, taskType, classEventId);
+  await updateTaskCore(id, input);
   revalidatePath("/school");
   revalidatePath("/");
 }

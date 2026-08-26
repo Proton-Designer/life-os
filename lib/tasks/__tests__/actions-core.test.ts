@@ -108,7 +108,7 @@ describe("addTaskCore", () => {
     fromImpl = () => chain;
     const { addTaskCore } = await import("../actions-core");
 
-    await addTaskCore("school", "Read chapter 4", "2026-08-15", "14:00");
+    await addTaskCore({ domain: "school", title: "Read chapter 4", dueDate: "2026-08-15", dueTime: "14:00" });
 
     expect(fromMock).toHaveBeenCalledWith("tasks");
     expect(chain.insert).toHaveBeenCalledWith(
@@ -120,5 +120,62 @@ describe("addTaskCore", () => {
         due_time: "14:00",
       })
     );
+  });
+
+  it("carries the class_id and task_type, and only sets task_type_other_label when the type is 'other'", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { addTaskCore } = await import("../actions-core");
+
+    await addTaskCore({
+      domain: "school",
+      title: "Lab prep",
+      dueDate: "2026-08-15",
+      taskType: "quiz",
+      taskTypeOtherLabel: "Should be ignored — not type 'other'",
+      classId: "class-1",
+    });
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ task_type: "quiz", task_type_other_label: null, class_id: "class-1" })
+    );
+  });
+
+  it("sets task_type_other_label when the type is 'other'", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { addTaskCore } = await import("../actions-core");
+
+    await addTaskCore({ domain: "school", title: "Bring goggles", taskType: "other", taskTypeOtherLabel: "Lab prep" });
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ task_type: "other", task_type_other_label: "Lab prep" })
+    );
+  });
+});
+
+describe("updateTaskCore", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("replaces a task's contents, scoped to id and user_id", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { updateTaskCore } = await import("../actions-core");
+
+    await updateTaskCore("task-1", { title: "Updated title", dueDate: "2026-09-01", taskType: "exam", classId: "class-2" });
+
+    expect(fromMock).toHaveBeenCalledWith("tasks");
+    expect(chain.update).toHaveBeenCalledWith({
+      title: "Updated title",
+      due_date: "2026-09-01",
+      task_type: "exam",
+      task_type_other_label: null,
+      class_id: "class-2",
+    });
+    expect(chain.eq).toHaveBeenCalledWith("id", "task-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 });

@@ -11,9 +11,8 @@ import { TaskRowList, type TaskRowItem } from "@/components/shared/task-row-list
  * TaskRowList — same tap-to-complete-and-cross-off contract every other
  * domain list already uses, not a second bespoke implementation (Opus Lead
  * explicitly ruled out re-deriving this). `toggleTask` is a real Server
- * Action reference passed down from the Server Component page, same pattern
- * SchoolTaskPanel already uses — not a closure, so the RSC boundary rule
- * (AGENTS.md) isn't in play.
+ * Action reference passed down from the Server Component page — not a
+ * closure, so the RSC boundary rule (AGENTS.md) isn't in play.
  */
 export function KpiTaskDialog({
   title,

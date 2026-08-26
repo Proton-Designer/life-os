@@ -2,14 +2,14 @@ import { redirect } from "next/navigation";
 import { CalendarClock, AlertTriangle, ShieldCheck, CalendarCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-utils";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
-import { TASK_TYPE_LABEL } from "@/lib/tasks/task-type";
+import { TASK_TYPE_LABEL, type TaskType } from "@/lib/tasks/task-type";
 import { groupCompletedTasksByWeek } from "@/lib/tasks/completed-by-week";
-import type { TaskType } from "@/lib/tasks/actions-core";
 import {
   addTask,
+  updateTask,
   toggleTask,
   removeTask,
   addClassEvent,
@@ -19,12 +19,13 @@ import {
   uncancelScheduleOccurrence,
 } from "./actions";
 import type { TaskRowItem } from "@/components/shared/task-row-list";
-import { SchoolTaskPanel } from "@/components/school/task-panel";
-import { DeadlineList } from "@/components/shared/deadline-list";
 import { ClassScheduleWeek, type ClassScheduleEvent } from "@/components/school/class-schedule-week";
 import { ClassEditorDialog, type ClassGroup } from "@/components/school/class-editor-dialog";
 import { KpiTaskDialog } from "@/components/school/kpi-task-dialog";
 import { CompletedTasksDialog, type CompletedWeekGroup } from "@/components/school/completed-tasks-dialog";
+import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
+import { TaskWizardDialog, type TaskWizardClassOption } from "@/components/school/task-wizard-dialog";
+import { TaskEditDialog } from "@/components/school/task-edit-dialog";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -34,16 +35,17 @@ type TaskData = {
   id: string;
   title: string;
   dueDate: string | null;
-  dueTime: string | null;
   completed: boolean;
+  completedAt: string | null;
   createdAt: string;
   taskType: TaskType | null;
-  classEventId: string | null;
+  taskTypeOtherLabel: string | null;
+  classId: string | null;
 };
 
-function formatTaskMeta(taskType: TaskType | null, classTitle: string | null): string {
-  const typeLabel = taskType ? TASK_TYPE_LABEL[taskType] : null;
-  return `${typeLabel ?? "—"} · ${classTitle ?? "—"}`;
+function formatKpiMeta(taskType: TaskType | null, taskTypeOtherLabel: string | null, className: string | null): string {
+  const typeLabel = taskType ? (taskType === "other" && taskTypeOtherLabel ? taskTypeOtherLabel : TASK_TYPE_LABEL[taskType]) : null;
+  return `${typeLabel ?? "—"} · ${className ?? "—"}`;
 }
 
 export default async function SchoolPage() {
@@ -59,13 +61,12 @@ export default async function SchoolPage() {
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
 
-  const [{ data: taskRows }, { data: eventRows }] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id, title, due_date, due_time, completed, completed_at, created_at, task_type, class_event_id")
+      .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
       .eq("user_id", userId)
-      .eq("domain", "school")
-      .order("due_date", { ascending: true, nullsFirst: false }),
+      .eq("domain", "school"),
     supabase
       .from("schedule_events")
       .select(
@@ -73,6 +74,7 @@ export default async function SchoolPage() {
       )
       .eq("user_id", userId)
       .eq("domain", "school"),
+    supabase.from("classes").select("id, short_name, code").eq("user_id", userId),
   ]);
 
   const cancelledDates = await getCancelledDatesByEvent(
@@ -81,50 +83,43 @@ export default async function SchoolPage() {
     (eventRows ?? []).map((e) => e.id)
   );
 
-  const allTasks = taskRows ?? [];
-  const openTasks: TaskData[] = allTasks
-    .filter((t) => !t.completed)
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      dueDate: t.due_date,
-      dueTime: t.due_time,
-      completed: t.completed,
-      createdAt: t.created_at,
-      taskType: t.task_type as TaskType | null,
-      classEventId: t.class_event_id,
-    }));
-  const deadlineTasks = openTasks
-    .filter((t): t is TaskData & { dueDate: string } => t.dueDate !== null)
-    .map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate, dueTime: t.dueTime }));
+  const classNameById = new Map((classRows ?? []).map((c) => [c.id, c.short_name ?? c.code]));
+  const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
+    id: c.id,
+    label: c.short_name ?? c.code,
+  }));
 
-  // Today's completed tasks for the task list's Completed section — bounds
-  // are the LOCAL day resolved through the profile's timezone, not a naive
-  // UTC string range (AGENTS.md — this exact class of bug shipped
-  // repeatedly; see resolveLocalTime's own callers in get-day-shape.ts).
-  const todayStartIso = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
-  const todayEndIso = resolveLocalTime(addDaysToDateString(dateStr, 1), "00:00", timezone).toISOString();
-  const completedTodayTasks = allTasks
-    .filter(
-      (t): t is typeof t & { completed_at: string } =>
-        t.completed && t.completed_at !== null && t.completed_at >= todayStartIso && t.completed_at < todayEndIso
-    )
-    .sort((a, b) => (a.completed_at < b.completed_at ? -1 : 1));
+  const allTasks: TaskData[] = (taskRows ?? []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    dueDate: t.due_date,
+    completed: t.completed,
+    completedAt: t.completed_at,
+    createdAt: t.created_at,
+    taskType: t.task_type as TaskType | null,
+    taskTypeOtherLabel: t.task_type_other_label,
+    classId: t.class_id,
+  }));
+  const openTasks = allTasks.filter((t) => !t.completed);
 
-  const taskRowItems: TaskRowItem[] = [
-    ...openTasks.map(
-      (t): TaskRowItem => ({ id: t.id, title: t.title, domain: "school", meta: t.dueDate ?? undefined, mode: "toggle" })
-    ),
-    ...completedTodayTasks.map(
-      (t): TaskRowItem => ({ id: t.id, title: t.title, domain: "school", mode: "toggle", completedAtIso: t.completed_at })
-    ),
-  ];
+  // The unified Task list (item 5, 2026-08-26 night batch 2) — every open
+  // task carries a real taskType by now (the wizard requires one), so the
+  // `?? "other"` fallback only ever covers a hand-inserted or pre-migration
+  // row that predates the wizard.
+  const taskListItems: TaskListItem[] = openTasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    dueDate: t.dueDate,
+    taskType: t.taskType ?? "other",
+    taskTypeOtherLabel: t.taskTypeOtherLabel,
+    classId: t.classId,
+    className: t.classId ? (classNameById.get(t.classId) ?? null) : null,
+  }));
 
-  // Title lookup for a task's linked class, and per-class-group data for
-  // the Edit popup / the add-task form's Class picker — one pass over the
-  // same eventRows.
-  const eventTitleById = new Map((eventRows ?? []).map((e) => [e.id, e.title]));
-
+  // Title lookup for schedule_events + per-class-group data for the
+  // "This week's classes" Edit popup — one pass over eventRows. Distinct
+  // from the `classes` entity above: this is the recurring-meeting-time
+  // editor (pre-existing feature), not item 6's class entity.
   type ClassGroupBuild = ClassGroup & { days: ClassGroup["days"] };
   const classGroupMap = new Map<string, ClassGroupBuild>();
   for (const e of eventRows ?? []) {
@@ -156,7 +151,6 @@ export default async function SchoolPage() {
     ...g,
     days: [...g.days].sort((a, b) => a.dayOfWeek - b.dayOfWeek),
   }));
-  const classOptions = classGroups.map((g) => ({ id: g.days[0].eventId, title: g.title }));
 
   const classScheduleEvents: ClassScheduleEvent[] = (eventRows ?? [])
     .filter((e) => e.is_recurring && e.day_of_week !== null)
@@ -171,16 +165,13 @@ export default async function SchoolPage() {
       cancelledDates: Array.from(cancelledDates.get(e.id) ?? []),
     }));
 
-  function classTitleFor(t: TaskData): string | null {
-    return t.classEventId ? (eventTitleById.get(t.classEventId) ?? null) : null;
-  }
   function toKpiItem(t: TaskData): TaskRowItem {
     return {
       id: t.id,
       title: t.title,
       domain: "school",
       mode: "toggle",
-      meta: formatTaskMeta(t.taskType, classTitleFor(t)),
+      meta: formatKpiMeta(t.taskType, t.taskTypeOtherLabel, t.classId ? (classNameById.get(t.classId) ?? null) : null),
     };
   }
   const byCreatedAtAsc = (a: TaskData, b: TaskData) => (a.createdAt < b.createdAt ? -1 : 1);
@@ -208,15 +199,12 @@ export default async function SchoolPage() {
   // (never a raw UTC week — AGENTS.md) — most recent week first, each
   // week's own items in completion order.
   const completedForGrouping = allTasks
-    .filter((t): t is typeof t & { completed_at: string } => t.completed && t.completed_at !== null)
+    .filter((t): t is TaskData & { completedAt: string } => t.completed && t.completedAt !== null)
     .map((t) => ({
       id: t.id,
       title: t.title,
-      meta: formatTaskMeta(
-        t.task_type as TaskType | null,
-        t.class_event_id ? (eventTitleById.get(t.class_event_id) ?? null) : null
-      ),
-      completedAt: t.completed_at,
+      meta: formatKpiMeta(t.taskType, t.taskTypeOtherLabel, t.classId ? (classNameById.get(t.classId) ?? null) : null),
+      completedAt: t.completedAt,
     }));
   const completedWeekGroups: CompletedWeekGroup[] = groupCompletedTasksByWeek(completedForGrouping, timezone);
 
@@ -274,9 +262,15 @@ export default async function SchoolPage() {
         </div>
       </div>
 
-      <Panel title="Deadlines" heroValue={`${dueThisWeekCount}`} caption="due this week">
-        <DeadlineList tasks={deadlineTasks} todayStr={dateStr} toggleTask={toggleTask} />
-      </Panel>
+      {/*
+        C's item 6b class-card grid goes here — "below the top mini
+        modules" (Ayman), between the KPI strip and the Task list module.
+        C ships components/school/class-card.tsx (presentational) and
+        lib/school/get-class-cards.ts (getClassCards(), data shaping) and
+        will hand off the exact usage snippet + exported types; the actual
+        import/call/markup lands in this file since it's owned here.
+        (Opus Lead, 2026-08-26 night batch 2 — item 6b integration point.)
+      */}
 
       <Panel
         title="This week's classes"
@@ -296,8 +290,20 @@ export default async function SchoolPage() {
         <ClassScheduleWeek events={classScheduleEvents} weekDates={weekDates} todayStr={dateStr} />
       </Panel>
 
-      <Panel id="tasks" className="scroll-mt-20" title="Task list" heroValue={`${openTasks.length}`} caption="open">
-        <SchoolTaskPanel items={taskRowItems} classOptions={classOptions} addTask={addTask} toggleTask={toggleTask} removeTask={removeTask} />
+      <Panel
+        id="tasks"
+        className="scroll-mt-20"
+        title="Task list"
+        heroValue={`${openTasks.length}`}
+        caption="open"
+        controls={
+          <div className="flex gap-2">
+            <TaskWizardDialog classes={classOptions} timezone={timezone} onSubmit={addTask} />
+            <TaskEditDialog tasks={taskListItems} classes={classOptions} updateTask={updateTask} removeTask={removeTask} />
+          </div>
+        }
+      >
+        <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
       </Panel>
     </PageContainer>
   );

@@ -1,27 +1,58 @@
 import { requireUser } from "@/lib/supabase/auth";
+import type { TaskType } from "./task-type";
 
 export type TaskDomain = "school" | "co_op";
+export type { TaskType };
 
-export type TaskType = "assignment" | "project" | "test" | "quiz" | "reading" | "other";
+export type AddTaskInput = {
+  domain: TaskDomain;
+  title: string;
+  dueDate?: string;
+  dueTime?: string;
+  taskType?: TaskType;
+  /** Set only when taskType is "other" — a task carries this iff its type is "other" (migration 050 enforces the pairing at the DB level too). */
+  taskTypeOtherLabel?: string;
+  /** References the `classes` table (migration 050+, once C's 048 lands) — never a specific schedule_events row. Omit/null for "Generic." */
+  classId?: string | null;
+};
 
-export async function addTaskCore(
-  domain: TaskDomain,
-  title: string,
-  dueDate?: string,
-  dueTime?: string,
-  taskType?: TaskType,
-  classEventId?: string
-): Promise<void> {
+export async function addTaskCore(input: AddTaskInput): Promise<void> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("tasks").insert({
     user_id: userId,
-    domain,
-    title,
-    due_date: dueDate ?? null,
-    due_time: dueTime ?? null,
-    task_type: taskType ?? null,
-    class_event_id: classEventId ?? null,
+    domain: input.domain,
+    title: input.title,
+    due_date: input.dueDate ?? null,
+    due_time: input.dueTime ?? null,
+    task_type: input.taskType ?? null,
+    task_type_other_label: input.taskType === "other" ? (input.taskTypeOtherLabel ?? null) : null,
+    class_id: input.classId ?? null,
   });
+  if (error) throw error;
+}
+
+export type UpdateTaskInput = {
+  title: string;
+  dueDate?: string;
+  taskType?: TaskType;
+  taskTypeOtherLabel?: string;
+  classId?: string | null;
+};
+
+/** Item 5's Edit popup: "change the contents of any task." Full-replace update, scoped by id + user_id like every other task mutation here. */
+export async function updateTaskCore(id: string, input: UpdateTaskInput): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      title: input.title,
+      due_date: input.dueDate ?? null,
+      task_type: input.taskType ?? null,
+      task_type_other_label: input.taskType === "other" ? (input.taskTypeOtherLabel ?? null) : null,
+      class_id: input.classId ?? null,
+    })
+    .eq("id", id)
+    .eq("user_id", userId);
   if (error) throw error;
 }
 

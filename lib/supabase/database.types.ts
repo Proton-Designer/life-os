@@ -1295,7 +1295,7 @@ export type Database = {
       }
       tasks: {
         Row: {
-          class_event_id: string | null
+          class_id: string | null
           completed: boolean
           completed_at: string | null
           created_at: string
@@ -1304,11 +1304,12 @@ export type Database = {
           due_time: string | null
           id: string
           task_type: string | null
+          task_type_other_label: string | null
           title: string
           user_id: string
         }
         Insert: {
-          class_event_id?: string | null
+          class_id?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -1317,11 +1318,12 @@ export type Database = {
           due_time?: string | null
           id?: string
           task_type?: string | null
+          task_type_other_label?: string | null
           title: string
           user_id?: string
         }
         Update: {
-          class_event_id?: string | null
+          class_id?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -1330,15 +1332,16 @@ export type Database = {
           due_time?: string | null
           id?: string
           task_type?: string | null
+          task_type_other_label?: string | null
           title?: string
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "tasks_class_event_id_fkey"
-            columns: ["class_event_id"]
+            foreignKeyName: "tasks_class_id_fkey"
+            columns: ["class_id"]
             isOneToOne: false
-            referencedRelation: "schedule_events"
+            referencedRelation: "classes"
             referencedColumns: ["id"]
           },
         ]
@@ -1695,6 +1698,7 @@ export type Database = {
         }
         Returns: string
       }
+      delete_class_assessment: { Args: { p_assessment_id: string }; Returns: undefined }
       delete_coop_target: { Args: { p_target_id: string }; Returns: undefined }
       get_vault_secrets: {
         Args: { secret_names: string[] }

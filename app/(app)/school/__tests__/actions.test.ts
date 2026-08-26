@@ -2,17 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const removeTaskCoreMock = vi.fn(async (_id: string) => {});
 const addTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
+const updateTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
 const revalidatePathMock = vi.fn();
 
 vi.mock("@/lib/tasks/actions-core", () => ({
-  addTaskCore: (
-    domain: string,
-    title: string,
-    dueDate?: string,
-    dueTime?: string,
-    taskType?: string,
-    classEventId?: string
-  ) => addTaskCoreMock(domain, title, dueDate, dueTime, taskType, classEventId),
+  addTaskCore: (input: unknown) => addTaskCoreMock(input),
+  updateTaskCore: (id: string, input: unknown) => updateTaskCoreMock(id, input),
   toggleTaskCore: vi.fn(),
   removeTaskCore: (id: string) => removeTaskCoreMock(id),
   addScheduleEventCore: vi.fn(),
@@ -61,19 +56,40 @@ describe("School actions — addTask", () => {
     revalidatePathMock.mockClear();
   });
 
-  it("passes task type and class through to addTaskCore", async () => {
+  it("passes task type and class through to addTaskCore, tagged with the school domain", async () => {
     const { addTask } = await import("../actions");
 
-    await addTask("Read chapter 4", "2026-08-15", "14:00", "reading", "event-1");
+    await addTask({ title: "Read chapter 4", dueDate: "2026-08-15", taskType: "quiz", classId: "class-1" });
 
-    expect(addTaskCoreMock).toHaveBeenCalledWith(
-      "school",
-      "Read chapter 4",
-      "2026-08-15",
-      "14:00",
-      "reading",
-      "event-1"
-    );
+    expect(addTaskCoreMock).toHaveBeenCalledWith({
+      domain: "school",
+      title: "Read chapter 4",
+      dueDate: "2026-08-15",
+      taskType: "quiz",
+      classId: "class-1",
+    });
+  });
+});
+
+describe("School actions — updateTask", () => {
+  beforeEach(() => {
+    updateTaskCoreMock.mockClear();
+    revalidatePathMock.mockClear();
+  });
+
+  it("passes the id and full replacement contents through to updateTaskCore", async () => {
+    const { updateTask } = await import("../actions");
+
+    await updateTask("task-1", { title: "Renamed", dueDate: "2026-09-01", taskType: "exam", classId: "class-2" });
+
+    expect(updateTaskCoreMock).toHaveBeenCalledWith("task-1", {
+      title: "Renamed",
+      dueDate: "2026-09-01",
+      taskType: "exam",
+      classId: "class-2",
+    });
+    expect(revalidatePathMock).toHaveBeenCalledWith("/school");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
   });
 });
 
