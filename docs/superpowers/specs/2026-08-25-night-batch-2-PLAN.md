@@ -12,18 +12,18 @@ Status vocabulary: `BACKLOG` → `DEV` → `TEST` → `VERIFY` → `ITERATE` →
 
 | # | Item | Owner | Status | Notes |
 |---|---|---|---|---|
-| 0 | Batch-1 deploy (11 commits, `2aafd7a`) | Lead | BACKLOG | Ayman authorized auto-deploy; ships together with batch 2 at the end |
-| 1a | Home: "Today's Schedule" subtitle + event count | A | DONE | Subtitle is now a static class+work summary (Ayman's 4 worked cases, plus an honest empty state), not time/prayer-status narration — verified live "You have 3 classes today" on Tuesday SEED data |
-| 1b | Home: day-ribbon blobs sized to real duration | A | DONE | Lead review caught the tap-target/icon-clip regression in the first 8px-floor fix — landed the corrected version (separate hit-area button vs. painted pill, WCAG 2.5.8 24px floor, icon dropped below ~26px rather than clipped), tsc+23/23 vitest clean. NOTE: committed as part of 631a921 ("Salah calendar...") — my day-ribbon.tsx/day-ribbon.test.tsx changes were staged but not yet committed when that commit landed on the shared index; code is correct and in the tree, just under the wrong commit message/attribution |
-| 2 | Cross-device live sync (prayers, tasks, everywhere) | A | BACKLOG | Not started — was researching the supabase_realtime table list (RLS confirmed present on all ~20 candidate tables) when the usage-limit stop hit. Next step: write migration 049 with a deliberately-scoped table list + rationale, then the client subscription hook/provider (see Ruling R1) |
-| 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | Weight/waist relocated to CycleProgressPanel/BodyModule as on-demand log (no task semantics). Lead caught a real regression on first pass: the two custom_habits rows (protein/steps) stayed live and unarchived, feeding Home's fitness pulse/snapshot denominator with no way left to complete them — archived on SEED, applied to real account by Lead; toggleDailyCheck/ensureDailyCheckHabits + the clear-daily-check test route deleted outright, confirmed via grep nothing can recreate the rows |
-| 4 | Work schedule: today highlight, edit-hours popup, real times | B | VERIFY | Build fixed at `292e3c3` (was broken at HEAD after resume — reported and fixed immediately). Full feature landed: WorkScheduleWeek (today highlight, real times not "Work", cancelled visible, override marked "(this week)") + WorkHoursEditorDialog (permanent CRUD, this/next-week temporary override + cancel/undo, one-off shift add/remove). **Cancel-this-week verdict: WORKS** — live-verified against SEED via psql at every step (cancel writes the row, undo removes it, grid/count update correctly). Also live-verified the override+cancellation interaction Lead specified: setting an override on a cancelled date clears the cancellation; cancelling an overridden date leaves the override row intact and undo restores the overridden hours, not the permanent ones — both confirmed via psql, not just UI. One-off "Add hours" also verified end-to-end. tsc clean, vitest 1523/1523 repo-wide, unit tests added at `fb49e4a` (resolver precedence + both interaction directions, WorkScheduleWeek, WorkHoursEditorDialog). All SEED test data cleaned up and independently re-verified via psql. |
-| 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | VERIFY | Wizard (6bea95d) + module/migration 050 (87119ee) landed; live-verified against SEED (wizard 3-step flow incl. date chip, grouping/KPI update, Edit-dialog remove) — console clean, DB state confirmed via psql, test task cleaned up |
-| 6a | Schema: `classes`, `class_assessments`, syllabus storage bucket | C | BACKLOG | Migration 048 + first Supabase Storage bucket in the app |
-| 6b | School: per-class cards grid | C | BACKLOG | Six classes, data-driven |
-| 6c | School: expanded class view (assessments, syllabus, class task list) | C | BACKLOG | Reuses B's wizard from item 5 |
-| 7 | Full-batch verification (tsc, vitest, e2e, browser) | A | BACKLOG | After all of 1-6 |
-| 8 | Deploy + verify against deployment + kill caffeinate | Lead | BACKLOG | Ayman's explicit final instruction |
+| 0 | Batch-1 deploy (11 commits, `2aafd7a`) | Lead | BACKLOG | Ships with batch 2/3 at the end — Ayman authorized auto-deploy |
+| 1a | Home: "Today's Schedule" subtitle + event count | A | DONE | `98889b5` — schedule summary replaces the prayer subtitle |
+| 1b | Home: day-ribbon blobs sized to real duration | A | DONE | `631a921` — proportional widths + decoupled 24px hit area |
+| 2 | Cross-device live sync (prayers, tasks, everywhere) | A | DEV | A — migration 049 + realtime provider + e2e spec all in flight |
+| 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | `05a4e04`+`48d0f10` — incl. archiving the orphaned Home denominator |
+| 4 | Work schedule: today highlight, edit-hours popup, real times | B | DONE | `292e3c3`+`fb49e4a`+`9b47d81` — Cancel-this-week VERIFIED WORKING |
+| 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | DONE | `6bea95d`+`87119ee` — wizard + grouped/filtered module + migration 050 |
+| 6a | Schema: `classes`, `class_assessments`, syllabus storage bucket | C | DONE | `36240be` — classes/assessments/syllabi bucket, RLS verified by Lead |
+| 6b | School: per-class cards grid | C | DONE | `6331073` — six cards, MATH 2418 null path exercised |
+| 6c | School: expanded class view (assessments, syllabus, class task list) | C | DONE | `6331073` — reuses B's wizard, no reimplementation |
+| 7 | Full-batch verification (tsc, vitest, e2e, browser) | A | BACKLOG | A — after all features land |
+| 8 | Deploy + verify against deployment + kill caffeinate | Lead | BACKLOG | Lead — wipe, deploy, kill caffeinate |
 
 ---
 
@@ -112,10 +112,10 @@ Migration numbers: **048 = C, 049 = A, 050 = B.**
 
 | # | Item | Owner | Status | Notes |
 |---|---|---|---|---|
-| B3-1 | Topbar: date to left; Check-in icon top right; order Check-in / Calendar / Notifications | B | BACKLOG | Remove the 2h window entirely; glow every 2h instead |
-| B3-2 | Deen: "Salah today" → "Salah" + View More monthly calendar (#/5 rings, day → edit) | C | BACKLOG | Scrollable past/future months |
-| B3-3 | Business: kill list View More (week/month/3mo) + "Incompleted this Week" | B | BACKLOG | Day → items popup, status editable |
-| B3-4 | **Fresh-start data wipe of Ayman's real account** | Lead | BACKLOG | Destructive. See R7. Runs AFTER all verification, BEFORE deploy |
+| B3-1 | Topbar: date to left; Check-in icon top right; order Check-in / Calendar / Notifications | B | DEV | B — root cause found: zero push subscriptions, notifyDesktop a silent no-op |
+| B3-2 | Deen: "Salah today" → "Salah" + View More monthly calendar (#/5 rings, day → edit) | C | DONE | `a7a412a`+`953bee0` — no-data renders no ring; future writes rejected server-side |
+| B3-3 | Business: kill list View More (week/month/3mo) + "Incompleted this Week" | B | DEV | C — reuses the shared ProgressRing extended in B3-2 |
+| B3-4 | **Fresh-start data wipe of Ayman's real account** | Lead | BACKLOG | Lead — `4ad79bf` script written + dry-run validated; runs after verification |
 
 ## R7 — the data wipe is destructive and irreversible; back it up first
 
