@@ -34,39 +34,42 @@ Hit **three times in one night** (2026-08-24/25), in three different layers:
 
 **Tests must pin the boundary**, not just the happy path: the same local time either side of the UTC rollover (e.g. 18:59 and 19:01 CDT) must produce identical results, and at least one timezone *east* of UTC, where the bug inverts.
 
-## `git commit -- <paths>` ignores the index — never use it in a shared tree
+## Committing from a shared working tree: use `scripts/agent-commit.sh`
 
-Several agents edit this working tree simultaneously. The obvious defence —
-"only ever commit explicit paths" — is **not** what it appears to be:
-
-```
-git commit -m "msg" -- <paths>     # WRONG in a shared tree
-```
-
-Git's documentation is explicit: when a pathspec is given on the command line,
-it commits the contents of the matching files *without recording the changes
-already staged*. It reads the **working tree**, not the index. So anything
-another agent has saved into one of your files between your last check and the
-commit lands in your commit, under your name — and any staging you did first is
-silently discarded.
-
-That is not hypothetical. On 2026-08-25 an engineer deliberately isolated a
-colleague's uncommitted line out of the index with `git apply --cached`, then
-committed with a pathspec, and the line went in anyway (`87119ee`).
-
-**Use the index instead, and verify it:**
+Several agents edit ONE working tree with ONE `.git`, which means they share ONE
+**index**. Both obvious commit strategies race, and this was learned the hard way
+twice in one night (2026-08-25):
 
 ```
-git add <explicit paths>
-git diff --cached          # authoritative: exactly what will be committed
-git commit -m "msg"        # no pathspec
+git commit -m "msg" -- <paths>     # ignores the index; commits WORKING-TREE
+                                   # state, so another agent's unsaved edit to
+                                   # a file you own rides along.  → 87119ee
+git add <paths>; git commit        # reads the index at commit time; another
+                                   # agent staging in the gap between your add
+                                   # and your commit puts THEIR files in YOUR
+                                   # commit.                       → 631a921
 ```
 
-The index is a **snapshot**. Once you `git add`, a concurrent save by another
-agent into one of your files cannot enter your commit. A pathspec commit has no
-snapshot at all, so even a correct `git diff HEAD -- <paths>` a second earlier
-can be invalidated by someone else's editor flushing in the gap.
+The second is strictly better, but still unsafe: **verifying with `git diff
+--cached` does not help, because the race happens after the verification.** The
+index is shared mutable state, so stage-and-commit has to be *atomic with
+respect to the other agents*.
 
-Still applies as before: explicit paths only, `git diff HEAD -- <path>` on every
-file before you stage it, and never `git add -A`, `git commit -a`, `git stash`,
+**Always commit with:**
+
+```
+./scripts/agent-commit.sh "your commit message" path/one path/two
+```
+
+It takes a mkdir mutex (macOS has no `flock`), resets the index, stages exactly
+your paths, prints precisely what will be committed, and commits. The index
+reset touches the **index only** — it never modifies the working tree, so no
+one's uncommitted edits are ever at risk.
+
+Everything else still applies: explicit paths only, `git diff HEAD -- <path>`
+before you stage a file, and never `git add -A`, `git commit -a`, `git stash`,
 `git reset --hard`, `git checkout --`, or `git clean` in the shared tree.
+
+If a commit lands under the wrong agent's message anyway, **leave it**. The code
+is correct and present; rewriting history in a tree other agents are actively
+committing to is far worse than a misattributed diff.
