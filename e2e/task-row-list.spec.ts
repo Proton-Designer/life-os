@@ -89,11 +89,24 @@ test.describe("TaskRowList — tap to complete", () => {
     // --- Cleanup: remove the test task via School's Remove control ---
     await page.goto("/school");
     await dismissCheckinDialogIfPresent(page);
-    const schoolCompletedToggle = page.getByRole("button", { name: "Completed" });
+    // Scoped to #tasks specifically (2026-08-26, B's School rebuild):
+    // /school now has a SECOND "Completed" button — components/school/
+    // completed-tasks-dialog.tsx's own KPI-strip trigger, entirely
+    // separate from TaskRowList's own inline collapsed section here. An
+    // unscoped page.getByRole("button", { name: "Completed" }) resolves
+    // ambiguously (strict-mode violation), which .catch(() => false)
+    // silently swallowed into "not visible" — skipping the click,
+    // leaving TaskRowList's own section collapsed, and timing out 30s
+    // later waiting for a Remove button that could never appear. Not a
+    // product bug: two distinct, correctly-labeled controls that happen
+    // to share a name is fine UI-wise, this spec just needed to say
+    // which one it meant.
+    const schoolTaskPanel = page.locator("#tasks");
+    const schoolCompletedToggle = schoolTaskPanel.getByRole("button", { name: "Completed" });
     if (await schoolCompletedToggle.isVisible().catch(() => false)) {
       await schoolCompletedToggle.click();
     }
-    await page.getByRole("button", { name: `Remove ${taskTitle}` }).click();
-    await expect(page.getByText(taskTitle)).toBeHidden();
+    await schoolTaskPanel.getByRole("button", { name: `Remove ${taskTitle}` }).click();
+    await expect(schoolTaskPanel.getByText(taskTitle)).toBeHidden();
   });
 });
