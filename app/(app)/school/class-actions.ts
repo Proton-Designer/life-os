@@ -78,6 +78,51 @@ export async function deleteClassAssessment(assessmentId: string) {
   revalidatePath("/school");
 }
 
+/**
+ * The inverse of R5's create pairing, for edits: updates the assessment row
+ * and, when it has a linked task (`task_id`), syncs that task's title/
+ * due_date/task_type to match — otherwise editing an assessment's date here
+ * would silently drift from the due date its own linked task still shows in
+ * the main Task list. Same non-transactional two-statement shape as
+ * `addClassAssessment` (Postgres/PostgREST has no shared transaction across
+ * these calls); a task-sync failure after the assessment row already
+ * committed leaves the assessment as the source of truth and the task
+ * stale, which is why the caller is expected to surface the error rather
+ * than swallow it.
+ */
+export async function updateClassAssessment(
+  assessmentId: string,
+  fields: { name: string; type: AssessmentType; date: string }
+) {
+  const { supabase, userId } = await requireUser();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("class_assessments")
+    .select("task_id")
+    .eq("id", assessmentId)
+    .eq("user_id", userId)
+    .single();
+  if (fetchError) throw fetchError;
+
+  const { error } = await supabase
+    .from("class_assessments")
+    .update({ name: fields.name, type: fields.type, date: fields.date })
+    .eq("id", assessmentId)
+    .eq("user_id", userId);
+  if (error) throw error;
+
+  if (existing.task_id) {
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .update({ title: fields.name, due_date: fields.date, task_type: ASSESSMENT_TYPE_TO_TASK_TYPE[fields.type] })
+      .eq("id", existing.task_id)
+      .eq("user_id", userId);
+    if (taskError) throw taskError;
+  }
+
+  revalidatePath("/school");
+}
+
 export async function listClassAssessments(classId: string) {
   const { supabase, userId } = await requireUser();
   const { data, error } = await supabase
