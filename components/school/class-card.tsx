@@ -34,7 +34,14 @@ export function ClassCard({ data, timezone }: { data: ClassCardData; timezone: s
               {data.instructor && ` · ${data.instructor}`}
             </p>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+          {/* Visible text stays "View" — only the accessible name is
+              per-class ("View DSA", "View Prob & Stats", ...). Six cards
+              with identical accessible names is a real screen-reader
+              defect (a fourth instance of this class tonight), not just a
+              locator inconvenience — falls back to `code` via the same
+              `displayName` the card's own title uses, so a class added
+              later with no short_name yet doesn't quietly recreate it. */}
+          <Button type="button" variant="outline" size="sm" aria-label={`View ${displayName}`} onClick={() => setOpen(true)}>
             View
           </Button>
         </div>

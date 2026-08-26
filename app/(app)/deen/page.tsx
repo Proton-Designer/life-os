@@ -213,6 +213,18 @@ export default async function DeenPage() {
   const thirtyDays = Array.from({ length: 30 }, (_, i) => addDaysToDateString(thirtyDaysAgoStr, i));
   const consistencyRows = buildPrayerConsistencyRows(resolvedStatuses, thirtyDays);
   const onTimeRate = computeOnTimeRate(thirtyDayRows, 30);
+  // computeOnTimeRate's denominator is a fixed dayCount*5 (the window size),
+  // never zero, so it always returns a real-looking percentage even when
+  // every day in the window is before the tracking floor (Opus Lead review,
+  // post-wipe rehearsal: a bare "0%" heroValue read as a real score, even
+  // though the grid right below it was correctly blank). Checked against
+  // any CLOSED trackable day (strictly before today, on/after the floor),
+  // not just "is today in range" — today alone is always >= the floor the
+  // moment tracking starts, but a same-day, still-in-progress "0%" over a
+  // 150-slot denominator would be exactly as misleading as the all-history
+  // case this is fixing. Reuses computeTrackingFloorDateStr's already-
+  // computed floor rather than inventing a second no-data rule.
+  const hasTrackableConsistencyDay = thirtyDays.some((d) => d < dateStr && d >= accountCreatedDateStr);
 
   // --- Prayer streak ---
   const prayersByDate: Record<string, string[]> = {};
@@ -432,7 +444,11 @@ export default async function DeenPage() {
         </div>
       </div>
 
-      <Panel title="Prayer consistency, last 30 days" heroValue={`${onTimeRate}%`} caption="On-time rate over the window">
+      <Panel
+        title="Prayer consistency, last 30 days"
+        heroValue={hasTrackableConsistencyDay ? `${onTimeRate}%` : "No data yet"}
+        caption={hasTrackableConsistencyDay ? "On-time rate over the window" : "Tracking started today"}
+      >
         <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} showDateLabels />
       </Panel>
     </PageContainer>

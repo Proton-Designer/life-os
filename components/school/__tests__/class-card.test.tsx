@@ -81,7 +81,21 @@ describe("ClassCard", () => {
   it("opens the expanded class view when View is clicked", async () => {
     const user = userEvent.setup();
     render(<ClassCard data={classData()} timezone="America/Chicago" />);
-    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(screen.getByRole("button", { name: "View DSA" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  // Opus Lead review: six class cards all labeled bare "View" is a real
+  // screen-reader defect (indistinguishable buttons), not just a locator
+  // inconvenience — the accessible name must be per-class.
+  it("gives each card's View button a per-class accessible name, not a bare 'View'", () => {
+    render(<ClassCard data={classData({ shortName: "DSA" })} timezone="America/Chicago" />);
+    expect(screen.getByRole("button", { name: "View DSA" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument();
+  });
+
+  it("falls back to code for the View button's accessible name when short_name is null — a class added later can't quietly recreate the collision", () => {
+    render(<ClassCard data={classData({ shortName: null, code: "MATH 2418" })} timezone="America/Chicago" />);
+    expect(screen.getByRole("button", { name: "View MATH 2418" })).toBeInTheDocument();
   });
 });
