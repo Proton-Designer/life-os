@@ -2,9 +2,11 @@
 
 import { useId, useOptimistic, useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
-import { markPrayer, toggleSunnah, unmarkPrayer } from "@/app/(app)/deen/actions";
+import { markPrayer, unmarkPrayer } from "@/app/(app)/deen/actions";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
-import { sunnahForPrayer, type SunnahDefinition, type SunnahSlot } from "@/lib/deen/sunnah";
+import { SunnahDisclosure } from "@/components/deen/sunnah-disclosure";
+import { sunnahForPrayer } from "@/lib/deen/sunnah";
+import type { SunnahSlot } from "@/lib/deen/sunnah";
 import type { PrayerName } from "@/lib/prayer-times/windows";
 import type { EffectivePrayerStatus } from "@/lib/deen/prayer-status";
 import { cn } from "@/lib/utils";
@@ -33,64 +35,6 @@ const STATUS_VARIANT: Record<ActionableStatus, BadgeVariant> = {
   qada: "warning",
   missed: "negative",
 };
-
-const SLOT_LABEL: Record<SunnahSlot, string> = {
-  before: "Before",
-  after: "After",
-  witr: "Witr",
-};
-
-const EMPHASIS_LABEL: Record<SunnahDefinition["emphasis"], string> = {
-  "mu'akkadah": "Mu'akkadah",
-  "ghayr mu'akkadah": "Ghayr mu'akkadah",
-  witr: "Witr",
-};
-
-function SunnahRow({
-  date,
-  prayerName,
-  def,
-  completed,
-}: {
-  date: string;
-  prayerName: PrayerName;
-  def: SunnahDefinition;
-  completed: boolean;
-}) {
-  const [isPending, startTransition] = useTransition();
-  const [optimisticCompleted, setOptimisticCompleted] = useOptimistic(
-    completed,
-    (_state, next: boolean) => next
-  );
-
-  function handleClick() {
-    startTransition(async () => {
-      setOptimisticCompleted(!optimisticCompleted);
-      await toggleSunnah(date, prayerName, def.slot);
-    });
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={isPending}
-      onClick={handleClick}
-      aria-pressed={optimisticCompleted}
-      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/40 disabled:opacity-50"
-    >
-      <span className="flex items-center gap-2">
-        <span
-          className={cn(
-            "size-4 shrink-0 rounded-full border",
-            optimisticCompleted ? "border-accent-deen bg-accent-deen" : "border-border"
-          )}
-        />
-        {SLOT_LABEL[def.slot]} &middot; {def.rakah} rak&apos;ah
-      </span>
-      <span className="text-xs text-muted-foreground">{EMPHASIS_LABEL[def.emphasis]}</span>
-    </button>
-  );
-}
 
 export function PrayerRow({
   date,
@@ -218,27 +162,13 @@ export function PrayerRow({
         </div>
       </div>
       {expanded && hasSunnah && (
-        <div id={sunnahPanelId} className="flex flex-col gap-0.5 border-t border-border/40 px-2 py-2">
-          {sunnahList.map((def) => (
-            <SunnahRow
-              key={def.slot}
-              date={date}
-              prayerName={prayerName}
-              def={def}
-              completed={sunnahCompletions.includes(def.slot)}
-            />
-          ))}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded(false);
-            }}
-            className="mt-0.5 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/40"
-          >
-            None
-          </button>
-        </div>
+        <SunnahDisclosure
+          date={date}
+          prayerName={prayerName}
+          sunnahCompletions={sunnahCompletions}
+          panelId={sunnahPanelId}
+          onCollapse={() => setExpanded(false)}
+        />
       )}
     </li>
   );
