@@ -38,7 +38,7 @@ function classData(overrides: Partial<ClassCardData> = {}): ClassCardData {
 
 describe("ClassCard", () => {
   it("renders the abbreviated name, code, room, and instructor", () => {
-    render(<ClassCard data={classData()} timezone="America/Chicago" />);
+    render(<ClassCard data={classData()} timezone="America/Chicago" todayStr="2026-08-26" />);
     expect(screen.getByText("DSA")).toBeInTheDocument();
     expect(screen.getByText(/CS-3345-HON/)).toBeInTheDocument();
     expect(screen.getByText(/FO 2\.404/)).toBeInTheDocument();
@@ -46,11 +46,15 @@ describe("ClassCard", () => {
   });
 
   it("shows the task count and upcoming assessment", () => {
-    render(<ClassCard data={classData()} timezone="America/Chicago" />);
+    render(<ClassCard data={classData()} timezone="America/Chicago" todayStr="2026-08-26" />);
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("tasks due this week")).toBeInTheDocument();
     expect(screen.getByText("Quiz 2")).toBeInTheDocument();
-    expect(screen.getByText("2026-09-10")).toBeInTheDocument();
+    // Rendered through formatShortDate, never as a raw ISO date — Ayman
+    // asked for "Sep. 3rd, not 09-03-2026" and this card is the one place
+    // a date shows on /school without opening anything.
+    expect(screen.getByText("Sep. 10th")).toBeInTheDocument();
+    expect(screen.queryByText("2026-09-10")).not.toBeInTheDocument();
   });
 
   // The real null-path case (Opus Lead review): Lin Alg (MATH 2418) has no
@@ -69,6 +73,7 @@ describe("ClassCard", () => {
           upcomingAssessment: null,
         })}
         timezone="America/Chicago"
+        todayStr="2026-08-26"
       />
     );
     // Falls back to the course code as the display name.
@@ -82,7 +87,7 @@ describe("ClassCard", () => {
 
   it("opens the expanded class view when View is clicked", async () => {
     const user = userEvent.setup();
-    render(<ClassCard data={classData()} timezone="America/Chicago" />);
+    render(<ClassCard data={classData()} timezone="America/Chicago" todayStr="2026-08-26" />);
     await user.click(screen.getByRole("button", { name: "View DSA" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
@@ -91,13 +96,13 @@ describe("ClassCard", () => {
   // screen-reader defect (indistinguishable buttons), not just a locator
   // inconvenience — the accessible name must be per-class.
   it("gives each card's View button a per-class accessible name, not a bare 'View'", () => {
-    render(<ClassCard data={classData({ shortName: "DSA" })} timezone="America/Chicago" />);
+    render(<ClassCard data={classData({ shortName: "DSA" })} timezone="America/Chicago" todayStr="2026-08-26" />);
     expect(screen.getByRole("button", { name: "View DSA" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument();
   });
 
   it("falls back to code for the View button's accessible name when short_name is null — a class added later can't quietly recreate the collision", () => {
-    render(<ClassCard data={classData({ shortName: null, code: "MATH 2418" })} timezone="America/Chicago" />);
+    render(<ClassCard data={classData({ shortName: null, code: "MATH 2418" })} timezone="America/Chicago" todayStr="2026-08-26" />);
     expect(screen.getByRole("button", { name: "View MATH 2418" })).toBeInTheDocument();
   });
 });

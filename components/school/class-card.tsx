@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ClassDetailDialog } from "@/components/school/class-detail-dialog";
+import { formatShortDate } from "@/lib/date-utils";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
 /**
@@ -18,7 +19,20 @@ import type { ClassCardData } from "@/lib/school/get-class-cards";
  * hand-run data step, not guaranteed to have happened yet, so a class
  * without one must still render correctly, not as a blank).
  */
-export function ClassCard({ data, timezone }: { data: ClassCardData; timezone: string }) {
+export function ClassCard({
+  data,
+  timezone,
+  todayStr,
+}: {
+  data: ClassCardData;
+  timezone: string;
+  /** Today in the user's timezone, computed on the SERVER and passed down.
+   * Only used as `formatShortDate`'s reference year, but deriving it here
+   * from `new Date()` would compute it once at SSR and again at hydration
+   * — identical on all but one day of the year, which is exactly the kind
+   * of "works until it doesn't" this app has been bitten by. */
+  todayStr: string;
+}) {
   const [open, setOpen] = useState(false);
   const displayName = data.shortName ?? data.code;
 
@@ -56,7 +70,9 @@ export function ClassCard({ data, timezone }: { data: ClassCardData; timezone: s
           {data.upcomingAssessment ? (
             <div className="flex flex-col items-end text-right">
               <span className="truncate text-sm font-medium">{data.upcomingAssessment.name}</span>
-              <span className="text-xs text-muted-foreground">{data.upcomingAssessment.date}</span>
+              <span className="text-xs text-muted-foreground">
+                {formatShortDate(data.upcomingAssessment.date, todayStr)}
+              </span>
             </div>
           ) : (
             <span className="text-xs text-muted-foreground">No upcoming test</span>

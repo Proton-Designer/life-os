@@ -274,7 +274,7 @@ export default async function SchoolPage() {
       {classCards.length > 0 && (
         <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {classCards.map((c) => (
-            <ClassCard key={c.id} data={c} timezone={timezone} />
+            <ClassCard key={c.id} data={c} timezone={timezone} todayStr={dateStr} />
           ))}
         </div>
       )}
