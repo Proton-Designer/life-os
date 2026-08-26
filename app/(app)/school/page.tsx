@@ -272,7 +272,7 @@ export default async function SchoolPage() {
           syllabus/tasks/assessment yet, so `items-start` keeps a short card
           short instead of CSS Grid stretching it to match its row. */}
       {classCards.length > 0 && (
-        <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {classCards.map((c) => (
             <ClassCard key={c.id} data={c} timezone={timezone} todayStr={dateStr} />
           ))}

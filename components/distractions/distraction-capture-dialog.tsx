@@ -139,7 +139,7 @@ export function DistractionCaptureDialog() {
                 {DOMAIN_LABEL[domain]}
               </DialogTitle>
             </DialogHeader>
-            <div className={cn("grid gap-4", domain === "deen" && "sm:grid-cols-[1fr_9rem]")}>
+            <div className={cn("grid grid-cols-1 gap-4", domain === "deen" && "sm:grid-cols-[1fr_9rem]")}>
               <div className="flex min-w-0 flex-col gap-3">
                 {!creating && (
                   <>
