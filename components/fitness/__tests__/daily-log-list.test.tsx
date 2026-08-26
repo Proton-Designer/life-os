@@ -8,17 +8,19 @@ function noopHandlers() {
   return {
     onLogReps: vi.fn().mockResolvedValue(undefined),
     onConfirmSession: vi.fn().mockResolvedValue(undefined),
-    onToggleDailyCheck: vi.fn().mockResolvedValue(undefined),
-    onLogWeight: vi.fn().mockResolvedValue(undefined),
-    onLogWaist: vi.fn().mockResolvedValue(undefined),
     onLogBenchmark: vi.fn().mockResolvedValue(undefined),
   };
 }
 
 // 2026-08-25 redesign: "when you press on an exercise it opens up a small
 // input box below it ... change it so that it opens a popup right away"
-// (Ayman) — every archetype except "session" now opens a Dialog on tap
-// instead of expanding inline.
+// (Ayman) — every archetype except "session" opens a Dialog on tap instead
+// of expanding inline.
+//
+// daily_check (protein/steps) and body_metric (weight/waist) are gone
+// entirely as of 2026-08-25/26 batch 2, item 3 — see lib/fitness/daily-log.ts's
+// own file comment. Their former coverage here was removed along with them;
+// weight/waist logging is now covered in body-module.test.tsx instead.
 describe("DailyLogList — popup logging", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -59,23 +61,6 @@ describe("DailyLogList — popup logging", () => {
     await user.type(input, "5{Enter}");
 
     expect(handlers.onLogReps).toHaveBeenCalledWith("e1", "Push-ups", 5);
-  });
-
-  it("tapping a body_metric row opens a dialog with a Save button, focused input", async () => {
-    const item: DailyLogItem = { kind: "body_metric", metric: "weight", lastValue: 180, lastDate: "2026-08-24" };
-    const handlers = noopHandlers();
-    const user = userEvent.setup();
-    render(
-      <DailyLogList date="2026-08-25" items={[item]} sessionDetailsBySessionId={{}} benchmarkExercises={[]} {...handlers} />
-    );
-
-    await user.click(screen.getByText("Log today's weight"));
-    const input = screen.getByLabelText("Weight (lb)");
-    expect(input).toHaveFocus();
-    await user.type(input, "182");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(handlers.onLogWeight).toHaveBeenCalledWith(182);
   });
 
   it("tapping the benchmark row opens BenchmarkForm inside a dialog", async () => {
@@ -121,54 +106,5 @@ describe("DailyLogList — popup logging", () => {
     await user.click(screen.getByText("Push Day"));
     // No dialog role should appear — SessionDetailPanel renders inline in the flow.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-});
-
-// A2: the zero-feedback bug — a daily_check tap used to change nothing on
-// screen until the server round-tripped, 1-3s later, which read as a
-// missed tap ("you have to tap it multiple times").
-describe("DailyLogList — daily_check one-tap feedback", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("shows an instant checkmark and strikethrough on the very click, before the action resolves", async () => {
-    let resolveToggle!: () => void;
-    const handlers = noopHandlers();
-    handlers.onToggleDailyCheck.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveToggle = resolve;
-        })
-    );
-    const item: DailyLogItem = { kind: "daily_check", checkKind: "protein", done: false };
-    const user = userEvent.setup();
-    render(
-      <DailyLogList date="2026-08-25" items={[item]} sessionDetailsBySessionId={{}} benchmarkExercises={[]} {...handlers} />
-    );
-
-    const row = screen.getByTestId("daily-log-check-protein");
-    expect(screen.getByText("Hit protein target")).not.toHaveClass("line-through");
-
-    await user.click(row);
-
-    expect(screen.getByText("Hit protein target")).toHaveClass("line-through");
-    expect(handlers.onToggleDailyCheck).toHaveBeenCalledWith("protein");
-    resolveToggle();
-  });
-
-  it("ignores a second tap while the first toggle is still in flight (no double-fire)", async () => {
-    const handlers = noopHandlers();
-    handlers.onToggleDailyCheck.mockImplementation(() => new Promise<void>(() => {}));
-    const item: DailyLogItem = { kind: "daily_check", checkKind: "steps", done: false };
-    const user = userEvent.setup();
-    render(
-      <DailyLogList date="2026-08-25" items={[item]} sessionDetailsBySessionId={{}} benchmarkExercises={[]} {...handlers} />
-    );
-
-    const row = screen.getByTestId("daily-log-check-steps");
-    await user.click(row);
-    await user.click(row);
-    await user.click(row);
-
-    expect(handlers.onToggleDailyCheck).toHaveBeenCalledTimes(1);
   });
 });

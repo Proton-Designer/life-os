@@ -277,8 +277,6 @@ test("fitness screen: Workout Plan strip, Daily Log, This week, and Cycle Progre
     await expect(page.getByText("Activate a workout plan to start tracking cycles.")).toBeVisible();
   }
 
-  let toggledCheckKind: "protein" | "steps" | null = null;
-
   try {
     // Everyday schedule guarantees today is included regardless of what day
     // this happens to run — the day-of-week-specific assertions below still
@@ -325,27 +323,6 @@ test("fitness screen: Workout Plan strip, Daily Log, This week, and Cycle Progre
     await expect(page.getByTestId("daily-log-list")).toBeVisible();
     const microRow = page.locator('[data-testid^="daily-log-micro_total-"]').filter({ hasText: "Pull-ups" });
     await expect(microRow).toBeVisible();
-
-    // Completing an item: a daily_check, since the server only ever
-    // renders it here at all via pendingDailyLog (daily-log.ts), which
-    // filters completed items out entirely — so a rendered check is
-    // ALWAYS currently pending, never already-done; there's no direction
-    // ambiguity to capture. Tries protein first, falls back to steps (the
-    // only other daily_check archetype) in the vanishingly unlikely case
-    // both are already completed for real today. Aimed at the micro-goal/
-    // daily-check archetypes only — A's own pass covers the session-confirm
-    // path end to end (Opus Lead, 2026-08-23), not duplicated here.
-    const proteinRow = page.getByTestId("daily-log-check-protein");
-    const stepsRow = page.getByTestId("daily-log-check-steps");
-    if (await proteinRow.isVisible().catch(() => false)) {
-      await proteinRow.click();
-      toggledCheckKind = "protein";
-      await expect(proteinRow).toHaveCount(0, { timeout: 10000 });
-    } else if (await stepsRow.isVisible().catch(() => false)) {
-      await stepsRow.click();
-      toggledCheckKind = "steps";
-      await expect(stepsRow).toHaveCount(0, { timeout: 10000 });
-    }
 
     // This week: derive "today" and "the day before this plan existed"
     // from the page's own rendered dates rather than a hardcoded literal.
@@ -395,19 +372,6 @@ test("fitness screen: Workout Plan strip, Daily Log, This week, and Cycle Progre
     await expect(page.getByTestId("cycle-progress-panel")).toBeVisible();
     await expect(page.getByTestId("cycle-progress-panel").getByText(/^Cycle \d+$/)).toBeVisible();
   } finally {
-    if (toggledCheckKind) {
-      // Restores to "not logged today" — the state it was ALWAYS in before
-      // this test touched it (a rendered daily_check is never already-done,
-      // see the comment above), via the test-only route rather than the
-      // app's UI: once completed, the item has no button left to undo it
-      // through, same problem class as clear-prayer.
-      const cleanupCheck = await page.request.delete(`${baseURL}/api/test/clear-daily-check`, {
-        headers: { "x-e2e-secret": secret! },
-        data: { kind: toggledCheckKind },
-      });
-      expect(cleanupCheck.ok()).toBe(true);
-    }
-
     await page.goto("/fitness/workouts");
     await dismissCheckinDialogIfPresent(page);
     await deleteTestPlanIfPresent(page);

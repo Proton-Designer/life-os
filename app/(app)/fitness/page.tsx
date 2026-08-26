@@ -11,19 +11,12 @@ import { loadPlanSessionDetails, type PlanSessionDetail } from "@/lib/fitness/lo
 import { VolumeHero } from "@/components/fitness/volume-hero";
 import { ThisWeekCalendar, type ThisWeekDay } from "@/components/fitness/this-week-calendar";
 import { DailyLogPanel } from "@/components/fitness/daily-log-panel";
+import { BodyModule } from "@/components/fitness/body-module";
 import { CycleProgressPanel, type BenchmarkDelta } from "@/components/fitness/cycle-progress-panel";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
-import {
-  confirmPlanSession,
-  ensureDailyCheckHabits,
-  toggleDailyCheck,
-  logWeight,
-  logWaist,
-  quickLogExercise,
-  logCycleBenchmark,
-} from "./actions";
+import { confirmPlanSession, logWeight, logWaist, quickLogExercise, logCycleBenchmark } from "./actions";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BENCHMARK_WINDOW_DAYS = 3;
@@ -188,7 +181,7 @@ export default async function FitnessPage() {
   // (typically pull-ups/push-ups) — logCycleBenchmark works for any set. --
   const benchmarkExercises = (microExerciseRows ?? []).map((e) => ({ exerciseId: e.exercise_id, name: e.exercises?.name ?? "" }));
 
-  const [{ data: benchmarkRows }, { data: weightRows }, { data: waistRow }, dailyCheckHabitIds] = await Promise.all([
+  const [{ data: benchmarkRows }, { data: weightRows }, { data: waistRow }] = await Promise.all([
     benchmarkExercises.length > 0
       ? supabase
           .from("fitness_benchmarks")
@@ -216,24 +209,12 @@ export default async function FitnessPage() {
       .order("date", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    ensureDailyCheckHabits(),
   ]);
 
   const weightValues = (weightRows ?? []).map((r) => r.weight_lb as number);
   const weightAvg7d =
     weightValues.length > 0 ? Math.round((weightValues.reduce((a, b) => a + b, 0) / weightValues.length) * 10) / 10 : null;
   const waist = waistRow ? { valueIn: waistRow.waist_in as number, date: waistRow.date } : null;
-  const daysSinceWaist = waist ? Math.floor((new Date(`${dateStr}T00:00:00Z`).getTime() - new Date(`${waist.date}T00:00:00Z`).getTime()) / 86_400_000) : null;
-  const waistDue = daysSinceWaist === null || daysSinceWaist >= 14;
-  const weightLoggedToday = (weightRows ?? []).some((r) => r.date === dateStr);
-
-  const { data: todayHabitLogs } = await supabase
-    .from("habit_logs")
-    .select("habit_id, completed")
-    .in("habit_id", [dailyCheckHabitIds.protein, dailyCheckHabitIds.steps])
-    .eq("date", dateStr);
-  const proteinDone = todayHabitLogs?.some((l) => l.habit_id === dailyCheckHabitIds.protein && l.completed) ?? false;
-  const stepsDone = todayHabitLogs?.some((l) => l.habit_id === dailyCheckHabitIds.steps && l.completed) ?? false;
 
   // Deltas: most recent benchmark strictly before this cycle's start vs
   // the most recent on/after it — "vs previous cycle" per the spec's
@@ -281,14 +262,6 @@ export default async function FitnessPage() {
         startTime: s.startTime,
         confirmedToday: confirmedByDateAndSession.has(`${dateStr}:${s.id}`),
       })),
-    dailyChecks: [
-      { checkKind: "protein", done: proteinDone },
-      { checkKind: "steps", done: stepsDone },
-    ],
-    bodyMetrics: [
-      { metric: "weight", lastValue: weightValues[0] ?? null, lastDate: null, dueToday: !weightLoggedToday },
-      { metric: "waist", lastValue: waist?.valueIn ?? null, lastDate: waist?.date ?? null, dueToday: waistDue },
-    ],
     benchmark:
       cycle && isInBenchmarkWindow(cycle, BENCHMARK_WINDOW_DAYS) && !benchmarkAlreadyLoggedThisWindow
         ? { cycleNumber: cycle.cycleNumber, dueBy: cycle.endDate }
@@ -392,9 +365,6 @@ export default async function FitnessPage() {
           benchmarkExercises={benchmarkExercises}
           onLogExercise={quickLogExercise.bind(null, dateStr)}
           onConfirmSession={confirmPlanSession}
-          onToggleDailyCheck={toggleDailyCheck.bind(null, dateStr)}
-          onLogWeight={logWeight.bind(null, dateStr)}
-          onLogWaist={logWaist.bind(null, dateStr)}
           onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
         />
       </Panel>
@@ -409,20 +379,32 @@ export default async function FitnessPage() {
         </div>
       </Panel>
 
+      {/* BodyModule (weight/waist, each with its own on-demand "Log"
+          affordance) is unconditional here — 2026-08-25/26 batch 2, item 3:
+          weight/waist logging must survive with NO active workout plan,
+          since it's no longer gated behind a cycle at all. Only the
+          cycle-specific content below it (benchmark deltas, "Log cycle
+          benchmarks") stays gated on an active plan's cycle existing. */}
       <Panel title="Cycle Progress checks">
-        {cycle ? (
-          <CycleProgressPanel
-            cycleNumber={cycle.cycleNumber}
-            daysLeft={cycle.daysLeft}
+        <div className="flex flex-col gap-3">
+          <BodyModule
             weightAvg7d={weightAvg7d}
             waist={waist}
-            deltas={deltas}
-            benchmarkExercises={benchmarkExercises}
-            onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
+            onLogWeight={logWeight.bind(null, dateStr)}
+            onLogWaist={logWaist.bind(null, dateStr)}
           />
-        ) : (
-          <p className="text-sm text-muted-foreground">Activate a workout plan to start tracking cycles.</p>
-        )}
+          {cycle ? (
+            <CycleProgressPanel
+              cycleNumber={cycle.cycleNumber}
+              daysLeft={cycle.daysLeft}
+              deltas={deltas}
+              benchmarkExercises={benchmarkExercises}
+              onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Activate a workout plan to start tracking cycles.</p>
+          )}
+        </div>
       </Panel>
     </PageContainer>
   );

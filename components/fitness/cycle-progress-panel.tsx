@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { BodyModule } from "./body-module";
 import { BenchmarkForm, type BenchmarkExercise } from "./benchmark-form";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,25 +8,27 @@ import { cn } from "@/lib/utils";
 export type BenchmarkDelta = { exerciseId: string; name: string; current: number | null; previous: number | null };
 
 /**
- * Cycle Progress checks — absorbs the old Body panel, adds cycle framing
- * (spec: "current stats for weight, waist, exercise goals if applicable,
- * then the ability to long benchmark cycle progress" — read as "log," the
- * spec's own typo). "Log cycle benchmarks" reuses the same BenchmarkForm
- * as the Daily Log's benchmark item — one action, two entry points.
+ * Cycle Progress checks — the cycle-specific half of the panel (deltas,
+ * "Log cycle benchmarks"). BodyModule (weight/waist) is rendered by the
+ * page directly, as a SIBLING of this component, not inside it —
+ * 2026-08-25/26 batch 2, item 3: weight/waist logging must survive with no
+ * active workout plan/cycle, and this component only renders at all when
+ * `cycle` exists. See app/(app)/fitness/page.tsx's own Cycle Progress
+ * checks Panel for the unconditional BodyModule + conditional-on-`cycle`
+ * CycleProgressPanel split.
+ *
+ * "Log cycle benchmarks" reuses the same BenchmarkForm as the Daily Log's
+ * benchmark item — one action, two entry points.
  */
 export function CycleProgressPanel({
   cycleNumber,
   daysLeft,
-  weightAvg7d,
-  waist,
   deltas,
   benchmarkExercises,
   onLogBenchmark,
 }: {
   cycleNumber: number;
   daysLeft: number;
-  weightAvg7d: number | null;
-  waist: { valueIn: number; date: string } | null;
   deltas: BenchmarkDelta[];
   benchmarkExercises: BenchmarkExercise[];
   onLogBenchmark: (weightLb: number | null, waistIn: number | null, reps: { exerciseId: string; maxReps: number }[]) => Promise<void>;
@@ -40,7 +41,6 @@ export function CycleProgressPanel({
         <span className="font-medium">Cycle {cycleNumber}</span>
         <span className="text-xs text-muted-foreground">{daysLeft}d left</span>
       </div>
-      <BodyModule weightAvg7d={weightAvg7d} waist={waist} />
       {deltas.length > 0 && (
         <ul className="flex flex-col gap-1">
           {deltas.map((d) => (

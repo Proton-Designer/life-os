@@ -5,8 +5,6 @@ const EMPTY_INPUTS: DailyLogInputs = {
   microTotals: [],
   microFreqs: [],
   sessions: [],
-  dailyChecks: [],
-  bodyMetrics: [],
   benchmark: null,
 };
 
@@ -15,13 +13,11 @@ describe("buildDailyLog", () => {
     expect(buildDailyLog(EMPTY_INPUTS)).toEqual([]);
   });
 
-  it("maps each archetype into its DailyLogItem shape", () => {
+  it("maps each surviving archetype into its DailyLogItem shape", () => {
     const items = buildDailyLog({
       microTotals: [{ exerciseId: "e1", name: "Pull-ups", target: 30, loggedToday: 12, notes: null }],
       microFreqs: [{ exerciseId: "e2", name: "Farmer carry", target: 3, boutsToday: 1, notes: "grip work" }],
       sessions: [{ sessionId: "s1", name: "Push Day", durationMinutes: 45, startTime: "07:00", confirmedToday: false }],
-      dailyChecks: [{ checkKind: "protein", done: false }],
-      bodyMetrics: [{ metric: "weight", lastValue: 180, lastDate: "2026-08-19", dueToday: true }],
       benchmark: { cycleNumber: 2, dueBy: "2026-08-25" },
     });
 
@@ -29,18 +25,8 @@ describe("buildDailyLog", () => {
       { kind: "micro_total", exerciseId: "e1", name: "Pull-ups", logged: 12, target: 30, notes: null },
       { kind: "micro_freq", exerciseId: "e2", name: "Farmer carry", bouts: 1, target: 3, notes: "grip work" },
       { kind: "session", sessionId: "s1", name: "Push Day", durationMinutes: 45, startTime: "07:00", confirmed: false },
-      { kind: "daily_check", checkKind: "protein", done: false },
-      { kind: "body_metric", metric: "weight", lastValue: 180, lastDate: "2026-08-19" },
       { kind: "benchmark", cycleNumber: 2, dueBy: "2026-08-25" },
     ]);
-  });
-
-  it("a body metric not due today is excluded entirely", () => {
-    const items = buildDailyLog({
-      ...EMPTY_INPUTS,
-      bodyMetrics: [{ metric: "waist", lastValue: 34, lastDate: "2026-08-10", dueToday: false }],
-    });
-    expect(items).toEqual([]);
   });
 
   it("adversarial: NaN/negative loggedToday and target sanitize to 0, never negative or NaN", () => {
@@ -79,12 +65,7 @@ describe("isDailyLogItemComplete / pendingDailyLog", () => {
     ).toBe(true);
   });
 
-  it("daily_check completes when done", () => {
-    expect(isDailyLogItemComplete({ kind: "daily_check", checkKind: "steps", done: true })).toBe(true);
-  });
-
-  it("body_metric and benchmark are never 'complete' — presence itself is the pending state", () => {
-    expect(isDailyLogItemComplete({ kind: "body_metric", metric: "weight", lastValue: null, lastDate: null })).toBe(false);
+  it("benchmark is never 'complete' — presence itself is the pending state", () => {
     expect(isDailyLogItemComplete({ kind: "benchmark", cycleNumber: 1, dueBy: "2026-08-25" })).toBe(false);
   });
 
@@ -93,15 +74,12 @@ describe("isDailyLogItemComplete / pendingDailyLog", () => {
       microTotals: [{ exerciseId: "e1", name: "Done", target: 10, loggedToday: 10, notes: null }],
       microFreqs: [{ exerciseId: "e2", name: "Not done", target: 3, boutsToday: 1, notes: null }],
       sessions: [{ sessionId: "s1", name: "Confirmed", durationMinutes: 10, startTime: null, confirmedToday: true }],
-      dailyChecks: [{ checkKind: "protein", done: false }],
-      bodyMetrics: [],
       benchmark: null,
     });
     const labels = pendingDailyLog(items).map((i) => {
-      if (i.kind === "daily_check") return i.checkKind;
       if (i.kind === "micro_freq") return i.name;
       throw new Error(`unexpected kind in this test: ${i.kind}`);
     });
-    expect(labels).toEqual(["Not done", "protein"]);
+    expect(labels).toEqual(["Not done"]);
   });
 });

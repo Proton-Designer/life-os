@@ -1,9 +1,21 @@
 /**
- * Daily Log — merges all six item archetypes into one ordered list with
- * completion state. Pure function, no React, no I/O — the repo's
+ * Daily Log — merges the surviving item archetypes into one ordered list
+ * with completion state. Pure function, no React, no I/O — the repo's
  * lib/checkins/schedule.ts pattern. docs/superpowers/plans/2026-08-22-fitness-system.md,
  * type contract part 1, and the "every archetype and its tap behaviour"
  * table.
+ *
+ * `daily_check` (protein/steps) and `body_metric` (weight/waist) were
+ * removed from this list entirely (2026-08-25/26 batch 2, item 3 —
+ * Ayman: "dont turn them into daily tasks, just keep them there, when i
+ * want to do it I will"). Weight and waist are still loggable, just no
+ * longer as a daily task here — see CycleProgressPanel/BodyModule, which
+ * now own a standalone log affordance independent of any window or task
+ * list. Protein/steps have no surviving affordance anywhere; the
+ * underlying `toggleDailyCheck`/`ensureDailyCheckHabits` actions and their
+ * `habit_logs`/`custom_habits` rows are NOT dropped — those tables are
+ * shared with other features (data export, distractions, home domain
+ * snapshots) — only this Daily Log's use of them is gone.
  *
  * `buildDailyLog` returns every item with its completion state attached;
  * `pendingDailyLog` filters to only what's still outstanding — separate
@@ -15,17 +27,14 @@
  * Micro items list individually (each exercise its own row); routine
  * sessions list as a whole, never exploded into their exercises — spec's
  * explicit distinction. Ordering here (micro totals, micro frequencies,
- * sessions, daily checks, body metrics, benchmark) is insertion order,
- * matching "micro first, sessions after" from the plan's logic-gap
- * resolution #5.
+ * sessions, benchmark) is insertion order, matching "micro first,
+ * sessions after" from the plan's logic-gap resolution #5.
  */
 
 export type DailyLogItem =
   | { kind: "micro_total"; exerciseId: string; name: string; logged: number; target: number; notes: string | null }
   | { kind: "micro_freq"; exerciseId: string; name: string; bouts: number; target: number; notes: string | null }
   | { kind: "session"; sessionId: string; name: string; durationMinutes: number; startTime: string | null; confirmed: boolean }
-  | { kind: "daily_check"; checkKind: "protein" | "steps"; done: boolean }
-  | { kind: "body_metric"; metric: "weight" | "waist"; lastValue: number | null; lastDate: string | null }
   | { kind: "benchmark"; cycleNumber: number; dueBy: string };
 
 export type MicroTotalInput = { exerciseId: string; name: string; target: number; loggedToday: number; notes: string | null };
@@ -37,9 +46,6 @@ export type SessionInput = {
   startTime: string | null;
   confirmedToday: boolean;
 };
-export type DailyCheckInput = { checkKind: "protein" | "steps"; done: boolean };
-/** `dueToday` is the caller's own "should this show up at all" decision (e.g. waist's 14-day re-arm) — buildDailyLog only ever surfaces a body_metric row when it's true. */
-export type BodyMetricInput = { metric: "weight" | "waist"; lastValue: number | null; lastDate: string | null; dueToday: boolean };
 /** null when not in the benchmark window (lib/fitness/cycle.ts's isInBenchmarkWindow) — nothing to show. */
 export type BenchmarkInput = { cycleNumber: number; dueBy: string } | null;
 
@@ -47,8 +53,6 @@ export type DailyLogInputs = {
   microTotals: MicroTotalInput[];
   microFreqs: MicroFreqInput[];
   sessions: SessionInput[];
-  dailyChecks: DailyCheckInput[];
-  bodyMetrics: BodyMetricInput[];
   benchmark: BenchmarkInput;
 };
 
@@ -97,15 +101,6 @@ export function buildDailyLog(inputs: DailyLogInputs): DailyLogItem[] {
     });
   }
 
-  for (const c of inputs?.dailyChecks ?? []) {
-    items.push({ kind: "daily_check", checkKind: c.checkKind, done: !!c.done });
-  }
-
-  for (const m of inputs?.bodyMetrics ?? []) {
-    if (!m.dueToday) continue;
-    items.push({ kind: "body_metric", metric: m.metric, lastValue: m.lastValue ?? null, lastDate: m.lastDate ?? null });
-  }
-
   if (inputs?.benchmark) {
     items.push({ kind: "benchmark", cycleNumber: inputs.benchmark.cycleNumber, dueBy: inputs.benchmark.dueBy });
   }
@@ -115,9 +110,8 @@ export function buildDailyLog(inputs: DailyLogInputs): DailyLogItem[] {
 
 /**
  * Whether the target's already been met/exceeded and the row would
- * disappear from the pending view. body_metric is never "complete" in
- * this sense — presence already means due (buildDailyLog filtered it) —
- * and benchmark is the same: showing up IS the pending state.
+ * disappear from the pending view. benchmark is never "complete" in this
+ * sense — showing up IS the pending state.
  */
 export function isDailyLogItemComplete(item: DailyLogItem): boolean {
   switch (item.kind) {
@@ -127,9 +121,6 @@ export function isDailyLogItemComplete(item: DailyLogItem): boolean {
       return item.target > 0 && item.bouts >= item.target;
     case "session":
       return item.confirmed;
-    case "daily_check":
-      return item.done;
-    case "body_metric":
     case "benchmark":
       return false;
   }

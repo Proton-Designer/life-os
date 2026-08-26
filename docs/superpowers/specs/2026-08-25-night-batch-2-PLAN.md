@@ -16,9 +16,9 @@ Status vocabulary: `BACKLOG` → `DEV` → `TEST` → `VERIFY` → `ITERATE` →
 | 1a | Home: "Today's Schedule" subtitle + event count | A | BACKLOG | Replaces "Today's 5 prayers are accounted for" |
 | 1b | Home: day-ribbon blobs sized to real duration | A | BACKLOG | Currently uniform width; must match the time axis |
 | 2 | Cross-device live sync (prayers, tasks, everywhere) | A | BACKLOG | Root cause known — see Ruling R1 |
-| 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | BACKLOG | Weight+waist survive in Cycle Progress only, non-task |
+| 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | Weight/waist relocated to CycleProgressPanel/BodyModule as on-demand log (no task semantics); protein/steps have no surviving UI. toggleDailyCheck/ensureDailyCheckHabits left in place, unused — habit_logs/custom_habits are shared tables, not fitness-only |
 | 4 | Work schedule: today highlight, edit-hours popup, real times | B | BACKLOG | Also verify "Cancel this week" actually works |
-| 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | BACKLOG | Builds the shared wizard C depends on |
+| 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | DEV | Starting with the wizard — C is blocked on it |
 | 6a | Schema: `classes`, `class_assessments`, syllabus storage bucket | C | BACKLOG | Migration 048 + first Supabase Storage bucket in the app |
 | 6b | School: per-class cards grid | C | BACKLOG | Six classes, data-driven |
 | 6c | School: expanded class view (assessments, syllabus, class task list) | C | BACKLOG | Reuses B's wizard from item 5 |

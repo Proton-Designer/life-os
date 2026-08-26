@@ -1,40 +1,25 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, clickAndSettle } from "./helpers";
 
-// Covers the 2026-08-25 Daily Log redesign end to end: A1 ("tapping an
-// exercise opens a popup right away," Ayman) and A2 (the daily-check
-// zero-feedback bug — "you have to tap it multiple times").
+// Originally covered A1 (Daily Log's popup logging) and A2 (Daily Log's
+// one-tap daily-check feedback) from the 2026-08-25 batch. Batch 2, item 3
+// (2026-08-25/26) removed BOTH archetypes from the Daily Log entirely —
+// Ayman: "remove the Hit protein target and 8k+ steps and log today's
+// weight and log waist things from the daily log, only keep log waist and
+// log weight but keep them in the cycle progress checks sections and dont
+// turn them into daily tasks."
 //
-// SCOPE NOTE on A1: SEED has no active workout plan seeded (Workout Plan:
-// "none selected"), so no micro-exercise row exists to tap. Rather than
-// seed a throwaway plan through the app (real residue risk in a table set
-// already fragile enough that fitness-residue's own diagnostic route
-// exists), this exercises the body_metric archetype instead — "Log
-// today's weight." components/fitness/daily-log-list.tsx wraps every
-// archetype except `session` in the exact same generic Dialog (only the
-// inner form differs: RepsQuickEntry vs BodyMetricQuickEntry vs
-// BenchmarkForm) — the popup-opens-instantly behavior under test here is
-// archetype-agnostic, so body_metric is a faithful stand-in for "tapping
-// an exercise," not a narrower claim wearing a wider one's label.
-//
-// PRE-RUN STATE MATTERS, same trap as e2e/deen.spec.ts: both the
-// daily_check and body_metric rows this spec touches only render as
-// PENDING (daily-log.ts's pendingDailyLog filters out anything already
-// done) — a prior run's residue left uncleaned would make this spec's
-// very first assertion (the row is visible) fail in a way that looks like
-// a product regression. Both are cleared defensively BEFORE asserting
-// anything, not just after, and again in an `afterEach` so a mid-test
-// failure still leaves SEED clean.
-
-test.describe("Fitness Daily Log — popup logging and one-tap feedback", () => {
+// A2 has no surviving affordance anywhere — there is nothing left to test.
+// A1's popup-on-tap pattern survives, just relocated: BodyModule (Cycle
+// Progress checks) now owns weight/waist logging via the same instant-open,
+// focused-input, Enter-submits Dialog pattern, but explicitly WITHOUT task
+// semantics — logging must not remove the button or gate it behind a
+// "due" state, since it's available on demand, not once a day.
+test.describe("Fitness — weight/waist logging in Cycle Progress checks (relocated from Daily Log)", () => {
   test.beforeEach(async ({ page, baseURL }) => {
     const secret = process.env.E2E_TEST_SECRET;
     test.skip(!secret, "E2E_TEST_SECRET not set — see .env.local");
 
-    await page.request.delete(`${baseURL}/api/test/clear-daily-check`, {
-      headers: { "x-e2e-secret": secret! },
-      data: { kind: "protein" },
-    });
     await page.request.delete(`${baseURL}/api/test/clear-body-metric`, {
       headers: { "x-e2e-secret": secret! },
       data: { field: "weight_lb" },
@@ -44,33 +29,36 @@ test.describe("Fitness Daily Log — popup logging and one-tap feedback", () => 
   test.afterEach(async ({ page, baseURL }) => {
     const secret = process.env.E2E_TEST_SECRET;
     if (!secret) return;
-    await page.request.delete(`${baseURL}/api/test/clear-daily-check`, {
-      headers: { "x-e2e-secret": secret },
-      data: { kind: "protein" },
-    });
     await page.request.delete(`${baseURL}/api/test/clear-body-metric`, {
       headers: { "x-e2e-secret": secret },
       data: { field: "weight_lb" },
     });
   });
 
-  test("A1: tapping the weight row opens a popup immediately, focused, and logging from it persists", async ({
+  test("the Daily Log no longer shows protein/steps/weight/waist at all", async ({ page }) => {
+    await page.goto("/fitness");
+    await dismissCheckinDialogIfPresent(page);
+
+    const dailyLog = page.getByTestId("daily-log-list");
+    await expect(dailyLog.getByText("Hit protein target")).toHaveCount(0);
+    await expect(dailyLog.getByText("8,000+ steps")).toHaveCount(0);
+    await expect(dailyLog.getByText("Log today's weight")).toHaveCount(0);
+    await expect(dailyLog.getByText("Log waist")).toHaveCount(0);
+  });
+
+  test("Weight's Log button in Cycle Progress checks opens a popup instantly, focused, and persists — without becoming a daily task", async ({
     page,
   }) => {
     await page.goto("/fitness");
     await dismissCheckinDialogIfPresent(page);
 
-    const dailyLog = page.getByTestId("daily-log-list");
-    const weightRow = dailyLog.getByRole("button", { name: "Log today's weight" });
-    await expect(weightRow).toBeVisible();
-
-    // No inline box below the row before the tap.
-    await expect(page.getByRole("spinbutton", { name: "Weight (lb)" })).toHaveCount(0);
-
-    await weightRow.click();
+    const bodyModule = page.getByTestId("body-module");
+    const [weightLog] = await bodyModule.getByRole("button", { name: "Log" }).all();
+    await weightLog.click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Log today's weight");
     const input = dialog.getByRole("spinbutton", { name: "Weight (lb)" });
     await expect(input).toBeFocused();
 
@@ -78,22 +66,23 @@ test.describe("Fitness Daily Log — popup logging and one-tap feedback", () => 
     await clickAndSettle(page, dialog.getByRole("button", { name: "Save" }));
     await expect(dialog).toBeHidden();
 
-    // The row is gone — dueToday flips false once today's weight is logged.
-    await expect(dailyLog.getByRole("button", { name: "Log today's weight" })).toHaveCount(0);
+    // NOT a daily task: the Log button is still there afterward, not
+    // removed, not disabled — logging is on demand, no "due today" state.
+    await expect(bodyModule.getByRole("button", { name: "Log" }).first()).toBeEnabled();
+    await expect(bodyModule).toContainText("182 lb");
 
-    // Persists across a real reload, not just client-side optimism.
+    // Persists across a real reload.
     await page.reload();
     await dismissCheckinDialogIfPresent(page);
-    await expect(page.getByTestId("daily-log-list").getByRole("button", { name: "Log today's weight" })).toHaveCount(
-      0
-    );
+    await expect(page.getByTestId("body-module")).toContainText("182 lb");
   });
 
-  test("A1: Enter in the popup's input submits, same as pressing the button", async ({ page }) => {
+  test("Enter in the popup's input submits, same as pressing Save", async ({ page }) => {
     await page.goto("/fitness");
     await dismissCheckinDialogIfPresent(page);
 
-    await page.getByTestId("daily-log-list").getByRole("button", { name: "Log today's weight" }).click();
+    const bodyModule = page.getByTestId("body-module");
+    await bodyModule.getByRole("button", { name: "Log" }).first().click();
     const dialog = page.getByRole("dialog");
     const input = dialog.getByRole("spinbutton", { name: "Weight (lb)" });
     await input.fill("179");
@@ -101,35 +90,6 @@ test.describe("Fitness Daily Log — popup logging and one-tap feedback", () => 
     await page.waitForLoadState("networkidle");
 
     await expect(dialog).toBeHidden();
-    await expect(page.getByTestId("daily-log-list").getByRole("button", { name: "Log today's weight" })).toHaveCount(
-      0
-    );
-  });
-
-  test("A2: a single tap on 'Hit protein target' shows a visible checked state immediately", async ({ page }) => {
-    await page.goto("/fitness");
-    await dismissCheckinDialogIfPresent(page);
-
-    const proteinRow = page.getByTestId("daily-log-check-protein");
-    await expect(proteinRow).toBeVisible();
-    await expect(page.getByText("Hit protein target")).not.toHaveClass(/line-through/);
-
-    // A single click — not two, not "click in a specific spot." The whole
-    // point of this spec is that ONE tap is enough.
-    await proteinRow.click();
-
-    // Instant, optimistic: visibly checked before the row disappears.
-    await expect(page.getByText("Hit protein target")).toHaveClass(/line-through/);
-
-    // Wait for the real write to settle, then confirm the row actually
-    // left the pending list (server-confirmed, not just an optimistic
-    // paint that could still revert).
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByTestId("daily-log-check-protein")).toHaveCount(0);
-
-    // Persists across a real reload.
-    await page.reload();
-    await dismissCheckinDialogIfPresent(page);
-    await expect(page.getByTestId("daily-log-check-protein")).toHaveCount(0);
+    await expect(bodyModule).toContainText("179 lb");
   });
 });

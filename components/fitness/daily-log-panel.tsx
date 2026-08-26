@@ -23,9 +23,6 @@ export function DailyLogPanel({
   benchmarkExercises,
   onLogExercise,
   onConfirmSession,
-  onToggleDailyCheck,
-  onLogWeight,
-  onLogWaist,
   onLogBenchmark,
 }: {
   date: string;
@@ -34,9 +31,6 @@ export function DailyLogPanel({
   benchmarkExercises: BenchmarkExercise[];
   onLogExercise: (exerciseId: string, exerciseName: string, sets: number, reps: number, load: number | null) => Promise<void>;
   onConfirmSession: (date: string, sessionId: string, sessionName: string, sets: ConfirmSet[]) => Promise<void>;
-  onToggleDailyCheck: (kind: "protein" | "steps") => Promise<void>;
-  onLogWeight: (value: number) => Promise<void>;
-  onLogWaist: (value: number) => Promise<void>;
   onLogBenchmark: (weightLb: number | null, waistIn: number | null, reps: { exerciseId: string; maxReps: number }[]) => Promise<void>;
 }) {
   return (
@@ -47,9 +41,6 @@ export function DailyLogPanel({
       benchmarkExercises={benchmarkExercises}
       onLogReps={(exerciseId, exerciseName, reps) => onLogExercise(exerciseId, exerciseName, 1, reps, null)}
       onConfirmSession={onConfirmSession}
-      onToggleDailyCheck={onToggleDailyCheck}
-      onLogWeight={onLogWeight}
-      onLogWaist={onLogWaist}
       onLogBenchmark={onLogBenchmark}
     />
   );
