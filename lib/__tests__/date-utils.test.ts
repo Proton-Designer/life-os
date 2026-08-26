@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatShortDate,
   getWeekStartDate,
   formatTopbarDate,
   formatDurationMagnitude,
@@ -167,5 +168,42 @@ describe("addMonthsToDateString", () => {
 
   it("clamps into a leap-year February correctly", () => {
     expect(addMonthsToDateString("2024-03-31", -1)).toBe("2024-02-29");
+  });
+});
+
+describe("formatShortDate", () => {
+  it("formats a date as month abbreviation plus ordinal day", () => {
+    expect(formatShortDate("2026-09-03", "2026-08-26")).toBe("Sep. 3rd");
+    expect(formatShortDate("2026-10-06", "2026-08-26")).toBe("Oct. 6th");
+    expect(formatShortDate("2026-12-01", "2026-08-26")).toBe("Dec. 1st");
+    expect(formatShortDate("2026-11-22", "2026-08-26")).toBe("Nov. 22nd");
+  });
+
+  it("uses the right ordinal for the 11-13 exceptions and the 21st/31st", () => {
+    expect(formatShortDate("2026-09-11", "2026-08-26")).toBe("Sep. 11th");
+    expect(formatShortDate("2026-09-12", "2026-08-26")).toBe("Sep. 12th");
+    expect(formatShortDate("2026-09-13", "2026-08-26")).toBe("Sep. 13th");
+    expect(formatShortDate("2026-09-21", "2026-08-26")).toBe("Sep. 21st");
+    expect(formatShortDate("2026-12-31", "2026-08-26")).toBe("Dec. 31st");
+  });
+
+  it("shows the year only when it differs from the reference date's year", () => {
+    expect(formatShortDate("2027-01-05", "2026-08-26")).toBe("Jan. 5th, 2027");
+    expect(formatShortDate("2026-01-05", "2026-08-26")).toBe("Jan. 5th");
+  });
+
+  it("does NOT shift the day backward in a timezone behind UTC", () => {
+    // `new Date("2026-09-01")` is UTC midnight, which is Aug 31 in
+    // America/Chicago. Splitting the string cannot exhibit that bug; this
+    // test is the regression guard that keeps it that way.
+    expect(formatShortDate("2026-09-01", "2026-08-26")).toBe("Sep. 1st");
+    expect(formatShortDate("2026-01-01", "2026-01-01")).toBe("Jan. 1st");
+    expect(formatShortDate("2026-03-01", "2026-03-01")).toBe("Mar. 1st");
+  });
+
+  it("returns the input unchanged when it is not a YYYY-MM-DD date", () => {
+    expect(formatShortDate("")).toBe("");
+    expect(formatShortDate("not a date")).toBe("not a date");
+    expect(formatShortDate("2026-13-01", "2026-08-26")).toBe("2026-13-01");
   });
 });

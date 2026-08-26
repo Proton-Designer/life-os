@@ -164,3 +164,46 @@ export function getTimezoneOffsetMinutes(date: Date, timezone: string): number {
   );
   return (asUtc - date.getTime()) / 60_000;
 }
+
+const MONTH_ABBR = [
+  "Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.",
+  "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec.",
+] as const;
+
+/** 1st, 2nd, 3rd, 4th … 11th/12th/13th are the exceptions, then 21st, 22nd, 23rd, 31st. */
+function ordinalSuffix(day: number): string {
+  if (day >= 11 && day <= 13) return "th";
+  if (day % 10 === 1) return "st";
+  if (day % 10 === 2) return "nd";
+  if (day % 10 === 3) return "rd";
+  return "th";
+}
+
+/**
+ * "Sep. 3rd" for a YYYY-MM-DD calendar date — Ayman's requested display
+ * format (2026-08-26: "Month and day not the numbered date"). Every school
+ * due date, assessment date and task date renders through this; none of
+ * them should ever print a raw `2026-09-03` at a user again.
+ *
+ * `dateStr` is parsed by SPLITTING THE STRING, never `new Date(dateStr)`.
+ * That constructor parses a bare date as UTC midnight, which in any zone
+ * behind UTC (Ayman is America/Chicago) renders one day EARLIER — the exact
+ * bug class AGENTS.md documents having shipped three times. There is no
+ * instant here and no timezone needed: a calendar date string is already
+ * local, and formatting it must not round-trip through a Date at all.
+ *
+ * `referenceDateStr` (normally today, in the user's timezone) controls the
+ * year: same year is omitted, any other year is shown. Without it a "Dec.
+ * 8th" exam next year would be indistinguishable from this year's.
+ */
+export function formatShortDate(dateStr: string, referenceDateStr?: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!match) return dateStr;
+  const [, year, month, day] = match;
+  const monthIndex = Number(month) - 1;
+  if (monthIndex < 0 || monthIndex > 11) return dateStr;
+  const dayNumber = Number(day);
+  const base = `${MONTH_ABBR[monthIndex]} ${dayNumber}${ordinalSuffix(dayNumber)}`;
+  const sameYear = referenceDateStr ? referenceDateStr.slice(0, 4) === year : true;
+  return sameYear ? base : `${base}, ${year}`;
+}
