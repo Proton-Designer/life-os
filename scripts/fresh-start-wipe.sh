@@ -65,10 +65,34 @@ if [ "$EXECUTE" != "--execute" ]; then
 fi
 
 echo
+# pg_dump refuses to run against a server with a NEWER major version than
+# itself. Homebrew's default `postgresql` formula is 16.x while this Supabase
+# server is 17.x, so the PATH binary aborts with "server version mismatch".
+# Caught during the SEED rehearsal (C, 2026-08-26) — it failed SAFE, since
+# `set -e` aborts before the delete transaction, but the real run would not
+# have completed. Resolve a pg_dump whose major version is >= the server's.
+SERVER_MAJOR="$(psql "$DATABASE_URL" -t -A -c 'show server_version' | cut -d. -f1)"
+PG_DUMP=""
+for candidate in \
+  "/opt/homebrew/opt/postgresql@${SERVER_MAJOR}/bin/pg_dump" \
+  "/usr/local/opt/postgresql@${SERVER_MAJOR}/bin/pg_dump" \
+  "$(command -v pg_dump || true)"
+do
+  [ -x "$candidate" ] || continue
+  if [ "$("$candidate" --version | sed -E 's/[^0-9]*([0-9]+).*/\1/')" -ge "$SERVER_MAJOR" ]; then
+    PG_DUMP="$candidate"; break
+  fi
+done
+if [ -z "$PG_DUMP" ]; then
+  echo "ERROR: no pg_dump >= server major $SERVER_MAJOR found." >&2
+  echo "Install it (brew install postgresql@${SERVER_MAJOR}) — refusing to delete without a backup." >&2
+  exit 1
+fi
 echo "=== BACKUP -> $BACKUP ==="
+echo "  using $PG_DUMP ($("$PG_DUMP" --version | awk '{print $3}')) against server major $SERVER_MAJOR"
 DUMP_ARGS=()
 for t in "${WIPE_TABLES[@]}"; do DUMP_ARGS+=(--table="public.$t"); done
-pg_dump "$DATABASE_URL" --data-only --no-owner --no-privileges "${DUMP_ARGS[@]}" > "$BACKUP"
+"$PG_DUMP" "$DATABASE_URL" --data-only --no-owner --no-privileges "${DUMP_ARGS[@]}" > "$BACKUP"
 echo "  $(wc -l < "$BACKUP") lines, $(du -h "$BACKUP" | cut -f1)"
 [ -s "$BACKUP" ] || { echo "ERROR: backup is empty — refusing to delete."; exit 1; }
 
