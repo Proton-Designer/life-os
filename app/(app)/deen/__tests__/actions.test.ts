@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
   const calls: { method: string; args: unknown[] }[] = [];
-  for (const method of ["select", "eq", "order", "limit", "upsert", "update", "insert", "delete"]) {
+  for (const method of ["select", "eq", "gte", "lte", "order", "limit", "upsert", "update", "insert", "delete"]) {
     chain[method] = vi.fn((...args: unknown[]) => {
       calls.push({ method, args });
       return chain;
@@ -16,6 +16,8 @@ function makeChain(resolvedValue: { data: unknown; error: null } = { data: null,
   return chain as {
     select: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
+    gte: ReturnType<typeof vi.fn>;
+    lte: ReturnType<typeof vi.fn>;
     order: ReturnType<typeof vi.fn>;
     limit: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
@@ -295,5 +297,173 @@ describe("Deen actions", () => {
       }),
       expect.objectContaining({ onConflict: "user_id,week_start_date" })
     );
+  });
+
+  // 2026-08-25/26, item 6 data layer (Opus Lead contract).
+  describe("Habit Builder editor actions", () => {
+    it("updateDeenHabit updates name and a trimmed anchor cue, scoped to the habit and user", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateDeenHabit } = await import("../actions");
+
+      await updateDeenHabit("habit-1", "Read Qur'an daily", "  After Fajr  ");
+
+      expect(fromMock).toHaveBeenCalledWith("deen_habits");
+      expect(chain.update).toHaveBeenCalledWith({ name: "Read Qur'an daily", anchor_cue: "After Fajr" });
+      expect(chain.eq).toHaveBeenCalledWith("id", "habit-1");
+      expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+    });
+
+    it("updateDeenHabit normalizes a blank anchor cue to null, not an empty string", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateDeenHabit } = await import("../actions");
+
+      await updateDeenHabit("habit-1", "Read Qur'an daily", "   ");
+
+      expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ anchor_cue: null }));
+    });
+
+    it("updateDeenHabit accepts a null anchor cue directly", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateDeenHabit } = await import("../actions");
+
+      await updateDeenHabit("habit-1", "Read Qur'an daily", null);
+
+      expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ anchor_cue: null }));
+    });
+
+    it("archiveDeenHabit soft-deletes via `archived: true` — never a hard delete", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { archiveDeenHabit } = await import("../actions");
+
+      await archiveDeenHabit("habit-1");
+
+      expect(chain.update).toHaveBeenCalledWith({ archived: true });
+      expect(chain.delete).not.toHaveBeenCalled();
+      expect(chain.eq).toHaveBeenCalledWith("id", "habit-1");
+      expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+    });
+
+    it("setDeenHabitStageOverride writes the given stage", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { setDeenHabitStageOverride } = await import("../actions");
+
+      await setDeenHabitStageOverride("habit-1", "locked");
+
+      expect(chain.update).toHaveBeenCalledWith({ stage_override: "locked" });
+    });
+
+    it("setDeenHabitStageOverride writes null to reset to automatic", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { setDeenHabitStageOverride } = await import("../actions");
+
+      await setDeenHabitStageOverride("habit-1", null);
+
+      expect(chain.update).toHaveBeenCalledWith({ stage_override: null });
+    });
+
+    it("setDeenHabitCommittedDate updates committed_date when it's today or earlier", async () => {
+      const chains: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        deen_habits: makeChain(),
+      };
+      fromImpl = (table) => chains[table];
+      const { setDeenHabitCommittedDate } = await import("../actions");
+
+      await setDeenHabitCommittedDate("habit-1", "2020-01-01");
+
+      expect(chains.deen_habits.update).toHaveBeenCalledWith({ committed_date: "2020-01-01" });
+    });
+
+    it("setDeenHabitCommittedDate rejects a date after the user's local today, server-side", async () => {
+      const chains: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        deen_habits: makeChain(),
+      };
+      fromImpl = (table) => chains[table];
+      const { setDeenHabitCommittedDate } = await import("../actions");
+
+      await expect(setDeenHabitCommittedDate("habit-1", "2099-01-01")).rejects.toThrow(/future|after today/i);
+      expect(chains.deen_habits.update).not.toHaveBeenCalled();
+    });
+
+    it("setDeenHabitLogStatus upserts on the (habit_id, date) key — an insert when nothing was ever recorded, not a conditional update", async () => {
+      const chains: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        deen_habit_logs: makeChain(),
+      };
+      fromImpl = (table) => chains[table];
+      const { setDeenHabitLogStatus } = await import("../actions");
+
+      await setDeenHabitLogStatus("habit-1", "2020-01-01", true);
+
+      expect(fromMock).toHaveBeenCalledWith("deen_habit_logs");
+      expect(chains.deen_habit_logs.upsert).toHaveBeenCalledWith(
+        { habit_id: "habit-1", user_id: "user-1", date: "2020-01-01", completed: true },
+        expect.objectContaining({ onConflict: "habit_id,date" })
+      );
+    });
+
+    it("setDeenHabitLogStatus can set completed back to false (an explicit set, not a toggle)", async () => {
+      const chains: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        deen_habit_logs: makeChain(),
+      };
+      fromImpl = (table) => chains[table];
+      const { setDeenHabitLogStatus } = await import("../actions");
+
+      await setDeenHabitLogStatus("habit-1", "2020-01-01", false);
+
+      expect(chains.deen_habit_logs.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ completed: false }),
+        expect.anything()
+      );
+    });
+
+    it("setDeenHabitLogStatus rejects a future date, server-side", async () => {
+      const chains: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        deen_habit_logs: makeChain(),
+      };
+      fromImpl = (table) => chains[table];
+      const { setDeenHabitLogStatus } = await import("../actions");
+
+      await expect(setDeenHabitLogStatus("habit-1", "2099-01-01", true)).rejects.toThrow(/future|after today/i);
+      expect(chains.deen_habit_logs.upsert).not.toHaveBeenCalled();
+    });
+
+    it("getDeenHabitLogRange returns only rows that exist, scoped to the habit/user/date range", async () => {
+      const rows = [
+        { date: "2026-08-01", completed: true },
+        { date: "2026-08-03", completed: false },
+      ];
+      const chain = makeChain({ data: rows, error: null });
+      fromImpl = () => chain;
+      const { getDeenHabitLogRange } = await import("../actions");
+
+      const result = await getDeenHabitLogRange("habit-1", "2026-08-01", "2026-08-05");
+
+      expect(fromMock).toHaveBeenCalledWith("deen_habit_logs");
+      expect(chain.eq).toHaveBeenCalledWith("habit_id", "habit-1");
+      expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+      expect(chain.gte).toHaveBeenCalledWith("date", "2026-08-01");
+      expect(chain.lte).toHaveBeenCalledWith("date", "2026-08-05");
+      expect(result).toEqual(rows);
+    });
+
+    it("getDeenHabitLogRange returns an empty array, not null, when nothing was logged in range", async () => {
+      const chain = makeChain({ data: null, error: null });
+      fromImpl = () => chain;
+      const { getDeenHabitLogRange } = await import("../actions");
+
+      const result = await getDeenHabitLogRange("habit-1", "2026-08-01", "2026-08-05");
+
+      expect(result).toEqual([]);
+    });
   });
 });
