@@ -262,7 +262,7 @@ export default async function SchoolPage() {
           </KpiCard>
         </div>
         <div className="flex w-[78vw] shrink-0 snap-start items-center justify-center rounded-2xl border border-border/40 p-3 md:w-auto">
-          <CompletedTasksDialog groups={completedWeekGroups} />
+          <CompletedTasksDialog groups={completedWeekGroups} removeTask={removeTask} />
         </div>
       </div>
 
@@ -272,7 +272,7 @@ export default async function SchoolPage() {
           syllabus/tasks/assessment yet, so `items-start` keeps a short card
           short instead of CSS Grid stretching it to match its row. */}
       {classCards.length > 0 && (
-        <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div data-testid="class-cards-grid" className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {classCards.map((c) => (
             <ClassCard key={c.id} data={c} timezone={timezone} todayStr={dateStr} />
           ))}

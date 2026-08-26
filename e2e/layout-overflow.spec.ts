@@ -24,6 +24,23 @@ const AUTHED_ROUTES = [
 
 const PUBLIC_ROUTES = ["/login", "/signup"];
 
+// Opus Lead review (2026-08-26, after TWO engineers independently got a
+// false pass from this exact spec the same afternoon): `waitForSettled`'s
+// networkidle+fonts+2rAF settle point is a TIMING proxy for "the widest
+// element has mounted," not a guarantee of it — a Server Component response
+// that's still assembling when networkidle fires (page compiling under
+// load, a slow query, etc.) measures a genuinely-empty layout and passes in
+// ~3s, which the poll then has no way to distinguish from a real pass. Only
+// a CONTENT assertion can tell "nothing wide has rendered yet" apart from
+// "nothing wide exists on this page." Routes whose principal (widest) content
+// isn't guaranteed present by settle time alone get an explicit selector
+// here; the test waits for it before ever measuring. Not every route needs
+// one — most content is layout-stable structural chrome, not variable-width
+// data render — so this stays an opt-in map, not a blanket wait.
+const READY_SELECTOR: Partial<Record<string, string>> = {
+  "/school": '[data-testid="class-cards-grid"]',
+};
+
 // Opus Lead review (2026-08-16): a bare goto->measure had no deterministic
 // settle point. `goto` resolves on `load`, but a streaming Server Component,
 // a late font swap, or a client chart mounting can all still move layout
@@ -37,12 +54,21 @@ const PUBLIC_ROUTES = ["/login", "/signup"];
 // racing anything. expect.poll then gives any final micro-jitter a short
 // window to resolve without masking a real, persistent overflow (which
 // stays failing across the whole poll window regardless).
-async function waitForSettled(page: import("@playwright/test").Page) {
+async function waitForSettled(page: import("@playwright/test").Page, route?: string) {
   await page.waitForLoadState("networkidle");
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
   );
+  // The content check that actually rules out the false pass: assert the
+  // route's own widest content is in the DOM, not just that the network
+  // and paint have gone quiet. Real timeout (Playwright's default), not
+  // swallowed — a route whose ready selector never appears is a genuine
+  // failure (the page broke), not something to silently skip past.
+  const readySelector = route ? READY_SELECTOR[route] : undefined;
+  if (readySelector) {
+    await page.locator(readySelector).first().waitFor({ state: "attached" });
+  }
 }
 
 async function assertNoHorizontalOverflow(page: import("@playwright/test").Page, width: number) {
@@ -100,12 +126,36 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
         await page.setViewportSize({ width, height: 900 });
         await page.goto(route);
         await dismissCheckinDialogIfPresent(page);
-        await waitForSettled(page);
+        await waitForSettled(page, route);
         await assertNoHorizontalOverflow(page, width);
         await assertNoPanelOverflow(page, width);
       }
     });
   }
+
+  // 2026-08-26: the class-detail dialog shipped its own overflow bug (the
+  // same missing-base-grid-cols-1 idiom found in /school, fixed the same
+  // afternoon) that this spec could never have caught — page-load overflow
+  // checks are blind to content that only exists once a dialog is opened.
+  // This batch is specifically about that dialog, so it gets its own
+  // coverage rather than staying a page-load-only spec.
+  test("the expanded class view dialog has no horizontal overflow at any breakpoint", async ({ page }) => {
+    for (const width of BREAKPOINTS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/school");
+      await dismissCheckinDialogIfPresent(page);
+      await waitForSettled(page, "/school");
+
+      // Any class card's View button opens the same dialog component —
+      // the first one is enough to exercise the layout.
+      await page.getByRole("button", { name: /^View / }).first().click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await waitForSettled(page);
+
+      await assertNoHorizontalOverflow(page, width);
+      await assertNoPanelOverflow(page, width);
+    }
+  });
 
   for (const route of PUBLIC_ROUTES) {
     test(`${route} has no horizontal overflow at any breakpoint`, async ({ page }) => {
