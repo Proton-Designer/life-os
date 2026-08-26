@@ -73,3 +73,62 @@ before you stage a file, and never `git add -A`, `git commit -a`, `git stash`,
 If a commit lands under the wrong agent's message anyway, **leave it**. The code
 is correct and present; rewriting history in a tree other agents are actively
 committing to is far worse than a misattributed diff.
+
+## Before deploying: run the full e2e suite, and distrust a green that saw nothing
+
+`tsc` + `vitest` are structurally blind to most of what breaks this app. On
+2026-08-25 a batch shipped on "1577/1577 green" alone. The Playwright suite
+was **already red at that commit** and stayed red, unnoticed, for a day:
+eight specs described UI that the same night's redesign had replaced, and a
+real defect — `/school` scrolling horizontally at 390px, Ayman's own phone —
+was live in production the whole time. Unit tests cannot see any of it.
+
+**Run `npx playwright test` (both projects) before every deploy.** Not a
+`-g`-filtered subset: `-g` also filters out the `setup` project, so the run
+silently reuses a stale `storageState` and you learn nothing about auth.
+
+### A check that examines nothing reports success
+
+Three separate checks did this in one afternoon (2026-08-26), and all three
+failed **green**, which is the direction nothing ever flags:
+
+- An overlap check measured an assessments table that was **empty** on SEED —
+  zero overlaps found, because there was nothing to overlap. The real bug
+  (a crushed Name column at 390px) appeared the moment the fixture was seeded
+  to match the shape of the reported bug.
+- `layout-overflow.spec.ts` passed `/school` in ~3s by measuring **before the
+  class cards rendered**. A timing settle (networkidle + fonts + rAF) cannot
+  distinguish "nothing wide has mounted yet" from "nothing wide exists." Only
+  a *content* assertion can — hence `READY_SELECTOR` in that spec.
+- A `-g`-filtered production run skipped the auth setup entirely and reported
+  a pass against a session that was never established.
+
+**Before trusting any check about a reported bug, seed the fixture to the
+shape of that bug and confirm the check FAILS first.** A red you can explain
+is evidence; a green you didn't earn is not. (Same discipline that made the
+prayer-floor fix trustworthy: prove the broken case first, so the fixed case
+means something.)
+
+### Two mechanical traps that cost real time
+
+- **`playwright test | tail` returns `tail`'s exit code.** A run with 12
+  failures reported `exit 0`. Never read a test result through a pipe — run
+  it bare and check `$?`, or write to a file.
+- **Killing a mutating e2e run leaves SEED dirty.** An interrupted
+  `fitness.spec.ts` left an orphaned active plan that the *next* run read as
+  its baseline and then deleted, failing a residue comparison that had
+  nothing to do with the code. If you kill a suite, check SEED before
+  believing the next run's failure.
+
+### Production verification is worth the two minutes
+
+`PLAYWRIGHT_BASE_URL=https://tracking-app-sand.vercel.app npx playwright test …`
+runs the same specs against the live site with no local server. Capture the
+failing check **before** deploying and re-run it after — a deploy that
+doesn't flip a known-red check didn't do what you think it did.
+
+Expect the first post-deploy run to hit a cold serverless start; `login`'s
+post-signin assertion carries an extended timeout for exactly that reason.
+A slow login there is not a broken login — verify against localhost, the
+previous deployment, and Supabase's token endpoint directly before concluding
+you have shipped an outage.
