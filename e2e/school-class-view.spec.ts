@@ -61,6 +61,44 @@ test.describe("School — expanded class view", () => {
     expect(names).toEqual(CLASS_ORDER.map((c) => `View ${c}`));
   });
 
+  // Ayman's C1 report, stated as the browser behaviour he actually saw:
+  // "when the user presses view syllabus it downloads the syllabus to the
+  // user's machine ... it shouldn't download, it should just pull up a
+  // popup." So the assertion is literally "no download fired" — asserting
+  // on the viewer's internals would miss the case where a popup opens AND
+  // the browser also grabs the file, which is the half-fixed state.
+  //
+  // Both formats are covered because they take completely different code
+  // paths: PDF renders in an <iframe> (which always worked), .docx is
+  // fetched and rendered client-side by docx-preview (the actual fix).
+  // The .docx is the one that was broken, and it's the class in his
+  // screenshot.
+  for (const { className, format } of [
+    { className: "DSA", format: "pdf" },
+    { className: "Ameri Studies", format: "docx" },
+  ]) {
+    test(`viewing a ${format} syllabus opens a popup and does not download`, async ({ page }) => {
+      await openSchool(page);
+      const dialog = await openClass(page, className);
+
+      const downloads: string[] = [];
+      page.on("download", (d) => downloads.push(d.suggestedFilename()));
+
+      await dialog.getByRole("button", { name: /^View$/ }).click();
+
+      const viewer = page.getByRole("dialog").filter({ hasText: "Syllabus" }).last();
+      await expect(viewer).toBeVisible();
+
+      // The honest-failure fallback is still a failure for this test: it
+      // means he clicked View and did not get to see his syllabus.
+      await expect(viewer.getByText(/can't be previewed/i)).toHaveCount(0);
+
+      // Give any errant download a moment to fire before concluding none did.
+      await page.waitForTimeout(1500);
+      expect(downloads).toEqual([]);
+    });
+  }
+
   // ---------------------------------------------------------------------
   // The three tests below describe work that is still in flight (B's edit
   // mode and instant load, C's locked-class wizard and date formatting).
