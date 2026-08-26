@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, ChevronDown } from "lucide-react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, ChevronDown, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -9,8 +10,29 @@ import type { CompletedWeekGroup } from "@/lib/tasks/completed-by-week";
 
 export type { CompletedWeekGroup };
 
-function WeekSection({ group }: { group: CompletedWeekGroup }) {
+function WeekSection({
+  group,
+  removeTask,
+}: {
+  group: CompletedWeekGroup;
+  removeTask: (id: string) => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const router = useRouter();
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleRemove(id: string) {
+    setRemovingId(id);
+    startTransition(async () => {
+      try {
+        await removeTask(id);
+        router.refresh();
+      } catch {
+        setRemovingId(null);
+      }
+    });
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -34,6 +56,15 @@ function WeekSection({ group }: { group: CompletedWeekGroup }) {
                 {item.title}
               </span>
               <span className="shrink-0 text-xs text-muted-foreground">{item.meta}</span>
+              <button
+                type="button"
+                onClick={() => handleRemove(item.id)}
+                disabled={isPending && removingId === item.id}
+                aria-label={`Remove ${item.title}`}
+                className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-60"
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+              </button>
             </li>
           ))}
         </ul>
@@ -47,11 +78,26 @@ function WeekSection({ group }: { group: CompletedWeekGroup }) {
  * week (most recent first, per `groups`' own ordering — computed server-side
  * since it needs the account's timezone, AGENTS.md), every section collapsed
  * by default (Ayman: "defaulted to collapsed view" — unlike QadaBacklogCard's
- * first-section-expanded pattern, this one is uniform). Purely a browsing
- * history view — completing happens via the three KPI cards' own dialogs
- * (KpiTaskDialog), which is what actually moves a task in here.
+ * first-section-expanded pattern, this one is uniform). Completing happens
+ * via the three KPI cards' own dialogs (KpiTaskDialog), which is what
+ * actually moves a task in here.
+ *
+ * Remove control added 2026-08-26 afternoon (Opus Lead, found during e2e
+ * triage): the afternoon redesign scoped TaskListModule/TaskEditDialog to
+ * open tasks only, and nothing else wired removal for a completed one —
+ * making completed tasks permanently undeletable, a real regression
+ * regardless of whether it was ever a named requirement. This is the one
+ * place a completed task is actually visible, so it's the one place its
+ * removal belongs — this dialog otherwise stays exactly what it was, a
+ * browsing history view.
  */
-export function CompletedTasksDialog({ groups }: { groups: CompletedWeekGroup[] }) {
+export function CompletedTasksDialog({
+  groups,
+  removeTask,
+}: {
+  groups: CompletedWeekGroup[];
+  removeTask: (id: string) => Promise<void>;
+}) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -68,7 +114,7 @@ export function CompletedTasksDialog({ groups }: { groups: CompletedWeekGroup[] 
           {groups.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">Nothing completed yet</p>
           ) : (
-            groups.map((g) => <WeekSection key={g.weekStart} group={g} />)
+            groups.map((g) => <WeekSection key={g.weekStart} group={g} removeTask={removeTask} />)
           )}
         </div>
       </DialogContent>
