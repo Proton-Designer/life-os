@@ -10,9 +10,9 @@ import { KpiTaskDialog } from "../kpi-task-dialog";
 // "Due today" is the COMMON case, not the edge case), so the empty state is
 // asserted here explicitly, not left to be caught by chance.
 describe("KpiTaskDialog", () => {
-  async function openDialog() {
+  async function openDialog(accessibleName: string) {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(screen.getByRole("button", { name: accessibleName }));
     return user;
   }
 
@@ -20,7 +20,7 @@ describe("KpiTaskDialog", () => {
     render(
       <KpiTaskDialog title="Due today" items={[]} toggleTask={vi.fn()} emptyMessage="Nothing due today" />
     );
-    await openDialog();
+    await openDialog("View due today");
     expect(await screen.findByText("Nothing due today")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Mark/ })).not.toBeInTheDocument();
   });
@@ -31,12 +31,23 @@ describe("KpiTaskDialog", () => {
       { id: "t1", title: "Lab report", domain: "school", mode: "toggle", meta: "Assignment · PHYS-2326" },
     ];
     render(<KpiTaskDialog title="Overdue" items={items} toggleTask={toggleTask} emptyMessage="Nothing overdue" />);
-    const user = await openDialog();
+    const user = await openDialog("View overdue");
 
     expect(screen.getByText("Lab report")).toBeInTheDocument();
     expect(screen.getByText("Assignment · PHYS-2326")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: 'Mark "Lab report" done' }));
     expect(toggleTask).toHaveBeenCalledWith("t1");
+  });
+
+  // Batch 3 fix: three School KPI cards previously all shared the bare
+  // accessible name "View" — indistinguishable from each other, and once
+  // item 6b's class-card grid landed, from every card's own "View" button.
+  it("gives each KPI's View trigger a distinct accessible name derived from its title, while keeping the visible label 'View'", () => {
+    render(
+      <KpiTaskDialog title="Due this week" items={[]} toggleTask={vi.fn()} emptyMessage="Nothing due this week" />
+    );
+    const button = screen.getByRole("button", { name: "View due this week" });
+    expect(button).toHaveTextContent("View");
   });
 });

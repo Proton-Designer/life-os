@@ -32,7 +32,18 @@ export function KpiTaskDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="mt-1 self-start">
+        {/* Visible text stays "View" (Ayman: KPI cards should be smaller,
+            not busier) — only the accessible name says what it opens.
+            Batch 3 fix: three KPI cards all had the bare name "View",
+            indistinguishable from each other and from every class card's
+            own "View" button once item 6b's grid landed. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-1 self-start"
+          aria-label={`View ${title.charAt(0).toLowerCase()}${title.slice(1)}`}
+        >
           View
         </Button>
       </DialogTrigger>
