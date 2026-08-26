@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { checkSecret } from "../check-secret";
 
 // Test-only read endpoint (e2e/sunnah-disclosure.spec.ts): the sunnah
 // nesting hazard the 2026-08-25/26 disclosure work explicitly guards
@@ -11,11 +12,6 @@ import { localDateString } from "@/lib/date-utils";
 // real read of the `prayers` table proves the row was never written, the
 // same check done manually via psql during that work. Grants nothing an
 // authenticated user couldn't already read about their own prayers row.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function GET(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

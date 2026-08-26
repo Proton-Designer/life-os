@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (Task 17.1, e2e/deen.spec.ts): markPrayer only supports
 // writing on_time/qada/missed — there is no UI affordance to return a prayer
@@ -11,11 +12,6 @@ import { localDateString } from "@/lib/date-utils";
 // this secret, so it grants nothing beyond what an authenticated user could
 // already do to their own prayers row via the real UI, just without going
 // through markPrayer's write-only status values.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function DELETE(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

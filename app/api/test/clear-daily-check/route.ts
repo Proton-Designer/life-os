@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { ensureDailyCheckHabits } from "@/app/(app)/fitness/actions";
+import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (e2e/fitness.spec.ts): toggleDailyCheck only flips
 // today's habit_logs row, and pendingDailyLog (lib/fitness/daily-log.ts)
@@ -13,11 +14,6 @@ import { ensureDailyCheckHabits } from "@/app/(app)/fitness/actions";
 // has no "return to pending" value either): this deletes today's row,
 // restoring exactly the "not logged today" state the item was always in
 // before a test touched it.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function DELETE(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

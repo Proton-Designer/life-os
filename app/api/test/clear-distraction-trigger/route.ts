@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
+import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (e2e/distractions.spec.ts): there is no delete UI for a
 // trigger anywhere in the app — archiving/removal wasn't part of tonight's
@@ -9,11 +10,6 @@ import { getAuthedUser } from "@/lib/supabase/auth";
 // reference trigger_id ON DELETE CASCADE (migration 041), so deleting the
 // trigger row here is sufficient teardown for everything a test created
 // under it. Same secret-gated shape as the other test-only routes.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function DELETE(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

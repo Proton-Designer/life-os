@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (e2e/fitness-daily-log.spec.ts): logWeight/logWaist
 // only support writing a value — there is no UI affordance to clear
@@ -11,11 +12,6 @@ import { localDateString } from "@/lib/date-utils";
 // test-written weight must not be destroyed) — and only deletes the row
 // outright once BOTH fields would be null, since body_metrics_check
 // forbids a row with neither.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function DELETE(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

@@ -4,6 +4,7 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, resolveLocalTime } from "@/lib/date-utils";
 import { saveAllocationCheckin } from "@/app/(app)/checkin/allocation-actions";
 import { emptyAllocation, type Allocation } from "@/lib/checkins/allocation";
+import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (e2e/checkin.spec.ts, 2026-08-25 rewrite): the current
 // check-in model is per-window allocation (checkins.kind = 'allocation' +
@@ -19,11 +20,6 @@ import { emptyAllocation, type Allocation } from "@/lib/checkins/allocation";
 // fixtures elsewhere in this same session. 01:00-03:00 local, today: well
 // outside any real checkin_window_start/end (waking hours), so a genuine
 // answered window from actual usage can't already occupy this slot.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function POST(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

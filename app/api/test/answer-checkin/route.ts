@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import { answerCheckin } from "@/app/(app)/checkin/actions";
 import type { CheckinTagType } from "@/lib/checkins/types";
+import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (Task 17.1, Playwright's e2e/checkin.spec.ts): a real
 // 2-hour check-in window can't be waited out in a test run, so this drives
@@ -11,11 +12,6 @@ import type { CheckinTagType } from "@/lib/checkins/types";
 // via the real check-in UI — still requires a valid session — but is
 // additionally gated behind E2E_TEST_SECRET so it can't be hit by a stray
 // discovered URL even against the live production deployment.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function POST(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
+import { checkSecret } from "../check-secret";
 
 // Test-only diagnostic (e2e/fitness.spec.ts): a hand-maintained "check these
 // three tables" teardown rots the moment the feature grows a table the test
@@ -12,11 +13,6 @@ import { getAuthedUser } from "@/lib/supabase/auth";
 // list rather than whatever list existed when a given test was written.
 // Same secret-gated shape as the other test-only routes; grants nothing an
 // authenticated user couldn't already read about their own rows.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function GET(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { checkSecret } from "../check-secret";
 
 // Test-only read endpoint (e2e/sunnah-disclosure.spec.ts): pairs with
 // read-prayer-status — confirms the sunnah tap DID actually persist
@@ -9,11 +10,6 @@ import { localDateString } from "@/lib/date-utils";
 // (`prayers`) was NOT touched. Asserting only one side would leave a
 // silent-no-op bug (a tap that neither logs the sunnah slot nor marks the
 // fard prayer) indistinguishable from success.
-function checkSecret(request: NextRequest): boolean {
-  const expectedSecret = process.env.E2E_TEST_SECRET;
-  return !!expectedSecret && request.headers.get("x-e2e-secret") === expectedSecret;
-}
-
 export async function GET(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
