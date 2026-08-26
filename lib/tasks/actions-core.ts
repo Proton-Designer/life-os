@@ -2,11 +2,15 @@ import { requireUser } from "@/lib/supabase/auth";
 
 export type TaskDomain = "school" | "co_op";
 
+export type TaskType = "assignment" | "project" | "test" | "quiz" | "reading" | "other";
+
 export async function addTaskCore(
   domain: TaskDomain,
   title: string,
   dueDate?: string,
-  dueTime?: string
+  dueTime?: string,
+  taskType?: TaskType,
+  classEventId?: string
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("tasks").insert({
@@ -15,6 +19,8 @@ export async function addTaskCore(
     title,
     due_date: dueDate ?? null,
     due_time: dueTime ?? null,
+    task_type: taskType ?? null,
+    class_event_id: classEventId ?? null,
   });
   if (error) throw error;
 }

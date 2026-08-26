@@ -18,6 +18,7 @@ describe("SchoolTaskPanel", () => {
     render(
       <SchoolTaskPanel
         items={[item({ id: "t1", title: "Finish essay", meta: "2026-08-30" })]}
+        classOptions={[]}
         addTask={vi.fn()}
         toggleTask={vi.fn()}
         removeTask={vi.fn()}
@@ -32,6 +33,7 @@ describe("SchoolTaskPanel", () => {
     render(
       <SchoolTaskPanel
         items={[item({ id: "t1", title: "Finish essay" })]}
+        classOptions={[]}
         addTask={vi.fn()}
         toggleTask={toggleTask}
         removeTask={vi.fn()}
@@ -47,6 +49,7 @@ describe("SchoolTaskPanel", () => {
     render(
       <SchoolTaskPanel
         items={[item({ id: "t1", title: "Finish essay" })]}
+        classOptions={[]}
         addTask={vi.fn()}
         toggleTask={vi.fn()}
         removeTask={removeTask}
@@ -61,6 +64,7 @@ describe("SchoolTaskPanel", () => {
     render(
       <SchoolTaskPanel
         items={[item({ id: "t1", title: "Finish essay", completedAtIso: "2026-08-24T12:00:00.000Z" })]}
+        classOptions={[]}
         addTask={vi.fn()}
         toggleTask={vi.fn()}
         removeTask={vi.fn()}
@@ -74,20 +78,40 @@ describe("SchoolTaskPanel", () => {
 
   it("submits a new task via addTask and clears the form, independent of TaskRowList's own items", async () => {
     const addTask = vi.fn(() => Promise.resolve());
-    render(<SchoolTaskPanel items={[]} addTask={addTask} toggleTask={vi.fn()} removeTask={vi.fn()} />);
+    render(<SchoolTaskPanel items={[]} classOptions={[]} addTask={addTask} toggleTask={vi.fn()} removeTask={vi.fn()} />);
     const user = userEvent.setup();
     await user.type(screen.getByPlaceholderText("Add a task"), "Read chapter 4");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
-    expect(addTask).toHaveBeenCalledWith("Read chapter 4", undefined);
+    expect(addTask).toHaveBeenCalledWith("Read chapter 4", undefined, undefined, undefined, undefined);
     expect(screen.getByPlaceholderText("Add a task")).toHaveValue("");
   });
 
   it("does not submit a blank task", async () => {
     const addTask = vi.fn(() => Promise.resolve());
-    render(<SchoolTaskPanel items={[]} addTask={addTask} toggleTask={vi.fn()} removeTask={vi.fn()} />);
+    render(<SchoolTaskPanel items={[]} classOptions={[]} addTask={addTask} toggleTask={vi.fn()} removeTask={vi.fn()} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(addTask).not.toHaveBeenCalled();
+  });
+
+  it("passes the selected type and class through to addTask", async () => {
+    const addTask = vi.fn(() => Promise.resolve());
+    render(
+      <SchoolTaskPanel
+        items={[]}
+        classOptions={[{ id: "event-1", title: "PHYS-2326" }]}
+        addTask={addTask}
+        toggleTask={vi.fn()}
+        removeTask={vi.fn()}
+      />
+    );
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText("Add a task"), "Lab report");
+    await user.selectOptions(screen.getByLabelText("Type"), "reading");
+    await user.selectOptions(screen.getByLabelText("Class"), "event-1");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(addTask).toHaveBeenCalledWith("Lab report", undefined, undefined, "reading", "event-1");
   });
 });

@@ -69,4 +69,11 @@ describe("KpiCard", () => {
     render(<KpiCard icon={Target} accent="deen" label="Prayers on time" value="28/35" caption="last week" />);
     expect(screen.queryByRole("img", { name: /Trend:/ })).not.toBeInTheDocument();
   });
+
+  it("shrinks with size=\"sm\" without affecting the default size (School header rebuild, 2026-08-26)", () => {
+    render(<KpiCard icon={Target} accent="school" label="Due today" value="0" caption="Nothing due yet" size="sm" />);
+    const card = screen.getByTestId("kpi-card");
+    expect(card.className).not.toContain("min-h-[168px]");
+    expect(card.className).toContain("min-h-[120px]");
+  });
 });

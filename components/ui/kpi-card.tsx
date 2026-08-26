@@ -21,6 +21,7 @@ export function KpiCard({
   caption,
   delta,
   sparkline,
+  size = "default",
   className,
   children,
   ...props
@@ -35,17 +36,27 @@ export function KpiCard({
   // primitive already used in Reflection/Qur'an, colored to match the
   // card's own accent so it reads as part of the tile, not a bolted-on chart.
   sparkline?: number[];
+  // Opt-in, additive-only variant (School's 2026-08-26 header rebuild,
+  // Ayman: "decrease the sizes ... by a little") — every existing caller
+  // keeps the default full size untouched; a smaller footprint is a
+  // per-caller choice, never the component's own default.
+  size?: "default" | "sm";
   className?: string;
   // Optional trailing content (e.g. a "View backlog" button + dialog) below
   // the caption/sparkline — opt-in, so every existing plain KpiCard is unaffected.
   children?: React.ReactNode;
 } & React.HTMLAttributes<HTMLDivElement>) {
   const colorVar = ACCENT_VAR[accent];
+  const isSm = size === "sm";
 
   return (
     <div
       data-testid="kpi-card"
-      className={cn("flex min-h-[168px] flex-col gap-3 rounded-2xl border p-4", className)}
+      className={cn(
+        "flex flex-col gap-3 rounded-2xl border",
+        isSm ? "min-h-[120px] p-3" : "min-h-[168px] p-4",
+        className
+      )}
       style={featuredCardStyle(colorVar)}
       {...props}
     >
@@ -55,7 +66,7 @@ export function KpiCard({
       </div>
       <div className="flex flex-1 flex-col justify-end gap-1">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="font-mono text-4xl font-semibold tabular-nums">{value}</p>
+        <p className={cn("font-mono font-semibold tabular-nums", isSm ? "text-2xl" : "text-4xl")}>{value}</p>
         <p className="text-xs text-muted-foreground">{caption}</p>
         {sparkline && sparkline.length > 0 && (
           <div className="mt-1">

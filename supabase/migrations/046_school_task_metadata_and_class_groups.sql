@@ -24,6 +24,39 @@ alter table public.schedule_events
 create index schedule_events_class_group_id_idx on public.schedule_events (class_group_id)
   where class_group_id is not null;
 
+-- Backfill: every class created before tonight (via the old single-day-only
+-- add form) has no class_group_id, so a multi-day class predating this
+-- migration — e.g. Ayman's real PHYS-2326-002, which meets Tue AND Thu —
+-- would show as two separate, unmerged entries in the new Edit popup until
+-- someone happened to re-save it. That's the same "T/Th class treated as
+-- two things" bug this whole feature exists to fix, just for existing data
+-- instead of new. Matches rows on (user_id, domain, title, event_time,
+-- end_time, location, instructor) — exactly the fields the new editor
+-- treats as "the same class" — and only merges groups of 2+ rows; a
+-- genuinely single-day class is left ungrouped, same as a freshly-created
+-- one. `is not distinct from` (not `=`) so two NULLs in, say, `location`
+-- still count as matching. Idempotent: only ever touches class_group_id IS
+-- NULL rows, so re-running it after the first pass is a no-op.
+with groups as (
+  select user_id, domain, title, event_time, end_time, location, instructor, gen_random_uuid() as new_group_id
+  from public.schedule_events
+  where is_recurring = true and class_group_id is null
+  group by user_id, domain, title, event_time, end_time, location, instructor
+  having count(*) > 1
+)
+update public.schedule_events e
+set class_group_id = g.new_group_id
+from groups g
+where e.is_recurring = true
+  and e.class_group_id is null
+  and e.user_id = g.user_id
+  and e.domain = g.domain
+  and e.title = g.title
+  and e.event_time is not distinct from g.event_time
+  and e.end_time is not distinct from g.end_time
+  and e.location is not distinct from g.location
+  and e.instructor is not distinct from g.instructor;
+
 -- (3) Opus Lead root-caused a real bug from this: `cancelled_on` is a
 -- single nullable date, so cancelling one occurrence silently un-cancels
 -- any previously-cancelled occurrence of the same recurring event, and a
