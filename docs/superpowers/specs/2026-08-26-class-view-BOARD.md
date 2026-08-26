@@ -13,12 +13,15 @@ built, unit-tested, handed over, never wired in — every automated check green.
 |---|---|---|---|
 | L0 | `formatShortDate` — "Sep. 3rd" not "2026-09-03" | Lead | **DONE** `7c8f08d` |
 | L1 | Verbatim spec + rulings captured | Lead | **DONE** `b9682e6` |
-| A1 | Reorder class cards: Prob & Stats, DSA, Lin Alg, Ameri Studies, Phys, Phys Lab | A | DEV |
-| A2 | Kill the open-dialog load waterfall (server-side prefetch) | A | DEV |
+| A1 | Reorder class cards: Prob & Stats, DSA, Lin Alg, Ameri Studies, Phys, Phys Lab | A | **DONE** `e897d2e` — VERIFIED live (e2e + prod query) |
+| A2 | Kill the open-dialog load waterfall (server-side prefetch) | A | **DONE** `e897d2e` — data layer; B's consumption pending |
+| L2 | Class card's own upcoming-test date rendered raw | Lead | **DONE** `129814f` |
+| L3 | e2e coverage for the integration seams | Lead | **DONE** `32c1f7f`, `db3fd18` |
+| A3 | Cross-device realtime sync (reopened — his 2nd request) | A | **DONE** `eb276bf` — VERIFIED, see below |
 | B1 | Layout/polish: overlap, borders on all 3 sections, bigger popup | B | DEV |
 | B2 | Consolidate ALL editing behind top-right Edit; Save/Cancel replace it | B | DEV |
 | B3 | Consume A's props, delete the `useEffect` | B | DEV |
-| C1 | "View syllabus" downloads instead of viewing (docx-only) | C | DEV |
+| C1 | "View syllabus" downloads instead of viewing (docx-only) | C | **DONE** `2360afb`+`107c6d8` — VERIFIED live, both formats |
 | C2 | Add-task wizard must not re-ask for the class | C | DEV |
 | C3 | No edit/remove for tasks in the expanded view | C | DEV |
 | C4 | Raw dates in task rows; redundant "All classes" filter | C | DEV |
@@ -54,11 +57,40 @@ built, unit-tested, handed over, never wired in — every automated check green.
   which must reach the honest "can't preview + Download" path.
 - **`position` column, not a hardcoded CASE** — 048's precedent.
 
-## Out of scope, deliberately
+## Realtime — reopened mid-batch, and now fixed
 
-- **Realtime sync.** Held from last night, unchanged. R2 improves "different
-  views" via server-render + `router.refresh()`, and `staleTimes.dynamic` is
-  already 60s (`99b9566`). Nobody starts realtime in this batch.
+Originally out of scope. Reopened because Ayman's request raised cross-device
+updating for the **second time in two days**, and A was idle with the deepest
+context on it.
+
+**Root cause (A):** a channel's `postgres_changes` RLS scoping is frozen at
+JOIN time. `createBrowserClient`'s cookie session restore is async; the old
+provider deferred `subscribe()` by a single microtask (a correct fix, but for
+a *different* bug — Strict Mode double-invoke). When `subscribe()` won that
+race the join went out under the **anon** role, RLS matched zero rows for the
+channel's entire lifetime — and the channel still reported `SUBSCRIBED`. A
+later self-heal `setAuth()` updated the socket's general auth **without**
+retroactively re-scoping the existing registration.
+
+That last detail is why last night's "auth timing ruled out" was wrong: it
+checked the token at `SUBSCRIBED` time (always correct, self-heal guarantees
+it) rather than at the moment the join was *sent* (the determining factor).
+
+**Evidence.** Failing case constructed deterministically rather than waited
+for: join under anon then sign in → never arrives, status `SUBSCRIBED`
+throughout. Reverse the order → arrives every time. Then 16 consecutive clean
+runs of the two-context e2e (A's 5 + Lead's `--repeat-each=10`).
+
+**Durability, all forced via direct SDK calls, not observed and hoped for:**
+token refresh while subscribed (safe — a refresh keeps the same user and role,
+so there is no scope decision to change; the frozen scope only bites when the
+*original* join carried the wrong identity), socket loss and reconnect (safe —
+the re-join reads the socket's current token, which the fix already
+guarantees), and multi-tab (safe — no shared-registration bleed either way).
+
+The structural arguments are what close this, not the green results alone.
+
+## Still out of scope, deliberately
 - **Pruning `listClassAssessments` / `listClassTasks`.** They go dead for the
   initial render but are still used post-mutation, and dead-code removal in a
   file two engineers are editing is a needless conflict. Prune later.
