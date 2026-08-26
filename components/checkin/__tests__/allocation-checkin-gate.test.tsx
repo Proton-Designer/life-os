@@ -200,7 +200,14 @@ describe("AllocationCheckinGate", () => {
       );
     });
 
-    it("renders no dialog when there's truly nothing to fall back to (queue empty, mostRecentUnanswered null)", async () => {
+    // Opus Lead correction (2026-08-26): an always-visible trigger that
+    // silently opens nothing when there's truly no window today (e.g.
+    // before checkin_window_start) is the exact silent no-op this item was
+    // reported to fix. "Keep it available whenever" means ALWAYS opens a
+    // real, saveable check-in — falling all the way back to an ad-hoc
+    // window ending now when neither the polled queue nor
+    // mostRecentUnanswered has anything.
+    it("opens an ad-hoc check-in ending now when there is truly no window today (queue empty, mostRecentUnanswered null)", async () => {
       getAllocationQueueForNowMock.mockResolvedValue({
         items: [],
         unknownCount: 0,
@@ -211,8 +218,29 @@ describe("AllocationCheckinGate", () => {
       renderWithAlwaysOpenTrigger();
 
       await user.click(await screen.findByRole("button", { name: "Open check-in" }));
-      // setOpen(true) fires, but `current` is null, so the gate renders nothing.
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(await screen.findByRole("dialog", { name: "Check-in" })).toBeInTheDocument();
+    });
+
+    it("saves the ad-hoc check-in against real (non-empty) window bounds", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({
+        items: [],
+        unknownCount: 0,
+        timezone: "UTC",
+        mostRecentUnanswered: null,
+      });
+      saveAllocationCheckinMock.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderWithAlwaysOpenTrigger();
+
+      await user.click(await screen.findByRole("button", { name: "Open check-in" }));
+      await screen.findByRole("dialog", { name: "Check-in" });
+      await user.click(screen.getByRole("button", { name: "Done" }));
+
+      await waitFor(() => expect(saveAllocationCheckinMock).toHaveBeenCalledTimes(1));
+      const [windowStart, windowEnd, allocation] = saveAllocationCheckinMock.mock.calls[0];
+      expect(windowStart).not.toBe(windowEnd); // a real 120-minute span, not a zero-length window
+      expect(new Date(windowEnd).getTime() - new Date(windowStart).getTime()).toBe(120 * 60 * 1000);
+      expect(allocation).toEqual({ deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 });
     });
   });
 });

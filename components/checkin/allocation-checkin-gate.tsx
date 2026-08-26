@@ -1,11 +1,12 @@
 "use client";
 
+import { useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { saveAllocationCheckin } from "@/app/(app)/checkin/allocation-actions";
-import { useAllocationQueue } from "@/lib/checkins/allocation-queue-context";
+import { useAllocationQueue, type AllocationQueueItem } from "@/lib/checkins/allocation-queue-context";
 import { AllocationCheckin } from "./allocation-checkin";
 import { NotificationPermissionNudge } from "./notification-permission-nudge";
-import type { Allocation } from "@/lib/checkins/allocation";
+import { TOTAL_MINUTES, emptyAllocation, type Allocation } from "@/lib/checkins/allocation";
 
 /**
  * The sheet half of the check-in queue UI — the badge half lives in shell
@@ -33,22 +34,40 @@ import type { Allocation } from "@/lib/checkins/allocation";
  */
 export function AllocationCheckinGate() {
   const { queue, timezone, total, open, setOpen, completeCurrent, mostRecentUnanswered } = useAllocationQueue();
-  // "Check in whenever you want" (batch 3, B3-1): once the polled queue is
-  // empty (the 30-minute answer window on every fired slot has almost
-  // certainly lapsed by the time someone manually opens this), fall back to
-  // the most recent unanswered window rather than showing nothing. Answering
-  // it is ordinary saveAllocationCheckin on its own bounds — see
-  // mostRecentUnanswered's own doc comment in get-allocation-queue.ts for why
-  // there's no separate "un-expire" step needed.
-  const current = queue[0] ?? mostRecentUnanswered;
+
+  // Ayman, verbatim (batch 3, B3-1): "keep it available whenever" — pressing
+  // the icon must ALWAYS open a real, saveable check-in, never a silent
+  // no-op (that silence is exactly what this item was reported to fix in
+  // the first place). Three tiers, most-specific first:
+  //   1. queue[0]              — a window fired within the answer window.
+  //   2. mostRecentUnanswered  — a window fired today but the answer window
+  //      lapsed; still a REAL window (see its own doc comment for why
+  //      answering it needs no "un-expire" step).
+  //   3. an ad-hoc window ending right now — there is no real window at
+  //      all today (e.g. before checkin_window_start, or everything
+  //      already answered). `useMemo(..., [open])` freezes "now" at the
+  //      instant the sheet opens rather than re-deriving on every render
+  //      while it's open. Schema-safe: window_start/window_end are
+  //      nullable, but checkin_time = window_end is NOT NULL, so this still
+  //      needs real timestamps — a 120-minute (TOTAL_MINUTES) window ending
+  //      now matches the size the allocation bar already assumes.
+  const adHocWindow = useMemo<AllocationQueueItem>(() => {
+    const end = new Date();
+    const start = new Date(end.getTime() - TOTAL_MINUTES * 60 * 1000);
+    return {
+      windowStart: start.toISOString(),
+      windowEnd: end.toISOString(),
+      initialAllocation: emptyAllocation(),
+      prefilled: {},
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately re-derived only when the sheet opens, not on every render while it's open
+  }, [open]);
+  const current = queue[0] ?? mostRecentUnanswered ?? adHocWindow;
 
   async function handleSave(allocation: Allocation) {
-    if (!current) return;
     await saveAllocationCheckin(current.windowStart, current.windowEnd, allocation);
     completeCurrent();
   }
-
-  if (!current) return null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
