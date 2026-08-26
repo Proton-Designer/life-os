@@ -96,6 +96,49 @@ describe("Deen actions", () => {
     );
   });
 
+  it("markPrayer rejects a date after the user's local today, server-side", async () => {
+    const chains: Record<string, ReturnType<typeof makeChain>> = {
+      profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+      prayers: makeChain(),
+    };
+    fromImpl = (table) => chains[table];
+    const { markPrayer } = await import("../actions");
+
+    await expect(markPrayer("2099-01-01", "fajr", "on_time")).rejects.toThrow(/future|after today/i);
+    expect(chains.prayers.upsert).not.toHaveBeenCalled();
+  });
+
+  it("markPrayer allows marking today itself — the guard is strictly-after, not on-or-after", async () => {
+    const chains: Record<string, ReturnType<typeof makeChain>> = {
+      profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+      prayers: makeChain(),
+    };
+    fromImpl = (table) => chains[table];
+    const { markPrayer } = await import("../actions");
+
+    // A fixed "now" so "today" is deterministic regardless of when this test runs.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T18:00:00.000-05:00")); // 2026-08-15 in Chicago
+    try {
+      await markPrayer("2026-08-15", "fajr", "on_time");
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(chains.prayers.upsert).toHaveBeenCalled();
+  });
+
+  it("toggleSunnah rejects a date after the user's local today, server-side", async () => {
+    const chains: Record<string, ReturnType<typeof makeChain>> = {
+      profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+      sunnah_logs: makeChain(),
+    };
+    fromImpl = (table) => chains[table];
+    const { toggleSunnah } = await import("../actions");
+
+    await expect(toggleSunnah("2099-01-01", "fajr", "before")).rejects.toThrow(/future|after today/i);
+    expect(chains.sunnah_logs.upsert).not.toHaveBeenCalled();
+  });
+
   it("adjustQadaBacklog decrements profiles.qada_owed", async () => {
     const profilesChain = makeChain({ data: { qada_owed: 5 }, error: null });
     fromImpl = () => profilesChain;

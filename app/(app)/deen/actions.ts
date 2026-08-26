@@ -16,12 +16,23 @@ async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["s
   return localDateString(new Date(), profile?.timezone ?? "UTC");
 }
 
+/**
+ * Rejected server-side, not just in a UI that happens to disable a future
+ * cell (Opus Lead ruling, 2026-08-26 — the Salah calendar's day editor
+ * only guards client-side, but this is the one real write path both it
+ * and every other caller go through). Strictly AFTER today only — today
+ * itself must stay markable, since this is also Home's day-ribbon
+ * `handleMark` and the Salah panel's own primary logging flow.
+ */
 export async function markPrayer(
   date: string,
   prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
   status: "on_time" | "qada" | "missed"
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+  const today = await todayForUser(supabase, userId);
+  if (date > today) throw new Error("date cannot be after today");
+
   const { error } = await supabase.from("prayers").upsert(
     {
       user_id: userId,
@@ -44,6 +55,11 @@ export async function markPrayer(
  * if nothing had ever been logged. Every consumer (streaks, qada backlog,
  * consistency grid, Home's priority feed) reads the same `prayers` rows, so
  * this one delete is enough to un-ripple everywhere — no separate cleanup.
+ *
+ * Deliberately NOT given markPrayer's future-date guard: a delete can only
+ * ever remove a stored fact, never fabricate a future one, so there's
+ * nothing here for that guard to protect against — markPrayer's own guard
+ * already prevents a future row from being created in the first place.
  */
 export async function unmarkPrayer(
   date: string,
@@ -235,12 +251,20 @@ export async function toggleDeenHabitLog(habitId: string, date: string): Promise
 
 // Same upsert-and-flip shape as toggleDeenHabitLog. Sunnah doesn't appear on
 // Home, so only /deen is revalidated.
+/**
+ * Same future-date guard as markPrayer, for the same reason (Opus Lead
+ * ruling): a future sunnah being toggleable while a future prayer isn't
+ * would be an inconsistency between two closely-related logging flows on
+ * the same page. Today itself stays toggleable.
+ */
 export async function toggleSunnah(
   date: string,
   prayerName: PrayerName,
   slot: SunnahSlot
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+  const today = await todayForUser(supabase, userId);
+  if (date > today) throw new Error("date cannot be after today");
 
   const { data: existing } = await supabase
     .from("sunnah_logs")

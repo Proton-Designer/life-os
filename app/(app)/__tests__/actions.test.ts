@@ -7,12 +7,23 @@ function makeChain() {
   chain.update = vi.fn(() => chain);
   chain.insert = vi.fn(() => chain);
   chain.eq = vi.fn(() => chain);
+  chain.select = vi.fn(() => chain);
+  // markPrayer's own future-date guard (deen/actions.ts) reads the caller's
+  // profile timezone via .select(...).eq(...).maybeSingle() before ever
+  // reaching .upsert() — needed here so toggleItem's toggle_prayer path
+  // (which calls markPrayer) doesn't crash on a chain that never modeled
+  // that read. Resolving to no profile row falls back to UTC, which is
+  // fine for this file's fixed 2026-08-10 test dates (always in the past
+  // relative to whenever this suite actually runs).
+  chain.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
   chain.then = (resolve: (v: { error: null }) => void) => resolve({ error: null });
   return chain as {
     upsert: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     insert: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
+    select: ReturnType<typeof vi.fn>;
+    maybeSingle: ReturnType<typeof vi.fn>;
   };
 }
 
