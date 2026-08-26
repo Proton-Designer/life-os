@@ -8,6 +8,8 @@ import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { getActiveWorkSession } from "@/lib/business/active-session";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
+import { KillListModuleControls } from "@/components/business/kill-list-module-controls";
+import { getIncompleteThisWeek } from "@/app/(app)/business/kill-list-history-actions";
 import { GoalCard } from "@/components/shared/goal-card";
 import { LockInPanel, type ActiveSessionData } from "@/components/business/lock-in-panel";
 import { PageContainer } from "@/components/shell/page-container";
@@ -28,7 +30,7 @@ export default async function BusinessPage() {
   const weekStart = getWeekStartDate(dateStr);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ data: killListRows }, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }] =
+  const [{ data: killListRows }, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteThisWeek] =
     await Promise.all([
       supabase
         .from("kill_list_items")
@@ -63,6 +65,7 @@ export default async function BusinessPage() {
         .eq("kind", "deep_work")
         .gte("started_at", thirtyDaysAgoIso)
         .order("started_at", { ascending: false }),
+      getIncompleteThisWeek(),
     ]);
 
   const slots: [KillListSlotData, KillListSlotData, KillListSlotData] = [0, 1, 2].map((position) => {
@@ -154,6 +157,7 @@ export default async function BusinessPage() {
             title="Today's kill list"
             heroValue={`${killListCompletedToday}/3`}
             caption={killListCompletedToday === 3 ? "All three cleared" : `${3 - killListCompletedToday} left today`}
+            controls={<KillListModuleControls initialIncompleteItems={incompleteThisWeek} />}
           >
             <KillList date={dateStr} slots={slots} />
           </Panel>

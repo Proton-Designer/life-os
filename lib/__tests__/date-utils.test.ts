@@ -5,6 +5,8 @@ import {
   formatDurationMagnitude,
   formatRelativeDuration,
   formatWindowRelativeTime,
+  datesInMonth,
+  addMonthsToDateString,
 } from "../date-utils";
 
 describe("getWeekStartDate", () => {
@@ -121,5 +123,49 @@ describe("formatWindowRelativeTime", () => {
 
   it("returns 'Today' when there's no dueAt at all", () => {
     expect(formatWindowRelativeTime(null, null, NOW)).toBe("Today");
+  });
+});
+
+describe("datesInMonth", () => {
+  it("returns all 31 days for a 31-day month", () => {
+    const dates = datesInMonth(2026, 8);
+    expect(dates).toHaveLength(31);
+    expect(dates[0]).toBe("2026-08-01");
+    expect(dates[30]).toBe("2026-08-31");
+  });
+
+  it("returns 28 days for February in a non-leap year", () => {
+    expect(datesInMonth(2026, 2)).toHaveLength(28);
+  });
+
+  it("returns 29 days for February in a leap year", () => {
+    expect(datesInMonth(2024, 2)).toHaveLength(29);
+  });
+
+  it("returns 30 days for a 30-day month", () => {
+    expect(datesInMonth(2026, 4)).toHaveLength(30);
+  });
+});
+
+describe("addMonthsToDateString", () => {
+  it("shifts forward across a year boundary", () => {
+    expect(addMonthsToDateString("2026-12-15", 1)).toBe("2027-01-15");
+  });
+
+  it("shifts backward across a year boundary", () => {
+    expect(addMonthsToDateString("2026-01-15", -1)).toBe("2025-12-15");
+  });
+
+  it("shifts backward by several months within the same year", () => {
+    expect(addMonthsToDateString("2026-08-01", -3)).toBe("2026-05-01");
+  });
+
+  it("clamps the day into the target month rather than overflowing (Jan 31 - 1mo -> Feb 28)", () => {
+    expect(addMonthsToDateString("2026-01-31", -1)).toBe("2025-12-31");
+    expect(addMonthsToDateString("2026-03-31", -1)).toBe("2026-02-28");
+  });
+
+  it("clamps into a leap-year February correctly", () => {
+    expect(addMonthsToDateString("2024-03-31", -1)).toBe("2024-02-29");
   });
 });

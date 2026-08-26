@@ -107,6 +107,23 @@ export function datesInMonth(year: number, month: number): string[] {
   });
 }
 
+/**
+ * `dateStr` shifted by `delta` calendar months (may be negative), as
+ * YYYY-MM-DD — pure calendar arithmetic on the caller-supplied date
+ * string's own y/m/d components, not an instant+timezone derivation (same
+ * reasoning as `datesInMonth`). Clamps the day into the target month
+ * (e.g. Jan 31 - 1 month -> Feb 28/29, never Mar 3).
+ */
+export function addMonthsToDateString(dateStr: string, delta: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const totalMonths = y * 12 + (m - 1) + delta;
+  const newYear = Math.floor(totalMonths / 12);
+  const newMonth = ((totalMonths % 12) + 12) % 12; // 0-11, robust to a negative totalMonths
+  const dayCount = new Date(newYear, newMonth + 1, 0).getDate();
+  const day = Math.min(d, dayCount);
+  return `${newYear}-${String(newMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 /** `dateStr` shifted by `delta` calendar days (may be negative), as YYYY-MM-DD. */
 export function addDaysToDateString(dateStr: string, delta: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
