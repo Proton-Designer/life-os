@@ -5,8 +5,16 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { countOverdue, countCompletedInWeek } from "@/lib/tasks/task-metrics";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
+import { getCancelledDatesByEvent } from "@/lib/tasks/schedule-cancellations";
 import { accentForActivityCount } from "@/lib/kpi-value-accent";
-import { addTask, toggleTask, removeTask, addScheduleEvent, cancelScheduleOccurrence } from "./actions";
+import {
+  addTask,
+  toggleTask,
+  removeTask,
+  addScheduleEvent,
+  cancelScheduleOccurrence,
+  uncancelScheduleOccurrence,
+} from "./actions";
 import type { TaskRowItem } from "@/components/shared/task-row-list";
 import { SchoolTaskPanel } from "@/components/school/task-panel";
 import { DeadlineList } from "@/components/shared/deadline-list";
@@ -43,7 +51,7 @@ export default async function SchoolPage() {
       .order("due_date", { ascending: true, nullsFirst: false }),
     supabase
       .from("schedule_events")
-      .select("id, title, is_recurring, day_of_week, event_time, end_time, location, instructor, event_date, cancelled_on")
+      .select("id, title, is_recurring, day_of_week, event_time, end_time, location, instructor, event_date")
       .eq("user_id", userId)
       .eq("domain", "school"),
   ]);
@@ -79,6 +87,12 @@ export default async function SchoolPage() {
     ),
   ];
 
+  const cancelledDates = await getCancelledDatesByEvent(
+    supabase,
+    userId,
+    (eventRows ?? []).map((e) => e.id)
+  );
+
   const events: ScheduleEventData[] = (eventRows ?? []).map((e) => ({
     id: e.id,
     title: e.title,
@@ -86,7 +100,7 @@ export default async function SchoolPage() {
     dayOfWeek: e.day_of_week,
     eventTime: e.event_time,
     eventDate: e.event_date,
-    cancelledOn: e.cancelled_on,
+    cancelledDates: Array.from(cancelledDates.get(e.id) ?? []),
   }));
 
   // The richer week view (§3: time range, room, instructor) only covers
@@ -101,7 +115,7 @@ export default async function SchoolPage() {
       endTime: e.end_time,
       location: e.location,
       instructor: e.instructor,
-      cancelledOn: e.cancelled_on,
+      cancelledDates: Array.from(cancelledDates.get(e.id) ?? []),
     }));
 
   const dueTodayCount = openTasks.filter((t) => t.dueDate === dateStr).length;
@@ -115,7 +129,7 @@ export default async function SchoolPage() {
     weekEndIso
   );
   const dueThisWeekCount = deadlineTasks.filter((t) => weekDates.includes(t.dueDate)).length;
-  const scheduledThisWeekCount = countScheduledThisWeek(events, weekDates);
+  const scheduledThisWeekCount = countScheduledThisWeek(events, weekDates, cancelledDates);
 
   return (
     <PageContainer>
@@ -171,6 +185,7 @@ export default async function SchoolPage() {
               weekDates={weekDates}
               addScheduleEvent={addScheduleEvent}
               cancelScheduleOccurrence={cancelScheduleOccurrence}
+              uncancelScheduleOccurrence={uncancelScheduleOccurrence}
             />
           </Panel>
         </div>

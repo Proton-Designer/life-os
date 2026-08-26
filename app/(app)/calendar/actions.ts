@@ -3,6 +3,7 @@
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString } from "@/lib/date-utils";
 import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
+import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import type { CalendarItem } from "@/components/calendar/week-hour-grid";
 import type { WeeklyGoalEntry } from "@/components/shared/weekly-goals-header";
 
@@ -52,7 +53,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
     await Promise.all([
       supabase
         .from("schedule_events")
-        .select("id, title, domain, is_recurring, day_of_week, event_date, event_time, end_time, location, instructor, cancelled_on")
+        .select("id, title, domain, is_recurring, day_of_week, event_date, event_time, end_time, location, instructor")
         .eq("user_id", userId)
         .in("domain", ["school", "co_op"]),
       supabase
@@ -70,6 +71,12 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
       supabase.from("active_workout_plans").select("routine_plan_id").eq("user_id", userId).maybeSingle(),
       getDomainSnapshots(userId, now),
     ]);
+
+  const cancelledDates = await getCancelledDatesByEvent(
+    supabase,
+    userId,
+    (eventRows ?? []).map((e) => e.id)
+  );
 
   const routinePlanId = activePlanRow?.routine_plan_id ?? null;
   const { data: sessionRows } = routinePlanId
@@ -102,7 +109,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
     if (e.is_recurring) {
       if (e.day_of_week === null) continue;
       const dateForThisDay = weekDates[e.day_of_week];
-      if (e.cancelled_on === dateForThisDay) continue; // single-date exception
+      if (isOccurrenceCancelled(cancelledDates, e.id, dateForThisDay)) continue; // single-date exception
       dow = e.day_of_week;
     } else {
       if (!e.event_date || !weekDates.includes(e.event_date)) continue; // outside this week

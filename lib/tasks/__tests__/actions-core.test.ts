@@ -32,19 +32,39 @@ describe("cancelScheduleOccurrenceCore", () => {
     fromMock.mockClear();
   });
 
-  it("sets cancelled_on for the specific date without touching the recurring pattern", async () => {
+  it("records the cancelled occurrence in schedule_event_cancellations, not the recurring pattern", async () => {
     const chain = makeChain();
     fromImpl = () => chain;
     const { cancelScheduleOccurrenceCore } = await import("../actions-core");
 
     await cancelScheduleOccurrenceCore("event-1", "2026-08-12");
 
-    expect(fromMock).toHaveBeenCalledWith("schedule_events");
-    expect(chain.update).toHaveBeenCalledWith({ cancelled_on: "2026-08-12" });
-    expect(chain.eq).toHaveBeenCalledWith("id", "event-1");
+    expect(fromMock).toHaveBeenCalledWith("schedule_event_cancellations");
+    expect(chain.upsert).toHaveBeenCalledWith(
+      { event_id: "event-1", user_id: "user-1", date: "2026-08-12" },
+      { onConflict: "event_id,date", ignoreDuplicates: true }
+    );
+  });
+});
+
+describe("uncancelScheduleOccurrenceCore", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("deletes the specific cancelled occurrence, scoped to the owning user", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { uncancelScheduleOccurrenceCore } = await import("../actions-core");
+
+    await uncancelScheduleOccurrenceCore("event-1", "2026-08-12");
+
+    expect(fromMock).toHaveBeenCalledWith("schedule_event_cancellations");
+    expect(chain.delete).toHaveBeenCalledTimes(1);
+    expect(chain.eq).toHaveBeenCalledWith("event_id", "event-1");
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
-    // Only cancelled_on is written — is_recurring/day_of_week/event_time are untouched.
-    expect(chain.update).toHaveBeenCalledTimes(1);
+    expect(chain.eq).toHaveBeenCalledWith("date", "2026-08-12");
   });
 });
 

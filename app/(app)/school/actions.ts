@@ -7,6 +7,7 @@ import {
   removeTaskCore,
   addScheduleEventCore,
   cancelScheduleOccurrenceCore,
+  uncancelScheduleOccurrenceCore,
 } from "@/lib/tasks/actions-core";
 
 export async function addTask(title: string, dueDate?: string, dueTime?: string): Promise<void> {
@@ -37,5 +38,10 @@ export async function addScheduleEvent(
 
 export async function cancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
   await cancelScheduleOccurrenceCore(eventId, date);
+  revalidatePath("/school");
+}
+
+export async function uncancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
+  await uncancelScheduleOccurrenceCore(eventId, date);
   revalidatePath("/school");
 }

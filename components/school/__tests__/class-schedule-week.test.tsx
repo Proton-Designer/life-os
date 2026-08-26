@@ -13,7 +13,7 @@ function event(overrides: Partial<ClassScheduleEvent> = {}): ClassScheduleEvent 
     endTime: "09:45",
     location: "ECSN 2.120",
     instructor: "Nicholas Robert Ruozzi",
-    cancelledOn: null,
+    cancelledDates: [],
     ...overrides,
   };
 }
@@ -42,27 +42,31 @@ describe("ClassScheduleWeek", () => {
     expect(wed).toHaveTextContent("Wed class");
   });
 
-  it("omits a class cancelled for that specific date", () => {
+  it("still shows a class cancelled for that specific date, struck through and marked Cancelled — not absent", () => {
     render(
       <ClassScheduleWeek
-        events={[event({ dayOfWeek: 1, cancelledOn: "2026-08-24" })]}
-        weekDates={WEEK_DATES}
-        todayStr="2026-08-24"
-      />
-    );
-    expect(screen.queryByText("CS-3341-HON")).not.toBeInTheDocument();
-    expect(screen.getByTestId("class-schedule-day-1")).toHaveTextContent("—");
-  });
-
-  it("still renders a recurring class on a different week where it wasn't cancelled", () => {
-    render(
-      <ClassScheduleWeek
-        events={[event({ dayOfWeek: 1, cancelledOn: "2026-08-17" })]}
+        events={[event({ dayOfWeek: 1, cancelledDates: ["2026-08-24"] })]}
         weekDates={WEEK_DATES}
         todayStr="2026-08-24"
       />
     );
     expect(screen.getByText("CS-3341-HON")).toBeInTheDocument();
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    // Cancelled means "don't attend," not "no detail" — but time/room/instructor
+    // give way to the cancellation notice rather than both showing at once.
+    expect(screen.queryByText("8:30 AM–9:45 AM")).not.toBeInTheDocument();
+  });
+
+  it("renders a recurring class normally on a different week where it wasn't cancelled", () => {
+    render(
+      <ClassScheduleWeek
+        events={[event({ dayOfWeek: 1, cancelledDates: ["2026-08-17"] })]}
+        weekDates={WEEK_DATES}
+        todayStr="2026-08-24"
+      />
+    );
+    expect(screen.getByText("CS-3341-HON")).toBeInTheDocument();
+    expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
   });
 
   it("distinguishes today's column from the rest via todayStr, not the server's own clock", () => {

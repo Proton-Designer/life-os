@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-utils";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
-import { addScheduleEvent, cancelScheduleOccurrence } from "./actions";
+import { getCancelledDatesByEvent } from "@/lib/tasks/schedule-cancellations";
+import { addScheduleEvent, cancelScheduleOccurrence, uncancelScheduleOccurrence } from "./actions";
 import { DomainScheduleView, type ScheduleEventData } from "@/components/shared/domain-schedule-view";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
@@ -30,7 +31,7 @@ export default async function CoOpPage() {
   const [{ data: eventRows }, { data: targetRows }] = await Promise.all([
     supabase
       .from("schedule_events")
-      .select("id, title, is_recurring, day_of_week, event_time, event_date, cancelled_on")
+      .select("id, title, is_recurring, day_of_week, event_time, event_date")
       .eq("user_id", userId)
       .eq("domain", "co_op"),
     supabase
@@ -66,6 +67,12 @@ export default async function CoOpPage() {
     createdAt: t.created_at,
   }));
 
+  const cancelledDates = await getCancelledDatesByEvent(
+    supabase,
+    userId,
+    (eventRows ?? []).map((e) => e.id)
+  );
+
   const events: ScheduleEventData[] = (eventRows ?? []).map((e) => ({
     id: e.id,
     title: e.title,
@@ -73,10 +80,10 @@ export default async function CoOpPage() {
     dayOfWeek: e.day_of_week,
     eventTime: e.event_time,
     eventDate: e.event_date,
-    cancelledOn: e.cancelled_on,
+    cancelledDates: Array.from(cancelledDates.get(e.id) ?? []),
   }));
 
-  const scheduledThisWeekCount = countScheduledThisWeek(events, weekDates);
+  const scheduledThisWeekCount = countScheduledThisWeek(events, weekDates, cancelledDates);
 
   return (
     <PageContainer>
@@ -101,6 +108,7 @@ export default async function CoOpPage() {
               weekDates={weekDates}
               addScheduleEvent={addScheduleEvent}
               cancelScheduleOccurrence={cancelScheduleOccurrence}
+              uncancelScheduleOccurrence={uncancelScheduleOccurrence}
             />
           </Panel>
         </div>

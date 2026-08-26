@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import { localDateString, dayOfWeekFromDateString, resolveLocalTime, addDaysToDateString } from "@/lib/date-utils";
+import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
@@ -42,6 +43,7 @@ export type DayShapeWorkoutSchedule = { workout_name: string; time: string | nul
 export type DayShapeTaskRow = { title: string; domain: "school" | "co_op"; due_time: string };
 export type DayShapeSessionRow = { started_at: string; ended_at: string | null; kind: "deep_work" | "deep_study" };
 export type DayShapeScheduleEventRow = {
+  id: string;
   title: string;
   domain: string;
   is_recurring: boolean;
@@ -51,7 +53,8 @@ export type DayShapeScheduleEventRow = {
   end_time: string | null;
   location: string | null;
   instructor: string | null;
-  cancelled_on: string | null;
+  /** Whether TODAY's occurrence of this event is cancelled — resolved from schedule_event_cancellations (migration 046), never the deprecated `cancelled_on` column. */
+  cancelled: boolean;
 };
 
 export type DayShapeDataSource = {
@@ -129,11 +132,17 @@ export function defaultDataSource(): DayShapeDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("schedule_events")
-        .select("title, domain, is_recurring, day_of_week, event_date, event_time, end_time, location, instructor, cancelled_on")
+        .select("id, title, domain, is_recurring, day_of_week, event_date, event_time, end_time, location, instructor")
         .eq("user_id", userId)
         .in("domain", ["school", "co_op"])
         .or(`and(is_recurring.eq.true,day_of_week.eq.${dayOfWeek}),and(is_recurring.eq.false,event_date.eq.${date})`);
-      return (data ?? []) as DayShapeScheduleEventRow[];
+      const rows = data ?? [];
+      const cancelledDates = await getCancelledDatesByEvent(
+        supabase,
+        userId,
+        rows.map((r) => r.id)
+      );
+      return rows.map((r) => ({ ...r, cancelled: isOccurrenceCancelled(cancelledDates, r.id, date) }));
     },
   };
 }
@@ -227,11 +236,11 @@ export async function getDayShape(
   // Classes and work — a new SOURCE for the existing activity-block
   // mechanism, not a new one (overnight session 2026-08-23/24). A class
   // cancelled for today's specific occurrence must not render at all, same
-  // rule the School page enforces (§3 of the spec) — schedule_events'
-  // `cancelled_on` is a single-date exception on the recurring pattern, not
-  // a status flag, so this is a plain equality check against today.
+  // rule the School page enforces (§3 of the spec) — `cancelled` above is
+  // already resolved against schedule_event_cancellations (migration 046),
+  // not the deprecated `cancelled_on` column.
   for (const event of scheduleEvents) {
-    if (!event.event_time || event.cancelled_on === dateStr) continue;
+    if (!event.event_time || event.cancelled) continue;
     const start = resolveLocalTime(dateStr, event.event_time, timezone);
     const end = event.end_time
       ? resolveLocalTime(dateStr, event.end_time, timezone)

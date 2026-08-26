@@ -8,7 +8,17 @@ export type ClassScheduleEvent = {
   endTime: string | null;
   location: string | null;
   instructor: string | null;
-  cancelledOn: string | null;
+  /**
+   * This event's own cancelled occurrence dates (YYYY-MM-DD), from
+   * schedule_event_cancellations (migration 046) — replaces the deprecated
+   * single `cancelledOn` column, which could hold only one cancellation at
+   * a time and rendered a cancelled class as simply absent (indistinguishable
+   * from a class that was never entered — the exact bug Opus Lead traced
+   * from a "you missed my class" report). A cancelled occurrence now stays
+   * visible, struck through, and marked "Cancelled" rather than vanishing;
+   * undoing it happens in the Edit popup, not here (read-only grid).
+   */
+  cancelledDates: string[];
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -45,7 +55,7 @@ export function ClassScheduleWeek({
         const dateForDay = weekDates[dow];
         const isToday = dateForDay === todayStr;
         const dayEvents = events
-          .filter((e) => e.dayOfWeek === dow && e.cancelledOn !== dateForDay)
+          .filter((e) => e.dayOfWeek === dow)
           .filter((e) => e.eventTime !== null)
           .sort((a, b) => a.eventTime!.localeCompare(b.eventTime!));
 
@@ -63,17 +73,28 @@ export function ClassScheduleWeek({
               <span className="text-[11px] text-muted-foreground">—</span>
             ) : (
               <ul className="flex flex-col gap-1.5">
-                {dayEvents.map((e) => (
-                  <li key={e.id} className="flex flex-col text-[11px]">
-                    <span className="font-medium">{e.title}</span>
-                    <span className="text-muted-foreground">
-                      {formatTime(e.eventTime!)}
-                      {e.endTime ? `–${formatTime(e.endTime)}` : ""}
-                    </span>
-                    {e.location && <span className="text-muted-foreground">{e.location}</span>}
-                    {e.instructor && <span className="text-muted-foreground">{e.instructor}</span>}
-                  </li>
-                ))}
+                {dayEvents.map((e) => {
+                  const isCancelled = e.cancelledDates.includes(dateForDay);
+                  return (
+                    <li key={e.id} className="flex flex-col text-[11px]">
+                      <span className={cn("font-medium", isCancelled && "text-muted-foreground line-through")}>
+                        {e.title}
+                      </span>
+                      {isCancelled ? (
+                        <span className="font-medium text-destructive">Cancelled</span>
+                      ) : (
+                        <>
+                          <span className="text-muted-foreground">
+                            {formatTime(e.eventTime!)}
+                            {e.endTime ? `–${formatTime(e.endTime)}` : ""}
+                          </span>
+                          {e.location && <span className="text-muted-foreground">{e.location}</span>}
+                          {e.instructor && <span className="text-muted-foreground">{e.instructor}</span>}
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

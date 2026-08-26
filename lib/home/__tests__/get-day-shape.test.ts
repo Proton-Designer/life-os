@@ -112,6 +112,7 @@ describe("getDayShape", () => {
   // not a new one (overnight session 2026-08-23/24).
   describe("schedule events (classes/work)", () => {
     function scheduleEvent(overrides: Partial<{
+      id: string;
       title: string;
       domain: string;
       is_recurring: boolean;
@@ -121,9 +122,10 @@ describe("getDayShape", () => {
       end_time: string | null;
       location: string | null;
       instructor: string | null;
-      cancelled_on: string | null;
+      cancelled: boolean;
     }> = {}) {
       return {
+        id: "e1",
         title: "CS-3341-HON",
         domain: "school",
         is_recurring: true,
@@ -133,7 +135,7 @@ describe("getDayShape", () => {
         end_time: "09:45",
         location: "ECSN 2.120",
         instructor: "Nicholas Robert Ruozzi",
-        cancelled_on: null,
+        cancelled: false,
         ...overrides,
       };
     }
@@ -194,16 +196,19 @@ describe("getDayShape", () => {
       const result = await getDayShape(
         "u1",
         NOW,
-        dataSource({ getScheduleEvents: async () => [scheduleEvent({ cancelled_on: "2026-08-15" })] })
+        dataSource({ getScheduleEvents: async () => [scheduleEvent({ cancelled: true })] })
       );
       expect(result.activities).toHaveLength(0);
     });
 
-    it("still renders a class cancelled on a DIFFERENT date", async () => {
+    it("still renders a class whose cancellation was for a DIFFERENT date", async () => {
+      // The data source resolves `cancelled` against today's date already
+      // (see defaultDataSource's getScheduleEvents) — a cancellation on
+      // another date simply never sets this flag true for today's row.
       const result = await getDayShape(
         "u1",
         NOW,
-        dataSource({ getScheduleEvents: async () => [scheduleEvent({ cancelled_on: "2026-08-10" })] })
+        dataSource({ getScheduleEvents: async () => [scheduleEvent({ cancelled: false })] })
       );
       expect(result.activities).toHaveLength(1);
     });

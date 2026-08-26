@@ -1040,9 +1040,42 @@ export type Database = {
           },
         ]
       }
+      schedule_event_cancellations: {
+        Row: {
+          created_at: string
+          date: string
+          event_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          event_id: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          event_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_event_cancellations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedule_events: {
         Row: {
           cancelled_on: string | null
+          class_group_id: string | null
           created_at: string
           day_of_week: number | null
           domain: string
@@ -1058,6 +1091,7 @@ export type Database = {
         }
         Insert: {
           cancelled_on?: string | null
+          class_group_id?: string | null
           created_at?: string
           day_of_week?: number | null
           domain: string
@@ -1073,6 +1107,7 @@ export type Database = {
         }
         Update: {
           cancelled_on?: string | null
+          class_group_id?: string | null
           created_at?: string
           day_of_week?: number | null
           domain?: string
@@ -1174,6 +1209,7 @@ export type Database = {
       }
       tasks: {
         Row: {
+          class_event_id: string | null
           completed: boolean
           completed_at: string | null
           created_at: string
@@ -1181,10 +1217,12 @@ export type Database = {
           due_date: string | null
           due_time: string | null
           id: string
+          task_type: string | null
           title: string
           user_id: string
         }
         Insert: {
+          class_event_id?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -1192,10 +1230,12 @@ export type Database = {
           due_date?: string | null
           due_time?: string | null
           id?: string
+          task_type?: string | null
           title: string
           user_id?: string
         }
         Update: {
+          class_event_id?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -1203,10 +1243,19 @@ export type Database = {
           due_date?: string | null
           due_time?: string | null
           id?: string
+          task_type?: string | null
           title?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "tasks_class_event_id_fkey"
+            columns: ["class_event_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trigger_action_plans: {
         Row: {

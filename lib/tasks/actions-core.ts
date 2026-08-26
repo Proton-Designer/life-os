@@ -71,11 +71,12 @@ export async function addScheduleEventCore(
 
 /**
  * Single-date exception: cancels one occurrence of a recurring event without
- * touching the recurring pattern itself, per spec. Note the schema's
- * `cancelled_on` is a single column, not a list — this can represent only
- * one cancelled occurrence per event at a time (matches Task 1.1's original
- * schema and Task 8.1's literal acceptance criteria; a true multi-exception
- * calendar would need a separate exceptions table, out of scope here).
+ * touching the recurring pattern itself, per spec. Recorded in
+ * schedule_event_cancellations (migration 046), not the old single-column
+ * `schedule_events.cancelled_on` — that column could hold only one cancelled
+ * occurrence per event at a time, so cancelling a second occurrence silently
+ * un-cancelled the first. `on conflict do nothing` makes a repeat cancel of
+ * the same occurrence a no-op rather than an error.
  */
 export async function cancelScheduleOccurrenceCore(
   eventId: string,
@@ -83,9 +84,22 @@ export async function cancelScheduleOccurrenceCore(
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase
-    .from("schedule_events")
-    .update({ cancelled_on: date })
-    .eq("id", eventId)
-    .eq("user_id", userId);
+    .from("schedule_event_cancellations")
+    .upsert({ event_id: eventId, user_id: userId, date }, { onConflict: "event_id,date", ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+/** Undoes a single cancelled occurrence — the counterpart every cancel UI must offer, since there is otherwise no way back short of writing SQL directly (see migration 046's own header comment). */
+export async function uncancelScheduleOccurrenceCore(
+  eventId: string,
+  date: string
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { error } = await supabase
+    .from("schedule_event_cancellations")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("user_id", userId)
+    .eq("date", date);
   if (error) throw error;
 }

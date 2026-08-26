@@ -1,7 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { addScheduleEventCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
+import {
+  addScheduleEventCore,
+  cancelScheduleOccurrenceCore,
+  uncancelScheduleOccurrenceCore,
+} from "@/lib/tasks/actions-core";
 
 export async function addScheduleEvent(
   title: string,
@@ -13,5 +17,10 @@ export async function addScheduleEvent(
 
 export async function cancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
   await cancelScheduleOccurrenceCore(eventId, date);
+  revalidatePath("/work");
+}
+
+export async function uncancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
+  await uncancelScheduleOccurrenceCore(eventId, date);
   revalidatePath("/work");
 }
