@@ -166,3 +166,69 @@ was wrong; it caused one cross-engineer misattribution tonight (`87119ee`).
 
 The index is a snapshot: once staged, a concurrent save by another engineer into
 one of your files cannot enter your commit. A pathspec commit has no snapshot.
+
+---
+
+# PAUSE — 2026-08-25 23:31 CDT (usage limit at 92%, resets 01:50)
+
+Work suspended by Ayman. Resume shortly after **01:52 CDT**. Lead holds a
+background timer that re-invokes the session; engineers idle until pinged.
+
+## Landed tonight (batch 1 + batch 2 so far)
+
+Batch 1: `959dd4e` `4c3859a` `e3adf5b` `5c1b16b` `959234a` `8a00ea2` `de6ea10`
+`36ccfc6` `8e74bb7` `71f529f` `18410c2` `2aafd7a` `12723f5` `049bcd9` `8979750`
+Batch 2: `c2f1170` (docs) `05a4e04`+`48d0f10` (item 3) `98889b5` (1a/1b)
+`6bea95d`+`87119ee` (item 5 + migration 050) `36240be` (048) `6331073` (item 6)
+`45160c4` (batch-3 docs + AGENTS.md pathspec trap)
+
+Production is still on `3b31fda`. **Nothing has been deployed all night.**
+
+## Live DB state — schema is AHEAD of deployed code
+
+Applied by hand to the single shared production database: **046, 047, 048, 050**,
+plus B's `schedule_event_overrides` (**migration file may not be committed yet —
+verify on resume, this is the highest-risk loose end**). All additive, so the
+currently-deployed build is unaffected.
+
+Data changes already applied to BOTH accounts:
+- stale `cancelled_on` cleared (the Mengke Liu bug)
+- `classes` backfilled + `short_name` seeded + MATH 2418 inserted (nulls)
+- `custom_habits` protein/steps archived (orphaned Home denominator)
+
+## Remaining queue on resume
+
+**Lead first:** verify B's override migration file exists and matches what was run.
+
+**C (first — gates the wipe):** migration 051 `profiles.tracking_started_on date null`;
+floor becomes `coalesce(tracking_started_on, created_at local date)` in
+`lib/deen/prayer-status.ts`, `app/(app)/deen/page.tsx`, and — under a one-commit
+lock on A's file — `lib/home/get-domain-snapshots.ts` (lines 366, 469).
+Then B3-2 (Salah calendar), then B3-3 (kill list).
+
+**A:** item 1b tap-target fix (8px buttons + clipped icon), then item 2 (realtime,
+migration 049) — the long pole.
+
+**B:** finish item 4 (shared occurrence resolver + precedence tests + the
+Cancel-this-week verdict), then B3-1 (topbar + check-in diagnosis).
+
+**Lead last:** R7 wipe (pg_dump first, set `tracking_started_on` = 2026-08-26),
+then full verification, then deploy, then kill `caffeinate`.
+
+## R7 CORRECTED — an epoch column IS required
+
+My original R7 said "delete the rows; do not fabricate an epoch/start-date
+column." **That was wrong and C proved it.** `resolvePrayerStatuses` derives
+`missed` from an absent row for any past day above its floor, and that floor is
+`profiles.created_at` = **2026-08-10, 16 days ago**. Deleting every `prayers` row
+would render **80 missed prayers** across the consistency grid, streak and qada
+backlog — manufacturing exactly the false history the wipe exists to remove
+(Ayman: *"i dont wanna lie, isntead i wanna start fresh"*).
+
+Deletion alone cannot express "start counting from tomorrow" in a system that
+derives failure from absence. The epoch column is required. Set it to his local
+tomorrow (2026-08-26) as part of the wipe.
+
+Checked and NOT a problem: the same "keep the plan, delete the progress" shape
+could synthesize missed *workouts*, but his account has 1 active plan and **zero
+`plan_sessions`**, so no past day has a scheduled session to derive a miss from.
