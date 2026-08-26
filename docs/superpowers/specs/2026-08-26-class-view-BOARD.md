@@ -18,13 +18,14 @@ built, unit-tested, handed over, never wired in — every automated check green.
 | L2 | Class card's own upcoming-test date rendered raw | Lead | **DONE** `129814f` |
 | L3 | e2e coverage for the integration seams | Lead | **DONE** `32c1f7f`, `db3fd18` |
 | A3 | Cross-device realtime sync (reopened — his 2nd request) | A | **DONE** `eb276bf` — VERIFIED, see below |
-| B1 | Layout/polish: overlap, borders on all 3 sections, bigger popup | B | DEV |
-| B2 | Consolidate ALL editing behind top-right Edit; Save/Cancel replace it | B | DEV |
-| B3 | Consume A's props, delete the `useEffect` | B | DEV |
-| C1 | "View syllabus" downloads instead of viewing (docx-only) | C | **DONE** `2360afb`+`107c6d8` — VERIFIED live, both formats |
-| C2 | Add-task wizard must not re-ask for the class | C | DEV |
-| C3 | No edit/remove for tasks in the expanded view | C | DEV |
-| C4 | Raw dates in task rows; redundant "All classes" filter | C | DEV |
+| B1 | Layout/polish: overlap, borders on all 3 sections, bigger popup | B | **DONE** `07e7a0c`+`191e845` — VERIFIED, see below |
+| B2 | Consolidate ALL editing behind top-right Edit; Save/Cancel replace it | B | **DONE** `07e7a0c` |
+| B3 | Consume A's props, delete the `useEffect` | B | **DONE** `07e7a0c` |
+| C1 | "View syllabus" downloads instead of viewing (docx-only) | C | **DONE** `2360afb`+`107c6d8`+`08f20bc` — VERIFIED live, both formats |
+| C2 | Add-task wizard must not re-ask for the class | C | **DONE** `08f20bc` |
+| C3 | No edit/remove for tasks in the expanded view | C | **DONE** `08f20bc` |
+| C4 | Raw dates in task rows; redundant "All classes" filter | C | **DONE** `08f20bc` |
+| A4 | Work/co_op excluded from realtime — his "any domain" | A | **DONE** `d03737c` |
 
 ## Cross-engineer seams (the parts that actually break)
 
@@ -102,3 +103,49 @@ The structural arguments are what close this, not the green results alone.
   adds something. Not a bug, but it will look like one next to DSA's 21.
 - Four real graded items still have no announced date: CS 3345's cumulative
   final, and MATH 2418's four online tests (30% of that grade).
+
+
+## The visual pass — and why it nearly missed
+
+Ayman's literal complaint was that elements overlap and the screen "looks
+barebones." No assertion covers that, so the Lead judged it directly:
+screenshotted the dialog at 1280 and 390 and programmatically compared the
+bounding rects of every leaf text node for collisions.
+
+**The first pass was nearly worthless, and the reason is worth recording.**
+SEED has no assessments, so the Assessments table — the exact element that
+overlapped in his screenshot — was rendering its empty state. Zero overlaps
+detected, because there was nothing to overlap. Every check was green against
+a table with no rows in it.
+
+Seeding SEED with the real account's two AMS assessments (including
+"Take-home Final Exam due (midnight)", the long title that collided in his
+screenshot) immediately surfaced two genuine defects:
+
+1. **At 390px the Name column was destroyed** — rows read `Mid…` / `Tak…`
+   while "Midterm/Final", a repeated label identical on every row, took ~3x
+   the width. He could not tell his midterm from his final, on the phone
+   that is his primary device.
+2. **At 1280px the 50/50 split wasted half the dialog** — a real data table
+   cramped into half the width (truncating the same title) beside a panel
+   holding one button and ~100px of nothing. That imbalance was itself a
+   major contributor to the "barebones" read.
+
+Fixed in `191e845`: Name given priority over Type, Assessments given priority
+over Syllabus, and — beyond what was asked — Type abbreviated to "Mid/Final"
+and colour-coded, which reclaims the width rather than merely shrinking it.
+
+**The lesson is the empty-fixture trap**, not the layout bug: a verification
+that runs against an empty state proves nothing about the populated state,
+and it fails *green*, which is the dangerous direction. Seed the fixture to
+match the shape of the reported bug before trusting any check about it.
+
+## Carried forward, not done
+
+- The Task list's date filter is still a raw `mm/dd/yyyy` native input. It is
+  a filter rather than a display, so it was left; small follow-up if he
+  objects.
+- `/api/test/*` is now **twelve** routes live in production (A added
+  `reset-coop-pipeline` this batch). All are secret-gated, authenticated, and
+  scoped to the caller's own user — not urgent, but accumulating, and it is
+  Ayman's decision whether they should be gated off outside preview.
