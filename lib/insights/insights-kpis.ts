@@ -15,6 +15,13 @@ export type InsightsKpisResult = {
   mostFocusedDomain: string | null;
   noiseSharePct: number;
   noiseShareDeltaPct: number;
+  // A delta of 0 is only a real "no change" when both weeks have real
+  // signal/noise minutes behind them — noiseSharePct falls back to 0 when
+  // a week has zero total minutes (see noiseSharePct below), so "0 vs 0"
+  // from two empty weeks is indistinguishable from a genuine tie unless
+  // this is checked separately. False when either week has no data at
+  // all, in which case the delta isn't a real comparison.
+  hasNoiseComparisonData: boolean;
 };
 
 function defaultDataSource(): InsightsKpisDataSource {
@@ -40,12 +47,12 @@ function defaultDataSource(): InsightsKpisDataSource {
   };
 }
 
-function noiseSharePct(rows: InsightsKpisRow[]): number {
+function noiseShare(rows: InsightsKpisRow[]): { pct: number; totalMinutes: number } {
   const answered = rows.filter((r) => r.answered);
   const allocations = answered.flatMap((r) => r.allocations);
   const { signalMinutes, noiseMinutes } = bucketAllocationMinutes(allocations);
   const total = signalMinutes + noiseMinutes;
-  return total === 0 ? 0 : (noiseMinutes / total) * 100;
+  return { pct: total === 0 ? 0 : (noiseMinutes / total) * 100, totalMinutes: total };
 }
 
 /**
@@ -97,15 +104,16 @@ export async function getInsightsKpis(
     }
   }
 
-  const thisWeekNoisePct = noiseSharePct(thisWeek);
-  const lastWeekNoisePct = noiseSharePct(lastWeek);
+  const thisWeekNoise = noiseShare(thisWeek);
+  const lastWeekNoise = noiseShare(lastWeek);
 
   return {
     coveragePct,
     answeredCount: thisWeekAnswered.length,
     totalSlots: thisWeek.length,
     mostFocusedDomain,
-    noiseSharePct: thisWeekNoisePct,
-    noiseShareDeltaPct: thisWeekNoisePct - lastWeekNoisePct,
+    noiseSharePct: thisWeekNoise.pct,
+    noiseShareDeltaPct: thisWeekNoise.pct - lastWeekNoise.pct,
+    hasNoiseComparisonData: thisWeekNoise.totalMinutes > 0 && lastWeekNoise.totalMinutes > 0,
   };
 }

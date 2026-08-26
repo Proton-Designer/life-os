@@ -75,6 +75,7 @@ describe("getInsightsKpis", () => {
     );
     expect(result.noiseSharePct).toBeCloseTo(25, 0);
     expect(result.noiseShareDeltaPct).toBeCloseTo(-25, 0);
+    expect(result.hasNoiseComparisonData).toBe(true);
   });
 
   it("returns 0 coverage and 0 noise share, not NaN, when there's no data at all", async () => {
@@ -83,6 +84,26 @@ describe("getInsightsKpis", () => {
     expect(result.noiseSharePct).toBe(0);
     expect(result.noiseShareDeltaPct).toBe(0);
     expect(result.mostFocusedDomain).toBeNull();
+  });
+
+  it("flags hasNoiseComparisonData false when there's no data at all — a 0 delta from two empty weeks isn't a real tie", async () => {
+    const result = await getInsightsKpis("user-1", weekStart, previousWeekStart, TZ, dataSourceWith([]));
+    expect(result.noiseShareDeltaPct).toBe(0);
+    expect(result.hasNoiseComparisonData).toBe(false);
+  });
+
+  it("flags hasNoiseComparisonData false when only one of the two weeks has real minutes", async () => {
+    const result = await getInsightsKpis(
+      "user-1",
+      weekStart,
+      previousWeekStart,
+      TZ,
+      dataSourceWith([
+        // Last week has nothing. This week has real signal minutes.
+        row("2026-08-10T15:00:00Z", true, [{ domain: "deen", minutes: 45 }]),
+      ])
+    );
+    expect(result.hasNoiseComparisonData).toBe(false);
   });
 
   it("excludes an unanswered check-in's allocations from noise share and most-focused", async () => {

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Radar, Volume2, Target, Flame, CheckCircle2, BookOpen } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { computeTrackingFloorDateStr } from "@/lib/deen/prayer-status";
 import { createClient } from "@/lib/supabase/server";
 import { getFocusMap } from "@/lib/insights/focus-map";
 import { getInsightsKpis } from "@/lib/insights/insights-kpis";
@@ -115,6 +116,13 @@ export default async function InsightsPage({
   const todayStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(todayStr);
   const previousWeekStart = addDaysToDateString(weekStart, -7);
+  // Zero and no-data are different facts — a wiped or brand-new account
+  // reads every metric as 0, and without this floor that 0 gets reported
+  // as a real (if bad) result instead of "tracking hadn't started yet."
+  // Same floor Deen's prayer-status derivation uses (lib/deen/prayer-status.ts).
+  const trackingFloorDateStr = computeTrackingFloorDateStr(profile, timezone, now);
+  const weekEntirelyBeforeTrackingFloor = (weekStartDate: string) =>
+    addDaysToDateString(weekStartDate, 7) <= trackingFloorDateStr;
   const anchor =
     range === "week"
       ? resolveLocalTime(weekStart, "00:00", timezone)
@@ -242,10 +250,21 @@ export default async function InsightsPage({
   const lastWeekRecap = recap[recap.length - 1];
   const priorWeekRecap = recap[recap.length - 2];
   const lastWeekRecapSn = recapSnByWeek[recapSnByWeek.length - 1];
+  // "0/35 last week" and a "+0" delta both read as a real (if bad) result
+  // — a week that predates tracking_started_on has no record to report at
+  // all, not a zero one. priorWeekRecap always exists as an object (recap
+  // is built by mapping over a fixed week list), so testing for its
+  // presence alone never catches this — the actual question is whether
+  // that week's window ever had a chance to contain real data.
+  const lastRecapWeekBeforeFloor = weekEntirelyBeforeTrackingFloor(recapWeeks[recapWeeks.length - 1].weekStart);
+  const priorRecapWeekBeforeFloor = weekEntirelyBeforeTrackingFloor(recapWeeks[recapWeeks.length - 2].weekStart);
 
   const weeklyAvgPct = Math.round(
     weeklyCompletion.weeklyCompletionPct.reduce((a, b) => a + b, 0) / weeklyCompletion.weeklyCompletionPct.length
   );
+  // All-zero isn't a tie to break — it's the absence of a result. There is
+  // no "best day" among zeros, so don't manufacture a ranking out of them.
+  const hasWeeklyCompletionData = weeklyCompletion.weeklyCompletionPct.some((v) => v > 0);
   const bestDayIndex = weeklyCompletion.weeklyCompletionPct.reduce(
     (best, v, i) => (v > weeklyCompletion.weeklyCompletionPct[best] ? i : best),
     0
@@ -315,9 +334,11 @@ export default async function InsightsPage({
             label="Noise share"
             value={`${Math.round(kpis.noiseSharePct)}%`}
             caption={
-              kpis.noiseShareDeltaPct === 0
-                ? "Same as last week"
-                : `${kpis.noiseShareDeltaPct > 0 ? "+" : ""}${Math.round(kpis.noiseShareDeltaPct)}pp vs last week`
+              !kpis.hasNoiseComparisonData
+                ? "No data this week"
+                : kpis.noiseShareDeltaPct === 0
+                  ? "Same as last week"
+                  : `${kpis.noiseShareDeltaPct > 0 ? "+" : ""}${Math.round(kpis.noiseShareDeltaPct)}pp vs last week`
             }
           />
         </div>
@@ -331,7 +352,11 @@ export default async function InsightsPage({
       <Panel
         title="This week"
         heroValue={`${weeklyAvgPct}%`}
-        caption={`${weeklyCompletion.weeklyCompletionLabels[bestDayIndex]} was your best day this week`}
+        caption={
+          hasWeeklyCompletionData
+            ? `${weeklyCompletion.weeklyCompletionLabels[bestDayIndex]} was your best day this week`
+            : "No data this week"
+        }
       >
         <AreaChart
           categories={weeklyCompletion.weeklyCompletionLabels}
@@ -372,11 +397,11 @@ export default async function InsightsPage({
             icon={Flame}
             accent="deen"
             label="Prayers on time"
-            value={`${lastWeekRecap.prayersOnTime}/35`}
-            caption="last week"
+            value={lastRecapWeekBeforeFloor ? "—" : `${lastWeekRecap.prayersOnTime}/35`}
+            caption={lastRecapWeekBeforeFloor ? "before you started tracking" : "last week"}
             sparkline={recap.map((r) => r.prayersOnTime)}
             delta={
-              priorWeekRecap
+              !lastRecapWeekBeforeFloor && !priorRecapWeekBeforeFloor
                 ? {
                     direction: lastWeekRecap.prayersOnTime >= priorWeekRecap.prayersOnTime ? "up" : "down",
                     text: `${lastWeekRecap.prayersOnTime - priorWeekRecap.prayersOnTime >= 0 ? "+" : ""}${lastWeekRecap.prayersOnTime - priorWeekRecap.prayersOnTime}`,
@@ -390,8 +415,8 @@ export default async function InsightsPage({
             icon={CheckCircle2}
             accent="business"
             label="Days cleared"
-            value={`${lastWeekRecap.killListDaysCleared}/7`}
-            caption="kill list, last week"
+            value={lastRecapWeekBeforeFloor ? "—" : `${lastWeekRecap.killListDaysCleared}/7`}
+            caption={lastRecapWeekBeforeFloor ? "before you started tracking" : "kill list, last week"}
             sparkline={recap.map((r) => r.killListDaysCleared)}
           />
         </div>
@@ -400,8 +425,14 @@ export default async function InsightsPage({
             icon={BookOpen}
             accent="deen"
             label="Qur'an pages"
-            value={`${lastWeekRecap.quranPages}`}
-            caption={previousDeenGoal?.quran_page_target ? `target: ${previousDeenGoal.quran_page_target}` : "last week"}
+            value={lastRecapWeekBeforeFloor ? "—" : `${lastWeekRecap.quranPages}`}
+            caption={
+              lastRecapWeekBeforeFloor
+                ? "before you started tracking"
+                : previousDeenGoal?.quran_page_target
+                  ? `target: ${previousDeenGoal.quran_page_target}`
+                  : "last week"
+            }
             sparkline={recap.map((r) => r.quranPages)}
           />
         </div>
@@ -411,7 +442,13 @@ export default async function InsightsPage({
             accent="business"
             label="Signal:Noise"
             value={lastWeekRecapSn.signalMinutes + lastWeekRecapSn.noiseMinutes === 0 ? "—" : lastWeekRecapSn.display}
-            caption={lastWeekRecapSn.signalMinutes + lastWeekRecapSn.noiseMinutes === 0 ? "No check-ins last week" : "last week"}
+            caption={
+              lastRecapWeekBeforeFloor
+                ? "before you started tracking"
+                : lastWeekRecapSn.signalMinutes + lastWeekRecapSn.noiseMinutes === 0
+                  ? "No check-ins last week"
+                  : "last week"
+            }
             sparkline={recapSnBars.map((b) => b.value)}
           />
         </div>
