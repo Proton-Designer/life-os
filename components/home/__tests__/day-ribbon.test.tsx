@@ -112,27 +112,71 @@ describe("DayRibbon", () => {
     expect(markPrayerMock).toHaveBeenCalledWith("2026-08-15", "dhuhr", "on_time");
   });
 
-  it("headlines the currently-open window when one prayer is pending", () => {
-    render(<DayRibbon layout={LAYOUT} todayStr="2026-08-15" timezone="UTC" />);
-    expect(screen.getByText(/Dhuhr is open now/)).toBeInTheDocument();
-  });
+  // 2026-08-25/26 batch 2, item 1a: the subtitle is now a plain schedule
+  // summary (classes + work), not prayer-status narration — Ayman's own
+  // worked examples, followed exactly.
+  describe("schedule summary subtitle", () => {
+    it("shows 'Nothing scheduled today' with no class/work blocks at all", () => {
+      const noEvents: DayRibbonLayout = { ...LAYOUT, blocks: [] };
+      render(<DayRibbon layout={noEvents} todayStr="2026-08-15" timezone="UTC" />);
+      expect(screen.getByText("Nothing scheduled today")).toBeInTheDocument();
+    });
 
-  it("headlines the next upcoming prayer when nothing is currently pending", () => {
-    const noPending: DayRibbonLayout = {
-      ...LAYOUT,
-      spans: LAYOUT.spans.map((s) => (s.name === "dhuhr" ? { ...s, state: "upcoming" as const } : s)),
-    };
-    render(<DayRibbon layout={noPending} todayStr="2026-08-15" timezone="UTC" />);
-    expect(screen.getByText(/Next: Dhuhr/)).toBeInTheDocument();
-  });
+    it("counts a single class, singular: 'You have 1 class today'", () => {
+      const oneClass: DayRibbonLayout = {
+        ...LAYOUT,
+        blocks: [{ label: "CS-3341-HON", colorVar: "--series-school", kind: "class", startPct: 10, endPct: 20 }],
+      };
+      render(<DayRibbon layout={oneClass} todayStr="2026-08-15" timezone="UTC" />);
+      expect(screen.getByText("You have 1 class today")).toBeInTheDocument();
+    });
 
-  it("announces the day as accounted for when nothing is pending or upcoming (all logged/missed)", () => {
-    const allSettled: DayRibbonLayout = {
-      ...LAYOUT,
-      spans: LAYOUT.spans.map((s) => (s.state === "pending" || s.state === "upcoming" ? { ...s, state: "logged" as const } : s)),
-    };
-    render(<DayRibbon layout={allSettled} todayStr="2026-08-15" timezone="UTC" />);
-    expect(screen.getByText(/accounted for/)).toBeInTheDocument();
+    it("counts multiple classes, plural: 'You have 3 classes today' (Ayman's own Tuesday example)", () => {
+      const threeClasses: DayRibbonLayout = {
+        ...LAYOUT,
+        blocks: [
+          { label: "CS-3345-HON", colorVar: "--series-school", kind: "class", startPct: 10, endPct: 20 },
+          { label: "PHYS-2326-002", colorVar: "--series-school", kind: "class", startPct: 30, endPct: 40 },
+          { label: "AMS-2341-HN1", colorVar: "--series-school", kind: "class", startPct: 50, endPct: 60 },
+        ],
+      };
+      render(<DayRibbon layout={threeClasses} todayStr="2026-08-15" timezone="UTC" />);
+      expect(screen.getByText("You have 3 classes today")).toBeInTheDocument();
+    });
+
+    it("combines a class with work: 'You have 1 class and work today' (Ayman's own Monday example)", () => {
+      const classAndWork: DayRibbonLayout = {
+        ...LAYOUT,
+        blocks: [
+          { label: "CS-3341-HON", colorVar: "--series-school", kind: "class", startPct: 10, endPct: 20 },
+          { label: "Work", colorVar: "--series-coop", kind: "work", startPct: 30, endPct: 60 },
+        ],
+      };
+      render(<DayRibbon layout={classAndWork} todayStr="2026-08-15" timezone="UTC" />);
+      expect(screen.getByText("You have 1 class and work today")).toBeInTheDocument();
+    });
+
+    it("shows work alone when there's work but no classes: 'You have work today'", () => {
+      const workOnly: DayRibbonLayout = {
+        ...LAYOUT,
+        blocks: [{ label: "Work", colorVar: "--series-coop", kind: "work", startPct: 30, endPct: 60 }],
+      };
+      render(<DayRibbon layout={workOnly} todayStr="2026-08-15" timezone="UTC" />);
+      expect(screen.getByText("You have work today")).toBeInTheDocument();
+    });
+
+    it("never counts fitness, task, or focus blocks as a 'main event' — only class/work", () => {
+      const nonMainOnly: DayRibbonLayout = {
+        ...LAYOUT,
+        blocks: [
+          { label: "Push Day", colorVar: "--series-fitness", kind: "fitness", startPct: 10, endPct: 20 },
+          { label: "Essay due", colorVar: "--series-school", kind: "task", startPct: 30, endPct: 32 },
+          { label: "Deep Work", colorVar: "--series-business", kind: "focus", startPct: 40, endPct: 50 },
+        ],
+      };
+      render(<DayRibbon layout={nonMainOnly} todayStr="2026-08-15" timezone="UTC" />);
+      expect(screen.getByText("Nothing scheduled today")).toBeInTheDocument();
+    });
   });
 
   it("shows the wider empty-state invitation (workout, tasks, focus sessions) when there are no activity blocks yet", () => {
@@ -157,7 +201,11 @@ describe("DayRibbon", () => {
     expect(screen.getByText("now")).toBeInTheDocument();
   });
 
-  it("shows an explicit 'until Fajr' headline before Fajr, not a silently-clamped indicator", () => {
+  // The subtitle is a static schedule summary now (item 1a) and no longer
+  // varies with nowPosition, but the live on-track "now" marker itself
+  // (a separate feature) still must not render outside the range —
+  // covered here independent of subtitle text.
+  it("hides the 'now' marker before the range starts, not a silently-clamped indicator", () => {
     render(
       <DayRibbon
         layout={{ ...LAYOUT, now: new Date("2026-08-15T08:00:00Z"), nowPosition: "before", nowPct: 0 }}
@@ -165,11 +213,10 @@ describe("DayRibbon", () => {
         timezone="UTC"
       />
     );
-    expect(screen.getByText(/until Fajr/)).toBeInTheDocument();
     expect(screen.queryByText("now")).not.toBeInTheDocument();
   });
 
-  it("shows a 'day complete' headline after the range ends, not a silently-clamped indicator", () => {
+  it("hides the 'now' marker after the range ends, not a silently-clamped indicator", () => {
     render(
       <DayRibbon
         layout={{ ...LAYOUT, now: new Date("2026-08-16T10:00:00Z"), nowPosition: "after", nowPct: 100 }}
@@ -177,7 +224,6 @@ describe("DayRibbon", () => {
         timezone="UTC"
       />
     );
-    expect(screen.getByText(/complete/i)).toBeInTheDocument();
     expect(screen.queryByText("now")).not.toBeInTheDocument();
   });
 

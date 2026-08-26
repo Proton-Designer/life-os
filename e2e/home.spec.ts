@@ -35,13 +35,14 @@ test.describe("Home", () => {
     }
 
     // The day's shape (2026-08-17 day-shape spec — revived DayRibbon with
-    // spans + overlay). Either the real ribbon (a headline status line is
-    // always present when rendered) or, if no location is set yet, its
-    // EmptyState fallback pointing at Settings.
+    // spans + overlay). Either the real ribbon (a headline subtitle is
+    // always present when rendered — 2026-08-25/26 batch 2, item 1a: a
+    // static schedule summary, not prayer-status narration anymore) or, if
+    // no location is set yet, its EmptyState fallback pointing at Settings.
     const dayShapePanel = page.locator("[data-panel]", { hasText: "The day's shape" });
     await expect(
       dayShapePanel
-        .getByText(/until Fajr|is open now|Next:|accounted for|day is complete/)
+        .getByText(/Nothing scheduled today|You have .* today/)
         .or(dayShapePanel.getByText("Set your location in Settings"))
     ).toBeVisible();
 

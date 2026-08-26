@@ -175,14 +175,24 @@ export function computeDayRibbon({
   const nowPosition: DayRibbonLayout["nowPosition"] =
     now.getTime() < rangeStart.getTime() ? "before" : now.getTime() > rangeEnd.getTime() ? "after" : "within";
 
-  const blocks: RibbonActivityBlock[] = activities.map((a) => ({
-    label: a.label,
-    colorVar: a.colorVar,
-    kind: a.kind,
-    startPct: pctOf(a.start, rangeStart, rangeEnd),
-    endPct: pctOf(a.end ?? now, rangeStart, rangeEnd),
-    detail: a.detail,
-  }));
+  // Sorted by real start time — item 1a: "list main event's in order of
+  // occurance." The data source (get-day-shape.ts) builds this array
+  // grouped by SOURCE (workout, then tasks, then focus sessions, then
+  // schedule events), not by when things actually happen; startPct/endPct
+  // already position each block correctly regardless of array order, but
+  // DOM/reading order should match the day's real chronology too.
+  const blocks: RibbonActivityBlock[] = activities
+    .map((a) => ({
+      label: a.label,
+      colorVar: a.colorVar,
+      kind: a.kind,
+      startPct: pctOf(a.start, rangeStart, rangeEnd),
+      endPct: pctOf(a.end ?? now, rangeStart, rangeEnd),
+      detail: a.detail,
+      _start: a.start.getTime(),
+    }))
+    .sort((x, y) => x._start - y._start)
+    .map(({ _start, ...block }) => block);
 
   return { rangeStart, rangeEnd, spans, now, nowPct, nowPosition, blocks };
 }

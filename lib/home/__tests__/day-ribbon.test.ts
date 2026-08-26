@@ -133,6 +133,34 @@ describe("computeDayRibbon", () => {
     expect(layout?.blocks[0].endPct).toBe(100);
   });
 
+  // 2026-08-25/26 batch 2, item 1a: "list main event's in order of
+  // occurance." get-day-shape.ts builds `activities` grouped by SOURCE
+  // (workout, then tasks, then focus, then schedule events) — this must
+  // re-sort by real start time regardless of input order, since positions
+  // (startPct) are already correct independent of array order but DOM/
+  // reading order should still match the day's actual chronology.
+  it("sorts blocks by real start time, independent of the input activities' own order", () => {
+    const early = { label: "Early class", colorVar: "--series-school", kind: "class" as const, start: FAJR_START, end: FAJR_END };
+    const middle = { label: "Deep work", colorVar: "--series-business", kind: "focus" as const, start: DHUHR_START, end: ASR_START };
+    const late = { label: "Work", colorVar: "--series-coop", kind: "work" as const, start: ASR_START, end: MAGHRIB_START };
+    // Deliberately fed out of chronological order (late, early, middle).
+    const layout = computeDayRibbon({ prayers: [...PRAYERS], activities: [late, early, middle], now: ISHA_START });
+    expect(layout?.blocks.map((b) => b.label)).toEqual(["Early class", "Deep work", "Work"]);
+  });
+
+  it("keeps a stable order for two blocks with the exact same start time", () => {
+    const detail = { title: "CS-3341-HON", timeRange: "8:30 AM–9:45 AM", location: "ECSN 2.120", instructor: "N. Ruozzi", domain: "school" };
+    const layout = computeDayRibbon({
+      prayers: [...PRAYERS],
+      activities: [
+        { label: "CS-3341-HON", colorVar: "--series-school", kind: "class", start: DHUHR_START, end: ASR_START, detail },
+        { label: "Focus session", colorVar: "--series-business", kind: "focus", start: DHUHR_START, end: ASR_START },
+      ],
+      now: ISHA_START,
+    });
+    expect(layout?.blocks.map((b) => b.label)).toEqual(["CS-3341-HON", "Focus session"]);
+  });
+
   it("passes an activity's detail payload through to its block, and leaves it undefined when absent", () => {
     const detail = { title: "CS-3341-HON", timeRange: "8:30 AM–9:45 AM", location: "ECSN 2.120", instructor: "N. Ruozzi", domain: "school" };
     const layout = computeDayRibbon({

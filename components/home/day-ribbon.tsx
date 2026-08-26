@@ -4,7 +4,6 @@ import { useEffect, useRef, useTransition } from "react";
 import { ListChecks, Timer, type LucideIcon } from "lucide-react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
-import { formatRelativeDuration, formatDurationMagnitude } from "@/lib/date-utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import type { DayRibbonLayout, RibbonSpanState, RibbonActivityKind } from "@/lib/home/day-ribbon";
@@ -70,27 +69,25 @@ function formatTime(date: Date, timezone: string): string {
 
 // The ribbon's headline — rendered OUTSIDE the horizontally-scrolling track
 // (so it's always in view, never clipped on mobile) and always present.
-// Priority: a currently-open (pending) window is the most actionable thing
-// on the page, so it leads even over "next upcoming".
-function statusLine(layout: DayRibbonLayout, timezone: string): string {
-  if (layout.nowPosition === "before") {
-    const mins = (layout.rangeStart.getTime() - layout.now.getTime()) / 60_000;
-    return `${formatDurationMagnitude(mins)} until Fajr at ${formatTime(layout.rangeStart, timezone)}`;
-  }
-  if (layout.nowPosition === "after") {
-    return "Today's day is complete";
-  }
-  const pending = layout.spans.find((s) => s.state === "pending");
-  if (pending) {
-    const mins = (pending.windowEnd.getTime() - layout.now.getTime()) / 60_000;
-    return `${pending.label} is open now — ${formatDurationMagnitude(mins)} left`;
-  }
-  const nextUpcoming = [...layout.spans]
-    .filter((s) => s.state === "upcoming")
-    .sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime())[0];
-  if (!nextUpcoming) return "Today's 5 prayers are accounted for";
-  const diffMin = (nextUpcoming.windowStart.getTime() - layout.now.getTime()) / 60_000;
-  return `Next: ${nextUpcoming.label} ${formatRelativeDuration(diffMin)}`;
+//
+// 2026-08-25/26 batch 2, item 1a — Ayman: replace the old prayer-status
+// narration ("Today's 5 prayers are accounted for", "Next: Dhuhr in 2h",
+// etc.) with a plain schedule summary: how many classes, and whether
+// there's work, today. Not time-of-day dependent — this is a fixed fact
+// about the day, not a live status. "Main events" per his own definition
+// = classes and work only, never prayers or tasks. The five worked
+// examples he gave ("You have 1 class and work today," "You have 3
+// classes today") are followed exactly; "You have work today" (class
+// count zero, work present) and "Nothing scheduled today" (neither) are
+// the two cases he didn't give an example for but the pattern implies.
+function scheduleSummary(layout: DayRibbonLayout): string {
+  const classCount = layout.blocks.filter((b) => b.kind === "class").length;
+  const hasWork = layout.blocks.some((b) => b.kind === "work");
+  if (classCount === 0 && !hasWork) return "Nothing scheduled today";
+  const classPart = classCount > 0 ? `${classCount} class${classCount === 1 ? "" : "es"}` : null;
+  if (classPart && hasWork) return `You have ${classPart} and work today`;
+  if (classPart) return `You have ${classPart} today`;
+  return "You have work today";
 }
 
 // The signature element — a day shaped and punctuated by the five prayer
@@ -131,7 +128,7 @@ export function DayRibbon({
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <p className="text-base font-medium">{statusLine(layout, timezone)}</p>
+        <p className="text-base font-medium">{scheduleSummary(layout)}</p>
         {layout.blocks.length === 0 && (
           <p className="mt-0.5 text-xs text-muted-foreground">
             Today&apos;s workout, tasks, or focus sessions will show up here as your day happens
@@ -198,10 +195,25 @@ export function DayRibbon({
                 {layout.blocks.map((b, i) => {
                   const Icon = RIBBON_KIND_ICON[b.kind];
                   const kindLabel = RIBBON_KIND_LABEL[b.kind];
+                  // 2026-08-25/26 batch 2, item 1b — Ayman: "they shoudltn
+                  // all be the same size, they shoudl match according to
+                  // their size." The percentage width itself was always
+                  // correct (proportional to real start/end time, same
+                  // pctOf() the prayer spans use), but 1.75rem (28px) as a
+                  // CSS minWidth is 4.375% of this track — against a
+                  // Fajr-to-next-Fajr range (~24h), that's an EFFECTIVE
+                  // floor of ~63 real minutes. Ayman's actual classes run
+                  // 45-75 minutes; nearly all of them clamped to this exact
+                  // same floor and rendered identically regardless of their
+                  // true relative durations — the bug wasn't the math, it
+                  // was a floor generous enough to swallow it. 0.5rem (8px,
+                  // ~1.25% of the track ≈ 18 real minutes) still keeps a
+                  // sub-20-minute task/focus block visible and tappable
+                  // without dominating anything an hour or longer.
                   const blockStyle = {
                     left: `${b.startPct}%`,
                     width: `${Math.max(1, b.endPct - b.startPct)}%`,
-                    minWidth: "1.75rem",
+                    minWidth: "0.5rem",
                     backgroundColor: `var(${b.colorVar})`,
                   };
                   // A block too narrow for its label keeps the icon (never

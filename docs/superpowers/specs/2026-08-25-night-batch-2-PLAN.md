@@ -13,8 +13,8 @@ Status vocabulary: `BACKLOG` → `DEV` → `TEST` → `VERIFY` → `ITERATE` →
 | # | Item | Owner | Status | Notes |
 |---|---|---|---|---|
 | 0 | Batch-1 deploy (11 commits, `2aafd7a`) | Lead | BACKLOG | Ayman authorized auto-deploy; ships together with batch 2 at the end |
-| 1a | Home: "Today's Schedule" subtitle + event count | A | BACKLOG | Replaces "Today's 5 prayers are accounted for" |
-| 1b | Home: day-ribbon blobs sized to real duration | A | BACKLOG | Currently uniform width; must match the time axis |
+| 1a | Home: "Today's Schedule" subtitle + event count | A | DONE | Subtitle is now a static class+work summary (Ayman's 4 worked cases, plus an honest empty state), not time/prayer-status narration — verified live "You have 3 classes today" on Tuesday SEED data |
+| 1b | Home: day-ribbon blobs sized to real duration | A | DONE | Math was already correct (proportional to real duration); the bug was a 28px CSS minWidth ≈63 real minutes on a ~24h range, clamping nearly every real class/task/fitness block to the identical floor — dropped to 8px (≈18min). Blocks also now sorted by real start time (were grouped by data source, not chronology) |
 | 2 | Cross-device live sync (prayers, tasks, everywhere) | A | BACKLOG | Root cause known — see Ruling R1 |
 | 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | Weight/waist relocated to CycleProgressPanel/BodyModule as on-demand log (no task semantics). Lead caught a real regression on first pass: the two custom_habits rows (protein/steps) stayed live and unarchived, feeding Home's fitness pulse/snapshot denominator with no way left to complete them — archived on SEED, applied to real account by Lead; toggleDailyCheck/ensureDailyCheckHabits + the clear-daily-check test route deleted outright, confirmed via grep nothing can recreate the rows |
 | 4 | Work schedule: today highlight, edit-hours popup, real times | B | DEV | Also verify "Cancel this week" actually works |
