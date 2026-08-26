@@ -30,6 +30,8 @@ import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
+import { getClassCards } from "@/lib/school/get-class-cards";
+import { ClassCard } from "@/components/school/class-card";
 
 type TaskData = {
   id: string;
@@ -208,6 +210,8 @@ export default async function SchoolPage() {
     }));
   const completedWeekGroups: CompletedWeekGroup[] = groupCompletedTasksByWeek(completedForGrouping, timezone);
 
+  const classCards = await getClassCards(supabase, userId, weekStart, dateStr);
+
   return (
     <PageContainer>
       <PageHeader title="School" />
@@ -262,15 +266,18 @@ export default async function SchoolPage() {
         </div>
       </div>
 
-      {/*
-        C's item 6b class-card grid goes here — "below the top mini
-        modules" (Ayman), between the KPI strip and the Task list module.
-        C ships components/school/class-card.tsx (presentational) and
-        lib/school/get-class-cards.ts (getClassCards(), data shaping) and
-        will hand off the exact usage snippet + exported types; the actual
-        import/call/markup lands in this file since it's owned here.
-        (Opus Lead, 2026-08-26 night batch 2 — item 6b integration point.)
-      */}
+      {/* Item 6b (Ayman, verbatim): "a module card for every single class
+          im taking," below the top mini modules. Cards are visibly
+          non-uniform by design — Lin Alg (MATH 2418) has no room/instructor/
+          syllabus/tasks/assessment yet, so `items-start` keeps a short card
+          short instead of CSS Grid stretching it to match its row. */}
+      {classCards.length > 0 && (
+        <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {classCards.map((c) => (
+            <ClassCard key={c.id} data={c} timezone={timezone} />
+          ))}
+        </div>
+      )}
 
       <Panel
         title="This week's classes"
