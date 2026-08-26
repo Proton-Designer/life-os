@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
+import { isReviewOpen } from "@/lib/distractions/plan-rules";
 
 // playwright.config.ts runs fully serial against ONE real live account with
 // no per-test isolation (see fitness.spec.ts's header comment for the race
@@ -24,6 +25,7 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 const TRIGGER_NAME = "E2E-DIST Test Trigger";
 const TRIGGER_DESCRIPTION = "Created by e2e/distractions.spec.ts";
 const DOMAIN = "school"; // any non-Deen domain satisfies "pick a non-Deen domain"
+const SEED_TIMEZONE = "America/Chicago"; // see the file header comment
 
 async function deleteTestTriggerIfPresent(page: Page, baseURL: string | undefined, secret: string) {
   const res = await page.request.delete(`${baseURL}/api/test/clear-distraction-trigger`, {
@@ -122,6 +124,23 @@ test.describe("Distractions", () => {
   }) => {
     const secret = process.env.E2E_TEST_SECRET;
     if (!secret) test.skip(true, "E2E_TEST_SECRET not set — see .env.local");
+
+    // /review redirects to "/" outside its 9pm-4am local window
+    // (isReviewOpen, lib/distractions/plan-rules.ts) — imported rather than
+    // re-derived here so this can't silently drift from the real rule.
+    // Rather than a permanently-red spec outside that window (which trains
+    // everyone to ignore red — that's how tonight's ship-on-stale-e2e
+    // happened) or a test-only clock override (a production backdoor whose
+    // only job is to make production lie about the time), this skips loudly
+    // and says exactly why, so a green run means "everything that could run
+    // did," not "nothing was actually checked."
+    const now = new Date();
+    if (!isReviewOpen(now, SEED_TIMEZONE)) {
+      test.skip(
+        true,
+        `/review is only open 9pm-4am local (isReviewOpen) — it's currently ${now.toLocaleString("en-US", { timeZone: SEED_TIMEZONE })} in ${SEED_TIMEZONE}`
+      );
+    }
 
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
