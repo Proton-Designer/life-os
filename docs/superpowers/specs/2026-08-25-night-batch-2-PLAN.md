@@ -16,7 +16,7 @@ Status vocabulary: `BACKLOG` → `DEV` → `TEST` → `VERIFY` → `ITERATE` →
 | 1a | Home: "Today's Schedule" subtitle + event count | A | BACKLOG | Replaces "Today's 5 prayers are accounted for" |
 | 1b | Home: day-ribbon blobs sized to real duration | A | BACKLOG | Currently uniform width; must match the time axis |
 | 2 | Cross-device live sync (prayers, tasks, everywhere) | A | BACKLOG | Root cause known — see Ruling R1 |
-| 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | Weight/waist relocated to CycleProgressPanel/BodyModule as on-demand log (no task semantics); protein/steps have no surviving UI. toggleDailyCheck/ensureDailyCheckHabits left in place, unused — habit_logs/custom_habits are shared tables, not fitness-only |
+| 3 | Fitness: drop protein/steps/weight/waist from Daily Log | A | DONE | Weight/waist relocated to CycleProgressPanel/BodyModule as on-demand log (no task semantics). Lead caught a real regression on first pass: the two custom_habits rows (protein/steps) stayed live and unarchived, feeding Home's fitness pulse/snapshot denominator with no way left to complete them — archived on SEED, applied to real account by Lead; toggleDailyCheck/ensureDailyCheckHabits + the clear-daily-check test route deleted outright, confirmed via grep nothing can recreate the rows |
 | 4 | Work schedule: today highlight, edit-hours popup, real times | B | BACKLOG | Also verify "Cancel this week" actually works |
 | 5 | School: unified Task list (4 groups, filters, add wizard, edit popup) | B | DEV | Starting with the wizard — C is blocked on it |
 | 6a | Schema: `classes`, `class_assessments`, syllabus storage bucket | C | BACKLOG | Migration 048 + first Supabase Storage bucket in the app |

@@ -348,18 +348,17 @@ export async function getPriorityItems(
   // re-deriving "is today's workout done" here — a second implementation
   // would drift from the Fitness screen and the two surfaces would
   // disagree about whether the day is complete (docs/superpowers/specs/
-  // 2026-08-23-home-fitness-row.md). dailyChecks/bodyMetrics/benchmark are
-  // deliberately omitted — those are Fitness-screen concerns, not part of
-  // "the workout's name." A scheduled, unconfirmed SESSION outranks micro
-  // goals (the larger, fixed-shape commitment); title is never both/
-  // concatenated.
+  // 2026-08-23-home-fitness-row.md). benchmark is deliberately omitted —
+  // that's a Fitness-screen concern, not part of "the workout's name."
+  // daily_check/body_metric no longer exist on DailyLogInputs at all
+  // (2026-08-25/26 batch 2, item 3). A scheduled, unconfirmed SESSION
+  // outranks micro goals (the larger, fixed-shape commitment); title is
+  // never both/concatenated.
   const fitnessPending = pendingDailyLog(
     buildDailyLog({
       microTotals: fitnessData.microTotals,
       microFreqs: fitnessData.microFreqs,
       sessions: fitnessData.sessions,
-      dailyChecks: [],
-      bodyMetrics: [],
       benchmark: null,
     })
   );

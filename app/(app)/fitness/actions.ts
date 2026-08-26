@@ -154,42 +154,6 @@ export async function quickLogExercise(
   revalidatePath("/");
 }
 
-const DAILY_CHECK_HABIT_NAMES = { protein: "Hit protein target", steps: "8,000+ steps" } as const;
-
-/**
- * Find-or-create against custom_habits (spec §7's revival), backstopped by
- * migration 034's partial unique index — a concurrent double-call here
- * just hits the index's unique_violation on the losing insert, which is
- * caught and ignored rather than surfaced as an error.
- */
-export async function ensureDailyCheckHabits(): Promise<{ protein: string; steps: string }> {
-  const { supabase, userId } = await requireUser();
-  for (const name of Object.values(DAILY_CHECK_HABIT_NAMES)) {
-    const { error } = await supabase
-      .from("custom_habits")
-      .insert({ user_id: userId, domain: "fitness", name })
-      .select("id");
-    if (error && error.code !== "23505") throw error;
-  }
-  const { data, error } = await supabase
-    .from("custom_habits")
-    .select("id, name")
-    .eq("user_id", userId)
-    .eq("domain", "fitness")
-    .eq("archived", false)
-    .in("name", Object.values(DAILY_CHECK_HABIT_NAMES));
-  if (error) throw error;
-  const protein = data?.find((h) => h.name === DAILY_CHECK_HABIT_NAMES.protein)?.id;
-  const steps = data?.find((h) => h.name === DAILY_CHECK_HABIT_NAMES.steps)?.id;
-  if (!protein || !steps) throw new Error("Failed to ensure daily check habits");
-  return { protein, steps };
-}
-
-export async function toggleDailyCheck(date: string, kind: "protein" | "steps"): Promise<void> {
-  const habitIds = await ensureDailyCheckHabits();
-  await toggleHabit(habitIds[kind], date);
-}
-
 /**
  * Weight and waist share body_metrics but write independently (spec §6's
  * different rhythms) — each fetches the existing row first and preserves

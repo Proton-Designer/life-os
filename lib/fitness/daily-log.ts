@@ -11,11 +11,21 @@
  * want to do it I will"). Weight and waist are still loggable, just no
  * longer as a daily task here — see CycleProgressPanel/BodyModule, which
  * now own a standalone log affordance independent of any window or task
- * list. Protein/steps have no surviving affordance anywhere; the
- * underlying `toggleDailyCheck`/`ensureDailyCheckHabits` actions and their
- * `habit_logs`/`custom_habits` rows are NOT dropped — those tables are
- * shared with other features (data export, distractions, home domain
- * snapshots) — only this Daily Log's use of them is gone.
+ * list.
+ *
+ * Protein/steps have no surviving affordance anywhere — `toggleDailyCheck`
+ * and `ensureDailyCheckHabits` (app/(app)/fitness/actions.ts) ARE deleted
+ * (Opus Lead review, 2026-08-26), unlike the general shared `habit_logs`/
+ * `custom_habits` tables themselves. The first pass at this removal left
+ * them in place reasoning "the tables are shared" — true, but beside the
+ * point: the two `custom_habits` ROWS those actions find-or-created ("Hit
+ * protein target", "8,000+ steps") were still live, unarchived, and read
+ * as a denominator by lib/home/get-domain-snapshots.ts and
+ * get-domain-pulse.ts — with the only UI that could ever complete them
+ * gone, Home's fitness pulse would have shown 0/2 forever. Those two rows
+ * are archived (never hard-deleted — they carry real logs) on both
+ * accounts; deleting the dead action code is what stops anything from
+ * ever recreating them.
  *
  * `buildDailyLog` returns every item with its completion state attached;
  * `pendingDailyLog` filters to only what's still outstanding — separate
