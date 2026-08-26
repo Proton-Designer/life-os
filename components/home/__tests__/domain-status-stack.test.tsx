@@ -69,4 +69,66 @@ describe("DomainStatusStack", () => {
     render(<DomainStatusStack snapshots={snapshots} />);
     expect(screen.getByRole("img", { name: "Not tracked today" })).toBeInTheDocument();
   });
+
+  it("shows Deen as 'Not tracked yet' with a dash ring, not 0/5 and a 0% ring, when the day hasn't closed and nothing is logged", () => {
+    const snapshots: DomainSnapshots = {
+      ...SNAPSHOTS,
+      deen: {
+        ...SNAPSHOTS.deen,
+        prayerStatuses: [
+          { name: "fajr", status: "upcoming" },
+          { name: "dhuhr", status: "upcoming" },
+          { name: "asr", status: "upcoming" },
+          { name: "maghrib", status: "upcoming" },
+          { name: "isha", status: "upcoming" },
+        ],
+        pulse: 0,
+      },
+    };
+    render(<DomainStatusStack snapshots={snapshots} />);
+    expect(screen.getByText("Not tracked yet")).toBeInTheDocument();
+    expect(screen.queryByText("0/5 prayers")).not.toBeInTheDocument();
+    // 6 rings total (5 sectors + none extra) — Deen's must be the dash one.
+    expect(screen.getAllByRole("img", { name: "Not tracked today" })).toHaveLength(1);
+  });
+
+  it("still reports a real 0/5 with a real 0% ring once every prayer window has closed with nothing logged — a genuine bad day, not an absence of data", () => {
+    const snapshots: DomainSnapshots = {
+      ...SNAPSHOTS,
+      deen: {
+        ...SNAPSHOTS.deen,
+        prayerStatuses: [
+          { name: "fajr", status: "missed" },
+          { name: "dhuhr", status: "missed" },
+          { name: "asr", status: "missed" },
+          { name: "maghrib", status: "missed" },
+          { name: "isha", status: "missed" },
+        ],
+        pulse: 0,
+      },
+    };
+    render(<DomainStatusStack snapshots={snapshots} />);
+    expect(screen.getByText("0/5 prayers")).toBeInTheDocument();
+    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
+  });
+
+  it("keeps a real qada backlog visible even while today is 'Not tracked yet'", () => {
+    const snapshots: DomainSnapshots = {
+      ...SNAPSHOTS,
+      deen: {
+        ...SNAPSHOTS.deen,
+        prayerStatuses: [
+          { name: "fajr", status: "upcoming" },
+          { name: "dhuhr", status: "upcoming" },
+          { name: "asr", status: "upcoming" },
+          { name: "maghrib", status: "upcoming" },
+          { name: "isha", status: "upcoming" },
+        ],
+        pulse: 0,
+        qadaBacklogCount: 4,
+      },
+    };
+    render(<DomainStatusStack snapshots={snapshots} />);
+    expect(screen.getByText("Not tracked yet · 4 qada")).toBeInTheDocument();
+  });
 });

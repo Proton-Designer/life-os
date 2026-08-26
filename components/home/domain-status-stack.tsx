@@ -21,14 +21,31 @@ const DOMAIN_HREF: Record<keyof DomainSnapshots, string> = {
   co_op: "/work",
 };
 
+// "0/5 prayers" with a 0% ring conflates two different facts: the day
+// hasn't started yet (nothing to report), and the day closed with nothing
+// logged (a real, deserved zero). Only the second is actually "0" — the
+// first is "not tracked yet," same as the calm dash Business/Fitness/
+// School/Work already show for their own no-data case (2026-08-26,
+// post-wipe rehearsal finding). Distinguished by whether any of today's
+// prayer windows are still open (`upcoming`/`pending`, from the same
+// effectivePrayerStatus derivation the Salah panel uses) — if one is,
+// the day can't have "failed" yet, no matter what the count reads.
+function deenDayOpenWithNothingLogged(deen: DomainSnapshots["deen"]): boolean {
+  const done = deen.prayerStatuses.filter((p) => p.status === "on_time" || p.status === "qada").length;
+  if (done > 0) return false;
+  return deen.prayerStatuses.some((p) => p.status === "upcoming" || p.status === "pending");
+}
+
 function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {
   switch (domain) {
     case "deen": {
       const done = s.deen.prayerStatuses.filter((p) => p.status === "on_time" || p.status === "qada").length;
-      const base = `${done}/5 prayers`;
+      const base = deenDayOpenWithNothingLogged(s.deen) ? "Not tracked yet" : `${done}/5 prayers`;
       // No new element — the existing metric is the doorway. Outstanding
       // qada is invisible otherwise once a missed-and-unlogged prayer drops
-      // out of Home's actionable items (it's qada, not "pending").
+      // out of Home's actionable items (it's qada, not "pending"). Kept
+      // even in the "not tracked yet" case — a real backlog from PAST days
+      // is informative regardless of whether today has started.
       return s.deen.qadaBacklogCount > 0 ? `${base} · ${s.deen.qadaBacklogCount} qada` : base;
     }
     case "business":
@@ -57,7 +74,8 @@ export function DomainStatusStack({ snapshots, title }: { snapshots: DomainSnaps
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:grid md:grid-cols-5 md:overflow-visible">
         {domains.map((domain) => {
           const accent = DOMAIN_ACCENT[domain === "co_op" ? "co_op" : domain];
-          const pulse = snapshots[domain].pulse;
+          const pulse =
+            domain === "deen" && deenDayOpenWithNothingLogged(snapshots.deen) ? null : snapshots[domain].pulse;
           return (
             <Link
               key={domain}
