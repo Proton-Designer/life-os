@@ -343,7 +343,21 @@ export function ClassDetailDialog({
           </p>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2">
+        {/* items-start: Syllabus is usually much shorter than Assessments
+            (View, or View/Swap/Remove — a single button row either way) —
+            without it, CSS Grid's default stretch inflates the Syllabus
+            card to match its neighbor's height, leaving a dead empty area
+            inside the border that's the same "bare, empty-looking panel"
+            complaint the redesign was supposed to fix, just moved inside a
+            box instead of solved. Same fix as the class-card grid's
+            treatment of Lin Alg's shorter card.
+
+            2fr/1fr, not an even split: Assessments is a real data table
+            (and squeezing it to half-width is what was truncating "Take-
+            home Final Exam d…" on desktop) while Syllabus only ever holds a
+            button row — an even 50/50 split gives the low-information
+            panel the same width as the high-information one. */}
+        <div className="grid items-start gap-4 md:grid-cols-[2fr_1fr]">
           <div className="rounded-2xl border border-border/40 bg-card p-4">
             <ClassAssessments
               assessments={assessments}

@@ -25,7 +25,9 @@ describe("ClassAssessments", () => {
       />
     );
     expect(screen.getByText("Midterm")).toBeInTheDocument();
-    expect(screen.getByText("Midterm/Final")).toBeInTheDocument();
+    // Short badge form in the read-only row — the full "Midterm/Final"
+    // label is what's crushing the Name column on mobile (Opus Lead review).
+    expect(screen.getByText("Mid/Final")).toBeInTheDocument();
     // Rendered through formatShortDate, never the raw ISO string.
     expect(screen.getByText("Oct. 6th")).toBeInTheDocument();
     expect(screen.queryByText("2026-10-06")).not.toBeInTheDocument();

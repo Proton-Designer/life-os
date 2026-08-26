@@ -6,6 +6,7 @@ import type { AssessmentType } from "@/app/(app)/school/class-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatShortDate } from "@/lib/date-utils";
+import { cn } from "@/lib/utils";
 
 export type ClassAssessment = {
   id: string;
@@ -20,6 +21,30 @@ const TYPE_LABEL: Record<AssessmentType, string> = {
   exam: "Exam",
   midterm_final: "Midterm/Final",
 };
+
+// Short form for the read-only row display only (the <select> and the
+// type-picker still use the full TYPE_LABEL, where there's no column-width
+// pressure). Reusing R6's exact task-type color tokens (lib/tasks/task-
+// type.ts's TASK_TYPE_COLOR) for the matching categories — this row and its
+// linked task, one section down, now read as visibly the same category.
+const TYPE_SHORT_LABEL: Record<AssessmentType, string> = {
+  quiz: "Quiz",
+  exam: "Exam",
+  midterm_final: "Mid/Final",
+};
+const TYPE_COLOR: Record<AssessmentType, string> = {
+  quiz: "text-accent-warning",
+  exam: "text-destructive",
+  midterm_final: "text-accent-coop",
+};
+
+// Name gets the remaining space; Type/Date/Actions are fixed and as narrow
+// as a short label allows — the exact inversion of the original <table>,
+// where "Midterm/Final" (a category repeated on every row) claimed several
+// times the width of the assessment's own name, crushing it to "Mid…"/
+// "Tak…" on a phone (Ayman's actual mobile screen, and the failure a
+// temporarily-seeded long title surfaced during review).
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_1.75rem]";
 
 /**
  * Left half of the expanded class view (item 6c / B2 redesign, 2026-08-26
@@ -100,7 +125,7 @@ export function ClassAssessments({
           {/* Fixed column widths (name flexes, type/date/actions don't) so a
               long name never pushes the date into the Remove button — the
               exact collision Ayman's screenshot showed in the old <table>. */}
-          <div className="grid grid-cols-[1fr_7rem_6.5rem_1.75rem] gap-3 px-1 text-xs text-muted-foreground">
+          <div className={cn("grid gap-3 px-1 text-xs text-muted-foreground", ROW_GRID)}>
             <span>Name</span>
             <span>Type</span>
             <span>Date</span>
@@ -110,7 +135,7 @@ export function ClassAssessments({
             editing ? (
               <div
                 key={a.id}
-                className="grid grid-cols-[1fr_7rem_6.5rem_1.75rem] items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5"
+                className={cn("grid items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5", ROW_GRID)}
               >
                 <Input
                   value={a.name}
@@ -149,10 +174,13 @@ export function ClassAssessments({
             ) : (
               <div
                 key={a.id}
-                className="grid grid-cols-[1fr_7rem_6.5rem_1.75rem] items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0"
+                className={cn(
+                  "grid items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0",
+                  ROW_GRID
+                )}
               >
                 <span className="truncate">{a.name}</span>
-                <span className="text-muted-foreground">{TYPE_LABEL[a.type]}</span>
+                <span className={cn("truncate text-xs font-medium", TYPE_COLOR[a.type])}>{TYPE_SHORT_LABEL[a.type]}</span>
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">
                   {formatShortDate(a.date, todayStr)}
                 </span>
