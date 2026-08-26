@@ -11,7 +11,14 @@ export async function login(page: Page) {
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // The default 5s assertion timeout is tuned for localhost and is too tight
+  // for a cold production start (a serverless cold start plus the Supabase
+  // auth round trip can exceed it) — Opus Lead hit this post-deploy
+  // (2026-08-26): auth.setup.ts failed twice against prod, looking exactly
+  // like login was broken, while the token endpoint was returning a valid
+  // 200 the whole time and a by-hand login succeeded, just slower than 5s.
+  // Scoped to this one known-slow step, not a blanket global timeout raise.
+  await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
 }
 
 // The real CheckinScheduler (lib/checkins/compute-checkin-slots.ts) mounts on
