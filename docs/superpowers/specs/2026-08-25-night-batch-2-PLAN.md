@@ -112,9 +112,9 @@ Migration numbers: **048 = C, 049 = A, 050 = B.**
 
 | # | Item | Owner | Status | Notes |
 |---|---|---|---|---|
-| B3-1 | Topbar: date to left; Check-in icon top right; order Check-in / Calendar / Notifications | B | DEV | B — root cause found: zero push subscriptions, notifyDesktop a silent no-op |
+| B3-1 | Topbar: date to left; Check-in icon top right; order Check-in / Calendar / Notifications | B | DONE | `b067fdc` — root cause: zero push subscriptions, notifyDesktop a silent no-op. Fallback shipped: manual check-in attaches to `mostRecentUnanswered` (latest pending/expired-unknown window), not the ad-hoc/unbound alternative — confirmed NOT materially harder than the bound approach. Notification-permission nudge added inside the popup. tsc/vitest clean repo-wide (pre-existing failures in A's in-flight realtime-sync-provider.tsx untouched). Pending: live SEED verification. |
 | B3-2 | Deen: "Salah today" → "Salah" + View More monthly calendar (#/5 rings, day → edit) | C | DONE | `a7a412a`+`953bee0` — no-data renders no ring; future writes rejected server-side |
-| B3-3 | Business: kill list View More (week/month/3mo) + "Incompleted this Week" | B | DEV | C — reuses the shared ProgressRing extended in B3-2 |
+| B3-3 | Business: kill list View More (week/month/3mo) + "Incompleted this Week" | C | DEV | Reassigned from B to C mid-session (Lead, load rebalance) — reuses the shared ProgressRing extended in B3-2 |
 | B3-4 | **Fresh-start data wipe of Ayman's real account** | Lead | BACKLOG | Lead — `4ad79bf` script written + dry-run validated; runs after verification |
 
 ## R7 — the data wipe is destructive and irreversible; back it up first
