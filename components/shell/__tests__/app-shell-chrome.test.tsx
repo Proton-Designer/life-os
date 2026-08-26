@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
+  useRouter: () => ({ refresh: vi.fn() }),
 }));
 
 // AppShellChrome renders AllocationCheckinGate, which calls this Server
@@ -21,6 +22,22 @@ vi.mock("@/app/(app)/actions", () => ({
   getNotificationsForNow: vi.fn(async () => []),
 }));
 
+// RealtimeSyncProvider (mounted by AppShellChrome) calls createClient() and
+// opens a channel on mount — stubbed so this stays a jsdom-only render with
+// no real Supabase network reach, same rationale as the two mocks above.
+const mockChannel = {
+  on: vi.fn(function (this: unknown) {
+    return this;
+  }),
+  subscribe: vi.fn(),
+};
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: vi.fn(() => ({
+    channel: vi.fn(() => mockChannel),
+    removeChannel: vi.fn(),
+  })),
+}));
+
 import { AppShellChrome } from "../app-shell-chrome";
 
 const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
@@ -30,6 +47,7 @@ describe("AppShellChrome", () => {
     render(
       <AppShellChrome
         account={ACCOUNT}
+        userId="user-1"
         dateLabel="Fri, Aug 15"
         nowIso="2026-08-15T18:00:00.000-05:00"
         timezone="America/Chicago"

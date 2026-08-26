@@ -30,6 +30,7 @@ export async function AppShell({
   return (
     <AppShellChrome
       account={account}
+      userId={user?.id ?? null}
       dateLabel={formatTopbarDate(now, timezone)}
       nowIso={now.toISOString()}
       timezone={timezone}

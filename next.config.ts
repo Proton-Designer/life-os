@@ -4,12 +4,20 @@ const nextConfig: NextConfig = {
   experimental: {
     // Every route in this app is dynamic (auth-gated), so this is the
     // relevant knob — `static` doesn't apply here. Every mutation already
-    // calls revalidatePath() to bust this cache (that's the real
-    // invalidation mechanism, verified live — see PROJECT_STATUS.md), so
-    // this is a safety net for a missed revalidatePath call, not a data
-    // freshness guarantee on its own — 1hr is long enough that no real
-    // session hits it. Client cache is per-browser-session, not shared
-    // across users/devices.
+    // calls revalidatePath() to bust the SERVER's cache; this knob only
+    // governs each device's own independent client Router Cache, which
+    // revalidatePath cannot reach — that gap is the actual root cause of
+    // "changes on my phone don't show on my laptop" (2026-08-25/26 batch
+    // 2, item 2), not a bug in revalidatePath itself.
+    //
+    // RealtimeSyncProvider (components/realtime/realtime-sync-provider.tsx)
+    // is the intended fix — a Postgres Changes event calling
+    // router.refresh() directly — but it's HELD, not mounted (see the
+    // comment in components/shell/app-shell-chrome.tsx and the writeup in
+    // e2e/realtime-sync.spec.ts): it reaches SUBSCRIBED but intermittently
+    // never receives events in the live browser, root cause unconfirmed.
+    // Until it's re-enabled, this is back to being a plain cache-staleness
+    // knob with no realtime layer underneath it — 3600s, as before.
     staleTimes: {
       dynamic: 3600,
     },
