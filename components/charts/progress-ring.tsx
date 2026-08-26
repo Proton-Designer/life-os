@@ -7,12 +7,18 @@ export function ProgressRing({
   size = 56,
   strokeWidth = 6,
   label,
+  centerLabel,
 }: {
   pct: number | null;
   colorVar: string;
   size?: number;
   strokeWidth?: number;
   label?: string;
+  /** Overrides the center text (default: the rounded percentage, or "—"
+   * at `pct === null`) — e.g. "3/5" for the Salah calendar's day cells or
+   * a kill-list day's "N/M" (2026-08-26, shared per Opus Lead ruling
+   * rather than each caller building its own ring). */
+  centerLabel?: string;
 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -24,7 +30,7 @@ export function ProgressRing({
           <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} />
         </svg>
         <span className="pointer-events-none absolute font-mono text-xs font-medium tabular-nums text-muted-foreground">
-          —
+          {centerLabel ?? "—"}
         </span>
       </div>
     );
@@ -35,7 +41,7 @@ export function ProgressRing({
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label={label ?? `${Math.round(clamped)}%`}>
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label={label ?? centerLabel ?? `${Math.round(clamped)}%`}>
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -59,7 +65,7 @@ export function ProgressRing({
         )}
       </svg>
       <span className="pointer-events-none absolute font-mono text-xs font-medium tabular-nums">
-        {Math.round(clamped)}%
+        {centerLabel ?? `${Math.round(clamped)}%`}
       </span>
     </div>
   );

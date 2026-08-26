@@ -130,7 +130,12 @@ function MainScreen({
 
   return (
     <>
-      <DialogHeader className="flex-row items-center justify-between space-y-0">
+      {/* pr-8 clears DialogContent's own absolute-positioned close button
+          (top-2 right-2) — without it, a corner header button sits under
+          the X and never receives the click (found live in the Salah
+          calendar's identical layout, not by vitest, which doesn't lay
+          out absolute positioning against a real close button). */}
+      <DialogHeader className="flex-row items-center justify-between space-y-0 pr-8">
         <DialogTitle>Edit habits</DialogTitle>
         {/* Corner "Advanced" button (Ayman's spec) — global, not per-row;
             opens the second screen with no habit pre-selected if there's

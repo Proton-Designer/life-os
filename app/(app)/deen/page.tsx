@@ -17,6 +17,7 @@ import {
   addDaysToDateString,
 } from "@/lib/date-utils";
 import { PrayerRow } from "@/components/deen/prayer-row";
+import { SalahViewMoreButton } from "@/components/deen/salah-view-more-button";
 import { QuranCard } from "@/components/deen/quran-card";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
@@ -349,7 +350,19 @@ export default async function DeenPage() {
 
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
         <div id="prayers" className="lg:col-span-5 scroll-mt-20">
-          <Panel className="h-full" title="Salah today" heroValue={`${salahDoneCount}/5`} caption={salahCaption}>
+          <Panel
+            className="h-full"
+            title="Salah"
+            heroValue={`${salahDoneCount}/5`}
+            caption={salahCaption}
+            controls={
+              <SalahViewMoreButton
+                initialYear={Number(dateStr.slice(0, 4))}
+                initialMonth={Number(dateStr.slice(5, 7))}
+                todayStr={dateStr}
+              />
+            }
+          >
             <ul className="flex flex-col gap-2">
               {PRAYERS.map((p) => {
                 const status = todayStatusFor(p.name);
