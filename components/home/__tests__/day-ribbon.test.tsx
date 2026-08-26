@@ -258,4 +258,84 @@ describe("DayRibbon", () => {
     // prayer-mark buttons should exist, none for the activity block.
     expect(screen.getAllByRole("button")).toHaveLength(5);
   });
+
+  // 2026-08-25/26 batch 2, item 1b (Lead review): the tap target and the
+  // painted width are two different numbers now — a short block must still
+  // be paintable at its true thin proportional width while its BUTTON
+  // (the thing a thumb actually has to hit) never shrinks below a real
+  // tap-target floor.
+  describe("interactive block: tap-target floor decoupled from painted width", () => {
+    function detailBlock(startPct: number, endPct: number) {
+      return {
+        label: "CS-3341-HON",
+        colorVar: "--series-school",
+        kind: "class" as const,
+        startPct,
+        endPct,
+        detail: { title: "CS-3341-HON", timeRange: "8:30 AM–9:45 AM", domain: "school" },
+      };
+    }
+
+    it("a very short block's BUTTON never shrinks below the 24px/640px (3.75%) tap-target floor", () => {
+      // 1% wide (well under the floor) — e.g. a 15-minute task on a ~24h track.
+      const { container } = render(
+        <DayRibbon layout={{ ...LAYOUT, blocks: [detailBlock(40, 41)] }} todayStr="2026-08-15" timezone="UTC" />
+      );
+      const button = screen.getByRole("button", { name: /CS-3341-HON/ });
+      const widthPct = parseFloat(button.style.width);
+      expect(widthPct).toBeCloseTo(3.75, 2);
+
+      // Centered on the block's own true midpoint (40.5%), not left-anchored.
+      const leftPct = parseFloat(button.style.left);
+      expect(leftPct).toBeCloseTo(40.5 - 3.75 / 2, 2);
+
+      // The painted pill stays at the true, thin, proportional width —
+      // never inflated to match the expanded tap target.
+      const pill = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+      expect(pill).toBeTruthy();
+      expect(parseFloat(pill.style.width)).toBeCloseTo(1, 2);
+      expect(pill.style.left).toBe("40%");
+    });
+
+    it("a long block's tap target and painted width are the same — no artificial expansion above the floor", () => {
+      const { container } = render(
+        <DayRibbon layout={{ ...LAYOUT, blocks: [detailBlock(10, 20)] }} todayStr="2026-08-15" timezone="UTC" />
+      );
+      const button = screen.getByRole("button", { name: /CS-3341-HON/ });
+      const pill = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+      expect(parseFloat(button.style.width)).toBeCloseTo(10, 2);
+      expect(parseFloat(pill.style.width)).toBeCloseTo(10, 2);
+      expect(button.style.left).toBe(pill.style.left);
+    });
+
+    it("drops the icon (not a half-clipped one) on a block too narrow to hold it — identity still lives in aria-label", () => {
+      // ~2% wide — under the ~4.06% (26px/640px) icon-content floor, but
+      // above 0 — a real, if narrow, painted block.
+      const { container } = render(
+        <DayRibbon layout={{ ...LAYOUT, blocks: [detailBlock(40, 42)] }} todayStr="2026-08-15" timezone="UTC" />
+      );
+      const pill = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+      expect(pill.querySelector("svg")).toBeNull();
+      // The button itself still carries the full accessible name regardless.
+      expect(screen.getByRole("button", { name: /CS-3341-HON, 8:30 AM–9:45 AM/ })).toBeInTheDocument();
+    });
+
+    it("keeps the icon on a block wide enough to hold it without clipping", () => {
+      const { container } = render(
+        <DayRibbon layout={{ ...LAYOUT, blocks: [detailBlock(10, 20)] }} todayStr="2026-08-15" timezone="UTC" />
+      );
+      const pill = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+      expect(pill.querySelector("svg")).not.toBeNull();
+    });
+
+    it("clicking anywhere in the expanded (invisible) hit area still opens the popover, not just the painted pixels", async () => {
+      const user = userEvent.setup();
+      render(<DayRibbon layout={{ ...LAYOUT, blocks: [detailBlock(40, 41)] }} todayStr="2026-08-15" timezone="UTC" />);
+      // The button IS the hit area (the pill is pointer-events-none and
+      // purely decorative) — clicking the button by its accessible role,
+      // exactly as a real tap would land anywhere in its (wider) box.
+      await user.click(screen.getByRole("button", { name: /CS-3341-HON/ }));
+      expect(screen.getByText("8:30 AM–9:45 AM")).toBeInTheDocument();
+    });
+  });
 });

@@ -199,32 +199,64 @@ export function DayRibbon({
                   // all be the same size, they shoudl match according to
                   // their size." The percentage width itself was always
                   // correct (proportional to real start/end time, same
-                  // pctOf() the prayer spans use), but 1.75rem (28px) as a
-                  // CSS minWidth is 4.375% of this track — against a
-                  // Fajr-to-next-Fajr range (~24h), that's an EFFECTIVE
-                  // floor of ~63 real minutes. Ayman's actual classes run
-                  // 45-75 minutes; nearly all of them clamped to this exact
-                  // same floor and rendered identically regardless of their
-                  // true relative durations — the bug wasn't the math, it
-                  // was a floor generous enough to swallow it. 0.5rem (8px,
-                  // ~1.25% of the track ≈ 18 real minutes) still keeps a
-                  // sub-20-minute task/focus block visible and tappable
-                  // without dominating anything an hour or longer.
-                  const blockStyle = {
+                  // pctOf() the prayer spans use); the bug was a CSS
+                  // minWidth on the PAINTED block itself swallowing real
+                  // duration differences (1.75rem/28px ≈ 63 real minutes
+                  // against this ~24h track — nearly every real class/task
+                  // clamped to the same floor). But that same width also
+                  // controlled the button's TAP target, and Lead review
+                  // caught that decoupling them matters: a visual floor
+                  // small enough to preserve proportionality (0.5rem/8px ≈
+                  // 18 real min) is not a usable tap target (WCAG 2.5.8
+                  // wants 24px minimum; he uses this on his phone), and an
+                  // 8px-wide button clips its own icon under
+                  // overflow-hidden, silently becoming exactly the
+                  // color-only encoding the icon exists to prevent.
+                  //
+                  // Fix: two SIBLINGS at the same track position, not one
+                  // element serving both jobs — a wider, invisible hit-area
+                  // button (or plain div when there's no detail to open)
+                  // sized to a real tap-target floor, and a separate
+                  // pointer-events-none painted pill sized to the true
+                  // proportional width, unconstrained by any tap-target
+                  // minimum. The paint can be visually thinner than 24px;
+                  // the thing you can actually press never is.
+                  const visualWidthPct = Math.max(1, b.endPct - b.startPct);
+                  // 24px (WCAG 2.5.8 AA) on this track's 640px min-width ≈ 3.75%.
+                  const HIT_MIN_PCT = (24 / 640) * 100;
+                  const hitWidthPct = Math.max(visualWidthPct, HIT_MIN_PCT);
+                  // Centered on the block's own true midpoint — an expanded
+                  // hit area should grow evenly outward, not just rightward.
+                  const hitLeftPct = b.startPct - (hitWidthPct - visualWidthPct) / 2;
+                  // The icon (14px) + its px-1.5 padding (12px) need ~26px
+                  // of real painted width before they'd clip under
+                  // overflow-hidden — below that, per Lead's ruling, the
+                  // block shows as a plain colored sliver with NO icon
+                  // rather than a half-clipped one; its full identity still
+                  // lives in aria-label/title and the popover, never
+                  // color-only-with-a-fragment-of-an-icon.
+                  const ICON_MIN_PCT = (26 / 640) * 100;
+                  const showIcon = visualWidthPct >= ICON_MIN_PCT;
+                  const visualStyle = {
                     left: `${b.startPct}%`,
-                    width: `${Math.max(1, b.endPct - b.startPct)}%`,
-                    minWidth: "0.5rem",
+                    width: `${visualWidthPct}%`,
                     backgroundColor: `var(${b.colorVar})`,
                   };
-                  // A block too narrow for its label keeps the icon (never
-                  // color-only) and carries the full label in
-                  // aria-label/title instead of clipping into
-                  // unreadable text.
-                  const content = (
+                  const hitStyle = { left: `${hitLeftPct}%`, width: `${hitWidthPct}%` };
+                  const content = showIcon ? (
                     <>
                       <Icon className="size-3.5 shrink-0 text-background" aria-hidden />
                       <span className="truncate text-[10px] leading-none font-medium text-background">{b.label}</span>
                     </>
+                  ) : null;
+                  const visualPill = (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute top-0 flex h-full items-center gap-1 overflow-hidden rounded-full px-1.5 opacity-80"
+                      style={visualStyle}
+                    >
+                      {content}
+                    </div>
                   );
                   return b.detail ? (
                     <Popover key={i}>
@@ -232,11 +264,9 @@ export function DayRibbon({
                         <button
                           type="button"
                           aria-label={`${kindLabel}: ${b.detail.title}, ${b.detail.timeRange}`}
-                          className="absolute top-0 flex h-full items-center gap-1 overflow-hidden rounded-full px-1.5 opacity-80 transition-opacity hover:opacity-100"
-                          style={blockStyle}
-                        >
-                          {content}
-                        </button>
+                          className="absolute top-0 h-full rounded-full transition-opacity hover:opacity-90"
+                          style={hitStyle}
+                        />
                       </PopoverTrigger>
                       <PopoverContent align="center" className="w-64">
                         <p className="text-sm font-medium">{b.detail.title}</p>
@@ -244,16 +274,19 @@ export function DayRibbon({
                         {b.detail.location && <p className="text-xs text-muted-foreground">{b.detail.location}</p>}
                         {b.detail.instructor && <p className="text-xs text-muted-foreground">{b.detail.instructor}</p>}
                       </PopoverContent>
+                      {visualPill}
                     </Popover>
                   ) : (
                     // No detail to show (e.g. a focus session) — a plain,
                     // non-interactive block rather than a dead affordance
-                    // that looks tappable and does nothing.
+                    // that looks tappable and does nothing. Not clickable,
+                    // so no separate hit-target concern — just the painted
+                    // pill, with its own title tooltip.
                     <div
                       key={i}
                       title={`${kindLabel}: ${b.label}`}
                       className="absolute top-0 flex h-full items-center gap-1 overflow-hidden rounded-full px-1.5 opacity-80"
-                      style={blockStyle}
+                      style={visualStyle}
                     >
                       {content}
                     </div>

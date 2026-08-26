@@ -1,0 +1,28 @@
+-- Engineer C, night batch 2/3 (Opus Lead ruling, correcting R7).
+--
+-- R7's account wipe deletes every `prayers` row but explicitly keeps the
+-- `profiles` row untouched — and `resolvePrayerStatuses` (lib/deen/
+-- prayer-status.ts) floors "don't derive missed" at `profiles.created_at`'s
+-- local date, which is his real account-creation date from 2026-08-10, not
+-- "when tracking restarted." Deleting the rows alone would leave every day
+-- from that real signup date through yesterday reading `stored ?? "missed"`
+-- for all five prayers — the exact "wall of missed" wipe he asked for
+-- specifically to avoid ("i dont wanna lie, isntead i wanna start fresh"),
+-- reintroduced one layer down by the very operation meant to remove it.
+--
+-- `created_at` itself is deliberately NOT touched or repurposed — it's his
+-- real signup date and other code may depend on that meaning. This is a
+-- separate, additive floor for tracking-derived "missed" logic specifically,
+-- named generically ("tracking", not "prayer") since the same derive-missed-
+-- from-absence shape could exist elsewhere later — wired to prayers only for
+-- now, not applied anywhere else without a separate decision.
+--
+-- Nullable, with existing behavior unchanged for null: every caller must
+-- floor on `coalesce(tracking_started_on, <created_at's local date>)`, so a
+-- user who never gets this column set (any fresh signup, SEED before the
+-- Lead applies it) behaves exactly as before this migration.
+--
+-- The Lead sets the actual value (his local tomorrow, 2026-08-26) as part
+-- of running R7 — this migration only adds the column.
+alter table public.profiles
+  add column tracking_started_on date null;

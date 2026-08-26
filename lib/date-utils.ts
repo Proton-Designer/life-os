@@ -91,6 +91,22 @@ export function weekDatesFrom(weekStart: string): string[] {
   return Array.from({ length: 7 }, (_, i) => addDaysToDateString(weekStart, i));
 }
 
+/**
+ * Every date string (YYYY-MM-DD) for a given calendar year/month — pure
+ * calendar arithmetic on integers the caller already resolved through a
+ * timezone (e.g. `localDateString`'s own year/month), not a derivation
+ * from "now" itself, so this doesn't carry the AGENTS.md instant+timezone
+ * risk: a Gregorian month's length is a calendrical fact, not something
+ * that depends on which timezone is asking.
+ */
+export function datesInMonth(year: number, month: number): string[] {
+  const dayCount = new Date(year, month, 0).getDate();
+  return Array.from({ length: dayCount }, (_, i) => {
+    const day = i + 1;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  });
+}
+
 /** `dateStr` shifted by `delta` calendar days (may be negative), as YYYY-MM-DD. */
 export function addDaysToDateString(dateStr: string, delta: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
