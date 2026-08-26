@@ -57,7 +57,7 @@ export function CompletedTasksDialog({ groups }: { groups: CompletedWeekGroup[] 
       <DialogTrigger asChild>
         <Button type="button" variant="outline" size="sm">
           <CheckCircle2 className="size-3.5" aria-hidden />
-          Completed
+          Completed tasks
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">

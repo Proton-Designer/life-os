@@ -5,7 +5,7 @@ import { CompletedTasksDialog, type CompletedWeekGroup } from "../completed-task
 
 async function open() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Completed" }));
+  await user.click(screen.getByRole("button", { name: "Completed tasks" }));
   return user;
 }
 
