@@ -357,7 +357,7 @@ export function ClassDetailDialog({
             home Final Exam d…" on desktop) while Syllabus only ever holds a
             button row — an even 50/50 split gives the low-information
             panel the same width as the high-information one. */}
-        <div className="grid items-start gap-4 md:grid-cols-[2fr_1fr]">
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[2fr_1fr]">
           <div className="rounded-2xl border border-border/40 bg-card p-4">
             <ClassAssessments
               assessments={assessments}
