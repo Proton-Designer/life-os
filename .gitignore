@@ -59,3 +59,4 @@ node_modules/
 /.playwright-mcp/
 .scratch-verify/
 .backups/
+.fresh-start-backup-*.sql
