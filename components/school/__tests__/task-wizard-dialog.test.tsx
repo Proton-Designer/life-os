@@ -118,4 +118,73 @@ describe("TaskWizardDialog", () => {
     user = await openWizard();
     expect(screen.getByRole("heading", { name: "Which class?" })).toBeInTheDocument();
   });
+
+  // C2: the expanded class view already knows which class it's in — never
+  // ask again. Step 1 must never render, not even briefly before advancing.
+  describe("lockedClass", () => {
+    const LOCKED = { id: "c1", label: "PHYS-2326-002" };
+
+    it("opens directly on the type step, never showing the class step", async () => {
+      render(
+        <TaskWizardDialog
+          classes={CLASSES}
+          timezone="America/Chicago"
+          onSubmit={vi.fn()}
+          lockedClass={LOCKED}
+        />
+      );
+      await openWizard();
+      expect(screen.getByRole("heading", { name: "What type of task?" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Which class?" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Generic" })).not.toBeInTheDocument();
+    });
+
+    it("submits with the locked class id, and hides the Back button on the type step", async () => {
+      const onSubmit = vi.fn(() => Promise.resolve());
+      render(
+        <TaskWizardDialog
+          classes={CLASSES}
+          timezone="America/Chicago"
+          onSubmit={onSubmit}
+          lockedClass={LOCKED}
+        />
+      );
+      const user = await openWizard();
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Quiz" }));
+      await user.type(screen.getByPlaceholderText("Description"), "Chapter 3 quiz");
+      await user.click(screen.getByRole("button", { name: "Today" }));
+      await user.click(screen.getByRole("button", { name: "Add" }));
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ classId: "c1" }));
+    });
+
+    it("re-opens on the type step (not the class step) after a close", async () => {
+      render(
+        <TaskWizardDialog
+          classes={CLASSES}
+          timezone="America/Chicago"
+          onSubmit={vi.fn()}
+          lockedClass={LOCKED}
+        />
+      );
+      let user = await openWizard();
+      await user.click(screen.getByRole("button", { name: "Quiz" }));
+      await user.keyboard("{Escape}");
+
+      user = await openWizard();
+      expect(screen.getByRole("heading", { name: "What type of task?" })).toBeInTheDocument();
+    });
+  });
+
+  it("passes triggerVariant through to the trigger button (used to distinguish the class view's Add from the main list's)", () => {
+    render(
+      <TaskWizardDialog
+        classes={CLASSES}
+        timezone="America/Chicago"
+        onSubmit={vi.fn()}
+        triggerVariant="outline"
+      />
+    );
+    expect(screen.getByRole("button", { name: "Add" })).toHaveAttribute("data-variant", "outline");
+  });
 });

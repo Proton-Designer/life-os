@@ -3,14 +3,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { SyllabusFileKind } from "@/app/(app)/school/class-actions";
+import { cn } from "@/lib/utils";
 
 export type SyllabusViewerResult = { url: string; kind: SyllabusFileKind };
+
+/**
+ * Supabase Storage signed URLs are cross-origin, so the HTML `download`
+ * attribute is silently ignored (it only forces a download same-origin) —
+ * this is the actual mechanism Supabase exposes for that instead.
+ */
+function forceDownloadUrl(url: string): string {
+  return url.includes("?") ? `${url}&download=` : `${url}?download=`;
+}
 
 function DownloadFallback({ url, message }: { url: string; message: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3">
       <p className="text-sm text-muted-foreground">{message}</p>
-      <a href={url} download className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent/50">
+      <a
+        href={forceDownloadUrl(url)}
+        className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent/50"
+      >
         Download
       </a>
     </div>
@@ -33,6 +46,12 @@ function DownloadFallback({ url, message }: { url: string; message: string }) {
  * cannot render) gets an honest "can't preview" message plus a Download
  * button up front — never a silent fall-through to the iframe, which is
  * exactly how a download masquerades as "viewing."
+ *
+ * The docx container stays mounted (visually hidden, not unmounted) while
+ * an error is shown — Opus Lead review caught that unmounting it on error
+ * made `containerRef.current` permanently null, so a single transient
+ * failure latched "can't be previewed" for every subsequent docx view in
+ * the session, surviving even a fresh open with a good URL.
  */
 export function SyllabusViewerDialog({
   open,
@@ -49,14 +68,10 @@ export function SyllabusViewerDialog({
 
   useEffect(() => {
     if (!open || result?.kind !== "docx") return;
-    const container = containerRef.current;
-    if (!container) return;
-    const url = result.url;
-
-    let cancelled = false;
     setDocxError(false);
     setDocxLoading(true);
-    container.innerHTML = "";
+    const url = result.url;
+    let cancelled = false;
 
     (async () => {
       try {
@@ -64,6 +79,16 @@ export function SyllabusViewerDialog({
         if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
         const blob = await response.blob();
         if (cancelled) return;
+        // Read the ref lazily, after the fetch/import round trip, not
+        // before it: on the render where `open` and `result` both flip
+        // together (exactly what syllabus-panel.tsx does), the Dialog's
+        // portal hasn't attached this ref to the DOM yet when the effect
+        // first runs — capturing it up front made the whole render silently
+        // never start, stuck on "Loading document…" forever. By the time
+        // the network round trip resolves, the portal has always settled.
+        const container = containerRef.current;
+        if (!container) throw new Error("syllabus viewer container not mounted");
+        container.innerHTML = "";
         await renderAsync(blob, container, container, { inWrapper: true, ignoreLastRenderedPageBreak: false });
       } catch {
         if (!cancelled) setDocxError(true);
@@ -88,14 +113,15 @@ export function SyllabusViewerDialog({
         ) : result.kind === "other" ? (
           <DownloadFallback url={result.url} message="This document can't be previewed." />
         ) : result.kind === "docx" ? (
-          docxError ? (
-            <DownloadFallback url={result.url} message="This document can't be previewed." />
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/40 bg-muted/20 p-2">
-              {docxLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading document…</p>}
-              <div ref={containerRef} />
-            </div>
-          )
+          <div className="relative min-h-0 flex-1 overflow-y-auto rounded-md border border-border/40 bg-muted/20 p-2">
+            {docxLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading document…</p>}
+            {docxError && (
+              <div className="absolute inset-0 bg-muted/20">
+                <DownloadFallback url={result.url} message="This document can't be previewed." />
+              </div>
+            )}
+            <div ref={containerRef} className={cn(docxError && "invisible")} />
+          </div>
         ) : (
           <iframe src={result.url} title="Syllabus" className="min-h-0 flex-1 rounded-md border border-border/40" />
         )}

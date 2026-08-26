@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check, Pencil, Trash2 } from "lucide-react";
 import { TASK_GROUP_ORDER, TASK_GROUP_LABEL, groupTasksByBucket, type TaskGroupKey } from "@/lib/tasks/task-groups";
 import { TASK_TYPE_LABEL, TASK_TYPE_COLOR, TASK_TYPE_OPTIONS, type TaskType } from "@/lib/tasks/task-type";
 import type { TaskWizardClassOption } from "./task-wizard-dialog";
+import { formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 
 export type TaskListItem = {
@@ -21,12 +22,28 @@ function typeLabel(item: Pick<TaskListItem, "taskType" | "taskTypeOtherLabel">):
   return item.taskType === "other" && item.taskTypeOtherLabel ? item.taskTypeOtherLabel : TASK_TYPE_LABEL[item.taskType];
 }
 
-function TaskRow({ task, onComplete }: { task: TaskListItem; onComplete: () => Promise<void> }) {
+function TaskRow({
+  task,
+  todayStr,
+  onComplete,
+  editing,
+  onEditTask,
+  onRemoveTask,
+}: {
+  task: TaskListItem;
+  todayStr: string;
+  onComplete: () => Promise<void>;
+  editing: boolean;
+  onEditTask?: (id: string) => void;
+  onRemoveTask?: (id: string) => void;
+}) {
   const [justCompleted, setJustCompleted] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {
-    if (justCompleted || isPending) return;
+    // Completing is an immediate mutation and would fight the caller's
+    // staged edit/remove model (Opus Lead ruling, C3) — inert while editing.
+    if (editing || justCompleted || isPending) return;
     setJustCompleted(true);
     startTransition(async () => {
       try {
@@ -38,13 +55,13 @@ function TaskRow({ task, onComplete }: { task: TaskListItem; onComplete: () => P
   }
 
   return (
-    <li>
+    <li className="flex items-center gap-1">
       <button
         type="button"
         onClick={handleClick}
-        disabled={isPending}
+        disabled={isPending || editing}
         aria-label={`Mark "${task.title}" done`}
-        className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
       >
         <span
           aria-hidden
@@ -65,8 +82,28 @@ function TaskRow({ task, onComplete }: { task: TaskListItem; onComplete: () => P
         </span>
         <span className={cn("shrink-0 text-xs font-medium", TASK_TYPE_COLOR[task.taskType])}>{typeLabel(task)}</span>
         {task.className && <span className="shrink-0 text-xs text-muted-foreground">{task.className}</span>}
-        {task.dueDate && <span className="shrink-0 text-xs text-muted-foreground">{task.dueDate}</span>}
+        {task.dueDate && <span className="shrink-0 text-xs text-muted-foreground">{formatShortDate(task.dueDate, todayStr)}</span>}
       </button>
+      {editing && (
+        <span className="flex shrink-0 gap-1 pr-2">
+          <button
+            type="button"
+            onClick={() => onEditTask?.(task.id)}
+            aria-label={`Edit ${task.title}`}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          >
+            <Pencil className="size-3.5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemoveTask?.(task.id)}
+            aria-label={`Remove ${task.title}`}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+          </button>
+        </span>
+      )}
     </li>
   );
 }
@@ -74,11 +111,19 @@ function TaskRow({ task, onComplete }: { task: TaskListItem; onComplete: () => P
 function GroupSection({
   groupKey,
   tasks,
+  todayStr,
   onComplete,
+  editing,
+  onEditTask,
+  onRemoveTask,
 }: {
   groupKey: TaskGroupKey;
   tasks: TaskListItem[];
+  todayStr: string;
   onComplete: (id: string) => Promise<void>;
+  editing: boolean;
+  onEditTask?: (id: string) => void;
+  onRemoveTask?: (id: string) => void;
 }) {
   // Only "Today" starts expanded (Ayman: "by default, all groups except
   // 'Today' group should be collapsed") — every group, Today included,
@@ -108,7 +153,15 @@ function GroupSection({
         ) : (
           <ul className="flex flex-col gap-1">
             {tasks.map((t) => (
-              <TaskRow key={t.id} task={t} onComplete={() => onComplete(t.id)} />
+              <TaskRow
+                key={t.id}
+                task={t}
+                todayStr={todayStr}
+                onComplete={() => onComplete(t.id)}
+                editing={editing}
+                onEditTask={onEditTask}
+                onRemoveTask={onRemoveTask}
+              />
             ))}
           </ul>
         ))}
@@ -130,12 +183,32 @@ export function TaskListModule({
   todayStr,
   weekDates,
   toggleTask,
+  editing = false,
+  onEditTask,
+  onRemoveTask,
+  hideClassFilter = false,
 }: {
   tasks: TaskListItem[];
   classes: TaskWizardClassOption[];
   todayStr: string;
   weekDates: string[];
   toggleTask: (id: string) => Promise<void>;
+  /**
+   * A dumb editing mode (C3, Opus Lead ruling): this component holds no
+   * staged state of its own — it renders exactly the `tasks` array it's
+   * handed (the caller already reflects pending edits and omits pending
+   * deletes) and only calls back. While true, tap-to-complete is inert —
+   * completing is an immediate mutation and would fight the caller's
+   * staged model.
+   */
+  editing?: boolean;
+  onEditTask?: (id: string) => void;
+  onRemoveTask?: (id: string) => void;
+  /** Suppresses "Filter by class" when every task in `tasks` already
+   * belongs to one class (the per-class expanded view, C4/R7) — an
+   * "All classes" dropdown over a single-class list is the same
+   * redundancy Ayman named in C2, just unlabeled. */
+  hideClassFilter?: boolean;
 }) {
   const [classFilter, setClassFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -161,19 +234,21 @@ export function TaskListModule({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Filter by class"
-          value={classFilter}
-          onChange={(e) => setClassFilter(e.target.value)}
-          className="rounded-md border border-input bg-transparent px-2 py-1 text-xs"
-        >
-          <option value="">All classes</option>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        {!hideClassFilter && (
+          <select
+            aria-label="Filter by class"
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            className="rounded-md border border-input bg-transparent px-2 py-1 text-xs"
+          >
+            <option value="">All classes</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           aria-label="Filter by type"
           value={typeFilter}
@@ -207,7 +282,16 @@ export function TaskListModule({
 
       <div className="flex flex-col gap-1">
         {TASK_GROUP_ORDER.map((key) => (
-          <GroupSection key={key} groupKey={key} tasks={groups[key]} onComplete={toggleTask} />
+          <GroupSection
+            key={key}
+            groupKey={key}
+            tasks={groups[key]}
+            todayStr={todayStr}
+            onComplete={toggleTask}
+            editing={editing}
+            onEditTask={onEditTask}
+            onRemoveTask={onRemoveTask}
+          />
         ))}
       </div>
     </div>

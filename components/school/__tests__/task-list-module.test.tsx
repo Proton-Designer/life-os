@@ -93,6 +93,100 @@ describe("TaskListModule", () => {
     expect(toggleTask).toHaveBeenCalledWith("t1");
   });
 
+  // C4: dates must never render raw.
+  it("shows the formatted date, not the raw ISO string", async () => {
+    render(
+      <TaskListModule
+        tasks={[task({ id: "t1", title: "Paper due", dueDate: TODAY })]}
+        classes={CLASSES}
+        todayStr={TODAY}
+        weekDates={WEEK_DATES}
+        toggleTask={vi.fn()}
+      />
+    );
+    // "Today" starts expanded — dueDate === todayStr lands it there.
+    expect(screen.getByText("Aug. 25th")).toBeInTheDocument();
+    expect(screen.queryByText(TODAY)).not.toBeInTheDocument();
+  });
+
+  // C4/R7: a class-scoped list (every task already belongs to one class)
+  // must not also show a redundant "All classes" filter.
+  it("hides the class filter when hideClassFilter is set, keeping type and date filters", () => {
+    render(
+      <TaskListModule
+        tasks={[]}
+        classes={CLASSES}
+        todayStr={TODAY}
+        weekDates={WEEK_DATES}
+        toggleTask={vi.fn()}
+        hideClassFilter
+      />
+    );
+    expect(screen.queryByLabelText("Filter by class")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by type")).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by date")).toBeInTheDocument();
+  });
+
+  // C3: this component holds no staged state — editing is dumb and the
+  // caller supplies onEditTask/onRemoveTask plus already-staged `tasks`.
+  describe("editing mode", () => {
+    it("makes tap-to-complete inert while editing", async () => {
+      const toggleTask = vi.fn(() => Promise.resolve());
+      render(
+        <TaskListModule
+          tasks={[task({ id: "t1", title: "Due today", dueDate: TODAY })]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={toggleTask}
+          editing
+        />
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: 'Mark "Due today" done' }));
+      expect(toggleTask).not.toHaveBeenCalled();
+    });
+
+    it("shows per-row Edit/Remove controls with unique accessible names and routes them to the callbacks", async () => {
+      const onEditTask = vi.fn();
+      const onRemoveTask = vi.fn();
+      render(
+        <TaskListModule
+          tasks={[
+            task({ id: "t1", title: "Midterm Exam", dueDate: TODAY }),
+            task({ id: "t2", title: "Lab report", dueDate: TODAY }),
+          ]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={vi.fn()}
+          editing
+          onEditTask={onEditTask}
+          onRemoveTask={onRemoveTask}
+        />
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Edit Midterm Exam" }));
+      expect(onEditTask).toHaveBeenCalledWith("t1");
+      await user.click(screen.getByRole("button", { name: "Remove Lab report" }));
+      expect(onRemoveTask).toHaveBeenCalledWith("t2");
+    });
+
+    it("shows no Edit/Remove controls when editing is false", () => {
+      render(
+        <TaskListModule
+          tasks={[task({ id: "t1", title: "Due today", dueDate: TODAY })]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole("button", { name: "Edit Due today" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove Due today" })).not.toBeInTheDocument();
+    });
+  });
+
   it("colors each task type distinctly while still showing the type as a label", () => {
     render(
       <TaskListModule

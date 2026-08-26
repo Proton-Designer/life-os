@@ -306,7 +306,7 @@ export default async function SchoolPage() {
         controls={
           <div className="flex gap-2">
             <TaskWizardDialog classes={classOptions} timezone={timezone} onSubmit={addTask} />
-            <TaskEditDialog tasks={taskListItems} classes={classOptions} updateTask={updateTask} removeTask={removeTask} />
+            <TaskEditDialog tasks={taskListItems} classes={classOptions} todayStr={dateStr} updateTask={updateTask} removeTask={removeTask} />
           </div>
         }
       >

@@ -75,16 +75,30 @@ export function TaskWizardDialog({
   timezone,
   onSubmit,
   triggerLabel = "Add",
+  triggerVariant = "default",
+  lockedClass,
 }: {
   classes: TaskWizardClassOption[];
   /** IANA timezone — quick-pick chips compute "today" through this, never a naive `new Date()` day (AGENTS.md). */
   timezone: string;
   onSubmit: (input: TaskWizardSubmitInput) => Promise<void>;
   triggerLabel?: string;
+  triggerVariant?: "default" | "outline";
+  /**
+   * When set (the per-class expanded view, item 6c, Ayman's C2 report: "no
+   * need to ask [which class] again, it should just take the class for
+   * which the user is in"), the wizard starts on step 2 — step 1 never
+   * renders at all, not even briefly before advancing — and step 2's Back
+   * button is hidden rather than revealing step 1. School's main Task list
+   * never passes this, so it keeps the full 3-step flow (Ruling R4: one
+   * component, not a second implementation).
+   */
+  lockedClass?: TaskWizardClassOption;
 }) {
+  const initialStep: Step = lockedClass ? 2 : 1;
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<Step>(1);
-  const [classId, setClassId] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>(initialStep);
+  const [classId, setClassId] = useState<string | null>(lockedClass?.id ?? null);
   const [taskType, setTaskType] = useState<TaskType | null>(null);
   const [otherLabel, setOtherLabel] = useState("");
   const [title, setTitle] = useState("");
@@ -93,8 +107,8 @@ export function TaskWizardDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function reset() {
-    setStep(1);
-    setClassId(null);
+    setStep(initialStep);
+    setClassId(lockedClass?.id ?? null);
     setTaskType(null);
     setOtherLabel("");
     setTitle("");
@@ -149,7 +163,7 @@ export function TaskWizardDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" size="sm">
+        <Button type="button" size="sm" variant={triggerVariant}>
           {triggerLabel}
         </Button>
       </DialogTrigger>
@@ -227,13 +241,15 @@ export function TaskWizardDialog({
                 {error && <p className="text-xs text-destructive">{error}</p>}
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="self-start text-xs text-muted-foreground hover:text-foreground"
-            >
-              Back
-            </button>
+            {!lockedClass && (
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="self-start text-xs text-muted-foreground hover:text-foreground"
+              >
+                Back
+              </button>
+            )}
           </div>
         )}
 
@@ -248,7 +264,12 @@ export function TaskWizardDialog({
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">{dateFieldLabel(taskType)}</span>
               <QuickDateChips timezone={timezone} onPick={setDueDate} />
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <Input
+                type="date"
+                aria-label={dateFieldLabel(taskType)}
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
             <div className="flex items-center justify-between gap-2">

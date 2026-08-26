@@ -12,8 +12,21 @@ import { SyllabusViewerDialog, type SyllabusViewerResult } from "@/components/sc
  * only thing this needs from the parent — the actual file content is
  * never held in this component's state, only ever streamed straight from
  * an `<input type="file">` into a Server Action.
+ *
+ * `editing` gates everything except View (Ayman: "Syllabus shows ONLY
+ * 'View'" outside edit mode) — Upload/Swap out/Remove are all
+ * destructive-adjacent or state-changing, consistent with every other
+ * mutation in the expanded view living behind the one outer Edit toggle.
  */
-export function SyllabusPanel({ classId, hasSyllabus }: { classId: string; hasSyllabus: boolean }) {
+export function SyllabusPanel({
+  classId,
+  hasSyllabus,
+  editing = true,
+}: {
+  classId: string;
+  hasSyllabus: boolean;
+  editing?: boolean;
+}) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPending, startTransition] = useTransition();
@@ -64,28 +77,34 @@ export function SyllabusPanel({ classId, hasSyllabus }: { classId: string; hasSy
           <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={view}>
             View
           </Button>
-          <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => fileInputRef.current?.click()}>
-            Swap out
-          </Button>
-          {confirmingRemove ? (
+          {editing && (
             <>
-              <Button type="button" variant="destructive" size="sm" disabled={isPending} onClick={remove}>
-                Confirm remove
+              <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => fileInputRef.current?.click()}>
+                Swap out
               </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(false)}>
-                Cancel
-              </Button>
+              {confirmingRemove ? (
+                <>
+                  <Button type="button" variant="destructive" size="sm" disabled={isPending} onClick={remove}>
+                    Confirm remove
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(true)}>
+                  Remove
+                </Button>
+              )}
             </>
-          ) : (
-            <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(true)}>
-              Remove
-            </Button>
           )}
         </div>
       ) : (
-        <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => fileInputRef.current?.click()}>
-          Upload syllabus
-        </Button>
+        editing && (
+          <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => fileInputRef.current?.click()}>
+            Upload syllabus
+          </Button>
+        )
       )}
 
       <SyllabusViewerDialog open={viewerOpen} onOpenChange={setViewerOpen} result={viewerResult} />

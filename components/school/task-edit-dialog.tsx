@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { TASK_TYPE_OPTIONS, TASK_TYPE_LABEL, TASK_TYPE_COLOR, dateFieldLabel, type TaskType } from "@/lib/tasks/task-type";
 import type { TaskWizardClassOption } from "./task-wizard-dialog";
 import type { TaskListItem } from "./task-list-module";
+import { formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 
 export type TaskUpdateInput = {
@@ -39,13 +40,22 @@ function formFromTask(t: TaskListItem): EditForm {
 export function TaskEditDialog({
   tasks,
   classes,
+  todayStr,
   updateTask,
   removeTask,
+  lockedClass,
 }: {
   tasks: TaskListItem[];
   classes: TaskWizardClassOption[];
+  /** IANA-timezone-derived "today" string, used only to disambiguate the
+   * displayed date's year (AGENTS.md) — never re-derived from a raw Date. */
+  todayStr: string;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<void>;
   removeTask: (id: string) => Promise<void>;
+  /** When set (a class-scoped list, C3), every task already belongs to
+   * this one class — the class select is hidden rather than offering a
+   * reassignment that would move a task out of the list it's shown in. */
+  lockedClass?: TaskWizardClassOption;
 }) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -94,7 +104,7 @@ export function TaskEditDialog({
           dueDate: form.dueDate,
           taskType: form.taskType,
           taskTypeOtherLabel: form.taskType === "other" ? form.taskTypeOtherLabel.trim() || undefined : undefined,
-          classId: form.classId || null,
+          classId: lockedClass ? lockedClass.id : form.classId || null,
         });
         setEditingId(null);
         setForm(null);
@@ -149,18 +159,20 @@ export function TaskEditDialog({
                         </option>
                       ))}
                     </select>
-                    <select
-                      value={form.classId}
-                      onChange={(e) => setForm((f) => f && { ...f, classId: e.target.value })}
-                      className="flex-1 rounded-md border border-input bg-transparent px-2 py-1 text-sm"
-                    >
-                      <option value="">Generic</option>
-                      {classes.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
+                    {!lockedClass && (
+                      <select
+                        value={form.classId}
+                        onChange={(e) => setForm((f) => f && { ...f, classId: e.target.value })}
+                        className="flex-1 rounded-md border border-input bg-transparent px-2 py-1 text-sm"
+                      >
+                        <option value="">Generic</option>
+                        {classes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   {form.taskType === "other" && (
                     <Input
@@ -202,7 +214,7 @@ export function TaskEditDialog({
                         {t.taskType === "other" && t.taskTypeOtherLabel ? t.taskTypeOtherLabel : TASK_TYPE_LABEL[t.taskType]}
                       </span>
                       {t.className && ` · ${t.className}`}
-                      {t.dueDate && ` · ${t.dueDate}`}
+                      {t.dueDate && ` · ${formatShortDate(t.dueDate, todayStr)}`}
                     </span>
                   </div>
                   <div className="flex shrink-0 gap-1">
