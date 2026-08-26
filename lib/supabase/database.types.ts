@@ -1156,6 +1156,44 @@ export type Database = {
           },
         ]
       }
+      schedule_event_overrides: {
+        Row: {
+          created_at: string
+          date: string
+          end_time: string | null
+          event_id: string
+          event_time: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          end_time?: string | null
+          event_id: string
+          event_time: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          end_time?: string | null
+          event_id?: string
+          event_time?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_event_overrides_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedule_events: {
         Row: {
           cancelled_on: string | null

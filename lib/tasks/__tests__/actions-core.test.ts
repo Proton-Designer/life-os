@@ -26,6 +26,88 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({ auth: { getClaims: getClaimsMock }, from: fromMock })),
 }));
 
+describe("updateScheduleEventCore", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("updates a permanent row's own day/time, scoped to id and user_id", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { updateScheduleEventCore } = await import("../actions-core");
+
+    await updateScheduleEventCore("event-1", { dayOfWeek: 3, eventTime: "09:00", endTime: "17:00" });
+
+    expect(fromMock).toHaveBeenCalledWith("schedule_events");
+    expect(chain.update).toHaveBeenCalledWith({ day_of_week: 3, event_time: "09:00", end_time: "17:00" });
+    expect(chain.eq).toHaveBeenCalledWith("id", "event-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+});
+
+describe("removeScheduleEventCore", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("deletes a permanent row, scoped to id and user_id", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { removeScheduleEventCore } = await import("../actions-core");
+
+    await removeScheduleEventCore("event-1");
+
+    expect(fromMock).toHaveBeenCalledWith("schedule_events");
+    expect(chain.delete).toHaveBeenCalledTimes(1);
+    expect(chain.eq).toHaveBeenCalledWith("id", "event-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+});
+
+describe("setScheduleEventOverrideCore", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("upserts a temporary time change for one occurrence", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { setScheduleEventOverrideCore } = await import("../actions-core");
+
+    await setScheduleEventOverrideCore("event-1", "2026-08-26", "12:00", "15:00");
+
+    expect(fromMock).toHaveBeenCalledWith("schedule_event_overrides");
+    expect(chain.upsert).toHaveBeenCalledWith(
+      { event_id: "event-1", user_id: "user-1", date: "2026-08-26", event_time: "12:00", end_time: "15:00" },
+      { onConflict: "event_id,date" }
+    );
+  });
+});
+
+describe("removeScheduleEventOverrideCore", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  it("deletes the override, reverting the occurrence to its permanent time", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { removeScheduleEventOverrideCore } = await import("../actions-core");
+
+    await removeScheduleEventOverrideCore("event-1", "2026-08-26");
+
+    expect(fromMock).toHaveBeenCalledWith("schedule_event_overrides");
+    expect(chain.delete).toHaveBeenCalledTimes(1);
+    expect(chain.eq).toHaveBeenCalledWith("event_id", "event-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(chain.eq).toHaveBeenCalledWith("date", "2026-08-26");
+  });
+});
+
 describe("cancelScheduleOccurrenceCore", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();

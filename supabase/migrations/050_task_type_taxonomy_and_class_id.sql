@@ -46,3 +46,33 @@ alter table public.tasks drop column class_event_id;
 
 alter table public.tasks add column class_id uuid null references public.classes(id) on delete set null;
 create index tasks_class_id_idx on public.tasks (class_id) where class_id is not null;
+
+-- (3) Item 4: the Work schedule's edit popup needs a genuinely different
+-- axis from anything built tonight — "temporarily for this week or next
+-- week" is a TIME CHANGE on one occurrence, not a removal (that's already
+-- schedule_event_cancellations) and not a new permanent pattern. Same
+-- per-occurrence key shape as the cancellations table (event_id, date),
+-- but stores a replacement time instead of an absence. A one-off extra
+-- shift (a day with no permanent pattern at all) doesn't need this table —
+-- that's already representable as a plain is_recurring=false schedule_events
+-- row with its own event_date, which the schema has supported all along.
+create table public.schedule_event_overrides (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references public.schedule_events(id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  date date not null,
+  event_time time not null,
+  end_time time null,
+  created_at timestamptz not null default now(),
+  constraint schedule_event_overrides_unique unique (event_id, date)
+);
+
+create index schedule_event_overrides_event_id_idx on public.schedule_event_overrides (event_id);
+create index schedule_event_overrides_user_id_idx on public.schedule_event_overrides (user_id);
+
+alter table public.schedule_event_overrides enable row level security;
+
+create policy "schedule_event_overrides_own_row"
+  on public.schedule_event_overrides for all
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
