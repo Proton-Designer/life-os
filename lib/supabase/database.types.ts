@@ -263,6 +263,7 @@ export type Database = {
           created_at: string
           id: string
           instructor: string | null
+          position: number | null
           room: string | null
           short_name: string | null
           syllabus_path: string | null
@@ -273,6 +274,7 @@ export type Database = {
           created_at?: string
           id?: string
           instructor?: string | null
+          position?: number | null
           room?: string | null
           short_name?: string | null
           syllabus_path?: string | null
@@ -283,6 +285,7 @@ export type Database = {
           created_at?: string
           id?: string
           instructor?: string | null
+          position?: number | null
           room?: string | null
           short_name?: string | null
           syllabus_path?: string | null

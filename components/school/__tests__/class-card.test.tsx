@@ -30,6 +30,8 @@ function classData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     hasSyllabus: false,
     tasksDueThisWeek: 3,
     upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" },
+    assessments: [],
+    tasks: [],
     ...overrides,
   };
 }

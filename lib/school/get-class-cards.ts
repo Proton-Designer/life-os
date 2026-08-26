@@ -15,6 +15,23 @@ export type ClassCardData = {
   hasSyllabus: boolean;
   tasksDueThisWeek: number;
   upcomingAssessment: { name: string; date: string } | null;
+  /** All of this class's assessments, date ascending — carried alongside
+   * `upcomingAssessment` (still derived from this same array, not a
+   * separate query) so the expanded class view can render its full list
+   * without a second round-trip once it opens (item A2). */
+  assessments: { id: string; name: string; type: string; date: string; taskId: string | null }[];
+  /** This class's incomplete tasks, regardless of week — deliberately
+   * wider than `tasksDueThisWeek`'s this-week/incomplete filter, since the
+   * expanded class view's task list isn't scoped to the week the way the
+   * card's own count is. */
+  tasks: {
+    id: string;
+    title: string;
+    dueDate: string | null;
+    taskType: string | null;
+    taskTypeOtherLabel: string | null;
+    classId: string | null;
+  }[];
 };
 
 /**
@@ -44,6 +61,7 @@ export async function getClassCards(
     .from("classes")
     .select("id, short_name, code, room, instructor, syllabus_path")
     .eq("user_id", userId)
+    .order("position", { ascending: true, nullsFirst: false })
     .order("code", { ascending: true });
   if (classError) throw classError;
   const classes = classRows ?? [];
@@ -51,49 +69,68 @@ export async function getClassCards(
 
   const classIds = classes.map((c) => c.id);
 
+  // Widened from "this week, incomplete" to "all incomplete" so the
+  // expanded class view (opened via ClassCard's View button) can render
+  // its full task list from THIS same query — no second round-trip once
+  // the dialog opens (item A2, kills the open-then-load waterfall).
+  // `tasksDueThisWeek` and `upcomingAssessment` stay derived in-memory
+  // from these same rows, not separate narrower queries.
   const [{ data: taskRows, error: taskError }, { data: assessmentRows, error: assessmentError }] = await Promise.all([
     supabase
       .from("tasks")
-      .select("class_id")
+      .select("id, title, due_date, task_type, task_type_other_label, class_id")
       .eq("user_id", userId)
       .eq("completed", false)
-      .in("class_id", classIds)
-      .gte("due_date", weekStart)
-      .lte("due_date", weekEnd),
+      .in("class_id", classIds),
     supabase
       .from("class_assessments")
-      .select("class_id, name, date")
+      .select("id, class_id, name, type, date, task_id")
       .eq("user_id", userId)
       .in("class_id", classIds)
-      .gte("date", todayStr)
       .order("date", { ascending: true }),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
 
-  const taskCountByClass = new Map<string, number>();
+  const tasksByClass = new Map<string, ClassCardData["tasks"]>();
   for (const t of taskRows ?? []) {
     if (!t.class_id) continue;
-    taskCountByClass.set(t.class_id, (taskCountByClass.get(t.class_id) ?? 0) + 1);
+    const list = tasksByClass.get(t.class_id) ?? [];
+    list.push({
+      id: t.id,
+      title: t.title,
+      dueDate: t.due_date,
+      taskType: t.task_type,
+      taskTypeOtherLabel: t.task_type_other_label,
+      classId: t.class_id,
+    });
+    tasksByClass.set(t.class_id, list);
   }
 
-  // Rows are already ordered by date ascending, so the FIRST match per
-  // class is its nearest upcoming assessment — no separate min() pass.
-  const upcomingByClass = new Map<string, { name: string; date: string }>();
+  const assessmentsByClass = new Map<string, ClassCardData["assessments"]>();
   for (const a of assessmentRows ?? []) {
-    if (!upcomingByClass.has(a.class_id)) {
-      upcomingByClass.set(a.class_id, { name: a.name, date: a.date });
-    }
+    const list = assessmentsByClass.get(a.class_id) ?? [];
+    list.push({ id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.task_id });
+    assessmentsByClass.set(a.class_id, list);
   }
 
-  return classes.map((c) => ({
-    id: c.id,
-    shortName: c.short_name,
-    code: c.code,
-    room: c.room,
-    instructor: c.instructor,
-    hasSyllabus: c.syllabus_path !== null,
-    tasksDueThisWeek: taskCountByClass.get(c.id) ?? 0,
-    upcomingAssessment: upcomingByClass.get(c.id) ?? null,
-  }));
+  return classes.map((c) => {
+    const tasks = tasksByClass.get(c.id) ?? [];
+    const assessments = assessmentsByClass.get(c.id) ?? [];
+    // Rows are already ordered by date ascending, so the first future
+    // assessment is the nearest upcoming one — no separate min() pass.
+    const upcomingAssessment = assessments.find((a) => a.date >= todayStr) ?? null;
+    return {
+      id: c.id,
+      shortName: c.short_name,
+      code: c.code,
+      room: c.room,
+      instructor: c.instructor,
+      hasSyllabus: c.syllabus_path !== null,
+      tasksDueThisWeek: tasks.filter((t) => t.dueDate !== null && t.dueDate >= weekStart && t.dueDate <= weekEnd).length,
+      upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,
+      assessments,
+      tasks,
+    };
+  });
 }

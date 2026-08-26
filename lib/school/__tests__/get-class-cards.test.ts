@@ -22,15 +22,28 @@ function makeFakeSupabase(tables: Record<string, Row[]>) {
   };
 }
 
+function task(id: string, classId: string, dueDate: string, overrides: Row = {}): Row {
+  return {
+    id,
+    class_id: classId,
+    title: `Task ${id}`,
+    due_date: dueDate,
+    task_type: "homework_assignment",
+    task_type_other_label: null,
+    ...overrides,
+  };
+}
+
+function assessment(id: string, classId: string, name: string, date: string, overrides: Row = {}): Row {
+  return { id, class_id: classId, name, type: "quiz", date, task_id: null, ...overrides };
+}
+
 describe("getClassCards", () => {
-  it("shapes a normal class: task count from this week's incomplete tasks, nearest upcoming assessment", async () => {
+  it("shapes a normal class: this-week task count derived from the full task list, nearest upcoming assessment, full arrays carried through", async () => {
     const supabase = makeFakeSupabase({
       classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: "FO 2.404", instructor: "Nemec", syllabus_path: "u/c1/x.pdf" }],
-      tasks: [{ class_id: "c1" }, { class_id: "c1" }],
-      class_assessments: [
-        { class_id: "c1", name: "Quiz 2", date: "2026-09-10" },
-        { class_id: "c1", name: "Quiz 3", date: "2026-09-20" },
-      ],
+      tasks: [task("t1", "c1", "2026-08-25"), task("t2", "c1", "2026-08-26"), task("t3", "c1", "2026-09-15")],
+      class_assessments: [assessment("a1", "c1", "Quiz 2", "2026-09-10"), assessment("a2", "c1", "Quiz 3", "2026-09-20")],
     });
 
     const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
@@ -43,8 +56,17 @@ describe("getClassCards", () => {
         room: "FO 2.404",
         instructor: "Nemec",
         hasSyllabus: true,
-        tasksDueThisWeek: 2,
+        tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
+        assessments: [
+          { id: "a1", name: "Quiz 2", type: "quiz", date: "2026-09-10", taskId: null },
+          { id: "a2", name: "Quiz 3", type: "quiz", date: "2026-09-20", taskId: null },
+        ],
+        tasks: [
+          { id: "t1", title: "Task t1", dueDate: "2026-08-25", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
+          { id: "t2", title: "Task t2", dueDate: "2026-08-26", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
+          { id: "t3", title: "Task t3", dueDate: "2026-09-15", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
+        ],
       },
     ]);
   });
@@ -73,6 +95,8 @@ describe("getClassCards", () => {
         hasSyllabus: false,
         tasksDueThisWeek: 0,
         upcomingAssessment: null,
+        assessments: [],
+        tasks: [],
       },
     ]);
   });
@@ -92,13 +116,39 @@ describe("getClassCards", () => {
         { id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null },
         { id: "c2", short_name: "Phys", code: "PHYS-2326-002", room: null, instructor: null, syllabus_path: null },
       ],
-      tasks: [{ class_id: "c1" }],
-      class_assessments: [{ class_id: "c1", name: "Exam 1", date: "2026-09-01" }],
+      tasks: [task("t1", "c1", "2026-08-25")],
+      class_assessments: [assessment("a1", "c1", "Exam 1", "2026-09-01")],
     });
 
     const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
     const c2 = result.find((r) => r.id === "c2")!;
     expect(c2.tasksDueThisWeek).toBe(0);
     expect(c2.upcomingAssessment).toBeNull();
+    expect(c2.assessments).toEqual([]);
+    expect(c2.tasks).toEqual([]);
+  });
+
+  it("keeps a class's full incomplete task list even for tasks outside this week — not just the this-week count", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null }],
+      tasks: [task("t1", "c1", "2026-08-25"), task("t2", "c1", "2026-10-01")],
+      class_assessments: [],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+    expect(result[0].tasksDueThisWeek).toBe(1);
+    expect(result[0].tasks).toHaveLength(2);
+  });
+
+  it("ignores a past assessment when picking the nearest upcoming one, but still carries it in the full array", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null }],
+      tasks: [],
+      class_assessments: [assessment("a1", "c1", "Past Quiz", "2026-08-01"), assessment("a2", "c1", "Future Quiz", "2026-09-01")],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+    expect(result[0].upcomingAssessment).toEqual({ name: "Future Quiz", date: "2026-09-01" });
+    expect(result[0].assessments).toHaveLength(2);
   });
 });
