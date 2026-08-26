@@ -31,7 +31,7 @@ describe("getPendingAllocationQueue", () => {
       new Date("2026-08-19T18:00:00Z"),
       baseDataSource({ getProfile: async () => null })
     );
-    expect(result).toEqual({ items: [], unknownCount: 0, timezone: "UTC" });
+    expect(result).toEqual({ items: [], unknownCount: 0, timezone: "UTC", mostRecentUnanswered: null });
   });
 
   it("surfaces a fired, unanswered window as a pending item with a prefill derived from real data", async () => {
@@ -67,6 +67,25 @@ describe("getPendingAllocationQueue", () => {
       })
     );
     expect(result.items).toEqual([]);
+    // Every fired window is answered, so there's nothing left to fall back
+    // to for a manual "check in whenever" — batch 3, B3-1.
+    expect(result.mostRecentUnanswered).toBeNull();
+  });
+
+  // Batch 3, B3-1 ("check in whenever"): once a fired window's
+  // ALLOCATION_ANSWER_WINDOW_MINUTES lapses unanswered it silently drops out
+  // of `items` (expired_unknown) — mostRecentUnanswered is the fallback a
+  // manual check-in attaches to instead of finding nothing.
+  it("falls back to the most recent expired-unanswered window once items is empty", async () => {
+    const now = new Date("2026-08-19T23:35:00Z"); // 18:35 CDT — well past the 16:00-18:00 CDT window's answer cutoff
+    const result = await getPendingAllocationQueue("user-1", now, baseDataSource());
+
+    expect(result.items).toEqual([]); // too late to still be in the answerable queue
+    expect(result.mostRecentUnanswered).not.toBeNull();
+    expect(new Date(result.mostRecentUnanswered!.windowStartIso).toISOString()).toBe(
+      new Date("2026-08-19T21:00:00Z").toISOString() // 16:00 CDT — the latest fired, unanswered window
+    );
+    expect(result.mostRecentUnanswered!.prefill).toBeDefined();
   });
 
   // Regression for the bug the Opus Lead caught before ship: passing

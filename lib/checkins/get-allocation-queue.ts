@@ -25,6 +25,22 @@ export type AllocationQueueResult = {
   items: PendingAllocationItem[];
   unknownCount: number;
   timezone: string;
+  /**
+   * The most recent today's window that isn't already answered and isn't
+   * still upcoming — i.e. the latest `pending_queue` or `expired_unknown`
+   * slot (batch 3, item B3-1: "allow a check-in at any time"). `items`
+   * only ever holds `pending_queue` slots, which stop being answerable
+   * after ALLOCATION_ANSWER_WINDOW_MINUTES and silently disappear — this
+   * is the fallback a manual, always-available check-in attaches to once
+   * `items` is empty. Recording an allocation for it is exactly
+   * `saveAllocationCheckin` on its own window bounds: the DB has no
+   * separate "too late" state, `resolveAllocationSlots` only ever checks
+   * whether the window's start is in `answeredWindowStarts` before it
+   * looks at elapsed time, so answering an `expired_unknown` window simply
+   * makes it `answered` on the next read — no special-cased "un-expire"
+   * logic needed.
+   */
+  mostRecentUnanswered: PendingAllocationItem | null;
 };
 
 export type AllocationQueueDataSource = {
@@ -196,7 +212,7 @@ export async function getPendingAllocationQueue(
   dataSource: AllocationQueueDataSource = defaultDataSource()
 ): Promise<AllocationQueueResult> {
   const profile = await dataSource.getProfile(userId);
-  if (!profile) return { items: [], unknownCount: 0, timezone: "UTC" };
+  if (!profile) return { items: [], unknownCount: 0, timezone: "UTC", mostRecentUnanswered: null };
 
   const timezone = profile.timezone;
   const dateStr = localDateString(now, timezone);
@@ -305,5 +321,27 @@ export async function getPendingAllocationQueue(
     };
   });
 
-  return { items, unknownCount: unknownCount(slots), timezone };
+  // The latest slot that's neither answered nor still upcoming — i.e. the
+  // most recent pending_queue or expired_unknown window (see this field's
+  // own doc comment on AllocationQueueResult).
+  const unanswered = slots.filter((s) => s.outcome === "pending_queue" || s.outcome === "expired_unknown");
+  const mostRecentSlot = unanswered.reduce<AllocationSlot | null>(
+    (latest, s) => (latest === null || s.window.start.getTime() > latest.window.start.getTime() ? s : latest),
+    null
+  );
+  const mostRecentUnanswered: PendingAllocationItem | null = mostRecentSlot
+    ? {
+        windowStartIso: mostRecentSlot.window.start.toISOString(),
+        windowEndIso: mostRecentSlot.window.end.toISOString(),
+        prefill: derivePrefillAllocation(mostRecentSlot.window, {
+          lockInSessions: adjustedLockInSessions,
+          loggedPrayerTimes,
+          workoutLoggedToday,
+          scheduledWorkoutTime,
+          scheduledWorkoutDurationMinutes,
+        }),
+      }
+    : null;
+
+  return { items, unknownCount: unknownCount(slots), timezone, mostRecentUnanswered };
 }

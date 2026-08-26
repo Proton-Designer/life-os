@@ -224,3 +224,30 @@ html {
     opacity: 0.9;
   }
 }
+
+/* Batch 3, B3-1 — the topbar Check-in icon "lights up/glows and radiates
+   slowly" whenever an allocation window is currently pending (the same 2h
+   cadence that fires it). Reuses --glow-white (the app's existing "stand
+   out" glow token, see weekly-goals-header.tsx) rather than a new color. */
+.checkin-icon.is-pending {
+  animation: checkin-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes checkin-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--glow-white) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 10px 4px color-mix(in oklch, var(--glow-white) 10%, transparent);
+  }
+}
+
+/* Same philosophy as .nav-pending-dot above: keep the "something's
+   pending" signal, drop only the slow radiating throb. */
+@media (prefers-reduced-motion: reduce) {
+  .checkin-icon.is-pending {
+    animation: none;
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--glow-white) 35%, transparent);
+  }
+}

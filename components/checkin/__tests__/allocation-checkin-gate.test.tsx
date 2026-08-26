@@ -34,6 +34,16 @@ function TestBadge() {
   );
 }
 
+/** Stand-in for the real CheckInIconButton (batch 3, B3-1) — always visible, unlike TestBadge above. */
+function TestAlwaysOpenButton() {
+  const { setOpen } = useAllocationQueue();
+  return (
+    <button type="button" onClick={() => setOpen(true)}>
+      Open check-in
+    </button>
+  );
+}
+
 function renderGate() {
   return render(
     <AllocationQueueProvider>
@@ -134,5 +144,75 @@ describe("AllocationCheckinGate", () => {
 
     await user.click(await screen.findByRole("button", { name: /waiting/ }));
     expect(await screen.findByRole("button", { name: "Close" })).toBeInTheDocument();
+  });
+
+  // Batch 3, B3-1 ("check in whenever"): the polled queue only ever holds
+  // pending_queue items, which vanish once ALLOCATION_ANSWER_WINDOW_MINUTES
+  // lapses. A manual, always-visible trigger (CheckInIconButton in
+  // production, TestAlwaysOpenButton here) must still open a real,
+  // answerable sheet by falling back to mostRecentUnanswered — not render
+  // nothing, and not silently no-op the save.
+  describe("manual 'check in whenever' fallback (queue empty, mostRecentUnanswered present)", () => {
+    function renderWithAlwaysOpenTrigger() {
+      return render(
+        <AllocationQueueProvider>
+          <TestAlwaysOpenButton />
+          <AllocationCheckinGate />
+        </AllocationQueueProvider>
+      );
+    }
+
+    it("opens the sheet bound to mostRecentUnanswered when the polled queue is empty", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({
+        items: [],
+        unknownCount: 0,
+        timezone: "America/Chicago",
+        mostRecentUnanswered: WINDOW_A,
+      });
+      const user = userEvent.setup();
+      renderWithAlwaysOpenTrigger();
+
+      await user.click(await screen.findByRole("button", { name: "Open check-in" }));
+      expect(await screen.findByRole("dialog", { name: "Check-in" })).toBeInTheDocument();
+    });
+
+    it("saves against mostRecentUnanswered's own window bounds, exactly like an ordinary save", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({
+        items: [],
+        unknownCount: 0,
+        timezone: "America/Chicago",
+        mostRecentUnanswered: WINDOW_A,
+      });
+      saveAllocationCheckinMock.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderWithAlwaysOpenTrigger();
+
+      await user.click(await screen.findByRole("button", { name: "Open check-in" }));
+      await screen.findByRole("dialog", { name: "Check-in" });
+      await user.click(screen.getByRole("button", { name: "Done" }));
+
+      await waitFor(() =>
+        expect(saveAllocationCheckinMock).toHaveBeenCalledWith(
+          WINDOW_A.windowStartIso,
+          WINDOW_A.windowEndIso,
+          WINDOW_A.prefill
+        )
+      );
+    });
+
+    it("renders no dialog when there's truly nothing to fall back to (queue empty, mostRecentUnanswered null)", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({
+        items: [],
+        unknownCount: 0,
+        timezone: "UTC",
+        mostRecentUnanswered: null,
+      });
+      const user = userEvent.setup();
+      renderWithAlwaysOpenTrigger();
+
+      await user.click(await screen.findByRole("button", { name: "Open check-in" }));
+      // setOpen(true) fires, but `current` is null, so the gate renders nothing.
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

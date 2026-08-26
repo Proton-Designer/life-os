@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { saveAllocationCheckin } from "@/app/(app)/checkin/allocation-actions";
 import { useAllocationQueue } from "@/lib/checkins/allocation-queue-context";
 import { AllocationCheckin } from "./allocation-checkin";
+import { NotificationPermissionNudge } from "./notification-permission-nudge";
 import type { Allocation } from "@/lib/checkins/allocation";
 
 /**
@@ -31,10 +32,18 @@ import type { Allocation } from "@/lib/checkins/allocation";
  * pattern CheckinScheduler already uses for getCheckinOptionsForNow.
  */
 export function AllocationCheckinGate() {
-  const { queue, timezone, total, open, setOpen, completeCurrent } = useAllocationQueue();
-  const current = queue[0];
+  const { queue, timezone, total, open, setOpen, completeCurrent, mostRecentUnanswered } = useAllocationQueue();
+  // "Check in whenever you want" (batch 3, B3-1): once the polled queue is
+  // empty (the 30-minute answer window on every fired slot has almost
+  // certainly lapsed by the time someone manually opens this), fall back to
+  // the most recent unanswered window rather than showing nothing. Answering
+  // it is ordinary saveAllocationCheckin on its own bounds — see
+  // mostRecentUnanswered's own doc comment in get-allocation-queue.ts for why
+  // there's no separate "un-expire" step needed.
+  const current = queue[0] ?? mostRecentUnanswered;
 
   async function handleSave(allocation: Allocation) {
+    if (!current) return;
     await saveAllocationCheckin(current.windowStart, current.windowEnd, allocation);
     completeCurrent();
   }
@@ -47,6 +56,7 @@ export function AllocationCheckinGate() {
         <DialogHeader>
           <DialogTitle>Check-in</DialogTitle>
         </DialogHeader>
+        <NotificationPermissionNudge />
         <AllocationCheckin
           windowStart={current.windowStart}
           windowEnd={current.windowEnd}

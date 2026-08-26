@@ -7,6 +7,7 @@ import { Menu } from "lucide-react";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
 import { NotificationsBell } from "./notifications-bell";
+import { CheckInIconButton } from "./checkin-icon-button";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
 import { ReviewDialogTrigger } from "@/components/distractions/review-dialog-trigger";
 import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
@@ -78,6 +79,9 @@ export function Topbar({
             </span>
             Life OS
           </Link>
+          {/* Moved here from the right side (batch 3, B3-1) — the right
+              side is now icons only: Check-in, Calendar, Notifications. */}
+          <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>
         </div>
 
         {/* Centre — directly under the Life OS mark (spec: "middle of the
@@ -104,9 +108,14 @@ export function Topbar({
           {reviewOpen && <ReviewDialogTrigger />}
         </div>
 
+        {/* Right-side icon order (batch 3, B3-1, Ayman explicit): Check-in,
+            Calendar, Notifications — notifications rightmost. */}
         <div className="flex flex-1 items-center justify-end gap-3 sm:flex-none">
-          <span className="hidden text-sm text-muted-foreground sm:inline">{dateLabel}</span>
-          <NotificationsBell />
+          {/* Permanently visible, no time gating — pressing it always opens
+              the check-in popup (falls back to the most recent unanswered
+              window once the polled queue is empty, so it's never a dead
+              form). Glows only while a window is genuinely pending. */}
+          <CheckInIconButton />
           {/* Replaces the account icon here (spec: "remove the user profile
               icon at the top right ... replace that button with a calendar
               button"). Sign-out is unaffected — AccountBlock still renders
@@ -122,6 +131,7 @@ export function Topbar({
             onSaveDeen={onSaveDeen}
             onSaveBusiness={onSaveBusiness}
           />
+          <NotificationsBell />
         </div>
       </header>
 

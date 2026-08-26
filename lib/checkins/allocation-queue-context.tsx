@@ -28,6 +28,14 @@ type AllocationQueueContextValue = {
   /** The most recently fired window(s) this poll cycle detected as newly answerable — drives the in-app toast (checkin-toast.tsx). Null once dismissed or auto-expired. */
   toast: { item: AllocationQueueItem; newCount: number } | null;
   dismissToast: () => void;
+  /**
+   * The fallback item for "check in whenever you want" (batch 3, B3-1) —
+   * the most recent today's window that's neither answered nor upcoming,
+   * used only when `queue` is empty (see allocation-checkin-gate.tsx's
+   * `current = queue[0] ?? mostRecentUnanswered`). Null once nothing today
+   * qualifies (e.g. everything's already answered, or the day just started).
+   */
+  mostRecentUnanswered: AllocationQueueItem | null;
 };
 
 const AllocationQueueContext = createContext<AllocationQueueContextValue | null>(null);
@@ -94,6 +102,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
   const [queue, setQueue] = useState<AllocationQueueItem[]>([]);
   const [timezone, setTimezone] = useState("UTC");
   const [total, setTotal] = useState(0);
+  const [mostRecentUnanswered, setMostRecentUnanswered] = useState<AllocationQueueItem | null>(null);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<{ item: AllocationQueueItem; newCount: number } | null>(null);
   const seenWindowStartsRef = useRef<Set<string>>(new Set());
@@ -129,6 +138,16 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
 
     setQueue(items);
     setTotal((prevTotal) => (items.length === 0 ? 0 : Math.max(prevTotal, items.length)));
+    setMostRecentUnanswered(
+      result.mostRecentUnanswered
+        ? {
+            windowStart: result.mostRecentUnanswered.windowStartIso,
+            windowEnd: result.mostRecentUnanswered.windowEndIso,
+            initialAllocation: result.mostRecentUnanswered.prefill,
+            prefilled: toPrefilledFlags(result.mostRecentUnanswered.prefill),
+          }
+        : null
+    );
   }, []);
 
   useEffect(() => {
@@ -147,14 +166,21 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
   const completeCurrent = useCallback(() => {
     setQueue((prev) => {
       const next = prev.slice(1);
-      if (next.length === 0) setOpen(false);
+      if (next.length === 0) {
+        setOpen(false);
+        // The completed item may have come from mostRecentUnanswered (the
+        // manual "check in whenever" fallback, not the polled queue) — clear
+        // it optimistically so the dialog can't reopen the same
+        // already-answered window before the next poll confirms it.
+        setMostRecentUnanswered(null);
+      }
       return next;
     });
   }, []);
 
   return (
     <AllocationQueueContext.Provider
-      value={{ queue, timezone, total, open, setOpen, completeCurrent, toast, dismissToast }}
+      value={{ queue, timezone, total, open, setOpen, completeCurrent, toast, dismissToast, mostRecentUnanswered }}
     >
       {children}
     </AllocationQueueContext.Provider>
