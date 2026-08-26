@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { Check } from "lucide-react";
 import type { DailyLogItem } from "@/lib/fitness/daily-log";
 import { repGoalProgress } from "@/lib/fitness/rep-goal";
 import { SessionDetailPanel, type ConfirmSet, type SessionExercise } from "./session-detail-panel";
 import { BenchmarkForm, type BenchmarkExercise } from "./benchmark-form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const DAILY_CHECK_LABEL: Record<"protein" | "steps", string> = { protein: "Hit protein target", steps: "8,000+ steps" };
@@ -14,12 +16,18 @@ const BODY_METRIC_LABEL: Record<"weight" | "waist", string> = { weight: "Log tod
 
 /**
  * The Daily Log module's list — every archetype's tap behaviour from the
- * plan's own table, in one place. Each row is its own tiny state machine
- * (collapsed -> tap -> inline action), never a navigation away from the
- * list; a row disappears the next time the server round-trips (revalidate)
- * once its target's been met — "once that fills that's when the log goes
- * away" (Ayman) is enforced by pendingDailyLog on the SERVER side, this
- * component just renders whatever list it's handed.
+ * plan's own table, in one place. Each row is its own tiny state machine.
+ * Every archetype except "session" opens a POPUP (Dialog) the instant it's
+ * tapped — Ayman, 2026-08-25: "change it so that it opens a popup right
+ * away and lets you log a count in the popup and save that," replacing the
+ * old inline-expansion-below-the-row behaviour. `session` is the deliberate
+ * exception (see DailyLogRow's session branch) — SessionDetailPanel is a
+ * multi-exercise sets/reps/load editor with a single Confirm, not a "log a
+ * count" affordance, and stuffing it into a modal would be a regression.
+ * A row disappears the next time the server round-trips (revalidate) once
+ * its target's been met — "once that fills that's when the log goes away"
+ * (Ayman) is enforced by pendingDailyLog on the SERVER side, this component
+ * just renders whatever list it's handed.
  */
 export function DailyLogList({
   date,
@@ -79,6 +87,24 @@ function itemKey(item: DailyLogItem): string {
   return "benchmark";
 }
 
+// Matches TaskRowList's own checkbox exactly (2026-08-25 tap-to-complete
+// redesign) — same "checked off green" affordance Ayman signed off on
+// there, reused here rather than reinvented, since a daily-check row is the
+// same interaction (one tap, done) just living on a different screen.
+function Checkbox({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300",
+        checked ? "border-accent-business bg-accent-business" : "border-border"
+      )}
+    >
+      {checked && <Check className="size-3.5 text-white" strokeWidth={3} />}
+    </span>
+  );
+}
+
 function DailyLogRow(props: {
   date: string;
   item: DailyLogItem;
@@ -92,16 +118,20 @@ function DailyLogRow(props: {
   onLogBenchmark: (weightLb: number | null, waistIn: number | null, reps: { exerciseId: string; maxReps: number }[]) => Promise<void>;
 }) {
   const { item } = props;
+  // Only "session" still uses an inline expansion — every other archetype
+  // opens a Dialog instead (see the file-level comment for why session is
+  // the deliberate exception).
   const [expanded, setExpanded] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   if (item.kind === "micro_total" || item.kind === "micro_freq") {
     const done = item.kind === "micro_total" ? item.logged : item.bouts;
     const progress = repGoalProgress(done, item.target);
     return (
-      <div className="flex flex-col gap-1.5" data-testid={`daily-log-${itemKey(item)}`}>
+      <div data-testid={`daily-log-${itemKey(item)}`}>
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setDialogOpen(true)}
           className="min-h-11 w-full rounded-lg border border-border/40 p-2 text-left"
         >
           <div className="flex items-center justify-between text-sm">
@@ -115,7 +145,20 @@ function DailyLogRow(props: {
             <div className="h-full rounded-full bg-accent-fitness transition-all" style={{ width: `${progress.fraction * 100}%` }} />
           </div>
         </button>
-        {expanded && <RepsQuickEntry exerciseId={item.exerciseId} exerciseName={item.name} onLog={props.onLogReps} onDone={() => setExpanded(false)} />}
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{item.name}</DialogTitle>
+            </DialogHeader>
+            <RepsQuickEntry
+              exerciseId={item.exerciseId}
+              exerciseName={item.name}
+              progressLabel={`${progress.done}/${progress.target}${item.kind === "micro_freq" ? "x" : ""} so far`}
+              onLog={props.onLogReps}
+              onDone={() => setDialogOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -150,65 +193,111 @@ function DailyLogRow(props: {
   }
 
   if (item.kind === "daily_check") {
-    return (
-      <button
-        type="button"
-        data-testid={`daily-log-${itemKey(item)}`}
-        onClick={() => props.onToggleDailyCheck(item.checkKind)}
-        className={cn("min-h-11 w-full rounded-lg border border-border/40 p-2 text-left text-sm", item.done && "opacity-60")}
-      >
-        {DAILY_CHECK_LABEL[item.checkKind]}
-      </button>
-    );
+    return <DailyCheckRow item={item} onToggle={props.onToggleDailyCheck} />;
   }
 
   if (item.kind === "body_metric") {
     return (
-      <div className="flex flex-col gap-1.5" data-testid={`daily-log-${itemKey(item)}`}>
+      <div data-testid={`daily-log-${itemKey(item)}`}>
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setDialogOpen(true)}
           className="min-h-11 w-full rounded-lg border border-border/40 p-2 text-left text-sm"
         >
           {BODY_METRIC_LABEL[item.metric]}
           {item.lastValue !== null && <span className="ml-2 text-xs text-muted-foreground">last: {item.lastValue}</span>}
         </button>
-        {expanded && (
-          <BodyMetricQuickEntry
-            metric={item.metric}
-            onLog={item.metric === "weight" ? props.onLogWeight : props.onLogWaist}
-            onDone={() => setExpanded(false)}
-          />
-        )}
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{BODY_METRIC_LABEL[item.metric]}</DialogTitle>
+            </DialogHeader>
+            <BodyMetricQuickEntry
+              metric={item.metric}
+              onLog={item.metric === "weight" ? props.onLogWeight : props.onLogWaist}
+              onDone={() => setDialogOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
 
   // benchmark
   return (
-    <div className="flex flex-col gap-1.5" data-testid={`daily-log-${itemKey(item)}`}>
+    <div data-testid={`daily-log-${itemKey(item)}`}>
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setDialogOpen(true)}
         className="min-h-11 w-full rounded-lg border border-accent-fitness/40 bg-accent-fitness/5 p-2 text-left text-sm font-medium"
       >
         Cycle {item.cycleNumber} benchmark due — log by {item.dueBy}
       </button>
-      {expanded && (
-        <BenchmarkForm exercises={props.benchmarkExercises} onSubmit={props.onLogBenchmark} onDone={() => setExpanded(false)} />
-      )}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cycle {item.cycleNumber} benchmark</DialogTitle>
+          </DialogHeader>
+          <BenchmarkForm exercises={props.benchmarkExercises} onSubmit={props.onLogBenchmark} onDone={() => setDialogOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// The zero-feedback bug (2026-08-25, Lead diagnosis): a daily_check tap
+// used to fire the Server Action with NO client-side state change at all —
+// nothing on screen moved until the server round-tripped and the row
+// disappeared, 1-3s later. That silence read as a missed tap ("you have to
+// tap it multiple times"), not a slow one. Fixed the same way TaskRowList's
+// rows are: an optimistic, synchronous checkbox+strikethrough on the very
+// click that fires the action, plus a pending guard so a second tap before
+// the first settles can't double-fire the toggle (which would flip it back
+// off).
+function DailyCheckRow({
+  item,
+  onToggle,
+}: {
+  item: Extract<DailyLogItem, { kind: "daily_check" }>;
+  onToggle: (kind: "protein" | "steps") => Promise<void>;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [optimisticDone, setOptimisticDone] = useOptimistic(item.done, (_state, next: boolean) => next);
+
+  function handleClick() {
+    if (isPending || optimisticDone) return;
+    startTransition(async () => {
+      setOptimisticDone(true);
+      await onToggle(item.checkKind);
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      data-testid={`daily-log-${itemKey(item)}`}
+      onClick={handleClick}
+      disabled={isPending || optimisticDone}
+      className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/40 p-2 text-left text-sm transition-colors disabled:cursor-default"
+    >
+      <Checkbox checked={optimisticDone} />
+      <span className={cn("transition-colors duration-300", optimisticDone && "text-muted-foreground line-through")}>
+        {DAILY_CHECK_LABEL[item.checkKind]}
+      </span>
+    </button>
   );
 }
 
 function RepsQuickEntry({
   exerciseId,
   exerciseName,
+  progressLabel,
   onLog,
   onDone,
 }: {
   exerciseId: string;
   exerciseName: string;
+  progressLabel: string;
   onLog: (exerciseId: string, exerciseName: string, reps: number) => Promise<void>;
   onDone: () => void;
 }) {
@@ -221,11 +310,26 @@ function RepsQuickEntry({
     });
   }
   return (
-    <div className="flex items-center gap-2">
-      <Input type="number" aria-label={`${exerciseName} reps this bout`} className="w-16" value={reps} onChange={(e) => setReps(Number(e.target.value))} />
-      <Button type="button" onClick={handleLog} disabled={isPending}>
-        Log
-      </Button>
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">{progressLabel}</p>
+      <Input
+        type="number"
+        aria-label={`${exerciseName} reps this bout`}
+        value={reps}
+        onChange={(e) => setReps(Number(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            handleLog();
+          }
+        }}
+        autoFocus
+      />
+      <DialogFooter>
+        <Button type="button" onClick={handleLog} disabled={isPending}>
+          Log
+        </Button>
+      </DialogFooter>
     </div>
   );
 }
@@ -249,17 +353,25 @@ function BodyMetricQuickEntry({
     });
   }
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-2">
       <Input
         type="number"
         aria-label={metric === "weight" ? "Weight (lb)" : "Waist (in)"}
-        className="w-20"
         value={value}
         onChange={(e) => setValue(e.target.value === "" ? "" : Number(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            handleLog();
+          }
+        }}
+        autoFocus
       />
-      <Button type="button" onClick={handleLog} disabled={isPending}>
-        Save
-      </Button>
+      <DialogFooter>
+        <Button type="button" onClick={handleLog} disabled={isPending}>
+          Save
+        </Button>
+      </DialogFooter>
     </div>
   );
 }
