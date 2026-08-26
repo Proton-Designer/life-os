@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Repeat } from "lucide-react";
 import { toggleDeenHabitLog, setWeeklyFocus, createDeenHabit } from "@/app/(app)/deen/actions";
-import { habitStage } from "@/lib/deen/habit-stage";
+import { habitStage, type StageOverride } from "@/lib/deen/habit-stage";
+import { HabitEditorDialog } from "@/components/deen/habit-editor-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,9 @@ export type DeenHabitData = {
    * See redesign proposal §2 and lib/deen/habit-consistency.ts. */
   rollingRate: { done: number; total: number };
   completedToday: boolean;
+  /** Manual pin set from the habit editor (item 6) — wins over the
+   * committedDate-derived stage when set. See lib/deen/habit-stage.ts. */
+  stageOverride: StageOverride;
 };
 
 // Reuses the on_time/positive-green semantic already established elsewhere
@@ -263,6 +267,7 @@ export function HabitBuilder({
   const [focusHabitId, setFocusHabitId] = useState(currentFocusHabitId);
   const [showPicker, setShowPicker] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
 
   function handleToggle(habitId: string, completed: boolean) {
     setHabits((prev) => prev.map((h) => (h.id === habitId ? { ...h, completedToday: completed } : h)));
@@ -288,14 +293,15 @@ export function HabitBuilder({
               // 0/0, not 0/1.
               rollingRate: { done: 0, total: 0 },
               completedToday: false,
+              stageOverride: null,
             },
           ]
     );
   }
 
-  const activeBuild = habits.filter((h) => habitStage(h.committedDate, todayStr) === "active_build");
-  const stabilized = habits.filter((h) => habitStage(h.committedDate, todayStr) === "stabilized");
-  const locked = habits.filter((h) => habitStage(h.committedDate, todayStr) === "locked");
+  const activeBuild = habits.filter((h) => habitStage(h.committedDate, todayStr, h.stageOverride) === "active_build");
+  const stabilized = habits.filter((h) => habitStage(h.committedDate, todayStr, h.stageOverride) === "stabilized");
+  const locked = habits.filter((h) => habitStage(h.committedDate, todayStr, h.stageOverride) === "locked");
 
   const focusHabit = habits.find((h) => h.id === focusHabitId) ?? null;
 
@@ -335,6 +341,9 @@ export function HabitBuilder({
             <Button type="button" variant="outline" size="sm" onClick={() => setShowPicker(true)}>
               Add a habit
             </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowEditor(true)}>
+              Edit
+            </Button>
             <HabitToggleButton
               habitId={focusHabit.id}
               todayStr={todayStr}
@@ -350,9 +359,17 @@ export function HabitBuilder({
         // focus habit" dashed prompt (plus its "Continue with X" branch) is
         // replaced outright by one plain button.
         habits.length > 0 && (
-          <Button type="button" variant="outline" onClick={() => setShowPicker(true)}>
-            Create New Habit
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => setShowPicker(true)}>
+              Create New Habit
+            </Button>
+            {/* Ayman: "there is no option to edit/remove habits, add this by
+                creating an 'Edit' button next to the Create new Habit
+                button" (item 6). */}
+            <Button type="button" variant="outline" onClick={() => setShowEditor(true)}>
+              Edit
+            </Button>
+          </div>
         )
       )}
 
@@ -398,6 +415,14 @@ export function HabitBuilder({
           )}
         </>
       )}
+
+      <HabitEditorDialog
+        open={showEditor}
+        onOpenChange={setShowEditor}
+        habits={habits}
+        todayStr={todayStr}
+        onHabitsChange={setHabits}
+      />
     </div>
   );
 }

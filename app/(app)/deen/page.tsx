@@ -20,6 +20,7 @@ import { QuranCard } from "@/components/deen/quran-card";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
+import type { StageOverride } from "@/lib/deen/habit-stage";
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computeHabitRollingRate, buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
@@ -107,7 +108,11 @@ export default async function DeenPage() {
       .select("date, tier, created_at")
       .eq("user_id", userId)
       .gte("date", reflectionSinceStr),
-    supabase.from("deen_habits").select("id, name, committed_date, anchor_cue").eq("user_id", userId).eq("archived", false),
+    supabase
+      .from("deen_habits")
+      .select("id, name, committed_date, anchor_cue, stage_override")
+      .eq("user_id", userId)
+      .eq("archived", false),
     supabase
       .from("deen_habit_logs")
       .select("habit_id, date, completed")
@@ -274,6 +279,11 @@ export default async function DeenPage() {
         dateStr
       ),
       completedToday,
+      // The DB column is a plain `string | null` in the generated types (no
+      // CHECK-constraint-aware enum) — habitStage()/isStageOverridden() both
+      // validate at runtime and fall back to the derived stage on garbage,
+      // so this cast is safe even if the column ever holds something stale.
+      stageOverride: h.stage_override as StageOverride,
     };
   });
   const habitConsistencyRows = buildHabitConsistencyRows(

@@ -7,6 +7,12 @@ vi.mock("@/app/(app)/deen/actions", () => ({
   toggleDeenHabitLog: vi.fn(),
   setWeeklyFocus: vi.fn(),
   createDeenHabit: vi.fn(),
+  updateDeenHabit: vi.fn(),
+  archiveDeenHabit: vi.fn(),
+  setDeenHabitStageOverride: vi.fn(),
+  setDeenHabitCommittedDate: vi.fn(),
+  setDeenHabitLogStatus: vi.fn(),
+  getDeenHabitLogRange: vi.fn(async () => []),
 }));
 
 function habit(overrides: Partial<DeenHabitData> = {}): DeenHabitData {
@@ -18,6 +24,7 @@ function habit(overrides: Partial<DeenHabitData> = {}): DeenHabitData {
     streak: 3,
     rollingRate: { done: 10, total: 15 },
     completedToday: false,
+    stageOverride: null,
     ...overrides,
   };
 }
@@ -113,7 +120,7 @@ describe("HabitBuilder", () => {
     expect(screen.getByText("Day 30+")).toBeInTheDocument();
   });
 
-  it("offers a real, clearly-labeled Add a habit button when a focus is already set — not just a tiny Edit link", () => {
+  it("offers a real, clearly-labeled Add a habit button when a focus is already set", () => {
     render(
       <HabitBuilder
         todayStr="2026-08-15"
@@ -124,7 +131,26 @@ describe("HabitBuilder", () => {
     );
     const addButton = screen.getByRole("button", { name: /add a habit/i });
     expect(addButton.tagName).toBe("BUTTON");
-    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+  });
+
+  // 2026-08-26 (item 6, Ayman): "there is no option to edit/remove habits,
+  // add this by creating an 'Edit' button next to the Create new Habit
+  // button" — a real button opening the habit editor dialog, present
+  // whenever there's at least one habit, in both the focus-set and
+  // no-focus-set layouts (the "Create New Habit" button only renders in
+  // the latter).
+  it("offers an Edit button that opens the habit editor dialog", async () => {
+    const user = userEvent.setup();
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit()]}
+        currentFocusHabitId="h1"
+        habitConsistencyRows={[]}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    expect(await screen.findByRole("dialog", { name: "Edit habits" })).toBeInTheDocument();
   });
 
   it("offers a Create New Habit button when habits exist but no focus is set this week", () => {
