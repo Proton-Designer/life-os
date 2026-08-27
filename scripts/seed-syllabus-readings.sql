@@ -11,11 +11,14 @@
 -- existing row checked out correct against its source, nothing here
 -- replaces or corrects an existing row, it only adds what was missing.
 --
--- Every row below carries `task_type = 'other'` with
--- `task_type_other_label = 'Reading'` (never homework_assignment) — a
--- distinct type is what makes dozens of per-class readings navigable in the
--- Task list's type filter instead of noise indistinguishable from graded
--- work. Applies to the three classes whose syllabus ties a specific reading
+-- Every row below carries `task_type = 'reading_review'` (never
+-- homework_assignment) — a distinct type is what makes dozens of per-class
+-- readings navigable in the Task list's type filter instead of noise
+-- indistinguishable from graded work. (Originally seeded as
+-- `task_type = 'other'` + `task_type_other_label = 'Reading'` before
+-- 054_reading_review_task_type.sql made this its own official type;
+-- migration 054 backfilled the 68 rows this script had already created.)
+-- Applies to the three classes whose syllabus ties a specific reading
 -- to a specific date:
 --   AMS 2341  — the academic calendar (dated discussion readings)
 --   CS 3345   — the tentative schedule's own "Read" chapter column
@@ -149,8 +152,8 @@ begin
   end if;
 end $$;
 
-insert into public.tasks (user_id, domain, title, due_date, task_type, task_type_other_label, class_id)
-select :'user_id'::uuid, 'school', s.title, s.due_date, 'other', 'Reading', c.id
+insert into public.tasks (user_id, domain, title, due_date, task_type, class_id)
+select :'user_id'::uuid, 'school', s.title, s.due_date, 'reading_review', c.id
   from tmp_reading s
   join public.classes c on c.user_id = :'user_id'::uuid and c.code = s.code
  where not exists (
@@ -164,9 +167,9 @@ select :'user_id'::uuid, 'school', s.title, s.due_date, 'other', 'Reading', c.id
 commit;
 
 select c.short_name, c.code,
-       count(*) filter (where t.task_type = 'other') as reading_tasks_total,
-       min(t.due_date) filter (where t.task_type = 'other') as first_reading,
-       max(t.due_date) filter (where t.task_type = 'other') as last_reading
+       count(*) filter (where t.task_type = 'reading_review') as reading_tasks_total,
+       min(t.due_date) filter (where t.task_type = 'reading_review') as first_reading,
+       max(t.due_date) filter (where t.task_type = 'reading_review') as last_reading
   from public.classes c
   left join public.tasks t on t.class_id = c.id and t.user_id = :'user_id'::uuid
  where c.user_id = :'user_id'::uuid

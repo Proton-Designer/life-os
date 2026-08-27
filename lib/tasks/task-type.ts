@@ -1,5 +1,6 @@
 export type TaskType =
   | "homework_assignment"
+  | "reading_review"
   | "quiz"
   | "exam"
   | "final_midterm"
@@ -9,6 +10,7 @@ export type TaskType =
 
 export const TASK_TYPE_LABEL: Record<TaskType, string> = {
   homework_assignment: "Homework/Assignment",
+  reading_review: "Reading/Review",
   quiz: "Quiz",
   exam: "Exam",
   final_midterm: "Final/Midterm",
@@ -30,6 +32,7 @@ export const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = (
 export function dateFieldLabel(type: TaskType): string {
   return type === "homework_assignment" || type === "project_paper" ? "Due Date" : "Date";
 }
+// reading_review falls through to "Date" — a reading isn't handed in (Opus Lead ruling).
 
 /**
  * R6 (Opus Lead ruling, 2026-08-26 night batch 2) — ONE shared color map:
@@ -43,6 +46,7 @@ export function dateFieldLabel(type: TaskType): string {
  */
 export const TASK_TYPE_COLOR: Record<TaskType, string> = {
   homework_assignment: "text-accent-school",
+  reading_review: "text-accent-deen",
   quiz: "text-accent-warning",
   exam: "text-destructive",
   final_midterm: "text-accent-coop",
