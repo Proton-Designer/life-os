@@ -163,6 +163,56 @@ export async function listClassTasks(classId: string): Promise<Omit<TaskListItem
   }));
 }
 
+/**
+ * Evening batch (2026-08-26), Ayman verbatim: an "Add" popup for the class
+ * grid — short_name, code, room, instructor. `position` is computed here,
+ * server-side, as max(existing)+1 for this user rather than left null:
+ * null sorts last by code (fine as the fallback for a class that predates
+ * `position` entirely, migration 052), but wrong for something he just
+ * deliberately added — that has to land at the end of his intentional
+ * order, not wherever `code` happens to alphabetize it.
+ *
+ * Same non-transactional select-then-insert shape already accepted
+ * elsewhere in this file (e.g. addClassAssessment's task+assessment pair) —
+ * a real race would require two adds landing in the same instant, which
+ * this single-user app doesn't need to guard against.
+ */
+export async function createClass(fields: {
+  shortName: string;
+  code: string;
+  room?: string;
+  instructor?: string;
+}): Promise<{ id: string }> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: maxRow, error: maxError } = await supabase
+    .from("classes")
+    .select("position")
+    .eq("user_id", userId)
+    .order("position", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  if (maxError) throw maxError;
+  const nextPosition = (maxRow?.position ?? -1) + 1;
+
+  const { data, error } = await supabase
+    .from("classes")
+    .insert({
+      user_id: userId,
+      short_name: fields.shortName,
+      code: fields.code,
+      room: fields.room ?? null,
+      instructor: fields.instructor ?? null,
+      position: nextPosition,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  revalidatePath("/school");
+  return { id: data.id };
+}
+
 /** short_name (Opus Lead: must be editable, never seed-only), room, instructor. */
 export async function updateClass(
   classId: string,

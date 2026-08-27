@@ -169,9 +169,13 @@ export function ClassEditorDialog({
       }}
     >
       <DialogTrigger asChild>
+        {/* "Edit classes", not bare "Edit" — evening batch (2026-08-26) put
+            an "Add class" button right beside this one; two controls in the
+            same slot both needed a name that says what they open, not just
+            which icon they carry. Cosmetic only — no behavior here changed. */}
         <Button type="button" variant="outline" size="sm">
           <Pencil className="size-3.5" aria-hidden />
-          Edit
+          Edit classes
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">

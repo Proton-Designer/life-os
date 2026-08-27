@@ -33,7 +33,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ClassEditorDia
 
 async function openDialog() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Edit" }));
+  await user.click(screen.getByRole("button", { name: "Edit classes" }));
   return user;
 }
 

@@ -18,9 +18,11 @@ import {
   cancelScheduleOccurrence,
   uncancelScheduleOccurrence,
 } from "./actions";
+import { createClass } from "./class-actions";
 import type { TaskRowItem } from "@/components/shared/task-row-list";
 import { ClassScheduleWeek, type ClassScheduleEvent } from "@/components/school/class-schedule-week";
 import { ClassEditorDialog, type ClassGroup } from "@/components/school/class-editor-dialog";
+import { AddClassDialog } from "@/components/school/add-class-dialog";
 import { KpiTaskDialog } from "@/components/school/kpi-task-dialog";
 import { CompletedTasksDialog, type CompletedWeekGroup } from "@/components/school/completed-tasks-dialog";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
@@ -280,24 +282,6 @@ export default async function SchoolPage() {
       )}
 
       <Panel
-        title="This week's classes"
-        heroValue={`${scheduledThisWeekCount}`}
-        caption={scheduledThisWeekCount === 0 ? "Nothing scheduled this week" : "classes this week"}
-        controls={
-          <ClassEditorDialog
-            classes={classGroups}
-            addClassEvent={addClassEvent}
-            updateClassEvent={updateClassEvent}
-            removeClassEvent={removeClassEvent}
-            cancelScheduleOccurrence={cancelScheduleOccurrence}
-            uncancelScheduleOccurrence={uncancelScheduleOccurrence}
-          />
-        }
-      >
-        <ClassScheduleWeek events={classScheduleEvents} weekDates={weekDates} todayStr={dateStr} />
-      </Panel>
-
-      <Panel
         id="tasks"
         className="scroll-mt-20"
         title="Task list"
@@ -311,6 +295,27 @@ export default async function SchoolPage() {
         }
       >
         <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
+      </Panel>
+
+      <Panel
+        title="This week's classes"
+        heroValue={`${scheduledThisWeekCount}`}
+        caption={scheduledThisWeekCount === 0 ? "Nothing scheduled this week" : "classes this week"}
+        controls={
+          <div className="flex gap-2">
+            <AddClassDialog createClass={createClass} addClassEvent={addClassEvent} />
+            <ClassEditorDialog
+              classes={classGroups}
+              addClassEvent={addClassEvent}
+              updateClassEvent={updateClassEvent}
+              removeClassEvent={removeClassEvent}
+              cancelScheduleOccurrence={cancelScheduleOccurrence}
+              uncancelScheduleOccurrence={uncancelScheduleOccurrence}
+            />
+          </div>
+        }
+      >
+        <ClassScheduleWeek events={classScheduleEvents} weekDates={weekDates} todayStr={dateStr} />
       </Panel>
     </PageContainer>
   );

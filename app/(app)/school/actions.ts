@@ -79,6 +79,11 @@ export type ClassEventInput = {
   endTime?: string;
   location?: string;
   instructor?: string;
+  /** Links these rows to a `classes` entity (evening batch, 2026-08-26's
+   * Add-class popup) — optional and unused by ClassEditorDialog's own
+   * add/edit flow, which predates the `classes` table's per-class entity
+   * and has no class_id to attach. */
+  classId?: string | null;
 };
 
 /**
@@ -105,6 +110,7 @@ export async function addClassEvent(input: ClassEventInput): Promise<void> {
       location: input.location ?? null,
       instructor: input.instructor ?? null,
       class_group_id: groupId,
+      class_id: input.classId ?? null,
     }))
   );
   if (error) throw error;
