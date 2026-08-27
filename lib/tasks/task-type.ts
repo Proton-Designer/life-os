@@ -43,10 +43,16 @@ export function dateFieldLabel(type: TaskType): string {
  * reads correctly for colorblind users). Reuses this app's existing accent
  * design tokens rather than inventing new hex values — same tokens already
  * used for domain identity elsewhere (IconChip, KpiCard, StatCard).
+ *
+ * Careful when picking a token here: --accent-deen and --accent-warning are
+ * the same hex (globals.css — warning is a deliberate semantic alias of
+ * deen's color), so text-accent-deen and text-accent-warning render
+ * identically. reading_review uses text-accent-info instead, unused
+ * elsewhere in this map.
  */
 export const TASK_TYPE_COLOR: Record<TaskType, string> = {
   homework_assignment: "text-accent-school",
-  reading_review: "text-accent-deen",
+  reading_review: "text-accent-info",
   quiz: "text-accent-warning",
   exam: "text-destructive",
   final_midterm: "text-accent-coop",
