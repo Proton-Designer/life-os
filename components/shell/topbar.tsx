@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { NotificationsBell } from "./notifications-bell";
 import { CheckInIconButton } from "./checkin-icon-button";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
@@ -53,13 +54,28 @@ export function Topbar({
   const reviewOpen = isReviewOpen(now, timezone);
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md md:px-6">
+    <header
+      className={cn(
+        "sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 backdrop-blur-md md:px-6",
+        // Tighter padding below md ONLY while the Review button is rendered
+        // (9pm-4am) — it adds a second button to the centre group that the
+        // no-Review layout was never measured against. Conditioned on
+        // reviewOpen, not a width breakpoint, so the already-verified
+        // no-Review 390px layout (Opus Lead) is untouched outside this
+        // window (found live at 390px during the window itself).
+        reviewOpen ? "px-2 max-[359px]:px-1" : "px-4"
+      )}
+    >
       <div className="flex flex-1 items-center gap-3 sm:flex-none">
         {/* AppSidebar's own logo covers lg+ — below that the sidebar is
             hidden entirely, so this is the only place the brand mark
             shows. The page title itself lives solely in PageHeader
             (removed from here per lead review — was rendering twice). */}
-        <Link href="/" prefetch className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
+        {/* whitespace-nowrap: without it, "Life OS" wraps onto two lines
+            once the centre group grows a second button (Review, 9pm-4am) —
+            found live at 390px during that exact window (Opus Lead,
+            batch 3 verification). */}
+        <Link href="/" prefetch className="flex items-center gap-2 whitespace-nowrap text-sm font-semibold tracking-tight lg:hidden">
           {/* Hidden only below 360px — every pixel matters at 320, but
               Ayman's own 390px phone keeps the glyph (Opus Lead correction,
               batch 3 verification: `sm` at 640px hid it there too for no
@@ -87,7 +103,12 @@ export function Topbar({
           `relative` needed, and adding one would clobber the sticky
           positioning since `position` is a single property), independent
           of the two side groups' widths. */}
-      <div className="flex flex-1 items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:flex-none sm:-translate-x-1/2">
+      <div
+        className={cn(
+          "flex flex-1 items-center justify-center sm:absolute sm:left-1/2 sm:flex-none sm:-translate-x-1/2",
+          reviewOpen ? "gap-1 max-[359px]:gap-0" : "gap-2"
+        )}
+      >
         <DistractionCaptureDialog />
         {/* Popup, not a navigation (Ayman: "change the 'Review' tab/
             screen at the top into a popup module ... like the
