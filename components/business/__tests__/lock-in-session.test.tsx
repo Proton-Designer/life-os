@@ -15,10 +15,10 @@ vi.mock("@/app/(app)/checkin/session-hour-actions", () => ({
   setSessionHourStatus: (...args: unknown[]) => setSessionHourStatusMock(...args),
 }));
 
-const endWorkSessionMock = vi.fn();
-vi.mock("@/app/(app)/business/actions", () => ({
-  endWorkSession: (...args: unknown[]) => endWorkSessionMock(...args),
-}));
+// Ending is centralized in the Lock-In overlay provider (batch 3) —
+// LockInSession no longer calls endWorkSession itself, it delegates to
+// whatever onEndSession the caller passes in.
+const onEndSessionMock = vi.fn();
 
 function renderSession(overrides: Partial<React.ComponentProps<typeof LockInSession>> = {}) {
   return render(
@@ -27,7 +27,8 @@ function renderSession(overrides: Partial<React.ComponentProps<typeof LockInSess
       startedAtIso="2026-08-15T12:00:00.000Z"
       initialStoredHours={[]}
       timezone="UTC"
-      onEnded={() => {}}
+      onEndSession={onEndSessionMock}
+      onExpand={() => {}}
       {...overrides}
     />
   );
@@ -38,7 +39,7 @@ describe("LockInSession", () => {
     resolveSessionHoursMock.mockReset().mockReturnValue([]);
     pendingSessionHourMock.mockReset().mockReturnValue(null);
     setSessionHourStatusMock.mockReset().mockResolvedValue(undefined);
-    endWorkSessionMock.mockReset().mockResolvedValue(undefined);
+    onEndSessionMock.mockReset().mockResolvedValue(undefined);
   });
 
   it("renders the elapsed time and session ratio in the mono numeral scale", () => {
@@ -134,6 +135,21 @@ describe("LockInSession", () => {
     const row = screen.getByTestId("session-hour-row-2026-08-15T13:00:00.000Z");
     await user.click(row.querySelector('button[aria-label="Still on it"]')!);
     expect(setSessionHourStatusMock).toHaveBeenCalledWith("s1", "2026-08-15T13:00:00.000Z", "business");
+  });
+
+  it("delegates ending the session to onEndSession rather than calling endWorkSession itself", async () => {
+    const user = userEvent.setup();
+    renderSession();
+    await user.click(screen.getAllByRole("button", { name: "End session" })[0]);
+    expect(onEndSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onExpand when the Expand button is pressed", async () => {
+    const onExpand = vi.fn();
+    const user = userEvent.setup();
+    renderSession({ onExpand });
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(onExpand).toHaveBeenCalledTimes(1);
   });
 
   it("calls resolveSessionHours/pendingSessionHour with the session as still-open (endedAt: null)", () => {

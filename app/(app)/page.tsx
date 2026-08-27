@@ -7,7 +7,6 @@ import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { getHomeExtras } from "@/lib/home/get-home-extras";
 import { getDayShape } from "@/lib/home/get-day-shape";
 import { computeDayRibbon } from "@/lib/home/day-ribbon";
-import { getActiveWorkSession } from "@/lib/business/active-session";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextActions } from "@/components/home/next-actions";
@@ -37,7 +36,7 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, activeSession, triggers, distractionsToday] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -50,7 +49,6 @@ export default async function HomePage() {
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
         .in("domain", ["deen", "business"]),
-      getActiveWorkSession(userId),
       getAllTriggers(supabase, userId, dateStr),
       getTodayDistractionCount(supabase, userId, dateStr),
     ]);
@@ -96,10 +94,6 @@ export default async function HomePage() {
     showPlanningNudge = (upcomingGoals?.length ?? 0) === 0;
   }
 
-  const activeSessionForFocusModule = activeSession
-    ? { id: activeSession.id, startedAtIso: activeSession.startedAt, kind: activeSession.kind }
-    : null;
-
   const ribbonLayout = computeDayRibbon({ prayers: dayShape.prayers, activities: dayShape.activities, now });
 
   return (
@@ -134,7 +128,6 @@ export default async function HomePage() {
               deepWorkSessions={extras.deepWork.sessions}
               deepStudyMinutes={extras.deepStudy.minutes}
               deepStudySessions={extras.deepStudy.sessions}
-              activeSession={activeSessionForFocusModule}
               distractionsToday={distractionsToday}
               triggers={triggers}
             />

@@ -5,6 +5,8 @@ import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-g
 import { CheckinToast } from "@/components/checkin/checkin-toast";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
 import { RealtimeSyncProvider } from "@/components/realtime/realtime-sync-provider";
+import { LockInOverlayProvider, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
+import { LockInOverlay } from "@/components/business/lock-in-overlay";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
@@ -20,6 +22,7 @@ export function AppShellChrome({
   dateLabel,
   nowIso,
   timezone,
+  activeWorkSession,
   getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
@@ -31,6 +34,10 @@ export function AppShellChrome({
   dateLabel: string;
   nowIso: string;
   timezone: string;
+  /** Seeds the app-wide LockInOverlayProvider below — a Lock-In session
+   * started before this request must still show its overlay/minimized
+   * state on first paint, not just after a client-side start. */
+  activeWorkSession: ActiveWorkSession | null;
   getWeekCalendar: () => Promise<WeekCalendarData>;
   onSaveDeen: SaveGoalAction;
   onSaveBusiness: SaveGoalAction;
@@ -48,24 +55,32 @@ export function AppShellChrome({
           The provider now awaits the session and sets realtime auth
           itself before ever building the channel. */}
       <RealtimeSyncProvider userId={userId} />
-      <div className="lg:flex lg:min-h-screen">
-        <AppSidebar account={account} />
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <Topbar
-            account={account}
-            dateLabel={dateLabel}
-            nowIso={nowIso}
-            timezone={timezone}
-            getWeekCalendar={getWeekCalendar}
-            onSaveDeen={onSaveDeen}
-            onSaveBusiness={onSaveBusiness}
-          />
-          <main className="flex-1 pb-24 lg:pb-6">{children}</main>
+      {/* Wraps the whole shell, not just Business/Home — a session started
+          on /business must still show its minimized row (and be endable)
+          from the Home Focus module, and vice versa. Mounted once here so
+          it survives navigation instead of unmounting with whichever page
+          rendered it (batch 3, full-screen Lock-In overlay). */}
+      <LockInOverlayProvider initialSession={activeWorkSession}>
+        <div className="lg:flex lg:min-h-screen">
+          <AppSidebar account={account} />
+          <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+            <Topbar
+              account={account}
+              dateLabel={dateLabel}
+              nowIso={nowIso}
+              timezone={timezone}
+              getWeekCalendar={getWeekCalendar}
+              onSaveDeen={onSaveDeen}
+              onSaveBusiness={onSaveBusiness}
+            />
+            <main className="flex-1 pb-24 lg:pb-6">{children}</main>
+          </div>
+          <MobileIsland />
+          <AllocationCheckinGate />
+          <CheckinToast />
         </div>
-        <MobileIsland />
-        <AllocationCheckinGate />
-        <CheckinToast />
-      </div>
+        <LockInOverlay timezone={timezone} />
+      </LockInOverlayProvider>
     </AllocationQueueProvider>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
-import { startWorkSession, endWorkSession } from "@/app/(app)/business/actions";
+import { useEffect, useState } from "react";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
+import { KIND_LABEL, type WorkSessionKind } from "@/lib/business/work-session-kind";
+import { useLockInOverlay, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
 import type { TriggerSummary } from "@/lib/distractions/types";
 import { Button } from "@/components/ui/button";
 import { ActionPlanDialog } from "@/components/home/action-plan-dialog";
@@ -13,15 +14,6 @@ import { ActionPlanDialog } from "@/components/home/action-plan-dialog";
 // rather than re-rendering every second for no visible change.
 const TICK_MS = 60 * 1000;
 
-type WorkSessionKind = "deep_work" | "deep_study";
-
-type ActiveSession = { id: string; startedAtIso: string; kind: WorkSessionKind };
-
-const KIND_LABEL: Record<WorkSessionKind, string> = {
-  deep_work: "Deep Work",
-  deep_study: "Deep Study",
-};
-
 // The Home Focus module is deliberately self-sufficient for ending a
 // session (spec 2026-08-24, Opus Lead): a deep_study session has no domain
 // page that owns it — School gets no session UI this round — so sending the
@@ -30,13 +22,16 @@ const KIND_LABEL: Record<WorkSessionKind, string> = {
 // still shows via LockInSession's own view.
 function ActiveView({
   session,
-  onEnded,
+  isPending,
+  onEnd,
+  onExpand,
 }: {
-  session: ActiveSession;
-  onEnded: () => void;
+  session: ActiveWorkSession;
+  isPending: boolean;
+  onEnd: () => void;
+  onExpand: () => void;
 }) {
   const [now, setNow] = useState(() => new Date(session.startedAtIso));
-  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -46,13 +41,6 @@ function ActiveView({
   }, [session.startedAtIso]);
 
   const elapsed = formatElapsedDuration(now.getTime() - new Date(session.startedAtIso).getTime());
-
-  function handleEnd() {
-    startTransition(async () => {
-      await endWorkSession(session.id);
-      onEnded();
-    });
-  }
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -67,9 +55,14 @@ function ActiveView({
           </Link>
         )}
       </div>
-      <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={handleEnd}>
-        End session
-      </Button>
+      <div className="flex shrink-0 flex-col gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onExpand}>
+          Expand
+        </Button>
+        <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={onEnd}>
+          End session
+        </Button>
+      </div>
     </div>
   );
 }
@@ -151,7 +144,6 @@ export function FocusModule({
   deepWorkSessions,
   deepStudyMinutes,
   deepStudySessions,
-  activeSession: initialActiveSession,
   distractionsToday,
   triggers,
 }: {
@@ -159,35 +151,15 @@ export function FocusModule({
   deepWorkSessions: number;
   deepStudyMinutes: number;
   deepStudySessions: number;
-  activeSession: ActiveSession | null;
   distractionsToday: number;
   triggers: TriggerSummary[];
 }) {
-  const [activeSession, setActiveSession] = useState(initialActiveSession);
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  function handleLockIn(kind: WorkSessionKind) {
-    setError(null);
-    startTransition(async () => {
-      try {
-        const result = await startWorkSession(kind);
-        setActiveSession({ id: result.id, startedAtIso: result.startedAt, kind });
-      } catch {
-        // Both rows are disabled together while any Lock In is pending, so
-        // this can only fire on a real race (another tab started a session
-        // first) — surface it as a legible message rather than an
-        // unhandled rejection that crashes the page (2026-08-24, Lead
-        // review of the same bug in lock-in-panel.tsx).
-        setError("A Lock-In session is already running. Reload to see it.");
-      }
-    });
-  }
+  const { session, isPending, error, startSession, endSession, expand } = useLockInOverlay();
 
   return (
     <div className="flex flex-col gap-3">
-      {activeSession ? (
-        <ActiveView session={activeSession} onEnded={() => setActiveSession(null)} />
+      {session ? (
+        <ActiveView session={session} isPending={isPending} onEnd={endSession} onExpand={expand} />
       ) : (
         <>
           <IdleRow
@@ -195,14 +167,14 @@ export function FocusModule({
             minutes={deepWorkMinutes}
             sessions={deepWorkSessions}
             disabled={isPending}
-            onLockIn={() => handleLockIn("deep_work")}
+            onLockIn={() => startSession("deep_work")}
           />
           <IdleRow
             kind="deep_study"
             minutes={deepStudyMinutes}
             sessions={deepStudySessions}
             disabled={isPending}
-            onLockIn={() => handleLockIn("deep_study")}
+            onLockIn={() => startSession("deep_study")}
           />
           {error && <p className="text-xs text-destructive">{error}</p>}
         </>

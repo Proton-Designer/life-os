@@ -53,6 +53,7 @@ describe("AppShellChrome", () => {
         dateLabel="Fri, Aug 15"
         nowIso="2026-08-15T18:00:00.000-05:00"
         timezone="America/Chicago"
+        activeWorkSession={null}
         getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
         onSaveDeen={async () => {}}
         onSaveBusiness={async () => {}}

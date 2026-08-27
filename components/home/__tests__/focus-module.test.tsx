@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -33,7 +33,9 @@ vi.mock("next/link", async () => {
 
 import { startWorkSession, endWorkSession } from "@/app/(app)/business/actions";
 import { FocusModule } from "../focus-module";
+import { renderWithLockIn } from "@/components/business/__tests__/lock-in-overlay-test-utils";
 import type { TriggerSummary } from "@/lib/distractions/types";
+import type { ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
 
 function trigger(overrides: Partial<TriggerSummary> = {}): TriggerSummary {
   return {
@@ -55,14 +57,17 @@ const IDLE_PROPS = {
   deepWorkSessions: 0,
   deepStudyMinutes: 0,
   deepStudySessions: 0,
-  activeSession: null,
   distractionsToday: 0,
   triggers: [] as TriggerSummary[],
 };
 
+function renderFocus(props: Partial<React.ComponentProps<typeof FocusModule>> = {}, initialSession: ActiveWorkSession | null = null) {
+  return renderWithLockIn(<FocusModule {...IDLE_PROPS} {...props} />, initialSession);
+}
+
 describe("FocusModule", () => {
   it("shows both Deep Work and Deep Study rows with today's totals when idle", () => {
-    render(<FocusModule {...IDLE_PROPS} deepWorkMinutes={85} deepWorkSessions={2} deepStudyMinutes={40} deepStudySessions={1} />);
+    renderFocus({ deepWorkMinutes: 85, deepWorkSessions: 2, deepStudyMinutes: 40, deepStudySessions: 1 });
     expect(screen.getByText("Deep Work")).toBeInTheDocument();
     expect(screen.getByText("1h 25m")).toBeInTheDocument();
     expect(screen.getByText("Deep Study")).toBeInTheDocument();
@@ -70,22 +75,22 @@ describe("FocusModule", () => {
   });
 
   it("shows a real 0m total rather than omitting it when nothing's logged yet", () => {
-    render(<FocusModule {...IDLE_PROPS} />);
+    renderFocus();
     expect(screen.getAllByText("0m")).toHaveLength(2);
   });
 
   it("shows a no-sessions caption per row when idle with zero sessions today", () => {
-    render(<FocusModule {...IDLE_PROPS} />);
+    renderFocus();
     expect(screen.getAllByText("No sessions yet today")).toHaveLength(2);
   });
 
   it("shows a pluralized session-count caption when idle with sessions today", () => {
-    render(<FocusModule {...IDLE_PROPS} deepWorkMinutes={45} deepWorkSessions={2} />);
+    renderFocus({ deepWorkMinutes: 45, deepWorkSessions: 2 });
     expect(screen.getByText("2 sessions today")).toBeInTheDocument();
   });
 
   it("gives each Lock In button a distinct accessible name, not two identical 'Lock In' buttons", () => {
-    render(<FocusModule {...IDLE_PROPS} />);
+    renderFocus();
     // Visible text stays "Lock In" for both (aria-label carries the
     // distinction) — asserted via the accessible name below, which a
     // screen reader announces, and separately via the visible text still
@@ -101,7 +106,7 @@ describe("FocusModule", () => {
       startedAt: "2026-08-17T22:00:00Z",
     });
     const user = userEvent.setup();
-    render(<FocusModule {...IDLE_PROPS} />);
+    renderFocus();
 
     await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
 
@@ -118,7 +123,7 @@ describe("FocusModule", () => {
       startedAt: "2026-08-17T22:00:00Z",
     });
     const user = userEvent.setup();
-    render(<FocusModule {...IDLE_PROPS} />);
+    renderFocus();
 
     await user.click(screen.getByRole("button", { name: "Lock In — Deep Study" }));
 
@@ -131,48 +136,28 @@ describe("FocusModule", () => {
   });
 
   it("renders the active view directly when an active deep_work session is passed in, with an Open session link", () => {
-    render(
-      <FocusModule
-        {...IDLE_PROPS}
-        activeSession={{ id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" }}
-      />
-    );
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("href", "/business");
     expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
   });
 
   it("renders the active view directly when an active deep_study session is passed in, with no Open session link", () => {
-    render(
-      <FocusModule
-        {...IDLE_PROPS}
-        activeSession={{ id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study" }}
-      />
-    );
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study" });
     expect(screen.queryByRole("link", { name: "Open session →" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
   });
 
   it("prefetches the Open session link (navigation-prefetch-fix, Part A)", () => {
-    render(
-      <FocusModule
-        {...IDLE_PROPS}
-        activeSession={{ id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" }}
-      />
-    );
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("data-prefetch", "true");
   });
 
   it("ends the active session via an End session button, right in the Home module — no navigation required", async () => {
     vi.mocked(endWorkSession).mockResolvedValue(undefined);
     const user = userEvent.setup();
-    render(
-      <FocusModule
-        {...IDLE_PROPS}
-        activeSession={{ id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study" }}
-      />
-    );
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study" });
 
     await user.click(screen.getByRole("button", { name: "End session" }));
 
@@ -183,10 +168,15 @@ describe("FocusModule", () => {
     });
   });
 
+  it("has an Expand button in the active view (returns to the full-screen overlay)", () => {
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+  });
+
   it("shows a legible message instead of crashing when startWorkSession still throws (a race the guard lost)", async () => {
     vi.mocked(startWorkSession).mockRejectedValue(new Error("A work session is already active"));
     const user = userEvent.setup();
-    render(<FocusModule {...IDLE_PROPS} />);
+    renderFocus();
 
     await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
 
@@ -196,26 +186,20 @@ describe("FocusModule", () => {
   });
 
   it("shows today's distraction count beneath the Focus content", () => {
-    render(<FocusModule {...IDLE_PROPS} distractionsToday={3} />);
+    renderFocus({ distractionsToday: 3 });
     expect(screen.getByText("Distractions")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
   it("shows the distraction count beneath the Focus content even in the active-session view", () => {
-    render(
-      <FocusModule
-        {...IDLE_PROPS}
-        activeSession={{ id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" }}
-        distractionsToday={2}
-      />
-    );
+    renderFocus({ distractionsToday: 2 }, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
     expect(screen.getByText("Distractions")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("opens the Action Plan dialog listing triggers that already have a plan", async () => {
     const user = userEvent.setup();
-    render(<FocusModule {...IDLE_PROPS} distractionsToday={1} triggers={[trigger()]} />);
+    renderFocus({ distractionsToday: 1, triggers: [trigger()] });
     await user.click(screen.getByRole("button", { name: "Action Plan" }));
     expect(screen.getByText("Phone in bed")).toBeInTheDocument();
     expect(screen.getByText("Charge phone outside the room")).toBeInTheDocument();
@@ -223,13 +207,7 @@ describe("FocusModule", () => {
 
   it("excludes triggers with no current plan from the Action Plan dialog — they're still waiting on the nightly review", async () => {
     const user = userEvent.setup();
-    render(
-      <FocusModule
-        {...IDLE_PROPS}
-        distractionsToday={1}
-        triggers={[trigger({ id: "t2", name: "Doomscrolling", currentPlan: null })]}
-      />
-    );
+    renderFocus({ distractionsToday: 1, triggers: [trigger({ id: "t2", name: "Doomscrolling", currentPlan: null })] });
     await user.click(screen.getByRole("button", { name: "Action Plan" }));
     expect(screen.queryByText("Doomscrolling")).not.toBeInTheDocument();
     expect(screen.getByText(/no triggers with a plan yet/i)).toBeInTheDocument();

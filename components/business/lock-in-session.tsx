@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { resolveSessionHours, pendingSessionHour } from "@/lib/checkins/session-hour-status";
 import { setSessionHourStatus } from "@/app/(app)/checkin/session-hour-actions";
-import { endWorkSession } from "@/app/(app)/business/actions";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { SessionHourConfirm } from "./session-hour-confirm";
@@ -31,13 +30,20 @@ export function LockInSession({
   startedAtIso,
   initialStoredHours,
   timezone,
-  onEnded,
+  onEndSession,
+  onExpand,
 }: {
   sessionId: string;
   startedAtIso: string;
   initialStoredHours: StoredSessionHour[];
   timezone: string;
-  onEnded: () => void;
+  // The Lock-In overlay provider owns the actual endWorkSession call (batch
+  // 3) — ending anywhere must clear the session everywhere, not just here.
+  onEndSession: () => Promise<void>;
+  // Returns to the full-screen overlay (batch 3) — this hour-confirmation
+  // UI is otherwise unchanged, it's the overlay's "minimized" presentation
+  // on /business.
+  onExpand: () => void;
 }) {
   const startedAt = useMemo(() => new Date(startedAtIso), [startedAtIso]);
   const session = useMemo(() => ({ startedAt, endedAt: null }), [startedAt]);
@@ -81,8 +87,7 @@ export function LockInSession({
   async function handleEndSession() {
     setIsEnding(true);
     try {
-      await endWorkSession(sessionId);
-      onEnded();
+      await onEndSession();
     } catch {
       setIsEnding(false);
     }
@@ -151,9 +156,14 @@ export function LockInSession({
         </div>
       )}
 
-      <Button type="button" variant="outline" onClick={handleEndSession} disabled={isEnding}>
-        End session
-      </Button>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" className="flex-1" onClick={onExpand}>
+          Expand
+        </Button>
+        <Button type="button" variant="outline" className="flex-1" onClick={handleEndSession} disabled={isEnding}>
+          End session
+        </Button>
+      </div>
     </div>
   );
 }

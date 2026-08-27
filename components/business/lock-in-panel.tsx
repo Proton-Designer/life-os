@@ -1,30 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import { startWorkSession } from "@/app/(app)/business/actions";
 import { LockInSession, type StoredSessionHour } from "./lock-in-session";
+import { useLockInOverlay } from "./lock-in-overlay-context";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
+import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { Button } from "@/components/ui/button";
 
-export type ActiveSessionData = {
-  id: string;
-  startedAtIso: string;
-  storedHours: StoredSessionHour[];
-};
-
-// Optimistic local state, not router.refresh()-based — the recent
-// focus-refresh regression (reverted 2026-08-14) showed a broad refresh can
-// bust caches on routes it never touched. startWorkSession()'s return value
-// is enough to show the active-session view immediately with no reload.
+// Session identity/start/end/minimize/expand all come from the app-wide
+// LockInOverlayProvider (batch 3) — this panel is purely the /business
+// PRESENTATION of that shared state, plus the one thing only this page
+// knows: the stored hourly allocations for the deep_work session that was
+// already active on THIS page's own server render.
 export function LockInPanel({
-  initialSession,
+  initialSessionId,
+  initialStoredHours,
   todayFocusMinutes,
   timezone,
   showTodayTotal = true,
-  disabledReason = null,
 }: {
-  initialSession: ActiveSessionData | null;
+  // Identifies which session `initialStoredHours` belongs to — a session
+  // the context knows about that this page's render never saw (started
+  // elsewhere, or freshly started right here) always begins at zero hours.
+  initialSessionId: string | null;
+  initialStoredHours: StoredSessionHour[];
   // A real moment in time (session start), not a calendar date — must
   // format against the user's PROFILE timezone, not the runtime's local
   // zone. Threaded down to LockInSession too.
@@ -42,46 +41,34 @@ export function LockInPanel({
   // don't delete the display outright, or a caller with no adjacent card
   // silently loses the guarantee above.
   showTodayTotal?: boolean;
-  // Deep Work/Deep Study split (2026-08-24, Lead review): the single-active-
-  // session guard in startWorkSession blocks a new session of EITHER kind
-  // while one is running, but this page only ever shows a deep_work
-  // session — a deep_study session elsewhere is invisible here otherwise,
-  // which let this panel offer a Lock In button the guard would then
-  // refuse, for a session the page never told the user about. When set,
-  // disables Lock In and explains why instead.
-  disabledReason?: string | null;
 }) {
-  const [session, setSession] = useState(initialSession);
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { session, isPending, error, startSession, endSession, expand } = useLockInOverlay();
 
-  if (session) {
+  if (session?.kind === "deep_work") {
+    const storedHours = session.id === initialSessionId ? initialStoredHours : [];
     return (
       <LockInSession
+        // Remounts (resetting hour-confirmation state) whenever the active
+        // session's identity actually changes — ending one and starting
+        // another shouldn't carry the old session's local state forward.
+        key={session.id}
         sessionId={session.id}
         startedAtIso={session.startedAtIso}
-        initialStoredHours={session.storedHours}
+        initialStoredHours={storedHours}
         timezone={timezone}
-        onEnded={() => setSession(null)}
+        onEndSession={endSession}
+        onExpand={expand}
       />
     );
   }
 
-  function handleLockIn() {
-    setError(null);
-    startTransition(async () => {
-      try {
-        const result = await startWorkSession("deep_work");
-        setSession({ id: result.id, startedAtIso: result.startedAt, storedHours: [] });
-      } catch {
-        // The guard can still lose a race (two tabs, a double-click) even
-        // after disabledReason covers the known cross-kind case — surface
-        // it as a legible inline message, not an unhandled rejection that
-        // crashes the page (2026-08-24, Lead review).
-        setError("A Lock-In session is already running. Reload to see it.");
-      }
-    });
-  }
+  // Deep Work/Deep Study split (2026-08-24, Lead review): the single-active-
+  // session guard in startWorkSession blocks a new session of EITHER kind
+  // while one is running, but this page only ever shows a deep_work
+  // session — a deep_study session elsewhere is invisible here otherwise,
+  // which would let this panel offer a Lock In button the guard then
+  // refuses, for a session the page never told the user about.
+  const disabledReason = session?.kind === "deep_study" ? `${KIND_LABEL.deep_study} in progress` : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -102,7 +89,12 @@ export function LockInPanel({
         </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
-      <Button type="button" onClick={handleLockIn} disabled={isPending || !!disabledReason} className="w-full">
+      <Button
+        type="button"
+        onClick={() => startSession("deep_work")}
+        disabled={isPending || !!disabledReason}
+        className="w-full"
+      >
         Lock In
       </Button>
     </div>
