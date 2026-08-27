@@ -109,13 +109,6 @@ describe("SidebarNav", () => {
     expect(await screen.findAllByText("Business")).not.toHaveLength(0);
   });
 
-  it("drawer variant shows full text labels (not icon-only)", () => {
-    render(<SidebarNav variant="drawer" />);
-    const link = screen.getByRole("link", { name: "Deen" });
-    expect(within(link).getByText("Deen")).toBeVisible();
-    expect(screen.getByText("MAIN")).toBeInTheDocument();
-  });
-
   it("prefetches every route link (navigation-prefetch-fix, Part A)", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [

@@ -9,7 +9,7 @@ import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
-export type SidebarVariant = "expanded" | "icon-rail" | "drawer";
+export type SidebarVariant = "expanded" | "icon-rail";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentToken };
 

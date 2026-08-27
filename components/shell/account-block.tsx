@@ -30,7 +30,7 @@ export function AccountBlock({
 }: {
   displayName: string;
   email: string;
-  variant: "expanded" | "icon-rail" | "drawer";
+  variant: "expanded" | "icon-rail";
 }) {
   const iconOnly = variant === "icon-rail";
 
