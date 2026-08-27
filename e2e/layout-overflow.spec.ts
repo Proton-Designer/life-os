@@ -8,7 +8,14 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // Runs once (Desktop Chrome only — it carries the authenticated storageState
 // and this spec overrides its own viewport per test anyway, so running it a
 // second time under Mobile Chrome's project would just duplicate coverage).
-const BREAKPOINTS = [390, 768, 1024, 1280, 1600];
+// 320 added 2026-08-26 (night batch 3): the mobile island went from 5 to 7
+// targets when Fitness and Work were promoted out of its "..." menu, and the
+// only evidence it still fit was arithmetic (~306px calculated). The /school
+// incident earlier this week is the reason that isn't good enough — the grid
+// math there looked fine while the column actually resolved to 417px. 320 is
+// the narrowest viewport still in real use, and it is where a 7-item pill
+// breaks first if it breaks at all.
+const BREAKPOINTS = [320, 390, 768, 1024, 1280, 1600];
 
 const AUTHED_ROUTES = [
   "/",
