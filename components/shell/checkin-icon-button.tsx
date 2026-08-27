@@ -34,11 +34,11 @@ export function CheckInIconButton() {
       // itself (not the label) communicates "something's pending."
       aria-label="Open check-in"
       className={cn(
-        // size-9 below sm (still clears the 40px touch-target floor once
-        // the button's own padding/border are counted), size-11 at sm+ —
-        // 320px-wide phones don't have room for the full size (layout-
-        // overflow.spec.ts, batch 3 verification).
-        "checkin-icon flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:size-11",
+        // size-9 only below 360px — Ayman's own phone is 390px and keeps
+        // the full 44px target; `sm` (640px) would have shrunk it there too
+        // for no reason (Opus Lead correction, batch 3 verification: 320px
+        // is where something has to give, 390px is not).
+        "checkin-icon flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground max-[359px]:size-9",
         pending && "is-pending text-foreground"
       )}
     >

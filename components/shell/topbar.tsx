@@ -60,10 +60,11 @@ export function Topbar({
             shows. The page title itself lives solely in PageHeader
             (removed from here per lead review — was rendering twice). */}
         <Link href="/" prefetch className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
-          {/* Hidden below sm — every pixel of the wordmark row matters at
-              320px (layout-overflow.spec.ts, batch 3 verification), and the
-              wordmark alone still identifies the app. */}
-          <span aria-hidden className="hidden text-base sm:inline">
+          {/* Hidden only below 360px — every pixel matters at 320, but
+              Ayman's own 390px phone keeps the glyph (Opus Lead correction,
+              batch 3 verification: `sm` at 640px hid it there too for no
+              reason). The wordmark alone still identifies the app. */}
+          <span aria-hidden className="text-base max-[359px]:hidden">
             &#9670;
           </span>
           Life OS
@@ -98,11 +99,11 @@ export function Topbar({
       </div>
 
       {/* Right-side icon order (batch 3, B3-1, Ayman explicit): Check-in,
-          Calendar, Notifications — notifications rightmost. gap-1 below sm
-          (sm:gap-3 restores the original spacing) — at 320px, three
-          full-size icon buttons plus gap-3 didn't fit alongside the left
-          and centre groups (layout-overflow.spec.ts, batch 3 verification). */}
-      <div className="flex flex-1 items-center justify-end gap-1 sm:flex-none sm:gap-3">
+          Calendar, Notifications — notifications rightmost. gap-1 only
+          below 360px (Opus Lead correction, batch 3 verification: gap-3 is
+          the real spacing everywhere Ayman's phone renders — 390px+ — and
+          only 320px has no room for three full-size icons plus it). */}
+      <div className="flex flex-1 items-center justify-end gap-3 sm:flex-none max-[359px]:gap-1">
         {/* Permanently visible, no time gating — pressing it always opens
             the check-in popup (falls back to the most recent unanswered
             window once the polled queue is empty, so it's never a dead
