@@ -22,7 +22,7 @@ import { Panel } from "@/components/ui/panel";
 import { TargetsStrip } from "@/components/co-op/targets-strip";
 import { WeeklyAgenda } from "@/components/co-op/weekly-agenda";
 import { PipelineBoard } from "@/components/co-op/pipeline-board";
-import type { CoopTargetRow } from "@/lib/coop/targets";
+import type { CoopTargetRow, CompletedCoopTargetRow } from "@/lib/coop/targets";
 import type { CoopTaskRow } from "@/lib/coop/tasks";
 
 export default async function CoOpPage() {
@@ -39,7 +39,7 @@ export default async function CoOpPage() {
   const weekDates = weekDatesFrom(weekStart);
   const nextWeekDates = weekDatesFrom(addDaysToDateString(weekStart, 7));
 
-  const [{ data: eventRows }, { data: targetRows }] = await Promise.all([
+  const [{ data: eventRows }, { data: targetRows }, { data: completedTargetRows }] = await Promise.all([
     supabase
       .from("schedule_events")
       .select("id, is_recurring, day_of_week, event_time, end_time, event_date")
@@ -51,6 +51,16 @@ export default async function CoOpPage() {
       .eq("user_id", userId)
       .eq("status", "active")
       .not("position", "is", null),
+    // Completed goals (2026-08-26 evening batch): position is meaningless
+    // on a done row (lib/coop/targets.ts's CompletedCoopTargetRow doc
+    // comment), so this is ordered by completed_at — most recently
+    // finished first, the order that reads correctly for a history list.
+    supabase
+      .from("coop_targets")
+      .select("id, title, completed_at")
+      .eq("user_id", userId)
+      .eq("status", "done")
+      .order("completed_at", { ascending: false }),
   ]);
 
   const targets: CoopTargetRow[] = (targetRows ?? []).map((t) => ({
@@ -60,6 +70,14 @@ export default async function CoOpPage() {
     position: t.position as number,
   }));
   const currentTarget = targets.find((t) => t.position === 1) ?? null;
+
+  const completedTargets: CompletedCoopTargetRow[] = (completedTargetRows ?? [])
+    .filter((t) => t.completed_at !== null)
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      completedDateStr: localDateString(new Date(t.completed_at as string), timezone),
+    }));
 
   const { data: coopTaskRows } = currentTarget
     ? await supabase
@@ -120,7 +138,7 @@ export default async function CoOpPage() {
     <PageContainer>
       <PageHeader title="Work" />
 
-      <TargetsStrip rows={targets} />
+      <TargetsStrip rows={targets} completedGoals={completedTargets} todayStr={dateStr} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {currentTarget && (

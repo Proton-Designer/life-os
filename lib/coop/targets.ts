@@ -15,6 +15,23 @@ export type CoopTargetRow = {
   position: number;
 };
 
+/**
+ * A finished goal — deliberately NOT CoopTargetRow. `position` is
+ * meaningless once a row is done (the completion cascade only decrements
+ * the ACTIVE queue's positions; a done row's stored position is a
+ * leftover from whenever it was completed), so there's no rank and no
+ * target/stretch distinction to preserve — completed history is one flat
+ * list, ordered by when it finished.
+ */
+export type CompletedCoopTargetRow = {
+  id: string;
+  title: string;
+  /** Local calendar date the target was marked done, already resolved
+   * server-side from completed_at (a timestamptz) via the account's
+   * timezone — never re-derived client-side from a raw Date. */
+  completedDateStr: string;
+};
+
 export const TARGET_SLOT_COUNT = 3;
 
 export function splitTargetsAndStretch(rows: CoopTargetRow[]): {

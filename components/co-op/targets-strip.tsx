@@ -6,18 +6,34 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TargetRow, EmptyTargetSlot } from "@/components/co-op/target-row";
 import { SetDeadlineDialog } from "@/components/co-op/set-deadline-dialog";
-import { splitTargetsAndStretch, moveTargetPosition, TARGET_SLOT_COUNT, type CoopTargetRow } from "@/lib/coop/targets";
+import {
+  splitTargetsAndStretch,
+  moveTargetPosition,
+  TARGET_SLOT_COUNT,
+  type CoopTargetRow,
+  type CompletedCoopTargetRow,
+} from "@/lib/coop/targets";
+import { formatShortDate } from "@/lib/date-utils";
 import { addTarget, addStretchGoal, editTarget, removeTarget, completeTarget, moveTarget } from "@/app/(app)/work/targets-actions";
 
 // "use server" actions are imported and invoked directly from this client
 // component rather than passed down as props from the server page — the
 // pattern this codebase always uses to stay clear of the
 // function-across-the-RSC-boundary restriction (AGENTS.md).
-export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
+export function TargetsStrip({
+  rows,
+  completedGoals,
+  todayStr,
+}: {
+  rows: CoopTargetRow[];
+  completedGoals: CompletedCoopTargetRow[];
+  todayStr: string;
+}) {
   const [isPending, startTransition] = useTransition();
   const [addingTarget, setAddingTarget] = useState(false);
   const [addingStretch, setAddingStretch] = useState(false);
   const [stretchExpanded, setStretchExpanded] = useState(false);
+  const [completedExpanded, setCompletedExpanded] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDeadline, setNewDeadline] = useState("");
   const [deadlineDialog, setDeadlineDialog] = useState<{ targetId: string; targetTitle: string } | null>(null);
@@ -69,6 +85,54 @@ export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
     });
   }
 
+  // Ayman (2026-08-26 evening, verbatim): "underneath stretch goals, add
+  // another collapsable for Completed goals, this should be collapsed at
+  // default but shoudl list all copmleted goals under it." Collapsed by
+  // default like Stretch goals above, but a flat read-only history list,
+  // not another TargetRow queue — `position` is meaningless on a done row
+  // (CompletedCoopTargetRow's own doc comment), so no rank badge, no
+  // target/stretch distinction, and no move/edit/remove/complete actions;
+  // it's a record of what finished, not something still being worked.
+  // Rendered even at zero completed goals (Opus Lead ruling) so the
+  // section vanishing never reads as broken — but stays quiet, not a call
+  // to action, which is also why the accessible name is "Completed
+  // goals," not the bare "Completed" School's own task list already uses
+  // elsewhere on the app.
+  //
+  // Rendered in BOTH the normal view and the pre-target CTA-only screen
+  // below — completing every active target and stretch goal (a real,
+  // legitimate account state, not just the pre-first-target case) empties
+  // `queueLength` too, and history shouldn't disappear behind a "set your
+  // first target" prompt just because nothing is currently in progress.
+  const completedGoalsSection = (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        aria-expanded={completedExpanded}
+        onClick={() => setCompletedExpanded((v) => !v)}
+        className="flex items-center gap-1 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+      >
+        {completedExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        Completed goals ({completedGoals.length})
+      </button>
+
+      {completedExpanded && (
+        <div className="flex flex-col gap-2 pl-2">
+          {completedGoals.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No completed goals yet</p>
+          ) : (
+            completedGoals.map((goal) => (
+              <div key={goal.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 p-3">
+                <span className="truncate text-sm text-muted-foreground">{goal.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatShortDate(goal.completedDateStr, todayStr)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   // Spec: pre-target, the whole Targets/Agenda/Pipeline stack is exactly
   // one actionable element — no gated placeholders for Stretch Goals,
   // Agenda, or Pipeline. Once Target 1 exists the page grows the rest in
@@ -76,13 +140,16 @@ export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
   if (queueLength === 0) {
     if (!addingTarget) {
       return (
-        <button
-          type="button"
-          onClick={() => setAddingTarget(true)}
-          className="flex w-full items-center justify-center rounded-2xl border border-dashed border-border/60 px-4 py-6 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-        >
-          + Set your first target
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setAddingTarget(true)}
+            className="flex w-full items-center justify-center rounded-2xl border border-dashed border-border/60 px-4 py-6 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+          >
+            + Set your first target
+          </button>
+          {completedGoalsSection}
+        </div>
       );
     }
     return (
@@ -192,6 +259,8 @@ export function TargetsStrip({ rows }: { rows: CoopTargetRow[] }) {
           </div>
         )}
       </div>
+
+      {completedGoalsSection}
 
       {deadlineDialog && (
         <SetDeadlineDialog
