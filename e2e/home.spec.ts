@@ -63,7 +63,15 @@ test.describe("Home", () => {
     // Sector progress (DomainStatusStack, not wrapped in a Panel — see its
     // own component comment) — checked via each row's own metric text.
     await expect(page.getByText("Sector progress")).toBeVisible();
-    await expect(page.getByText(/\d\/5 prayers/)).toBeVisible();
+    // Either form is correct, and which one shows is a function of the
+    // clock, not of the code: DomainStatusStack deliberately renders "Not
+    // tracked yet" while the Deen day is still open and nothing has been
+    // logged (deenDayOpenWithNothingLogged), and only switches to "N/5
+    // prayers" once something is. A run just after local midnight — before
+    // any prayer exists for the new day — therefore saw the first form and
+    // failed a spec that only allowed the second, which is a defect in the
+    // assertion, not in the app (found 2026-08-27 at 00:12 CDT).
+    await expect(page.getByText(/\d\/5 prayers|Not tracked yet/).first()).toBeVisible();
     await expect(page.getByText(/Kill list \d\/3/)).toBeVisible();
     await expect(page.getByText(/% this week/)).toBeVisible();
     await expect(page.getByText(/due today/).first()).toBeVisible();

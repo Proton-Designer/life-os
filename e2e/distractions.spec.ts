@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
-import { isReviewOpen } from "@/lib/distractions/plan-rules";
+import { isReviewOpen, reviewDateFor } from "@/lib/distractions/plan-rules";
+import { localDateString } from "@/lib/date-utils";
 
 // playwright.config.ts runs fully serial against ONE real live account with
 // no per-test isolation (see fitness.spec.ts's header comment for the race
@@ -139,6 +140,21 @@ test.describe("Distractions", () => {
       test.skip(
         true,
         `/review is only open 9pm-4am local (isReviewOpen) — it's currently ${now.toLocaleString("en-US", { timeZone: SEED_TIMEZONE })} in ${SEED_TIMEZONE}`
+      );
+    }
+    // Being inside the window is necessary but NOT sufficient. During the
+    // post-midnight tail (00:00-04:00) the review screen deliberately targets
+    // YESTERDAY (reviewDateFor, same file as isReviewOpen) — that's the whole
+    // point of the tail: you review the day you just finished. This test
+    // creates its trigger with an event dated NOW, so in that window the
+    // trigger legitimately does not appear on /review and the spec fails
+    // against correct behaviour. Guarding on isReviewOpen alone missed it,
+    // and it went unnoticed because every prior run happened before midnight
+    // (found 2026-08-27 at 00:12 CDT).
+    if (reviewDateFor(now, SEED_TIMEZONE) !== localDateString(now, SEED_TIMEZONE)) {
+      test.skip(
+        true,
+        `/review targets ${reviewDateFor(now, SEED_TIMEZONE)} during the post-midnight tail, but this test's trigger is dated ${localDateString(now, SEED_TIMEZONE)} — backdating a trigger has no API, so this window can't be covered from the UI`
       );
     }
 
