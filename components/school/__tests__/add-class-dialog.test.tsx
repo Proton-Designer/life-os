@@ -88,6 +88,26 @@ describe("AddClassDialog", () => {
     await waitFor(() => expect(refreshMock).toHaveBeenCalled());
   });
 
+  it("blocks Save with an error when the end time isn't after the start time, and never calls createClass", async () => {
+    const createClass = vi.fn();
+    const addClassEvent = vi.fn();
+    const user = await (async () => {
+      render(<AddClassDialog createClass={createClass} addClassEvent={addClassEvent} />);
+      return openDialog();
+    })();
+
+    await user.type(screen.getByPlaceholderText("Class name"), "Phys Lab");
+    await user.type(screen.getByPlaceholderText("Class code"), "PHYS-2126-105");
+    await user.click(screen.getByRole("button", { name: "Tue" }));
+    await user.type(screen.getByLabelText("Start time"), "1700");
+    await user.type(screen.getByLabelText("End time"), "1600");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByText("End time must be after start time")).toBeInTheDocument();
+    expect(createClass).not.toHaveBeenCalled();
+    expect(addClassEvent).not.toHaveBeenCalled();
+  });
+
   it("surfaces an error and keeps the dialog open when createClass rejects", async () => {
     const createClass = vi.fn().mockRejectedValue(new Error("network down"));
     const addClassEvent = vi.fn();

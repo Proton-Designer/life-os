@@ -70,6 +70,10 @@ export function AddClassDialog({
       setError("Enter a class code");
       return;
     }
+    if (form.eventTime && form.endTime && form.endTime <= form.eventTime) {
+      setError("End time must be after start time");
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
@@ -147,20 +151,28 @@ export function AddClassDialog({
             </div>
           </div>
           <div className="flex gap-2">
-            <Input
-              type="time"
-              aria-label="Start time"
-              value={form.eventTime}
-              onChange={(e) => setForm((f) => ({ ...f, eventTime: e.target.value }))}
-              placeholder="Start"
-            />
-            <Input
-              type="time"
-              aria-label="End time"
-              value={form.endTime}
-              onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
-              placeholder="End"
-            />
+            {/* Visible captions, not just aria-label — two identical
+                --:-- boxes with no visible distinction was exactly the kind
+                of unpolished-looking gap Ayman flagged this afternoon, even
+                though the accessible names were already correct. */}
+            <div className="flex flex-1 flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Start</span>
+              <Input
+                type="time"
+                aria-label="Start time"
+                value={form.eventTime}
+                onChange={(e) => setForm((f) => ({ ...f, eventTime: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-1">
+              <span className="text-xs text-muted-foreground">End</span>
+              <Input
+                type="time"
+                aria-label="End time"
+                value={form.endTime}
+                onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+              />
+            </div>
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
