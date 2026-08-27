@@ -28,7 +28,13 @@ import type { StoredSessionHour } from "@/components/business/lock-in-session";
  * cannot sit "beside" a one-line info row without breaking at 390px
  * (Ayman's own phone, per AGENTS.md's /school overflow incident). Idle —
  * including a Deep Study session running elsewhere, which is just a line
- * of disabled-reason text — stays side-by-side from sm up.
+ * of disabled-reason text — is side-by-side at EVERY width, not just sm and
+ * up (Lead review, 2026-08-27: Ayman's own phone is 390px, and the button
+ * on the right is the literal ask — "shift the minute count to the left
+ * and add the lock in button on the right of that." A `sm:flex-row`
+ * breakpoint meant the requested layout never actually appeared on his
+ * device). Room is made by `min-w-0 truncate` on the text block and
+ * `shrink-0` on the button's wrapper, not by a breakpoint.
  */
 export function FocusTimeCard({
   sessionsTodayCount,
@@ -50,8 +56,8 @@ export function FocusTimeCard({
     <div
       id="lock-in-panel"
       className={cn(
-        "scroll-mt-20 flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-3",
-        !showsBigSessionCard && "sm:flex-row sm:items-center sm:justify-between"
+        "scroll-mt-20 flex gap-3 rounded-2xl border border-border/40 bg-card p-3",
+        showsBigSessionCard ? "flex-col" : "flex-row items-center justify-between"
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
