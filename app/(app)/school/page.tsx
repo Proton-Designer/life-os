@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { CalendarClock, AlertTriangle, ShieldCheck, CalendarCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, weekDatesFrom, formatShortDate } from "@/lib/date-utils";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { TASK_TYPE_LABEL, type TaskType } from "@/lib/tasks/task-type";
@@ -175,7 +175,24 @@ export default async function SchoolPage() {
       title: t.title,
       domain: "school",
       mode: "toggle",
-      meta: formatKpiMeta(t.taskType, t.taskTypeOtherLabel, t.classId ? (classNameById.get(t.classId) ?? null) : null),
+      // Two-line row: the meta now carries date · type · class, which cannot
+      // share a line with a real title on a phone (Ayman, 2026-08-27).
+      metaBelow: true,
+      // Due date leads the meta (Ayman, 2026-08-27: "add the due dates for
+      // each task as part of the row as well"). First segment, not last,
+      // because in the Overdue bucket it's the whole point of the row —
+      // "how late is this" beats "what type is it". Formatted through the
+      // shared formatShortDate so it reads "Aug. 28th" like every other
+      // date on this screen, never a raw ISO string. Undated tasks simply
+      // omit the segment rather than printing a placeholder; they can only
+      // reach the Due today bucket via a null dueDate, which the filters
+      // already exclude, so in practice this is defensive.
+      meta: [
+        t.dueDate ? formatShortDate(t.dueDate, dateStr) : null,
+        formatKpiMeta(t.taskType, t.taskTypeOtherLabel, t.classId ? (classNameById.get(t.classId) ?? null) : null),
+      ]
+        .filter(Boolean)
+        .join(" · "),
     };
   }
   const byCreatedAtAsc = (a: TaskData, b: TaskData) => (a.createdAt < b.createdAt ? -1 : 1);
@@ -285,8 +302,14 @@ export default async function SchoolPage() {
         id="tasks"
         className="scroll-mt-20"
         title="Task list"
-        heroValue={`${openTasks.length}`}
-        caption="open"
+        // This week's open tasks, not every open task ever (Ayman,
+        // 2026-08-27). Reuses dueThisWeekCount rather than recomputing, so
+        // this and the "Due this week" KPI can never disagree. Undated and
+        // previous-week-overdue tasks fall outside it by design — overdue has
+        // its own KPI — and the caption carries that scope, since a bare
+        // number under "Task list" would otherwise read as the total.
+        heroValue={`${dueThisWeekCount}`}
+        caption="due this week"
         controls={
           <div className="flex gap-2">
             <TaskWizardDialog classes={classOptions} timezone={timezone} onSubmit={addTask} />

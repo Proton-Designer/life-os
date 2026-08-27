@@ -43,6 +43,16 @@ export type TaskRowItem = {
   domain: Domain;
   /** "Today", a due label, etc. — short, optional, right-aligned. */
   meta?: string;
+  /**
+   * Render `meta` on its own line beneath the title instead of beside it.
+   * Opt-in per caller, not a global change: School's KPI dialogs grew a
+   * three-part meta ("Aug. 28th · Homework/Assignment · DSA") that simply
+   * cannot share one line with a real task title at 390px — measured, the
+   * title collapsed to a single letter. Every other caller's meta is one
+   * short word ("Today") and stays inline, so this deliberately does not
+   * change how Home or Fitness rows look.
+   */
+  metaBelow?: boolean;
   mode: "toggle" | "log";
   log?: TaskLogSpec;
   /** Set once completed. Absent/null items render in the active list. */
@@ -196,8 +206,12 @@ function ActiveRow({
   }
 
   return (
-    <li className="flex flex-col">
-      <div className="flex items-center">
+    <li className="flex min-w-0 flex-col">
+      {/* min-w-0: without it this flex row sizes to max-content, so the
+          button below can't actually shrink and a long title + long meta
+          push the whole row past its container instead of truncating
+          (measured 2026-08-27: a 344px dialog holding a 592px row). */}
+      <div className="flex min-w-0 items-center">
         {/* The whole row is the tap target (Ayman: "tapped or clicked
             anywhere on its box"), not just a small circle — real
             min-height for a comfortable touch target. Sized flex-1 so the
@@ -208,24 +222,51 @@ function ActiveRow({
           onClick={handleClick}
           disabled={isPending || inertLog}
           aria-label={item.mode === "log" ? `Log ${item.title}` : `Mark "${item.title}" done`}
-          className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+          // min-w-0 is load-bearing: a flex item's automatic minimum size
+          // (min-width:auto) refuses to shrink below its min-content, and
+          // this button's min-content includes the whole meta string. Without
+          // it, flex-1 cannot actually shrink and the row runs past its
+          // container instead of truncating — measured 2026-08-27 at 390px,
+          // a 575px row inside a 313px list.
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
         >
           <Checkbox checked={justCompleted} />
           <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-sm transition-colors duration-300",
-              justCompleted && "text-muted-foreground line-through decoration-accent-business"
+              "flex min-w-0 flex-1 flex-col",
+              item.metaBelow ? "gap-0.5" : "flex-row items-center gap-3"
             )}
           >
-            {item.title}
+            <span
+              className={cn(
+                "min-w-0 truncate text-sm transition-colors duration-300",
+                !item.metaBelow && "flex-1",
+                justCompleted && "text-muted-foreground line-through decoration-accent-business"
+              )}
+            >
+              {item.title}
+            </span>
+            {item.meta && item.metaBelow && (
+              <span className="min-w-0 truncate text-xs text-muted-foreground">{item.meta}</span>
+            )}
           </span>
           {item.mode === "log" && item.log?.kind === "count" && (
             <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
               {item.log.current}/{item.log.target} {item.log.unit}
             </span>
           )}
-          {item.meta && <span className="shrink-0 text-xs text-muted-foreground">{item.meta}</span>}
+          {/* Capped and truncating, not bare shrink-0 (2026-08-27): meta was
+              unshrinkable while the title was `flex-1 truncate`, so a long
+              meta took the whole row and crushed the title to an ellipsis —
+              seen live at 390px the moment School's KPI rows grew a due-date
+              segment. The title is the row's identity and must always win;
+              the meta is context and can truncate. Cap rather than plain
+              `shrink`, because flex shrinks proportionally to content and a
+              long meta beside a short title would still dominate. */}
+          {item.meta && !item.metaBelow && (
+            <span className="max-w-[12rem] shrink-0 truncate text-xs text-muted-foreground">{item.meta}</span>
+          )}
         </button>
         {item.expand && renderExpanded && (
           <button
