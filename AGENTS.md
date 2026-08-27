@@ -132,3 +132,44 @@ post-signin assertion carries an extended timeout for exactly that reason.
 A slow login there is not a broken login — verify against localhost, the
 previous deployment, and Supabase's token endpoint directly before concluding
 you have shipped an outage.
+
+## Only ONE agent runs Playwright at a time
+
+The shared working tree has a second shared mutable resource besides the git
+index, and it went unguarded far longer: **the e2e environment**. All specs
+drive one SEED account against one live database, and every run rewrites
+`playwright/.auth/user.json`.
+
+On 2026-08-26 four agents ran mutating suites concurrently. Two failure modes,
+both of which look like application bugs and are not:
+
+- **Corrupt `storageState`.** Two `auth.setup` processes wrote the file at
+  once, leaving a complete JSON object followed by a fragment — the file ends
+  `}}`. Every test in the run then fails with
+  `SyntaxError: Unexpected non-whitespace character after JSON`, which reads
+  exactly like broken authentication. Fix: `rm playwright/.auth/user.json`,
+  then run the `setup` project alone.
+- **Cross-run row collisions.** Specs create and delete rows the other runs
+  are mid-assertion on. Three engineers each independently "found" failures
+  they were partly causing for each other.
+
+**Rule: the Lead runs `npx playwright test`. Nobody else — not filtered, not a
+single spec.** `tsc` and `vitest` are pure and stay free for everyone; ask the
+Lead for any browser verification.
+
+### A spec must clean up on failure, not only on success
+
+The same incident exposed a spec that amplified one unrelated failure into a
+permanently red test: `school-class-view.spec.ts` asserted on shared text
+(`getByText("Sep. 3rd")`, which matches *any* task due that day), and its
+cleanup ran only after the assertions. One corrupted-auth failure left its
+task behind; the next run then had two rows due that date, failed strict-mode
+ambiguity, and left a third.
+
+Two rules fall out, and they apply to every mutating spec:
+
+- **Anchor assertions to something unique to this run** (the generated title),
+  never to a value other rows can share.
+- **Put teardown in `afterEach`**, registered *before* the row is created, so
+  an assertion failure anywhere still removes it. Keep any in-UI removal as a
+  real assertion — the `afterEach` is a net beneath it, not a replacement.
