@@ -37,6 +37,37 @@ async function openClass(page: Page, className: string) {
   return dialog;
 }
 
+/**
+ * The title of the task the add-task test creates, tracked at file scope so
+ * `afterEach` can remove it even when an assertion failed before the test's
+ * own in-UI removal step was reached.
+ *
+ * Without this the spec poisons its own fixture: a failure — including one
+ * caused by something entirely unrelated, like a corrupted storageState —
+ * leaves the created row behind, and the NEXT run then has two tasks due the
+ * same day, which is itself a failure, which leaves a third row, and so on.
+ * It amplifies one incident into a permanently red spec. (Diagnosed by
+ * Engineer B and independently reproduced by Engineer C, 2026-08-26, after
+ * four agents ran mutating suites against the shared SEED account at once.)
+ *
+ * The in-UI removal inside the test still runs and is still a real assertion
+ * about the Edit→Remove→Save flow — this is a safety net beneath it, not a
+ * replacement for it.
+ */
+let createdTaskTitle: string | null = null;
+
+test.afterEach(async ({ request, baseURL }) => {
+  if (!createdTaskTitle) return;
+  const title = createdTaskTitle;
+  createdTaskTitle = null;
+  const secret = process.env.E2E_TEST_SECRET;
+  if (!secret) return;
+  // Best-effort: never let cleanup failure mask the real test result.
+  await request
+    .delete(`${baseURL}/api/test/clear-task`, { headers: { "x-e2e-secret": secret }, data: { title } })
+    .catch(() => undefined);
+});
+
 test.describe("School — expanded class view", () => {
   test("class cards render in Ayman's requested order, not alphabetically", async ({ page }) => {
     await openSchool(page);
@@ -164,6 +195,9 @@ test.describe("School — expanded class view", () => {
     const dialog = await openClass(page, "Ameri Studies");
 
     const taskTitle = `Playwright class-scoped ${Date.now()}`;
+    // Register for afterEach cleanup BEFORE creating it, so an assertion
+    // failure anywhere below still gets the row removed.
+    createdTaskTitle = taskTitle;
     await dialog.getByRole("button", { name: /^Add/ }).last().click();
 
     const wizard = page.getByRole("dialog").last();
@@ -183,12 +217,20 @@ test.describe("School — expanded class view", () => {
     // A future-dated task lands in the collapsed "Future" group, so expand
     // it before asserting on the row.
     await dialog.getByRole("button", { name: /Future/ }).click();
-    await expect(dialog.getByText(taskTitle)).toBeVisible();
 
-    // The actual formatting requirement, stated both ways so a partial fix
-    // that adds the pretty form while leaving the raw one can't pass.
-    await expect(dialog.getByText("Sep. 3rd")).toBeVisible();
-    await expect(dialog.getByText("2026-09-03")).toHaveCount(0);
+    // Scope the date assertion to THIS task's own row, found by its unique
+    // title. Asserting on a bare `getByText("Sep. 3rd")` was a real defect
+    // in an earlier version of this spec: any other task sharing that due
+    // date matches too, so the locator resolves to several elements and
+    // fails strict mode. Worse, it failed *before* the cleanup below ever
+    // ran, so every failed attempt left another row behind and made the
+    // next attempt fail harder — a test that poisons its own fixture.
+    // Anchoring to the unique title makes it independent of whatever else
+    // happens to be due that day. (Found by Engineer B, 2026-08-26.)
+    const row = dialog.locator("li", { hasText: taskTitle });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByText("Sep. 3rd")).toBeVisible();
+    await expect(row.getByText("2026-09-03")).toHaveCount(0);
 
     // A class-scoped list has no business offering a class filter.
     await expect(dialog.getByRole("combobox", { name: /All classes/i })).toHaveCount(0);
