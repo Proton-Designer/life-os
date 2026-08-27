@@ -102,9 +102,12 @@ export function AddClassDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
+        {/* Label hidden below sm (icon + aria-label carry it instead) — with
+            "Edit classes" beside it, the pair didn't fit this panel's own
+            header at 320px (layout-overflow.spec.ts, batch 3 verification). */}
+        <Button type="button" variant="outline" size="sm" aria-label="Add class">
           <Plus className="size-3.5" aria-hidden />
-          Add class
+          <span className="hidden sm:inline">Add class</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">

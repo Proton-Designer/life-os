@@ -95,7 +95,10 @@ export function NotificationsBell() {
         <button
           type="button"
           aria-label={count === 0 ? "No notifications" : `${count} notification${count === 1 ? "" : "s"}`}
-          className="relative flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+          // size-9 below sm, size-11 at sm+ — matches CheckInIconButton's
+          // same responsive floor (layout-overflow.spec.ts, batch 3
+          // verification: 320px-wide phones don't have room for full size).
+          className="relative flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:size-11"
         >
           <Bell className="size-4" />
           {count > 0 && (

@@ -60,7 +60,10 @@ export function Topbar({
             shows. The page title itself lives solely in PageHeader
             (removed from here per lead review — was rendering twice). */}
         <Link href="/" prefetch className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
-          <span aria-hidden className="text-base">
+          {/* Hidden below sm — every pixel of the wordmark row matters at
+              320px (layout-overflow.spec.ts, batch 3 verification), and the
+              wordmark alone still identifies the app. */}
+          <span aria-hidden className="hidden text-base sm:inline">
             &#9670;
           </span>
           Life OS
@@ -95,8 +98,11 @@ export function Topbar({
       </div>
 
       {/* Right-side icon order (batch 3, B3-1, Ayman explicit): Check-in,
-          Calendar, Notifications — notifications rightmost. */}
-      <div className="flex flex-1 items-center justify-end gap-3 sm:flex-none">
+          Calendar, Notifications — notifications rightmost. gap-1 below sm
+          (sm:gap-3 restores the original spacing) — at 320px, three
+          full-size icon buttons plus gap-3 didn't fit alongside the left
+          and centre groups (layout-overflow.spec.ts, batch 3 verification). */}
+      <div className="flex flex-1 items-center justify-end gap-1 sm:flex-none sm:gap-3">
         {/* Permanently visible, no time gating — pressing it always opens
             the check-in popup (falls back to the most recent unanswered
             window once the polled queue is empty, so it's never a dead

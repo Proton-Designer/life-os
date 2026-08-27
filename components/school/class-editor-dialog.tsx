@@ -172,10 +172,12 @@ export function ClassEditorDialog({
         {/* "Edit classes", not bare "Edit" — evening batch (2026-08-26) put
             an "Add class" button right beside this one; two controls in the
             same slot both needed a name that says what they open, not just
-            which icon they carry. Cosmetic only — no behavior here changed. */}
-        <Button type="button" variant="outline" size="sm">
+            which icon they carry. Label hidden below sm (icon + aria-label
+            carry it instead) — the pair didn't fit this panel's own header
+            at 320px (layout-overflow.spec.ts, batch 3 verification). */}
+        <Button type="button" variant="outline" size="sm" aria-label="Edit classes">
           <Pencil className="size-3.5" aria-hidden />
-          Edit classes
+          <span className="hidden sm:inline">Edit classes</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
