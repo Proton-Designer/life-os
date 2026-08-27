@@ -251,3 +251,90 @@ html {
     box-shadow: 0 0 0 2px color-mix(in oklch, var(--glow-white) 35%, transparent);
   }
 }
+
+/* Batch 3 — full-screen Lock-In overlay's aurora background
+   (components/business/lock-in-overlay.tsx). Three offset radial-gradient
+   blobs, dark red/maroon/black per Ayman's spec, reusing --glow-oxblood and
+   --destructive rather than inventing new hexes. Kind-tinted (a faint
+   --accent-business or --accent-school mixed into the second blob) so Deep
+   Work/Deep Study read differently at a glance while staying in that
+   family. Pure CSS, no JS loop/canvas — slow (18-24s) position drift plus
+   an independent brightness pulse on the same layers.
+   Found live at 390px (batch 3): the pulse originally animated `opacity`.
+   Opacity is a compositing operation against whatever is BEHIND the whole
+   element in real paint order, not just this layer's own colors — even
+   though the layer's own background-color/gradient stops are fully opaque,
+   dipping its opacity below 1 let the actual page underneath the dialog
+   bleed through on every cycle. `filter: brightness()` dims the layer's own
+   colors in place without ever introducing transparency. */
+.lock-in-aurora-business,
+.lock-in-aurora-school {
+  background-color: #0a0405;
+  background-size: 200% 200%, 220% 220%, 180% 180%;
+  animation:
+    lock-in-aurora-drift 20s ease-in-out infinite,
+    lock-in-aurora-pulse 13s ease-in-out infinite;
+}
+
+.lock-in-aurora-business {
+  background-image:
+    radial-gradient(circle at 20% 30%, color-mix(in oklch, var(--glow-oxblood) 85%, black) 0%, transparent 55%),
+    radial-gradient(circle at 80% 70%, color-mix(in oklch, var(--accent-business) 22%, var(--glow-oxblood)) 0%, transparent 55%),
+    radial-gradient(circle at 50% 100%, black 0%, transparent 60%);
+}
+
+.lock-in-aurora-school {
+  background-image:
+    radial-gradient(circle at 20% 30%, color-mix(in oklch, var(--glow-oxblood) 85%, black) 0%, transparent 55%),
+    radial-gradient(circle at 80% 70%, color-mix(in oklch, var(--accent-school) 18%, var(--glow-oxblood)) 0%, transparent 55%),
+    radial-gradient(circle at 50% 100%, black 0%, transparent 60%);
+}
+
+@keyframes lock-in-aurora-drift {
+  0%,
+  100% {
+    background-position:
+      0% 0%,
+      100% 100%,
+      50% 100%;
+  }
+  50% {
+    background-position:
+      20% 15%,
+      75% 80%,
+      55% 90%;
+  }
+}
+
+@keyframes lock-in-aurora-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(0.75);
+  }
+}
+
+/* A pulsating full-screen field is a genuine accessibility problem, not a
+   nicety (Lead review) — fully static under reduced motion, no throb at all. */
+@media (prefers-reduced-motion: reduce) {
+  .lock-in-aurora-business,
+  .lock-in-aurora-school {
+    animation: none;
+  }
+}
+
+/* The Lock-In overlay sits at z-[60] — deliberately above mobile-island and
+   the topbar (z-50/z-40) so it's genuinely full-screen on mobile (Lead
+   review, 2026-08-27). That puts it above every app Dialog's normal z-50
+   too, so anything popped up FROM INSIDE the overlay — Distractions, the
+   allocation check-in gate, the check-in toast — needs raising further
+   while the overlay is open, or it renders invisibly behind the aurora.
+   Scoped to this one body attribute (toggled by lock-in-overlay.tsx while
+   it's mounted) so ordinary z-50 stacking is untouched the rest of the time. */
+body[data-lock-in-overlay-open="true"] [data-slot="dialog-overlay"],
+body[data-lock-in-overlay-open="true"] [data-slot="dialog-content"],
+body[data-lock-in-overlay-open="true"] [data-slot="checkin-toast"] {
+  z-index: 70;
+}

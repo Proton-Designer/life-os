@@ -19,6 +19,7 @@ export function CheckinToast() {
     <div
       role="status"
       aria-live="polite"
+      data-slot="checkin-toast"
       className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-sm items-center gap-3 rounded-lg border border-border/40 bg-background px-4 py-3 shadow-lg lg:left-auto lg:right-4 lg:inset-x-auto"
     >
       <button

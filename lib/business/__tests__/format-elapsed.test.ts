@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatElapsedDuration } from "../format-elapsed";
+import { formatElapsedDuration, elapsedMinutesSince } from "../format-elapsed";
 
 describe("formatElapsedDuration", () => {
   it("shows 0m for less than a minute elapsed", () => {
@@ -21,5 +21,25 @@ describe("formatElapsedDuration", () => {
   it("floors partial minutes rather than rounding", () => {
     expect(formatElapsedDuration(59_999)).toBe("0m");
     expect(formatElapsedDuration(119_999)).toBe("1m");
+  });
+});
+
+describe("elapsedMinutesSince", () => {
+  it("returns 0 for less than a minute elapsed", () => {
+    const start = "2026-08-26T12:00:00.000Z";
+    const now = new Date("2026-08-26T12:00:30.000Z");
+    expect(elapsedMinutesSince(start, now)).toBe(0);
+  });
+
+  it("returns whole minutes, floored, past an hour", () => {
+    const start = "2026-08-26T12:00:00.000Z";
+    const now = new Date("2026-08-26T13:25:59.000Z");
+    expect(elapsedMinutesSince(start, now)).toBe(85);
+  });
+
+  it("never uses formatElapsedDuration's h/m split — the overlay stopwatch shows raw whole minutes", () => {
+    const start = "2026-08-26T12:00:00.000Z";
+    const now = new Date("2026-08-26T14:00:00.000Z");
+    expect(elapsedMinutesSince(start, now)).toBe(120);
   });
 });
