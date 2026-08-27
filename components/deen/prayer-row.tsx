@@ -127,7 +127,12 @@ export function PrayerRow({
         )}
       >
         <span className="text-sm font-medium">{label}</span>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap + min-w-0: the outer row wraps, but this group did not,
+            so its min-content (Upcoming + three status badges + the sunnah
+            counter) held the row open and pushed /deen into horizontal
+            scroll at 320px. Pre-existing; surfaced when 320 joined
+            layout-overflow.spec.ts's breakpoints (2026-08-27). */}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           {status === "upcoming" && <span className="text-xs text-muted-foreground">Upcoming</span>}
           {(["on_time", "qada", "missed"] as const).map((s) => (
             <button
