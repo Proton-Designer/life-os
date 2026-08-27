@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { LogOut } from "lucide-react";
 import { updateProfile } from "@/app/(app)/settings/actions";
+import { signOut } from "@/app/(app)/actions";
 import { LocationSettings } from "@/components/settings/location-settings";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -201,6 +203,16 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
               </Button>
             </form>
           )}
+          {/* Mobile's only remaining path to sign out, since batch 3 item 2
+              removed the hamburger drawer that used to hold AccountBlock.
+              The lg/xl sidebar still has its own AccountBlock popover —
+              this is additive, not a replacement. */}
+          <form action={signOut} className="border-t border-border/40 pt-4">
+            <Button type="submit" variant="outline" className="text-destructive hover:text-destructive">
+              <LogOut className="size-4" aria-hidden />
+              Sign out
+            </Button>
+          </form>
         </div>
       </Panel>
 

@@ -11,11 +11,11 @@ import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 export type SidebarVariant = "expanded" | "icon-rail" | "drawer";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentToken };
+export type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentToken };
 
 type NavSection = { label: string; items: NavItem[] };
 
-const SECTIONS: NavSection[] = [
+export const SECTIONS: NavSection[] = [
   {
     label: "MAIN",
     items: [

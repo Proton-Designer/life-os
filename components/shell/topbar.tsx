@@ -2,10 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { Menu } from "lucide-react";
-import { SidebarNav } from "./sidebar-nav";
-import { AccountBlock } from "./account-block";
 import { NotificationsBell } from "./notifications-bell";
 import { CheckInIconButton } from "./checkin-icon-button";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
@@ -57,18 +53,8 @@ export function Topbar({
   const reviewOpen = isReviewOpen(now, timezone);
 
   return (
-    <DialogPrimitive.Root>
-      <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md md:px-6">
+    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md md:px-6">
         <div className="flex flex-1 items-center gap-3 sm:flex-none">
-          <DialogPrimitive.Trigger asChild>
-            <button
-              type="button"
-              aria-label="Open menu"
-              className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground lg:hidden"
-            >
-              <Menu className="size-5" />
-            </button>
-          </DialogPrimitive.Trigger>
           {/* AppSidebar's own logo covers lg+ — below that the sidebar is
               hidden entirely, so this is the only place the brand mark
               shows. The page title itself lives solely in PageHeader
@@ -118,12 +104,12 @@ export function Topbar({
           <CheckInIconButton />
           {/* Replaces the account icon here (spec: "remove the user profile
               icon at the top right ... replace that button with a calendar
-              button"). Sign-out is unaffected — AccountBlock still renders
-              in the lg/xl sidebar (app-sidebar.tsx) and in this same
-              topbar's mobile drawer below, neither of which this touches.
-              A popup, not a navigation (Ayman, 2026-08-24: "should be a
-              popup, easy to look at and easy to cancel out of") — the
-              /calendar route itself still exists for e2e and direct links. */}
+              button"). A popup, not a navigation (Ayman, 2026-08-24:
+              "should be a popup, easy to look at and easy to cancel out
+              of") — the /calendar route itself still exists for e2e and
+              direct links. Sign-out lives in AppSidebar's AccountBlock
+              (lg/xl) and in Settings' Security panel on mobile, where the
+              hamburger drawer used to be (batch 3, item 2). */}
           <CalendarDialogTrigger
             accountKey={account.email}
             timezone={timezone}
@@ -134,24 +120,5 @@ export function Topbar({
           <NotificationsBell />
         </div>
       </header>
-
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none" />
-        <DialogPrimitive.Content
-          className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col gap-4 border-r border-border bg-sidebar p-4 outline-none data-open:animate-in data-open:slide-in-from-left data-closed:animate-out data-closed:slide-out-to-left motion-reduce:animate-none"
-          aria-describedby={undefined}
-        >
-          <DialogPrimitive.Title className="text-sm font-semibold tracking-tight">
-            Life OS
-          </DialogPrimitive.Title>
-          <div className="flex-1 overflow-y-auto">
-            <SidebarNav variant="drawer" />
-          </div>
-          <div className="border-t border-border pt-3">
-            <AccountBlock displayName={account.displayName} email={account.email} variant="drawer" />
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
   );
 }

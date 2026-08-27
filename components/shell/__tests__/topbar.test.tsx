@@ -2,8 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// Topbar itself no longer reads the route (title moved to PageHeader), but
-// its drawer renders SidebarNav, which does.
+// Topbar itself no longer reads the route (title moved to PageHeader) and,
+// since batch 3 item 2 removed its hamburger drawer, no longer renders
+// SidebarNav either — kept only because CalendarDialogTrigger's subtree
+// still expects next/navigation to be mockable.
 vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
@@ -35,7 +37,6 @@ vi.mock("@/app/(app)/review/actions", () => ({
 // Real next/link never forwards `prefetch` to the DOM (destructured out,
 // consumed internally), so intercept it before Link eats it. Mirrors real
 // rendering for every other prop this file's other assertions rely on.
-// Also covers SidebarNav/AccountBlock, both rendered inside Topbar's drawer.
 vi.mock("next/link", async () => {
   const React = await import("react");
   return {
@@ -103,33 +104,15 @@ describe("Topbar", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("renders a menu button that opens a drawer with the full nav", async () => {
-    const user = userEvent.setup();
+  // Batch 3, item 2: the hamburger drawer is gone — mobile navigation now
+  // lives entirely in MobileIsland at the bottom, so there is no menu
+  // trigger, no drawer dialog, and no account trigger here at all (sign-out
+  // moved to Settings' Security panel, see settings-form.test.tsx).
+  it("renders no menu button and no drawer — mobile nav lives in MobileIsland now", () => {
     renderTopbar();
-
-    await user.click(screen.getByRole("button", { name: /open menu/i }));
-
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Insights" })).toBeInTheDocument();
-  });
-
-  it("closes the drawer on Escape", async () => {
-    const user = userEvent.setup();
-    renderTopbar();
-    await user.click(screen.getByRole("button", { name: /open menu/i }));
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("renders the account trigger inside the drawer (replaced by a calendar link in the topbar itself)", async () => {
-    const user = userEvent.setup();
-    renderTopbar();
+    expect(screen.queryByRole("button", { name: /open menu/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /life os/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /account menu/i })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /open menu/i }));
-    expect(await screen.findByRole("button", { name: /account menu/i })).toBeInTheDocument();
   });
 
   it("shows a calendar button (opening a popup, not a navigation) in place of the account icon at the top right", () => {

@@ -29,21 +29,21 @@ vi.mock("next/link", async () => {
 import { MobileIsland } from "../mobile-island";
 
 describe("MobileIsland", () => {
-  it("renders exactly 5 top-level nav targets", () => {
+  it("renders exactly 7 top-level nav targets — Home, Deen, Business, School, Fitness, Work, More (batch 3, item 2)", () => {
     render(<MobileIsland />);
-    expect(screen.getAllByTestId(/^mobile-island-item-/)).toHaveLength(5);
+    expect(screen.getAllByTestId(/^mobile-island-item-/)).toHaveLength(7);
   });
 
-  it("reveals Fitness and Work links when tapping More", async () => {
+  it("reveals Insights and Settings links when tapping More", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);
 
-    expect(screen.queryByRole("link", { name: /fitness/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /insights/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /more/i }));
 
-    expect(screen.getByRole("link", { name: /fitness/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /work/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /insights/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
   });
 
   it("marks the active route with aria-current", () => {
@@ -59,7 +59,7 @@ describe("MobileIsland", () => {
 
   it("renders a Lucide icon for every top-level item, no emoji", () => {
     render(<MobileIsland />);
-    for (const key of ["home", "deen", "business", "school"]) {
+    for (const key of ["home", "deen", "business", "school", "fitness", "work"]) {
       expect(screen.getByTestId(`mobile-island-item-${key}`).querySelector("svg")).toBeInTheDocument();
     }
   });
@@ -73,11 +73,11 @@ describe("MobileIsland", () => {
   it("prefetches every nav target, including the More popover items (navigation-prefetch-fix, Part A)", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);
-    for (const key of ["home", "deen", "business", "school"]) {
+    for (const key of ["home", "deen", "business", "school", "fitness", "work"]) {
       expect(screen.getByTestId(`mobile-island-item-${key}`)).toHaveAttribute("data-prefetch", "true");
     }
     await user.click(screen.getByRole("button", { name: /more/i }));
-    expect(screen.getByRole("link", { name: /fitness/i })).toHaveAttribute("data-prefetch", "true");
-    expect(screen.getByRole("link", { name: /work/i })).toHaveAttribute("data-prefetch", "true");
+    expect(screen.getByRole("link", { name: /insights/i })).toHaveAttribute("data-prefetch", "true");
+    expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute("data-prefetch", "true");
   });
 });

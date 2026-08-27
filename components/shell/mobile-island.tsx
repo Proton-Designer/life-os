@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { SECTIONS } from "./sidebar-nav";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 const PRIMARY_ITEMS: {
@@ -24,12 +25,15 @@ const PRIMARY_ITEMS: {
   { href: "/deen", label: "Deen", key: "deen", icon: DOMAIN_ICON.deen, accent: "deen" },
   { href: "/business", label: "Business", key: "business", icon: DOMAIN_ICON.business, accent: "business" },
   { href: "/school", label: "School", key: "school", icon: DOMAIN_ICON.school, accent: "school" },
+  { href: "/fitness", label: "Fitness", key: "fitness", icon: DOMAIN_ICON.fitness, accent: "fitness" },
+  { href: "/work", label: "Work", key: "work", icon: DOMAIN_ICON.co_op, accent: "coop" },
 ];
 
-const MORE_ITEMS = [
-  { href: "/fitness", label: "Fitness", icon: DOMAIN_ICON.fitness },
-  { href: "/work", label: "Work", icon: DOMAIN_ICON.co_op },
-] as const;
+// Insights + Settings, in that order — reused from SidebarNav's own SECTIONS
+// (REVIEW then SYSTEM) rather than re-declared here a third time.
+const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
+  (item) => item.href === "/insights" || item.href === "/settings"
+);
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -46,7 +50,12 @@ export function MobileIsland() {
       className="fixed inset-x-0 bottom-4 z-50 flex justify-center lg:hidden"
     >
       <div
-        className="flex items-center gap-1 rounded-full border border-border/50 py-2 px-2 shadow-lg"
+        // gap-0.5/px-1.5 instead of gap-1/px-2: with 6 primary items + the
+        // ⋯ button (7 × size-10 = 280px, the touch-target floor — never
+        // shrink below it), the wider padding pushed this past 320px-wide
+        // phones. Trimmed the padding and gaps instead, per Opus Lead's
+        // review, keeping every touch target at its full 40px.
+        className="flex items-center gap-0.5 rounded-full border border-border/50 py-2 px-1.5 shadow-lg"
         style={{
           backdropFilter: "blur(18px) saturate(180%)",
           WebkitBackdropFilter: "blur(18px) saturate(180%)",
