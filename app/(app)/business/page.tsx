@@ -1,21 +1,20 @@
 import { redirect } from "next/navigation";
-import { Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
-import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { getActiveWorkSession } from "@/lib/business/active-session";
 import { KillList, type KillListSlotData } from "@/components/business/kill-list";
 import { KillListModuleControls } from "@/components/business/kill-list-module-controls";
-import { getIncompleteThisWeek } from "@/app/(app)/business/kill-list-history-actions";
+import { IncompleteTasksModule } from "@/components/business/incomplete-tasks-module";
+import { getIncompleteByDate } from "@/app/(app)/business/kill-list-history-actions";
 import { GoalCard } from "@/components/shared/goal-card";
-import { LockInPanel, type ActiveSessionData } from "@/components/business/lock-in-panel";
+import { FocusTimeCard } from "@/components/business/focus-time-card";
+import type { StoredSessionHour } from "@/components/business/lock-in-session";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
-import { IconChip } from "@/components/ui/icon-chip";
 
 export default async function BusinessPage() {
   const supabase = await createClient();
@@ -30,7 +29,7 @@ export default async function BusinessPage() {
   const weekStart = getWeekStartDate(dateStr);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ data: killListRows }, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteThisWeek] =
+  const [{ data: killListRows }, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate] =
     await Promise.all([
       supabase
         .from("kill_list_items")
@@ -65,7 +64,7 @@ export default async function BusinessPage() {
         .eq("kind", "deep_work")
         .gte("started_at", thirtyDaysAgoIso)
         .order("started_at", { ascending: false }),
-      getIncompleteThisWeek(),
+      getIncompleteByDate(),
     ]);
 
   const slots: [KillListSlotData, KillListSlotData, KillListSlotData] = [0, 1, 2].map((position) => {
@@ -74,22 +73,26 @@ export default async function BusinessPage() {
   }) as [KillListSlotData, KillListSlotData, KillListSlotData];
   const killListCompletedToday = slots.filter((s) => s.completed).length;
 
-  let activeSession: ActiveSessionData | null = null;
-  // "Deep Study in progress" — this page has no presence for that session
-  // (it's Business-scoped; Deep Study surfaces solely through the Home
-  // Focus module) but must still disable its own Lock In button while it's
-  // running, or the guard refuses an action this page just offered.
-  let otherKindActiveLabel: string | null = null;
-  if (anyActiveSession?.kind === "deep_work") {
+  // Batch 3 (C's LockInOverlayProvider refactor): session identity/kind and
+  // the cross-kind guard message now come from the app-wide overlay context
+  // (mounted once in AppShellChrome), not this page. All this page still
+  // owns is the one thing only its own render knows: the stored hourly
+  // allocations for a deep_work session that was already active when THIS
+  // request rendered — a session the context knows about but that started
+  // elsewhere (or is fresh) always begins at zero hours (see
+  // components/business/focus-time-card.tsx).
+  let initialStoredHours: StoredSessionHour[] = [];
+  const initialSessionId = anyActiveSession?.kind === "deep_work" ? anyActiveSession.id : null;
+  if (initialSessionId) {
     const { data } = await supabase
       .from("checkins")
       .select("window_start, checkin_allocations(domain)")
       .eq("user_id", userId)
-      .eq("work_session_id", anyActiveSession.id)
+      .eq("work_session_id", initialSessionId)
       .eq("kind", "allocation")
       .eq("answered", true)
       .order("window_start", { ascending: true });
-    const storedHours = (data ?? [])
+    initialStoredHours = (data ?? [])
       .filter((r) => r.window_start && (r.checkin_allocations ?? []).length > 0)
       .map((r) => ({
         hourStartIso: r.window_start as string,
@@ -97,9 +100,6 @@ export default async function BusinessPage() {
           ? ("business" as const)
           : ("wasted" as const),
       }));
-    activeSession = { id: anyActiveSession.id, startedAtIso: anyActiveSession.startedAt, storedHours };
-  } else if (anyActiveSession?.kind === "deep_study") {
-    otherKindActiveLabel = "Deep Study in progress";
   }
 
   // --- Focus time today ---
@@ -115,40 +115,21 @@ export default async function BusinessPage() {
     <PageContainer>
       <PageHeader title="Business" />
 
-      {/* Restructure (2026-08-21, per Ayman): Focus time today as a compact
-          mini card — same name+metric-side-by-side shape as Home's Sector
-          progress cards, not its own full Panel — sitting above the kill
-          list, with the Lock In entry point right beside it. The Lock In
-          Panel's own idle-state "Last session: ..." summary is gone (see
-          lock-in-panel.tsx) — this is now the one at-a-glance row for
-          "how much have I focused, and can I start now." */}
+      {/* Restructure (2026-08-26 night batch 3, per Ayman, verbatim): "put
+          the lock in button inside the Focus time today module, shift the
+          minute count to the left and add the lock in button on the right
+          of that." The vacated cell becomes the new Incompleted Tasks
+          module below. FocusTimeCard is a client component so its layout
+          can react to LIVE session state (see its own doc comment). */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-2 rounded-2xl border border-border/40 bg-card p-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <IconChip icon={Clock} accent="business" size="sm" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">Focus time today</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {sessionsToday.length === 0
-                  ? "No Lock-In sessions yet today"
-                  : `${sessionsToday.length} session${sessionsToday.length === 1 ? "" : "s"} today`}
-              </p>
-            </div>
-          </div>
-          <span className="shrink-0 font-mono text-sm font-semibold tabular-nums">
-            {formatElapsedDuration(focusMinutesToday * 60_000)}
-          </span>
-        </div>
-        <div id="lock-in-panel" className="scroll-mt-20">
-          {/* showTodayTotal={false}: the mini card to the left already shows this exact number. */}
-          <LockInPanel
-            initialSession={activeSession}
-            todayFocusMinutes={focusMinutesToday}
-            timezone={timezone}
-            showTodayTotal={false}
-            disabledReason={otherKindActiveLabel}
-          />
-        </div>
+        <FocusTimeCard
+          sessionsTodayCount={sessionsToday.length}
+          focusMinutesToday={focusMinutesToday}
+          initialSessionId={initialSessionId}
+          initialStoredHours={initialStoredHours}
+          timezone={timezone}
+        />
+        <IncompleteTasksModule initialGroups={incompleteByDate} todayStr={dateStr} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -157,7 +138,7 @@ export default async function BusinessPage() {
             title="Today's kill list"
             heroValue={`${killListCompletedToday}/3`}
             caption={killListCompletedToday === 3 ? "All three cleared" : `${3 - killListCompletedToday} left today`}
-            controls={<KillListModuleControls initialIncompleteItems={incompleteThisWeek} />}
+            controls={<KillListModuleControls />}
           >
             <KillList date={dateStr} slots={slots} />
           </Panel>

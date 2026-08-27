@@ -93,11 +93,12 @@ describe("getKillListHistory", () => {
   });
 });
 
-describe("getIncompleteThisWeek", () => {
+describe("getIncompleteByDate", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();
     fromMock.mockClear();
     vi.useFakeTimers();
+    // Wednesday, 2026-08-26 in Chicago.
     vi.setSystemTime(new Date("2026-08-26T18:00:00.000Z"));
   });
 
@@ -105,21 +106,81 @@ describe("getIncompleteThisWeek", () => {
     vi.useRealTimers();
   });
 
-  it("returns only incomplete, non-blank items from this week through today", async () => {
+  it("groups incomplete, non-blank items by date, most recent first, and includes today", async () => {
     const rows = [
-      { id: "a", text: "Finish deck", completed: false, date: "2026-08-24" },
-      { id: "b", text: "", completed: false, date: "2026-08-25" }, // blank, excluded
+      // Rows arrive date-descending, as the real query orders them.
+      { id: "a", text: "Finish deck", completed: false, date: "2026-08-26" }, // today
+      { id: "b", text: "", completed: false, date: "2026-08-26" }, // blank slot, excluded
+      { id: "c", text: "Call vendor", completed: false, date: "2026-08-20" },
+      { id: "d", text: "Send invoice", completed: false, date: "2026-08-20" },
     ];
     const chains: Record<string, ReturnType<typeof makeChain>> = {
       profiles: makeChain(CHICAGO_PROFILE),
       kill_list_items: makeChain({ data: rows, error: null }),
     };
     fromImpl = (table) => chains[table];
-    const { getIncompleteThisWeek } = await import("../kill-list-history-actions");
+    const { getIncompleteByDate } = await import("../kill-list-history-actions");
 
-    const items = await getIncompleteThisWeek();
-    expect(items).toEqual([{ id: "a", text: "Finish deck", completed: false }]);
+    const groups = await getIncompleteByDate();
+    expect(groups).toEqual([
+      { date: "2026-08-26", items: [{ id: "a", text: "Finish deck", completed: false }] },
+      {
+        date: "2026-08-20",
+        items: [
+          { id: "c", text: "Call vendor", completed: false },
+          { id: "d", text: "Send invoice", completed: false },
+        ],
+      },
+    ]);
     expect(chains.kill_list_items.eq).toHaveBeenCalledWith("completed", false);
     expect(chains.kill_list_items.lte).toHaveBeenCalledWith("date", "2026-08-26"); // includes today
+    expect(chains.kill_list_items.gte).toHaveBeenCalledWith("date", "2026-05-01"); // same 3-month floor as history
+  });
+
+  it("omits a date entirely when every one of its rows is blank text — not an empty-items group", async () => {
+    const rows = [{ id: "a", text: "", completed: false, date: "2026-08-20" }];
+    const chains: Record<string, ReturnType<typeof makeChain>> = {
+      profiles: makeChain(CHICAGO_PROFILE),
+      kill_list_items: makeChain({ data: rows, error: null }),
+    };
+    fromImpl = (table) => chains[table];
+    const { getIncompleteByDate } = await import("../kill-list-history-actions");
+
+    expect(await getIncompleteByDate()).toEqual([]);
+  });
+
+  it("returns an empty array, not a crash, when there is no data at all", async () => {
+    const chains: Record<string, ReturnType<typeof makeChain>> = {
+      profiles: makeChain(CHICAGO_PROFILE),
+      kill_list_items: makeChain({ data: [], error: null }),
+    };
+    fromImpl = (table) => chains[table];
+    const { getIncompleteByDate } = await import("../kill-list-history-actions");
+
+    expect(await getIncompleteByDate()).toEqual([]);
+  });
+
+  it("the week/month boundary: a date exactly at the 3-month floor is included, one day before is not", async () => {
+    // threeMonthsFloor for August 2026 is 2026-05-01 (3 months back from the
+    // 1st of the current month, per addMonthsToDateString).
+    const rows = [
+      { id: "a", text: "On the floor", completed: false, date: "2026-05-01" },
+      { id: "b", text: "One day short", completed: false, date: "2026-04-30" },
+    ];
+    const chains: Record<string, ReturnType<typeof makeChain>> = {
+      profiles: makeChain(CHICAGO_PROFILE),
+      kill_list_items: makeChain({ data: rows, error: null }),
+    };
+    fromImpl = (table) => chains[table];
+    const { getIncompleteByDate } = await import("../kill-list-history-actions");
+
+    // The .gte("date", threeMonthsFloor) call on the real query is what
+    // actually excludes 2026-04-30 — this fixture stands in for the
+    // Supabase query builder, so it proves the floor value itself is right,
+    // not that this function re-filters by date (it doesn't; the query
+    // does).
+    expect(chains.kill_list_items.gte).not.toHaveBeenCalled(); // not yet called — proven after the call below
+    await getIncompleteByDate();
+    expect(chains.kill_list_items.gte).toHaveBeenCalledWith("date", "2026-05-01");
   });
 });

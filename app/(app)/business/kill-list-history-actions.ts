@@ -69,29 +69,51 @@ export async function getKillListHistory(): Promise<KillListGroup[]> {
   ];
 }
 
+export type IncompleteByDateGroup = { date: string; items: KillListItemRow[] };
+
 /**
- * This week's items (through and including today) that were set but never
- * completed — the "Incompleted this Week" count/list next to the Today's
- * kill list heading.
+ * Item B3 (2026-08-26 night batch 3, verbatim): the "Incompleted Tasks"
+ * module's "More" list — every incomplete, non-blank item from the past 3
+ * months through today (inclusive), grouped by date, most recent first.
+ * Same floor as getKillListHistory's `threeMonthsFloor` (Lead ruling: the
+ * module's headline count and this list must cover the identical range, or
+ * the count lies) — the one difference from that function is this includes
+ * TODAY, since an item set today and still incomplete right now is exactly
+ * as "incomplete" as one from yesterday.
+ *
+ * A date with zero incomplete items is omitted entirely (Ayman's explicit
+ * instruction) rather than listed with an empty items array.
  */
-export async function getIncompleteThisWeek(): Promise<KillListItemRow[]> {
+export async function getIncompleteByDate(): Promise<IncompleteByDateGroup[]> {
   const { supabase, userId } = await requireUser();
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
-  const weekStart = getWeekStartDate(todayStr);
+  const monthStart = `${todayStr.slice(0, 7)}-01`;
+  const threeMonthsFloor = addMonthsToDateString(monthStart, -3);
 
   const { data: rows, error } = await supabase
     .from("kill_list_items")
-    .select("id, text, completed, date")
+    .select("id, position, text, completed, date")
     .eq("user_id", userId)
     .eq("completed", false)
-    .gte("date", weekStart)
+    .gte("date", threeMonthsFloor)
     .lte("date", todayStr)
-    .order("date", { ascending: true });
+    .order("date", { ascending: false })
+    .order("position", { ascending: true });
   if (error) throw error;
 
-  return (rows ?? []).filter(isRealItem).map((r) => ({ id: r.id, text: r.text, completed: r.completed }));
+  const byDate = new Map<string, KillListItemRow[]>();
+  for (const row of rows ?? []) {
+    if (!isRealItem(row)) continue;
+    const items = byDate.get(row.date) ?? [];
+    items.push({ id: row.id, text: row.text, completed: row.completed });
+    byDate.set(row.date, items);
+  }
+
+  // Rows arrived date-descending, so Map insertion order already matches —
+  // no separate sort needed (same reasoning as getKillListHistory above).
+  return Array.from(byDate.entries()).map(([date, items]) => ({ date, items }));
 }
 
 export async function getKillListDayDetail(date: string): Promise<KillListItemRow[]> {
