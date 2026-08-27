@@ -109,6 +109,37 @@ is evidence; a green you didn't earn is not. (Same discipline that made the
 prayer-floor fix trustworthy: prove the broken case first, so the fixed case
 means something.)
 
+#### A check can also pass for the wrong *reason*
+
+Subtler than examining nothing, and it looks identical in the log. Writing
+`e2e/lock-in-overlay.spec.ts` (2026-08-26 night), the Lead asserted the
+full-screen overlay covered the mobile nav pill by hit-testing it —
+`document.elementFromPoint` at the pill's centre, which reads like the honest
+question ("if he taps here, what does he actually hit?"). It is worthless for
+stacking: Radix's modal layer sets `pointer-events: none` on the body while a
+dialog is open, and `elementFromPoint` skips those elements. Proven by
+re-introducing the bug at runtime with `addStyleTag` — with the overlay forced
+back to `z-40`, the hit test *still* reported the pill as not-on-top. The check
+was measuring pointer-events, not paint order, and would have passed over the
+exact defect it was written for.
+
+Two rules fall out:
+
+- **Re-introduce the bug and watch the check go red before trusting it.** Do it
+  with a runtime override (`addStyleTag`, a route stub) rather than editing the
+  source — in a shared tree, editing another agent's file to prove a point is
+  its own hazard, and the override is faster anyway.
+- **When asserting on layout or stacking, assert the property itself**
+  (computed `z-index`, `scrollWidth`, a measured box), not a proxy that
+  *feels* more end-to-end. The realistic-looking assertion is the one most
+  likely to be silently satisfied by something else.
+
+Related: verifying against a dirty tree. On the same night an engineer ran the
+full layout suite and found every shell-wrapped route red at 320px, diagnosed it
+correctly to the shell, and had lost a six-minute run to another agent's
+half-finished topbar edit. The clean-worktree rule below is not just about
+`tsc`.
+
 ### Two mechanical traps that cost real time
 
 - **`playwright test | tail` returns `tail`'s exit code.** A run with 12
