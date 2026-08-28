@@ -89,7 +89,6 @@ export function HabitEditorDialog({
             todayStr={todayStr}
             onHabitsChange={onHabitsChange}
             onAdvancedFor={openAdvanced}
-            onAdvancedGlobal={() => openAdvanced(habits[0]?.id ?? "")}
             onSave={close}
           />
         ) : (
@@ -113,14 +112,12 @@ function MainScreen({
   todayStr,
   onHabitsChange,
   onAdvancedFor,
-  onAdvancedGlobal,
   onSave,
 }: {
   habits: DeenHabitData[];
   todayStr: string;
   onHabitsChange: (updater: (prev: DeenHabitData[]) => DeenHabitData[]) => void;
   onAdvancedFor: (habitId: string) => void;
-  onAdvancedGlobal: () => void;
   onSave: () => void;
 }) {
   const grouped: Record<HabitStage, DeenHabitData[]> = { active_build: [], stabilized: [], locked: [] };
@@ -130,21 +127,8 @@ function MainScreen({
 
   return (
     <>
-      {/* pr-8 clears DialogContent's own absolute-positioned close button
-          (top-2 right-2) — without it, a corner header button sits under
-          the X and never receives the click (found live in the Salah
-          calendar's identical layout, not by vitest, which doesn't lay
-          out absolute positioning against a real close button). */}
-      <DialogHeader className="flex-row items-center justify-between space-y-0 pr-8">
+      <DialogHeader>
         <DialogTitle>Edit habits</DialogTitle>
-        {/* Corner "Advanced" button (Ayman's spec) — global, not per-row;
-            opens the second screen with no habit pre-selected if there's
-            more than one, or the only habit selected automatically. Not
-            disabled at zero habits — the Advanced screen has its own empty
-            state, same as this one, rather than blocking navigation to it. */}
-        <Button type="button" variant="ghost" size="sm" onClick={onAdvancedGlobal}>
-          Advanced
-        </Button>
       </DialogHeader>
 
       {habits.length === 0 ? (
@@ -269,7 +253,7 @@ function HabitEditRow({
           <Input
             value={anchorCue}
             onChange={(e) => setAnchorCue(e.target.value)}
-            placeholder="Cue (optional) — e.g. Fajr"
+            placeholder="Cue (optional) — e.g. After Fajr"
           />
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={isPending}>
@@ -289,7 +273,7 @@ function HabitEditRow({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{habit.name}</span>
-          {habit.anchorCue && <span className="text-xs text-muted-foreground">After {habit.anchorCue}</span>}
+          {habit.anchorCue && <span className="text-xs text-muted-foreground">{habit.anchorCue}</span>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setEditing(true)}>

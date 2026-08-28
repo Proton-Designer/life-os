@@ -90,7 +90,7 @@ function AnchorCueTag({ cue }: { cue: string | null }) {
   if (!cue) return null;
   return (
     <span className="mb-0.5 inline-block rounded-full bg-accent/50 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-      After {cue}
+      {cue}
     </span>
   );
 }
@@ -227,11 +227,15 @@ function HabitFocusPicker({
           "reads oddly for names that aren't verb phrases" problem into the
           create form that the row display avoids by using a tag instead. */}
       <form onSubmit={createAndFocus} className="flex flex-col gap-2">
-        <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Or start a new habit" />
+        <Input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="Describe the habit — e.g. Read one page of Qur'an"
+        />
         <Input
           value={anchorCue}
           onChange={(e) => setAnchorCue(e.target.value)}
-          placeholder="Cue (optional) — e.g. Fajr"
+          placeholder="Cue (optional) — e.g. After Fajr"
         />
         <div className="flex gap-2">
           <Button type="submit" disabled={isPending}>

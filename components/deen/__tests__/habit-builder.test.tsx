@@ -172,7 +172,7 @@ describe("HabitBuilder", () => {
       <HabitBuilder todayStr="2026-08-15" habits={[habit()]} currentFocusHabitId={null} habitConsistencyRows={[]} />
     );
     await user.click(screen.getByRole("button", { name: /create new habit/i }));
-    expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an")).toBeInTheDocument();
   });
 
   it("lets you cancel out of the habit picker without picking anything, restoring the previous view", async () => {
@@ -187,11 +187,11 @@ describe("HabitBuilder", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
-    expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /cancel/i }));
 
-    expect(screen.queryByPlaceholderText("Or start a new habit")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an")).not.toBeInTheDocument();
     expect(screen.getByTestId("habit-focus-card")).toBeInTheDocument();
   });
 
@@ -202,7 +202,7 @@ describe("HabitBuilder", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
-    await user.type(screen.getByPlaceholderText("Or start a new habit"), "Should not be created");
+    await user.type(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an"), "Should not be created");
     await user.click(screen.getByRole("button", { name: /cancel/i }));
 
     expect(screen.getByText("No habits started yet")).toBeInTheDocument();
@@ -213,11 +213,13 @@ describe("HabitBuilder", () => {
     render(
       <HabitBuilder
         todayStr="2026-08-15"
-        habits={[habit({ anchorCue: "Fajr", name: "Gym" })]}
+        habits={[habit({ anchorCue: "After Fajr", name: "Gym" })]}
         currentFocusHabitId={null}
         habitConsistencyRows={[]}
       />
     );
+    // No prefilled "After " — the preposition, if any, is the user's own
+    // typed text now, since a cue can just as well be "Before sleeping".
     expect(screen.getByText("After Fajr")).toBeInTheDocument();
     expect(screen.getByText("Gym")).toBeInTheDocument();
     // Never fused — "After Fajr, I will Gym" or similar would read oddly.
@@ -237,13 +239,26 @@ describe("HabitBuilder", () => {
     expect(screen.queryByText(/^After/)).not.toBeInTheDocument();
   });
 
+  it("renders a bare stored cue (no leading preposition) as-is, not prefixed with 'After'", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ anchorCue: "Fajr", name: "Gym" })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("Fajr")).toBeInTheDocument();
+    expect(screen.queryByText("After Fajr")).not.toBeInTheDocument();
+  });
+
   it("the create-habit form has separate name and cue fields, not one sentence-shaped input", async () => {
     const user = userEvent.setup();
     render(
       <HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />
     );
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
-    expect(screen.getByPlaceholderText("Or start a new habit")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/cue \(optional\)/i)).toBeInTheDocument();
   });
 
@@ -256,7 +271,7 @@ describe("HabitBuilder", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /add a habit/i }));
-    await user.type(screen.getByPlaceholderText("Or start a new habit"), "Read Qur'an");
+    await user.type(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an"), "Read Qur'an");
     await user.type(screen.getByPlaceholderText(/cue \(optional\)/i), "Fajr");
     await user.click(screen.getByRole("button", { name: "Start" }));
 

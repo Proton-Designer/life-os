@@ -96,9 +96,9 @@ describe("HabitEditorDialog", () => {
       habit({ id: "a", name: "First habit", committedDate: "2026-08-01" }),
       habit({ id: "b", name: "Second habit", committedDate: "2026-08-10" }),
     ]);
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit history" })[0]);
 
-    // Defaults to the first habit.
+    // Opens pre-selected on the first habit's row.
     expect(await screen.findByLabelText("Started on")).toHaveValue("2026-08-01");
     expect(getDeenHabitLogRangeMock).toHaveBeenCalledWith("a", expect.any(String), TODAY);
 
@@ -169,18 +169,10 @@ describe("HabitEditorDialog", () => {
     expect(archiveDeenHabitMock).toHaveBeenCalledWith("a");
   });
 
-  it("switches to the Advanced screen and shows an empty state there too with zero habits", async () => {
-    const user = userEvent.setup();
-    renderDialog([]);
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
-    expect(screen.getByRole("heading", { name: /advanced habit settings/i })).toBeInTheDocument();
-    expect(screen.getByText(/no habits yet/i)).toBeInTheDocument();
-  });
-
   it("Advanced screen: never offers a future date for committed_date", async () => {
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Edit history" }));
     const dateInput = screen.getByLabelText("Started on");
     expect(dateInput).toHaveAttribute("max", TODAY);
   });
@@ -189,7 +181,7 @@ describe("HabitEditorDialog", () => {
     getDeenHabitLogRangeMock.mockResolvedValueOnce([{ date: TODAY, completed: false }]);
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Edit history" }));
     const todayRow = (await screen.findByText(TODAY)).closest("li")!;
     await user.click(within(todayRow).getByRole("button", { name: "Not done" }));
     expect(setDeenHabitLogStatusMock).toHaveBeenCalledWith("a", TODAY, true);
@@ -198,7 +190,7 @@ describe("HabitEditorDialog", () => {
   it("back arrow returns from Advanced to the main screen", async () => {
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Edit history" }));
     expect(screen.getByRole("heading", { name: /advanced habit settings/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("heading", { name: /edit habits/i })).toBeInTheDocument();
@@ -214,7 +206,7 @@ describe("HabitEditorDialog", () => {
   it("Save on the Advanced screen also closes the dialog", async () => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Edit history" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });

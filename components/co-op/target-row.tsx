@@ -89,31 +89,29 @@ export function TargetRow({
             which read as a rendering fault. Horizontal keeps every row
             the same height regardless of how many directions exist. */}
         {(canMoveUp || canMoveDown) && (
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 gap-1">
             {canMoveUp && (
               <Button
                 type="button"
-                variant="outline"
-                size="icon"
-                className="size-11"
+                variant="ghost"
+                size="icon-sm"
                 disabled={isPending}
                 onClick={() => onMove("up")}
                 aria-label="Move up"
               >
-                <ChevronUp />
+                <ChevronUp className="size-3.5" />
               </Button>
             )}
             {canMoveDown && (
               <Button
                 type="button"
-                variant="outline"
-                size="icon"
-                className="size-11"
+                variant="ghost"
+                size="icon-sm"
                 disabled={isPending}
                 onClick={() => onMove("down")}
                 aria-label="Move down"
               >
-                <ChevronDown />
+                <ChevronDown className="size-3.5" />
               </Button>
             )}
           </div>
