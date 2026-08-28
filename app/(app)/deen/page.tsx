@@ -15,6 +15,7 @@ import {
   localWeekday,
   getWeekStartDate,
   addDaysToDateString,
+  formatWindowRelativeTime,
 } from "@/lib/date-utils";
 import { PrayerRow } from "@/components/deen/prayer-row";
 import { SalahViewMoreButton } from "@/components/deen/salah-view-more-button";
@@ -195,6 +196,20 @@ export default async function DeenPage() {
       }
     : null;
 
+  // Informational only — read by the EmptyState fallback below, never
+  // rendered as its own actionable card. The gap between one prayer's
+  // window closing and the next one's opening is real (windows aren't
+  // contiguous), and losing "next prayer is Dhuhr, in 3h" entirely during
+  // that gap would trade Ayman's actual complaint (a live Mark-done button
+  // hours early) for a different regression (no idea what's next for
+  // hours). A genuinely missed-and-unlogged prayer still wins the message
+  // slot below — that needs action now, which outranks telling the user
+  // what's merely upcoming.
+  const upcomingPrayer = todayWindows
+    ? PRAYERS.find((p) => todayStatusFor(p.name) === "upcoming") ?? null
+    : null;
+  const hasMissedUnlogged = PRAYERS.some((p) => todayStatusFor(p.name) === "missed");
+
   // --- Salah panel hero + caption ---
   // "Remaining" is everything not yet on_time/qada — pending, upcoming, AND
   // missed. A missed prayer still needs the user's attention (mark it qada
@@ -330,9 +345,15 @@ export default async function DeenPage() {
                 message={
                   !todayWindows
                     ? "Set your location in Settings for prayer times"
-                    : unloggedToday.length > 0
+                    : hasMissedUnlogged
                       ? "Some prayers from today still need logging"
-                      : "All 5 prayers logged for today"
+                      : upcomingPrayer
+                        ? `Next: ${upcomingPrayer.name === "dhuhr" && isFriday ? "Jummah" : upcomingPrayer.label} ${formatWindowRelativeTime(
+                            todayWindows[upcomingPrayer.name]?.start ?? null,
+                            todayWindows[upcomingPrayer.name]?.end ?? null,
+                            now
+                          )}`
+                        : "All 5 prayers logged for today"
                 }
                 action={{ label: "Go to Settings", href: "/settings" }}
               />
