@@ -53,7 +53,12 @@ test.describe("Fitness — weight/waist logging in Cycle Progress checks (reloca
     await dismissCheckinDialogIfPresent(page);
 
     const bodyModule = page.getByTestId("body-module");
-    const [weightLog] = await bodyModule.getByRole("button", { name: "Log" }).all();
+    // .first() (auto-waiting) rather than a destructured .all() — .all() does
+    // not wait, so once every route gained a loading.tsx boundary this
+    // resolved to [] against the still-streaming skeleton and yielded
+    // undefined. See settleRoute()'s note in helpers.ts.
+    const weightLog = bodyModule.getByRole("button", { name: "Log" }).first();
+    await expect(weightLog).toBeVisible();
     await weightLog.click();
 
     const dialog = page.getByRole("dialog");

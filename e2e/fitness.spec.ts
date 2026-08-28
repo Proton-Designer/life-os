@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
 // The first three specs below are scoped to /fitness/workouts; the fourth
 // covers the /fitness screen itself (Daily Log, This week, Cycle Progress),
@@ -23,6 +23,13 @@ async function deleteTestPlanIfPresent(page: Page) {
 }
 
 async function deletePlanRowIfPresent(page: Page, planName: string) {
+  // settleRoute FIRST: isVisible() does not auto-wait, so once
+  // /fitness/workouts gained a loading.tsx boundary this probe could run
+  // against the still-streaming skeleton, return false, and make this
+  // function return WITHOUT deleting — silently, with no failed assertion.
+  // It surfaced only later, as a residue-reconciliation mismatch at teardown
+  // (a leftover active plan), which is a long way from the actual cause.
+  await settleRoute(page);
   const li = page.locator("li").filter({ hasText: planName });
   if (!(await li.isVisible().catch(() => false))) return;
   await li.getByRole("button", { name: "Delete" }).click();
@@ -148,6 +155,10 @@ test("activate and delete-with-active-warning: activating a plan updates the slo
   const baseline = await fitnessResidueSnapshot(page, baseURL, secret!);
 
   const microSlot = page.getByTestId("active-slot-micro");
+  // textContent() does not auto-wait; with a loading.tsx boundary on this
+  // route it can read the skeleton and take the wrong branch below.
+  await settleRoute(page);
+  await expect(microSlot).toBeVisible();
   const priorActiveText = (await microSlot.textContent()) ?? "";
   // "none selected" has no plan row to reactivate; anything else is a real
   // plan name we must restore by re-activating that same row afterward.
@@ -264,6 +275,10 @@ test("fitness screen: Workout Plan strip, Daily Log, This week, and Cycle Progre
   const baseline = await fitnessResidueSnapshot(page, baseURL, secret!);
 
   const microSlot = page.getByTestId("active-slot-micro");
+  // textContent() does not auto-wait; with a loading.tsx boundary on this
+  // route it can read the skeleton and take the wrong branch below.
+  await settleRoute(page);
+  await expect(microSlot).toBeVisible();
   const priorActiveText = (await microSlot.textContent()) ?? "";
   const priorActiveName = priorActiveText.includes("none selected")
     ? null
@@ -274,7 +289,8 @@ test("fitness screen: Workout Plan strip, Daily Log, This week, and Cycle Progre
   await page.goto("/fitness");
   await dismissCheckinDialogIfPresent(page);
   if (!priorActiveName) {
-    await expect(page.getByText("Activate a workout plan to start tracking cycles.")).toBeVisible();
+    await settleRoute(page);
+    await expect(page.getByText("Activate a workout plan to start tracking cycles.").first()).toBeVisible();
   }
 
   try {

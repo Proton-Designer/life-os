@@ -37,6 +37,34 @@ export async function dismissCheckinDialogIfPresent(page: Page) {
 }
 
 /**
+ * Waits until the route's loading.tsx skeleton has been replaced by real
+ * content.
+ *
+ * Batch 5 added a `loading.tsx` to every route, which means each one now has
+ * a real Suspense boundary and streams. `page.goto()` therefore resolves as
+ * soon as the SHELL plus the fallback arrive — not, as before, only once the
+ * whole page had server-rendered. Anything that reads the DOM without
+ * auto-waiting now lands in that window and sees the skeleton:
+ *
+ *   - `locator.all()` does NOT auto-wait; it returns `[]` if the elements
+ *     aren't there yet (this is what broke fitness-daily-log.spec.ts — a
+ *     destructured `const [x] = await ....all()` yielded `undefined`).
+ *   - `locator.textContent()` resolves against whatever exists at that
+ *     instant, so a "read the current value, then branch on it" step can
+ *     silently take the wrong branch.
+ *   - React's streaming briefly holds resolved content in a hidden container
+ *     before relocating it, so a strict-mode locator can transiently match
+ *     two copies of the same node.
+ *
+ * `expect(...).toBeVisible()` and friends auto-retry and are unaffected —
+ * this is only needed before a NON-waiting read. Prefer an auto-waiting
+ * assertion where you can; use this where you genuinely must read raw DOM.
+ */
+export async function settleRoute(page: Page) {
+  await expect(page.locator(".route-skeleton-fade-in")).toHaveCount(0);
+}
+
+/**
  * Waits for a mutation click to fully settle before it's safe to navigate
  * away. Two things have to both be true, not just one (proved the hard way
  * in e2e/deen.spec.ts, commit 8d63978):
