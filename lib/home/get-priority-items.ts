@@ -253,12 +253,16 @@ export async function getPriorityItems(
 
   const items: Omit<PriorityItem, "date">[] = [];
 
-  // Deen: prayers — windowed, not instants. A prayer is actionable here when
-  // its window is currently open ("pending"), or when it's coming up within
-  // the same right-now lookahead every other domain's due-soon item gets
-  // ("upcoming" + urgencyBucket already says right_now). A prayer whose
-  // window has closed ("missed") is no longer shown here at all — it flows
-  // into the Qada backlog instead, not Home's due-today list.
+  // Deen: prayers — windowed, not instants. A prayer is actionable here only
+  // once its own window has actually opened ("pending"). It used to also
+  // surface while merely "upcoming" within the same right-now lookahead
+  // every other domain's due-soon item gets, but that let a not-yet-started
+  // prayer (e.g. Dhuhr, the moment Fajr is marked done) show up under "Right
+  // now" with a live Mark-done button hours before its time began (Ayman,
+  // 2026-08-28) — a prayer isn't actionable before its time starts, unlike a
+  // task's arbitrary due time. A prayer whose window has closed ("missed")
+  // is no longer shown here at all — it flows into the Qada backlog instead,
+  // not Home's due-today list.
   let windows: Record<PrayerName, { start: Date; end: Date } | null> | null = null;
   if (profile?.location_lat != null && profile?.location_lng != null) {
     windows = computePrayerWindows({
@@ -277,10 +281,9 @@ export async function getPriorityItems(
     const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
     const window = windows ? windows[prayerName] : null;
     const effective = effectivePrayerStatus(stored, window, now);
+    if (effective !== "pending") continue;
     const dueAt = window ? window.start : null;
     const bucket = dueAt ? urgencyBucket(dueAt, now) : "later_today";
-    const isActionableSoon = effective === "upcoming" && bucket === "right_now";
-    if (effective !== "pending" && !isActionableSoon) continue;
 
     const title = prayerName === "dhuhr" && isFriday
       ? "Jummah"

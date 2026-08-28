@@ -167,14 +167,18 @@ export default async function DeenPage() {
       asrMadhab: (profile.asr_madhab as AsrMadhab) || "standard",
     });
   }
-  // Pending or upcoming — never missed — so a closed-and-unlogged Fajr
-  // doesn't get stuck showing as "next" all day. No location, no hero: the
-  // EmptyState below asks for one instead.
+  // Pending only — never missed, and never merely upcoming. This used to
+  // also match "upcoming" so a closed-and-unlogged Fajr didn't get stuck
+  // showing as "next" all day, but that had the side effect of showing the
+  // NEXT prayer (with its live Mark-done button) the instant the current one
+  // was logged, hours before that next prayer's own window opens (Ayman,
+  // 2026-08-28). Excluding "missed" already solved the original problem on
+  // its own — a missed prayer simply doesn't match "pending" either. No
+  // pending prayer right now (whether because everything's logged, or
+  // because we're between two prayers' windows): no hero, the EmptyState
+  // below covers both.
   const nextPrayer = todayWindows
-    ? PRAYERS.find((p) => {
-        const s = todayStatusFor(p.name);
-        return s === "pending" || s === "upcoming";
-      }) ?? null
+    ? PRAYERS.find((p) => todayStatusFor(p.name) === "pending") ?? null
     : null;
   const nextPrayerItem: PriorityItem | null = nextPrayer
     ? {

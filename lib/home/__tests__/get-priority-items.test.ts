@@ -124,14 +124,37 @@ describe("getPriorityItems", () => {
     expect(items.find((i) => i.actionRefId === "fajr")).toBeUndefined();
   });
 
-  it("excludes an unlogged prayer whose window hasn't opened and isn't within the right-now lookahead (fixes 'all five from midnight')", async () => {
-    // Early morning — Isha's window is many hours away, well outside the 2h lookahead.
+  it("excludes an unlogged prayer whose window hasn't opened, even far in advance (fixes 'all five from midnight')", async () => {
+    // Early morning — Isha's window is many hours away.
     const now = new Date("2026-08-10T11:00:00Z"); // ~6am CDT
     const dataSource = emptyDataSource({ getPrayers: async () => [] });
 
     const items = await getPriorityItems("user-1", now, dataSource);
 
     expect(items.find((i) => i.actionRefId === "isha")).toBeUndefined();
+  });
+
+  it("excludes an unlogged prayer whose window hasn't opened yet, even minutes away (Ayman, 2026-08-28: marking Fajr done must not surface Dhuhr as actionable before Dhuhr's own time starts)", async () => {
+    const now = new Date("2026-08-10T00:00:00Z");
+    const times = calculatePrayerTimes({
+      date: now,
+      lat: CHICAGO_PROFILE.location_lat,
+      lng: CHICAGO_PROFILE.location_lng,
+      timezoneOffsetMinutes: -300,
+      calcMethod: "MWL",
+      asrMadhab: "standard",
+    });
+    const thirtyMinBeforeDhuhr = new Date(times.dhuhr.getTime() - 30 * 60_000);
+
+    // No stored row at all — status is purely derived from the window, and
+    // the window hasn't opened. Well within the 2h right-now lookahead used
+    // elsewhere, which is exactly the case that used to leak a not-yet-open
+    // prayer into the actionable list.
+    const dataSource = emptyDataSource({ getPrayers: async () => [] });
+
+    const items = await getPriorityItems("user-1", thirtyMinBeforeDhuhr, dataSource);
+
+    expect(items.find((i) => i.actionRefId === "dhuhr")).toBeUndefined();
   });
 
   it("always shows the kill list's first incomplete item's own text, never a count of how many remain", async () => {
