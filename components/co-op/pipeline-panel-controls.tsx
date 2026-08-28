@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { addAgendaTask } from "@/app/(app)/work/tasks-actions";
+import { usePipeline } from "@/components/co-op/pipeline-context";
 
 /**
  * The merged Weekly Agenda Pipeline panel's header-right control (batch 5,
@@ -14,10 +14,17 @@ import { addAgendaTask } from "@/app/(app)/work/tasks-actions";
  * because the header's `controls` slot is a small, fixed-height strip, not
  * room for a form (see components/business/kill-list-module-controls.tsx
  * for the same "+ header button opens a popup" convention).
+ *
+ * Dispatches through PipelineProvider's `addTask` (item 1) rather than
+ * calling the Server Action directly, so the new card appears in the
+ * board on the same tap that submits this form — this component and
+ * PipelineBoard are siblings under Panel's two separate slots, and
+ * PipelineProvider is the shared ancestor that lets them agree on one
+ * optimistic task list instantly instead of waiting for the round trip.
  */
-export function PipelinePanelControls({ targetId }: { targetId: string }) {
+export function PipelinePanelControls() {
+  const { addTask } = usePipeline();
   const [open, setOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
   const [title, setTitle] = useState("");
   const [deadline, setDeadline] = useState("");
 
@@ -25,12 +32,10 @@ export function PipelinePanelControls({ targetId }: { targetId: string }) {
     e.preventDefault();
     const trimmed = title.trim();
     if (!trimmed) return;
-    startTransition(async () => {
-      await addAgendaTask(targetId, trimmed, deadline || undefined);
-      setTitle("");
-      setDeadline("");
-      setOpen(false);
-    });
+    addTask(trimmed, deadline || undefined);
+    setTitle("");
+    setDeadline("");
+    setOpen(false);
   }
 
   return (
@@ -51,7 +56,7 @@ export function PipelinePanelControls({ targetId }: { targetId: string }) {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending || !title.trim()}>
+              <Button type="submit" disabled={!title.trim()}>
                 Add task
               </Button>
             </div>

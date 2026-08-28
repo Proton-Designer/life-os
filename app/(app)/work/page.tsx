@@ -21,6 +21,7 @@ import { Panel } from "@/components/ui/panel";
 import { TargetsStrip } from "@/components/co-op/targets-strip";
 import { PipelineBoard } from "@/components/co-op/pipeline-board";
 import { PipelinePanelControls } from "@/components/co-op/pipeline-panel-controls";
+import { PipelineProvider } from "@/components/co-op/pipeline-context";
 import type { CoopTargetRow, CompletedCoopTargetRow } from "@/lib/coop/targets";
 import { splitByPastComplete, type CoopTaskRow } from "@/lib/coop/tasks";
 
@@ -78,13 +79,23 @@ export default async function CoOpPage() {
       completedDateStr: localDateString(new Date(t.completed_at as string), timezone),
     }));
 
-  const { data: coopTaskRows } = currentTarget
-    ? await supabase
-        .from("coop_tasks")
-        .select("id, title, deadline, status, blocked_from, created_at, completed_at")
-        .eq("user_id", userId)
-        .eq("target_id", currentTarget.id)
-    : { data: [] };
+  // Wave 2: coop_tasks depends on currentTarget.id from wave 1, and the
+  // cancellations/exceptions pair depends on eventIds from wave 1 — but
+  // neither depends on the OTHER's result, so they run concurrently
+  // instead of one after the other (Lead's latency diagnosis, batch 5,
+  // item 1: this was a third sequential Supabase round trip for no reason).
+  const eventIds = (eventRows ?? []).map((e) => e.id);
+  const [{ data: coopTaskRows }, cancelledDates, exceptions] = await Promise.all([
+    currentTarget
+      ? supabase
+          .from("coop_tasks")
+          .select("id, title, deadline, status, blocked_from, created_at, completed_at")
+          .eq("user_id", userId)
+          .eq("target_id", currentTarget.id)
+      : Promise.resolve({ data: [] as never[] }),
+    getCancelledDatesByEvent(supabase, userId, eventIds),
+    getScheduleExceptions(supabase, userId, eventIds),
+  ]);
 
   const coopTasks: CoopTaskRow[] = (coopTaskRows ?? []).map((t) => ({
     id: t.id,
@@ -96,12 +107,6 @@ export default async function CoOpPage() {
     completedAt: t.completed_at,
   }));
   const { pipelineTasks, pastTasks } = splitByPastComplete(coopTasks, now, timezone);
-
-  const eventIds = (eventRows ?? []).map((e) => e.id);
-  const [cancelledDates, exceptions] = await Promise.all([
-    getCancelledDatesByEvent(supabase, userId, eventIds),
-    getScheduleExceptions(supabase, userId, eventIds),
-  ]);
 
   const events: WorkScheduleEvent[] = (eventRows ?? []).map((e) => ({
     id: e.id,
@@ -168,15 +173,17 @@ export default async function CoOpPage() {
       <TargetsStrip rows={targets} completedGoals={completedTargets} todayStr={dateStr} />
 
       {currentTarget && (
-        <Panel
-          id="work-pipeline"
-          className="scroll-mt-20"
-          title="Weekly Agenda Pipeline"
-          caption={`${currentTarget.title} — Backlog through Complete`}
-          controls={<PipelinePanelControls targetId={currentTarget.id} />}
-        >
-          <PipelineBoard tasks={pipelineTasks} pastTasks={pastTasks} />
-        </Panel>
+        <PipelineProvider targetId={currentTarget.id} initialTasks={pipelineTasks}>
+          <Panel
+            id="work-pipeline"
+            className="scroll-mt-20"
+            title="Weekly Agenda Pipeline"
+            caption={`${currentTarget.title} — Backlog through Complete`}
+            controls={<PipelinePanelControls />}
+          >
+            <PipelineBoard pastTasks={pastTasks} />
+          </Panel>
+        </PipelineProvider>
       )}
     </PageContainer>
   );

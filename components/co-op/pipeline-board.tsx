@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TaskCard } from "@/components/co-op/task-card";
 import { PastCompletedDialog } from "@/components/co-op/past-completed-dialog";
-import { groupByStage, blockedTasks, type CoopTaskRow, type CoopTaskStatus } from "@/lib/coop/tasks";
-import { editTask, removeTask, advanceTask, retreatTask, blockTask, unblockTask } from "@/app/(app)/work/tasks-actions";
+import { usePipeline } from "@/components/co-op/pipeline-context";
+import { groupByStage, blockedTasks, type CoopTaskStatus } from "@/lib/coop/tasks";
+import type { CoopTaskRow } from "@/lib/coop/tasks";
 
 const COLUMN_LABELS: Record<Exclude<CoopTaskStatus, "blocked">, string> = {
   backlog: "Backlog",
@@ -16,34 +17,27 @@ const COLUMN_LABELS: Record<Exclude<CoopTaskStatus, "blocked">, string> = {
 };
 
 /**
- * The status view over the SAME task rows the Weekly Agenda lists (Opus
- * Lead ruling 1) — Backlog -> In Progress -> Review -> Complete, plus a
- * detached Blocked section (ruling 2: blocked is a pause, not a fifth
- * column in the sequence — pulled out of the linear layout entirely
- * rather than shown inline with a badge, so "detached" is structural,
- * not just visual).
+ * The status view over the SAME task rows the Weekly Agenda's add-task
+ * form feeds (Opus Lead ruling 1) — Backlog -> In Progress -> Review ->
+ * Complete, plus a detached Blocked section (ruling 2: blocked is a
+ * pause, not a fifth column in the sequence — pulled out of the linear
+ * layout entirely rather than shown inline with a badge, so "detached" is
+ * structural, not just visual).
+ *
+ * Reads its task list from PipelineProvider's optimistic state (item 1,
+ * batch 5) rather than a plain `tasks` prop — a card must move columns on
+ * the same frame as the tap, not once the server round trip lands.
+ * `pastTasks` stays a plain prop: the 7-day Past boundary is a server-side
+ * classification (lib/coop/tasks.ts's splitByPastComplete) that can't
+ * change mid-session from a client mutation, so there's nothing to make
+ * optimistic there.
  */
-export function PipelineBoard({ tasks, pastTasks }: { tasks: CoopTaskRow[]; pastTasks: CoopTaskRow[] }) {
-  const [isPending, startTransition] = useTransition();
+export function PipelineBoard({ pastTasks }: { pastTasks: CoopTaskRow[] }) {
+  const { tasks, taskActions } = usePipeline();
   const [blockedExpanded, setBlockedExpanded] = useState(true);
   const [pastOpen, setPastOpen] = useState(false);
   const columns = groupByStage(tasks);
   const blocked = blockedTasks(tasks);
-
-  function taskActions(task: CoopTaskRow) {
-    const status = task.status as Exclude<CoopTaskStatus, "blocked">;
-    const blockedFrom = task.blockedFrom;
-    return {
-      onAdvance: () => startTransition(() => advanceTask(task.id, status)),
-      onRetreat: () => startTransition(() => retreatTask(task.id, status)),
-      onBlock: () => startTransition(() => blockTask(task.id, status)),
-      onUnblock: () => {
-        if (blockedFrom) startTransition(() => unblockTask(task.id, blockedFrom));
-      },
-      onEdit: (newTitle: string) => startTransition(() => editTask(task.id, { title: newTitle })),
-      onRemove: () => startTransition(() => removeTask(task.id)),
-    };
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -70,7 +64,7 @@ export function PipelineBoard({ tasks, pastTasks }: { tasks: CoopTaskRow[]; past
               <div className="flex flex-col gap-2">
                 {columns[stage].length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">Empty</p>}
                 {columns[stage].map((task) => (
-                  <TaskCard key={task.id} task={task} isPending={isPending} {...taskActions(task)} />
+                  <TaskCard key={task.id} task={task} {...taskActions(task)} />
                 ))}
               </div>
             </div>
@@ -91,7 +85,7 @@ export function PipelineBoard({ tasks, pastTasks }: { tasks: CoopTaskRow[]; past
           <div className="flex flex-col gap-2 pl-2">
             {blocked.length === 0 && <p className="text-sm text-muted-foreground">Nothing blocked</p>}
             {blocked.map((task) => (
-              <TaskCard key={task.id} task={task} isPending={isPending} {...taskActions(task)} />
+              <TaskCard key={task.id} task={task} {...taskActions(task)} />
             ))}
           </div>
         )}

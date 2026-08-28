@@ -9,9 +9,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { nextStage, previousStage, type CoopTaskRow } from "@/lib/coop/tasks";
 
 /**
- * One task card — shared by the Agenda list and the pipeline board.
- * Buttons, not drag (matching the Targets strip's move controls — same
- * touch-conflict reasoning: this app uses horizontal snap-scroll
+ * One task card — shared by the Agenda's add-task flow and the pipeline
+ * board. Buttons, not drag (matching the Targets strip's move controls —
+ * same touch-conflict reasoning: this app uses horizontal snap-scroll
  * containers elsewhere).
  *
  * Remove lives only in edit mode, behind a confirmation, mirroring the
@@ -19,6 +19,13 @@ import { nextStage, previousStage, type CoopTaskRow } from "@/lib/coop/tasks";
  * routine action is a mis-tap generator) — applied here proactively
  * rather than waiting for the same catch twice, even though a task
  * delete has a smaller blast radius than a target delete (no cascade).
+ *
+ * No `isPending`-driven `disabled` on the stage buttons (item 1, batch
+ * 5) — the caller's optimistic state already moves this card the instant
+ * a button is tapped, so `task` itself reflects the new status before the
+ * server round trip returns. Disabling on `isPending` was the whole bug:
+ * every card froze for the full 1-2s mutation instead of moving on the
+ * same frame as the tap.
  */
 export function TaskCard({
   task,
@@ -28,7 +35,6 @@ export function TaskCard({
   onUnblock,
   onEdit,
   onRemove,
-  isPending,
 }: {
   task: CoopTaskRow;
   onAdvance: () => void;
@@ -37,7 +43,6 @@ export function TaskCard({
   onUnblock: () => void;
   onEdit: (title: string) => void;
   onRemove: () => void;
-  isPending: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
@@ -82,7 +87,7 @@ export function TaskCard({
 
       <div className="flex items-center gap-1">
         {isBlocked ? (
-          <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={onUnblock}>
+          <Button type="button" variant="outline" size="sm" onClick={onUnblock}>
             <LockOpen /> Unblock
           </Button>
         ) : (
@@ -92,16 +97,16 @@ export function TaskCard({
           // real work. Visible text on all three now, not just Advance.
           <>
             {canRetreat && (
-              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={onRetreat} aria-label="Move back a stage">
+              <Button type="button" variant="ghost" size="sm" onClick={onRetreat} aria-label="Move back a stage">
                 <ArrowLeft /> Back
               </Button>
             )}
             {canAdvance && (
-              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={onAdvance} aria-label="Advance a stage">
+              <Button type="button" variant="ghost" size="sm" onClick={onAdvance} aria-label="Advance a stage">
                 <ArrowRight /> Next
               </Button>
             )}
-            <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={onBlock} aria-label="Mark blocked — waiting on something outside your control">
+            <Button type="button" variant="ghost" size="sm" onClick={onBlock} aria-label="Mark blocked — waiting on something outside your control">
               <Lock /> Block
             </Button>
           </>
@@ -143,7 +148,6 @@ export function TaskCard({
             <Button
               type="button"
               variant="destructive"
-              disabled={isPending}
               onClick={() => {
                 setConfirmingDelete(false);
                 setEditing(false);
