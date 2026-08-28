@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { WorkScheduleWeek, type WorkScheduleEvent } from "../work-schedule-week";
+import { WorkScheduleWeek, todayScheduleLabel, type WorkScheduleEvent } from "../work-schedule-week";
 
 const WEEK_DATES = ["2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29"];
 
@@ -71,5 +71,37 @@ describe("WorkScheduleWeek", () => {
       />
     );
     expect(screen.getByTestId("work-schedule-day-0")).toHaveTextContent("9:00 AM–12:00 PM");
+  });
+
+  it("renders a compact strip with the same day resolution, one shrink-0 chip per day", () => {
+    render(
+      <WorkScheduleWeek events={[event()]} weekDates={WEEK_DATES} todayStr="2026-08-24" compact />
+    );
+    expect(screen.getByTestId("work-schedule-week-compact")).toBeInTheDocument();
+    expect(screen.getByTestId("work-schedule-day-1")).toHaveTextContent("10:30 AM–5:30 PM");
+  });
+});
+
+describe("todayScheduleLabel", () => {
+  it("shows today's resolved shift time", () => {
+    expect(todayScheduleLabel([event({ dayOfWeek: 1 })], WEEK_DATES, "2026-08-24")).toBe("10:30 AM–5:30 PM");
+  });
+
+  it("shows a clear no-shift message when nothing is scheduled today", () => {
+    expect(todayScheduleLabel([], WEEK_DATES, "2026-08-24")).toBe("No shift today");
+  });
+
+  it("treats a cancelled occurrence as no shift, not as the underlying time", () => {
+    expect(
+      todayScheduleLabel([event({ dayOfWeek: 1, cancelledDates: ["2026-08-24"] })], WEEK_DATES, "2026-08-24")
+    ).toBe("No shift today");
+  });
+
+  it("joins multiple shifts on the same day", () => {
+    const shifts = [
+      event({ id: "a", dayOfWeek: 1, eventTime: "09:00", endTime: "12:00" }),
+      event({ id: "b", dayOfWeek: 1, eventTime: "13:00", endTime: "17:00" }),
+    ];
+    expect(todayScheduleLabel(shifts, WEEK_DATES, "2026-08-24")).toBe("9:00 AM–12:00 PM, 1:00 PM–5:00 PM");
   });
 });
