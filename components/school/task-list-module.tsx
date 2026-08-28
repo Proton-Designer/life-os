@@ -66,7 +66,14 @@ function TaskRow({
         // its min-content — the whole task title — so a long title pushes
         // the row past the card instead of truncating. Same shape fixed in
         // task-row-list.tsx (6ff8e68) and kill-list.tsx; measured 2026-08-28.
-        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+        // overflow-hidden is the second half of the min-w-0 fix, and it is
+        // not cosmetic: the Edit/Remove controls are SIBLINGS of this button,
+        // not children, so metadata overflowing this box painted on top of
+        // them and swallowed their clicks — Playwright reported the "Sep. 3rd"
+        // span intercepting pointer events for Remove at mobile width
+        // (e2e/school-class-view.spec.ts, 2026-08-28). Clipping the meta is
+        // strictly better than a Remove button that cannot be pressed.
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
       >
         <span
           aria-hidden
@@ -86,8 +93,17 @@ function TaskRow({
           {task.title}
         </span>
         <span className={cn("shrink-0 text-xs font-medium", TASK_TYPE_COLOR[task.taskType])}>{typeLabel(task)}</span>
-        {task.className && <span className="shrink-0 text-xs text-muted-foreground">{task.className}</span>}
-        {task.dueDate && <span className="shrink-0 text-xs text-muted-foreground">{formatShortDate(task.dueDate, todayStr)}</span>}
+        {/* Class and date shrink before anything else: the type label is
+            colour-coded and carries meaning a truncation would destroy, so it
+            keeps shrink-0 while these two degrade first. */}
+        {task.className && (
+          <span className="min-w-0 shrink truncate text-xs text-muted-foreground">{task.className}</span>
+        )}
+        {task.dueDate && (
+          <span className="min-w-0 shrink truncate text-xs text-muted-foreground">
+            {formatShortDate(task.dueDate, todayStr)}
+          </span>
+        )}
       </button>
       {editing && (
         <span className="flex shrink-0 gap-1 pr-2">

@@ -228,7 +228,7 @@ function ActiveRow({
           // it, flex-1 cannot actually shrink and the row runs past its
           // container instead of truncating — measured 2026-08-27 at 390px,
           // a 575px row inside a 313px list.
-          className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
         >
           <Checkbox checked={justCompleted} />
           <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
@@ -265,7 +265,15 @@ function ActiveRow({
               `shrink`, because flex shrinks proportionally to content and a
               long meta beside a short title would still dominate. */}
           {item.meta && !item.metaBelow && (
-            <span className="max-w-[12rem] shrink-0 truncate text-xs text-muted-foreground">{item.meta}</span>
+            // Shrinkable, not shrink-0 (2026-08-28): an unshrinkable meta
+            // could still exceed the row's box, and because the row's
+            // siblings (Remove, the expand chevron) sit OUTSIDE it, the
+            // overflowing span painted on top of them and swallowed their
+            // clicks — e2e/school-class-view.spec.ts caught Remove being
+            // intercepted by a "Sep. 3rd" span at mobile width. `overflow-hidden`
+            // on the row above is the second half of the guard: content can
+            // no longer escape the row at all, whatever it does internally.
+            <span className="min-w-0 max-w-[12rem] shrink truncate text-xs text-muted-foreground">{item.meta}</span>
           )}
         </button>
         {item.expand && renderExpanded && (
