@@ -53,21 +53,18 @@ export function usePinToVisualViewport<T extends HTMLElement>() {
         el.style.transform = "";
         return;
       }
-      // Keep the same bottom margin the element already has at rest,
-      // measured against the layout viewport, but re-anchored to the
-      // currently-visible (possibly panned) region.
-      const bottomMargin = window.innerHeight - natural.top - natural.height;
-      const desiredLeft = vv.offsetLeft + (vv.width - natural.width) / 2;
-      const desiredTop = vv.offsetTop + vv.height - bottomMargin - natural.height;
-      // transform-origin is top left, so scale (applied first, right-to-
-      // left) anchors at the element's own top-left corner and doesn't
-      // move it — translate then carries that exact corner from its
-      // natural position to the desired one. Scaling by 1/scale shrinks
-      // the element's layout box so that, after the page's own pinch
-      // magnification is applied on top, its rendered size cancels back
-      // out to constant.
+      // Device-screen position is (layoutPos - offset) * scale. We want
+      // that to always equal the element's natural (scale-1) position —
+      // i.e. genuinely unchanged on screen, not just re-derived from a
+      // margin. Solving (translate + natural/scale - offset) * scale =
+      // natural for translate gives this; transform-origin top-left means
+      // scale (applied first) anchors at the corner translate then moves,
+      // so this composition lands that corner exactly on device-natural.
+      const inv = 1 / scale;
+      const translateX = vv.offsetLeft - natural.left * (1 - inv);
+      const translateY = vv.offsetTop - natural.top * (1 - inv);
       el.style.transformOrigin = "top left";
-      el.style.transform = `translate(${desiredLeft - natural.left}px, ${desiredTop - natural.top}px) scale(${1 / scale})`;
+      el.style.transform = `translate(${translateX}px, ${translateY}px) scale(${inv})`;
     }
 
     function schedule() {
