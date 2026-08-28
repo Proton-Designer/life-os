@@ -13,6 +13,7 @@ import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { SECTIONS } from "./sidebar-nav";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
+import { usePinToVisualViewport } from "./use-pin-to-visual-viewport";
 
 const PRIMARY_ITEMS: {
   href: string;
@@ -43,9 +44,15 @@ function isActive(pathname: string, href: string) {
 export function MobileIsland() {
   const pathname = usePathname();
   const moreActive = MORE_ITEMS.some((item) => isActive(pathname, item.href));
+  // Pinned to the visual viewport, not just floored to a minimum scale
+  // (app/layout.tsx) — without this a pinch-zoom-in scales this `fixed`
+  // element up and drifts it with the rest of the page (Ayman: "the bottom
+  // menu should ALWAYS remain in the same place with the same size").
+  const pinRef = usePinToVisualViewport<HTMLElement>();
 
   return (
     <nav
+      ref={pinRef}
       aria-label="Primary"
       className="fixed inset-x-0 bottom-4 z-50 flex justify-center lg:hidden"
     >

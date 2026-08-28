@@ -26,6 +26,18 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#0a0a0c",
+  width: "device-width",
+  initialScale: 1,
+  // Floors pinch-zoom-out at the default view (Ayman: "you can only zoom
+  // out to default view"). Deliberately no maximumScale below a generous
+  // ceiling and no userScalable: false — he explicitly wants pinch-zoom-in
+  // kept ("you can keep zooming in and out"), and blocking it outright
+  // would also be a WCAG 1.4.4 failure. See mobile-island.tsx's
+  // usePinToVisualViewport for the bottom nav's own position/size lock,
+  // which minimumScale alone doesn't provide (position: fixed tracks the
+  // layout viewport, not the visual one).
+  minimumScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
