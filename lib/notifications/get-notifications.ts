@@ -25,7 +25,9 @@ export type NotificationItem = {
 const ACTION_HREF: Record<ActionType, (item: { domain: Domain }) => string> = {
   toggle_prayer: () => "/deen#prayers",
   toggle_kill_list: () => "/business#kill-list",
-  toggle_task: (item) => (item.domain === "co_op" ? "/work#weekly-agenda" : "/school#tasks"),
+  // Weekly Agenda merged into the Pipeline panel (batch 5) — anchor renamed
+  // to match; #weekly-agenda no longer exists on the page.
+  toggle_task: (item) => (item.domain === "co_op" ? "/work#work-pipeline" : "/school#tasks"),
   toggle_habit: () => "/deen",
   toggle_adhkar: () => "/deen",
   open_fitness: () => "/fitness",

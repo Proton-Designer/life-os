@@ -1,13 +1,15 @@
 /**
- * Pure helpers for the Work Weekly Agenda + pipeline board — no React,
- * no I/O. docs/superpowers/specs/2026-08-20-coop-redesign.md.
+ * Pure helpers for the Work Weekly Agenda Pipeline — no React, no I/O.
+ * docs/superpowers/specs/2026-08-20-coop-redesign.md.
  *
  * Agenda and pipeline are ONE set of rows, not two (Opus Lead ruling 1):
- * the Agenda is a creation-and-list surface, the pipeline is a status
- * view over the same task rows. "Automatically placed in Backlog" is
+ * the Agenda's add-task form and the pipeline board's columns are two
+ * views over the same task rows. "Automatically placed in Backlog" is
  * just the status column defaulting to `backlog` — there is no separate
  * write path.
  */
+
+import { localDateString } from "@/lib/date-utils";
 
 export type CoopTaskStatus = "backlog" | "in_progress" | "review" | "complete" | "blocked";
 
@@ -19,6 +21,10 @@ export type CoopTaskRow = {
   /** Only meaningful while status === "blocked" — where to restore on unblock (ruling 2). */
   blockedFrom: Exclude<CoopTaskStatus, "blocked"> | null;
   createdAt: string;
+  /** When the task most recently entered `complete` (migration 055) — null
+   * whenever status !== "complete". Drives the Past section boundary
+   * below; never set from created_at (see the migration's backfill note). */
+  completedAt: string | null;
 };
 
 /** The sequence a normal (non-blocked) task advances through. Blocked is deliberately absent — it's a detached pause, not a step (ruling 2), so it never appears in this ordered list. */
@@ -77,4 +83,50 @@ export function groupByStage(tasks: CoopTaskRow[]): Record<Exclude<CoopTaskStatu
 /** Every currently-blocked task, for the detached Blocked section. */
 export function blockedTasks(tasks: CoopTaskRow[]): CoopTaskRow[] {
   return tasks.filter((t) => t.status === "blocked");
+}
+
+/** How long a completed task stays visible in the normal Complete column before sliding into Past (Ayman's spec, 2026-08-28 batch 5). */
+export const PAST_COMPLETE_THRESHOLD_DAYS = 7;
+
+/**
+ * A completed task becomes "Past" once at least PAST_COMPLETE_THRESHOLD_DAYS
+ * full calendar days have elapsed in the user's OWN timezone — never a raw
+ * UTC day count. This is precisely the bug class AGENTS.md documents as
+ * having shipped three times already: both `completedAt` and `now` are
+ * converted to local calendar-date strings via `localDateString` in the
+ * same timezone *before* being diffed, so a UTC-day rollover that hasn't
+ * happened locally yet (or already has, east of UTC) can't shift the
+ * count.
+ */
+export function isPastCompletedTask(completedAtIso: string, now: Date, timezone: string): boolean {
+  const completedDateStr = localDateString(new Date(completedAtIso), timezone);
+  const todayStr = localDateString(now, timezone);
+  return calendarDaysBetween(completedDateStr, todayStr) >= PAST_COMPLETE_THRESHOLD_DAYS;
+}
+
+function calendarDaysBetween(fromDateStr: string, toDateStr: string): number {
+  const [fy, fm, fd] = fromDateStr.split("-").map(Number);
+  const [ty, tm, td] = toDateStr.split("-").map(Number);
+  const fromUtc = Date.UTC(fy, fm - 1, fd);
+  const toUtc = Date.UTC(ty, tm - 1, td);
+  return Math.round((toUtc - fromUtc) / 86_400_000);
+}
+
+/**
+ * Splits the current target's tasks into what the pipeline board itself
+ * renders vs. what's aged out into the Past popup. A task only ever moves
+ * into `past` from `complete` — every other status (including blocked)
+ * stays in `pipeline` regardless of age.
+ */
+export function splitByPastComplete(
+  tasks: CoopTaskRow[],
+  now: Date,
+  timezone: string
+): { pipelineTasks: CoopTaskRow[]; pastTasks: CoopTaskRow[] } {
+  const pastTasks = tasks.filter(
+    (t) => t.status === "complete" && t.completedAt !== null && isPastCompletedTask(t.completedAt, now, timezone)
+  );
+  const pastIds = new Set(pastTasks.map((t) => t.id));
+  const pipelineTasks = tasks.filter((t) => !pastIds.has(t.id));
+  return { pipelineTasks, pastTasks };
 }

@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString } from "@/lib/date-utils";
-import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { getCancelledDatesByEvent, getScheduleExceptions, resolveOccurrence } from "@/lib/tasks/schedule-cancellations";
 import {
   addWorkHours,
@@ -14,16 +13,16 @@ import {
   cancelScheduleOccurrence,
   uncancelScheduleOccurrence,
 } from "./actions";
-import { WorkScheduleWeek, type WorkScheduleEvent } from "@/components/work/work-schedule-week";
+import { WorkScheduleWeek, todayScheduleLabel, type WorkScheduleEvent } from "@/components/work/work-schedule-week";
 import { WorkHoursEditorDialog, type PermanentWorkRow, type OneOffWorkRow } from "@/components/work/work-hours-editor-dialog";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
 import { TargetsStrip } from "@/components/co-op/targets-strip";
-import { WeeklyAgenda } from "@/components/co-op/weekly-agenda";
 import { PipelineBoard } from "@/components/co-op/pipeline-board";
+import { PipelinePanelControls } from "@/components/co-op/pipeline-panel-controls";
 import type { CoopTargetRow, CompletedCoopTargetRow } from "@/lib/coop/targets";
-import type { CoopTaskRow } from "@/lib/coop/tasks";
+import { splitByPastComplete, type CoopTaskRow } from "@/lib/coop/tasks";
 
 export default async function CoOpPage() {
   const supabase = await createClient();
@@ -82,7 +81,7 @@ export default async function CoOpPage() {
   const { data: coopTaskRows } = currentTarget
     ? await supabase
         .from("coop_tasks")
-        .select("id, title, deadline, status, blocked_from, created_at")
+        .select("id, title, deadline, status, blocked_from, created_at, completed_at")
         .eq("user_id", userId)
         .eq("target_id", currentTarget.id)
     : { data: [] };
@@ -94,7 +93,9 @@ export default async function CoOpPage() {
     status: t.status as CoopTaskRow["status"],
     blockedFrom: t.blocked_from as CoopTaskRow["blockedFrom"],
     createdAt: t.created_at,
+    completedAt: t.completed_at,
   }));
+  const { pipelineTasks, pastTasks } = splitByPastComplete(coopTasks, now, timezone);
 
   const eventIds = (eventRows ?? []).map((e) => e.id);
   const [cancelledDates, exceptions] = await Promise.all([
@@ -126,59 +127,55 @@ export default async function CoOpPage() {
     .filter((e) => !e.is_recurring && e.event_date !== null)
     .map((e) => ({ id: e.id, eventDate: e.event_date as string, eventTime: e.event_time, endTime: e.end_time }));
 
-  const countableEvents = (eventRows ?? []).map((e) => ({
-    id: e.id,
-    isRecurring: e.is_recurring,
-    dayOfWeek: e.day_of_week,
-    eventDate: e.event_date,
-  }));
-  const scheduledThisWeekCount = countScheduledThisWeek(countableEvents, weekDates, cancelledDates);
-
   return (
     <PageContainer>
       <PageHeader title="Work" />
 
-      <TargetsStrip rows={targets} completedGoals={completedTargets} todayStr={dateStr} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {currentTarget && (
-          <Panel id="weekly-agenda" className="scroll-mt-20" title="Weekly Agenda" heroValue={`${coopTasks.length}`} caption={`for ${currentTarget.title}`}>
-            <WeeklyAgenda targetId={currentTarget.id} tasks={coopTasks} />
-          </Panel>
-        )}
-        <div className={currentTarget ? "" : "lg:col-span-2"}>
-          <Panel
-            title="Work schedule"
-            heroValue={`${scheduledThisWeekCount}`}
-            caption={scheduledThisWeekCount === 0 ? "Nothing scheduled this week" : "shifts this week"}
-            controls={
-              <WorkHoursEditorDialog
-                permanentRows={permanentRows}
-                oneOffRows={oneOffRows}
-                weekDates={weekDates}
-                nextWeekDates={nextWeekDates}
-                exceptions={exceptions}
-                actions={{
-                  addWorkHours,
-                  updateWorkHours,
-                  removeWorkHours,
-                  addOneOffWorkShift,
-                  setWorkHoursOverride,
-                  removeWorkHoursOverride,
-                  cancelScheduleOccurrence,
-                  uncancelScheduleOccurrence,
-                }}
-              />
-            }
-          >
-            <WorkScheduleWeek events={events} weekDates={weekDates} todayStr={dateStr} />
-          </Panel>
+      {/* Thin schedule strip (batch 5, item 2) — replaces the old "Work
+          schedule" Panel entirely; deliberately not a <Panel>, since
+          wrapping it in one is what made it a module again. No shift
+          count anywhere (Ayman was explicit). Every text child gets
+          min-w-0 and the row wraps rather than compresses at mobile
+          widths — four things across one un-wrapping row is exactly the
+          320px overflow AGENTS.md's task-list-module note warns about. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border/40 bg-card px-3 py-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 text-sm font-medium">Work schedule</span>
+          <span className="min-w-0 truncate text-sm text-muted-foreground">{todayScheduleLabel(events, weekDates, dateStr)}</span>
         </div>
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <WorkScheduleWeek events={events} weekDates={weekDates} todayStr={dateStr} compact />
+        </div>
+        <WorkHoursEditorDialog
+          permanentRows={permanentRows}
+          oneOffRows={oneOffRows}
+          weekDates={weekDates}
+          nextWeekDates={nextWeekDates}
+          exceptions={exceptions}
+          actions={{
+            addWorkHours,
+            updateWorkHours,
+            removeWorkHours,
+            addOneOffWorkShift,
+            setWorkHoursOverride,
+            removeWorkHoursOverride,
+            cancelScheduleOccurrence,
+            uncancelScheduleOccurrence,
+          }}
+        />
       </div>
 
+      <TargetsStrip rows={targets} completedGoals={completedTargets} todayStr={dateStr} />
+
       {currentTarget && (
-        <Panel title="Pipeline" caption={`${currentTarget.title} — Backlog through Complete`}>
-          <PipelineBoard tasks={coopTasks} />
+        <Panel
+          id="work-pipeline"
+          className="scroll-mt-20"
+          title="Weekly Agenda Pipeline"
+          caption={`${currentTarget.title} — Backlog through Complete`}
+          controls={<PipelinePanelControls targetId={currentTarget.id} />}
+        >
+          <PipelineBoard tasks={pipelineTasks} pastTasks={pastTasks} />
         </Panel>
       )}
     </PageContainer>
