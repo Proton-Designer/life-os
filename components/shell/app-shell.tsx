@@ -18,15 +18,15 @@ export async function AppShell({
   onSaveBusiness: SaveGoalAction;
 }) {
   const user = await getAuthedUser();
-  // getProfile and getActiveWorkSession each cost one real Supabase round
-  // trip and neither depends on the other (both need only the userId, and
-  // getAuthedUser is a local JWT verify with no network hop) — this pair
-  // was serialized for no reason, and unlike a page-level waterfall this
-  // one is paid on EVERY navigation, since AppShell renders on every route
-  // (Opus Lead, batch 5). Both are cache()'d (lib/supabase/auth.ts,
-  // lib/business/active-session.ts) so other call sites later in the same
-  // render (Home's Focus module, Business's page) still hit the memo —
-  // this doesn't add a query, it overlaps two that already run.
+  // Overlapping these two here turned out to be inert (Opus Lead correction,
+  // batch 5): app/(app)/layout.tsx — AppShell's own caller — already awaits
+  // getProfile() before AppShell ever runs, so by the time this Promise.all
+  // starts, getProfile() is a resolved cache() memo and this is just
+  // `await getActiveWorkSession(...)` with extra steps. The real overlap
+  // (both issued together, ~87ms saved) had to move up into layout.tsx,
+  // where both round trips originate — see the comment there. Left as-is
+  // rather than reverted: harmless, and correct if a future caller of
+  // AppShell doesn't pre-fetch the profile the way this one does.
   const [profile, activeWorkSession] = await Promise.all([
     getProfile(),
     user ? getActiveWorkSession(user.id) : Promise.resolve(null),
