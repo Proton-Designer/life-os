@@ -8,6 +8,7 @@ import { RealtimeSyncProvider } from "@/components/realtime/realtime-sync-provid
 import { LockInOverlayProvider, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
 import { LockInOverlay } from "@/components/business/lock-in-overlay";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
+import type { KillListSlotData } from "@/components/business/kill-list";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
@@ -23,6 +24,7 @@ export function AppShellChrome({
   nowIso,
   timezone,
   activeWorkSession,
+  killListSlots,
   getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
@@ -38,6 +40,11 @@ export function AppShellChrome({
    * started before this request must still show its overlay/minimized
    * state on first paint, not just after a client-side start. */
   activeWorkSession: ActiveWorkSession | null;
+  /** Today's kill list, re-fetched every render (including the
+   * RealtimeSyncProvider's router.refresh() on any kill_list_items change)
+   * so the Deep Work overlay's row/column of checkable items never goes
+   * stale relative to /business or Home. */
+  killListSlots: [KillListSlotData, KillListSlotData, KillListSlotData];
   getWeekCalendar: () => Promise<WeekCalendarData>;
   onSaveDeen: SaveGoalAction;
   onSaveBusiness: SaveGoalAction;
@@ -79,7 +86,7 @@ export function AppShellChrome({
           <AllocationCheckinGate />
           <CheckinToast />
         </div>
-        <LockInOverlay timezone={timezone} />
+        <LockInOverlay timezone={timezone} killListSlots={killListSlots} />
       </LockInOverlayProvider>
     </AllocationQueueProvider>
   );

@@ -5,7 +5,8 @@ import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
 import { getActiveWorkSession } from "@/lib/business/active-session";
-import { KillList, type KillListSlotData } from "@/components/business/kill-list";
+import { getKillListSlots } from "@/lib/business/kill-list-slots";
+import { KillList } from "@/components/business/kill-list";
 import { KillListModuleControls } from "@/components/business/kill-list-module-controls";
 import { IncompleteTasksModule } from "@/components/business/incomplete-tasks-module";
 import { getIncompleteByDate } from "@/app/(app)/business/kill-list-history-actions";
@@ -29,14 +30,9 @@ export default async function BusinessPage() {
   const weekStart = getWeekStartDate(dateStr);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ data: killListRows }, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate] =
+  const [slots, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate] =
     await Promise.all([
-      supabase
-        .from("kill_list_items")
-        .select("id, position, text, completed")
-        .eq("user_id", userId)
-        .eq("date", dateStr)
-        .order("position", { ascending: true }),
+      getKillListSlots(userId, dateStr),
       supabase
         .from("weekly_goals")
         .select("headline, milestones")
@@ -67,10 +63,6 @@ export default async function BusinessPage() {
       getIncompleteByDate(),
     ]);
 
-  const slots: [KillListSlotData, KillListSlotData, KillListSlotData] = [0, 1, 2].map((position) => {
-    const row = killListRows?.find((r) => r.position === position);
-    return { id: row?.id ?? null, text: row?.text ?? "", completed: row?.completed ?? false };
-  }) as [KillListSlotData, KillListSlotData, KillListSlotData];
   const killListCompletedToday = slots.filter((s) => s.completed).length;
 
   // Batch 3 (C's LockInOverlayProvider refactor): session identity/kind and

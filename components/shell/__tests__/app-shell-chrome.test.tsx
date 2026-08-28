@@ -54,6 +54,11 @@ describe("AppShellChrome", () => {
         nowIso="2026-08-15T18:00:00.000-05:00"
         timezone="America/Chicago"
         activeWorkSession={null}
+        killListSlots={[
+          { id: null, text: "", completed: false },
+          { id: null, text: "", completed: false },
+          { id: null, text: "", completed: false },
+        ]}
         getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
         onSaveDeen={async () => {}}
         onSaveBusiness={async () => {}}

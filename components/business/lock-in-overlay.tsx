@@ -7,6 +7,8 @@ import { useLockInOverlay } from "./lock-in-overlay-context";
 import { elapsedMinutesSince } from "@/lib/business/format-elapsed";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
+import { LockInKillList } from "./lock-in-kill-list";
+import type { KillListSlotData } from "./kill-list";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +41,13 @@ function useTickingClock(enabled: boolean): Date {
 // overlay (DistractionCaptureDialog, the allocation check-in gate, the
 // check-in toast) needs to be raised further still while the overlay is
 // open — see the body[data-lock-in-overlay-open] rule in globals.css.
-export function LockInOverlay({ timezone }: { timezone: string }) {
+export function LockInOverlay({
+  timezone,
+  killListSlots,
+}: {
+  timezone: string;
+  killListSlots: [KillListSlotData, KillListSlotData, KillListSlotData];
+}) {
   const { session, minimized, isPending, minimize, endSession } = useLockInOverlay();
   const visible = !!session && !minimized;
   const now = useTickingClock(visible);
@@ -116,6 +124,20 @@ export function LockInOverlay({ timezone }: { timezone: string }) {
             </Button>
           </div>
 
+          {/* Kill list is Business-domain (kill_list_items has no
+              deep_study equivalent), so it only ever shows for a Deep Work
+              session — Ayman, 2026-08-28. Two separate renders, not one
+              reflowed with CSS flex-direction: the desktop row sits above
+              the header/timer block, the mobile column sits below it —
+              genuinely different positions in the layout, not just a
+              different axis on the same one. */}
+          {session.kind === "deep_work" && (
+            <LockInKillList
+              slots={killListSlots}
+              className="hidden w-full flex-row flex-wrap items-center justify-center gap-3 sm:flex"
+            />
+          )}
+
           <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
             <p className="text-lg font-medium uppercase tracking-[0.2em] text-foreground/80">{kindLabel}</p>
             <div className="flex items-baseline gap-2">
@@ -123,6 +145,13 @@ export function LockInOverlay({ timezone }: { timezone: string }) {
               <span className="text-xl text-foreground/70">min</span>
             </div>
             <p className="font-mono text-lg tabular-nums text-foreground/70">{clockLabel}</p>
+
+            {session.kind === "deep_work" && (
+              <LockInKillList
+                slots={killListSlots}
+                className="flex w-full max-w-sm flex-col gap-2 sm:hidden"
+              />
+            )}
           </div>
 
           <div className="flex w-full flex-col items-center gap-4 pb-2">

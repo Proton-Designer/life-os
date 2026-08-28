@@ -1,8 +1,16 @@
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { formatTopbarDate } from "@/lib/date-utils";
+import { formatTopbarDate, localDateString } from "@/lib/date-utils";
 import { getActiveWorkSession } from "@/lib/business/active-session";
+import { getKillListSlots } from "@/lib/business/kill-list-slots";
 import { AppShellChrome } from "./app-shell-chrome";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
+import type { KillListSlotData } from "@/components/business/kill-list";
+
+const EMPTY_KILL_LIST_SLOTS: [KillListSlotData, KillListSlotData, KillListSlotData] = [
+  { id: null, text: "", completed: false },
+  { id: null, text: "", completed: false },
+  { id: null, text: "", completed: false },
+];
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
@@ -18,27 +26,26 @@ export async function AppShell({
   onSaveBusiness: SaveGoalAction;
 }) {
   const user = await getAuthedUser();
-  // Overlapping these two here turned out to be inert (Opus Lead correction,
-  // batch 5): app/(app)/layout.tsx — AppShell's own caller — already awaits
-  // getProfile() before AppShell ever runs, so by the time this Promise.all
-  // starts, getProfile() is a resolved cache() memo and this is just
-  // `await getActiveWorkSession(...)` with extra steps. The real overlap
-  // (both issued together, ~87ms saved) had to move up into layout.tsx,
-  // where both round trips originate — see the comment there. Left as-is
-  // rather than reverted: harmless, and correct if a future caller of
-  // AppShell doesn't pre-fetch the profile the way this one does.
-  const [profile, activeWorkSession] = await Promise.all([
-    getProfile(),
-    user ? getActiveWorkSession(user.id) : Promise.resolve(null),
-  ]);
+  // getProfile() alone, not folded into the Promise.all below: it needs to
+  // resolve first so timezone is known before computing today's local date
+  // for the kill-list query. Per the Opus Lead's batch 5 correction, this
+  // costs nothing over the old overlapped version anyway — app/(app)/layout.tsx,
+  // AppShell's own caller, already awaits getProfile() before AppShell ever
+  // runs, so this is a resolved cache() memo by the time it's called here.
+  const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
+  const now = new Date();
+  const dateStr = localDateString(now, timezone);
+
+  const [activeWorkSession, killListSlots] = await Promise.all([
+    user ? getActiveWorkSession(user.id) : Promise.resolve(null),
+    user ? getKillListSlots(user.id, dateStr) : Promise.resolve(EMPTY_KILL_LIST_SLOTS),
+  ]);
 
   const account = {
     displayName: profile?.display_name || user?.email?.split("@")[0] || "Account",
     email: user?.email ?? "",
   };
-
-  const now = new Date();
 
   return (
     <AppShellChrome
@@ -52,6 +59,7 @@ export async function AppShell({
           ? { id: activeWorkSession.id, startedAtIso: activeWorkSession.startedAt, kind: activeWorkSession.kind }
           : null
       }
+      killListSlots={killListSlots}
       getWeekCalendar={getWeekCalendar}
       onSaveDeen={onSaveDeen}
       onSaveBusiness={onSaveBusiness}
