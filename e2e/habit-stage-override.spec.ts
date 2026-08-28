@@ -34,7 +34,7 @@ test("an overridden stage renders where the override says, not where the derived
   const addTrigger = habitPanel.getByRole("button", { name: /^(Add a habit|Create New Habit)$/ });
   await addTrigger.click();
 
-  const nameInput = habitPanel.getByPlaceholder("Or start a new habit");
+  const nameInput = habitPanel.getByPlaceholder(/Describe the habit/);
   await nameInput.fill(habitName);
   await clickAndSettle(page, habitPanel.getByRole("button", { name: "Start" }));
 
