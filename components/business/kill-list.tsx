@@ -76,7 +76,7 @@ function KillListSlot({
   }
 
   return (
-    <li className="flex items-center gap-1 rounded-lg border border-border/40 pr-2">
+    <li className="flex min-w-0 items-center gap-1 rounded-lg border border-border/40 pr-2">
       {/* The whole slot is the tap target, not just the circle (Ayman:
           "tapped or clicked anywhere on its box") — Edit stays its own
           separate control since it's a different action. Toggling was
@@ -93,7 +93,14 @@ function KillListSlot({
           })
         }
         aria-label={optimisticCompleted ? "Mark incomplete" : "Mark complete"}
-        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
+        // min-w-0 is load-bearing: a flex item's automatic minimum size
+        // (min-width:auto) refuses to shrink below its min-content, and this
+        // button's min-content includes the whole item text. Without it,
+        // flex-1 can't actually shrink and the row runs past its container
+        // instead of truncating — measured 2026-08-28 at 390px, a 689px row
+        // inside a 386px card (matching the shape task-row-list.tsx hit the
+        // same night in 6ff8e68).
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-50"
       >
         <span
           aria-hidden

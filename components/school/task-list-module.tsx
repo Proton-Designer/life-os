@@ -55,13 +55,18 @@ function TaskRow({
   }
 
   return (
-    <li className="flex items-center gap-1">
+    <li className="flex min-w-0 items-center gap-1">
       <button
         type="button"
         onClick={handleClick}
         disabled={isPending || editing}
         aria-label={`Mark "${task.title}" done`}
-        className="flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
+        // min-w-0 is load-bearing: without it, this flex-1 button's
+        // automatic minimum size (min-width:auto) refuses to shrink below
+        // its min-content — the whole task title — so a long title pushes
+        // the row past the card instead of truncating. Same shape fixed in
+        // task-row-list.tsx (6ff8e68) and kill-list.tsx; measured 2026-08-28.
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
       >
         <span
           aria-hidden

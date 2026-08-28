@@ -68,7 +68,12 @@ export function ClassCard({
             </span>
           </div>
           {data.upcomingAssessment ? (
-            <div className="flex flex-col items-end text-right">
+            // min-w-0 is load-bearing: this div's automatic minimum size
+            // (min-width:auto) otherwise refuses to shrink below the
+            // assessment name's min-content, so a long name pushes the row
+            // past the card instead of truncating — measured 2026-08-28 at
+            // 390px, a 595px row inside a 386px card.
+            <div className="flex min-w-0 flex-col items-end text-right">
               <span className="truncate text-sm font-medium">{data.upcomingAssessment.name}</span>
               <span className="text-xs text-muted-foreground">
                 {formatShortDate(data.upcomingAssessment.date, todayStr)}
