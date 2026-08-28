@@ -177,13 +177,15 @@ test.describe("Cross-device realtime sync", () => {
       await pageA.goto("/work");
       await pageB.goto("/work");
 
-      // The same task also renders in the Weekly Agenda panel (each with
-      // its own "Advance a stage" button) — scope to the Pipeline panel
-      // specifically, same [data-panel] discipline as the Deen/Salah test
-      // above, rather than assuming the task's title or button is unique
-      // on the page.
-      const pipelinePanelA = pageA.locator("[data-panel]").filter({ has: pageA.getByText("Pipeline", { exact: true }) });
-      const pipelinePanelB = pageB.locator("[data-panel]").filter({ has: pageB.getByText("Pipeline", { exact: true }) });
+      // Scoped to the pipeline panel by title, same [data-panel] discipline
+      // as the Deen/Salah test above, rather than assuming the task's title
+      // or button is unique on the page. The separate "Weekly Agenda" panel
+      // this used to disambiguate against is gone (batch 5 merged it into
+      // this one and renamed it "Weekly Agenda Pipeline"); the scoping is
+      // kept because it's still the right habit, not because a second panel
+      // competes for the match today.
+      const pipelinePanelA = pageA.locator("[data-panel]").filter({ has: pageA.getByText("Weekly Agenda Pipeline", { exact: true }) });
+      const pipelinePanelB = pageB.locator("[data-panel]").filter({ has: pageB.getByText("Weekly Agenda Pipeline", { exact: true }) });
 
       // Baseline: the task is in Backlog on both pages, not In Progress.
       await expect(pipelinePanelB.getByText("Backlog (1)")).toBeVisible();
