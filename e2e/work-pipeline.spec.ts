@@ -92,9 +92,13 @@ test.describe("Work — Weekly Agenda Pipeline", () => {
     const panel = pipelinePanel(page);
     await expect(panel).toBeVisible();
 
-    // The old separate "Weekly Agenda" and "Pipeline" panels are gone —
-    // /work renders exactly one Panel now, and it carries the merged title.
-    await expect(page.locator("[data-panel]")).toHaveCount(1);
+    // Tests the merge itself, not a count that happens to encode it (Opus
+    // Lead review) — a panel COUNT assertion would go red the moment any
+    // unrelated second panel is ever added to /work, pointing at the wrong
+    // thing. The old separate "Weekly Agenda" panel is gone; the merged
+    // "Weekly Agenda Pipeline" title exists exactly once.
+    await expect(page.getByText("Weekly Agenda", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Weekly Agenda Pipeline", { exact: true })).toBeVisible();
 
     const title = `Playwright pipeline add ${Date.now()}`;
     await addTaskFromPanel(page, panel, title);
