@@ -18,7 +18,19 @@ export async function AppShell({
   onSaveBusiness: SaveGoalAction;
 }) {
   const user = await getAuthedUser();
-  const profile = await getProfile();
+  // getProfile and getActiveWorkSession each cost one real Supabase round
+  // trip and neither depends on the other (both need only the userId, and
+  // getAuthedUser is a local JWT verify with no network hop) — this pair
+  // was serialized for no reason, and unlike a page-level waterfall this
+  // one is paid on EVERY navigation, since AppShell renders on every route
+  // (Opus Lead, batch 5). Both are cache()'d (lib/supabase/auth.ts,
+  // lib/business/active-session.ts) so other call sites later in the same
+  // render (Home's Focus module, Business's page) still hit the memo —
+  // this doesn't add a query, it overlaps two that already run.
+  const [profile, activeWorkSession] = await Promise.all([
+    getProfile(),
+    user ? getActiveWorkSession(user.id) : Promise.resolve(null),
+  ]);
   const timezone = profile?.timezone ?? "UTC";
 
   const account = {
@@ -27,12 +39,6 @@ export async function AppShell({
   };
 
   const now = new Date();
-  // getActiveWorkSession is request-scoped cache()'d — Home's Focus module
-  // and the Business page each call it too, so this adds no extra round
-  // trip. Feeds the app-wide LockInOverlayProvider (see app-shell-chrome.tsx)
-  // so a Lock-In session survives navigation instead of unmounting the
-  // moment its owning page's component tree does.
-  const activeWorkSession = user ? await getActiveWorkSession(user.id) : null;
 
   return (
     <AppShellChrome
