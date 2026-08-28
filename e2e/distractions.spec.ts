@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 import { isReviewOpen, reviewDateFor } from "@/lib/distractions/plan-rules";
 import { localDateString } from "@/lib/date-utils";
 
@@ -59,6 +59,11 @@ test.describe("Distractions", () => {
     await deleteTestTriggerIfPresent(page, baseURL, secret!); // clears any stray copy from an interrupted run
 
     try {
+      // settleRoute FIRST: textContent() (inside readHomeDistractionsCount)
+      // does not reliably wait out Home's loading.tsx skeleton, and a
+      // baseline read against the skeleton would corrupt every delta
+      // assertion below it, not just this one read.
+      await settleRoute(page);
       const baselineCount = await readHomeDistractionsCount(page);
 
       // --- Create a brand-new trigger via "+ New trigger" ---

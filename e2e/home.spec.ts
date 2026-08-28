@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
 // Every test in this file relies on the shared authenticated session from
 // the "setup" project (e2e/auth.setup.ts / playwright.config.ts's
@@ -96,6 +96,11 @@ test.describe("Home", () => {
     // cross-page complete-then-revert shape still works.
     await page.goto("/business");
     await dismissCheckinDialogIfPresent(page);
+    // settleRoute FIRST: .count() does not auto-wait, so right after goto it
+    // could read /business's loading.tsx skeleton (no <ul><li> at all there)
+    // and read 0 — the loop below never runs and this test skips a slot it
+    // could actually have tested.
+    await settleRoute(page);
 
     const slots = page.locator("ul").first().locator("> li");
     let targetIndex = -1;
@@ -119,6 +124,11 @@ test.describe("Home", () => {
     // priority-list panel is gone, so scoping to it isn't strictly required
     // for uniqueness anymore — kept anyway so this test still targets the
     // right module if that ever changes back.
+    // settleRoute FIRST: .count() below does not auto-wait, so right after
+    // goto it could read Home's loading.tsx skeleton (no [data-panel] at
+    // all there) and read 0 — a silent false skip of a run that actually
+    // had a Business item to toggle.
+    await settleRoute(page);
     const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
     const businessRow = nowPanel.locator("li").filter({ hasText: "Business" });
     const toggleButton = businessRow.getByRole("button", { name: /^Mark ".*" done$/ });

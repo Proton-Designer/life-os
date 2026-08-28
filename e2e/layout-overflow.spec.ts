@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
 // Part of the 2026-08-15 structural refactor's Phase A quality floor: "zero
 // horizontal overflow at 390/768/1024/1280/1600px, measured via scrollWidth
@@ -62,6 +62,15 @@ const READY_SELECTOR: Partial<Record<string, string>> = {
 // window to resolve without masking a real, persistent overflow (which
 // stays failing across the whole poll window regardless).
 async function waitForSettled(page: import("@playwright/test").Page, route?: string) {
+  // Batch 5's loading.tsx sweep gave every route a real Suspense boundary.
+  // networkidle alone is not a reliable proxy for "the skeleton is gone" —
+  // a streamed response with a gap of >500ms between chunks (a slow query
+  // mid-stream) can go network-idle while the fallback is still what's
+  // painted, which is exactly the false-pass shape this spec's own header
+  // comment already warns about for content in general. Checked first and
+  // unconditionally (not just for /school's READY_SELECTOR entry), since
+  // every route in AUTHED_ROUTES now carries a loading.tsx.
+  await settleRoute(page);
   await page.waitForLoadState("networkidle");
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(

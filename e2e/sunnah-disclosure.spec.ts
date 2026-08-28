@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, clickAndSettle } from "./helpers";
+import { dismissCheckinDialogIfPresent, clickAndSettle, settleRoute } from "./helpers";
 
 // Covers A3, the 2026-08-25/26 sunnah disclosure work: the 1.5s
 // auto-collapse (both on Deen's own PrayerRow and Home's Now-module prayer
@@ -118,6 +118,11 @@ test.describe("Sunnah disclosure — auto-collapse and the fard-prayer isolation
     // Home shows at most one prayer at a time (selectNextActionPerDomain) —
     // if nothing is currently actionable there's no row to test against,
     // and this spec skips rather than forcing state to manufacture one.
+    // settleRoute FIRST: .count() does not auto-wait, so right after goto
+    // it could read Home's loading.tsx skeleton (no chevron there at all)
+    // and skip a run that actually had a real row to test — a silent
+    // false skip, not a red failure, which is worse.
+    await settleRoute(page);
     if ((await chevron.count()) === 0) {
       test.skip(true, "No pending prayer currently showing in Home's Now module");
     }
