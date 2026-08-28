@@ -72,7 +72,14 @@ test.describe("Home", () => {
     // failed a spec that only allowed the second, which is a defect in the
     // assertion, not in the app (found 2026-08-27 at 00:12 CDT).
     await expect(page.getByText(/\d\/5 prayers|Not tracked yet/).first()).toBeVisible();
-    await expect(page.getByText(/Kill list \d\/3/)).toBeVisible();
+    // \d+/\d+, not \d/3: domain-status-stack.tsx renders
+    // `${killListDone}/${killListTotal || 3}`, where killListTotal is the
+    // ACTUAL number of kill-list rows today — it only falls back to 3 when
+    // there are none. Hardcoding /3 therefore asserted "SEED has either zero
+    // or exactly three kill-list items", which is a fact about test-account
+    // data, not about Home rendering. One real row put there through the UI
+    // made it render "0/1" and fail (2026-08-28).
+    await expect(page.getByText(/Kill list \d+\/\d+/)).toBeVisible();
     await expect(page.getByText(/% this week/)).toBeVisible();
     await expect(page.getByText(/due today/).first()).toBeVisible();
   });
