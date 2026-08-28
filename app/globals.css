@@ -252,6 +252,37 @@ html {
   }
 }
 
+/* Batch 5 — route loading.tsx skeletons (components/shell/route-skeleton.tsx).
+   A skeleton that appears and is immediately replaced reads as a flicker,
+   not a "smooth load" (Ayman's own wording) — this is the reversal of the
+   2026-08-16 navigation-latency fix's Phase 1, which deleted loading.tsx
+   sitewide specifically to avoid that flash; see the dated note in
+   docs/superpowers/specs/2026-08-16-navigation-latency-fix.md. Delaying
+   visibility rather than removing the boundary gets both: a route that
+   resolves inside the delay never shows a skeleton at all (mounts and
+   unmounts fully transparent), and a genuinely slow route gets one that's
+   actually readable. Every skeleton primitive in route-skeleton.tsx carries
+   this class so no route can add a new one and forget it. */
+.route-skeleton-fade-in {
+  opacity: 0;
+  animation: route-skeleton-fade-in 160ms ease-out forwards;
+  animation-delay: 130ms;
+}
+
+@keyframes route-skeleton-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Keep the delay (still the anti-flicker mechanism) but drop the animated
+   fade itself — an instant appear/disappear rather than motion. */
+@media (prefers-reduced-motion: reduce) {
+  .route-skeleton-fade-in {
+    animation-duration: 1ms;
+  }
+}
+
 /* Batch 3 — full-screen Lock-In overlay's aurora background
    (components/business/lock-in-overlay.tsx). Three offset radial-gradient
    blobs, dark red/maroon/black per Ayman's spec, reusing --glow-oxblood and

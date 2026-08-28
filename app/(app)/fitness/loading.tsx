@@ -1,7 +1,8 @@
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PanelSkeleton, RowListSkeleton } from "@/components/shell/route-skeleton";
+import { PanelSkeleton, RowListSkeleton, FADE_IN } from "@/components/shell/route-skeleton";
+import { cn } from "@/lib/utils";
 
 // Mirrors app/(app)/fitness/page.tsx: the Workout Plan strip (a bordered
 // row, not a Panel), Daily Log, This week (volume + week calendar), and
@@ -10,7 +11,7 @@ export default function FitnessLoading() {
   return (
     <PageContainer>
       <PageHeader title="Fitness" />
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-2.5">
+      <div className={cn("flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-2.5", FADE_IN)}>
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-9 w-28 rounded-lg" />
       </div>

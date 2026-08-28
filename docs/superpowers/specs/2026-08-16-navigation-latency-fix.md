@@ -4,6 +4,28 @@
 **Author:** Opus Lead, 2026-08-16
 **Companion research:** `docs/superpowers/research/2026-08-16-navigation-latency-research.md` (Sonnet Engineer)
 
+> **2026-08-28 update — Phase 1 deliberately reversed.** Ayman came back with the opposite
+> preference, in detail and unprompted: "instead of keeping the user on the old screen until the new
+> screen fully loads up ... make the load a skeleton and smooth load." That is exactly the behavior
+> Phase 1 deleted. This spec's own measured table showed the boundary never changed settle time
+> (~361–409ms with or without it) — removing it was always a presentation choice, not a performance
+> one, so a newer, specific, informed instruction from Ayman wins over the older inference about what
+> he'd prefer. `loading.tsx` was re-added to every route in `app/(app)/` (see
+> `components/shell/route-skeleton.tsx` and each route's own `loading.tsx`).
+>
+> The flash this spec fixed by *deleting* the boundary is now fixed by *delaying* it instead: every
+> skeleton primitive carries a `route-skeleton-fade-in` class (`app/globals.css`) that stays fully
+> transparent for ~130ms before fading in. A route that resolves inside that window never shows a
+> skeleton at all (Acceptance Criterion 3's "cache hits stay instant" and this spec's Phase
+> 2 pending-dot both still hold for the fast path); a genuinely slow one gets a real, readable
+> skeleton instead of nothing.
+>
+> **What did NOT change:** `revalidatePath`'s purge-everything behavior (Phase 4's "Which primitive
+> purges what" section, above) is exactly as documented. A skeleton can still appear on any route
+> after any mutation anywhere — re-adding `loading.tsx` means that now shows a (delayed, brief)
+> skeleton again instead of the silent old-screen hold Phase 1 introduced. That tradeoff is the
+> explicit point of this reversal, not an oversight of it.
+
 ## The report
 
 > "Whenever you switch to a new screen, at first it takes like one to two seconds to load. Then if

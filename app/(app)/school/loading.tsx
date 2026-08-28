@@ -1,7 +1,8 @@
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { KpiStripSkeleton, PanelSkeleton, RowListSkeleton } from "@/components/shell/route-skeleton";
+import { KpiStripSkeleton, PanelSkeleton, RowListSkeleton, FADE_IN } from "@/components/shell/route-skeleton";
+import { cn } from "@/lib/utils";
 
 // Mirrors app/(app)/school/page.tsx: a 4-card KPI strip (Due today,
 // Overdue, Due this week, Completed), an optional class-cards grid, the
@@ -13,7 +14,7 @@ export default function SchoolLoading() {
       <KpiStripSkeleton count={4} size="sm" cols="md:grid-cols-2 lg:grid-cols-4" />
       <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
+          <div key={i} className={cn("flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4", FADE_IN)}>
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-16 w-full rounded-lg" />
           </div>
