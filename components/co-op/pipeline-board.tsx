@@ -33,7 +33,7 @@ const COLUMN_LABELS: Record<Exclude<CoopTaskStatus, "blocked">, string> = {
  * optimistic there.
  */
 export function PipelineBoard({ pastTasks }: { pastTasks: CoopTaskRow[] }) {
-  const { tasks, taskActions } = usePipeline();
+  const { tasks, error, taskActions } = usePipeline();
   const [blockedExpanded, setBlockedExpanded] = useState(true);
   const [pastOpen, setPastOpen] = useState(false);
   const columns = groupByStage(tasks);
@@ -41,6 +41,7 @@ export function PipelineBoard({ pastTasks }: { pastTasks: CoopTaskRow[] }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:grid md:grid-cols-4 md:overflow-visible">
         {(Object.keys(COLUMN_LABELS) as Exclude<CoopTaskStatus, "blocked">[]).map((stage) => (
           <div key={stage} className="w-[70vw] shrink-0 snap-start md:w-auto">

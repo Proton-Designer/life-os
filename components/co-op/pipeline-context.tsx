@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useOptimistic, useTransition, type ReactNode } from "react";
+import { createContext, useContext, useOptimistic, useState, useTransition, type ReactNode } from "react";
 import {
   nextStage,
   previousStage,
@@ -53,6 +53,7 @@ function reduce(tasks: CoopTaskRow[], action: OptimisticAction): CoopTaskRow[] {
 type PipelineContextValue = {
   tasks: CoopTaskRow[];
   isPending: boolean;
+  error: string | null;
   addTask: (title: string, deadline?: string) => void;
   taskActions: (task: CoopTaskRow) => {
     onAdvance: () => void;
@@ -83,10 +84,19 @@ export function PipelineProvider({
 }) {
   const [isPending, startTransition] = useTransition();
   const [tasks, dispatch] = useOptimistic(initialTasks, reduce);
+  // If a Server Action throws mid-transition, React reverts the optimistic
+  // value on its own — that part needs no help. What it does NOT do is stop
+  // the throw from propagating; left unhandled, that crashes the nearest
+  // error boundary (or the whole route, on one with none) instead of just
+  // snapping the card back. Every mutation below is wrapped so the revert
+  // is the whole story, and the user sees why, the same shape as
+  // LockInOverlayProvider's `error` slot.
+  const [error, setError] = useState<string | null>(null);
 
   function addTask(title: string, deadline?: string) {
     const trimmed = title.trim();
     if (!trimmed) return;
+    setError(null);
     startTransition(async () => {
       dispatch({
         type: "add",
@@ -100,7 +110,11 @@ export function PipelineProvider({
           completedAt: null,
         },
       });
-      await addAgendaTask(targetId, trimmed, deadline);
+      try {
+        await addAgendaTask(targetId, trimmed, deadline);
+      } catch {
+        setError(`Couldn't add "${trimmed}" — it's been removed. Try again.`);
+      }
     });
   }
 
@@ -111,48 +125,80 @@ export function PipelineProvider({
       onAdvance: () => {
         const next = nextStage(status);
         if (!next) return;
+        setError(null);
         startTransition(async () => {
           dispatch({ type: "setStatus", id: task.id, status: next });
-          await advanceTask(task.id, status);
+          try {
+            await advanceTask(task.id, status);
+          } catch {
+            setError(`Couldn't move "${task.title}" — it's back where it was.`);
+          }
         });
       },
       onRetreat: () => {
         const prev = previousStage(status);
         if (!prev) return;
+        setError(null);
         startTransition(async () => {
           dispatch({ type: "setStatus", id: task.id, status: prev });
-          await retreatTask(task.id, status);
+          try {
+            await retreatTask(task.id, status);
+          } catch {
+            setError(`Couldn't move "${task.title}" — it's back where it was.`);
+          }
         });
       },
       onBlock: () => {
+        setError(null);
         startTransition(async () => {
           dispatch({ type: "block", id: task.id, blockedFrom: status });
-          await blockTask(task.id, status);
+          try {
+            await blockTask(task.id, status);
+          } catch {
+            setError(`Couldn't block "${task.title}" — it's back where it was.`);
+          }
         });
       },
       onUnblock: () => {
         if (!blockedFrom) return;
+        setError(null);
         startTransition(async () => {
           dispatch({ type: "setStatus", id: task.id, status: blockedFrom });
-          await unblockTask(task.id, blockedFrom);
+          try {
+            await unblockTask(task.id, blockedFrom);
+          } catch {
+            setError(`Couldn't unblock "${task.title}" — it's back where it was.`);
+          }
         });
       },
       onEdit: (newTitle: string) => {
+        setError(null);
         startTransition(async () => {
           dispatch({ type: "edit", id: task.id, title: newTitle });
-          await editTask(task.id, { title: newTitle });
+          try {
+            await editTask(task.id, { title: newTitle });
+          } catch {
+            setError(`Couldn't rename "${task.title}" — the old title is back.`);
+          }
         });
       },
       onRemove: () => {
+        setError(null);
         startTransition(async () => {
           dispatch({ type: "remove", id: task.id });
-          await removeTask(task.id);
+          try {
+            await removeTask(task.id);
+          } catch {
+            setError(`Couldn't delete "${task.title}" — it's back.`);
+          }
         });
       },
     };
   }
 
   return (
-    <PipelineContext.Provider value={{ tasks, isPending, addTask, taskActions }}>{children}</PipelineContext.Provider>
+    <PipelineContext.Provider value={{ tasks, isPending, error, addTask, taskActions }}>
+      {children}
+    </PipelineContext.Provider>
   );
 }
