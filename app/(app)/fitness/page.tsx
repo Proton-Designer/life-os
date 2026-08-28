@@ -45,8 +45,41 @@ export default async function FitnessPage() {
   const routinePlanId = activeRow?.routine_plan_id ?? null;
 
   const planIds = [microPlanId, routinePlanId].filter((id): id is string => id !== null);
-  const { data: planRows } =
-    planIds.length > 0 ? await supabase.from("workout_plans").select("id, name, created_at").in("id", planIds) : { data: [] };
+
+  // planRows/microExerciseRows/sessionRows each depend only on activeRow
+  // (just resolved above); anchorRow and confirmedSetRows depend on neither
+  // activeRow nor each other (anchorRow keys on userId, confirmedSetRows on
+  // userId/weekDates) — all five were previously forced sequential for no
+  // reason. Merged into one wave (2026-08-28 audit); the anchor's write-if-
+  // missing stays its own dependent step below, after planRows resolves.
+  const [{ data: planRows }, { data: microExerciseRows }, { data: sessionRows }, { data: anchorRow }, { data: confirmedSetRows }] =
+    await Promise.all([
+      planIds.length > 0
+        ? supabase.from("workout_plans").select("id, name, created_at").in("id", planIds)
+        : Promise.resolve({ data: [] }),
+      microPlanId
+        ? supabase
+            .from("plan_micro_exercises")
+            .select("exercise_id, schedule_days, goal_type, goal_value, notes, exercises(name)")
+            .eq("plan_id", microPlanId)
+            .order("position")
+        : Promise.resolve({ data: [] }),
+      routinePlanId
+        ? supabase
+            .from("plan_sessions")
+            .select("id, name, schedule_days, start_time, plan_session_exercises(duration_minutes)")
+            .eq("plan_id", routinePlanId)
+            .order("position")
+        : Promise.resolve({ data: [] }),
+      supabase.from("fitness_cycle_anchor").select("anchor_date").eq("user_id", userId).maybeSingle(),
+      supabase
+        .from("workout_sessions")
+        .select("session_sets(exercise_id, sets, exercises(primary_muscles, secondary_muscles))")
+        .eq("user_id", userId)
+        .eq("source", "confirmed")
+        .gte("date", weekDates[0])
+        .lte("date", weekDates[6]),
+    ]);
   const planNameById = new Map((planRows ?? []).map((p) => [p.id, p.name]));
   const activePlanNames = [microPlanId, routinePlanId]
     .map((id) => (id ? planNameById.get(id) : null))
@@ -70,24 +103,6 @@ export default async function FitnessPage() {
   const microPlanStartDate = planCreatedLocalDate(microPlanId);
   const routinePlanStartDate = planCreatedLocalDate(routinePlanId);
 
-  // --- Active micro plan's exercises (all schedule_days — used by both
-  // Daily Log's today filter and This Week's per-day expansion) ---------
-  const { data: microExerciseRows } = microPlanId
-    ? await supabase
-        .from("plan_micro_exercises")
-        .select("exercise_id, schedule_days, goal_type, goal_value, notes, exercises(name)")
-        .eq("plan_id", microPlanId)
-        .order("position")
-    : { data: [] };
-
-  // --- Active routine plan's sessions (all schedule_days) ---------------
-  const { data: sessionRows } = routinePlanId
-    ? await supabase
-        .from("plan_sessions")
-        .select("id, name, schedule_days, start_time, plan_session_exercises(duration_minutes)")
-        .eq("plan_id", routinePlanId)
-        .order("position")
-    : { data: [] };
   const sessions = (sessionRows ?? []).map((s) => ({
     id: s.id,
     name: s.name,
@@ -168,7 +183,6 @@ export default async function FitnessPage() {
   // `cycle` is therefore null whenever there's no active plan, full stop,
   // regardless of whether an anchor row exists. -----------------------------
   const hasActivePlan = microPlanId !== null || routinePlanId !== null;
-  const { data: anchorRow } = await supabase.from("fitness_cycle_anchor").select("anchor_date").eq("user_id", userId).maybeSingle();
   let anchorDate = anchorRow?.anchor_date ?? null;
   if (!anchorDate && hasActivePlan) {
     const planStartDates = [microPlanStartDate, routinePlanStartDate].filter((d): d is string => d !== null).sort();
@@ -320,13 +334,6 @@ export default async function FitnessPage() {
     0
   );
 
-  const { data: confirmedSetRows } = await supabase
-    .from("workout_sessions")
-    .select("session_sets(exercise_id, sets, exercises(primary_muscles, secondary_muscles))")
-    .eq("user_id", userId)
-    .eq("source", "confirmed")
-    .gte("date", weekDates[0])
-    .lte("date", weekDates[6]);
   const volume = weeklyVolume(
     (confirmedSetRows ?? []).flatMap((session) =>
       (session.session_sets ?? []).map((s) => ({

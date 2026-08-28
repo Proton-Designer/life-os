@@ -65,7 +65,10 @@ export default async function SchoolPage() {
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
 
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }] = await Promise.all([
+  // getClassCards depends only on userId/weekStart/dateStr (known before any
+  // of the three queries below resolve), so it joins this wave instead of
+  // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -79,6 +82,7 @@ export default async function SchoolPage() {
       .eq("user_id", userId)
       .eq("domain", "school"),
     supabase.from("classes").select("id, short_name, code").eq("user_id", userId),
+    getClassCards(supabase, userId, weekStart, dateStr),
   ]);
 
   const cancelledDates = await getCancelledDatesByEvent(
@@ -228,8 +232,6 @@ export default async function SchoolPage() {
       completedAt: t.completedAt,
     }));
   const completedWeekGroups: CompletedWeekGroup[] = groupCompletedTasksByWeek(completedForGrouping, timezone);
-
-  const classCards = await getClassCards(supabase, userId, weekStart, dateStr);
 
   return (
     <PageContainer>
