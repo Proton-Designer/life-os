@@ -141,6 +141,7 @@ export function NotificationsBell() {
               <li key={item.id}>
                 <Link
                   href={item.href}
+                  prefetch
                   onClick={() => handleItemClick(item)}
                   data-testid={`notification-${item.id}`}
                   data-read={item.read ? "true" : "false"}
