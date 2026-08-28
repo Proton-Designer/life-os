@@ -323,22 +323,26 @@ export function HabitBuilder({
       ) : focusHabit ? (
         <div
           data-testid="habit-focus-card"
-          className="flex items-center justify-between rounded-2xl border p-4"
+          // Two buttons plus a toggle plus a full text stack don't fit on
+          // one row at 390px, and min-w-0 alone can't make them — this row
+          // stacks on mobile and goes back to one row at sm: (640px), well
+          // above Ayman's 390px phone. Measured 2026-08-28.
+          className="flex flex-col items-start gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between"
           style={featuredCardStyle(ACCENT_VAR.deen)}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <IconChip icon={DOMAIN_ICON.deen} accent="deen" />
-            <div>
+            <div className="min-w-0">
               <div className="text-xs text-muted-foreground">This week&apos;s focus</div>
               <AnchorCueTag cue={focusHabit.anchorCue} />
-              <div className="font-medium">{focusHabit.name}</div>
+              <div className="truncate font-medium">{focusHabit.name}</div>
               <div className="font-mono text-xs text-muted-foreground tabular-nums">
                 {focusHabit.rollingRate.done}/{focusHabit.rollingRate.total} last 30 days
                 {focusHabit.streak > 0 && ` · ${focusHabit.streak}d streak`}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3 self-stretch sm:self-auto">
             {/* Was a 12px muted text link labeled "Edit" — Ayman's exact
                 complaint was that adding a habit is hidden behind it. A
                 real, clearly-labeled button in its place. */}
