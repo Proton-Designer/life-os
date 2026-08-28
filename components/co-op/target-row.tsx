@@ -95,6 +95,7 @@ export function TargetRow({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                className="size-10"
                 disabled={isPending}
                 onClick={() => onMove("up")}
                 aria-label="Move up"
@@ -107,6 +108,7 @@ export function TargetRow({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                className="size-10"
                 disabled={isPending}
                 onClick={() => onMove("down")}
                 aria-label="Move down"
