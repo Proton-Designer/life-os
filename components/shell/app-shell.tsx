@@ -26,21 +26,28 @@ export async function AppShell({
   onSaveBusiness: SaveGoalAction;
 }) {
   const user = await getAuthedUser();
-  // getProfile() alone, not folded into the Promise.all below: it needs to
-  // resolve first so timezone is known before computing today's local date
-  // for the kill-list query. Per the Opus Lead's batch 5 correction, this
-  // costs nothing over the old overlapped version anyway — app/(app)/layout.tsx,
-  // AppShell's own caller, already awaits getProfile() before AppShell ever
-  // runs, so this is a resolved cache() memo by the time it's called here.
+  // getProfile() alone: app/(app)/layout.tsx, AppShell's own caller, already
+  // awaits it before AppShell ever runs, so this is a resolved cache() memo
+  // by the time it's called here — free, unlike the kill-list query below.
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const now = new Date();
   const dateStr = localDateString(now, timezone);
 
-  const [activeWorkSession, killListSlots] = await Promise.all([
-    user ? getActiveWorkSession(user.id) : Promise.resolve(null),
-    user ? getKillListSlots(user.id, dateStr) : Promise.resolve(EMPTY_KILL_LIST_SLOTS),
-  ]);
+  // getActiveWorkSession is ALSO a warm memo (the layout's own Promise.all
+  // already resolved it) — awaiting it alone here is free. getKillListSlots
+  // is not: it's a live query, gated behind it deliberately (Opus Lead
+  // correction, 2026-08-28) so it only runs on the one navigation shape
+  // that actually needs it — the Deep Work overlay showing a running
+  // session. Everything else (every other route, an idle Business page, a
+  // Deep Study session) pays zero extra round trips; /business itself is
+  // unaffected since it reads getKillListSlots directly, independent of
+  // this gate.
+  const activeWorkSession = user ? await getActiveWorkSession(user.id) : null;
+  const killListSlots =
+    user && activeWorkSession?.kind === "deep_work"
+      ? await getKillListSlots(user.id, dateStr)
+      : EMPTY_KILL_LIST_SLOTS;
 
   const account = {
     displayName: profile?.display_name || user?.email?.split("@")[0] || "Account",
