@@ -70,9 +70,11 @@ export function FocusTimeCard({
               : `${sessionsTodayCount} session${sessionsTodayCount === 1 ? "" : "s"} today`}
           </p>
         </div>
-        <span className="shrink-0 font-mono text-sm font-semibold tabular-nums">
-          {formatElapsedDuration(focusMinutesToday * 60_000)}
-        </span>
+        <div className="flex flex-1 items-center justify-center">
+          <span className="shrink-0 font-mono text-2xl font-bold tabular-nums">
+            {formatElapsedDuration(focusMinutesToday * 60_000)}
+          </span>
+        </div>
       </div>
       <div className="shrink-0">
         {/* showTodayTotal={false}: the elapsed minutes above already show this exact number. */}
