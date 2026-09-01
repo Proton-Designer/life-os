@@ -187,28 +187,116 @@ describe("Onboarding actions", () => {
   });
 
   describe("saveSubdomainConfig", () => {
-    it("throws when no active subdomain matches the key", async () => {
-      const chain = makeChain({ data: null, error: null });
+    it("throws when the parent domain hasn't been selected yet, before ever querying subdomains", async () => {
+      const chain = makeChain({ data: null, error: null }); // domain lookup finds nothing
       fromImpl = () => chain;
       const { saveSubdomainConfig } = await import("../actions");
 
-      await expect(saveSubdomainConfig("faith", { timezone: "America/Chicago" })).rejects.toThrow(
-        'no active subdomain with key "faith"'
-      );
+      await expect(
+        saveSubdomainConfig("personal_growth", "faith", { timezone: "America/Chicago" })
+      ).rejects.toThrow('domain "personal_growth" has not been selected yet');
       expect(rpcMock).not.toHaveBeenCalled();
     });
 
-    it("merges via the merge_subdomain_config RPC rather than a read-then-write from the action", async () => {
-      const chain = makeChain({ data: { id: "sub-1" }, error: null });
-      fromImpl = () => chain;
+    it("throws when no active subdomain matches the key under that domain", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_domains: makeChain({ data: { id: "domain-1" }, error: null }),
+        user_subdomains: makeChain({ data: null, error: null }),
+      };
+      fromImpl = (table) => tables[table];
       const { saveSubdomainConfig } = await import("../actions");
 
-      await saveSubdomainConfig("faith", { prayer_calc_method: "ISNA" });
+      await expect(
+        saveSubdomainConfig("personal_growth", "faith", { timezone: "America/Chicago" })
+      ).rejects.toThrow('no active subdomain with key "faith" under domain "personal_growth"');
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
 
+    it("scopes the subdomain lookup by (domain_id, key) — the actual fix for the collision the Lead ruled on: a Work subdomain named/slugged \"faith\" must never be targeted when the caller means Personal Growth's Faith", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_domains: makeChain({ data: { id: "domain-personal-growth" }, error: null }),
+        user_subdomains: makeChain({ data: { id: "sub-faith-under-pg" }, error: null }),
+      };
+      fromImpl = (table) => tables[table];
+      const { saveSubdomainConfig } = await import("../actions");
+
+      await saveSubdomainConfig("personal_growth", "faith", { prayer_calc_method: "ISNA" });
+
+      expect(tables.user_domains.eq).toHaveBeenCalledWith("key", "personal_growth");
+      expect(tables.user_subdomains.eq).toHaveBeenCalledWith("domain_id", "domain-personal-growth");
+      expect(tables.user_subdomains.eq).toHaveBeenCalledWith("key", "faith");
       expect(rpcMock).toHaveBeenCalledWith("merge_subdomain_config", {
-        p_subdomain_id: "sub-1",
+        p_subdomain_id: "sub-faith-under-pg",
         p_patch: { prayer_calc_method: "ISNA" },
       });
+    });
+  });
+
+  describe("getOnboardingState", () => {
+    it("returns empty arrays for a brand-new user, never throws", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_domains: makeChain({ data: [], error: null }),
+      };
+      fromImpl = (table) => tables[table];
+      const { getOnboardingState } = await import("../actions");
+
+      const state = await getOnboardingState();
+
+      expect(state).toEqual({ domains: [], subdomains: [] });
+      // No subdomain query at all when there are zero active domains — no
+      // domain_id to scope it by.
+      expect(fromMock).not.toHaveBeenCalledWith("user_subdomains");
+    });
+
+    it("shapes active rows for direct wizard hydration — domainKey resolved onto each subdomain, ordered by position", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_domains: makeChain({
+          data: [
+            { id: "domain-pg", key: "personal_growth", position: 0 },
+            { id: "domain-work", key: "work", position: 1 },
+          ],
+          error: null,
+        }),
+        user_subdomains: makeChain({
+          data: [
+            {
+              domain_id: "domain-pg",
+              key: "faith",
+              label: "Faith",
+              kind: null,
+              widgets: ["prayer_tracker"],
+              config: { prayer_calc_method: "ISNA" },
+              position: 0,
+            },
+            {
+              domain_id: "domain-work",
+              key: "acme-consulting",
+              label: "Acme Consulting",
+              kind: "business",
+              widgets: [],
+              config: {},
+              position: 0,
+            },
+          ],
+          error: null,
+        }),
+      };
+      fromImpl = (table) => tables[table];
+      const { getOnboardingState } = await import("../actions");
+
+      const state = await getOnboardingState();
+
+      expect(state.domains).toEqual([
+        { key: "personal_growth", position: 0 },
+        { key: "work", position: 1 },
+      ]);
+      expect(state.subdomains).toEqual([
+        expect.objectContaining({ domainKey: "personal_growth", key: "faith", label: "Faith" }),
+        expect.objectContaining({ domainKey: "work", key: "acme-consulting", kind: "business" }),
+      ]);
+      // Archived rows must never surface to the wizard.
+      expect(tables.user_domains.is).toHaveBeenCalledWith("archived_at", null);
+      expect(tables.user_subdomains.is).toHaveBeenCalledWith("archived_at", null);
     });
   });
 

@@ -129,31 +129,44 @@ export async function saveSubdomains(domainKey: DomainKey, subs: SubdomainInput[
 /**
  * Merges into a subdomain's `config` jsonb via the `merge_subdomain_config`
  * RPC (056) rather than a read-modify-write from here, closing the TOCTOU
- * gap a plain select-then-update would have. Looked up by key alone, per
- * the spec's signature — safe in practice because Personal Growth's three
- * keys are reserved words and Work subdomain keys are user-generated slugs,
- * but a real collision (a Work subdomain slugging to "faith", say) would
- * make `.maybeSingle()` below throw rather than silently pick the wrong
- * row — flagged to the Lead, not silently patched over by adding an
- * unrequested domainKey parameter to the signature Engineer 2 is building
- * against.
+ * gap a plain select-then-update would have. Scoped by (domainKey,
+ * subdomainKey), not subdomainKey alone (Opus Lead ruling, after the
+ * key-collision I flagged) — Work subdomains are user-named, so someone
+ * naming their job or business "Faith" is plausible, not adversarial, and a
+ * key-only lookup could silently target the wrong subdomain if that
+ * happened to collide with Faith's reserved key.
  */
 export async function saveSubdomainConfig(
+  domainKey: DomainKey,
   subdomainKey: string,
   config: Record<string, unknown>
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
 
+  const { data: domain, error: domainError } = await supabase
+    .from("user_domains")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("key", domainKey)
+    .maybeSingle();
+  if (domainError) throw domainError;
+  if (!domain) {
+    throw new Error(`saveSubdomainConfig: domain "${domainKey}" has not been selected yet`);
+  }
+
   const { data: subdomain, error: findError } = await supabase
     .from("user_subdomains")
     .select("id")
     .eq("user_id", userId)
+    .eq("domain_id", domain.id)
     .eq("key", subdomainKey)
     .is("archived_at", null)
     .maybeSingle();
   if (findError) throw findError;
   if (!subdomain) {
-    throw new Error(`saveSubdomainConfig: no active subdomain with key "${subdomainKey}"`);
+    throw new Error(
+      `saveSubdomainConfig: no active subdomain with key "${subdomainKey}" under domain "${domainKey}"`
+    );
   }
 
   const { error } = await supabase.rpc("merge_subdomain_config", {
@@ -163,6 +176,79 @@ export async function saveSubdomainConfig(
   if (error) throw error;
 
   revalidatePath("/onboarding");
+}
+
+export type OnboardingDomainState = {
+  key: DomainKey;
+  position: number;
+};
+
+export type OnboardingSubdomainState = {
+  domainKey: DomainKey;
+  key: string;
+  label: string;
+  kind: "job" | "business" | null;
+  widgets: string[];
+  config: Record<string, unknown>;
+  position: number;
+};
+
+/**
+ * The resume read. Active rows only, shaped for direct wizard consumption
+ * (domain keys already resolved onto subdomains, not raw domain_id uuids)
+ * so Engineer 2's wizard can hydrate its initial step/selection state
+ * without re-deriving anything. Never throws for a user with nothing yet —
+ * a brand-new account mid-first-onboarding is the common case, not an
+ * error, so this returns empty arrays rather than requiring every caller to
+ * handle a rejected promise just to render step 1.
+ *
+ * Without this, the archive-and-reactivate design saveDomainSelection/
+ * saveSubdomains rely on is a trap: a user who abandons has real rows
+ * sitting there, the wizard would restart blank with no memory of them, and
+ * the next submit would reactivate rows the user never re-confirmed in this
+ * session.
+ */
+export async function getOnboardingState(): Promise<{
+  domains: OnboardingDomainState[];
+  subdomains: OnboardingSubdomainState[];
+}> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: domainRows, error: domainsError } = await supabase
+    .from("user_domains")
+    .select("id, key, position")
+    .eq("user_id", userId)
+    .is("archived_at", null)
+    .order("position", { ascending: true });
+  if (domainsError) throw domainsError;
+
+  const domains = (domainRows ?? []) as { id: string; key: DomainKey; position: number }[];
+  if (domains.length === 0) {
+    return { domains: [], subdomains: [] };
+  }
+
+  const domainIdToKey = new Map(domains.map((d) => [d.id, d.key]));
+  const { data: subdomainRows, error: subdomainsError } = await supabase
+    .from("user_subdomains")
+    .select("domain_id, key, label, kind, widgets, config, position")
+    .eq("user_id", userId)
+    .in("domain_id", domains.map((d) => d.id))
+    .is("archived_at", null)
+    .order("position", { ascending: true });
+  if (subdomainsError) throw subdomainsError;
+
+  return {
+    domains: domains.map((d) => ({ key: d.key, position: d.position })),
+    subdomains: (subdomainRows ?? []).map((s) => ({
+      domainKey: domainIdToKey.get(s.domain_id) as DomainKey,
+      key: s.key,
+      label: s.label,
+      kind: (s.kind as "job" | "business" | null) ?? null,
+      widgets: (s.widgets ?? []) as string[],
+      config: (s.config ?? {}) as Record<string, unknown>,
+      position: s.position,
+    })),
+  };
 }
 
 /**
