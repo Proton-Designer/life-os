@@ -42,12 +42,17 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn(() => { throw new Error("REDIRECT"); }) }));
 vi.mock("@/app/(app)/settings/actions", () => ({ updateProfile: vi.fn(async () => undefined) }));
+const seedMeditationsDeckForUserMock = vi.fn(async () => ({ seeded: true, alreadySeeded: false, bookId: "book-1", lessonCount: 12, cardCount: 47 }));
+vi.mock("@/lib/self-mastery/seed-meditations-deck", () => ({
+  seedMeditationsDeckForUser: () => seedMeditationsDeckForUserMock(),
+}));
 
 describe("Onboarding actions", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();
     fromMock.mockClear();
     rpcMock.mockClear();
+    seedMeditationsDeckForUserMock.mockClear();
   });
 
   describe("saveDomainSelection", () => {
@@ -335,6 +340,33 @@ describe("Onboarding actions", () => {
       expect(updateProfile).toHaveBeenCalledWith(
         expect.objectContaining({ timezone: "America/Chicago", onboarding_completed: true })
       );
+    });
+
+    it("calls seedMeditationsDeckForUser unconditionally -- the RPC itself gates on whether the user kept Self-Mastery, not this function", async () => {
+      const chain = makeChain({ data: null, error: null, count: 1 });
+      fromImpl = () => chain;
+      const { completeOnboarding } = await import("../actions");
+
+      await expect(completeOnboarding({})).rejects.toThrow("REDIRECT");
+
+      expect(seedMeditationsDeckForUserMock).toHaveBeenCalled();
+    });
+
+    it("a seeding failure never blocks the redirect -- reaching the app for the first time must not depend on Self-Mastery's seed succeeding", async () => {
+      const chain = makeChain({ data: null, error: null, count: 1 });
+      fromImpl = () => chain;
+      seedMeditationsDeckForUserMock.mockRejectedValueOnce(new Error("seed RPC exploded"));
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const { completeOnboarding } = await import("../actions");
+
+      // Still redirects (the mock throws "REDIRECT") despite the seed
+      // failure -- not a generic unhandled rejection from the seed error.
+      await expect(completeOnboarding({})).rejects.toThrow("REDIRECT");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("seedMeditationsDeckForUser failed"),
+        expect.any(Error)
+      );
+      consoleErrorSpy.mockRestore();
     });
   });
 });

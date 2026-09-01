@@ -6,6 +6,7 @@ import { requireUser, getAuthedUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { updateProfile, type ProfileUpdatable } from "@/app/(app)/settings/actions";
 import type { Json } from "@/lib/supabase/database.types";
+import { seedMeditationsDeckForUser } from "@/lib/self-mastery/seed-meditations-deck";
 
 export type DomainKey = "personal_growth" | "work" | "school";
 
@@ -293,5 +294,22 @@ export async function completeOnboarding(
   }
 
   await updateProfile({ ...fields, onboarding_completed: true });
+
+  // Seeds the sample Meditations deck for anyone who kept Self-Mastery —
+  // the RPC itself gates on user_subdomains (self_mastery, non-archived),
+  // so this is called unconditionally rather than pre-checking here, per
+  // the same "push the applicability check down to the thing that owns
+  // the answer" reasoning as everything else in this file. A seeding
+  // failure must never prevent someone from reaching the app for the
+  // first time — same render-path-never-blocks discipline as
+  // getUserDomains()/getOnboardingState() degrading rather than throwing,
+  // applied here to a write instead of a read. Logged, not silently
+  // swallowed, so a real failure is still discoverable.
+  try {
+    await seedMeditationsDeckForUser(supabase);
+  } catch (err) {
+    console.error("completeOnboarding: seedMeditationsDeckForUser failed", err);
+  }
+
   redirect("/");
 }
