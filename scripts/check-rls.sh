@@ -19,6 +19,19 @@
 #
 # Two distinct failures, both checked, because they are not the same thing:
 #   rls_off        — wide open. Any authenticated user reads/writes it via PostgREST.
+#
+# ONE DOCUMENTED EXCEPTION: public.migration_ledger (migration 102) is
+# operational metadata — which migrations are on this database — with no
+# user_id and no user-facing reader. RLS on with zero policies is the CORRECT
+# posture for it: it fails closed for anon/authenticated, and the service role
+# bypasses RLS.
+#
+# The exception VERIFIES ITS OWN JUSTIFICATION rather than trusting the name:
+# it applies only while that table genuinely has no user_id column. Add user_id
+# to it and the exemption evaporates and this check fails again — which is the
+# point. A bare name-based allowlist is the same "documented exclusion" that let
+# 058's false 'exercises is a shared catalogue' footer hide nine real gaps: a
+# reason nobody re-checks outlives the conditions that made it true.
 #   rls_no_policy  — RLS on with zero policies: unreadable to everyone but the
 #                    service role. Not a security hole, but almost never intended,
 #                    and it looks identical to "protected" if you only check the flag.
@@ -43,7 +56,11 @@ read_counts() {
       (select count(*) from pg_tables where schemaname='public' and rowsecurity=false),
       (select count(*) from pg_tables t where t.schemaname='public' and t.rowsecurity=true
          and not exists (select 1 from pg_policies p
-                         where p.schemaname='public' and p.tablename=t.tablename)),
+                         where p.schemaname='public' and p.tablename=t.tablename)
+         and not (t.tablename = 'migration_ledger'
+              and not exists (select 1 from information_schema.columns c
+                               where c.table_schema='public' and c.table_name=t.tablename
+                                 and c.column_name='user_id'))),
       (select count(*) from pg_tables where schemaname='public');"
 }
 
@@ -79,6 +96,10 @@ if [ "${NOPOL:-0}" -gt 0 ]; then
   FAIL=1; echo; echo "FAIL — RLS enabled but NO policy (unreachable to every non-service role):"
   query "select '  '||t.tablename from pg_tables t where t.schemaname='public' and t.rowsecurity=true
            and not exists (select 1 from pg_policies p where p.schemaname='public' and p.tablename=t.tablename)
+           and not (t.tablename = 'migration_ledger'
+              and not exists (select 1 from information_schema.columns c
+                               where c.table_schema='public' and c.table_name=t.tablename
+                                 and c.column_name='user_id'))
          order by 1;"
 fi
 
