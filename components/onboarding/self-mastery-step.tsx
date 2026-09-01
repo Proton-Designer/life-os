@@ -20,11 +20,17 @@ export function SelfMasteryStep({
   onNext,
   progressTotal,
   progressIndex,
+  ingestionAvailable = false,
 }: {
   onBack: () => void;
   onNext: () => void;
   progressTotal: number;
   progressIndex: number;
+  /** False until a model provider is configured and a worker consumes
+   * `ingestion_jobs`. Offering "Add a book" without one accepts the file and
+   * strands the book at "processing" forever — a broken promise in the user's
+   * first ninety seconds. See lib/self-mastery/ingestion-availability.ts. */
+  ingestionAvailable?: boolean;
 }) {
   const accent = PERSONAL_SUBDOMAIN_META.self_mastery.accent;
   const [phase, setPhase] = useState<Phase>("ask");
@@ -81,15 +87,17 @@ export function SelfMasteryStep({
           <Button type="button" data-testid="selfmastery-continue" onClick={onNext} disabled={phase === "uploading"}>
             Continue
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            data-testid="selfmastery-add-book"
-            disabled={phase === "uploading"}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {phase === "uploading" ? "Adding…" : "Add a book"}
-          </Button>
+          {ingestionAvailable ? (
+            <Button
+              type="button"
+              variant="ghost"
+              data-testid="selfmastery-add-book"
+              disabled={phase === "uploading"}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {phase === "uploading" ? "Adding…" : "Add a book"}
+            </Button>
+          ) : null}
           <input
             ref={fileInputRef}
             type="file"

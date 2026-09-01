@@ -24,10 +24,15 @@ export function OnboardingWizard({
   initialSelectedDomains = [],
   domainsWithData = [],
   initialFaithConfig = null,
+  ingestionAvailable = false,
 }: {
   initialSelectedDomains?: DomainKey[];
   domainsWithData?: DomainKey[];
   initialFaithConfig?: FaithConfig | null;
+  /** Plain boolean, not a function — a server-computed value crossing the RSC
+   * boundary. See AGENTS.md on never passing a function from a Server to a
+   * Client Component. */
+  ingestionAvailable?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("domains");
   const [selectedDomains, setSelectedDomains] = useState<DomainKey[]>(initialSelectedDomains);
@@ -90,6 +95,7 @@ export function OnboardingWizard({
 
       {phase === "walk" && selectedDomains[walkIndex] === "personal_growth" ? (
         <PersonalGrowthStep
+          ingestionAvailable={ingestionAvailable}
           onBack={backWithinWalk}
           onNext={(subs) => finishCurrentDomain("personal_growth", subs)}
           progressTotal={progressTotal}

@@ -20,11 +20,13 @@ export function PersonalGrowthStep({
   onNext,
   progressTotal,
   progressIndex,
+  ingestionAvailable = false,
 }: {
   onBack: () => void;
   onNext: (subs: SubdomainInput[]) => void;
   progressTotal: number;
   progressIndex: number;
+  ingestionAvailable?: boolean;
 }) {
   const accent = TOP_DOMAIN_META.personal_growth.accent;
   const [kept, setKept] = useState<Set<PersonalSubdomainKey>>(new Set(PERSONAL_SUBDOMAIN_ORDER));
@@ -106,6 +108,7 @@ export function PersonalGrowthStep({
   if (phase === "self_mastery") {
     return (
       <SelfMasteryStep
+        ingestionAvailable={ingestionAvailable}
         onBack={() => backFrom("self_mastery")}
         onNext={() => advancePast("self_mastery")}
         progressTotal={progressTotal}

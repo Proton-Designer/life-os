@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { UploadBookDialog } from "./upload-book-dialog";
+import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
 import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
 import type { LibraryBook } from "@/lib/self-mastery/types";
@@ -28,10 +29,11 @@ function statusLine(book: LibraryBook, now: Date): string {
 export async function SelfMasteryLibrary() {
   const books = await getSelfMasteryLibrary();
   const now = new Date();
+  const ingestionAvailable = isIngestionAvailable();
 
   return (
     <PageContainer>
-      <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 ? <UploadBookDialog /> : null} />
+      <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && ingestionAvailable ? <UploadBookDialog /> : null} />
 
       {books.length === 0 ? (
         // Not the generic EmptyState primitive — its action contract is a
@@ -41,10 +43,20 @@ export async function SelfMasteryLibrary() {
         // centered action), just with UploadBookDialog's real trigger.
         <div className="flex flex-col items-center gap-3 py-8 text-center">
           <BookOpen className="size-8 text-muted-foreground/50" strokeWidth={1.5} />
-          <p className="max-w-xs text-sm text-muted-foreground">
-            Upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.
-          </p>
-          <UploadBookDialog trigger={<Button size="sm" variant="outline">Add a book</Button>} />
+          {ingestionAvailable ? (
+            <>
+              <p className="max-w-xs text-sm text-muted-foreground">
+                Upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.
+              </p>
+              <UploadBookDialog trigger={<Button size="sm" variant="outline">Add a book</Button>} />
+            </>
+          ) : (
+            // No worker consumes `ingestion_jobs` yet, so an upload would sit
+            // at "processing" forever. Say so plainly rather than offering a
+            // button that eats the file — an absent feature is a gap, a broken
+            // promise reads as a broken app.
+            <p className="max-w-xs text-sm text-muted-foreground">{INGESTION_UNAVAILABLE_MESSAGE}</p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

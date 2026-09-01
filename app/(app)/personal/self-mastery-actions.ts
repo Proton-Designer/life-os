@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom } from "@/lib/self-mastery/untyped-from";
+import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 
 /**
  * The provenance drill-down's second block ("In context, from the book") —
@@ -54,6 +55,13 @@ function validateBookFile(file: File): string | null {
  * the upload step will fail until the bucket is provisioned).
  */
 export async function uploadBook(formData: FormData): Promise<UploadBookResult | UploadBookError> {
+  // Refuse on the SERVER, not only by hiding the button. Without a worker to
+  // consume `ingestion_jobs`, a successful upload strands the book at
+  // "processing" forever with no failure path — so accepting the file is the
+  // harm, and a hidden trigger is not a guard. See
+  // lib/self-mastery/ingestion-availability.ts.
+  if (!isIngestionAvailable()) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
+
   const file = formData.get("file");
   const title = String(formData.get("title") ?? "").trim();
   const author = String(formData.get("author") ?? "").trim();
