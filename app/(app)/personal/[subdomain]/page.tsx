@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import DeenPage from "@/app/(app)/deen/page";
 import FitnessPage from "@/app/(app)/fitness/page";
-import { SelfMasteryPlaceholder } from "@/components/personal/self-mastery-placeholder";
+import { SelfMasteryLibrary } from "@/components/self-mastery/self-mastery-library";
 
 // Composes the EXISTING Deen/Fitness routes rather than duplicating their
 // content (M5: adapt, don't rewrite) — each is just an async Server
@@ -18,7 +18,7 @@ export default async function PersonalSubdomainPage({ params }: { params: Promis
     case "fitness":
       return <FitnessPage />;
     case "self_mastery":
-      return <SelfMasteryPlaceholder />;
+      return <SelfMasteryLibrary />;
     default:
       notFound();
   }
