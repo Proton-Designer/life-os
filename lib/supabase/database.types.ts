@@ -2643,6 +2643,7 @@ export type Database = {
           p_ai_suggested_rating: number
           p_answered_text: string
           p_card_id: string
+          p_confidence?: Database["public"]["Enums"]["confidence_level"] | null
           p_elapsed_ms: number
           p_next_state: Json
           p_rating: number
