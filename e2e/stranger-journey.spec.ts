@@ -241,6 +241,20 @@ test.describe("stranger journey", () => {
       await reveal.click();
       await page.waitForTimeout(600);
 
+      // A no-key account must see NOTHING new after reveal. getAnswerFeedback
+      // returns null for every failure mode including "no key", which is the
+      // state almost every user will be in permanently — so the revealed card
+      // has to be indistinguishable from before the feature existed. Captured
+      // on the first card only, and asserted rather than eyeballed.
+      if (graded === 0) {
+        await page.waitForTimeout(2500); // let any late feedback arrive if it were going to
+        await page.screenshot({ path: `${SHOT}/06b-revealed-no-key.png`, fullPage: true });
+        const revealedText = await page.locator("body").innerText();
+        for (const forbidden of [/ai suggests/i, /ai unavailable/i, /add (an )?api key/i, /connect your/i, /upgrade/i]) {
+          if (forbidden.test(revealedText)) note(`No-key account saw AI-related UI after reveal: ${forbidden}`);
+        }
+      }
+
       // Name the grade, don't index into a filtered list. .nth(2) assumed the
       // four grade buttons are the only matches and in a fixed order, which
       // breaks on any card whose actions differ — and it fails as "found no
