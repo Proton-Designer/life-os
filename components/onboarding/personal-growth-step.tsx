@@ -154,7 +154,7 @@ export function PersonalGrowthStep({
         </div>
       }
     >
-      <h1 className="text-xl font-semibold">What's part of Personal Growth for you?</h1>
+      <h1 className="text-xl font-semibold">What&apos;s part of Personal Growth for you?</h1>
       <p className="text-sm text-muted-foreground">All three are on by default — keep at least one.</p>
       <div className="flex flex-col gap-2">
         {PERSONAL_SUBDOMAIN_ORDER.map((key) => {

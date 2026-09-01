@@ -88,7 +88,7 @@ export function WorkStep({
         }
       >
         <h1 className="text-xl font-semibold">What do you want to call it?</h1>
-        <p className="text-sm text-muted-foreground">A job, a client, a business — whatever you're tracking.</p>
+        <p className="text-sm text-muted-foreground">A job, a client, a business — whatever you&apos;re tracking.</p>
         <div className="flex flex-col gap-1">
           <Label htmlFor="work-subdomain-name">Name</Label>
           <Input
