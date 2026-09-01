@@ -72,7 +72,16 @@ test.describe("onboarding", () => {
       if (!new URL(page.url()).pathname.startsWith("/onboarding")) break;
       // Steps that require real input before Next enables. Handled by data-step
       // rather than by position, so reordering the walk doesn't break this.
-      const step = await page.getByTestId("onboarding-step").getAttribute("data-step");
+      // Tolerant read with a short timeout: once the final step submits, the
+      // wizard unmounts while the URL may still briefly read /onboarding, so a
+      // plain getAttribute() blocks the full 30s waiting for an element that is
+      // never coming back. Absence means the walk is over, not that something
+      // is wrong.
+      const step = await page
+        .getByTestId("onboarding-step")
+        .getAttribute("data-step", { timeout: 2_000 })
+        .catch(() => null);
+      if (step === null) break;
       if (step === "personal_growth-faith") {
         // The city field is a real search against the bundled dataset — typing
         // a string is not enough, a result has to be selected, which is the
