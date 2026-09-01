@@ -15,11 +15,24 @@ type Phase = "domains" | "walk" | "submitting";
 // back with its own subdomain data; this component is the only place that
 // talks to the server actions, so every step component below stays a pure,
 // testable, server-ignorant UI.
-export function OnboardingWizard() {
+//
+// AC#5 (resume, not blind restart): `initialSelectedDomains`/`domainsWithData`/
+// `initialFaithConfig` come from page.tsx's server-side read of
+// getOnboardingState(). A brand-new account passes empty/null for all three
+// and this behaves exactly as before.
+export function OnboardingWizard({
+  initialSelectedDomains = [],
+  domainsWithData = [],
+  initialFaithConfig = null,
+}: {
+  initialSelectedDomains?: DomainKey[];
+  domainsWithData?: DomainKey[];
+  initialFaithConfig?: FaithConfig | null;
+}) {
   const [phase, setPhase] = useState<Phase>("domains");
-  const [selectedDomains, setSelectedDomains] = useState<DomainKey[]>([]);
+  const [selectedDomains, setSelectedDomains] = useState<DomainKey[]>(initialSelectedDomains);
   const [walkIndex, setWalkIndex] = useState(0);
-  const [faithConfig, setFaithConfig] = useState<FaithConfig | null>(null);
+  const [faithConfig, setFaithConfig] = useState<FaithConfig | null>(initialFaithConfig);
 
   function toggleDomain(key: DomainKey) {
     setSelectedDomains((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -27,12 +40,12 @@ export function OnboardingWizard() {
 
   async function startWalk() {
     await saveDomainSelection(selectedDomains);
-    setWalkIndex(0);
+    // Resume at the first selected domain that doesn't already have
+    // subdomains saved, rather than always restarting at index 0 — a
+    // domain already answered in a prior session is skipped, not re-asked.
+    const resumeIndex = selectedDomains.findIndex((d) => !domainsWithData.includes(d));
+    setWalkIndex(resumeIndex === -1 ? Math.max(0, selectedDomains.length - 1) : resumeIndex);
     setPhase("walk");
-  }
-
-  function backToDomains() {
-    setPhase("domains");
   }
 
   async function finishCurrentDomain(domainKey: DomainKey, subs: SubdomainInput[]) {
