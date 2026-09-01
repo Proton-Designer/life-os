@@ -55,7 +55,7 @@ describe("signUp", () => {
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it("redirects to / when sign-up returns an active session (email confirmation off)", async () => {
+  it("redirects to /onboarding when sign-up returns an active session (email confirmation off)", async () => {
     signUpMock.mockResolvedValue({
       data: { user: { id: "new-user-id" }, session: { access_token: "token" } },
       error: null,
@@ -63,7 +63,7 @@ describe("signUp", () => {
     const { signUp } = await import("../actions");
 
     await expect(signUp(buildFormData())).rejects.toThrow("NEXT_REDIRECT");
-    expect(redirectMock).toHaveBeenCalledWith("/");
+    expect(redirectMock).toHaveBeenCalledWith("/onboarding");
   });
 
   it("returns a confirm-your-email message when sign-up succeeds without a session (email confirmation on)", async () => {
