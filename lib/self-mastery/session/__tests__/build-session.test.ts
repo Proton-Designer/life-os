@@ -1,0 +1,202 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  hydrateQueueCards,
+  fetchCardAnswer,
+  startTodaysSession,
+  submitCardReview,
+  submitSelfExplanation,
+} from "../build-session";
+import type { QueueEntry } from "../types";
+
+function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
+  const chain: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "in", "single", "insert"]) {
+    chain[method] = vi.fn(() => chain);
+  }
+  chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
+  return chain as {
+    select: ReturnType<typeof vi.fn>;
+    eq: ReturnType<typeof vi.fn>;
+    in: ReturnType<typeof vi.fn>;
+    single: ReturnType<typeof vi.fn>;
+    insert: ReturnType<typeof vi.fn>;
+  };
+}
+
+describe("the non-negotiable invariant: the answer must never reach the client before commit", () => {
+  it("hydrateQueueCards' select() names id/lesson_id/prompt_type/prompt and NEVER answer", async () => {
+    const chain = makeChain({ data: [{ id: "c1", lesson_id: "l1", prompt_type: "free_recall", prompt: "recall this" }], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+    const entries: QueueEntry[] = [{ cardId: "c1", bookId: "b1", queuePosition: 0, reason: "due" }];
+
+    await hydrateQueueCards(client, entries);
+
+    expect(client.from).toHaveBeenCalledWith("cards");
+    const selectArg = chain.select.mock.calls[0]![0] as string;
+    expect(selectArg).not.toMatch(/\banswer\b/);
+    expect(selectArg).toBe("id, lesson_id, prompt_type, prompt");
+  });
+
+  it("fetchCardAnswer is the one function allowed to select answer, and only fires at reveal time (one card, by id)", async () => {
+    const chain = makeChain({ data: { answer: "the real answer" }, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const answer = await fetchCardAnswer(client, "c1");
+
+    expect(chain.select).toHaveBeenCalledWith("answer");
+    expect(chain.eq).toHaveBeenCalledWith("id", "c1");
+    expect(chain.single).toHaveBeenCalled();
+    expect(answer).toBe("the real answer");
+  });
+
+  it("hydrateQueueCards skips a card that vanished between the queue snapshot and this fetch, rather than crashing", async () => {
+    const chain = makeChain({ data: [], error: null }); // card no longer found
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+    const entries: QueueEntry[] = [{ cardId: "gone", bookId: "b1", queuePosition: 0, reason: "due" }];
+
+    const result = await hydrateQueueCards(client, entries);
+
+    expect(result).toEqual([]);
+  });
+
+  it("hydrateQueueCards returns [] without querying at all for an empty entry list", async () => {
+    const client = { from: vi.fn() } as unknown as Parameters<typeof hydrateQueueCards>[0];
+    const result = await hydrateQueueCards(client, []);
+    expect(result).toEqual([]);
+    expect(client.from).not.toHaveBeenCalled();
+  });
+});
+
+describe("startTodaysSession", () => {
+  it("maps work_sessions' real column names, including ended_at (not ULM's old completed_at)", async () => {
+    const rpc = vi.fn(async () => ({
+      data: {
+        id: "sess-1",
+        user_id: "user-1",
+        local_date: "2026-09-01",
+        started_at: "2026-09-01T12:00:00Z",
+        ended_at: null,
+        cards_reviewed: 3,
+        new_cards_introduced: 1,
+      },
+      error: null,
+    }));
+    const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const session = await startTodaysSession(client, "2026-09-01");
+
+    expect(rpc).toHaveBeenCalledWith("start_session", { p_local_date: "2026-09-01" });
+    expect(session).toEqual({
+      id: "sess-1",
+      userId: "user-1",
+      localDate: "2026-09-01",
+      startedAt: "2026-09-01T12:00:00Z",
+      endedAt: null,
+      cardsReviewed: 3,
+      newCardsIntroduced: 1,
+    });
+  });
+});
+
+describe("submitCardReview", () => {
+  it("passes confidence through, omitting it as undefined (not null) when not collected", async () => {
+    const rpc = vi.fn(async (_fn: string, _args: Record<string, unknown>) => ({ data: { id: "review-1" }, error: null }));
+    const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitCardReview(client, {
+      currentState: null,
+      cardId: "c1",
+      sessionId: "sess-1",
+      rating: 3,
+      elapsedMs: 5000,
+      answeredText: "my answer",
+      aiFeedback: null,
+      aiSuggestedRating: null,
+      confidence: null,
+      now: new Date("2026-09-01T12:00:00Z"),
+    });
+
+    const call = rpc.mock.calls[0]!;
+    expect(call[0]).toBe("submit_review");
+    const args = call[1] as Record<string, unknown>;
+    expect(args.p_confidence).toBeUndefined();
+    expect(args.p_card_id).toBe("c1");
+    expect(args.p_answered_text).toBe("my answer");
+  });
+
+  it("passes a real confidence value straight through when collected", async () => {
+    const rpc = vi.fn(async (_fn: string, _args: Record<string, unknown>) => ({ data: { id: "review-1" }, error: null }));
+    const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitCardReview(client, {
+      currentState: null,
+      cardId: "c1",
+      sessionId: "sess-1",
+      rating: 4,
+      elapsedMs: 1000,
+      answeredText: "",
+      aiFeedback: null,
+      aiSuggestedRating: null,
+      confidence: "sure",
+      now: new Date("2026-09-01T12:00:00Z"),
+    });
+
+    const args = rpc.mock.calls[0]![1] as Record<string, unknown>;
+    expect(args.p_confidence).toBe("sure");
+  });
+
+  it("an empty answered_text is submitted as-is, never blocked -- an honest 'I don't know' is legitimate", async () => {
+    const rpc = vi.fn(async (_fn: string, _args: Record<string, unknown>) => ({ data: { id: "review-1" }, error: null }));
+    const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitCardReview(client, {
+      currentState: null,
+      cardId: "c1",
+      sessionId: "sess-1",
+      rating: 1,
+      elapsedMs: 500,
+      answeredText: "",
+      aiFeedback: null,
+      aiSuggestedRating: null,
+      confidence: null,
+      now: new Date("2026-09-01T12:00:00Z"),
+    });
+
+    const args = rpc.mock.calls[0]![1] as Record<string, unknown>;
+    expect(args.p_answered_text).toBe("");
+  });
+});
+
+describe("submitSelfExplanation", () => {
+  it("always supplies user_id explicitly, even though the DB trigger overwrites it -- required by the generated Insert type", async () => {
+    const chain = makeChain({ data: null, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitSelfExplanation(client, {
+      userId: "user-1",
+      lessonId: "lesson-1",
+      sessionId: "sess-1",
+      prompt: "Put this in your own words",
+      response: null,
+    });
+
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "user-1", response: null })
+    );
+  });
+
+  it("a skip (response: null) is a legitimate row, never penalised, never blocked", async () => {
+    const chain = makeChain({ data: null, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await expect(
+      submitSelfExplanation(client, {
+        userId: "user-1",
+        lessonId: "lesson-1",
+        sessionId: "sess-1",
+        prompt: "Put this in your own words",
+        response: null,
+      })
+    ).resolves.toBeUndefined();
+  });
+});

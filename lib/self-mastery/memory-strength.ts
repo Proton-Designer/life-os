@@ -12,56 +12,16 @@
 // denominator) is independent of the curve and preserved exactly as
 // specified — a lesson/book with a mix of reviewed and never-touched cards
 // must never read stronger than the arithmetic implies.
-import { createEmptyCard, fsrs, generatorParameters, State, type Card, type FSRS } from "ts-fsrs";
+import { State } from "ts-fsrs";
+import { getScheduler, toFsrsCard, type DbCardState, type DbFsrsState } from "./fsrs-scheduler";
 
-export type FsrsState = "new" | "learning" | "review" | "relearning";
-
-const DB_TO_TS_STATE: Record<FsrsState, State> = {
-  new: State.New,
-  learning: State.Learning,
-  review: State.Review,
-  relearning: State.Relearning,
-};
-
-export interface CardStateForStrength {
-  state: FsrsState;
-  stability: number | null;
-  difficulty: number | null;
-  dueAt: string | null;
-  reps: number;
-  lapses: number;
-  lastReviewAt: string | null;
-}
-
-// enable_fuzz is false by ts-fsrs's own library default — passed literally
-// per the same reasoning REFERENCES.md records for ULM's own scheduler
-// construction: a future ts-fsrs major can't silently change this out from
-// under a read that must stay deterministic for the same inputs.
-let schedulerSingleton: FSRS | null = null;
-function getScheduler(): FSRS {
-  if (!schedulerSingleton) {
-    schedulerSingleton = fsrs(generatorParameters({ enable_fuzz: false }));
-  }
-  return schedulerSingleton;
-}
-
-function toFsrsCard(row: CardStateForStrength | null, now: Date): Card {
-  if (row === null || row.state === "new") {
-    return createEmptyCard(now);
-  }
-  return {
-    due: new Date(row.dueAt ?? now.toISOString()),
-    stability: row.stability ?? 0,
-    difficulty: row.difficulty ?? 0,
-    elapsed_days: 0,
-    scheduled_days: 0,
-    learning_steps: 0,
-    reps: row.reps,
-    lapses: row.lapses,
-    state: DB_TO_TS_STATE[row.state],
-    last_review: row.lastReviewAt ? new Date(row.lastReviewAt) : undefined,
-  };
-}
+// Re-exported under this module's established name — session code and any
+// other caller importing from here keeps working; the canonical definition
+// now lives in fsrs-scheduler.ts (D-037-shaped consolidation: "there must be
+// exactly one scheduler in this codebase" applies to the DB<->ts-frs state
+// mapping too, not just the FSRS config itself).
+export type FsrsState = DbFsrsState;
+export type CardStateForStrength = DbCardState;
 
 /**
  * A card with no `card_states` row at all (never reviewed) is passed as
