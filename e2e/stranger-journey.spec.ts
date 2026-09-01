@@ -80,6 +80,15 @@ test.describe("stranger journey", () => {
       } catch { /* non-text body */ }
     });
 
+    // TEMPORARY DIAGNOSTIC: the overlay catches every load failure and shows one
+    // generic string, so the real cause never reaches the screenshot.
+    page.on("console", (m) => { if (m.type() === "error") console.log(`  [console] ${m.text().slice(0, 300)}`); });
+    page.on("response", async (r) => {
+      if (r.status() < 400) return;
+      console.log(`  [http ${r.status()}] ${r.url().slice(0, 140)}`);
+      try { console.log(`      body: ${(await r.text()).slice(0, 300)}`); } catch { /* opaque */ }
+    });
+
     const email = `onboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
     createdEmails.push(email);
 
@@ -165,14 +174,18 @@ test.describe("stranger journey", () => {
     if (!hasDueInvite) note("Home shows nothing about Self-Mastery — a stranger has no prompt to study.");
 
     // ---- 4. Enter the session the way a person would ---------------------
+    // The whole entry card is ONE <button>, so its accessible name is the entire
+    // string ("47 cards ready to start, ~8 min ... Start") — an anchored
+    // /^start$/ never matches it. An earlier version of this spec used that
+    // anchor and reported "No visible way to start a session from Home" while
+    // a Start button sat plainly in the screenshot. Match the card the way a
+    // person reads it, not the way a developer names it.
     let entered = false;
-    const startBtn = page.getByRole("button", { name: /^start$/i }).first();
-    if (await startBtn.isVisible().catch(() => false)) { await startBtn.click(); entered = true; }
-    else {
-      const reviewAnyway = page.getByRole("button", { name: /review anyway/i }).first();
-      if (await reviewAnyway.isVisible().catch(() => false)) { await reviewAnyway.click(); entered = true; }
-      else note("No visible way to start a session from Home.");
-    }
+    const entryCard = page
+      .getByRole("button", { name: /cards? (due|ready to start)|nothing due today|review anyway/i })
+      .first();
+    if (await entryCard.isVisible().catch(() => false)) { await entryCard.click(); entered = true; }
+    else note("No visible way to start a session from Home.");
     await page.waitForTimeout(2500);
     await page.screenshot({ path: `${SHOT}/06-session-opened.png`, fullPage: true });
     if (entered) {
@@ -182,31 +195,76 @@ test.describe("stranger journey", () => {
 
     // ---- 5. Grade cards until the session ends ---------------------------
     let graded = 0;
-    for (let i = 0; i < 40; i++) {
-      const reveal = page.getByRole("button", { name: /^reveal$/i }).first();
+    for (let i = 0; i < 60; i++) {
       const selfExplain = page.getByText(/put this lesson in your own words/i).first();
       if (await selfExplain.isVisible().catch(() => false)) {
-        const skip = page.getByRole("button", { name: /skip|continue|next/i }).first();
-        if (await skip.isVisible().catch(() => false)) { await skip.click(); await page.waitForTimeout(400); continue; }
+        // Answer it rather than skipping — a stranger would, and skipping
+        // stores a null that never exercises the write path.
+        const box = page.getByRole("textbox").first();
+        if (await box.isVisible().catch(() => false)) await box.fill("It means acting on the belief behind the behaviour.");
+        const onward = page.getByRole("button", { name: /^continue$/i }).first();
+        if (await onward.isVisible().catch(() => false)) { await onward.click(); await page.waitForTimeout(900); continue; }
       }
-      if (await reveal.isVisible().catch(() => false)) {
-        revealed = true;             // stop the leak listener; answers are legitimate now
-        await reveal.click();
-        await page.waitForTimeout(400);
-        const conf = page.getByRole("button", { name: /^sure$/i }).first();
-        if (await conf.isVisible().catch(() => false)) { await conf.click(); await page.waitForTimeout(300); }
-        const good = page.getByRole("button", { name: /^good$/i }).first();
-        if (await good.isVisible().catch(() => false)) { await good.click(); graded++; await page.waitForTimeout(700); continue; }
-        note("Revealed a card but found no grade buttons.");
+
+      // Real order, read off the screen rather than assumed: type an attempt,
+      // tap calibration, THEN reveal, THEN grade. An earlier version anchored
+      // on /^reveal$/ (the button reads "Reveal answer") and looked for the
+      // confidence tap AFTER reveal — it graded nothing and reported it as a
+      // finding while the session was working perfectly in the screenshot.
+      // Give the next card a beat to mount before concluding the session ended.
+      // Breaking immediately conflates "session finished" with "React hasn't
+      // rendered the next card yet" — the same not-yet-mounted-vs-absent
+      // confusion AGENTS.md records for layout-overflow.spec.
+      const reveal = page.getByRole("button", { name: /reveal/i }).first();
+      const stillGoing = await reveal.waitFor({ state: "visible", timeout: 8_000 }).then(() => true).catch(() => false);
+      if (!stillGoing) break;
+      // Wait for Reveal to be ENABLED, not merely present. Grading now always
+      // routes through enqueue-then-replay, so the next card's Reveal stays
+      // disabled until that round-trip finishes. A fixed sleep raced it and
+      // clicked a disabled button, which then reported "found no grade
+      // buttons" — the spec's own timing surfacing as a product finding.
+      await reveal.waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
+      try {
+        await expect(reveal).toBeEnabled({ timeout: 15_000 });
+      } catch {
+        note("Reveal stayed disabled for >15s after grading the previous card.");
         break;
       }
+
+      const attempt = page.getByRole("textbox").first();
+      if (await attempt.isVisible().catch(() => false)) await attempt.fill("a stranger's honest attempt");
+
+      const conf = page.getByRole("button", { name: /^(sure|think so|guessing)$/i }).first();
+      if (await conf.isVisible().catch(() => false)) { await conf.click(); await page.waitForTimeout(200); }
+
+      revealed = true;   // answers are legitimate from here; stop the leak listener
+      await reveal.click();
+      await page.waitForTimeout(600);
+
+      // Name the grade, don't index into a filtered list. .nth(2) assumed the
+      // four grade buttons are the only matches and in a fixed order, which
+      // breaks on any card whose actions differ — and it fails as "found no
+      // grade buttons", pointing at the product rather than at the selector.
+      const grade = page.getByRole("button", { name: /^good$/i }).first();
+      if (await grade.isVisible().catch(() => false)) {
+        await grade.click();
+        graded++;
+        await page.waitForTimeout(400);
+        continue;
+      }
+      note("Revealed a card but found no grade buttons.");
       break;
     }
     await page.screenshot({ path: `${SHOT}/07-session-end.png`, fullPage: true });
 
     // ---- 6. The payoff moment -------------------------------------------
     const endText = (await page.locator("body").innerText()).toLowerCase();
-    const sawPayoff = /tomorrow|streak|complete|well done|session/.test(endText);
+    // Deliberately NOT /session/ — the overlay header reads "Retrieval session",
+    // so that pattern matches on every card and would report the payoff moment
+    // as seen on a run that never reached it. A check that matches the chrome
+    // instead of the content is the same shape as an overlap check run against
+    // an empty table: green, and examining nothing.
+    const sawPayoff = /tomorrow|streak|day(s)? in a row|nothing due tomorrow|effortful/.test(endText);
     if (graded > 0 && !sawPayoff) note("Session ended with no completion moment — it just stops.");
 
     if (answerLeaks.length) note(`ANSWER TEXT REACHED THE CLIENT BEFORE REVEAL: ${answerLeaks.join(", ")}`);
