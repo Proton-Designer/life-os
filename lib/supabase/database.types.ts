@@ -2670,6 +2670,7 @@ export type Database = {
         Args: { p_exercises: Json; p_name: string; p_workout_id: string }
         Returns: undefined
       }
+      seed_meditations_deck: { Args: { p_lessons: Json }; Returns: Json }
       start_session: {
         Args: { p_local_date: string }
         Returns: {
