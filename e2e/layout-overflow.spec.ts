@@ -71,7 +71,16 @@ async function waitForSettled(page: import("@playwright/test").Page, route?: str
   // unconditionally (not just for /school's READY_SELECTOR entry), since
   // every route in AUTHED_ROUTES now carries a loading.tsx.
   await settleRoute(page);
-  await page.waitForLoadState("networkidle");
+  // networkidle is belt-and-braces here, NOT the gate — the READY_SELECTOR
+  // content assertion below is what actually rules out a false pass, per this
+  // file's own reasoning. And it cannot reliably settle: RealtimeSyncProvider
+  // holds a live subscription, and Home/Insights poll, so "500ms of network
+  // silence" may simply never occur. Letting it throw turns a settling
+  // heuristic into a failure that looks exactly like a layout regression —
+  // observed on /work and /insights, where the layout was fine. Bounded and
+  // swallowed: if it settles we get a slightly steadier measurement, and if it
+  // doesn't the content check still has to pass.
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
