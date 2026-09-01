@@ -167,6 +167,8 @@ export type Database = {
           author: string | null
           cover_hue: number | null
           created_at: string
+          deck_completed_at: string | null
+          deleted_at: string | null
           error_message: string | null
           file_path: string | null
           file_size_bytes: number | null
@@ -184,6 +186,8 @@ export type Database = {
           author?: string | null
           cover_hue?: number | null
           created_at?: string
+          deck_completed_at?: string | null
+          deleted_at?: string | null
           error_message?: string | null
           file_path?: string | null
           file_size_bytes?: number | null
@@ -201,6 +205,8 @@ export type Database = {
           author?: string | null
           cover_hue?: number | null
           created_at?: string
+          deck_completed_at?: string | null
+          deleted_at?: string | null
           error_message?: string | null
           file_path?: string | null
           file_size_bytes?: number | null
@@ -442,11 +448,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "class_assessments_class_id_fkey"
-            columns: ["class_id"]
+            foreignKeyName: "class_assessments_class_same_user"
+            columns: ["user_id", "class_id"]
             isOneToOne: false
             referencedRelation: "classes"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "class_assessments_task_id_fkey"
@@ -562,11 +568,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "coop_tasks_target_id_fkey"
-            columns: ["target_id"]
+            foreignKeyName: "coop_tasks_target_same_user"
+            columns: ["user_id", "target_id"]
             isOneToOne: false
             referencedRelation: "coop_targets"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -621,11 +627,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "deen_habit_logs_habit_id_fkey"
-            columns: ["habit_id"]
+            foreignKeyName: "deen_habit_logs_habit_same_user"
+            columns: ["user_id", "habit_id"]
             isOneToOne: false
             referencedRelation: "deen_habits"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -734,11 +740,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "distraction_events_trigger_id_fkey"
-            columns: ["trigger_id"]
+            foreignKeyName: "distraction_events_trigger_same_user"
+            columns: ["user_id", "trigger_id"]
             isOneToOne: false
             referencedRelation: "distraction_triggers"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -879,11 +885,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "habit_logs_habit_id_fkey"
-            columns: ["habit_id"]
+            foreignKeyName: "habit_logs_habit_same_user"
+            columns: ["user_id", "habit_id"]
             isOneToOne: false
             referencedRelation: "custom_habits"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -1277,11 +1283,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "plan_sessions_plan_id_fkey"
-            columns: ["plan_id"]
+            foreignKeyName: "plan_sessions_plan_same_user"
+            columns: ["user_id", "plan_id"]
             isOneToOne: false
             referencedRelation: "workout_plans"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "plan_sessions_workout_id_fkey"
@@ -1812,11 +1818,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "session_sets_session_id_fkey"
-            columns: ["session_id"]
+            foreignKeyName: "session_sets_session_same_user"
+            columns: ["user_id", "session_id"]
             isOneToOne: false
             referencedRelation: "workout_sessions"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -2029,11 +2035,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "trigger_action_plans_trigger_id_fkey"
-            columns: ["trigger_id"]
+            foreignKeyName: "trigger_action_plans_trigger_same_user"
+            columns: ["user_id", "trigger_id"]
             isOneToOne: false
             referencedRelation: "distraction_triggers"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -2067,18 +2073,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "trigger_plan_outcomes_plan_id_fkey"
-            columns: ["plan_id"]
+            foreignKeyName: "trigger_plan_outcomes_plan_same_user"
+            columns: ["user_id", "plan_id"]
             isOneToOne: false
             referencedRelation: "trigger_action_plans"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
           {
-            foreignKeyName: "trigger_plan_outcomes_trigger_id_fkey"
-            columns: ["trigger_id"]
+            foreignKeyName: "trigger_plan_outcomes_trigger_same_user"
+            columns: ["user_id", "trigger_id"]
             isOneToOne: false
             referencedRelation: "distraction_triggers"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -2146,26 +2152,38 @@ export type Database = {
         Row: {
           current_streak: number
           freezes_available: number
+          freezes_used_total: number
           last_session_date: string | null
           longest_streak: number
+          sessions_this_week: number
           total_reviews: number
+          total_sessions: number
           user_id: string
+          week_start_date: string | null
         }
         Insert: {
           current_streak?: number
           freezes_available?: number
+          freezes_used_total?: number
           last_session_date?: string | null
           longest_streak?: number
+          sessions_this_week?: number
           total_reviews?: number
+          total_sessions?: number
           user_id?: string
+          week_start_date?: string | null
         }
         Update: {
           current_streak?: number
           freezes_available?: number
+          freezes_used_total?: number
           last_session_date?: string | null
           longest_streak?: number
+          sessions_this_week?: number
           total_reviews?: number
+          total_sessions?: number
           user_id?: string
+          week_start_date?: string | null
         }
         Relationships: []
       }
@@ -2490,6 +2508,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      book_is_deleted: { Args: { p_book_id: string }; Returns: boolean }
       claim_ingestion_job: {
         Args: never
         Returns: {
@@ -2513,7 +2532,12 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      complete_session: { Args: { p_session_id: string }; Returns: Json }
       complete_target: { Args: { p_target_id: string }; Returns: undefined }
+      confirm_storage_deleted: {
+        Args: { p_storage_path: string }
+        Returns: undefined
+      }
       confirm_workout_session: {
         Args: {
           p_date: string
@@ -2523,6 +2547,7 @@ export type Database = {
         }
         Returns: string
       }
+      delete_book: { Args: { p_book_id: string }; Returns: Json }
       delete_class_assessment: {
         Args: { p_assessment_id: string }
         Returns: undefined
@@ -2571,6 +2596,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
       record_plan_outcome: {
         Args: {
           p_date: string
@@ -2584,6 +2610,34 @@ export type Database = {
       reorder_coop_target: {
         Args: { p_new_position: number; p_target_id: string }
         Returns: undefined
+      }
+      restore_book: {
+        Args: { p_book_id: string }
+        Returns: {
+          author: string | null
+          cover_hue: number | null
+          created_at: string
+          deck_completed_at: string | null
+          deleted_at: string | null
+          error_message: string | null
+          file_path: string | null
+          file_size_bytes: number | null
+          id: string
+          lesson_count: number
+          page_count: number | null
+          progress_pct: number
+          ready_at: string | null
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          status: Database["public"]["Enums"]["book_status"]
+          title: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "books"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       save_allocation_checkin: {
         Args: {
@@ -2643,7 +2697,7 @@ export type Database = {
           p_ai_suggested_rating: number
           p_answered_text: string
           p_card_id: string
-          p_confidence?: Database["public"]["Enums"]["confidence_level"] | null
+          p_confidence?: Database["public"]["Enums"]["confidence_level"]
           p_elapsed_ms: number
           p_next_state: Json
           p_rating: number
