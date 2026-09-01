@@ -71,6 +71,27 @@ export async function countDueCards(client: TypedClient, userId: string, now: Da
 }
 
 /**
+ * Cards never reviewed at all (`state = 'new'`) — deliberately separate
+ * from countDueCards, which excludes them (get_session_queue's own "due"
+ * CTE excludes state='new' the same way, matching that RPC's own reason,
+ * new material has no scheduled due date to be lte(now) against). A
+ * brand-new account with a freshly seeded/ingested deck has zero due cards
+ * by this definition, not because there's nothing to study but because
+ * nothing has been touched yet — the distinction the Home affordance's
+ * copy needs so day one doesn't read as "Nothing due today" (which sounds
+ * like caught-up-and-done) when the honest state is "ready to start."
+ */
+export async function countNewCards(client: TypedClient, userId: string): Promise<number> {
+  const { count, error } = await client
+    .from("card_states")
+    .select("card_id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("state", "new");
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
  * "N cards due tomorrow" — the session-complete preview. Computed
  * client-side from stored FSRS state, no RPC needed. `todayStr`/`timezone`
  * should reflect "now" at session-complete time, not session-start time — a

@@ -11,6 +11,7 @@ import {
   submitCardReview,
   completeTodaysSession,
   countDueCards,
+  countNewCards,
   countDueTomorrow,
   submitSelfExplanation as submitSelfExplanationCore,
 } from "@/lib/self-mastery/session/build-session";
@@ -171,12 +172,31 @@ export async function logSelfExplanation(input: LogSelfExplanationInput): Promis
  * setup at all) returns zero, not an error; getAuthedUser() degrades the
  * same way getUserDomains/getOnboardingState already do.
  */
-export async function getDueSummary(): Promise<{ dueCount: number; estimatedMinutes: number } | null> {
+export interface DueSummary {
+  dueCount: number;
+  /**
+   * Never-reviewed cards (state='new'), separate from dueCount --
+   * get_session_queue's own "due" query excludes these the same way
+   * (new material has no scheduled due date to compare against `now`).
+   * A brand-new account with a freshly seeded deck has dueCount=0 not
+   * because they're caught up, but because nothing's been touched yet --
+   * this field is what lets the entry card tell those two states apart
+   * (Opus Lead, stranger-journey e2e: "Nothing due today" on day one reads
+   * as broken, not as "not started").
+   */
+  newCount: number;
+  estimatedMinutes: number;
+}
+
+export async function getDueSummary(): Promise<DueSummary | null> {
   const user = await getAuthedUser();
   if (!user) return null;
   const supabase = await createClient();
-  const dueCount = await countDueCards(supabase, user.id, new Date());
-  if (dueCount === 0) return { dueCount: 0, estimatedMinutes: 0 };
+  const [dueCount, newCount] = await Promise.all([
+    countDueCards(supabase, user.id, new Date()),
+    countNewCards(supabase, user.id),
+  ]);
+  if (dueCount === 0 && newCount === 0) return { dueCount: 0, newCount: 0, estimatedMinutes: 0 };
   const { data } = await supabase
     .from("user_settings")
     .select("session_target_minutes")
@@ -186,5 +206,5 @@ export async function getDueSummary(): Promise<{ dueCount: number; estimatedMinu
   // default (066), not re-derived here, so this stays the one place that
   // default lives.
   const estimatedMinutes = data?.session_target_minutes ?? 8;
-  return { dueCount, estimatedMinutes };
+  return { dueCount, newCount, estimatedMinutes };
 }

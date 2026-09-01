@@ -17,16 +17,24 @@ import { RetrievalSessionOverlay } from "./retrieval-session-overlay";
 export function SessionEntryCard({
   dueSummary,
 }: {
-  dueSummary: { dueCount: number; estimatedMinutes: number } | null;
+  dueSummary: { dueCount: number; newCount: number; estimatedMinutes: number } | null;
 }) {
   const [open, setOpen] = useState(false);
 
   if (!dueSummary) return null;
 
+  // Three genuinely different states, not two -- "due" (real review debt),
+  // "ready to start" (a fresh/seeded deck nobody's touched yet, dueCount=0
+  // for an honest reason, not because there's nothing to do), and actually
+  // caught up. Collapsing "ready to start" into "Nothing due today" reads
+  // as broken on day one (Opus Lead, stranger-journey e2e).
   const label =
     dueSummary.dueCount > 0
       ? `${dueSummary.dueCount} card${dueSummary.dueCount === 1 ? "" : "s"} due, ~${dueSummary.estimatedMinutes} min`
-      : "Nothing due today";
+      : dueSummary.newCount > 0
+        ? `${dueSummary.newCount} card${dueSummary.newCount === 1 ? "" : "s"} ready to start, ~${dueSummary.estimatedMinutes} min`
+        : "Nothing due today";
+  const buttonLabel = dueSummary.dueCount > 0 || dueSummary.newCount > 0 ? "Start" : "Review anyway";
 
   return (
     <>
@@ -48,7 +56,7 @@ export function SessionEntryCard({
           aria-hidden
           className="rounded-lg border border-border bg-background px-2.5 py-1 text-sm font-medium"
         >
-          {dueSummary.dueCount > 0 ? "Start" : "Review anyway"}
+          {buttonLabel}
         </span>
       </button>
       <RetrievalSessionOverlay open={open} onClose={() => setOpen(false)} />

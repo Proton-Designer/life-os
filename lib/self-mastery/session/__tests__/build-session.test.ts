@@ -5,18 +5,22 @@ import {
   startTodaysSession,
   submitCardReview,
   submitSelfExplanation,
+  countDueCards,
+  countNewCards,
 } from "../build-session";
 import type { QueueEntry } from "../types";
 
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "in", "single", "insert"]) {
+  for (const method of ["select", "eq", "neq", "lte", "in", "single", "insert"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
   return chain as {
     select: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
+    neq: ReturnType<typeof vi.fn>;
+    lte: ReturnType<typeof vi.fn>;
     in: ReturnType<typeof vi.fn>;
     single: ReturnType<typeof vi.fn>;
     insert: ReturnType<typeof vi.fn>;
@@ -164,6 +168,26 @@ describe("submitCardReview", () => {
 
     const args = rpc.mock.calls[0]![1] as Record<string, unknown>;
     expect(args.p_answered_text).toBe("");
+  });
+});
+
+describe("countDueCards vs countNewCards -- the day-one distinction", () => {
+  it("countDueCards excludes state='new' -- it filters neq('state', 'new')", async () => {
+    const chain = makeChain();
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await countDueCards(client, "user-1", new Date("2026-09-01T12:00:00Z"));
+
+    expect(chain.eq).not.toHaveBeenCalledWith("state", "new");
+  });
+
+  it("countNewCards selects exactly state='new' -- the complement of countDueCards, not a re-derivation of it", async () => {
+    const chain = makeChain();
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await countNewCards(client, "user-1");
+
+    expect(chain.eq).toHaveBeenCalledWith("state", "new");
   });
 });
 
