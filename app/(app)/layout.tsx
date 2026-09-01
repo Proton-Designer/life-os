@@ -37,7 +37,10 @@ import { getWeekCalendar } from "@/app/(app)/calendar/actions";
 // table regardless. Net effect for onboarding-incomplete users is a UX
 // wrinkle (a possible brief flash of the target route before bouncing to
 // /onboarding), not a security hole.
-async function AuthedShell({ children }: { children: React.ReactNode }) {
+// Exported (only) so the redirect/gating logic below is directly unit
+// testable — see __tests__/layout.test.tsx — without fighting Suspense/
+// streaming semantics in jsdom to exercise it indirectly through AppLayout.
+export async function AuthedShell({ children }: { children: React.ReactNode }) {
   const user = await getAuthedUser();
 
   if (!user) {
