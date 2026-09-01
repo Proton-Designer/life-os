@@ -24,13 +24,21 @@ function freshEmail(): string {
   return `onboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
 }
 
-/** Sign up a brand-new account so we land in onboarding, not past it. */
+/**
+ * Sign up a brand-new account so we land in onboarding, not past it.
+ *
+ * Fill all THREE fields by id. An earlier version of this helper used
+ * getByLabel(/password/i).first() and never filled confirmPassword — signup
+ * then failed validation, never navigated, and all five specs below timed out
+ * on waitForURL. The failure looked like a broken app; it was a broken helper.
+ */
 async function signUpFresh(page: Page): Promise<string> {
   const email = freshEmail();
   await page.goto("/signup");
-  await page.getByLabel(/email/i).fill(email);
-  await page.getByLabel(/password/i).first().fill(NEW_USER_PASSWORD);
-  await page.getByRole("button", { name: /sign up|create account/i }).click();
+  await page.locator("#email").fill(email);
+  await page.locator("#password").fill(NEW_USER_PASSWORD);
+  await page.locator("#confirmPassword").fill(NEW_USER_PASSWORD);
+  await page.locator('button[type="submit"]').click();
   await page.waitForURL(/\/onboarding/, { timeout: 30_000 });
   return email;
 }
