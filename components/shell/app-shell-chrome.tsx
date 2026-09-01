@@ -1,6 +1,8 @@
 import { AppSidebar } from "./app-sidebar";
+import { TabAppSidebar } from "./tab-app-sidebar";
 import { Topbar } from "./topbar";
 import { MobileIsland } from "./mobile-island";
+import { TabMobileIsland } from "./tab-mobile-island";
 import { AllocationCheckinGate } from "@/components/checkin/allocation-checkin-gate";
 import { CheckinToast } from "@/components/checkin/checkin-toast";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
@@ -9,6 +11,7 @@ import { LockInOverlayProvider, type ActiveWorkSession } from "@/components/busi
 import { LockInOverlay } from "@/components/business/lock-in-overlay";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
+import type { NavDomainState } from "@/lib/shell/nav-domain-state";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
@@ -28,6 +31,8 @@ export function AppShellChrome({
   getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
+  navMode,
+  navDomainState,
   children,
 }: {
   account: { displayName: string; email: string };
@@ -36,6 +41,13 @@ export function AppShellChrome({
   dateLabel: string;
   nowIso: string;
   timezone: string;
+  /** M6 failsafe branch: "legacy" renders the exact existing AppSidebar/
+   * MobileIsland (unchanged code path — an account that predates domain
+   * selection never reaches the new nav). "domains" renders the four-tab
+   * nav built from navDomainState, which is non-null iff navMode is
+   * "domains". */
+  navMode: "legacy" | "domains";
+  navDomainState: NavDomainState | null;
   /** Seeds the app-wide LockInOverlayProvider below — a Lock-In session
    * started before this request must still show its overlay/minimized
    * state on first paint, not just after a client-side start. */
@@ -69,7 +81,11 @@ export function AppShellChrome({
           rendered it (batch 3, full-screen Lock-In overlay). */}
       <LockInOverlayProvider initialSession={activeWorkSession}>
         <div className="lg:flex lg:min-h-screen">
-          <AppSidebar account={account} />
+          {navMode === "domains" && navDomainState ? (
+            <TabAppSidebar account={account} navDomainState={navDomainState} />
+          ) : (
+            <AppSidebar account={account} />
+          )}
           <div className="flex min-h-screen min-w-0 flex-1 flex-col">
             <Topbar
               account={account}
@@ -82,7 +98,11 @@ export function AppShellChrome({
             />
             <main className="flex-1 pb-24 lg:pb-6">{children}</main>
           </div>
-          <MobileIsland />
+          {navMode === "domains" && navDomainState ? (
+            <TabMobileIsland navDomainState={navDomainState} />
+          ) : (
+            <MobileIsland />
+          )}
           <AllocationCheckinGate />
           <CheckinToast />
         </div>
