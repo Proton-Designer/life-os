@@ -1,6 +1,6 @@
 # Recent Changes
 
-**As of: 2026-08-31, verified against `HEAD = dff284f`.**
+
 
 This document is the most perishable of the four `context/` files. Everything
 in it decays — commits keep landing, bugs get fixed, dead code gets deleted.
@@ -9,7 +9,98 @@ keep this file current** at the bottom before you add to it.
 
 ## Status as of 2026-08-31
 
-- **HEAD:** `dff284f` (the `context/` handoff-folder commit itself), sitting
+- **HEAD:** `dff284f` (the `c**As of: 2026-09-01, verified against `HEAD = a80563e`.**
+
+## Status as of 2026-09-01 — the convergence build
+
+Three apps merged into this one: **CollegeOS** (Kareem's academic engine) and
+**ULM** (a PDF→lesson-card FSRS system) both fold into LifeOS, which was chosen as
+the foundation. Run by three Opus leads with their own engineers, coordinating over
+the peer channel. The full decision record — 42 entries, every autonomous call with
+reasoning and confidence — is at `~/Desktop/convergence-ops/DECISIONS.md`, and
+`MANDATE.md` there is the contract.
+
+- **Deployed:** `https://tracking-app-sand.vercel.app`, healthy.
+- **Database:** 61 tables (was 46). Migrations `057`–`085` applied to production.
+  `check-rls.sh` → 0 tables without RLS, 0 with RLS but no policy.
+  `check-enum-drift.sh` → clean across 9 CHECK/TS-union pairs.
+- **`tsc`** clean. **`vitest`** 1741 tests passing, 0 skipped.
+- **Playwright:** 105/110 passing. The 5 rotate between runs — timing-sensitive
+  specs, never assertion failures about wrong values. Treat a fixed failure list as
+  suspicious; **run against a PRODUCTION build, never `next dev`.**
+
+### Shipped
+
+**Onboarding, rebuilt domain-first (M3).** Pick domains → walk each **in the order
+picked** → per-domain setup → done. Personal Growth's three subdomains are
+preselected, removable, minimum one — **enforced server-side before any query**, not
+just by a disabled button. The location field is a real city search against the
+bundled dataset (it was free text; prayer times need lat/lng/timezone, which a typed
+string never yields). Calculation method and Asr madhab moved to Settings.
+
+**The four-tab shell (M4).** `Home · Personal · Work · School`, fixed at four
+regardless of how many domains exist — domains are content *inside* tabs, never
+siblings in the nav. Driven by real `user_domains` rows.
+
+**The M6 failsafe, and it is load-bearing.** An onboarded account with **zero**
+domain rows — which is every pre-existing account, including Ayman's — renders the
+**exact original nav and the exact original components**. Gated on a discriminated
+`{ mode: "legacy" }`, never on an empty array, because an empty array is what a
+future component quietly renders as nothing. Verified in a browser, both branches.
+
+**Self-Mastery.** Library, book detail, provenance drill-down (the verbatim quote
+beside its source chunk — untruncated at any width, because that quote is what makes
+AI-extracted content trustworthy), per-lesson and per-book memory strength from
+`ts-fsrs` itself, upload entry point, and a generic in-progress affordance on Home.
+
+**The full ULM schema** — books, lessons, cards, card_states, reviews, sources,
+ingestion jobs, soft-delete and purge, and the core-loop RPCs.
+
+### Two security fixes worth reading
+
+**`058` — a proven cross-tenant denial of service.** Every parent→child FK here was
+single-column, and **FK checks run as the table owner and bypass RLS**. So a row with
+*my* `user_id` pointing at *your* parent satisfies both the FK and the RLS check.
+Demonstrated end to end: A learns B's trigger uuid, calls `save_trigger_plan`, and
+because `trigger_action_plans_one_current` is unique on `trigger_id` **without a user
+scope**, B is **permanently locked out of saving a plan on their own trigger** — and
+cannot see or delete the offending row, because RLS correctly hides it. Fixed with
+composite FKs across 10 pairs. Preflight found 0 existing violations.
+
+**`057` — the focus-hours guard.** `work_sessions` was safe only *by accident*: its
+CHECK admitted only deep-work kinds, so every row counted by construction. Adding
+ULM's `learn` sessions would have silently inflated the metric every baseline is
+calibrated against. `counts_toward_hours` is a **generated** column — unwritable by
+application code, so no bug can disagree with it — and **four unfiltered readers**
+were found and fixed *before* the widening landed.
+
+### Instruments that outlive this session
+
+`scripts/preflight.sh`, `check-rls.sh`, `check-enum-drift.sh` — each with a
+`--self-test` that deliberately breaks the thing and confirms the check goes red
+first. **An unfired check and a passing check are indistinguishable.**
+
+### Hard-won, from a day of it
+
+- **A dump is not a specification.** `supabase db dump` silently omits event
+  triggers; the first baseline reproduced everything *except* `ensure_rls`.
+- **Verify the artifact was built from the source you think you're testing.** The
+  e2e suite was run three times against a build three commits stale, producing
+  21/47/2 failures — every one reported as a finding, all of them noise.
+- **Never log into the SEED account while the suite runs.** Supabase rotates refresh
+  tokens; it invalidates the suite's session mid-run and looks like product failure.
+- **Never read an exit code through a pipe.** `npx tsc | head; echo $?` reports
+  *head's* status. Made twice, reported as "clean" both times.
+- **`CREATE OR REPLACE FUNCTION` overloads rather than replaces when the signature
+  changes**, and a function's current definition exists only in the database —
+  rebuild from `pg_get_functiondef`, never from the migration that created it.
+- **Regenerate types from the database you actually run against.** Types generated
+  from scratch described a database that did not exist, and code typechecked against
+  the lie.
+
+---
+
+## Status as of 2026-08-31mmit itself), sitting
   on top of `b091810` (2026-08-31 21:52 CDT, the Settings prayer-time-preview
   timezone fix — see Recent work below) and `69f8adb` (2026-08-30 16:21 CDT,
   "fix: center and enlarge Focus time today's minute count on Business").
