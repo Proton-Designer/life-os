@@ -9,9 +9,15 @@ vi.mock("@/app/(app)/settings/location-actions", () => ({
   searchCities: vi.fn(async () => []),
   getNearestCityLabel: vi.fn(async () => null),
 }));
+vi.mock("@/lib/prayer-times/calculate", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/prayer-times/calculate")>("@/lib/prayer-times/calculate");
+  return { ...actual, calculatePrayerTimes: vi.fn(actual.calculatePrayerTimes) };
+});
 
 import { updateProfile } from "@/app/(app)/settings/actions";
 import { searchCities, getNearestCityLabel } from "@/app/(app)/settings/location-actions";
+import { calculatePrayerTimes } from "@/lib/prayer-times/calculate";
+import { localDateString } from "@/lib/date-utils";
 import { LocationSettings } from "../location-settings";
 
 const NO_LOCATION = { lat: null, lng: null, label: null, timezone: null };
@@ -34,6 +40,28 @@ describe("LocationSettings", () => {
   afterEach(() => {
     // @ts-expect-error -- test-only cleanup of a property we defined
     delete window.navigator.geolocation;
+    vi.useRealTimers();
+  });
+
+  it("anchors the prayer-time preview to the local calendar day, not raw UTC — pinned at the UTC rollover (America/Chicago, UTC-5)", () => {
+    // 18:59 and 19:01 CDT on 2026-08-30 are the same Chicago calendar day but
+    // straddle midnight UTC (23:59 UTC Aug 30 vs 00:01 UTC Aug 31). Before the
+    // fix, calculatePrayerTimes was handed a raw `new Date()`, so the second
+    // instant computed Aug 31's prayer times instead of Aug 30's — the exact
+    // bug class AGENTS.md documents. The anchor date passed to
+    // calculatePrayerTimes must be identical across both instants.
+    vi.useFakeTimers();
+
+    vi.setSystemTime(new Date("2026-08-30T23:59:00Z")); // 18:59 CDT
+    render(<LocationSettings initial={CHICAGO} prayerCalcMethod="MWL" asrMadhab="standard" />);
+    const beforeRolloverAnchor = vi.mocked(calculatePrayerTimes).mock.calls.at(-1)![0].date;
+
+    vi.setSystemTime(new Date("2026-08-31T00:01:00Z")); // 19:01 CDT, same local day
+    render(<LocationSettings initial={CHICAGO} prayerCalcMethod="MWL" asrMadhab="standard" />);
+    const afterRolloverAnchor = vi.mocked(calculatePrayerTimes).mock.calls.at(-1)![0].date;
+
+    expect(afterRolloverAnchor.getTime()).toBe(beforeRolloverAnchor.getTime());
+    expect(localDateString(beforeRolloverAnchor, "UTC")).toBe("2026-08-30");
   });
 
   it("shows a no-location message when nothing is set yet", () => {

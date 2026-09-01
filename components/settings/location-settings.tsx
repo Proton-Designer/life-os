@@ -5,7 +5,7 @@ import { updateProfile } from "@/app/(app)/settings/actions";
 import { searchCities, getNearestCityLabel } from "@/app/(app)/settings/location-actions";
 import { formatCoordinateLabel, formatCityLabel, type CityMatch } from "@/lib/settings/location";
 import { calculatePrayerTimes, type CalcMethod, type AsrMadhab, type PrayerTimes } from "@/lib/prayer-times/calculate";
-import { getTimezoneOffsetMinutes } from "@/lib/date-utils";
+import { getTimezoneOffsetMinutes, localDateString } from "@/lib/date-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -103,16 +103,26 @@ export function LocationSettings({
     startSaving(() => saveLocation({ lat: c.lat, lng: c.lng, label: formatCityLabel(c), timezone: c.timezone }));
   }
 
-  const prayerTimes = location
-    ? calculatePrayerTimes({
-        date: new Date(),
-        lat: location.lat,
-        lng: location.lng,
-        timezoneOffsetMinutes: getTimezoneOffsetMinutes(new Date(), location.timezone),
-        calcMethod: prayerCalcMethod,
-        asrMadhab,
-      })
-    : null;
+  // calculatePrayerTimes is timezone-naive by design — it reads whatever UTC
+  // Y/M/D fields it's handed. computePrayerWindows (lib/prayer-times/windows.ts)
+  // is normally the one safe entry point because it pre-anchors the date to
+  // the local calendar day; calling calculatePrayerTimes directly with a raw
+  // `new Date()` bypasses that and computes tomorrow's prayer times for any
+  // UTC-negative timezone from evening onward local time. Mirror windows.ts's
+  // anchor here instead of going through it, since this preview only needs
+  // today's times for the currently-selected (possibly unsaved) location.
+  const dayAnchor = location ? new Date(`${localDateString(new Date(), location.timezone)}T00:00:00Z`) : null;
+  const prayerTimes =
+    location && dayAnchor
+      ? calculatePrayerTimes({
+          date: dayAnchor,
+          lat: location.lat,
+          lng: location.lng,
+          timezoneOffsetMinutes: getTimezoneOffsetMinutes(dayAnchor, location.timezone),
+          calcMethod: prayerCalcMethod,
+          asrMadhab,
+        })
+      : null;
 
   return (
     <div className="flex flex-col gap-4">

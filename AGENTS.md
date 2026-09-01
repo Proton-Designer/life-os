@@ -34,6 +34,8 @@ Hit **three times in one night** (2026-08-24/25), in three different layers:
 
 **Tests must pin the boundary**, not just the happy path: the same local time either side of the UTC rollover (e.g. 18:59 and 19:01 CDT) must produce identical results, and at least one timezone *east* of UTC, where the bug inverts.
 
+`computePrayerWindows` lives in `lib/prayer-times/windows.ts` and is the only safe entry point; `calculate.ts` is timezone-naive by design and trusts the UTC Y/M/D it's handed. A one-point fix only holds for callers who go through that point: on 2026-08-31, `components/settings/location-settings.tsx` was found calling `calculatePrayerTimes` directly with `date: new Date()` — showing tomorrow's prayer times every evening after ~19:00 local, for months, while the "fixed" module sat one layer above it untouched. **When you fix a bug class at a chokepoint, grep for callers who bypass the chokepoint** — that's the check nobody ran, and it's cheap.
+
 ## Committing from a shared working tree: use `scripts/agent-commit.sh`
 
 Several agents edit ONE working tree with ONE `.git`, which means they share ONE
