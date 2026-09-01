@@ -38,7 +38,30 @@ URL="${1:-}"
 [ -n "$URL" ] || { echo "usage: check-enum-drift.sh [--self-test] <postgres-url>" >&2; exit 2; }
 
 # table.column -> the TS file whose union must cover it
-PAIRS="work_sessions.kind:lib/business/work-session-kind.ts"
+#
+# Only columns with BOTH a real DB CHECK constraint AND a genuine
+# hand-written TS mirror are listed here — a column with no CHECK (tasks/
+# custom_habits/weekly_goals/schedule_events.domain all predate the CHECK
+# convention, per context/ARCHITECTURE.md) would report "no CHECK found"
+# every single run forever, which is permanent noise, not a signal.
+# checkin_allocations.domain is the same shape as work_sessions.kind's own
+# 'wasted' sentinel trap (D-037's Domain-widening review) but in the other
+# direction: its CHECK has 6 values (the 5 real domains + 'wasted'), and no
+# single hand-written TS union cleanly mirrors that exact 6-value set
+# (Domain deliberately excludes 'wasted' by design, and sn-ratio.ts's
+# SIGNAL_DOMAINS/OTHER_COMMITMENT_DOMAINS split the 6 across two Sets plus
+# one inline literal) — pairing it here would produce a permanent, false
+# "missing: wasted" against Domain, which is intentional exclusion, not
+# drift. distraction_triggers.domain has no such sentinel and pairs cleanly.
+PAIRS="work_sessions.kind:lib/business/work-session-kind.ts
+distraction_triggers.domain:lib/home/types.ts
+coop_tasks.status:lib/coop/tasks.ts
+workout_plans.kind:lib/fitness/plan-types.ts
+plan_micro_exercises.goal_type:lib/fitness/plan-types.ts
+tasks.task_type:lib/tasks/task-type.ts
+class_assessments.type:app/(app)/school/class-actions.ts
+user_domains.key:app/(app)/onboarding/actions.ts
+user_subdomains.kind:app/(app)/onboarding/actions.ts"
 
 db_values() { # <table> <column> -> newline-separated allowed values
   psql "$URL" -X -q -t -A </dev/null -c "
