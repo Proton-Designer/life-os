@@ -70,6 +70,18 @@ test.describe("onboarding", () => {
     // hardcoding a step count, so adding a subdomain step doesn't break it.
     for (let i = 0; i < 8; i += 1) {
       if (!new URL(page.url()).pathname.startsWith("/onboarding")) break;
+      // Steps that require real input before Next enables. Handled by data-step
+      // rather than by position, so reordering the walk doesn't break this.
+      const step = await page.getByTestId("onboarding-step").getAttribute("data-step");
+      if (step === "personal_growth-faith") {
+        // The city field is a real search against the bundled dataset — typing
+        // a string is not enough, a result has to be selected, which is the
+        // whole point of it no longer being free text.
+        await page.getByTestId("faith-location-input").fill("Monroe");
+        await page.getByTestId("faith-location-search").click();
+        await page.getByTestId("faith-location-result").first().click();
+      }
+
       const terminal = page.getByTestId("fitness-style-adhoc");
       if (await terminal.count()) {
         await terminal.click();
