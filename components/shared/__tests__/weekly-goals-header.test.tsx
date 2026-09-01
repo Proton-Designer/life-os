@@ -138,4 +138,62 @@ describe("WeeklyGoalsHeader", () => {
       expect(screen.queryByText(/Set this week's Business goal/)).not.toBeInTheDocument();
     });
   });
+
+  describe("showDeen / showBusiness gating", () => {
+    it("hides the Business slot when showBusiness is false, keeps Deen", () => {
+      render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "Finish Juz 5", milestones: [] }}
+          business={{ headline: "Close 3 deals", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+          showBusiness={false}
+        />
+      );
+      expect(screen.getByText("Finish Juz 5")).toBeInTheDocument();
+      expect(screen.queryByText("Close 3 deals")).not.toBeInTheDocument();
+      expect(screen.queryByText("Business")).not.toBeInTheDocument();
+    });
+
+    it("hides the Deen slot when showDeen is false, keeps Business", () => {
+      render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "Finish Juz 5", milestones: [] }}
+          business={{ headline: "Close 3 deals", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+          showDeen={false}
+        />
+      );
+      expect(screen.queryByText("Finish Juz 5")).not.toBeInTheDocument();
+      expect(screen.getByText("Close 3 deals")).toBeInTheDocument();
+    });
+
+    it("hides the whole module -- including the 'This Week's Focus' heading -- when both are false, rather than rendering an empty frame", () => {
+      const { container } = render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "Finish Juz 5", milestones: [] }}
+          business={{ headline: "Close 3 deals", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+          showDeen={false}
+          showBusiness={false}
+        />
+      );
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("defaults both to true when the caller doesn't pass them at all -- Calendar's header and any other existing caller is unaffected", () => {
+      render(
+        <WeeklyGoalsHeader
+          deen={{ headline: "Finish Juz 5", milestones: [] }}
+          business={{ headline: "Close 3 deals", milestones: [] }}
+          onSaveDeen={noop}
+          onSaveBusiness={noop}
+        />
+      );
+      expect(screen.getByText("Finish Juz 5")).toBeInTheDocument();
+      expect(screen.getByText("Close 3 deals")).toBeInTheDocument();
+    });
+  });
 });

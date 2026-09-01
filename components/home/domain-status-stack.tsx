@@ -3,6 +3,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { ProgressRing } from "@/components/charts/progress-ring";
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import { cn } from "@/lib/utils";
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
 
 const DOMAIN_LABEL: Record<keyof DomainSnapshots, string> = {
@@ -65,13 +66,48 @@ function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {
 // progress ring on the other ("side by side" per Ayman), snap-scrolling on
 // mobile like every other top-of-page strip in this app (Deen/Insights/
 // Weekly Planning's own KPI rows) rather than a bespoke mobile treatment.
-export function DomainStatusStack({ snapshots, title }: { snapshots: DomainSnapshots; title?: string }) {
-  const domains: (keyof DomainSnapshots)[] = ["deen", "business", "fitness", "school", "co_op"];
+const ALL_DOMAINS: (keyof DomainSnapshots)[] = ["deen", "business", "fitness", "school", "co_op"];
+
+// Static per-count classes -- Tailwind's JIT can't resolve a template-string
+// class name, and this stays a plain lookup rather than an arbitrary-value
+// class (`md:grid-cols-[3]`) to match this component's own existing
+// CHIP_SIZE_CLASS-shaped convention elsewhere in the codebase.
+const GRID_COLS_CLASS: Record<number, string> = {
+  1: "md:grid-cols-1",
+  2: "md:grid-cols-2",
+  3: "md:grid-cols-3",
+  4: "md:grid-cols-4",
+  5: "md:grid-cols-5",
+};
+
+export function DomainStatusStack({
+  snapshots,
+  title,
+  visibleDomains = ALL_DOMAINS,
+}: {
+  snapshots: DomainSnapshots;
+  title?: string;
+  /** Defaults to all 5 — every existing caller (a legacy account, or any
+   * caller that predates domain selection) keeps seeing exactly what it
+   * does today unless it explicitly opts into gating. Home is the only
+   * caller that passes this, scoped to the caller's actually-selected
+   * domains/subdomains (Deen/Fitness map to Personal Growth subdomains,
+   * not the top-level domain itself — someone who kept Personal Growth but
+   * dropped Fitness should not see a Fitness sector). */
+  visibleDomains?: (keyof DomainSnapshots)[];
+}) {
+  const domains = visibleDomains;
+  if (domains.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-2">
       {title && <p className="text-sm font-medium">{title}</p>}
-      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:grid md:grid-cols-5 md:overflow-visible">
+      <div
+        className={cn(
+          "flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:grid md:overflow-visible",
+          GRID_COLS_CLASS[domains.length] ?? GRID_COLS_CLASS[5]
+        )}
+      >
         {domains.map((domain) => {
           const accent = DOMAIN_ACCENT[domain === "co_op" ? "co_op" : domain];
           const pulse =

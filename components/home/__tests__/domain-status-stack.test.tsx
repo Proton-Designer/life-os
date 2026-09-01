@@ -131,4 +131,29 @@ describe("DomainStatusStack", () => {
     render(<DomainStatusStack snapshots={snapshots} />);
     expect(screen.getByText("Not tracked yet · 4 qada")).toBeInTheDocument();
   });
+
+  describe("visibleDomains gating", () => {
+    it("shows only the passed domains, in canonical order, when the caller opts in", () => {
+      render(<DomainStatusStack snapshots={SNAPSHOTS} visibleDomains={["deen", "school"]} />);
+      expect(screen.getByRole("link", { name: /Deen/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /School/ })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Business/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Fitness/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Work/ })).not.toBeInTheDocument();
+    });
+
+    it("renders nothing at all when every domain is gated out, rather than an empty frame", () => {
+      const { container } = render(<DomainStatusStack snapshots={SNAPSHOTS} visibleDomains={[]} />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("defaults to all 5 domains when the caller doesn't pass visibleDomains at all -- every existing/legacy caller is unaffected", () => {
+      render(<DomainStatusStack snapshots={SNAPSHOTS} />);
+      expect(screen.getByRole("link", { name: /Deen/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Business/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Fitness/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /School/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Work/ })).toBeInTheDocument();
+    });
+  });
 });

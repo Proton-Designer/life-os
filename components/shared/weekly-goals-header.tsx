@@ -119,6 +119,8 @@ export function WeeklyGoalsHeader({
   onSaveBusiness,
   showPlanningNudge,
   className,
+  showDeen = true,
+  showBusiness = true,
 }: {
   deen: WeeklyGoalEntry;
   business: WeeklyGoalEntry;
@@ -126,7 +128,18 @@ export function WeeklyGoalsHeader({
   onSaveBusiness: (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
   showPlanningNudge?: boolean;
   className?: string;
+  /** Both default true — every existing caller (Calendar's header, or a
+   * legacy account) keeps seeing both slots unless it explicitly opts into
+   * gating. Home is the only caller that passes these, scoped to whether
+   * the user actually selected the domain each slot belongs to. If both
+   * end up false, the whole module is hidden rather than rendering an
+   * empty frame with nothing in it (Opus Lead ruling: an empty module is
+   * worse than none). */
+  showDeen?: boolean;
+  showBusiness?: boolean;
 }) {
+  if (!showDeen && !showBusiness) return null;
+
   return (
     <div
       id="weekly-focus"
@@ -146,8 +159,8 @@ export function WeeklyGoalsHeader({
             "0 0 0 1px color-mix(in oklch, var(--glow-white) 30%, transparent), 0 0 20px 2px color-mix(in oklch, var(--glow-white) 22%, transparent)",
         }}
       >
-        <GoalSlot domain="deen" goal={deen} onSave={onSaveDeen} />
-        <GoalSlot domain="business" goal={business} onSave={onSaveBusiness} />
+        {showDeen && <GoalSlot domain="deen" goal={deen} onSave={onSaveDeen} />}
+        {showBusiness && <GoalSlot domain="business" goal={business} onSave={onSaveBusiness} />}
       </div>
     </div>
   );

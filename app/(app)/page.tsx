@@ -24,6 +24,7 @@ import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -77,6 +78,31 @@ export default async function HomePage() {
   const hasSelfMastery =
     domainsState.mode === "domains" &&
     domainsState.subdomains.some((s) => s.domainKey === "personal_growth" && s.key === "self_mastery");
+
+  // Body-level gating (Opus Lead finding, stranger-journey e2e): the nav
+  // gates correctly, but Home's own content did not — Sector progress and
+  // This Week's Focus previously rendered all 5 legacy domains
+  // unconditionally, advertising domains a user explicitly declined during
+  // onboarding. See compute-domain-visibility.ts for the M6-guarantee
+  // reasoning (a legacy account sees every flag true) — extracted to a
+  // pure function specifically so that guarantee is unit-tested directly,
+  // not just implied by this page rendering correctly in practice.
+  const { hasFaith, hasFitness, hasWork, hasSchoolDomain } = computeDomainVisibility(domainsState);
+
+  // Canonical order preserved (deen, business, fitness, school, co_op) —
+  // for a legacy account every flag above is true, so this filter is a
+  // structural no-op and the array comes out byte-identical to the
+  // hardcoded list DomainStatusStack used to own itself.
+  const domainVisibility: Record<keyof typeof snapshots, boolean> = {
+    deen: hasFaith,
+    business: hasWork,
+    fitness: hasFitness,
+    school: hasSchoolDomain,
+    co_op: hasWork,
+  };
+  const visibleSectorDomains = (["deen", "business", "fitness", "school", "co_op"] as const).filter(
+    (key) => domainVisibility[key]
+  );
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
@@ -135,9 +161,11 @@ export default async function HomePage() {
         onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
         onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
         showPlanningNudge={showPlanningNudge}
+        showDeen={hasFaith}
+        showBusiness={hasWork}
       />
 
-      <DomainStatusStack snapshots={snapshots} title="Sector progress" />
+      <DomainStatusStack snapshots={snapshots} title="Sector progress" visibleDomains={visibleSectorDomains} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
