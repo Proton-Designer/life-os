@@ -38,16 +38,43 @@ const TS_TO_DB_STATE: Record<State, DbFsrsState> = {
   [State.Relearning]: "relearning",
 };
 
-// enable_fuzz is false by ts-fsrs's own library default — passed literally
-// so a future ts-fsrs major can't silently flip determinism out from under
-// a read (memory-strength display) or a replay that must hold forever
-// (CollegeOS's design derives from the log rather than storing).
-let schedulerSingleton: FSRS | null = null;
-export function getScheduler(): FSRS {
-  if (!schedulerSingleton) {
-    schedulerSingleton = fsrs(generatorParameters({ enable_fuzz: false }));
+// ULM's own oldest known defect, reproduced here verbatim before this fix:
+// `desired_retention` (user_settings, 0.70-0.99, user-editable in Settings)
+// round-trips through the UI correctly and never reaches the scheduler.
+// ULM's version built the scheduler once at mount, before settings loaded,
+// off a hardcoded DEFAULT_FSRS_CONFIG, in a useMemo with an empty
+// dependency array — a pure ordering bug, not a missing plumbing layer,
+// per the ULM lead's own field map (ULM/docs/notes/desired-retention-map.md).
+// This module's version of the same bug was structurally identical: a
+// bare `fsrs(generatorParameters({ enable_fuzz: false }))` singleton that
+// never accepted a retention value at all, so every scheduling calculation
+// ran at ts-fsrs's own library default regardless of what a user set.
+//
+// Fix: getScheduler takes the retention value explicitly, cached per
+// distinct value rather than as a single mount-time singleton — cheap to
+// construct, and this repo's session code (retrieval-session-overlay.tsx's
+// handleGrade) reads `built.settings.desiredRetention` fresh at EACH grade
+// call, not once at component mount, so there is no equivalent mount-order
+// trap here: no card is gradable until `loadTodaysSession()` has already
+// resolved with the real settings row.
+//
+// The read-side (memory-strength.ts's retrievability display) deliberately
+// stays pinned at the default — retrievability is computed from
+// stability/difficulty/elapsed time, and `request_retention` does not
+// affect it at all (confirmed by the field map's own note on the
+// equivalent ULM read path, stats/index.ts:185). Passing a live user
+// setting there would change nothing but invite exactly this class of bug
+// to be "fixed" a second time for a call site where it was never broken.
+export const DEFAULT_REQUEST_RETENTION = 0.9;
+
+const schedulerCache = new Map<number, FSRS>();
+export function getScheduler(requestRetention: number = DEFAULT_REQUEST_RETENTION): FSRS {
+  let scheduler = schedulerCache.get(requestRetention);
+  if (!scheduler) {
+    scheduler = fsrs(generatorParameters({ request_retention: requestRetention, enable_fuzz: false }));
+    schedulerCache.set(requestRetention, scheduler);
   }
-  return schedulerSingleton;
+  return scheduler;
 }
 
 /** Shape of a `card_states` row — deliberately a subset (no card_id/user_id/book_id; this module only cares about scheduling state). */

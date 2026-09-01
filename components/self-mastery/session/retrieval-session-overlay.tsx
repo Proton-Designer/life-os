@@ -208,7 +208,11 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setIsSubmitting(true);
     try {
       const currentState = await fetchCurrentCardState(currentCard.id);
-      const scheduler = getScheduler();
+      // built.settings.desiredRetention, not the default -- read fresh at
+      // grade time from the already-resolved session (see
+      // fsrs-scheduler.ts's header comment for why this call site is
+      // specifically immune to the mount-order trap ULM's own version had).
+      const scheduler = getScheduler(built.settings.desiredRetention);
       const now = new Date();
       const { card: nextCard } = computeNextState(scheduler, toFsrsCard(currentState, now), rating, now);
 
