@@ -62,6 +62,26 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
     if (!profile || profile.onboarding_completed === false) {
       redirect("/onboarding");
     }
+  } else {
+    // An already-onboarded account must never re-enter this flow. Without
+    // this, visiting /onboarding lets a finished user walk the wizard again
+    // and silently REWRITE their domain/subdomain configuration — verified
+    // live 2026-09-01 by completing onboarding against an existing account
+    // and finding new user_domains/user_subdomains rows written for it.
+    // Phase 1's whole safety story is that existing accounts are untouched,
+    // and the redirect in the branch above only guards the other direction.
+    if (profile && profile.onboarding_completed === true) {
+      redirect("/");
+    }
+
+    // Onboarding renders WITHOUT the app shell. A user who has not finished
+    // onboarding has not chosen any domains yet, so the sidebar would be
+    // advertising a fixed set of destinations they have not opted into —
+    // and offering navigation out of a flow whose whole job is to be
+    // completed. Verified live 2026-09-01: a fresh signup was landing on
+    // /onboarding with the full Deen/Business/Fitness/School/Work nav
+    // rendered behind the wizard.
+    return <>{children}</>;
   }
 
   return (
