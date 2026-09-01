@@ -82,6 +82,14 @@ test.describe("onboarding", () => {
         await page.getByTestId("faith-location-result").first().click();
       }
 
+      // Self-Mastery has its own primary button (skip-first by design: upload
+      // is secondary), so the generic onboarding-next never appears there.
+      if (step === "personal_growth-self_mastery") {
+        await page.getByTestId("selfmastery-continue").click();
+        await page.waitForTimeout(400);
+        continue;
+      }
+
       const terminal = page.getByTestId("fitness-style-adhoc");
       if (await terminal.count()) {
         await terminal.click();
