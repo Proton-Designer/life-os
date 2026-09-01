@@ -38,6 +38,29 @@
 -- appear in the queue no matter how correct this function is. D-003
 -- requires book AND course cards interleaved; that half is structurally
 -- unverifiable right now and is explicitly not claimed here.
+--
+-- ⚠️ THE `join public.sources` BELOW IS AN INNER JOIN, AND THAT IS ONLY SAFE
+-- BECAUSE OF WHAT 068/069 GUARANTEE. A card whose book has no matching
+-- `sources` row silently vanishes from this query — no error, no warning,
+-- it just isn't there. That's the same "verdict derived from silence" shape
+-- this whole convergence effort keeps finding (`lessons.embedding`, the
+-- inert progressive-availability UI). It's closed here, not open: the
+-- `books_create_source` AFTER INSERT trigger (069) creates the source row
+-- in the same transaction as the book, and the partial unique index on
+-- `sources.book_id` (068) makes a second one for the same book impossible.
+-- Because that 1:1 relationship is a database-level fact, not a hope, this
+-- join can never actually fire on a book with zero or two sources — but if
+-- either the trigger or the unique index is ever removed, this join starts
+-- dropping cards from the queue silently. Keep a drift assertion runnable
+-- somewhere (`count(books) == count(sources where kind='book')`, used to
+-- verify 068/069) — it is the loud check standing behind this quiet join.
+--
+-- Testing note: verifying the interleaving with two books whose cards share
+-- identical `due_at` values produces a false-negative-looking result — ties
+-- in `overall_rank`'s ordering are broken arbitrarily by Postgres, which can
+-- make correct round-robin output look like it isn't alternating. Stagger
+-- `due_at` across sources in any test of this function, or the tie itself
+-- is what you're observing, not a bug.
 
 create or replace function public.get_session_queue(p_limit_due int, p_limit_new int)
 returns table (
