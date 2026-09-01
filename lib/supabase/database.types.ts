@@ -121,6 +121,206 @@ export type Database = {
         }
         Relationships: []
       }
+      book_sections: {
+        Row: {
+          book_id: string
+          id: string
+          level: number
+          page_end: number | null
+          page_start: number | null
+          sort_order: number
+          title: string | null
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          id?: string
+          level?: number
+          page_end?: number | null
+          page_start?: number | null
+          sort_order?: number
+          title?: string | null
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          id?: string
+          level?: number
+          page_end?: number | null
+          page_start?: number | null
+          sort_order?: number
+          title?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_sections_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      books: {
+        Row: {
+          author: string | null
+          cover_hue: number | null
+          created_at: string
+          error_message: string | null
+          file_path: string | null
+          file_size_bytes: number | null
+          id: string
+          lesson_count: number
+          page_count: number | null
+          progress_pct: number
+          ready_at: string | null
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          status: Database["public"]["Enums"]["book_status"]
+          title: string
+          user_id: string
+        }
+        Insert: {
+          author?: string | null
+          cover_hue?: number | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          lesson_count?: number
+          page_count?: number | null
+          progress_pct?: number
+          ready_at?: string | null
+          stage?: Database["public"]["Enums"]["ingest_stage"]
+          status?: Database["public"]["Enums"]["book_status"]
+          title: string
+          user_id: string
+        }
+        Update: {
+          author?: string | null
+          cover_hue?: number | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          lesson_count?: number
+          page_count?: number | null
+          progress_pct?: number
+          ready_at?: string | null
+          stage?: Database["public"]["Enums"]["ingest_stage"]
+          status?: Database["public"]["Enums"]["book_status"]
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      card_states: {
+        Row: {
+          book_id: string
+          card_id: string
+          difficulty: number | null
+          due_at: string | null
+          lapses: number
+          last_rating: number | null
+          last_review_at: string | null
+          reps: number
+          stability: number | null
+          state: Database["public"]["Enums"]["fsrs_state"]
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          card_id: string
+          difficulty?: number | null
+          due_at?: string | null
+          lapses?: number
+          last_rating?: number | null
+          last_review_at?: string | null
+          reps?: number
+          stability?: number | null
+          state?: Database["public"]["Enums"]["fsrs_state"]
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          card_id?: string
+          difficulty?: number | null
+          due_at?: string | null
+          lapses?: number
+          last_rating?: number | null
+          last_review_at?: string | null
+          reps?: number
+          stability?: number | null
+          state?: Database["public"]["Enums"]["fsrs_state"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "card_states_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "card_states_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cards: {
+        Row: {
+          answer: string
+          book_id: string
+          id: string
+          lesson_id: string
+          prompt: string
+          prompt_type: Database["public"]["Enums"]["prompt_type"]
+          sort_order: number
+          user_id: string
+        }
+        Insert: {
+          answer: string
+          book_id: string
+          id?: string
+          lesson_id: string
+          prompt: string
+          prompt_type: Database["public"]["Enums"]["prompt_type"]
+          sort_order?: number
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          book_id?: string
+          id?: string
+          lesson_id?: string
+          prompt?: string
+          prompt_type?: Database["public"]["Enums"]["prompt_type"]
+          sort_order?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cards_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cards_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checkin_allocations: {
         Row: {
           checkin_id: string
@@ -687,6 +887,59 @@ export type Database = {
           },
         ]
       }
+      ingestion_jobs: {
+        Row: {
+          attempts: number
+          book_id: string
+          created_at: string
+          heartbeat_at: string | null
+          id: string
+          last_error: string | null
+          leased_until: string | null
+          max_attempts: number
+          reingest: boolean
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          book_id: string
+          created_at?: string
+          heartbeat_at?: string | null
+          id?: string
+          last_error?: string | null
+          leased_until?: string | null
+          max_attempts?: number
+          reingest?: boolean
+          stage?: Database["public"]["Enums"]["ingest_stage"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          book_id?: string
+          created_at?: string
+          heartbeat_at?: string | null
+          id?: string
+          last_error?: string | null
+          leased_until?: string | null
+          max_attempts?: number
+          reingest?: boolean
+          stage?: Database["public"]["Enums"]["ingest_stage"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingestion_jobs_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: true
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kill_list_items: {
         Row: {
           completed: boolean
@@ -719,6 +972,94 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      lessons: {
+        Row: {
+          action_template: string | null
+          book_id: string
+          core_claim: string | null
+          created_at: string
+          embedding: string | null
+          evidence_strength:
+            | Database["public"]["Enums"]["evidence_strength"]
+            | null
+          extracted_by: Database["public"]["Enums"]["extracted_by"] | null
+          id: string
+          mechanism: string | null
+          page_ref: number | null
+          provenance_quote: string
+          rank: number | null
+          section_id: string | null
+          source_chunk_id: string | null
+          status: Database["public"]["Enums"]["lesson_status"]
+          title: string
+          user_id: string
+        }
+        Insert: {
+          action_template?: string | null
+          book_id: string
+          core_claim?: string | null
+          created_at?: string
+          embedding?: string | null
+          evidence_strength?:
+            | Database["public"]["Enums"]["evidence_strength"]
+            | null
+          extracted_by?: Database["public"]["Enums"]["extracted_by"] | null
+          id?: string
+          mechanism?: string | null
+          page_ref?: number | null
+          provenance_quote: string
+          rank?: number | null
+          section_id?: string | null
+          source_chunk_id?: string | null
+          status?: Database["public"]["Enums"]["lesson_status"]
+          title: string
+          user_id: string
+        }
+        Update: {
+          action_template?: string | null
+          book_id?: string
+          core_claim?: string | null
+          created_at?: string
+          embedding?: string | null
+          evidence_strength?:
+            | Database["public"]["Enums"]["evidence_strength"]
+            | null
+          extracted_by?: Database["public"]["Enums"]["extracted_by"] | null
+          id?: string
+          mechanism?: string | null
+          page_ref?: number | null
+          provenance_quote?: string
+          rank?: number | null
+          section_id?: string | null
+          source_chunk_id?: string | null
+          status?: Database["public"]["Enums"]["lesson_status"]
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lessons_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lessons_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "book_sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lessons_source_chunk_id_fkey"
+            columns: ["source_chunk_id"]
+            isOneToOne: false
+            referencedRelation: "source_chunks"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notification_log: {
         Row: {
@@ -767,6 +1108,36 @@ export type Database = {
           id?: string
           notification_key?: string
           read_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      pending_storage_deletions: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          storage_path: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          storage_path: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          storage_path?: string
           user_id?: string
         }
         Relationships: []
@@ -1133,6 +1504,91 @@ export type Database = {
           },
         ]
       }
+      reviews: {
+        Row: {
+          ai_feedback: string | null
+          ai_suggested_rating: number | null
+          answered_text: string | null
+          book_id: string
+          card_id: string
+          confidence: Database["public"]["Enums"]["confidence_level"] | null
+          difficulty_after: number | null
+          difficulty_before: number | null
+          elapsed_ms: number | null
+          id: string
+          rating: number
+          reviewed_at: string
+          scheduled_days: number | null
+          session_id: string | null
+          stability_after: number | null
+          stability_before: number | null
+          state_before: Database["public"]["Enums"]["fsrs_state"] | null
+          user_id: string
+        }
+        Insert: {
+          ai_feedback?: string | null
+          ai_suggested_rating?: number | null
+          answered_text?: string | null
+          book_id: string
+          card_id: string
+          confidence?: Database["public"]["Enums"]["confidence_level"] | null
+          difficulty_after?: number | null
+          difficulty_before?: number | null
+          elapsed_ms?: number | null
+          id?: string
+          rating: number
+          reviewed_at?: string
+          scheduled_days?: number | null
+          session_id?: string | null
+          stability_after?: number | null
+          stability_before?: number | null
+          state_before?: Database["public"]["Enums"]["fsrs_state"] | null
+          user_id: string
+        }
+        Update: {
+          ai_feedback?: string | null
+          ai_suggested_rating?: number | null
+          answered_text?: string | null
+          book_id?: string
+          card_id?: string
+          confidence?: Database["public"]["Enums"]["confidence_level"] | null
+          difficulty_after?: number | null
+          difficulty_before?: number | null
+          elapsed_ms?: number | null
+          id?: string
+          rating?: number
+          reviewed_at?: string
+          scheduled_days?: number | null
+          session_id?: string | null
+          stability_after?: number | null
+          stability_before?: number | null
+          state_before?: Database["public"]["Enums"]["fsrs_state"] | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "work_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedule_event_cancellations: {
         Row: {
           created_at: string
@@ -1265,6 +1721,51 @@ export type Database = {
           },
         ]
       }
+      self_explanations: {
+        Row: {
+          created_at: string
+          id: string
+          lesson_id: string
+          prompt: string
+          response: string | null
+          session_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lesson_id: string
+          prompt: string
+          response?: string | null
+          session_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lesson_id?: string
+          prompt?: string
+          response?: string | null
+          session_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "self_explanations_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "self_explanations_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "work_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       session_sets: {
         Row: {
           created_at: string
@@ -1315,6 +1816,99 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "workout_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      source_chunks: {
+        Row: {
+          book_id: string
+          embedding: string | null
+          id: string
+          page_end: number | null
+          page_start: number | null
+          section_id: string | null
+          sort_order: number
+          text: string
+          token_count: number | null
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          embedding?: string | null
+          id?: string
+          page_end?: number | null
+          page_start?: number | null
+          section_id?: string | null
+          sort_order?: number
+          text: string
+          token_count?: number | null
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          embedding?: string | null
+          id?: string
+          page_end?: number | null
+          page_start?: number | null
+          section_id?: string | null
+          sort_order?: number
+          text?: string
+          token_count?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "source_chunks_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "source_chunks_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "book_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sources: {
+        Row: {
+          book_id: string | null
+          class_id: string | null
+          id: string
+          kind: string
+          user_id: string
+        }
+        Insert: {
+          book_id?: string | null
+          class_id?: string | null
+          id?: string
+          kind: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string | null
+          class_id?: string | null
+          id?: string
+          kind?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sources_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sources_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
             referencedColumns: ["id"]
           },
         ]
@@ -1518,6 +2112,63 @@ export type Database = {
         }
         Relationships: []
       }
+      user_settings: {
+        Row: {
+          ai_grading_enabled: boolean
+          daily_new_limit: number
+          desired_retention: number
+          notification_enabled: boolean
+          notification_time: string
+          session_target_minutes: number
+          user_id: string
+        }
+        Insert: {
+          ai_grading_enabled?: boolean
+          daily_new_limit?: number
+          desired_retention?: number
+          notification_enabled?: boolean
+          notification_time?: string
+          session_target_minutes?: number
+          user_id?: string
+        }
+        Update: {
+          ai_grading_enabled?: boolean
+          daily_new_limit?: number
+          desired_retention?: number
+          notification_enabled?: boolean
+          notification_time?: string
+          session_target_minutes?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_stats: {
+        Row: {
+          current_streak: number
+          freezes_available: number
+          last_session_date: string | null
+          longest_streak: number
+          total_reviews: number
+          user_id: string
+        }
+        Insert: {
+          current_streak?: number
+          freezes_available?: number
+          last_session_date?: string | null
+          longest_streak?: number
+          total_reviews?: number
+          user_id?: string
+        }
+        Update: {
+          current_streak?: number
+          freezes_available?: number
+          last_session_date?: string | null
+          longest_streak?: number
+          total_reviews?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_subdomains: {
         Row: {
           archived_at: string | null
@@ -1609,29 +2260,38 @@ export type Database = {
       }
       work_sessions: {
         Row: {
+          cards_reviewed: number | null
           counts_toward_hours: boolean | null
           created_at: string
           ended_at: string | null
           id: string
           kind: string
+          local_date: string | null
+          new_cards_introduced: number | null
           started_at: string
           user_id: string
         }
         Insert: {
+          cards_reviewed?: number | null
           counts_toward_hours?: boolean | null
           created_at?: string
           ended_at?: string | null
           id?: string
           kind?: string
+          local_date?: string | null
+          new_cards_introduced?: number | null
           started_at?: string
           user_id?: string
         }
         Update: {
+          cards_reviewed?: number | null
           counts_toward_hours?: boolean | null
           created_at?: string
           ended_at?: string | null
           id?: string
           kind?: string
+          local_date?: string | null
+          new_cards_introduced?: number | null
           started_at?: string
           user_id?: string
         }
@@ -1830,6 +2490,29 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_ingestion_job: {
+        Args: never
+        Returns: {
+          attempts: number
+          book_id: string
+          created_at: string
+          heartbeat_at: string | null
+          id: string
+          last_error: string | null
+          leased_until: string | null
+          max_attempts: number
+          reingest: boolean
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ingestion_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       complete_target: { Args: { p_target_id: string }; Returns: undefined }
       confirm_workout_session: {
         Args: {
@@ -1845,12 +2528,25 @@ export type Database = {
         Returns: undefined
       }
       delete_coop_target: { Args: { p_target_id: string }; Returns: undefined }
+      get_session_queue: {
+        Args: { p_limit_due: number; p_limit_new: number }
+        Returns: {
+          book_id: string
+          card_id: string
+          queue_position: number
+          reason: string
+        }[]
+      }
       get_vault_secrets: {
         Args: { secret_names: string[] }
         Returns: {
           decrypted_secret: string
           name: string
         }[]
+      }
+      heartbeat_ingestion_job: {
+        Args: { p_job_id: string }
+        Returns: undefined
       }
       merge_subdomain_config: {
         Args: { p_patch: Json; p_subdomain_id: string }
@@ -1920,6 +2616,65 @@ export type Database = {
         Args: { p_exercises: Json; p_name: string; p_workout_id: string }
         Returns: undefined
       }
+      start_session: {
+        Args: { p_local_date: string }
+        Returns: {
+          cards_reviewed: number | null
+          counts_toward_hours: boolean | null
+          created_at: string
+          ended_at: string | null
+          id: string
+          kind: string
+          local_date: string | null
+          new_cards_introduced: number | null
+          started_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "work_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      submit_review: {
+        Args: {
+          p_ai_feedback: string
+          p_ai_suggested_rating: number
+          p_answered_text: string
+          p_card_id: string
+          p_elapsed_ms: number
+          p_next_state: Json
+          p_rating: number
+          p_session_id: string
+        }
+        Returns: {
+          ai_feedback: string | null
+          ai_suggested_rating: number | null
+          answered_text: string | null
+          book_id: string
+          card_id: string
+          confidence: Database["public"]["Enums"]["confidence_level"] | null
+          difficulty_after: number | null
+          difficulty_before: number | null
+          elapsed_ms: number | null
+          id: string
+          rating: number
+          reviewed_at: string
+          scheduled_days: number | null
+          session_id: string | null
+          stability_after: number | null
+          stability_before: number | null
+          state_before: Database["public"]["Enums"]["fsrs_state"] | null
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reviews"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       upsert_session_hour: {
         Args: {
           p_domain: string
@@ -1931,7 +2686,25 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      book_status: "uploading" | "processing" | "ready" | "failed"
+      confidence_level: "sure" | "think_so" | "guessing"
+      evidence_strength: "author_anecdote" | "single_study" | "strong_research"
+      extracted_by: "model" | "heuristic" | "seed"
+      fsrs_state: "new" | "learning" | "review" | "relearning"
+      ingest_stage:
+        | "queued"
+        | "extracting_text"
+        | "parsing_structure"
+        | "chunking"
+        | "embedding"
+        | "extracting_lessons"
+        | "merging"
+        | "generating_cards"
+        | "finalizing"
+        | "done"
+        | "failed"
+      lesson_status: "active" | "archived" | "rejected"
+      prompt_type: "free_recall" | "application" | "cloze" | "why"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2061,7 +2834,28 @@ export const Constants = {
     Enums: {},
   },
   public: {
-    Enums: {},
+    Enums: {
+      book_status: ["uploading", "processing", "ready", "failed"],
+      confidence_level: ["sure", "think_so", "guessing"],
+      evidence_strength: ["author_anecdote", "single_study", "strong_research"],
+      extracted_by: ["model", "heuristic", "seed"],
+      fsrs_state: ["new", "learning", "review", "relearning"],
+      ingest_stage: [
+        "queued",
+        "extracting_text",
+        "parsing_structure",
+        "chunking",
+        "embedding",
+        "extracting_lessons",
+        "merging",
+        "generating_cards",
+        "finalizing",
+        "done",
+        "failed",
+      ],
+      lesson_status: ["active", "archived", "rejected"],
+      prompt_type: ["free_recall", "application", "cloze", "why"],
+    },
   },
 } as const
 

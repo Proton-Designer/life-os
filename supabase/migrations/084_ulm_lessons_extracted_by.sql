@@ -1,0 +1,46 @@
+-- ULM D-002/D-018: generator provenance for `lessons`. Records which CLASS of
+-- generator produced a lesson's fields, not the specific model/vendor — see
+-- docs/notes/extracted-by-design.md in the ULM repo for the full reasoning
+-- (per-lesson vs per-book, the backfill-impossible scheduling constraint).
+--
+-- Native Postgres enum, not text+CHECK, per this repo's house pattern (the
+-- `confidence` precedent) — a real enum's TypeScript type is derived
+-- automatically from the generated `Database["public"]["Enums"]` type, which
+-- structurally cannot drift the way a hand-written union mirroring a CHECK
+-- constraint can. See scripts/check-enum-drift.sh's own header for the ULM
+-- `EvidenceStrength` precedent that motivated that script in the first
+-- place — this column deliberately isn't added to that script's PAIRS list,
+-- because a real enum is exactly the case it doesn't need to cover.
+--
+-- THREE values, not two: `model` and `heuristic` are the two ULM ingestion-
+-- pipeline generators (packages/core/src/llm/{ollamaProvider,heuristicProvider}.ts).
+-- `seed` is neither — the D-018 seeded sample deck (packages/core/src/seed/)
+-- is hand-authored from a public-domain text and verified by hand, never
+-- produced by either generator. Forcing it into 'model' or 'heuristic' would
+-- misrepresent its real provenance.
+--
+-- NULL means "unknown" — a pre-existing row nothing has tagged, or a future
+-- code path that forgot to. It is NOT conflated with 'seed': NULL says "we
+-- don't know where this came from"; 'seed' says "we know exactly where this
+-- came from, and it wasn't the ingestion pipeline." Collapsing that
+-- distinction throws away real information — the same distinction that made
+-- this column worth having at all (Opus Lead ruling, 2026-09-01). Nullable,
+-- no default, for exactly that reason.
+--
+-- Per-lesson, not per-book: the promotion/review flow this exists for grades
+-- individual lessons, never books, and the ingestion pipeline already
+-- tolerates per-chunk extraction failure independently of the book as a
+-- whole — a per-book column would silently mislabel lessons the day
+-- per-chunk provider fallback exists (full reasoning: ULM's
+-- docs/notes/extracted-by-design.md).
+--
+-- Lands here, ahead of the worker port it depends on (deferred to Phase 3),
+-- because it CANNOT be backfilled: once a lesson exists untagged, which
+-- generator produced it is unrecoverable — several of HeuristicProvider's
+-- twelve canned action-template fallbacks read as plausible model output on
+-- inspection. "Urgent retroactively" the moment a worker lands is the
+-- definition of a constraint that should have shipped one day early.
+create type public.extracted_by as enum ('model', 'heuristic', 'seed');
+
+alter table public.lessons
+  add column extracted_by public.extracted_by;
