@@ -3454,8 +3454,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 -- migration. This trigger is belt-and-braces, never the primary guarantee.
 -- ============================================================================
 
-drop event trigger if exists ensure_rls;
-create event trigger ensure_rls
-  on ddl_command_end
-  when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
-  execute function public.rls_auto_enable();
+-- Creating an event trigger requires superuser. On Supabase-hosted projects the
+-- `postgres` role is deliberately NOT a superuser, so a restricted rebuild
+-- (e.g. a throwaway verification container) cannot install this and would
+-- otherwise abort the whole baseline under ON_ERROR_STOP=1. Degrade loudly
+-- instead of failing silently OR failing hard: the rebuild completes, and the
+-- operator is told in plain terms what protection they do not have.
+do $$
+begin
+  drop event trigger if exists ensure_rls;
+  create event trigger ensure_rls
+    on ddl_command_end
+    when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+    execute function public.rls_auto_enable();
+exception when insufficient_privilege then
+  raise warning 'ensure_rls NOT installed (needs superuser). This environment has no automatic RLS safety net: every new table MUST declare its own `enable row level security` and policy.';
+end $$;
