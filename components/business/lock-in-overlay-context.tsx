@@ -5,7 +5,16 @@ import { startWorkSession, endWorkSession } from "@/app/(app)/business/actions";
 import { readLockInMinimized, writeLockInMinimized } from "@/lib/business/lock-in-storage";
 import type { WorkSessionKind } from "@/lib/business/work-session-kind";
 
-export type ActiveWorkSession = { id: string; startedAtIso: string; kind: WorkSessionKind };
+// The Lock-In overlay only ever starts/tracks deep-work-class sessions —
+// 'learn' (ULM's retrieval session) is deliberately concurrent-safe and
+// does not participate in the single-active-session model this provider
+// implements (see lib/business/active-session.ts's comment). Narrowing
+// here, rather than widening startWorkSession, matches that architecture:
+// this was accidentally correct while WorkSessionKind had only two values
+// and needs to say so explicitly now that it has three.
+export type LockInSessionKind = Extract<WorkSessionKind, "deep_work" | "deep_study">;
+
+export type ActiveWorkSession = { id: string; startedAtIso: string; kind: LockInSessionKind };
 
 type LockInOverlayContextValue = {
   session: ActiveWorkSession | null;
@@ -14,7 +23,7 @@ type LockInOverlayContextValue = {
   minimized: boolean;
   isPending: boolean;
   error: string | null;
-  startSession: (kind: WorkSessionKind) => void;
+  startSession: (kind: LockInSessionKind) => void;
   endSession: () => Promise<void>;
   minimize: () => void;
   expand: () => void;
@@ -61,7 +70,7 @@ export function LockInOverlayProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startSession = useCallback((kind: WorkSessionKind) => {
+  const startSession = useCallback((kind: LockInSessionKind) => {
     setError(null);
     setIsPending(true);
     void (async () => {

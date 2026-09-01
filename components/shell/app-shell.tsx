@@ -5,6 +5,7 @@ import { getKillListSlots } from "@/lib/business/kill-list-slots";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { computeNavDomainState, type NavDomainState } from "@/lib/shell/nav-domain-state";
 import { AppShellChrome } from "./app-shell-chrome";
+import type { LockInSessionKind } from "@/components/business/lock-in-overlay-context";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
 
@@ -75,7 +76,20 @@ export async function AppShell({
       timezone={timezone}
       activeWorkSession={
         activeWorkSession
-          ? { id: activeWorkSession.id, startedAtIso: activeWorkSession.startedAt, kind: activeWorkSession.kind }
+          ? {
+              id: activeWorkSession.id,
+              startedAtIso: activeWorkSession.startedAt,
+              // getActiveWorkSession() stays WorkSessionKind (wide) at the type
+              // level by design — its own comment explains why: the query is
+              // runtime-scoped to deep-work-class sessions only
+              // (.eq("counts_toward_hours", true)), and 'learn' rows are
+              // "deliberately concurrent-safe... do not participate in the
+              // single-active-session model at all". The Lock-In overlay only
+              // ever handles that deep-work-class subset (LockInSessionKind),
+              // so this narrowing is safe — same shape as active-session.ts's
+              // own `data.kind as WorkSessionKind` cast one layer down.
+              kind: activeWorkSession.kind as LockInSessionKind,
+            }
           : null
       }
       killListSlots={killListSlots}
