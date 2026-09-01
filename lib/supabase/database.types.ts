@@ -1241,6 +1241,7 @@ export type Database = {
         Update: {
           cancelled_on?: string | null
           class_group_id?: string | null
+          class_id?: string | null
           created_at?: string
           day_of_week?: number | null
           domain?: string
@@ -1254,7 +1255,15 @@ export type Database = {
           title?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "schedule_events_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       session_sets: {
         Row: {
@@ -1476,6 +1485,89 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "distraction_triggers"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_domains: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          id: string
+          key: string
+          position: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          key: string
+          position: number
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          key?: string
+          position?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_subdomains: {
+        Row: {
+          archived_at: string | null
+          config: Json
+          created_at: string
+          domain_id: string
+          id: string
+          key: string
+          kind: string | null
+          label: string
+          position: number
+          updated_at: string
+          user_id: string
+          widgets: Json
+        }
+        Insert: {
+          archived_at?: string | null
+          config?: Json
+          created_at?: string
+          domain_id: string
+          id?: string
+          key: string
+          kind?: string | null
+          label: string
+          position: number
+          updated_at?: string
+          user_id?: string
+          widgets?: Json
+        }
+        Update: {
+          archived_at?: string | null
+          config?: Json
+          created_at?: string
+          domain_id?: string
+          id?: string
+          key?: string
+          kind?: string | null
+          label?: string
+          position?: number
+          updated_at?: string
+          user_id?: string
+          widgets?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_subdomains_domain_same_user"
+            columns: ["user_id", "domain_id"]
+            isOneToOne: false
+            referencedRelation: "user_domains"
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -1745,7 +1837,10 @@ export type Database = {
         }
         Returns: string
       }
-      delete_class_assessment: { Args: { p_assessment_id: string }; Returns: undefined }
+      delete_class_assessment: {
+        Args: { p_assessment_id: string }
+        Returns: undefined
+      }
       delete_coop_target: { Args: { p_target_id: string }; Returns: undefined }
       get_vault_secrets: {
         Args: { secret_names: string[] }
@@ -1753,6 +1848,29 @@ export type Database = {
           decrypted_secret: string
           name: string
         }[]
+      }
+      merge_subdomain_config: {
+        Args: { p_patch: Json; p_subdomain_id: string }
+        Returns: {
+          archived_at: string | null
+          config: Json
+          created_at: string
+          domain_id: string
+          id: string
+          key: string
+          kind: string | null
+          label: string
+          position: number
+          updated_at: string
+          user_id: string
+          widgets: Json
+        }
+        SetofOptions: {
+          from: "*"
+          to: "user_subdomains"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       record_plan_outcome: {
         Args: {
@@ -1787,6 +1905,12 @@ export type Database = {
           trigger_id: string
           user_id: string
           version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trigger_action_plans"
+          isOneToOne: true
+          isSetofReturn: false
         }
       }
       save_workout: {
