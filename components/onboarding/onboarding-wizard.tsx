@@ -1,177 +1,111 @@
 "use client";
 
 import { useState } from "react";
-import { MapPin, Moon, Bell, type LucideIcon } from "lucide-react";
-import { completeOnboarding } from "@/app/(app)/onboarding/actions";
-import { subscribeToPush } from "@/lib/pwa/push-subscribe";
-import { IosInstallPrompt } from "./ios-install-prompt";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { IconChip } from "@/components/ui/icon-chip";
-import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
+import { saveDomainSelection, saveSubdomains, completeOnboarding } from "@/app/(app)/onboarding/actions";
+import { DomainSelectStep } from "./domain-select-step";
+import { PersonalGrowthStep } from "./personal-growth-step";
+import { WorkStep } from "./work-step";
+import { SchoolStep } from "./school-step";
+import type { DomainKey, FaithConfig, SubdomainInput, WorkSubdomainDraft } from "./types";
 
-const STEP_ICON: Record<1 | 2 | 3, LucideIcon> = { 1: MapPin, 2: Moon, 3: Bell };
-const STEP_ACCENT: Record<1 | 2 | 3, AccentToken> = { 1: "info", 2: "deen", 3: "info" };
+type Phase = "domains" | "walk" | "submitting";
 
-function StepCard({ step, children }: { step: 1 | 2 | 3; children: React.ReactNode }) {
-  const accent = STEP_ACCENT[step];
-  return (
-    <div
-      data-testid="onboarding-card"
-      className="flex flex-col gap-4 rounded-2xl border border-border/40 bg-card p-6"
-    >
-      <div className="flex items-center justify-between">
-        <IconChip icon={STEP_ICON[step]} accent={accent} />
-        <span className="text-xs font-medium text-muted-foreground">Step {step} of 3</span>
-      </div>
-      {children}
-      <div className="flex gap-1.5">
-        {([1, 2, 3] as const).map((s) => (
-          <div
-            key={s}
-            className="h-1 flex-1 rounded-full"
-            style={{
-              backgroundColor:
-                s <= step
-                  ? `var(${ACCENT_VAR[accent]})`
-                  : "color-mix(in oklch, var(--foreground) 12%, transparent)",
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function isIosSafariNotStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  const ua = window.navigator.userAgent;
-  const isIos = /iPad|iPhone|iPod/.test(ua);
-  const nav = window.navigator as Navigator & { standalone?: boolean };
-  const isStandalone = nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
-  return isIos && !isStandalone;
-}
-
+// The onboarding orchestrator (M3): pick top-level domains, then walk each
+// selected domain IN SELECTION ORDER, then done. Each domain's step calls
+// back with its own subdomain data; this component is the only place that
+// talks to the server actions, so every step component below stays a pure,
+// testable, server-ignorant UI.
 export function OnboardingWizard() {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [isPending, setIsPending] = useState(false);
-  const [locationLabel, setLocationLabel] = useState("");
-  const [prayerCalcMethod, setPrayerCalcMethod] = useState("MWL");
-  const [asrMadhab, setAsrMadhab] = useState<"standard" | "hanafi">("standard");
+  const [phase, setPhase] = useState<Phase>("domains");
+  const [selectedDomains, setSelectedDomains] = useState<DomainKey[]>([]);
+  const [walkIndex, setWalkIndex] = useState(0);
+  const [faithConfig, setFaithConfig] = useState<FaithConfig | null>(null);
 
-  async function finish() {
-    setIsPending(true);
-    await completeOnboarding({
-      location_label: locationLabel,
-      prayer_calc_method: prayerCalcMethod,
-      asr_madhab: asrMadhab,
-    });
+  function toggleDomain(key: DomainKey) {
+    setSelectedDomains((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   }
 
-  async function enableNotifications() {
-    // Runs the FULL subscribe flow (permission -> service worker -> push
-    // subscription -> POST to the server) here, not just the permission
-    // ask — this used to only call Notification.requestPermission() and
-    // rely on register-sw.tsx's background effect to pick up the grant on
-    // a later page load, which is exactly the kind of silent gap that led
-    // to zero devices ever registering in production. The result is
-    // deliberately not surfaced here (a failure shouldn't block finishing
-    // onboarding); it's logged, and Settings offers a retry with the real
-    // reason visible.
-    const result = await subscribeToPush();
-    if (!result.ok) {
-      console.error("[push] onboarding subscribe failed:", result.reason);
+  async function startWalk() {
+    await saveDomainSelection(selectedDomains);
+    setWalkIndex(0);
+    setPhase("walk");
+  }
+
+  function backToDomains() {
+    setPhase("domains");
+  }
+
+  async function finishCurrentDomain(domainKey: DomainKey, subs: SubdomainInput[]) {
+    await saveSubdomains(domainKey, subs);
+    // Use a local value for the completeOnboarding call below rather than
+    // the `faithConfig` state variable — setFaithConfig here won't have
+    // re-rendered yet, so reading the state directly in this same tick
+    // would silently submit stale (usually null) profile fields whenever
+    // Personal Growth is the last domain in the walk.
+    let resolvedFaithConfig = faithConfig;
+    if (domainKey === "personal_growth") {
+      const faith = subs.find((s) => s.key === "faith");
+      if (faith?.config) {
+        resolvedFaithConfig = faith.config as unknown as FaithConfig;
+        setFaithConfig(resolvedFaithConfig);
+      }
     }
-    finish();
+    if (walkIndex + 1 < selectedDomains.length) {
+      setWalkIndex(walkIndex + 1);
+    } else {
+      setPhase("submitting");
+      await completeOnboarding(resolvedFaithConfig ?? {});
+    }
   }
 
-  if (step === 1) {
-    return (
-      <StepCard step={1}>
-        <h1 className="text-xl font-semibold">Where are you?</h1>
-        <p className="text-sm text-muted-foreground">
-          Used to compute accurate prayer times for Deen tracking.
-        </p>
-        <Input
-          value={locationLabel}
-          onChange={(e) => setLocationLabel(e.target.value)}
-          placeholder="City, State"
-          autoFocus
-        />
-        <Button
-          type="button"
-          onClick={() => setStep(2)}
-          disabled={!locationLabel.trim()}
-          className="self-start"
-        >
-          Next
-        </Button>
-      </StepCard>
-    );
+  function backWithinWalk() {
+    if (walkIndex === 0) {
+      setPhase("domains");
+    } else {
+      setWalkIndex(walkIndex - 1);
+    }
   }
 
-  if (step === 2) {
-    return (
-      <StepCard step={2}>
-        <h1 className="text-xl font-semibold">Prayer calculation</h1>
-        <p className="text-sm text-muted-foreground">
-          A sensible default is pre-filled — change it if you know you need to.
-        </p>
-        <div className="flex flex-col gap-1">
-          <label className="text-sm" htmlFor="onb-method">
-            Calculation method
-          </label>
-          <select
-            id="onb-method"
-            value={prayerCalcMethod}
-            onChange={(e) => setPrayerCalcMethod(e.target.value)}
-            className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-          >
-            <option value="MWL">Muslim World League</option>
-            <option value="ISNA">ISNA</option>
-            <option value="Karachi">Karachi</option>
-            <option value="Egyptian">Egyptian</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-sm" htmlFor="onb-madhab">
-            Asr madhab
-          </label>
-          <select
-            id="onb-madhab"
-            value={asrMadhab}
-            onChange={(e) => setAsrMadhab(e.target.value as "standard" | "hanafi")}
-            className="rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-          >
-            <option value="standard">Standard (Shafi/Maliki/Hanbali)</option>
-            <option value="hanafi">Hanafi</option>
-          </select>
-        </div>
-        <Button type="button" onClick={() => setStep(3)} className="self-start">
-          Next
-        </Button>
-      </StepCard>
-    );
-  }
-
-  if (isIosSafariNotStandalone()) {
-    return <IosInstallPrompt onContinue={finish} />;
-  }
+  const progressTotal = 1 + selectedDomains.length;
+  const progressIndex = phase === "domains" ? 0 : 1 + walkIndex;
 
   return (
-    <StepCard step={3}>
-      <h1 className="text-xl font-semibold">Enable notifications</h1>
-      <p className="text-sm text-muted-foreground">
-        Prayer times, check-in prompts, and deadline reminders all depend on this.
-      </p>
-      <div className="flex gap-2">
-        <Button type="button" disabled={isPending} onClick={enableNotifications}>
-          Enable notifications
-        </Button>
-        <Button type="button" disabled={isPending} variant="outline" onClick={finish}>
-          Skip for now
-        </Button>
-      </div>
-    </StepCard>
+    <div data-testid="onboarding-wizard" className="w-full">
+      {phase === "domains" ? (
+        <DomainSelectStep selected={selectedDomains} onToggle={toggleDomain} onNext={startWalk} />
+      ) : null}
+
+      {phase === "walk" && selectedDomains[walkIndex] === "personal_growth" ? (
+        <PersonalGrowthStep
+          onBack={backWithinWalk}
+          onNext={(subs) => finishCurrentDomain("personal_growth", subs)}
+          progressTotal={progressTotal}
+          progressIndex={progressIndex}
+        />
+      ) : null}
+
+      {phase === "walk" && selectedDomains[walkIndex] === "work" ? (
+        <WorkStep
+          onBack={backWithinWalk}
+          onNext={(drafts: WorkSubdomainDraft[]) =>
+            finishCurrentDomain(
+              "work",
+              drafts.map((d) => ({ key: d.key, label: d.label, kind: d.kind, widgets: d.widgets, config: {} }))
+            )
+          }
+          progressTotal={progressTotal}
+          progressIndex={progressIndex}
+        />
+      ) : null}
+
+      {phase === "walk" && selectedDomains[walkIndex] === "school" ? (
+        <SchoolStep
+          onBack={backWithinWalk}
+          onNext={() => finishCurrentDomain("school", [])}
+          progressTotal={progressTotal}
+          progressIndex={progressIndex}
+        />
+      ) : null}
+    </div>
   );
 }
