@@ -1,6 +1,6 @@
 # Recent Changes
 
-**As of: 2026-08-31, verified against `HEAD = 69f8adb`.**
+**As of: 2026-08-31, verified against `HEAD = dff284f`.**
 
 This document is the most perishable of the four `context/` files. Everything
 in it decays — commits keep landing, bugs get fixed, dead code gets deleted.
@@ -9,18 +9,22 @@ keep this file current** at the bottom before you add to it.
 
 ## Status as of 2026-08-31
 
-- **HEAD:** `69f8adb` ("fix: center and enlarge Focus time today's minute
-  count on Business"), committed 2026-08-30 16:21:24 CDT.
+- **HEAD:** `dff284f` (the `context/` handoff-folder commit itself), sitting
+  on top of `b091810` (2026-08-31 21:52 CDT, the Settings prayer-time-preview
+  timezone fix — see Recent work below) and `69f8adb` (2026-08-30 16:21 CDT,
+  "fix: center and enlarge Focus time today's minute count on Business").
 - **Working tree:** clean.
-- **Deployed:** verified live. `npx vercel ls --token "$VERCEL_TOKEN"` shows
-  the most recent Production deployment (`dpl_5Y2izTPaaU3WGirZ3ugeatBBsYze`)
-  created 2026-08-30 16:22:33 CDT — one minute after `69f8adb`'s commit
-  timestamp — and aliased to the live URL,
-  `https://tracking-app-sand.vercel.app` (confirmed reachable, HTTP 200).
-  This deploy is token-based (see `docs/DEPLOYING.md`), not GitHub-linked, so
-  Vercel attaches no git SHA metadata to the build directly — the timestamp
-  match is the evidence, not a stored commit hash. Treat "deployed = HEAD" as
-  strong-but-not-cryptographic confirmation.
+- **Deployed:** the last *verified* deploy is `69f8adb`, not current `HEAD`.
+  `npx vercel ls --token "$VERCEL_TOKEN"` showed the most recent Production
+  deployment (`dpl_5Y2izTPaaU3WGirZ3ugeatBBsYze`) created 2026-08-30 16:22:33
+  CDT — one minute after `69f8adb`'s commit timestamp — aliased to the live
+  URL, `https://tracking-app-sand.vercel.app` (confirmed reachable, HTTP
+  200). This deploy is token-based (see `docs/DEPLOYING.md`), not
+  GitHub-linked, so Vercel attaches no git SHA metadata to the build
+  directly — the timestamp match is the evidence, not a stored commit hash.
+  `b091810` and `dff284f` landed after that deploy and have not been
+  verified live — until the next deploy, the fixed Settings prayer-time
+  preview is committed but not yet in production.
 - **`tsc --noEmit`:** clean, zero errors.
 - **`vitest run`:** 201 test files, 1656 tests, all passing.
 - **Playwright / e2e:** **not run for this document** — running the full
@@ -29,6 +33,31 @@ keep this file current** at the bottom before you add to it.
   verified; this file makes no claim about it beyond that.
 
 ## Recent work, newest first
+
+### 2026-08-31 — Another live instance of the UTC-calendar-date bug class, in Settings
+
+`b091810`: the prayer-time preview in `components/settings/location-settings.tsx`
+called `calculatePrayerTimes` directly with a raw `new Date()` instant.
+`calculatePrayerTimes` is timezone-naive by design — it reads whatever UTC
+Y/M/D fields it's handed — and the safe entry point
+(`computePrayerWindows`, `lib/prayer-times/windows.ts`) pre-anchors the date
+to the local calendar day specifically to guard against this. This call site
+bypassed that safe entry point, so for any UTC-negative timezone (Ayman's
+`America/Chicago` included) the preview silently computed *tomorrow's*
+prayer times every evening from roughly 19:00 local onward — the same
+underlying failure mode as the original `03ab12b` incident
+(2026-08-24), just recurring in a third call site that used the raw
+calculation function instead of the normalized wrapper. Fixed by anchoring
+to `new Date(\`${localDateString(new Date(), location.timezone)}T00:00:00Z\`)`
+before calling `calculatePrayerTimes`, mirroring what `windows.ts` already
+does. `AGENTS.md` gained the scar entry for this specific recurrence.
+
+**What you'd notice:** if you opened Settings and changed your location or
+calc method in the evening, the prayer-time preview shown there had been
+one calendar day ahead of what your actual Deen screen showed — cosmetic to
+that one preview, not a correctness bug in the times you actually track by,
+but confusing and worth knowing this recurred a third time in the same bug
+class.
 
 ### 2026-08-28 — Batch 5: performance pass across the whole app
 
