@@ -211,10 +211,19 @@ function isRepsMismatch(error: { message?: string } | null): boolean {
  * IS this exact queued item, already landed. Verification, not inference: compares
  * four fields the client persisted verbatim at grade time and never recomputes
  * (`rating`, `elapsedMs`, `confidence`, `answeredText`) against the newest row for
- * that card. An exact match on all four is strong evidence this is the same
- * submission, not a coincidentally-similar different one — a different real review
- * matching a user's own rating AND millisecond-precision elapsed time AND
- * confidence tap AND answer text is not a realistic collision.
+ * that card.
+ *
+ * 🔴 `elapsedMs` IS THE DISCRIMINATOR THAT MAKES THIS SAFE — the other three fields
+ * legitimately collide on their own. ULM deliberately permits re-reviewing the same
+ * card the same day (no `(card_id, session_id)` uniqueness was ever added, on
+ * purpose), so a genuine second review of a card can easily land the same `rating`,
+ * the same `null` `confidence`, and the same empty `answeredText` as a prior one —
+ * three matching fields alone would NOT prove "this is the same submission." A
+ * millisecond-precision elapsed duration matching exactly across two genuinely
+ * different review attempts is vanishingly unlikely; that is the actual evidence
+ * this function relies on, not the other three fields, which merely narrow it
+ * further. See the comparison itself below for what this means for `elapsedMs`
+ * specifically.
  *
  * RLS-safe by construction: `reviews_select` only returns the caller's own rows,
  * so this can never read (or leak information about) another user's review.
@@ -237,6 +246,14 @@ async function wasAlreadyApplied(client: TypedClient, item: PendingReview): Prom
   return (
     data.rating === item.rating &&
     (data.confidence ?? null) === (item.confidence ?? null) &&
+    // LOAD-BEARING: `elapsed_ms`/`elapsedMs` must NEVER be rounded, bucketed to
+    // seconds, or otherwise normalised anywhere in this file or in whatever
+    // computes it at grade time. The moment it's coarsened, `rating`+`confidence`+
+    // `answeredText` collide freely on any genuine same-day re-review (a case ULM
+    // explicitly allows), and this check starts silently classifying a real,
+    // separate review as "already landed" — dropping the user's actual second
+    // grade. This one field carries the entire correctness argument above; treat
+    // any future "normalise the timer for analytics" change here as a bug.
     data.elapsed_ms === item.elapsedMs &&
     (data.answered_text ?? null) === (item.answeredText ?? null)
   );
