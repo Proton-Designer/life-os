@@ -5,7 +5,7 @@
 // no real caller session. Here the auth context is real — `requireUser()`'s
 // Supabase client already carries the signed-in user's JWT — so this is
 // simpler by construction, not despite the port: one RPC call,
-// `seed_meditations_deck` (supabase/migrations/100_ulm_seed_meditations_deck.sql),
+// `seed_meditations_deck` (supabase/migrations/103_ulm_seed_meditations_deck.sql),
 // does the advisory lock, the idempotency check, the `self_mastery`-subdomain
 // gate, and every insert in ONE transaction. A sequence of client-side
 // `.insert()` calls would each be its own PostgREST transaction — the
