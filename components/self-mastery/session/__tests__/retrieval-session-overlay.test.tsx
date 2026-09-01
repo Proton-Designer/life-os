@@ -33,6 +33,11 @@ vi.mock("@/lib/self-mastery/session/offline-queue", () => ({
   localStorageAdapter: {},
 }));
 
+const getAnswerFeedbackMock = vi.fn(async (_cardId: string, _userAnswer: string): Promise<{ feedback: string; suggestedRating: 1 | 2 | 3 | 4 | null } | null> => null);
+vi.mock("@/app/(app)/personal/answer-feedback-actions", () => ({
+  getAnswerFeedback: (cardId: string, userAnswer: string) => getAnswerFeedbackMock(cardId, userAnswer),
+}));
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({}),
 }));
@@ -62,6 +67,8 @@ describe("RetrievalSessionOverlay", () => {
     replayPendingReviewsMock.mockReset();
     fetchCurrentCardStateMock.mockResolvedValue(null);
     replayPendingReviewsMock.mockResolvedValue({ succeeded: ["queued-1"], failures: [] });
+    getAnswerFeedbackMock.mockReset();
+    getAnswerFeedbackMock.mockResolvedValue(null); // the default state for the overwhelming majority of users -- no key
   });
 
   it("renders nothing when closed, without loading a session", () => {
@@ -245,6 +252,128 @@ describe("RetrievalSessionOverlay", () => {
       render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
 
       await waitFor(() => expect(replayPendingReviewsMock).toHaveBeenCalledWith({}, {}, "sess-1"));
+    });
+  });
+
+  describe("AI answer feedback (opt-in, user's own key)", () => {
+    it("is called ONLY after reveal, never before -- with the card id and the exact answer the user typed", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.type(screen.getByPlaceholderText(/Type what you remember/), "my recall");
+      expect(getAnswerFeedbackMock).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      await waitFor(() => expect(getAnswerFeedbackMock).toHaveBeenCalledWith("c1", "my recall"));
+    });
+
+    it("null (no key / provider down / rate-limited / malformed) renders NOTHING -- no empty state, no prompt to add a key, screen indistinguishable from before this feature existed", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      getAnswerFeedbackMock.mockResolvedValue(null);
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(getAnswerFeedbackMock).toHaveBeenCalled());
+
+      // Give the resolved (null) promise a tick to apply, then assert
+      // absence of every trace this feature could leave.
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+      expect(screen.queryByText(/AI suggests/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/add.*key/i)).not.toBeInTheDocument();
+    });
+
+    it("a rejected request (network failure) also renders nothing -- same as any other null path, never surfaced as an error", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      getAnswerFeedbackMock.mockRejectedValue(new Error("network"));
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(getAnswerFeedbackMock).toHaveBeenCalled());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText(/AI suggests/)).not.toBeInTheDocument();
+    });
+
+    it("renders the feedback text and the suggested rating as a hint once it arrives", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      getAnswerFeedbackMock.mockResolvedValue({ feedback: "You had the core idea but missed the mechanism.", suggestedRating: 3 });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      await waitFor(() => expect(screen.getByText("You had the core idea but missed the mechanism.")).toBeInTheDocument());
+      expect(screen.getByText("AI suggests: Good")).toBeInTheDocument();
+    });
+
+    it("a suggestedRating hint never preselects or auto-submits a grade -- every grade button stays independently clickable", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      getAnswerFeedbackMock.mockResolvedValue({ feedback: "Close.", suggestedRating: 4 });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByText("AI suggests: Easy")).toBeInTheDocument());
+      expect(enqueuePendingReviewMock).not.toHaveBeenCalled();
+      // The user's own tap, not the suggestion, is what grades it.
+      await user.click(screen.getByRole("button", { name: "Hard" }));
+      expect(enqueuePendingReviewMock).toHaveBeenCalledWith({}, expect.objectContaining({ rating: 2 }));
+    });
+
+    it("is fired-and-forgotten, never delayed or blocked: grading proceeds immediately even while the request is still pending", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      let resolveFeedback: (v: null) => void = () => {};
+      getAnswerFeedbackMock.mockReturnValue(new Promise((resolve) => { resolveFeedback = resolve; }));
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+
+      // Grade WITHOUT ever resolving the feedback request.
+      await user.click(screen.getByRole("button", { name: "Good" }));
+      await waitFor(() => expect(enqueuePendingReviewMock).toHaveBeenCalled());
+      expect(enqueuePendingReviewMock).toHaveBeenCalledWith({}, expect.objectContaining({ aiFeedback: null, aiSuggestedRating: null }));
+
+      // Late arrival, after the user already moved past this card, must
+      // not throw or paint onto the session-complete screen.
+      resolveFeedback(null);
+    });
+
+    it("persists the feedback into the enqueued review when it arrives before grading", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      getAnswerFeedbackMock.mockResolvedValue({ feedback: "Solid recall.", suggestedRating: 3 });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByText("AI suggests: Good")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: "Easy" }));
+
+      expect(enqueuePendingReviewMock).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({ aiFeedback: "Solid recall.", aiSuggestedRating: 3, rating: 4 })
+      );
     });
   });
 });

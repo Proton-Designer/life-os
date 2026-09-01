@@ -24,6 +24,7 @@ import {
   revalidateAfterReview,
   type FinishSessionResult,
 } from "@/app/(app)/personal/self-mastery-session-actions";
+import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
 import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types";
 
 type Confidence = "sure" | "think_so" | "guessing";
@@ -63,6 +64,13 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   const [answeredText, setAnsweredText] = useState("");
   const [confidence, setConfidence] = useState<Confidence | null>(null);
   const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null);
+  // The one thing a user's own API key unlocks (Opus Lead, 4589d22). null
+  // is the normal, permanent state for the overwhelming majority of users
+  // (no key, provider down, rate-limited, malformed reply) -- rendered as
+  // nothing at all, never an empty state or a prompt to add a key. Fired
+  // fire-and-forget after reveal, never awaited before showing the grade
+  // buttons -- a second opinion, never a gate.
+  const [aiFeedback, setAiFeedback] = useState<AnswerFeedback | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [explanationText, setExplanationText] = useState("");
   const [completion, setCompletion] = useState<FinishSessionResult | null>(null);
@@ -72,6 +80,13 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   const cardsSinceInterstitialRef = useRef(0);
 
   const currentCard = sequence[cardIndex] ?? null;
+  // Kept in sync with currentCard.id on every render (not just at fetch
+  // time) so a feedback request abandoned by the user grading before it
+  // resolves -- or advancing to a self-explanation interstitial, or
+  // closing the overlay entirely -- can never paint onto a DIFFERENT
+  // card's screen once it finally arrives late.
+  const activeCardIdRef = useRef<string | null>(currentCard?.id ?? null);
+  activeCardIdRef.current = currentCard?.id ?? null;
 
   // Reset and load fresh every time the overlay opens — start_session
   // itself resumes an incomplete same-local-date session rather than
@@ -149,6 +164,7 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setAnsweredText("");
     setConfidence(null);
     setRevealedAnswer(null);
+    setAiFeedback(null);
   }
 
   async function handleReveal() {
@@ -161,9 +177,31 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
       setPhase("revealed");
     } catch {
       setError("Couldn't load the answer. Try again.");
-    } finally {
       setIsSubmitting(false);
+      return;
     }
+    setIsSubmitting(false);
+
+    // Fired AFTER reveal only -- it sends the correct answer to a third
+    // party, so calling it any earlier would leak the answer onto the wire
+    // before commit and break the reveal-on-commit invariant. Never
+    // awaited here: the grade buttons are already interactive by the time
+    // this resolves (or doesn't). If the user grades first, this result is
+    // simply discarded when it arrives -- see the activeCardIdRef check.
+    const requestedCardId = currentCard.id;
+    const requestedAnswer = answeredText;
+    getAnswerFeedback(requestedCardId, requestedAnswer)
+      .then((feedback) => {
+        if (activeCardIdRef.current !== requestedCardId) return; // abandoned -- user already moved on
+        setAiFeedback(feedback);
+      })
+      .catch(() => {
+        // null is the normal answer for every failure mode already: no
+        // key, provider down, rate-limited, malformed reply. A network
+        // rejection here is the same thing by a different path -- render
+        // nothing, exactly as if getAnswerFeedback itself had returned
+        // null.
+      });
   }
 
   function advanceToNextCardOrInterstitial() {
@@ -216,14 +254,21 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
       const now = new Date();
       const { card: nextCard } = computeNextState(scheduler, toFsrsCard(currentState, now), rating, now);
 
+      // Whatever's in aiFeedback right now -- populated if it arrived
+      // before this tap, still null if the user graded before it resolved
+      // (a second opinion, never a gate, per the contract). suggestedRating
+      // is a HINT rendered next to the buttons, never a preselection or a
+      // fallback for `rating` itself -- an invented number here would feed
+      // a real FSRS grade and corrupt the schedule permanently in an
+      // append-only table.
       await enqueuePendingReview(localStorageAdapter, {
         id: crypto.randomUUID(),
         cardId: currentCard.id,
         rating,
         elapsedMs: elapsedMs(timerRef.current, Date.now()),
         answeredText,
-        aiFeedback: null,
-        aiSuggestedRating: null,
+        aiFeedback: aiFeedback?.feedback ?? null,
+        aiSuggestedRating: aiFeedback?.suggestedRating ?? null,
         confidence,
         nextState: toRpcNextState(nextCard),
       });
@@ -411,6 +456,23 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                       <p className="text-xs text-muted-foreground">Answer</p>
                       <p className="mt-1">{revealedAnswer}</p>
                     </div>
+                    {/* Renders only when a key is set AND the request
+                        actually landed before this paint -- no key, a
+                        provider error, or an abandoned (already-graded)
+                        request all render nothing here, never an empty
+                        state or a prompt to add a key. A hint, never a
+                        preselection: nothing here ever calls handleGrade
+                        or otherwise touches which button is active. */}
+                    {aiFeedback && (
+                      <div className="rounded-lg border border-border/40 bg-muted/30 p-3 text-sm">
+                        <p>{aiFeedback.feedback}</p>
+                        {aiFeedback.suggestedRating && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            AI suggests: {RATING_LABEL[aiFeedback.suggestedRating]}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div className="grid grid-cols-4 gap-2">
                       {([1, 2, 3, 4] as const).map((r) => (
                         <Button key={r} type="button" variant="outline" disabled={isSubmitting} onClick={() => handleGrade(r)}>
