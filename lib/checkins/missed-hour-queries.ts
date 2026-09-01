@@ -40,6 +40,7 @@ export async function getSessionsWithStoredHours(
     .from("work_sessions")
     .select("id, started_at, ended_at")
     .eq("user_id", userId)
+    .eq("counts_toward_hours", true) // see migration 057
     .lt("started_at", endIso)
     .or(`ended_at.is.null,ended_at.gte.${startIso}`);
   const rows = sessions ?? [];

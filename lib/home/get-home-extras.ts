@@ -39,6 +39,10 @@ export async function getHomeExtras(
     .from("work_sessions")
     .select("started_at, ended_at, kind")
     .eq("user_id", userId)
+    // Focus time counts deep-work-class sessions only. Filter on the generated
+    // column, never a hardcoded kind list — migration 057 makes the answer
+    // unwritable by application code precisely so this cannot drift.
+    .eq("counts_toward_hours", true)
     .gte("started_at", dayStart)
     .lt("started_at", dayEnd);
 

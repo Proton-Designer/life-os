@@ -100,6 +100,7 @@ function defaultDataSource(): AllocationQueueDataSource {
         .from("work_sessions")
         .select("started_at, ended_at")
         .eq("user_id", userId)
+        .eq("counts_toward_hours", true) // see migration 057
         .gte("started_at", dayStart)
         .lt("started_at", dayEnd);
       return (data ?? []).map((s) => ({
@@ -159,6 +160,7 @@ function defaultDataSource(): AllocationQueueDataSource {
         .from("work_sessions")
         .select("id, started_at, ended_at")
         .eq("user_id", userId)
+        .eq("counts_toward_hours", true) // see migration 057
         .gte("started_at", dayStart)
         .lt("started_at", dayEnd);
       return (data ?? []).map((s) => ({

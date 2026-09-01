@@ -1609,6 +1609,7 @@ export type Database = {
       }
       work_sessions: {
         Row: {
+          counts_toward_hours: boolean | null
           created_at: string
           ended_at: string | null
           id: string
@@ -1617,6 +1618,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          counts_toward_hours?: boolean | null
           created_at?: string
           ended_at?: string | null
           id?: string
@@ -1625,6 +1627,7 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          counts_toward_hours?: boolean | null
           created_at?: string
           ended_at?: string | null
           id?: string
