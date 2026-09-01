@@ -45,8 +45,11 @@ to the local calendar day specifically to guard against this. This call site
 bypassed that safe entry point, so for any UTC-negative timezone (Ayman's
 `America/Chicago` included) the preview silently computed *tomorrow's*
 prayer times every evening from roughly 19:00 local onward — the same
-underlying failure mode as the original `03ab12b` incident
-(2026-08-24), just recurring in a third call site that used the raw
+underlying failure mode as the original `03ab12b` incident (2026-08-24).
+`AGENTS.md` records that incident as three hits in one night across three
+different layers (shipping code, hand-written SQL, a test fixture), which
+makes this the **fourth** instance of the bug class overall, and only the
+**second** to land in live shipping code — this call site used the raw
 calculation function instead of the normalized wrapper. Fixed by anchoring
 to `new Date(\`${localDateString(new Date(), location.timezone)}T00:00:00Z\`)`
 before calling `calculatePrayerTimes`, mirroring what `windows.ts` already
@@ -55,9 +58,10 @@ does. `AGENTS.md` gained the scar entry for this specific recurrence.
 **What you'd notice:** if you opened Settings and changed your location or
 calc method in the evening, the prayer-time preview shown there had been
 one calendar day ahead of what your actual Deen screen showed — cosmetic to
-that one preview, not a correctness bug in the times you actually track by,
-but confusing and worth knowing this recurred a third time in the same bug
-class.
+that one preview, not a correctness bug in the times you actually track by.
+But it stayed cosmetic by luck of which call site got bypassed this time,
+not by any containment the codebase actually provides — the next
+`windows.ts` bypass might not land somewhere this harmless.
 
 ### 2026-08-28 — Batch 5: performance pass across the whole app
 
