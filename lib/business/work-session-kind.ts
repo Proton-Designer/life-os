@@ -8,5 +8,14 @@ export type WorkSessionKind = "deep_work" | "deep_study" | "learn";
 export const KIND_LABEL: Record<WorkSessionKind, string> = {
   deep_work: "Deep Work",
   deep_study: "Deep Study",
-  learn: "Review",
+  // NOT "Review". LifeOS already has a nightly **Review** — a named
+  // cross-cutting ritual with its own /review route and topbar entry. Two
+  // different things under one word collide exactly where it hurts: on Home
+  // and the day ribbon, where a glance would leave the user working out which
+  // one was meant. "Recall" is what the session actually is (retrieval
+  // practice — you recall from memory before the answer is shown), it is
+  // distinctive against everything else in the shell, and it carries the
+  // effortful connotation the product wants. "Review" quietly promises ease,
+  // and effortful recall IS the mechanism.
+  learn: "Recall",
 };
