@@ -109,19 +109,12 @@ check_pair() { # <table.column>:<file>  -> 0 ok, 1 drift
 
 if [ "$MODE" = "selftest" ]; then
   echo "SELF-TEST: widening work_sessions.kind in a rolled-back transaction so the check MUST go red."
-  OUT="$(psql "$URL" -X -q -t -A </dev/null <<'SQL' 2>&1
-begin;
-alter table public.work_sessions drop constraint work_sessions_kind_check;
-alter table public.work_sessions add constraint work_sessions_kind_check
-  check (kind in ('deep_work','deep_study','canary_kind'));
-select regexp_replace(m[1], '''', '', 'g')
-from pg_constraint c
-cross join lateral regexp_matches(pg_get_constraintdef(c.oid), '''([a-z_]+)''', 'g') m
-where c.conrelid='public.work_sessions'::regclass and c.contype='c'
-  and pg_get_constraintdef(c.oid) like '%kind%' and pg_get_constraintdef(c.oid) like '%ANY%';
-rollback;
-SQL
-)"
+  # Payload lives in scripts/_enum-drift-selftest.sql and DERIVES the canary
+  # constraint from whatever is currently in place rather than restating the
+  # allowed set literally. See that file: an earlier hardcoded version went
+  # stale the moment migration 077 added 'learn', and the detector drifted in
+  # exactly the way it exists to detect.
+  OUT="$(psql "$URL" -X -q -t -A -f "$(dirname "${BASH_SOURCE[0]}")/_enum-drift-selftest.sql" </dev/null 2>&1)"
   if echo "$OUT" | grep -q canary_kind; then
     echo "SELF-TEST PASSED — the reader saw the injected value ('canary_kind'), so drift is detectable."
     echo "Transaction rolled back; the real constraint is untouched."
