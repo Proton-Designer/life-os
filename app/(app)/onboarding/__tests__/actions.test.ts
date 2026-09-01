@@ -28,7 +28,10 @@ function makeChain(resolvedValue: { data: unknown; error: null; count?: number }
   };
 }
 
-const getClaimsMock = vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null }));
+const getClaimsMock = vi.fn(async (): Promise<{ data: { claims: { sub: string } } | null; error: null }> => ({
+  data: { claims: { sub: "user-1" } },
+  error: null,
+}));
 const rpcMock = vi.fn(async () => ({ data: null, error: null }));
 let fromImpl: (table: string) => ReturnType<typeof makeChain>;
 const fromMock = vi.fn((table: string) => fromImpl(table));
@@ -233,6 +236,14 @@ describe("Onboarding actions", () => {
   });
 
   describe("getOnboardingState", () => {
+    it("returns empty state rather than throwing when unauthenticated — a render-path read must degrade, not kill the page (live-browser regression: /onboarding's page and AuthedShell's redirect race, and this used to throw mid-render)", async () => {
+      getClaimsMock.mockResolvedValueOnce({ data: null, error: null });
+      const { getOnboardingState } = await import("../actions");
+
+      await expect(getOnboardingState()).resolves.toEqual({ domains: [], subdomains: [] });
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
     it("returns empty arrays for a brand-new user, never throws", async () => {
       const tables: Record<string, ReturnType<typeof makeChain>> = {
         user_domains: makeChain({ data: [], error: null }),

@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/supabase/auth";
+import { requireUser, getAuthedUser } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/server";
 import { updateProfile, type ProfileUpdatable } from "@/app/(app)/settings/actions";
 import type { Json } from "@/lib/supabase/database.types";
 
@@ -207,12 +208,29 @@ export type OnboardingSubdomainState = {
  * sitting there, the wizard would restart blank with no memory of them, and
  * the next submit would reactivate rows the user never re-confirmed in this
  * session.
+ *
+ * Deliberately does NOT use requireUser() (Opus Lead, live-browser catch):
+ * this runs on the RENDER path, not a mutation path, and `/onboarding`'s
+ * page and `AuthedShell`'s auth check/redirect run in parallel — Next does
+ * not wait for the layout before rendering the page. During the brief
+ * window where the session cookie is present but not yet resolved,
+ * requireUser()'s throw was surfacing as an unhandled error boundary that
+ * killed the whole client tree before hydration, instead of letting the
+ * layout's redirect("/login") do its job. A read that decorates a page
+ * must degrade, not throw — getAuthedUser() returns null instead of
+ * throwing, so an unauthenticated/not-yet-resolved caller just sees empty
+ * state and the layout handles the redirect on its own.
  */
 export async function getOnboardingState(): Promise<{
   domains: OnboardingDomainState[];
   subdomains: OnboardingSubdomainState[];
 }> {
-  const { supabase, userId } = await requireUser();
+  const user = await getAuthedUser();
+  if (!user) {
+    return { domains: [], subdomains: [] };
+  }
+  const userId = user.id;
+  const supabase = await createClient();
 
   const { data: domainRows, error: domainsError } = await supabase
     .from("user_domains")
