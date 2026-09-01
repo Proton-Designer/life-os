@@ -125,7 +125,18 @@ export function defaultDataSource(): DayShapeDataSource {
         .select("started_at, ended_at, kind")
         .eq("user_id", userId)
         .gte("started_at", dayStart)
-        .lt("started_at", dayEnd);
+        .lt("started_at", dayEnd)
+        // Deep-work-class only. The ribbon maps every work_sessions row to the
+        // "focus" activity kind, so once 'learn' is storable a 7-minute
+        // retrieval review would render on the day timeline as a Focus block —
+        // mislabelling it as deep work in the one surface whose job is showing
+        // the shape of the day honestly. The cast below would also be a lie.
+        //
+        // FOLLOW-UP, deliberately not done here: showing reviews on the ribbon
+        // is desirable (D-003 wants Home to answer "what did I do today"), but
+        // it needs its OWN RibbonActivityKind with its own icon and label, not
+        // a borrowed one. Omitting is honest; mislabelling is not.
+        .eq("counts_toward_hours", true);
       return (data ?? []) as DayShapeSessionRow[];
     },
     async getScheduleEvents(userId, date, dayOfWeek) {

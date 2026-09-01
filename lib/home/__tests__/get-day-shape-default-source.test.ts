@@ -12,7 +12,13 @@ function makeChain(resolvedValue: { data: unknown; error: null }) {
   for (const method of ["select", "eq", "gte"]) {
     chain[method] = vi.fn(() => chain);
   }
-  chain.lt = vi.fn(async () => resolvedValue);
+  // .lt() is no longer terminal — a final .eq("counts_toward_hours", true)
+  // follows it (deep-work-class only, so a retrieval review is never drawn on
+  // the ribbon as a Focus block). Keep .lt chainable AND awaitable so this
+  // file keeps testing local-day bounds rather than accidentally testing the
+  // chain shape.
+  chain.lt = vi.fn(() => chain);
+  chain.eq = vi.fn(() => Object.assign(Promise.resolve(resolvedValue), chain));
   return chain;
 }
 
