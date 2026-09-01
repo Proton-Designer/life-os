@@ -14,6 +14,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      // See test-stubs/server-only.ts: keeps the real build-time guard while
+      // letting server-only modules be unit tested.
+      "server-only": path.resolve(__dirname, "./test-stubs/server-only.ts"),
     },
   },
 });

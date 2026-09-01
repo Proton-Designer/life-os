@@ -61,7 +61,8 @@ plan_micro_exercises.goal_type:lib/fitness/plan-types.ts
 tasks.task_type:lib/tasks/task-type.ts
 class_assessments.type:app/(app)/school/class-actions.ts
 user_domains.key:app/(app)/onboarding/actions.ts
-user_subdomains.kind:app/(app)/onboarding/actions.ts"
+user_subdomains.kind:app/(app)/onboarding/actions.ts
+user_api_keys.provider:lib/ai/providers.ts"
 
 db_values() { # <table> <column> -> newline-separated allowed values
   psql "$URL" -X -q -t -A </dev/null -c "
@@ -71,7 +72,15 @@ db_values() { # <table> <column> -> newline-separated allowed values
     where c.conrelid = 'public.$1'::regclass
       and c.contype = 'c'
       and pg_get_constraintdef(c.oid) like '%$2%'
-      and pg_get_constraintdef(c.oid) like '%ANY%'
+      -- Match BOTH forms Postgres renders a value set in:
+      --   many values -> col = ANY (ARRAY['a','b'])
+      --   ONE value   -> col = 'a'
+      -- The original matched only ANY, so a single-value CHECK reported
+      -- "no CHECK found ... review manually" every run. That is the permanent
+      -- noise this script's own header warns against, and it lands on the case
+      -- that matters MOST: a one-value set is the one about to be widened,
+      -- which is the drift event this exists to catch.
+      and pg_get_constraintdef(c.oid) similar to '%''[a-z_]+''%'
     ;" 2>/dev/null | sort -u | grep -v '^$'
 }
 

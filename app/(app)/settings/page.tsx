@@ -2,6 +2,10 @@ import { redirect } from "next/navigation";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { SettingsForm, type SettingsFormData } from "@/components/settings/settings-form";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { ApiKeySettings } from "@/components/settings/api-key-settings";
+import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
+import { PROVIDERS, PROVIDER_IDS } from "@/lib/ai/providers";
+import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
@@ -12,6 +16,7 @@ const SECTIONS = [
   { id: "location", label: "Location" },
   { id: "checkins", label: "Check-ins" },
   { id: "notifications", label: "Notifications" },
+  { id: "ai", label: "AI features" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
 ];
@@ -25,6 +30,18 @@ export default async function SettingsPage() {
   // before. Never spread the raw profile object into a Client Component's
   // props: it also carries pin_hash, which must never reach the client.
   const profile = await getProfile();
+
+  // Plain serializable values only across the RSC boundary — the provider
+  // registry is const-asserted, so it is spread into a plain array here rather
+  // than handed over as-is. See AGENTS.md on Server -> Client props.
+  const providers = PROVIDER_IDS.map((id) => ({
+    id,
+    label: PROVIDERS[id].label,
+    consoleUrl: PROVIDERS[id].consoleUrl,
+    unlocks: PROVIDERS[id].unlocks,
+  }));
+  const keyStatuses = await getApiKeyStatuses();
+  const storageConfigured = isKeyStorageConfigured();
 
   return (
     <PageContainer>
@@ -69,6 +86,13 @@ export default async function SettingsPage() {
           />
           <Panel id="notifications" className="scroll-mt-24" title="Notifications">
             <NotificationSettings />
+          </Panel>
+          <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
+            <ApiKeySettings
+              providers={providers}
+              initialStatuses={keyStatuses}
+              storageConfigured={storageConfigured}
+            />
           </Panel>
         </div>
       </div>

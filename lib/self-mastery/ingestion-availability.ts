@@ -19,10 +19,20 @@
  * incomplete. Onboarding currently offers this to people in their first
  * ninety seconds with the product.
  *
- * This flag is deliberately DERIVED, not hand-set: it reads whether a model
- * provider is configured at all. The moment a key is present and the worker
- * ships, uploads light up on their own — nobody has to remember to flip a
- * boolean, which is precisely the kind of thing nobody remembers.
+ * GATED ON THE WORKER, NOT ON AN API KEY — and this distinction is the whole
+ * point of the flag.
+ *
+ * When bring-your-own-key landed, the obvious move was to light uploads up for
+ * any user who supplied a DeepSeek key. That would have re-created the exact
+ * bug this file exists to prevent: a key lets you CALL a model, but ingestion
+ * needs a process that claims `ingestion_jobs`, parses a PDF, and writes
+ * lessons and cards. Without that process the upload still strands the book at
+ * "processing" forever — now with the added insult that the user paid for a key
+ * to unlock it.
+ *
+ * So availability keys off SELF_MASTERY_INGESTION_URL: the worker's own
+ * endpoint. A user's personal key can never satisfy it, because a credential is
+ * not a consumer.
  *
  * Server-only. The UI hides the affordance and `uploadBook` refuses
  * independently — a UI-only guard and a server guard produce the same
@@ -31,13 +41,9 @@
  * minimum-one-subdomain rule.
  */
 export function isIngestionAvailable(): boolean {
-  return Boolean(
-    process.env.ANTHROPIC_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.SELF_MASTERY_INGESTION_URL,
-  );
+  return Boolean(process.env.SELF_MASTERY_INGESTION_URL);
 }
 
 /** Shown wherever the upload affordance would otherwise be. Honest, not coy. */
 export const INGESTION_UNAVAILABLE_MESSAGE =
-  "Adding your own books isn't available yet — the text extraction service isn't connected. Your starter deck is ready to study in the meantime.";
+  "Adding your own books isn't available yet — the service that turns a PDF into lesson cards isn't connected. Your starter deck is ready to study in the meantime.";
