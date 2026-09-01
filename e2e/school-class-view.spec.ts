@@ -190,7 +190,22 @@ test.describe("School — expanded class view", () => {
     await expect(reopened.getByText(/MATH 2418/).first()).toBeVisible();
   });
 
-  test("adding a task does not re-ask for the class, and dates read 'Sep. 3rd'", async ({ page }) => {
+  test("adding a task does not re-ask for the class, and the date reads as an ordinal", async ({ page }) => {
+    // The due date is DERIVED, never hardcoded. This test previously used a
+    // literal "2026-09-03" and asserted it appeared under the collapsed
+    // "Future" group. It passed for six days and then failed at the month
+    // rollover: lib/tasks/task-groups.ts buckets by today's week, then today's
+    // YYYY-MM, and only then "future" — so 2026-09-03 stopped being Future the
+    // moment September began. Nothing in the app changed; the calendar did.
+    //
+    // The first of the month two months out is always in a different month
+    // than today, so it is always "future", and its ordinal is always "1st".
+    const now = new Date();
+    const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 1));
+    const dueDate = target.toISOString().slice(0, 10);
+    const monthAbbr = target.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+    const expectedOrdinal = `${monthAbbr}. 1st`;
+
     await openSchool(page);
     const dialog = await openClass(page, "Ameri Studies");
 
@@ -210,7 +225,7 @@ test.describe("School — expanded class view", () => {
     await expect(homeworkOption).toBeVisible();
     await homeworkOption.click();
 
-    await wizard.getByLabel(/Due Date|^Date/).fill("2026-09-03");
+    await wizard.getByLabel(/Due Date|^Date/).fill(dueDate);
     await wizard.getByRole("textbox").first().fill(taskTitle);
     await wizard.getByRole("button", { name: /^Add$/ }).click();
 
@@ -229,8 +244,9 @@ test.describe("School — expanded class view", () => {
     // happens to be due that day. (Found by Engineer B, 2026-08-26.)
     const row = dialog.locator("li", { hasText: taskTitle });
     await expect(row).toHaveCount(1);
-    await expect(row.getByText("Sep. 3rd")).toBeVisible();
-    await expect(row.getByText("2026-09-03")).toHaveCount(0);
+    await expect(row.getByText(expectedOrdinal)).toBeVisible();
+    // The point of the test: the raw ISO date must never be shown to the user.
+    await expect(row.getByText(dueDate)).toHaveCount(0);
 
     // A class-scoped list has no business offering a class filter.
     await expect(dialog.getByRole("combobox", { name: /All classes/i })).toHaveCount(0);
