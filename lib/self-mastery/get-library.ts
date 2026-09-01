@@ -1,19 +1,8 @@
 import { cache } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
+import { untypedFrom } from "./untyped-from";
 import type { LibraryBook, BookStatus, IngestStage } from "./types";
-
-// `books`/`cards`/`card_states` aren't in the generated Database type yet
-// (see types.ts header) — `.from()` on the typed client rejects unknown
-// table names at compile time, so these queries go through an untyped
-// handle instead of a full `as any` scattered through every call site.
-// Delete this the moment lib/supabase/database.types.ts is regenerated
-// against the migrated schema; every query below should then type-check
-// against the real client with no other changes.
-function untypedFrom(supabase: SupabaseClient, table: string) {
-  return (supabase as unknown as { from: (t: string) => ReturnType<SupabaseClient["from"]> }).from(table);
-}
 
 interface BookRow {
   id: string;

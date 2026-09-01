@@ -1,14 +1,8 @@
 import { cache } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
+import { untypedFrom } from "./untyped-from";
 import type { BookDetail, BookDetailLesson, BookStatus, EvidenceStrength, IngestStage, LessonCardState } from "./types";
-
-// See get-library.ts for why this exists — books/lessons/cards/card_states
-// aren't in the generated Database type yet.
-function untypedFrom(supabase: SupabaseClient, table: string) {
-  return (supabase as unknown as { from: (t: string) => ReturnType<SupabaseClient["from"]> }).from(table);
-}
 
 interface BookRow {
   id: string;

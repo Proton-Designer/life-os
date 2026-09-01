@@ -16,9 +16,11 @@ import { DomainStatusStack } from "@/components/home/domain-status-stack";
 import { DayRibbon } from "@/components/home/day-ribbon";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { InProgressBanner } from "@/components/shell/in-progress-banner";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
+import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -36,7 +38,7 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -51,6 +53,13 @@ export default async function HomePage() {
         .in("domain", ["deen", "business"]),
       getAllTriggers(supabase, userId, dateStr),
       getTodayDistractionCount(supabase, userId, dateStr),
+      // D-004: a lightweight "this is still happening" affordance for
+      // long-running work — Self-Mastery's book ingestion today, School's
+      // syllabus parsing can produce the same InProgressItem[] shape later.
+      // Degrades to [] rather than throwing if the Self-Mastery schema
+      // isn't deployed yet (see the function's own comment) — Home must
+      // never break because a feature's migration hasn't landed.
+      getInProgressBooks(),
     ]);
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
@@ -99,6 +108,8 @@ export default async function HomePage() {
   return (
     <PageContainer>
       <PageHeader title="Home" />
+
+      <InProgressBanner items={inProgressItems} />
 
       <WeeklyGoalsHeader
         deen={deenGoal}
