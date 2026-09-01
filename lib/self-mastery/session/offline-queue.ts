@@ -37,6 +37,25 @@
 //    `startTodaysSession` in this app) immediately before calling replay,
 //    and applies it to every item in that pass. Every other field is still
 //    captured at grade time and never recomputed.
+//
+// 4. LOST-RESPONSE RECOVERY (found by ow9rlnds's adversarial review of the
+//    consuming code, 2026-09-01): if `submit_review`'s RPC call succeeds
+//    server-side but the response never reaches the client (network drop
+//    right after commit), the item stays queued and gets retried. The retry
+//    correctly fails `submit_review`'s "reps must increase by exactly 1"
+//    check (the server's `reps` already advanced from the first, silently-
+//    successful attempt) and `isPermanentFailure` correctly classifies that
+//    as permanent (never retry — retrying again can't help). But the review
+//    genuinely landed; surfacing this to the user as "couldn't be saved" is
+//    wrong. `replayPendingReviews` now VERIFIES rather than guesses: on a
+//    reps-mismatch specifically, it queries `reviews` for the most recent
+//    row on that card and compares rating/elapsed_ms/confidence/answered_text
+//    (all four persisted verbatim in the queued item, never recomputed at
+//    replay) against the item about to be retried. An exact match on all
+//    four is treated as "this attempt already landed" — verified against the
+//    database, not inferred from the error text or a retry-count heuristic,
+//    so it doesn't need (and doesn't use) `item.attempts` to decide. See
+//    `wasAlreadyApplied` below.
 import type { createClient } from "@/lib/supabase/client";
 import type { NextStateForRpc } from "../fsrs-scheduler";
 
@@ -131,6 +150,11 @@ export interface ReplayFailure {
 }
 
 export interface ReplayResult {
+  /** Ids the caller can treat identically: remove from the queue, no error to show.
+   * Includes both a genuine RPC success this pass AND an item verified (via
+   * `wasAlreadyApplied`) to have already landed on an earlier attempt whose
+   * response was lost — see `recoveredLostResponses` for exactly which of
+   * `succeeded` fall into the second case, if that distinction ever matters. */
   succeeded: string[];
   /** Every failure this pass produced, in the order encountered — never just the
    * first one. `permanent` and `transient-exhausted` entries have already been
@@ -138,6 +162,13 @@ export interface ReplayResult {
    * user something rather than losing the write silently); `transient-retrying`
    * entries are still queued for the next replay attempt. */
   failures: ReplayFailure[];
+  /** Subset of `succeeded` recovered via `wasAlreadyApplied` — the RPC call this
+   * pass reported a reps-mismatch, but a matching row already existed in `reviews`,
+   * meaning an EARLIER attempt actually landed and only its response was lost.
+   * Not a failure and not surfaced to the user as one; listed separately from
+   * `succeeded` purely for observability (e.g. logging how often this recovery
+   * path fires) — the caller can ignore this field entirely. */
+  recoveredLostResponses: string[];
 }
 
 /** Postgres exceptions tracking-app's LIVE `submit_review` raises deliberately
@@ -169,6 +200,48 @@ export interface ReplayResult {
  * change one anyway, update the matching string below in the SAME
  * migration/commit.
  */
+/** The one `submit_review` failure that needs verification instead of a straight
+ * permanent/transient classification — see adaptation 4 in this file's header. */
+function isRepsMismatch(error: { message?: string } | null): boolean {
+  return (error?.message ?? "").toLowerCase().includes("must increase by exactly");
+}
+
+/**
+ * Queries `reviews` for the most recent row on `item.cardId` and checks whether it
+ * IS this exact queued item, already landed. Verification, not inference: compares
+ * four fields the client persisted verbatim at grade time and never recomputes
+ * (`rating`, `elapsedMs`, `confidence`, `answeredText`) against the newest row for
+ * that card. An exact match on all four is strong evidence this is the same
+ * submission, not a coincidentally-similar different one — a different real review
+ * matching a user's own rating AND millisecond-precision elapsed time AND
+ * confidence tap AND answer text is not a realistic collision.
+ *
+ * RLS-safe by construction: `reviews_select` only returns the caller's own rows,
+ * so this can never read (or leak information about) another user's review.
+ *
+ * Deliberately does NOT use `item.attempts` — a retry-count heuristic can't
+ * distinguish "this exact submission already landed" from "a genuinely different
+ * review landed in between" (e.g. the same card reviewed from a second device);
+ * checking actual field equality against the database can, and is strictly more
+ * accurate than counting attempts.
+ */
+async function wasAlreadyApplied(client: TypedClient, item: PendingReview): Promise<boolean> {
+  const { data } = await client
+    .from("reviews")
+    .select("rating, confidence, elapsed_ms, answered_text")
+    .eq("card_id", item.cardId)
+    .order("reviewed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return false;
+  return (
+    data.rating === item.rating &&
+    (data.confidence ?? null) === (item.confidence ?? null) &&
+    data.elapsed_ms === item.elapsedMs &&
+    (data.answered_text ?? null) === (item.answeredText ?? null)
+  );
+}
+
 function isPermanentFailure(error: { message?: string; code?: string } | null): boolean {
   if (!error) return false;
   const message = (error.message ?? "").toLowerCase();
@@ -196,7 +269,11 @@ function isPermanentFailure(error: { message?: string; code?: string } | null): 
  * *later items for that same card* (a real ordering dependency, from `submit_review`'s
  * reps+1 check), never items for a different card. Permanent failures and exhausted
  * transients are dropped from the queue and returned as dead letters; retryable
- * transients stay queued.
+ * transients stay queued. A reps-mismatch specifically is verified against `reviews`
+ * before being classified (see `wasAlreadyApplied`, adaptation 4 in the file header) —
+ * if it turns out an earlier attempt already landed and only its response was lost,
+ * the item is treated as succeeded, not a failure, and does not block later same-card
+ * items either (the server's reps state genuinely advanced).
  *
  * `sessionId` is the CURRENT session id, resolved by the caller immediately before
  * calling this (see file header, adaptation 3) — every replayed item in this pass is
@@ -212,6 +289,7 @@ export async function replayPendingReviews(
   const ordered = [...queue].sort((a, b) => a.queuedAt - b.queuedAt);
 
   const succeeded: string[] = [];
+  const recoveredLostResponses: string[] = [];
   const failures: ReplayFailure[] = [];
   const droppedIds = new Set<string>();
   // Once a card has a failure that stays queued this pass, no later item for that same
@@ -258,6 +336,17 @@ export async function replayPendingReviews(
       continue;
     }
 
+    if (isRepsMismatch(error) && (await wasAlreadyApplied(client, item))) {
+      // Verified, not guessed: an earlier attempt's RPC call landed server-side
+      // and only its response was lost. Treat identically to a genuine success —
+      // remove from the queue, no error surfaced — but keep it out of the normal
+      // `permanent` bucket and record it separately for observability.
+      droppedIds.add(item.id);
+      succeeded.push(item.id);
+      recoveredLostResponses.push(item.id);
+      continue;
+    }
+
     if (isPermanentFailure(error)) {
       droppedIds.add(item.id);
       failures.push({ id: item.id, cardId: item.cardId, error: error.message ?? "Unknown error", classification: "permanent" });
@@ -290,5 +379,5 @@ export async function replayPendingReviews(
   const remaining = stillQueued.filter((q) => !droppedIds.has(q.id));
   await savePendingReviews(storage, remaining);
 
-  return { succeeded, failures };
+  return { succeeded, failures, recoveredLostResponses };
 }

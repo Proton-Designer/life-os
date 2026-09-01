@@ -32,15 +32,52 @@ function pendingReview(
   };
 }
 
-function rpcClient(handler: (cardId: string) => { data: unknown; error: { message: string; code?: string } | null }) {
+interface ReviewsRow {
+  rating: number;
+  confidence: string | null;
+  elapsed_ms: number;
+  answered_text: string | null;
+}
+
+function rpcClient(
+  handler: (cardId: string) => { data: unknown; error: { message: string; code?: string } | null },
+  /** Backs `wasAlreadyApplied`'s `.from("reviews")...` lookup. Return `null` for "no row found". */
+  reviewsLookup: (cardId: string) => ReviewsRow | null = () => null,
+) {
   const calledCardIds: string[] = [];
   const calledArgs: Record<string, unknown>[] = [];
+  const reviewsLookupCardIds: string[] = [];
   const rpc = vi.fn(async (_fn: string, args: { p_card_id: string }) => {
     calledCardIds.push(args.p_card_id);
     calledArgs.push(args);
     return handler(args.p_card_id);
   });
-  return { client: { rpc } as unknown as ReturnType<typeof createClient>, calledCardIds, calledArgs };
+
+  const from = vi.fn((table: string) => {
+    if (table !== "reviews") throw new Error(`test double doesn't support .from("${table}")`);
+    let cardId = "";
+    const chain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn((_col: string, value: string) => {
+        cardId = value;
+        return chain;
+      }),
+      order: vi.fn(() => chain),
+      limit: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => {
+        reviewsLookupCardIds.push(cardId);
+        return { data: reviewsLookup(cardId), error: null };
+      }),
+    };
+    return chain;
+  });
+
+  return {
+    client: { rpc, from } as unknown as ReturnType<typeof createClient>,
+    calledCardIds,
+    calledArgs,
+    reviewsLookupCardIds,
+  };
 }
 
 describe("enqueuePendingReview / loadPendingReviews", () => {
@@ -177,6 +214,85 @@ describe("replayPendingReviews", () => {
     const result = await replayPendingReviews(client, storage, "sess-1");
     expect(result.failures[0]?.classification).toBe("permanent");
     expect(await loadPendingReviews(storage)).toEqual([]); // dropped, not retried forever
+  });
+
+  it("recovers a lost response: reps-mismatch + a matching reviews row is treated as succeeded, not a failure", async () => {
+    // Found by ow9rlnds's adversarial review, 2026-09-01: an RPC call that
+    // actually succeeded server-side but whose response was lost (network drop
+    // right after commit) gets retried and correctly fails the reps+1 check --
+    // this proves it's then correctly recognized as already-landed, not shown
+    // to the user as a real failure.
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(
+      storage,
+      pendingReview({ id: "x", cardId: "card-x", rating: 3, elapsedMs: 4000, confidence: "sure", answeredText: "my answer" }),
+    );
+    const { client } = rpcClient(
+      () => ({ data: null, error: { message: "submit_review: reps must increase by exactly 1 (was 1, proposed 2)" } }),
+      (cardId) =>
+        cardId === "card-x" ? { rating: 3, confidence: "sure", elapsed_ms: 4000, answered_text: "my answer" } : null,
+    );
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(result.succeeded).toEqual(["x"]);
+    expect(result.recoveredLostResponses).toEqual(["x"]);
+    expect(result.failures).toEqual([]); // not surfaced to the user as a failure
+    expect(await loadPendingReviews(storage)).toEqual([]); // removed from the queue, like a real success
+  });
+
+  it("does NOT recover when the reps-mismatch has no matching reviews row (genuine conflict, not a lost response)", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(storage, pendingReview({ id: "x", cardId: "card-x" }));
+    const { client } = rpcClient(
+      () => ({ data: null, error: { message: "submit_review: reps must increase by exactly 1 (was 1, proposed 2)" } }),
+      () => null, // no reviews row at all for this card
+    );
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.recoveredLostResponses).toEqual([]);
+    expect(result.failures[0]?.classification).toBe("permanent"); // falls through to the normal path
+  });
+
+  it("does NOT recover when a reviews row exists for the card but doesn't match this item (a DIFFERENT review landed, not this one)", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(storage, pendingReview({ id: "x", cardId: "card-x", rating: 3, elapsedMs: 4000 }));
+    const { client } = rpcClient(
+      () => ({ data: null, error: { message: "submit_review: reps must increase by exactly 1 (was 1, proposed 2)" } }),
+      // Same card, but a different rating -- a genuinely different review, not this queued item.
+      (cardId) => (cardId === "card-x" ? { rating: 4, confidence: null, elapsed_ms: 9999, answered_text: "someone else's answer" } : null),
+    );
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.recoveredLostResponses).toEqual([]);
+    expect(result.failures[0]?.classification).toBe("permanent");
+  });
+
+  it("a recovered lost-response item does NOT block a later item for the same card", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(
+      storage,
+      pendingReview({ id: "a", cardId: "card-a", rating: 3, elapsedMs: 4000, confidence: null, answeredText: "answer-a" }),
+    );
+    await enqueuePendingReview(storage, pendingReview({ id: "b", cardId: "card-a", rating: 4, elapsedMs: 2000 }));
+
+    const { client, calledCardIds } = rpcClient(
+      (cardId) =>
+        cardId === "card-a" && calledCardIds.filter((c) => c === "card-a").length === 1
+          ? { data: null, error: { message: "submit_review: reps must increase by exactly 1 (was 1, proposed 2)" } }
+          : { data: { id: `review-for-${cardId}` }, error: null },
+      (cardId) =>
+        cardId === "card-a" ? { rating: 3, confidence: null, elapsed_ms: 4000, answered_text: "answer-a" } : null,
+    );
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    // Both items for card-a are attempted -- "a" is recovered (verified already
+    // applied), and "b" is NOT blocked behind it, unlike a real transient/permanent
+    // failure which would block same-card items still in this pass.
+    expect(calledCardIds).toEqual(["card-a", "card-a"]);
+    expect(result.recoveredLostResponses).toEqual(["a"]);
+    expect(result.succeeded).toEqual(["a", "b"]);
   });
 
   it("classifies a revoked/expired session (PGRST301) as permanent, not transient — L6 §3 finding, ported from ULM", async () => {
