@@ -21,8 +21,13 @@ export interface SubdomainInput {
 
 export interface FaithConfig {
   location_label: string;
-  prayer_calc_method: string;
-  asr_madhab: "standard" | "hanafi";
+  // Prayer times need real coordinates and a timezone — a typed city string
+  // yields none of them, so onboarding resolves a real CityMatch rather than
+  // storing free text. Calculation method and Asr madhab are deliberately
+  // absent: they default (MWL / standard) and are changed in Settings.
+  location_lat: number;
+  location_lng: number;
+  timezone: string;
 }
 
 export interface FitnessConfig {
