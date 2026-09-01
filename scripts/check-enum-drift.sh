@@ -95,10 +95,14 @@ check_pair() { # <table.column>:<file>  -> 0 ok, 1 drift
     echo "    -> $file must widen. A row with this kind renders undefined through any exhaustive Record."
     return 1
   fi
-  if [ -n "$extra" ]; then
-    echo "  warn $tc — TypeScript names values the database rejects: $(echo "$extra" | tr '\n' ' ')"
-    echo "    (not a runtime bug; usually a leftover from a narrowed CHECK)"
-  fi
+  # The reverse direction (TS names a value the DB rejects) is deliberately NOT
+  # reported. ts_values() greps every quoted lowercase string in the file, so
+  # for any file that also contains SQL column names, route fragments or other
+  # literals it produces a long list of false "extras" — noise that trains a
+  # reader to skim warnings, which is worse than no warning at all. It is also
+  # the harmless direction: a TS value the DB rejects fails at insert, loudly.
+  # The dangerous direction is a DB value TS does not name, which renders
+  # `undefined` through an exhaustive Record — and that is checked above.
   echo "  ok   $tc — $(echo "$db" | tr '\n' ' ')"
   return 0
 }
