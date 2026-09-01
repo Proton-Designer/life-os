@@ -100,6 +100,46 @@ if [ -n "$OTHER" ]; then
     echo "    -> the two have diverged. 'Verified on one' implies nothing about the other."
     FAIL=1
   fi
+
+  # STRUCTURAL CHECK — deliberately does NOT trust either ledger.
+  #
+  # The ledger only knows what was RECORDED. The first time this script ran it
+  # reported "in sync" while scratch held eighteen composite FKs production did
+  # not: 089 had been applied straight through psql, so the ledger was blind to
+  # it and confidently wrong. A ledger that can be bypassed is an artifact
+  # asserting something about a world it cannot see — the same failure this
+  # tool exists to catch, reproduced inside the tool itself.
+  #
+  # So compare the SCHEMAS, which cannot be bypassed. On mismatch, print the
+  # actual differing objects rather than two hashes: a hash tells you something
+  # is wrong and nothing about what, and an unexplainable red gets ignored.
+  FP="select md5(string_agg(d, chr(10) order by d)) from (
+        select c.conrelid::regclass::text||' '||c.conname||' '||pg_get_constraintdef(c.oid) as d
+          from pg_constraint c where c.connamespace='public'::regnamespace
+        union all
+        select 'col '||table_name||'.'||column_name||' '||data_type
+          from information_schema.columns where table_schema='public') t;"
+  FA="$(psql "$URL"   -X -q -t -A </dev/null -c "$FP")"
+  FB="$(psql "$OTHER" -X -q -t -A </dev/null -c "$FP")"
+  if [ "$FA" = "$FB" ]; then
+    echo "    structural fingerprint matches — schemas are genuinely identical."
+  else
+    echo "    STRUCTURAL DIFFERENCE (independent of the ledgers):"
+    OQ="select c.conrelid::regclass::text||' '||c.conname||' '||pg_get_constraintdef(c.oid)
+          from pg_constraint c where c.connamespace='public'::regnamespace
+        union all
+        select 'col '||table_name||'.'||column_name||' '||data_type
+          from information_schema.columns where table_schema='public';"
+    psql "$URL"   -X -q -t -A </dev/null -c "$OQ" | sort > /tmp/_mig_a.$$
+    psql "$OTHER" -X -q -t -A </dev/null -c "$OQ" | sort > /tmp/_mig_b.$$
+    ONLY1="$(comm -23 /tmp/_mig_a.$$ /tmp/_mig_b.$$ | head -12)"
+    ONLY2="$(comm -13 /tmp/_mig_a.$$ /tmp/_mig_b.$$ | head -12)"
+    [ -n "$ONLY1" ] && { echo "      objects only on FIRST:";  echo "$ONLY1" | sed 's/^/        < /'; }
+    [ -n "$ONLY2" ] && { echo "      objects only on SECOND:"; echo "$ONLY2" | sed 's/^/        > /'; }
+    echo "      (showing at most 12 per side)"
+    rm -f /tmp/_mig_a.$$ /tmp/_mig_b.$$
+    FAIL=1
+  fi
 fi
 
 [ "$FAIL" -eq 0 ] && { echo "  OK — every migration on disk is accounted for."; exit 0; }
