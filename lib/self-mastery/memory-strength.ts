@@ -69,12 +69,21 @@ function toFsrsCard(row: CardStateForStrength | null, now: Date): Card {
  */
 export function cardRetrievability(cardState: CardStateForStrength | null, now: Date): number {
   const card = toFsrsCard(cardState, now);
-  // stability <= 0 is a degenerate/data-anomaly case (shouldn't happen given
-  // the schema's own card_states_derive_and_check trigger, but ts-fsrs
-  // divides by stability in the forgetting curve — a 0 there produces NaN,
-  // which would silently poison every average it's summed into). Same
-  // "counts as zero" answer as an untouched card, not a crash.
-  if (card.state === State.New || card.stability <= 0 || !card.last_review) return 0;
+  if (card.state === State.New) return 0;
+  // stability <= 0 / missing last_review shouldn't be reachable for a
+  // non-new card — submit_review rejects stability <= 0 and
+  // card_states_derive_and_check guards the row's shape (ULM lead). If this
+  // ever fires, something upstream is broken; warn rather than silently
+  // absorbing it, so the fallback is a safety net that reports, not one
+  // that hides the actual bug behind a plausible-looking 0.
+  if (card.stability <= 0 || !card.last_review) {
+    console.warn("[self-mastery] cardRetrievability: non-new card with invalid stability/last_review", {
+      state: cardState?.state,
+      stability: card.stability,
+      hasLastReview: Boolean(card.last_review),
+    });
+    return 0;
+  }
   return getScheduler().get_retrievability(card, now, false);
 }
 
