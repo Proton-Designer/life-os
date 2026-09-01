@@ -23,5 +23,13 @@ export async function signUp(formData: FormData) {
     return { message: "Check your email to confirm your account, then sign in." };
   }
 
-  redirect("/");
+  // Straight to /onboarding, NOT to "/". A brand-new signup has no profiles
+  // row, so "/" would immediately bounce to /onboarding anyway — but that
+  // second hop is thrown from inside AppLayout's <Suspense fallback={null}>
+  // AFTER streaming has started, so Next can no longer issue a real 307 and
+  // degrades to a client-side redirect. Observed result: /onboarding rendered
+  // 16KB of scripts and ZERO visible content — every new signup landed on a
+  // blank page. Redirecting straight here removes the chain, and it is always
+  // the correct destination for an account that cannot yet have a profile.
+  redirect("/onboarding");
 }
