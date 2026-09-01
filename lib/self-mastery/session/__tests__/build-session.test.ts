@@ -8,6 +8,7 @@ import {
   countDueCards,
   countNewCards,
 } from "../build-session";
+import { buildTodaysSession } from "../build-session";
 import type { QueueEntry } from "../types";
 
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
@@ -222,5 +223,94 @@ describe("submitSelfExplanation", () => {
         response: null,
       })
     ).resolves.toBeUndefined();
+  });
+});
+
+
+describe("a brand-new user's very first session", () => {
+  /**
+   * REGRESSION for the defect the stranger-journey acceptance run found on
+   * production: `buildTodaysSession` ran `loadSessionSettings` and
+   * `startTodaysSession` inside ONE Promise.all. `start_session` is the
+   * ensure-point for the `user_settings` row (080), and `loadSessionSettings`
+   * reads it with `.single()`, which throws PGRST116 on zero rows. So the
+   * settings read raced the insert that creates the row — and a genuinely new
+   * account loses that race every time, because its read has nothing to wait
+   * for. The user's first ever session showed "Couldn't load today's session.
+   * Check your connection and try again." — a message about the network, for a
+   * defect that is pure ordering.
+   *
+   * Every existing fixture and the SEED account already have a user_settings
+   * row, which is exactly why 1,841 passing tests never saw it. This test
+   * asserts the ORDERING rather than the happy path: start_session must have
+   * been called before the settings table is read.
+   */
+  it("calls start_session BEFORE reading user_settings, so the ensure-insert has happened", async () => {
+    const callOrder: string[] = [];
+
+    // One chain object that is BOTH awaitable (list reads) and has .single()
+    // (the settings read). A Proxy covers every builder method without having
+    // to enumerate them — enumerating is what broke the first attempt, since a
+    // missed method (.lte) fails as "not a function" rather than as the
+    // ordering assertion this test exists to make.
+    const makeThenableChain = (table: string) => {
+      const target: Record<string, unknown> = {
+        single: async () => {
+          callOrder.push(`read:${table}`);
+          return {
+            data: {
+              session_target_minutes: 10,
+              daily_new_limit: 5,
+              ai_grading_enabled: false,
+              desired_retention: 0.9,
+            },
+            error: null,
+          };
+        },
+        then: (res: (v: { data: unknown[]; count: number; error: null }) => unknown) =>
+          Promise.resolve(res({ data: [], count: 0, error: null })),
+      };
+      const proxy: unknown = new Proxy(target, {
+        get(t, prop) {
+          if (prop in t) return (t as Record<string | symbol, unknown>)[prop];
+          return () => proxy;
+        },
+      });
+      return proxy;
+    };
+
+    const client = {
+      from: vi.fn((table: string) => makeThenableChain(table)),
+      rpc: vi.fn(async (fn: string) => {
+        callOrder.push(`rpc:${fn}`);
+        if (fn !== "start_session") return { data: [], error: null };
+        return {
+          data: {
+            id: "s1",
+            user_id: "u1",
+            local_date: "2026-09-01",
+            started_at: "2026-09-01T00:00:00Z",
+            ended_at: null,
+            cards_reviewed: 0,
+            new_cards_introduced: 0,
+          },
+          error: null,
+        };
+      }),
+    } as unknown as Parameters<typeof buildTodaysSession>[0];
+
+    await buildTodaysSession(client, {
+      userId: "u1",
+      localDate: "2026-09-01",
+      now: new Date("2026-09-01T12:00:00Z"),
+    });
+
+    const startIdx = callOrder.indexOf("rpc:start_session");
+    const settingsIdx = callOrder.indexOf("read:user_settings");
+    expect(startIdx, "start_session must be called").toBeGreaterThanOrEqual(0);
+    expect(
+      settingsIdx === -1 || startIdx < settingsIdx,
+      `start_session must precede the user_settings read; got ${callOrder.join(" -> ")}`,
+    ).toBe(true);
   });
 });

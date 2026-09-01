@@ -211,11 +211,30 @@ export async function buildTodaysSession(
   client: TypedClient,
   input: { userId: string; localDate: string; now: Date }
 ): Promise<BuiltSession> {
-  const [settings, recentElapsedMs, totalDueCount, session] = await Promise.all([
+  // start_session MUST complete before the settings read, and this ordering is
+  // load-bearing rather than stylistic.
+  //
+  // THE BUG THIS FIXES (found by the stranger-journey acceptance run):
+  // `start_session` is the ensure-point for `user_settings` (080's
+  // ensure-insert). `loadSessionSettings` reads that row with `.single()`,
+  // which throws PGRST116 ("The result contains 0 rows") when it is absent.
+  // Running both inside one Promise.all raced the read against the insert that
+  // creates the row — and a BRAND-NEW USER LOSES THAT RACE EVERY TIME, because
+  // the read has nothing to wait for. Their very first session died on
+  // "Couldn't load today's session. Check your connection and try again.",
+  // which is a message about the network for a defect that is pure ordering.
+  //
+  // Invisible to every test we had: fixtures and the SEED account already have
+  // a user_settings row, so the race is unobservable unless the account has
+  // genuinely never existed before. Only a real first-run journey could see it.
+  //
+  // The remaining three still run concurrently — none of them depends on
+  // anything start_session creates.
+  const session = await startTodaysSession(client, input.localDate);
+  const [settings, recentElapsedMs, totalDueCount] = await Promise.all([
     loadSessionSettings(client, input.userId),
     loadRecentElapsedMs(client, input.userId),
     countDueCards(client, input.userId, input.now),
-    startTodaysSession(client, input.localDate),
   ]);
 
   const medianMs = computeMedianElapsedMs(recentElapsedMs);
