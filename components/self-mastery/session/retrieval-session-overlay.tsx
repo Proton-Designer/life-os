@@ -7,13 +7,21 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { startTimer, pauseTimer, resumeTimer, elapsedMs, type TimerState } from "@/lib/self-mastery/session/timer";
+import { getScheduler, toFsrsCard, computeNextState, toRpcNextState } from "@/lib/self-mastery/fsrs-scheduler";
+import {
+  enqueuePendingReview,
+  replayPendingReviews,
+  localStorageAdapter,
+} from "@/lib/self-mastery/session/offline-queue";
+import { createClient } from "@/lib/supabase/client";
 import { buildCardSequence, rollNextInterstitialGap } from "./build-card-sequence";
 import {
   loadTodaysSession,
   revealCardAnswer,
-  gradeCard,
+  fetchCurrentCardState,
   finishSession,
   logSelfExplanation,
+  revalidateAfterReview,
   type FinishSessionResult,
 } from "@/app/(app)/personal/self-mastery-session-actions";
 import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types";
@@ -118,6 +126,25 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     if (phase === "card") timerRef.current = startTimer(Date.now());
   }, [phase, cardIndex]);
 
+  // Flush any reviews left queued from an earlier interrupted session
+  // (app closed mid-offline-stretch) the moment today's session id is
+  // known, and again on every reconnect while the overlay is open —
+  // catches the case where the user keeps grading offline for a while and
+  // the browser regains connectivity mid-session, not just at the very end.
+  useEffect(() => {
+    if (!open || !built) return;
+    const sessionId = built.session.id;
+    function flush() {
+      const browserClient = createClient();
+      void replayPendingReviews(browserClient, localStorageAdapter, sessionId).then((result) => {
+        if (result.succeeded.length > 0) void revalidateAfterReview();
+      });
+    }
+    flush();
+    window.addEventListener("online", flush);
+    return () => window.removeEventListener("online", flush);
+  }, [open, built]);
+
   function resetCardInputs() {
     setAnsweredText("");
     setConfidence(null);
@@ -126,6 +153,7 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
 
   async function handleReveal() {
     if (!currentCard) return;
+    setError(null);
     setIsSubmitting(true);
     try {
       const answer = await revealCardAnswer(currentCard.id);
@@ -157,18 +185,60 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setPhase("card");
   }
 
+  /**
+   * Grading always goes through enqueue-then-immediate-replay, online or
+   * offline — never a direct one-shot RPC call. This is deliberate, not
+   * belt-and-suspenders: it means there is exactly ONE code path that
+   * submits a review (this one), so the retry/dead-letter logic in
+   * offline-queue.ts is exercised on every single grade, not just the rare
+   * offline case that would otherwise be the only thing testing it.
+   *
+   * FSRS is computed HERE, client-side, via the same fsrs-scheduler.ts the
+   * server uses — not through the gradeCard Server Action — for a reason
+   * that isn't about performance: a Server Action's thrown error is
+   * redacted to a generic message in a production build, which would
+   * silently defeat offline-queue.ts's retry classifier (it string-matches
+   * submit_review's REAL Postgres error text, which only survives over a
+   * direct Supabase client call). See fetchCurrentCardState/gradeCard's own
+   * comments in self-mastery-session-actions.ts.
+   */
   async function handleGrade(rating: Rating) {
     if (!currentCard || !built) return;
+    setError(null);
     setIsSubmitting(true);
     try {
-      await gradeCard({
+      const currentState = await fetchCurrentCardState(currentCard.id);
+      const scheduler = getScheduler();
+      const now = new Date();
+      const { card: nextCard } = computeNextState(scheduler, toFsrsCard(currentState, now), rating, now);
+
+      await enqueuePendingReview(localStorageAdapter, {
+        id: crypto.randomUUID(),
         cardId: currentCard.id,
-        sessionId: built.session.id,
         rating,
         elapsedMs: elapsedMs(timerRef.current, Date.now()),
         answeredText,
+        aiFeedback: null,
+        aiSuggestedRating: null,
         confidence,
+        nextState: toRpcNextState(nextCard),
       });
+
+      const browserClient = createClient();
+      const result = await replayPendingReviews(browserClient, localStorageAdapter, built.session.id);
+      const permanentFailure = result.failures.find((f) => f.classification === "permanent");
+      if (permanentFailure) {
+        // Rare, and by definition unrecoverable by retrying -- surface it
+        // rather than silently dropping the attempt, but don't block the
+        // session over one card.
+        setError(`That review couldn't be saved: ${permanentFailure.error}`);
+      } else {
+        void revalidateAfterReview();
+      }
+      // transient-retrying is NOT an error from the user's point of view —
+      // this is the offline case working as designed: the attempt is
+      // safely queued and will replay on the next reconnect, and the
+      // session keeps moving. Nothing here blocks on it.
       advanceToNextCardOrInterstitial();
     } catch {
       setError("Couldn't save that grade. Try again.");
@@ -252,6 +322,24 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
               <X />
             </Button>
           </div>
+
+          {/* A transient, dismissible banner -- distinct from the full-page
+              "error" phase below, which is for a load/finish failure that
+              blocks the whole session. This is for a single grade that
+              couldn't be saved (session-screen-spec.md: a permanent
+              submit_review failure) -- real, but must not strand the rest
+              of the session over one card. */}
+          {error && phase !== "error" && (
+            <div
+              role="alert"
+              className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              <span>{error}</span>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Dismiss" onClick={() => setError(null)}>
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          )}
 
           <div className="flex flex-1 flex-col items-center justify-center gap-6 py-8">
             {phase === "loading" && <p className="text-muted-foreground">Loading today&apos;s session...</p>}

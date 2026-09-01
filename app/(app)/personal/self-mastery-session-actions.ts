@@ -72,6 +72,17 @@ export interface GradeCardInput {
   confidence: "sure" | "think_so" | "guessing" | null;
 }
 
+/**
+ * Kept for a call site that isn't going through the offline queue (none as
+ * of this writing — the overlay uses fetchCurrentCardState +
+ * client-computed FSRS + enqueue/replay below instead, specifically
+ * because a Server Action's thrown error is redacted to a generic message
+ * in production, which would silently defeat offline-queue.ts's retry
+ * classifier: it string-matches submit_review's REAL Postgres error text,
+ * which only survives over a direct Supabase client call, never through a
+ * Next.js Server Action boundary). Left in place as the simpler, correct
+ * online-only path if a future caller doesn't need offline support.
+ */
 export async function gradeCard(input: GradeCardInput): Promise<{ scheduledDays: number }> {
   const { supabase, userId } = await requireUser();
   const currentState = await fetchCardState(supabase, userId, input.cardId);
@@ -93,6 +104,23 @@ export async function gradeCard(input: GradeCardInput): Promise<{ scheduledDays:
   });
   revalidatePath("/");
   return { scheduledDays };
+}
+
+/**
+ * Read-only, scheduling-numbers-only (no prompt/answer text) — safe to call
+ * any time. The overlay calls this immediately before computing the next
+ * FSRS state client-side, so the offline queue can carry a fully-computed
+ * `nextState` and never needs a network round trip to compute it at replay
+ * time.
+ */
+export async function fetchCurrentCardState(cardId: string) {
+  const { supabase, userId } = await requireUser();
+  return fetchCardState(supabase, userId, cardId);
+}
+
+/** Revalidates Home after a grading pass — called once the overlay knows a review actually landed (immediate success or a replayed one), not on every optimistic advance. */
+export async function revalidateAfterReview(): Promise<void> {
+  revalidatePath("/");
 }
 
 export interface FinishSessionResult extends SessionCompletionResult {

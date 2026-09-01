@@ -6,16 +6,35 @@ import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types
 
 const loadTodaysSessionMock = vi.fn();
 const revealCardAnswerMock = vi.fn();
-const gradeCardMock = vi.fn();
+const fetchCurrentCardStateMock = vi.fn();
 const finishSessionMock = vi.fn();
 const logSelfExplanationMock = vi.fn();
+const revalidateAfterReviewMock = vi.fn();
 
 vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
   loadTodaysSession: () => loadTodaysSessionMock(),
   revealCardAnswer: (cardId: string) => revealCardAnswerMock(cardId),
-  gradeCard: (input: unknown) => gradeCardMock(input),
+  fetchCurrentCardState: (cardId: string) => fetchCurrentCardStateMock(cardId),
   finishSession: (sessionId: string) => finishSessionMock(sessionId),
   logSelfExplanation: (input: unknown) => logSelfExplanationMock(input),
+  revalidateAfterReview: () => revalidateAfterReviewMock(),
+}));
+
+const enqueuePendingReviewMock = vi.fn(async (_storage: unknown, _review: unknown) => undefined);
+const replayPendingReviewsMock = vi.fn(async (_client: unknown, _storage: unknown, _sessionId: string) => ({
+  succeeded: ["queued-1"],
+  failures: [] as { id: string; cardId: string; error: string; classification: string }[],
+}));
+
+vi.mock("@/lib/self-mastery/session/offline-queue", () => ({
+  enqueuePendingReview: (storage: unknown, review: unknown) => enqueuePendingReviewMock(storage, review),
+  replayPendingReviews: (client: unknown, storage: unknown, sessionId: string) =>
+    replayPendingReviewsMock(client, storage, sessionId),
+  localStorageAdapter: {},
+}));
+
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({}),
 }));
 
 function card(id: string, prompt: string, reason: SessionCard["reason"] = "due"): SessionCard {
@@ -35,9 +54,14 @@ describe("RetrievalSessionOverlay", () => {
   beforeEach(() => {
     loadTodaysSessionMock.mockReset();
     revealCardAnswerMock.mockReset();
-    gradeCardMock.mockReset();
+    fetchCurrentCardStateMock.mockReset();
     finishSessionMock.mockReset();
     logSelfExplanationMock.mockReset();
+    revalidateAfterReviewMock.mockReset();
+    enqueuePendingReviewMock.mockClear();
+    replayPendingReviewsMock.mockReset();
+    fetchCurrentCardStateMock.mockResolvedValue(null);
+    replayPendingReviewsMock.mockResolvedValue({ succeeded: ["queued-1"], failures: [] });
   });
 
   it("renders nothing when closed, without loading a session", () => {
@@ -85,7 +109,6 @@ describe("RetrievalSessionOverlay", () => {
   it("grading calls gradeCard with the session id, card id, rating, and typed answer, then finishes on the last card", async () => {
     loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
     revealCardAnswerMock.mockResolvedValue("Answer text");
-    gradeCardMock.mockResolvedValue({ scheduledDays: 3 });
     finishSessionMock.mockResolvedValue({
       currentStreak: 1,
       longestStreak: 1,
@@ -105,9 +128,12 @@ describe("RetrievalSessionOverlay", () => {
     await waitFor(() => expect(screen.getByText("Answer text")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Good" }));
 
-    expect(gradeCardMock).toHaveBeenCalledWith(
-      expect.objectContaining({ cardId: "c1", sessionId: "sess-1", rating: 3, answeredText: "my recall" })
+    expect(fetchCurrentCardStateMock).toHaveBeenCalledWith("c1");
+    expect(enqueuePendingReviewMock).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ cardId: "c1", rating: 3, answeredText: "my recall" })
     );
+    expect(replayPendingReviewsMock).toHaveBeenCalledWith({}, {}, "sess-1");
     await waitFor(() => expect(finishSessionMock).toHaveBeenCalledWith("sess-1"));
     await waitFor(() => expect(screen.getByText("Session complete.")).toBeInTheDocument());
   });
@@ -115,7 +141,6 @@ describe("RetrievalSessionOverlay", () => {
   it("an empty typed answer is submitted as-is, never blocked", async () => {
     loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
     revealCardAnswerMock.mockResolvedValue("Answer text");
-    gradeCardMock.mockResolvedValue({ scheduledDays: 1 });
     finishSessionMock.mockResolvedValue({
       currentStreak: 1,
       longestStreak: 1,
@@ -134,13 +159,12 @@ describe("RetrievalSessionOverlay", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Again" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Again" }));
 
-    expect(gradeCardMock).toHaveBeenCalledWith(expect.objectContaining({ answeredText: "", rating: 1 }));
+    expect(enqueuePendingReviewMock).toHaveBeenCalledWith({}, expect.objectContaining({ answeredText: "", rating: 1 }));
   });
 
   it("session-complete shows a real effortful-win callout when the RPC reports one, never fabricated when it doesn't", async () => {
     loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
     revealCardAnswerMock.mockResolvedValue("Answer text");
-    gradeCardMock.mockResolvedValue({ scheduledDays: 1 });
     finishSessionMock.mockResolvedValue({
       currentStreak: 4,
       longestStreak: 4,
@@ -161,5 +185,66 @@ describe("RetrievalSessionOverlay", () => {
 
     await waitFor(() => expect(screen.getByText(/Meditations/)).toBeInTheDocument());
     expect(screen.getByText("3 cards due tomorrow.")).toBeInTheDocument();
+  });
+
+  describe("offline queue integration", () => {
+    it("a transient (offline) failure never blocks the session -- the card advances and the session finishes normally", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      replayPendingReviewsMock.mockResolvedValue({
+        succeeded: [],
+        failures: [{ id: "queued-1", cardId: "c1", error: "Failed to fetch", classification: "transient-retrying" }],
+      });
+      finishSessionMock.mockResolvedValue({
+        currentStreak: 1,
+        longestStreak: 1,
+        freezesAvailable: 0,
+        totalReviews: 0,
+        totalSessions: 1,
+        freezeConsumed: null,
+        effortfulWin: null,
+        dueTomorrow: 0,
+      });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Good" }));
+
+      await waitFor(() => expect(screen.getByText("Session complete.")).toBeInTheDocument());
+      expect(screen.queryByText(/couldn.t be saved/i)).not.toBeInTheDocument();
+    });
+
+    it("a permanent failure surfaces a real error to the user rather than pretending the review saved", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt"), card("c2", "Second")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      // First call is the mount-flush effect (nothing queued yet); the
+      // SECOND call is the one handleGrade triggers after enqueueing --
+      // that's the one that must report the permanent failure.
+      replayPendingReviewsMock.mockResolvedValueOnce({ succeeded: [], failures: [] }).mockResolvedValueOnce({
+        succeeded: [],
+        failures: [{ id: "queued-1", cardId: "c1", error: "submit_review: rating must be 1..4", classification: "permanent" }],
+      });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Good" }));
+
+      await waitFor(() => expect(screen.getByText(/couldn.t be saved/i)).toBeInTheDocument());
+      // Still advances -- one card's permanent failure doesn't strand the rest of the session.
+      await waitFor(() => expect(screen.getByText("Second")).toBeInTheDocument());
+    });
+
+    it("flushes any leftover queued reviews from an earlier interrupted session as soon as the session id is known", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(replayPendingReviewsMock).toHaveBeenCalledWith({}, {}, "sess-1"));
+    });
   });
 });
