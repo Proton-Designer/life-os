@@ -21,6 +21,8 @@ import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
 import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
+import { getDueSummary } from "@/app/(app)/personal/self-mastery-session-actions";
+import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -38,7 +40,7 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -60,6 +62,10 @@ export default async function HomePage() {
       // isn't deployed yet (see the function's own comment) — Home must
       // never break because a feature's migration hasn't landed.
       getInProgressBooks(),
+      // D-003: the retrieval session's entry point. Deliberately does NOT
+      // call start_session — a user glancing at Home never creates a real
+      // work_sessions row just by loading the page.
+      getDueSummary(),
     ]);
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
@@ -110,6 +116,8 @@ export default async function HomePage() {
       <PageHeader title="Home" />
 
       <InProgressBanner items={inProgressItems} />
+
+      <SessionEntryCard dueSummary={dueSummary} />
 
       <WeeklyGoalsHeader
         deen={deenGoal}
