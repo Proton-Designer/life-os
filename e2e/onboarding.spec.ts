@@ -62,8 +62,31 @@ test.describe("onboarding", () => {
       );
     }
 
-    // Walk whatever per-subdomain steps exist, then finish.
-    await page.getByTestId("onboarding-next").click();
+    // Walk the remaining per-subdomain steps until the flow completes. Keeping
+    // all three subdomains means three further steps (Faith, Self-Mastery,
+    // Fitness), and the last one completes on selection rather than on Next —
+    // an earlier version of this test clicked Next once and waited 30s for a
+    // navigation that was never coming. Drive it generically instead of
+    // hardcoding a step count, so adding a subdomain step doesn't break it.
+    for (let i = 0; i < 8; i += 1) {
+      if (!new URL(page.url()).pathname.startsWith("/onboarding")) break;
+      const terminal = page.getByTestId("fitness-style-adhoc");
+      if (await terminal.count()) {
+        await terminal.click();
+      } else {
+        const next = page.getByTestId("onboarding-next");
+        if (!(await next.count()) || (await next.isDisabled())) {
+          // A step needing input we haven't supplied — fail loudly rather than
+          // spinning until the timeout, which reports nothing useful.
+          throw new Error(
+            `stuck on step "${await page.getByTestId("onboarding-step").getAttribute("data-step")}"`,
+          );
+        }
+        await next.click();
+      }
+      await page.waitForTimeout(400);
+    }
+
     await page.waitForURL(/\/$|\/home/, { timeout: 30_000 });
     await expect(page.getByTestId("onboarding-wizard")).toHaveCount(0);
   });
