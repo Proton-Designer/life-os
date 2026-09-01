@@ -1,0 +1,68 @@
+-- ULM: finish `086`'s symmetry. Same table, same shape, the other half.
+--
+-- `sources.book_id` was NOT exploitable before this migration -- unlike
+-- `class_id`, this side has always been blocked in practice. But it was
+-- blocked by an ACCIDENT of ordering, not a structural guarantee, and that
+-- distinction is the entire point of this migration.
+--
+-- WHY THE book_id SIDE HAS NO "RED STATE" TO DEMONSTRATE
+--
+-- `books_create_source` (069) is an AFTER INSERT trigger on `books` that
+-- creates the book's own `sources` row in the SAME transaction as the book
+-- itself, using the book's real `new.user_id` -- never client-supplied. By
+-- the time any other transaction could even learn a book_id exists (RLS
+-- keeps another user's books invisible; a uuid alone isn't guessable in
+-- practice, but even granting that it's known), the legitimate `sources`
+-- row for it already exists, created atomically with the book. An
+-- attacker's forged insert against that book_id then collides with
+-- `sources_book_id_unique` and fails -- not because anything validated
+-- ownership, but because the legitimate row won the race structurally
+-- (there is no window: a concurrent FK check on the attacker's side blocks
+-- on the book owner's uncommitted row and only proceeds after that
+-- transaction, trigger included, has already committed). This was tested
+-- directly while investigating `086` and confirmed: no red state exists to
+-- manufacture here, and this migration doesn't pretend one does.
+--
+-- WHY "IT'S ALREADY BLOCKED" IS NOT THE SAME AS "IT'S SAFE"
+--
+-- `086`'s root cause was exactly this shape: one side of a structurally
+-- identical pair had a same-transaction trigger, the other had nothing, and
+-- the difference was never a deliberate design decision -- `sources` needed
+-- SOME way to get its book-kind rows created, `books_create_source` was
+-- built for that reason, and it happened to also close the squat window as
+-- a side effect nobody was asked to verify. **A trigger can be refactored
+-- away by someone who doesn't know it's load-bearing for this** -- deferred
+-- source-row creation, batched creation, a move to application code, any of
+-- these would silently reopen the window, and the only thing that would
+-- notice is an exploit nobody is running any more. Patching `class_id` and
+-- leaving `book_id` resting on a trigger reproduces the exact asymmetry
+-- `086` closed, just on the other column. A constraint cannot be forgotten;
+-- this migration makes the protection structural instead of incidental.
+--
+-- THE FIX
+--
+-- Composite FK: `(user_id, book_id) references books(user_id, id)`, same
+-- move `086` used for `class_id`. `books` has no unique index on
+-- `(user_id, id)` today (only `books_pkey` on `id` alone) -- `086` flagged
+-- this rather than inventing it; the Opus Lead has now made that call.
+--
+-- The redundant unique index below is the ESTABLISHED PATTERN on this
+-- platform, not a smell to clean up later: `058` did this for `classes`
+-- (`classes_user_id_id_key`), and `097` did it for `questions`. `id` is
+-- already the primary key, so `(user_id, id)` is trivially unique --  the
+-- index exists SOLELY so a composite FK has something to reference, adds no
+-- semantics any existing code can observe, and should not be removed as
+-- "duplicate of the primary key" by a future cleanup pass.
+--
+-- SAFE ON POPULATED DATA: narrowing only, same reasoning as `086`. Every row
+-- that satisfies the new composite key already satisfied the old
+-- single-column one, because `books_create_source` has always written the
+-- correct owner. No preflight-violation query needed for the same reason
+-- there's no red state to demonstrate -- there is structurally no way a
+-- cross-tenant `sources.book_id` row could exist today.
+
+create unique index if not exists books_user_id_id_key on public.books (user_id, id);
+
+alter table public.sources drop constraint if exists sources_book_id_fkey;
+alter table public.sources add constraint sources_book_id_fkey
+  foreign key (user_id, book_id) references public.books (user_id, id) on delete cascade;
