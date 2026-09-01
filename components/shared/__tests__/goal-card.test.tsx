@@ -11,6 +11,20 @@ describe("GoalCard", () => {
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
+  it("renders for a user-created Work subdomain key, not just the 5 fixed domains (D-037 regression: DOMAIN_ICON[domain] on an unrecognized key returned undefined, which IconChip's required `icon` prop turned into a render crash)", () => {
+    const { container } = render(
+      <GoalCard
+        title="Acme Consulting"
+        domain="acme-consulting"
+        headline=""
+        milestones={[]}
+        locked={false}
+        onSave={vi.fn()}
+      />
+    );
+    expect(container.querySelector("svg")).toBeInTheDocument();
+  });
+
   it("still renders the title text", () => {
     render(
       <GoalCard title="Business" domain="business" headline="" milestones={[]} locked={false} onSave={vi.fn()} />

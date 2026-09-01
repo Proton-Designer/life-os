@@ -22,6 +22,30 @@ function logItem(overrides: Partial<TaskRowItem> & Pick<TaskRowItem, "id" | "tit
 }
 
 describe("TaskRowList", () => {
+  it("renders both an active and a completed row for a user-created Work subdomain key, not just the 5 fixed domains (D-037 regression: DOMAIN_ICON[item.domain] on an unrecognized key returned undefined in BOTH ActiveRow and CompletedRow, which IconChip's required `icon` prop turned into a render crash)", async () => {
+    const user = userEvent.setup();
+    render(
+      <TaskRowList
+        items={[
+          toggleItem({ id: "active-1", title: "Follow up with client", domain: "acme-consulting" }),
+          toggleItem({
+            id: "done-1",
+            title: "Send invoice",
+            domain: "acme-consulting",
+            completedAtIso: "2026-09-01T12:00:00Z",
+          }),
+        ]}
+        onComplete={vi.fn(async () => {})}
+      />
+    );
+    expect(screen.getByText("Follow up with client")).toBeInTheDocument();
+
+    // CompletedRow only mounts once the Completed section is expanded --
+    // exercise that render path too, not just ActiveRow's.
+    await user.click(screen.getByRole("button", { name: "Completed" }));
+    expect(screen.getByText("Send invoice")).toBeInTheDocument();
+  });
+
   it("responds to a click anywhere on the row, not just a small circle", async () => {
     const onComplete = vi.fn(async () => {});
     const onLog = vi.fn(async (): Promise<TaskLogResult> => ({ completed: false }));

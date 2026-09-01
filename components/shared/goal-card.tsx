@@ -5,9 +5,9 @@ import { Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
-import { DOMAIN_ICON } from "@/lib/domain-icons";
-import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
-import type { Domain } from "@/lib/home/types";
+import { getDomainIcon } from "@/lib/domain-icons";
+import { getDomainAccent } from "@/lib/accent-tokens";
+import type { DisplayDomain } from "@/lib/home/types";
 
 // The one place "is this headline actually set" gets decided — a
 // whitespace-only headline counts as unset, same as empty. Exported so
@@ -42,7 +42,8 @@ export function GoalCard({
   defaultEditing,
 }: {
   title: string;
-  domain: Domain;
+  /** Widened to DisplayDomain (D-037) so this drops in for a user-created Work subdomain, not just the 5 fixed domains. */
+  domain: DisplayDomain;
   headline: string;
   milestones: string[];
   quranPageTarget?: number | null;
@@ -89,7 +90,7 @@ export function GoalCard({
   const header = (
     <h3 className="flex items-center justify-between gap-2.5 text-sm font-semibold text-muted-foreground">
       <span className="flex items-center gap-2.5">
-        <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
+        <IconChip icon={getDomainIcon(domain)} accent={getDomainAccent(domain)} size="sm" />
         {title}
       </span>
       {!editing && !locked && (

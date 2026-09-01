@@ -1,4 +1,4 @@
-import type { Domain } from "@/lib/home/types";
+import type { Domain, DisplayDomain } from "@/lib/home/types";
 
 // Single source of truth mapping an accent name to its CSS custom property.
 // Domain accents plus the two chrome accents (info = general-purpose signal
@@ -31,3 +31,15 @@ export const DOMAIN_ACCENT: Record<Domain, AccentToken> = {
   school: "school",
   co_op: "coop",
 };
+
+/**
+ * The safe lookup for a `DisplayDomain` (GoalCard, TaskRowList) — see
+ * lib/domain-icons.ts's getDomainIcon for why a direct DOMAIN_ACCENT[x]
+ * bracket lookup is unsafe once `x` can be a user-created Work subdomain
+ * key. Falls back to "coop" (Work's own accent) — a Work subdomain that
+ * hasn't been assigned a more specific look inherits the Work identity it
+ * belongs to, not an unrelated one.
+ */
+export function getDomainAccent(domain: DisplayDomain): AccentToken {
+  return (DOMAIN_ACCENT as Record<string, AccentToken>)[domain] ?? "coop";
+}

@@ -2,9 +2,9 @@
 
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
-import { DOMAIN_ICON } from "@/lib/domain-icons";
-import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
-import type { Domain } from "@/lib/home/types";
+import { getDomainIcon } from "@/lib/domain-icons";
+import { getDomainAccent } from "@/lib/accent-tokens";
+import type { DisplayDomain } from "@/lib/home/types";
 import { IconChip } from "@/components/ui/icon-chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,8 @@ export type TaskLogValue = { kind: "count"; value: number } | { kind: "choice"; 
 export type TaskRowItem = {
   id: string;
   title: string;
-  domain: Domain;
+  /** Widened to DisplayDomain (D-037) — this list is meant to drop in for a user-created Work subdomain too, not just the 5 fixed domains. */
+  domain: DisplayDomain;
   /** "Today", a due label, etc. — short, optional, right-aligned. */
   meta?: string;
   /**
@@ -231,7 +232,7 @@ function ActiveRow({
           className="flex min-h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
         >
           <Checkbox checked={justCompleted} />
-          <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
+          <IconChip icon={getDomainIcon(item.domain)} accent={getDomainAccent(item.domain)} size="sm" />
           <span
             className={cn(
               "flex min-w-0 flex-1 flex-col",
@@ -325,7 +326,7 @@ function CompletedRow({
   return (
     <li className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5">
       <Checkbox checked />
-      <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
+      <IconChip icon={getDomainIcon(item.domain)} accent={getDomainAccent(item.domain)} size="sm" />
       <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground line-through decoration-accent-business">
         {item.title}
       </span>

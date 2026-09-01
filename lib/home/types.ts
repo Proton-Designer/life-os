@@ -1,5 +1,35 @@
 export type Domain = "deen" | "business" | "fitness" | "school" | "co_op";
 
+/**
+ * Domain, widened for components meant to be reused across arbitrary
+ * user-created Work subdomains (D-037/D-010: GoalCard and TaskRowList,
+ * specifically — components explicitly designed to accept "some domain"
+ * without knowing its full set ahead of time). `Domain` itself deliberately
+ * stays closed: Home's priority-item system (PriorityItem/CompletedItem
+ * below), get-priority-items.ts, next-actions.ts, and get-notifications.ts
+ * only ever handle the 5 real, DB-frozen domain values (D-005 — never
+ * renamed, never widened) and keeping `Domain` exhaustive there is a real
+ * safety property, not incidental strictness: it's what makes TypeScript
+ * flag a forgotten branch if a 6th real domain value is ever added to those
+ * tables. Widening `Domain` itself instead of introducing this second type
+ * would have silently defeated that guarantee everywhere, for a need that
+ * only actually exists in two components.
+ *
+ * `(string & {})` rather than plain `string` — same value at the type level
+ * (both accept an arbitrary string), but this form keeps the 5 literal
+ * members as autocomplete suggestions in editors instead of widening them
+ * away to a bare `string` the moment they're unioned with one.
+ *
+ * The trap this exists to close: a plain `Record<Domain, X>` lookup keyed
+ * by a `DisplayDomain` value type-checks fine even after this widening
+ * (TypeScript can't tell a `(string & {})` apart from a literal at the call
+ * site) but returns `undefined` at runtime for anything outside the
+ * original 5 — silent, not a compile error. See lib/domain-icons.ts and
+ * lib/accent-tokens.ts's `getDomainIcon`/`getDomainAccent`, which exist
+ * specifically so no caller does that lookup directly.
+ */
+export type DisplayDomain = Domain | (string & {});
+
 export type UrgencyBucket = "right_now" | "later_today";
 
 export type ActionType =
