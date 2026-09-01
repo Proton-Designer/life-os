@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
 
 /**
  * Phase 1 — the onboarding system.
@@ -25,6 +26,53 @@ function freshEmail(): string {
 }
 
 /**
+ * Every account this file creates, so afterEach can remove it.
+ *
+ * WHY THIS EXISTS (2026-09-01): it didn't, and 66 real accounts accumulated in
+ * PRODUCTION auth in a single day — one per signUpFresh() call, every run,
+ * never removed. Nothing failed, which is exactly why it went unnoticed: the
+ * specs all passed while quietly littering the auth table of a live database.
+ *
+ * AGENTS.md already states the rule this file was breaking — "put teardown in
+ * afterEach, registered BEFORE the row is created, so an assertion failure
+ * anywhere still removes it." That rule was written for `school-class-view`
+ * leaking task rows. The same rule applies to auth users, and auth users are
+ * worse: they are invisible to every table-level check we have, they cannot be
+ * cleaned up by a spec that fails halfway, and they accumulate in the one place
+ * nobody thinks to audit.
+ *
+ * Registered at MODULE level and drained in afterEach, so a test that throws
+ * mid-flow still has its account removed.
+ */
+const createdUserEmails: string[] = [];
+
+function adminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+test.afterEach(async () => {
+  const emails = createdUserEmails.splice(0, createdUserEmails.length);
+  if (emails.length === 0) return;
+  const admin = adminClient();
+  if (!admin) {
+    // Loud, not silent: a cleanup that quietly does nothing is how the
+    // original 66 accumulated. Better a noisy warning than a clean-looking run.
+    console.warn(`[onboarding.spec] NO SERVICE ROLE KEY — ${emails.length} test account(s) LEFT BEHIND: ${emails.join(", ")}`);
+    return;
+  }
+  // listUsers is paginated; these accounts are always the newest, so page 1
+  // at a generous perPage covers a single spec file's worth comfortably.
+  const { data } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+  for (const email of emails) {
+    const match = data?.users.find((u) => u.email === email);
+    if (match) await admin.auth.admin.deleteUser(match.id);
+  }
+});
+
+/**
  * Sign up a brand-new account so we land in onboarding, not past it.
  *
  * Fill all THREE fields by id. An earlier version of this helper used
@@ -34,6 +82,9 @@ function freshEmail(): string {
  */
 async function signUpFresh(page: Page): Promise<string> {
   const email = freshEmail();
+  // Registered BEFORE the account can possibly be created, so teardown still
+  // fires if any step below throws.
+  createdUserEmails.push(email);
   await page.goto("/signup");
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(NEW_USER_PASSWORD);
