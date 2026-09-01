@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const maybeSingleMock = vi.fn();
-const isMock = vi.fn(() => ({ maybeSingle: maybeSingleMock }));
+// .is() is now followed by a second .eq("counts_toward_hours", true) — the
+// deep-work-class scope added when 'learn' became a storable kind. The chain
+// stub has to allow eq-after-is, and the assertion below checks the filter is
+// actually applied rather than merely tolerated.
+const countsEqMock = vi.fn(() => ({ maybeSingle: maybeSingleMock }));
+const isMock = vi.fn(() => ({ eq: countsEqMock, maybeSingle: maybeSingleMock }));
 const eqMock = vi.fn(() => ({ is: isMock }));
 const selectMock = vi.fn(() => ({ eq: eqMock }));
 const fromMock = vi.fn(() => ({ select: selectMock }));
@@ -16,6 +21,7 @@ describe("getActiveWorkSession", () => {
     selectMock.mockClear();
     eqMock.mockClear();
     isMock.mockClear();
+    countsEqMock.mockClear();
     maybeSingleMock.mockReset();
     vi.resetModules();
   });
@@ -29,6 +35,9 @@ describe("getActiveWorkSession", () => {
     expect(fromMock).toHaveBeenCalledWith("work_sessions");
     expect(eqMock).toHaveBeenCalledWith("user_id", "user-1");
     expect(isMock).toHaveBeenCalledWith("ended_at", null);
+    // Load-bearing: without this filter an active retrieval session would be
+    // returned as the active Lock-In session (see active-session.ts).
+    expect(countsEqMock).toHaveBeenCalledWith("counts_toward_hours", true);
     expect(result).toBeNull();
   });
 

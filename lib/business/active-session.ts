@@ -16,6 +16,15 @@ export const getActiveWorkSession = cache(
       .select("id, started_at, kind")
       .eq("user_id", userId)
       .is("ended_at", null)
+      // Deep-work-class sessions ONLY. Once `kind` widens to admit 'learn'
+      // (ULM's retrieval sessions), an active review would otherwise be
+      // returned here and surface on Home's Focus module and the app-wide
+      // Lock-In overlay as though it were Deep Work — and the cast below
+      // would be a lie. Worse, a concurrent learn + deep_work session would
+      // make .maybeSingle() throw, breaking AppShell, Home and Business at
+      // once. Retrieval sessions are deliberately concurrent-safe: they do
+      // not participate in the single-active-session model at all.
+      .eq("counts_toward_hours", true)
       .maybeSingle();
     return data ? { id: data.id, startedAt: data.started_at, kind: data.kind as WorkSessionKind } : null;
   }

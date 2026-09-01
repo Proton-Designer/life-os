@@ -100,6 +100,11 @@ export async function startWorkSession(
     .select("id")
     .eq("user_id", userId)
     .is("ended_at", null)
+    // Scope the single-active-session rule to deep-work-class sessions. Without
+    // this, once 'learn' is a valid kind, a user part-way through their daily
+    // review could not start a focus session at all — the guard would see the
+    // review and refuse. Reviews are short, frequent, and orthogonal to Lock-In.
+    .eq("counts_toward_hours", true)
     .maybeSingle();
 
   if (active) {
