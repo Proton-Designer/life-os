@@ -68,9 +68,14 @@ export function ProvenanceDrillDown({
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">In context, from the book</p>
             {!sourceChunkId ? (
-              <p className="text-sm text-muted-foreground">
-                This lesson isn&apos;t linked to a specific passage yet, so there&apos;s no surrounding text to show.
-              </p>
+              // Deliberately does NOT say the lesson/quote lacks a source —
+              // provenance_quote is a verbatim substring of the book,
+              // enforced NOT NULL as part of the hallucination firewall.
+              // Only the surrounding neighborhood is unstored (ULM lead's
+              // correction: the earlier copy here implied the QUOTE's
+              // grounding was in question, which is the opposite of true
+              // and undermines the one claim this feature exists to make).
+              <p className="text-sm text-muted-foreground">The surrounding passage isn&apos;t stored for this lesson.</p>
             ) : open ? (
               <SourceContext key={sourceChunkId} sourceChunkId={sourceChunkId} />
             ) : null}
