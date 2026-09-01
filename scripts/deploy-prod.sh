@@ -30,10 +30,24 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REPO="$PWD"
 
-TOKEN="${VERCEL_TOKEN:-}"
+# Token precedence: explicit flag, then the PROJECT's own .env.local, then the
+# ambient environment LAST.
+#
+# The first version of this script read $VERCEL_TOKEN first and failed with
+# "Could not retrieve Project Settings" — because a STALE VERCEL_TOKEN is
+# exported in the shell profile and silently outranked the project's real one.
+# The same deploy run by hand, with the token pasted, worked. Two runs, two
+# different credentials, and the failure message named the project rather than
+# the auth, which sent me looking at .vercel/project.json instead.
+#
+# Ambient environment is the least trustworthy source here precisely because it
+# is invisible: .env.local can be read, a flag is right there in the command,
+# and an exported variable is neither.
+TOKEN=""
 [ "${1:-}" = "--token" ] && TOKEN="${2:-}"
-[ -n "$TOKEN" ] || TOKEN="$(grep -E '^VERCEL_TOKEN=' .env.local 2>/dev/null | cut -d= -f2-)"
-[ -n "$TOKEN" ] || { echo "no vercel token (VERCEL_TOKEN env, --token, or .env.local)" >&2; exit 2; }
+[ -n "$TOKEN" ] || TOKEN="$(grep -E '^VERCEL_TOKEN=' .env.local 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'\r')"
+[ -n "$TOKEN" ] || TOKEN="${VERCEL_TOKEN:-}"
+[ -n "$TOKEN" ] || { echo "no vercel token (--token, .env.local, or VERCEL_TOKEN)" >&2; exit 2; }
 
 SHA="$(git rev-parse --short HEAD)"
 DIRTY="$(git status --porcelain | wc -l | tr -d ' ')"
@@ -50,7 +64,40 @@ cp "$REPO/.env.local" "$WT/" 2>/dev/null
 cp -r "$REPO/.vercel" "$WT/" 2>/dev/null
 
 cd "$WT"
-npx vercel --prod --yes --token "$TOKEN"
-RC=$?
-[ $RC -eq 0 ] && echo "deployed $SHA" || echo "DEPLOY FAILED (exit $RC) — nothing was aliased" >&2
+OUT="$(mktemp)"
+npx vercel --prod --yes --token "$TOKEN" 2>&1 | tee "$OUT"
+RC=${PIPESTATUS[0]}
+
+# A NON-ZERO EXIT HERE DOES NOT MEAN THE DEPLOY FAILED.
+#
+# The CLI starts the build, then POLLS for completion. If that poll times out
+# (`read ETIMEDOUT` against api.vercel.com) the CLI exits non-zero while the
+# build carries on server-side and goes live. The first version of this script
+# printed "DEPLOY FAILED — nothing was aliased" over a deployment that was
+# already Ready in Production. That is a check reporting failure on a complete
+# success — worse than a missing check, because it invites re-running a deploy
+# that already happened, and it teaches the reader to distrust the red.
+#
+# So: never report the CLI's exit code as the outcome. Ask what actually
+# shipped.
+DEP="$(grep -oE 'https://[a-z0-9-]+-aymans-projects-[a-z0-9]+\.vercel\.app' "$OUT" | head -1)"
+if [ $RC -ne 0 ] && [ -n "$DEP" ]; then
+  echo "CLI exited $RC — checking whether the deployment actually shipped..."
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    STATE="$(npx vercel inspect "$DEP" --token "$TOKEN" 2>&1 | grep -iE '^\s*status' | head -1)"
+    case "$STATE" in
+      *Ready*)  echo "deployment is READY despite the CLI error: $DEP"; RC=0; break;;
+      *Error*|*Canceled*) echo "deployment genuinely failed: $STATE" >&2; break;;
+    esac
+    sleep 10
+  done
+fi
+rm -f "$OUT"
+if [ $RC -eq 0 ]; then
+  echo "deployed $SHA"
+else
+  echo "DEPLOY FAILED (exit $RC) — nothing was aliased" >&2
+  echo "  'Could not retrieve Project Settings' means the TOKEN, not .vercel/ —" >&2
+  echo "  that message names the project but the usual cause is a stale credential." >&2
+fi
 exit $RC
