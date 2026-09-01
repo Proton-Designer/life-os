@@ -1,0 +1,101 @@
+-- ULM: close the eleventh instance of the FK-bypasses-RLS squat, found by the
+-- same sweep that found the LifeOS lead's original ten in `058`. Same shape,
+-- our table.
+--
+-- THE BUG, PROVEN NOT ARGUED (2026-09-01)
+--
+-- `sources.class_id -> classes(id)` is a single-column FK, and FK checks run
+-- as the table owner and bypass RLS. `sources_own_row`'s RLS `with check`
+-- only validates that the ROW's own `user_id` matches the caller -- it never
+-- validates that `class_id` belongs to that caller. So any authenticated
+-- user A, knowing (or guessing) another user B's class uuid, could insert
+-- `sources(user_id=A, kind='course', class_id=<B's class>)` and have it
+-- succeed: the FK is satisfied (the class exists, ownership irrelevant to a
+-- bypassed-RLS check) and the RLS check is satisfied (A's own user_id is A's).
+--
+-- Demonstrated end to end (two genuine throwaway users, real `authenticated`
+-- role, real JWT sub claims, against the shared scratch DB):
+--
+--   B creates a class. No sources row exists for it yet -- nothing
+--   auto-creates one for kind='course' (unlike kind='book', see below).
+--   A inserts sources(user_id=A, kind='course', class_id=<B's class>) --
+--   SUCCEEDS.
+--   B then inserts sources(user_id=B, kind='course', class_id=<B's own
+--   class>) -- FAILS: duplicate key value violates unique constraint
+--   "sources_class_id_unique".
+--   B queries for a sources row on their own class -- 0 rows visible (RLS
+--   hides A's row). B attempts to DELETE it -- 0 rows affected.
+--   Ground truth (as postgres, bypassing RLS): the row exists, user_id=A,
+--   class_id=B's class.
+--
+-- B is permanently locked out of their own course ever being queueable, with
+-- no error that explains why and no way to see or remove the row causing it
+-- -- the exact cross-tenant denial-of-service shape `058` fixed, on the one
+-- pair `058` didn't cover because `sources` didn't exist yet when it ran.
+--
+-- WHY THE book_id SIDE OF THIS SAME TABLE IS NOT VULNERABLE, AND WHY THAT'S
+-- INCIDENTAL RATHER THAN A DESIGN DECISION
+--
+-- `sources.book_id` has the identical shape (single-column FK, non-user-
+-- scoped partial unique index) but is protected today: `books_create_source`
+-- (069) is an AFTER INSERT trigger on `books` that creates the book's own
+-- `sources` row in the SAME transaction as the book itself, using the book's
+-- real `new.user_id` -- never client-supplied. Tested directly: B creates a
+-- book, the sources row is created atomically with the correct owner; A's
+-- squat attempt against that book_id then fails on the unique constraint
+-- because B's legitimate row already exists (there is no race window -- a
+-- concurrent FK check on A's side would block on B's uncommitted row and
+-- only proceed after B's own trigger has already claimed the slot).
+--
+-- That protection is real but incidental, not structural: it depends on
+-- `books_create_source` continuing to exist and fire in-transaction forever.
+-- A trigger can be refactored away by someone who doesn't know it's load-
+-- bearing for this; a constraint cannot be forgotten. `classes` never got
+-- the equivalent trigger -- ULM doesn't own `classes` and doesn't create
+-- course-side source rows (that's CollegeOS's follow-up once `questions`
+-- gets `source_id`) -- so the class_id side had NO mechanism at all, not
+-- even an incidental one. This migration closes it with the same structural
+-- fix `058` used, not a matching trigger, so it can't regress the same way
+-- if `books_create_source` is ever touched.
+--
+-- THE FIX
+--
+-- Composite FK on the class_id side: `(user_id, class_id) references
+-- classes(user_id, id)`. Makes "a sources row whose class belongs to someone
+-- else" unrepresentable rather than merely unlikely. The target is a unique
+-- INDEX, not a unique CONSTRAINT (`classes_user_id_id_key`, shipped in `058`
+-- for exactly this purpose -- `classes` was already in that migration's
+-- index list even though `sources` didn't exist yet); a plain unique index
+-- is sufficient for a composite FK target, already proven live by
+-- `class_assessments`'s own `(user_id, class_id) -> classes(user_id, id)`
+-- FK, built against this same index in `058`. No new index needed here.
+--
+-- MATCH SIMPLE (the default -- do not add MATCH FULL): a `kind='book'` row
+-- has `class_id` NULL, and MATCH SIMPLE does not enforce the constraint when
+-- any referencing column is NULL, so book rows are correctly exempt. MATCH
+-- FULL would require both columns non-null and reject every book row --
+-- exactly the "more strict must be safer" mistake that would take the whole
+-- table down.
+--
+-- book_id SIDE DELIBERATELY NOT TOUCHED HERE: `books` has no unique index on
+-- (user_id, id) today (checked directly: only `books_pkey` on `id` alone and
+-- a plain non-unique index on `user_id`), so the same composite FK can't be
+-- added without first creating one. Flagged to the Opus Lead rather than
+-- inventing that index unilaterally -- the book_id side is protected today
+-- (see above) and adding its own composite FK is a real hardening step, but
+-- a separate decision with its own migration once the index question is
+-- settled.
+--
+-- SAFE ON POPULATED DATA: this FK is *narrowed*, never widened -- any row
+-- that satisfies it already satisfied the old single-column FK. Preflight
+-- query run against the scratch DB before writing this migration found zero
+-- violating rows:
+--
+--   select s.id, s.user_id, s.class_id, c.user_id as class_owner
+--   from public.sources s join public.classes c on c.id = s.class_id
+--   where s.class_id is not null and c.user_id <> s.user_id;
+--   -- 0 rows
+
+alter table public.sources drop constraint if exists sources_class_id_fkey;
+alter table public.sources add constraint sources_class_id_fkey
+  foreign key (user_id, class_id) references public.classes (user_id, id) on delete cascade;
