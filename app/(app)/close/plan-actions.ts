@@ -31,7 +31,13 @@ import { assignRanks } from "@/lib/evening-close/rank-assignment";
  *     goal_milestone -> 'milestone'
  *     worry          -> 'worry'
  *     user           -> 'note'      <- same concept, named twice
- *     (none)         <- 'capture'    the global capture sheet, not a seeded source
+ *     (none)         <- 'capture'    a NOTE parked from the global capture sheet
+ *
+ * `dump_source` mixes kinds with surfaces, and R57's addendum settles which
+ * wins: a parked WORRY writes 'worry' whichever surface parked it, because the
+ * Night Plan's seeding and the Monday anti-worry hour have to find it by what
+ * it IS. Only a Note writes 'capture'. A worry filed through the capture sheet
+ * and tagged by its surface would be invisible to both.
  *
  * A line typed in the ceremony is the engine's `user`, which the column calls
  * `note`. They are one concept with two names, and the only reason this file
