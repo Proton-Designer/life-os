@@ -84,7 +84,17 @@ echo "--------------------------------------------------------------------------
 NON_TX_PATTERN='alter[[:space:]]+type[[:space:]]+[^;]*add[[:space:]]+value|create[[:space:]]+index[[:space:]]+concurrently|reindex[[:space:]]+concurrently|^[[:space:]]*vacuum'
 HEADER_MARK='REQUIRES-NO-TRANSACTION:'
 
-NON_TX_HITS="$(grep -inE "$NON_TX_PATTERN" "$FILE" | head -5 || true)"
+# STRIP COMMENTS BEFORE MATCHING. This pattern searches for SQL a transaction
+# cannot run, and it used to search the raw file — so a migration whose header
+# EXPLAINED why it chose a CHECK over an enum ("`alter type ... add value`
+# cannot run in one at all") was refused for containing a statement it does not
+# contain. Prose about a hazard is not the hazard.
+#
+# The same class as the `begin;`/`commit;` check below, which greps for
+# statements at line start and so is already comment-safe. Line numbers are
+# preserved by blanking comment text rather than deleting lines, so a real hit
+# still reports the right line.
+NON_TX_HITS="$(sed -e 's/--.*$//' "$FILE" | grep -inE "$NON_TX_PATTERN" | head -5 || true)"
 
 # THE RUNNER OWNS THE TRANSACTION; FILES CARRY NONE (R33 addendum).
 #
