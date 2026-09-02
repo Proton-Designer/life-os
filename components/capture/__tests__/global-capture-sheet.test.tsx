@@ -82,20 +82,33 @@ describe("GlobalCaptureSheet", () => {
     expect(captureDumpMock).toHaveBeenCalledTimes(0);
   });
 
-  // R57 (2026-09-02): storing a captured worry/note as domain "school" is the lie R54
-  // forbids — writing false domain data is worse than not capturing at all. Hidden from
-  // the type picker until migration 120 (tasks.dump_source; 119 makes tasks.domain
-  // nullable) is on production; captureDump itself is untouched underneath for
-  // re-enabling then.
-  it("hides Worry and Note from the type picker until migration 120 lands (R57)", async () => {
+  // R57, re-enabled 2026-09-02 (migrations 119/120 on production). Worry and Note are
+  // both routed to captureDump with just {title} — no source distinction is passed from
+  // here, because dump_source is this surface's own provenance ("capture"), not a
+  // reflection of which button the user pressed (that's a content hint for them, not a
+  // persisted fact — see global-capture-sheet.tsx's own comment and captureDump's).
+  it("a worry capture routes through captureDump only, with no source field leaking through", async () => {
     const user = userEvent.setup();
     render(<GlobalCaptureSheet timezone="America/Chicago" />);
     await openSheet(user);
-    expect(screen.queryByRole("button", { name: "Worry" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Note" })).not.toBeInTheDocument();
-    // Task and distraction stay live.
-    expect(screen.getByRole("button", { name: "Task" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Distraction" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Worry" }));
+    await user.type(screen.getByLabelText("Capture input"), "Worried about the exam");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(captureDumpMock).toHaveBeenCalledTimes(1);
+    expect(captureDumpMock).toHaveBeenCalledWith({ title: "Worried about the exam" });
+    expect(captureTaskMock).toHaveBeenCalledTimes(0);
+    expect(captureDistractionMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("a note capture also routes through captureDump only, identically to a worry capture", async () => {
+    const user = userEvent.setup();
+    render(<GlobalCaptureSheet timezone="America/Chicago" />);
+    await openSheet(user);
+    await user.click(screen.getByRole("button", { name: "Note" }));
+    await user.type(screen.getByLabelText("Capture input"), "Remember this idea");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(captureDumpMock).toHaveBeenCalledTimes(1);
+    expect(captureDumpMock).toHaveBeenCalledWith({ title: "Remember this idea" });
   });
 
   it("closing and reopening resets the input, so a stale draft never persists on a later, unrelated confirm", async () => {

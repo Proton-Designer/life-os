@@ -6,6 +6,7 @@ function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: nu
     chain[method] = vi.fn(() => chain);
   }
   chain.maybeSingle = vi.fn(async () => resolvedValue);
+  chain.single = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
   return chain as Record<string, ReturnType<typeof vi.fn>>;
 }
@@ -69,16 +70,33 @@ describe("capture actions", () => {
     });
   });
 
+  // R57 follow-up (2026-09-02, migrations 119/120 on production): domain null +
+  // dump_source, never domain "school" — the lie R54 forbids. Per the LifeOS lead's
+  // vocabulary mapping, the global capture sheet owns dump_source 'capture' specifically
+  // (not 'worry'/'note', which are the Night Plan ritual's own values) — Worry vs Note in
+  // this UI is a content hint for the user, not a separate persisted origin.
   describe("captureDump", () => {
-    it("inserts a tasks row with planned_date resolved from the user's timezone, mit_rank and estimated_minutes untouched", async () => {
+    it("inserts a tasks row with domain null and dump_source 'capture', never domain 'school' — asserted by reading the row back", async () => {
+      tasksInsertChain = makeChain({ data: { domain: null, dump_source: "capture" }, error: null });
       await captureDump({ title: "Worried about the exam" });
       expect(fromMock).toHaveBeenCalledWith("tasks");
+
       const insertedRow = tasksInsertChain.insert.mock.calls[0]![0] as Record<string, unknown>;
       expect(insertedRow.title).toBe("Worried about the exam");
-      expect(insertedRow.domain).toBe("school");
+      expect(insertedRow.domain).toBeNull();
+      expect(insertedRow.dump_source).toBe("capture");
+      expect(insertedRow.domain).not.toBe("school");
       expect(typeof insertedRow.planned_date).toBe("string");
       expect(insertedRow).not.toHaveProperty("mit_rank");
       expect(insertedRow).not.toHaveProperty("estimated_minutes");
+    });
+
+    it("throws if the row read back doesn't actually carry domain null + dump_source 'capture' — the write is verified, not just requested", async () => {
+      // Simulates a regression (a reintroduced domain default, a trigger, anything that
+      // could silently change what actually lands) — the read-back check must catch it
+      // even though the INSERT call itself asked for the right shape.
+      tasksInsertChain = makeChain({ data: { domain: "school", dump_source: "capture" }, error: null });
+      await expect(captureDump({ title: "x" })).rejects.toThrow();
     });
 
     it("throws when the insert fails, rather than silently swallowing the error", async () => {

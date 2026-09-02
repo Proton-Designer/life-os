@@ -49,37 +49,50 @@ export async function captureDistraction(input: { title: string; domain: Distrac
 
 /**
  * Worry/note capture -> the Night Plan dump (BOSS-VISION §5 ruling, 2026-09-02: "no new
- * table"). `tasks.planned_date` (migration 113) is the only column that exists for this
- * today; a plain insert with `planned_date` set and `mit_rank` left null (a real "written
- * down, not chosen" state, per that migration's own comment — never defaulted, never
- * backfilled). `domain` uses "school" to match `addTaskCore`'s own established default,
- * since `tasks.domain`'s CHECK constraint (school|co_op) has no domain-agnostic value to
- * reach for instead.
+ * table"). `tasks.planned_date` (migration 113) is the only column that exists for this;
+ * `mit_rank` is left null (a real "written down, not chosen" state, per that migration's
+ * own comment — never defaulted, never backfilled).
  *
- * RULED, R57 (2026-09-02): writing a captured worry/note as `domain: "school"` is the lie
- * R54 forbids, so this function is currently UNREACHABLE from the capture sheet — Worry
- * and Note are hidden from the type picker (components/capture/global-capture-sheet.tsx's
- * own comment) until migration 120 lands. Two migrations are in progress (LifeOS lead):
- * 119 makes `tasks.domain` nullable; 120 (its own file) adds `tasks.dump_source`
- * (school|milestone|worry|note|capture) — the column this function was missing when the
- * domain question was first flagged (2026-09-02, R51 resume). Once 120 is on production:
- * write `domain: null` and `dump_source` (accept it as a new required param here) instead
- * of the placeholder below, and re-add Worry/Note to the picker. Nothing else about this
- * function's caller contract changes.
+ * `domain: null` + `dump_source: "capture"` (migrations 119/120, both on production
+ * 2026-09-02): `domain: "school"` was the lie R54 forbids — a captured worry stored as
+ * school work — and Worry/Note were hidden from the picker (R57) until this landed.
+ *
+ * `dump_source` IS "capture", not "worry"/"note" — per the LifeOS lead's vocabulary
+ * mapping between the Night Plan engine's `DumpSource` and this column: `worry` and
+ * `note` (`user`) are the Night Plan ritual's own values (app/(app)/close/plan-actions.ts),
+ * `capture` is this surface's, and that is the ONLY fact that will later tell "typed
+ * during the evening close" apart from "typed anytime via global capture" — the Worry vs
+ * Note choice in THIS sheet is a content hint for the person typing, not a second
+ * persisted origin, so it is never passed here.
+ *
+ * The write is VERIFIED, not just requested: reads the row back via `.select().single()`
+ * and throws if it doesn't actually carry `domain: null` / `dump_source: "capture"` —
+ * catches a future regression (a reintroduced default, an unexpected trigger) the moment
+ * it ships rather than letting a captured worry silently look like something else again.
  *
  * `today` is always resolved via `localDateString`, never `new Date()`/`current_date`
- * directly (AGENTS.md's timezone rule) — `planned_date` is the day the worry/note was
- * dumped, not a parsed date, so "today" is always correct for it.
+ * directly (AGENTS.md's timezone rule, and the LifeOS lead's own production proof that a
+ * server-derived date lands on the wrong calendar day whenever UTC and the user's local
+ * day disagree) — `planned_date` is the day the worry/note was dumped, not a parsed date,
+ * so "today" is always correct for it.
  */
 export async function captureDump(input: { title: string }): Promise<void> {
   const { supabase, userId } = await requireUser();
   const plannedDate = await todayForCapture();
-  const { error } = await supabase.from("tasks").insert({
-    user_id: userId,
-    domain: "school",
-    title: input.title,
-    planned_date: plannedDate,
-  });
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      user_id: userId,
+      domain: null,
+      dump_source: "capture",
+      title: input.title,
+      planned_date: plannedDate,
+    })
+    .select("domain, dump_source")
+    .single();
   if (error) throw error;
+  if (data.domain !== null || data.dump_source !== "capture") {
+    throw new Error(`captureDump wrote the wrong shape: domain=${data.domain}, dump_source=${data.dump_source}`);
+  }
   revalidatePath("/");
 }

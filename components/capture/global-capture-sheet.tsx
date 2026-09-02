@@ -14,19 +14,19 @@ import type { DistractionDomain } from "@/lib/distractions/types";
 
 type CaptureType = "task" | "distraction" | "worry" | "note";
 
-// R57 (The Boss, 2026-09-02): Worry/Note are hidden from the picker, not removed.
-// captureDump (lib/capture/actions.ts) writes domain "school" today because
-// tasks.domain has no domain-agnostic value yet — offering these two types would let a
-// captured worry be silently stored as school work, the exact lie R54 forbids. Two
-// migrations are in progress (LifeOS lead): 119 makes tasks.domain nullable; 120 (its own
-// file) adds tasks.dump_source (school|milestone|worry|note|capture) — re-enable only
-// once 120 is on production, add worry/note back to this array, and switch captureDump to
-// write domain null + dump_source instead of the current placeholder. Nothing else needs
-// to change — captureDump's caller contract (title only) already matches what
-// re-enabling needs.
+// R57, re-enabled 2026-09-02 once migrations 119 (tasks.domain nullable) and 120
+// (tasks.dump_source) landed on production. captureDump now writes domain: null +
+// dump_source: "capture" — see that function's own comment for why "capture" (this
+// surface's provenance) rather than "worry"/"note" (the Night Plan evening-close
+// ritual's own values, app/(app)/close/plan-actions.ts). Worry and Note stay as two
+// picker options because they're a useful content hint for the person typing (different
+// placeholder copy below), not because they persist differently — both call captureDump
+// identically.
 const TYPE_OPTIONS: { label: string; value: CaptureType }[] = [
   { label: "Task", value: "task" },
   { label: "Distraction", value: "distraction" },
+  { label: "Worry", value: "worry" },
+  { label: "Note", value: "note" },
 ];
 
 const DISTRACTION_DOMAINS: { label: string; value: DistractionDomain }[] = [
