@@ -161,6 +161,23 @@ describe("recordVerdict", () => {
     });
   });
 
+  it("maps 128's 55000 to the already-judged sentence, not the missing-reason one", async () => {
+    // The race this function's read cannot win: the row was active when we
+    // read it and retired by the time we wrote. 128's trigger refuses, and
+    // the user must get the sentence about their actual mistake.
+    const { client } = makeSupabase({
+      lesson_promotions: { data: { id: "p1", retired_at: null }, error: null },
+      lesson_verdicts: { data: null, error: { code: "55000" } },
+    });
+    requireUserMock.mockResolvedValue({ supabase: client, userId: "u1" });
+    const { recordVerdict } = await loadActions();
+
+    const result = await recordVerdict({ promotionId: "p1", verdict: "adopted" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("already given this one its verdict");
+  });
+
   it("reports a FAILURE when the verdict insert returns no row and no error", async () => {
     const { client } = makeSupabase({
       lesson_promotions: { data: { id: "p1", retired_at: null }, error: null },

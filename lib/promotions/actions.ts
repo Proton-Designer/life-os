@@ -21,6 +21,14 @@ const GENERIC = "Something went wrong. Nothing was saved — please try again.";
 const UNIQUE_VIOLATION = "23505";
 const FK_VIOLATION = "23503";
 const CHECK_VIOLATION = "23514";
+/**
+ * 55000 object_not_in_prerequisite_state — raised by `128`'s trigger when a
+ * verdict is submitted on an already-retired promotion. Deliberately NOT
+ * check_violation: this table already maps check_violation to the
+ * abandoned-needs-a-reason CHECK, and two refusals sharing one code means one
+ * of them answers the user's question wrongly.
+ */
+const NOT_IN_PREREQUISITE_STATE = "55000";
 
 function pgCode(error: unknown): string | null {
   if (typeof error === "object" && error !== null && "code" in error) {
@@ -108,12 +116,13 @@ export async function recordVerdict(input: {
 
   // GUARD: a retired promotion takes no further verdicts.
   //
-  // NOT ATOMIC, and deliberately not claimed to be. `128` adds the BEFORE
-  // INSERT trigger that makes this a database guarantee; until it applies,
-  // this read-then-write can lose a race with a second tab, and the losing
-  // write would land. It is a real guard against the common cases (a stale
-  // close left open overnight, a double submit) and it is not a substitute
-  // for the trigger. Delete this comment when 128 is live; keep the check.
+  // THIS READ IS NOT THE GUARANTEE — `128`'s BEFORE INSERT trigger is, and it
+  // is caught below as 55000. This check exists to give the common cases (a
+  // stale evening close left open overnight, a double submit) a kind sentence
+  // and a cheap exit instead of a database exception. Until `128` is applied
+  // to production it is also the ONLY protection, and a read-then-write can
+  // lose a race with a second tab. Keep both: the check is the manners, the
+  // trigger is the rule.
   const { data: promotion, error: readError } = await untypedFrom(supabase, "lesson_promotions")
     .select("id, retired_at")
     .eq("id", input.promotionId)
@@ -139,6 +148,9 @@ export async function recordVerdict(input: {
 
   if (error) {
     switch (pgCode(error)) {
+      case NOT_IN_PREREQUISITE_STATE:
+        // 128's trigger won the race this function's read could not.
+        return { ok: false, message: "You've already given this one its verdict. Reload to see where it landed." };
       case CHECK_VIOLATION:
         return { ok: false, message: "Say what didn't work. A month from now that sentence is the whole value." };
       case FK_VIOLATION:
