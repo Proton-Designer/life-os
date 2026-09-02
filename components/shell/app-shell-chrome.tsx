@@ -12,6 +12,7 @@ import { LockInOverlay } from "@/components/business/lock-in-overlay";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
+import { GlobalCaptureSheet } from "@/components/capture/global-capture-sheet";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
@@ -98,6 +99,13 @@ export function AppShellChrome({
             />
             <main className="flex-1 pb-24 lg:pb-6">{children}</main>
           </div>
+          {/* BOSS-VISION §5's Global capture — every screen. Mounted here (Boss brief,
+              2026-09-02): after <main>, before the mobile island, inside both providers
+              below, so it survives navigation the same way the island does. The trigger
+              is positioned clear of the island's centered bottom bar; the actual sheet
+              renders through Dialog's own portal + z-50 overlay (components/ui/dialog.tsx),
+              so it is never under the island regardless of DOM position. */}
+          <GlobalCaptureSheet timezone={timezone} />
           {navMode === "domains" && navDomainState ? (
             <TabMobileIsland navDomainState={navDomainState} />
           ) : (
