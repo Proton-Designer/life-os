@@ -73,8 +73,8 @@ describe("getUserDomains", () => {
       profiles: makeChain({ data: { onboarding_completed: true }, error: null }),
       user_domains: makeChain({
         data: [
-          { id: "domain-pg", key: "personal_growth", position: 0 },
-          { id: "domain-work", key: "work", position: 1 },
+          { id: "domain-pg", key: "personal_growth", position: 0, weight: "essential" },
+          { id: "domain-work", key: "work", position: 1, weight: "background" },
         ],
         error: null,
       }),
@@ -101,8 +101,8 @@ describe("getUserDomains", () => {
     expect(state).toEqual({
       mode: "domains",
       domains: [
-        { key: "personal_growth", position: 0 },
-        { key: "work", position: 1 },
+        { key: "personal_growth", position: 0, weight: "essential" },
+        { key: "work", position: 1, weight: "background" },
       ],
       subdomains: [
         {
@@ -121,5 +121,7 @@ describe("getUserDomains", () => {
     // user_subdomains table in `tables`, which would throw on a stray call.
     expect(tables.user_domains.is).toHaveBeenCalledWith("archived_at", null);
     expect(tables.user_subdomains.is).toHaveBeenCalledWith("archived_at", null);
+    // weight (migration 110) -- the arbiter's weight-tier signal (R18/R19).
+    expect(tables.user_domains.select).toHaveBeenCalledWith("id, key, position, weight");
   });
 });

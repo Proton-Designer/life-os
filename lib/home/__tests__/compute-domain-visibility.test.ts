@@ -26,7 +26,7 @@ describe("computeDomainVisibility", () => {
   it("gates Deen/Fitness on the PERSONAL GROWTH SUBDOMAIN specifically -- Personal Growth kept, Fitness dropped, Faith kept", () => {
     const state: UserDomainsState = {
       mode: "domains",
-      domains: [{ key: "personal_growth", position: 0 }],
+      domains: [{ key: "personal_growth", position: 0, weight: "important" }],
       subdomains: [
         {
           domainKey: "personal_growth",
@@ -47,7 +47,7 @@ describe("computeDomainVisibility", () => {
   it("gates Work on the top-level 'work' domain, independent of Personal Growth's subdomains", () => {
     const state: UserDomainsState = {
       mode: "domains",
-      domains: [{ key: "work", position: 0 }],
+      domains: [{ key: "work", position: 0, weight: "important" }],
       subdomains: [],
     };
     const result = computeDomainVisibility(state);
@@ -60,7 +60,7 @@ describe("computeDomainVisibility", () => {
   it("gates School on the top-level 'school' domain", () => {
     const state: UserDomainsState = {
       mode: "domains",
-      domains: [{ key: "school", position: 0 }],
+      domains: [{ key: "school", position: 0, weight: "important" }],
       subdomains: [],
     };
     expect(computeDomainVisibility(state).hasSchoolDomain).toBe(true);
@@ -69,7 +69,7 @@ describe("computeDomainVisibility", () => {
   it("Self-Mastery being selected does not turn on any of these flags -- it has no old-domain equivalent, gated separately by the caller", () => {
     const state: UserDomainsState = {
       mode: "domains",
-      domains: [{ key: "personal_growth", position: 0 }],
+      domains: [{ key: "personal_growth", position: 0, weight: "important" }],
       subdomains: [
         {
           domainKey: "personal_growth",

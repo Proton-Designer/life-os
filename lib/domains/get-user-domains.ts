@@ -2,8 +2,9 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import type { DomainKey } from "@/app/(app)/onboarding/actions";
+import type { WeightTier } from "@/lib/home/arbiter";
 
-export type UserDomainRow = { key: DomainKey; position: number };
+export type UserDomainRow = { key: DomainKey; position: number; weight: WeightTier };
 
 export type UserSubdomainRow = {
   domainKey: DomainKey;
@@ -57,13 +58,13 @@ export const getUserDomains = cache(async (): Promise<UserDomainsState> => {
 
   const { data: domainRows, error: domainsError } = await supabase
     .from("user_domains")
-    .select("id, key, position")
+    .select("id, key, position, weight")
     .eq("user_id", user.id)
     .is("archived_at", null)
     .order("position", { ascending: true });
   if (domainsError) throw domainsError;
 
-  const domains = (domainRows ?? []) as { id: string; key: DomainKey; position: number }[];
+  const domains = (domainRows ?? []) as { id: string; key: DomainKey; position: number; weight: WeightTier }[];
 
   if ((profile?.onboarding_completed ?? false) && domains.length === 0) {
     return { mode: "legacy" };
@@ -88,7 +89,7 @@ export const getUserDomains = cache(async (): Promise<UserDomainsState> => {
 
   return {
     mode: "domains",
-    domains: domains.map((d) => ({ key: d.key, position: d.position })),
+    domains: domains.map((d) => ({ key: d.key, position: d.position, weight: d.weight })),
     subdomains: (subdomainRows ?? []).map((s) => ({
       domainKey: domainIdToKey.get(s.domain_id) as DomainKey,
       key: s.key,
