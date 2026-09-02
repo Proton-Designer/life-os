@@ -5,6 +5,8 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
+import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
+import { resolveLocalTime } from "@/lib/date-utils";
 
 export type PlannedItem = { id: string; title: string; mitRank: number; completed: boolean };
 
@@ -19,6 +21,13 @@ export type EveningCloseData = {
    * plan was made"), not a loading state and not an error.
    */
   todaysThree: PlannedItem[];
+  /**
+   * Minutes of today's deep-work-class sessions (R58). Baseline and Day Won
+   * are deliberately ABSENT until migration 122 gives them a value — an unset
+   * baseline is not a zero baseline, and rendering "0 / 0" would read as a
+   * failed day rather than an unanswered question.
+   */
+  hoursTodayMinutes: number;
 };
 
 /**
@@ -40,7 +49,13 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   const today = localDateString(new Date(), timezone);
 
   const supabase = await createClient();
-  const [triggers, unplannedTodayCount, planned] = await Promise.all([
+  // Day bounds from the user's local midnight, via resolveLocalTime — never
+  // `${today}T00:00:00Z`, which treats an already-local date as a UTC boundary
+  // and pulls in the previous evening. That exact bug has shipped twice here.
+  const dayStart = resolveLocalTime(today, "00:00", timezone).toISOString();
+  const dayEnd = resolveLocalTime(today, "23:59", timezone).toISOString();
+
+  const [triggers, unplannedTodayCount, planned, sessions] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
     getTodayDistractionCount(supabase, user.id, today),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
@@ -53,12 +68,29 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .eq("planned_date", today)
       .not("mit_rank", "is", null)
       .order("mit_rank", { ascending: true }),
+    // Filter on the GENERATED column, never a hardcoded kind list — migration
+    // 057 makes counts_toward_hours unwritable by application code precisely
+    // so this answer cannot drift between the surfaces that ask it.
+    supabase
+      .from("work_sessions")
+      .select("started_at, ended_at")
+      .eq("user_id", user.id)
+      .eq("counts_toward_hours", true)
+      .gte("started_at", dayStart)
+      .lt("started_at", dayEnd),
   ]);
 
   return {
     dateLabel: today,
     blockers: closeBlockers({ triggers, unplannedTodayCount }),
     unplannedTodayCount,
+    hoursTodayMinutes: computeFocusTimeMinutes(
+      (sessions.data ?? []).map((s) => ({
+        startedAt: new Date(s.started_at),
+        endedAt: s.ended_at ? new Date(s.ended_at) : null,
+      })),
+      new Date()
+    ),
     todaysThree: (planned.data ?? []).map((t) => ({
       id: t.id,
       title: t.title,

@@ -32,7 +32,7 @@ export default async function EveningClosePage() {
             a mechanism (close-stages.ts), and showing a later stage beside an
             unresolved blocker is how "you must rewrite this" becomes "you
             should probably rewrite this". */}
-        {data.blockers.length === 0 ? <CloseReflectStage todaysThree={data.todaysThree} /> : null}
+        {data.blockers.length === 0 ? <CloseReflectStage todaysThree={data.todaysThree} hoursTodayMinutes={data.hoursTodayMinutes} /> : null}
       </div>
     </PageContainer>
   );

@@ -1,24 +1,35 @@
 import type { PlannedItem } from "@/app/(app)/close/actions";
+import { formatHoursMinutes } from "@/lib/evening-close/format-hours";
 
 /**
  * Stage (b) of the evening close: reflect.
  *
  * WHAT THIS RENDERS TODAY, AND WHAT IT DOESN'T. BOSS-VISION §6 lists four
- * things for this stage: Hours vs baseline, Day Won, today's three, and any
- * thirty-day verdicts due on promoted lessons. **Only today's three exists as
- * real data in LifeOS right now** — it reads back what last night's close
- * crowned and starred, via migration 113's `planned_date` / `mit_rank`.
+ * things: Hours vs baseline, Day Won, today's three, and thirty-day verdicts
+ * on promoted lessons. Hours and today's three are real now; the comparison is
+ * not.
  *
- * The other three are CollegeOS concepts with no LifeOS derivation yet, and
- * inventing semantics for "Day Won" here would produce a number that looks
- * authoritative and means whatever I guessed. A missing section is visibly
- * missing; a fabricated one is not.
+ * HOURS IS SHOWN ALONE, WITHOUT A BASELINE (R58). `user_settings.weekday_baselines`
+ * arrives in migration 122 and is populated by the rhythm screen. Until a
+ * baseline is set the comparison is ABSENT — not zero. Rendering "2:10 / 0:00"
+ * against an unset baseline would read as a day massively exceeded, and
+ * "0 of 0" as a failed one; both are answers to a question the user has never
+ * been asked. Absent is a real state, and this is the fifth place tonight it
+ * has mattered.
+ *
+ * Thirty-day verdicts need promoted lessons, which do not exist yet.
  *
  * EMPTY IS A REAL ANSWER. No ranked rows for today means no plan was made last
  * night — which is the honest thing to reflect on, not a loading state and not
  * an error. It gets its own sentence rather than an empty list.
  */
-export function CloseReflectStage({ todaysThree }: { todaysThree: PlannedItem[] }) {
+export function CloseReflectStage({
+  todaysThree,
+  hoursTodayMinutes,
+}: {
+  todaysThree: PlannedItem[];
+  hoursTodayMinutes: number;
+}) {
   const done = todaysThree.filter((t) => t.completed).length;
 
   return (
@@ -26,6 +37,14 @@ export function CloseReflectStage({ todaysThree }: { todaysThree: PlannedItem[] 
       <h2 id="close-reflect-heading" className="text-sm font-medium text-muted-foreground">
         Reflect
       </h2>
+
+      <div className="rounded-lg border p-4">
+        <p className="text-sm">
+          Hours today <span className="font-medium tabular-nums">{formatHoursMinutes(hoursTodayMinutes)}</span>
+        </p>
+        {/* No baseline line until 122 — see the note above. Its absence is the
+            correct rendering of an unanswered question, not a missing feature. */}
+      </div>
 
       {todaysThree.length === 0 ? (
         <div className="rounded-lg border p-4">
