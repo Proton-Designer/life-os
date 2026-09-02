@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { getEveningCloseData } from "./actions";
 import { CloseAccountStage } from "@/components/evening-close/close-account-stage";
 import { CloseReflectStage } from "@/components/evening-close/close-reflect-stage";
+import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
 
 /**
  * The evening close — B1.
@@ -32,7 +33,12 @@ export default async function EveningClosePage() {
             a mechanism (close-stages.ts), and showing a later stage beside an
             unresolved blocker is how "you must rewrite this" becomes "you
             should probably rewrite this". */}
-        {data.blockers.length === 0 ? <CloseReflectStage todaysThree={data.todaysThree} hoursTodayMinutes={data.hoursTodayMinutes} /> : null}
+        {data.blockers.length === 0 ? (
+          <>
+            <CloseReflectStage todaysThree={data.todaysThree} hoursTodayMinutes={data.hoursTodayMinutes} />
+            <ClosePlanStage initialLines={data.tomorrowLines} />
+          </>
+        ) : null}
       </div>
     </PageContainer>
   );

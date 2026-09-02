@@ -2192,6 +2192,7 @@ export type Database = {
           domain: string | null
           due_date: string | null
           due_time: string | null
+          dump_source: string | null
           id: string
           mit_rank: number | null
           planned_date: string | null
@@ -2208,6 +2209,7 @@ export type Database = {
           domain?: string | null
           due_date?: string | null
           due_time?: string | null
+          dump_source?: string | null
           id?: string
           mit_rank?: number | null
           planned_date?: string | null
@@ -2224,6 +2226,7 @@ export type Database = {
           domain?: string | null
           due_date?: string | null
           due_time?: string | null
+          dump_source?: string | null
           id?: string
           mit_rank?: number | null
           planned_date?: string | null

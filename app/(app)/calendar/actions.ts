@@ -36,6 +36,23 @@ const SCHEDULE_DOMAIN_LABEL: Record<"school" | "co_op", string> = { school: "Sch
 const TASK_DOMAIN_LABEL: Record<string, string> = { school: "School", co_op: "Work" };
 
 /**
+ * A dumped Night Plan line has `domain: null` (migration 119) and is not class
+ * work. "Planned" is what it is, and it is a real label rather than a fallback
+ * — the alternative, an empty string, would render a blank where every sibling
+ * row has a word.
+ *
+ * The two call sites below used `TASK_DOMAIN_LABEL[t.domain] ?? t.domain`, which
+ * `tsc` rejected the moment 119 regenerated the types ("Type 'null' cannot be
+ * used as an index type"). CollegeOS Eng 2 predicted exactly that when he found
+ * these readers — this is the half of his finding the compiler could catch, and
+ * it did, at `next build` rather than at my own filtered `tsc` grep.
+ */
+function taskDomainLabel(domain: string | null): string {
+  if (domain === null) return "Planned";
+  return TASK_DOMAIN_LABEL[domain] ?? domain;
+}
+
+/**
  * The whole week's calendar data, fetched in one Server Action so both
  * homes — the `/calendar` route and the topbar's popup — call the exact
  * same code (spec item C: "one component, two homes"). Fully serializable
@@ -188,7 +205,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   const undatedDeadlineRows = (taskRows ?? []).filter((t) => t.due_time === null && t.due_date !== null);
   for (const task of timedDeadlines) {
     const startMinutes = minutesFromTimeString(task.due_time);
-    const domainLabel = TASK_DOMAIN_LABEL[task.domain] ?? task.domain;
+    const domainLabel = taskDomainLabel(task.domain);
     items.push({
       id: `task-${task.id}`,
       dayOfWeek: dayOfWeekFromDateString(task.due_date),
@@ -218,7 +235,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   const undatedDeadlines = undatedDeadlineRows.map((t) => ({
     id: t.id,
     title: t.title,
-    domainLabel: TASK_DOMAIN_LABEL[t.domain] ?? t.domain,
+    domainLabel: taskDomainLabel(t.domain),
     dueDate: t.due_date as string,
   }));
 

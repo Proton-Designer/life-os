@@ -20,8 +20,8 @@ the point is to make a number unavailable the moment it is promised.
 | `116` | LifeOS Eng 2 (95858) | Generic reading-log table (date, units, optional source/title, `user_id`) — NOT a `quran_sessions` reuse: all 6 consumers of that table treat every row as a real Qur'an session | allocated |
 | `117` | ULM lead (42335) | Per-lesson `relevance_floor` (`checked` / `not_checked`) — the deferred embedding arm. R43 killed the local embedder on security grounds (4 unfixable highs in decoder code fed by user uploads), so the floor records that it was NOT checked rather than silently reading as a pass | allocated |
 | `118` | ULM Eng 1 (54590) | `submit_review`'s `user_settings` lazy upsert + a `pg_proc` guard. NOT in `112` — `112` is the two `SET NOT NULL`s, the `learning_steps` correction and the backfill-RPC drop, so `111`'s raise path stays open until this lands | allocated |
-| `119` | LifeOS lead (51713) | `tasks.domain` DROP NOT NULL (R54) — the Night Plan's dump has no domain in the school/co_op vocabulary. CHECK retained for non-null values. Readers stated in the file | allocated |
-| `120` | LifeOS lead (51713) | `tasks.dump_source` (R57) — school/milestone/worry/note/capture. Its OWN file, not folded into `119`: `119` was already frozen and hash-verified when the request arrived, and a frozen file is not edited (R32.1). Author after `119` applies | allocated |
+| `119` | LifeOS lead (51713) | `tasks.domain` DROP NOT NULL — CHECK retained for non-null values | **APPLIED** |
+| `120` | LifeOS lead (51713) | `tasks.dump_source` — school/milestone/worry/note/capture. **APPLIED.** Its CHECK carries the Postgres-GENERATED name `tasks_dump_source_check` (declared inline on `add column`), deterministic but chosen by nobody — that is the name to use if it ever needs dropping or altering | **APPLIED** |
 | `121` | ULM Eng 1 (54590) | `118` guard follow-up (moved from `120`) | allocated |
 | `122`+ | — | next free | — |
 

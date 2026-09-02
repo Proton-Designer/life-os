@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString } from "@/lib/date-utils";
+import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
@@ -28,6 +28,8 @@ export type EveningCloseData = {
    * failed day rather than an unanswered question.
    */
   hoursTodayMinutes: number;
+  /** Lines already dumped for TOMORROW, so re-entering the ceremony resumes rather than restarts. */
+  tomorrowLines: { id: string; title: string }[];
 };
 
 /**
@@ -52,10 +54,11 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   // Day bounds from the user's local midnight, via resolveLocalTime — never
   // `${today}T00:00:00Z`, which treats an already-local date as a UTC boundary
   // and pulls in the previous evening. That exact bug has shipped twice here.
+  const tomorrow = addDaysToDateString(today, 1);
   const dayStart = resolveLocalTime(today, "00:00", timezone).toISOString();
   const dayEnd = resolveLocalTime(today, "23:59", timezone).toISOString();
 
-  const [triggers, unplannedTodayCount, planned, sessions] = await Promise.all([
+  const [triggers, unplannedTodayCount, planned, sessions, tomorrowRows] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
     getTodayDistractionCount(supabase, user.id, today),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
@@ -78,6 +81,12 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .eq("counts_toward_hours", true)
       .gte("started_at", dayStart)
       .lt("started_at", dayEnd),
+    supabase
+      .from("tasks")
+      .select("id, title")
+      .eq("user_id", user.id)
+      .eq("planned_date", tomorrow)
+      .order("created_at", { ascending: true }),
   ]);
 
   return {
@@ -91,6 +100,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       })),
       new Date()
     ),
+    tomorrowLines: (tomorrowRows.data ?? []).map((t) => ({ id: t.id, title: t.title })),
     todaysThree: (planned.data ?? []).map((t) => ({
       id: t.id,
       title: t.title,
