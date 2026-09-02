@@ -2406,6 +2406,7 @@ export type Database = {
           notification_time: string
           session_target_minutes: number
           user_id: string
+          weekday_baselines: number[] | null
         }
         Insert: {
           ai_grading_enabled?: boolean
@@ -2415,6 +2416,7 @@ export type Database = {
           notification_time?: string
           session_target_minutes?: number
           user_id?: string
+          weekday_baselines?: number[] | null
         }
         Update: {
           ai_grading_enabled?: boolean
@@ -2424,6 +2426,7 @@ export type Database = {
           notification_time?: string
           session_target_minutes?: number
           user_id?: string
+          weekday_baselines?: number[] | null
         }
         Relationships: []
       }

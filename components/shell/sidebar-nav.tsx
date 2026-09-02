@@ -96,6 +96,18 @@ function NavLink({
   );
 }
 
+/**
+ * LEGACY NAV — deliberately does NOT carry the Review grouping (R68).
+ *
+ * The domains-mode pair (tab-mobile-island.tsx / tab-sidebar-nav.tsx) lists
+ * Review -> /close, Insights, Calendar, Settings. This one does not, and that
+ * is a decision rather than an oversight: Ayman's own account is legacy mode,
+ * and his instruction was to keep it as it is for now. M6 protects that.
+ *
+ * The consequence, stated so nobody has to rediscover it: /close and /open are
+ * NOT reachable from this nav. They work by URL. When his account migrates to
+ * domains mode the grouping arrives with it, and this comment can go.
+ */
 export function SidebarNav({ variant }: { variant: SidebarVariant }) {
   const pathname = usePathname();
   const iconOnly = variant === "icon-rail";
