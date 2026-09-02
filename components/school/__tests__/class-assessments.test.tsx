@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ClassAssessments, type ClassAssessment } from "../class-assessments";
@@ -17,6 +17,7 @@ function assessment(overrides: Partial<ClassAssessment> = {}): ClassAssessment {
     type: "midterm_final",
     date: "2026-10-06",
     task_id: "t1",
+    weightPct: null,
     risk: { score: 0, band: "low", confidence: "moderate" },
     ...overrides,
   };
@@ -123,6 +124,78 @@ describe("ClassAssessments", () => {
     expect(onUpdate).toHaveBeenCalledWith("a1", { name: "Q!" });
   });
 
+  // R35's UI follow-up (The Boss, 2026-09-02): weight_pct entry on the editing row, editing
+  // the cause (weight) rather than the derived effect (confidence) — see the input's own
+  // comment on why it doesn't recompute the row's confidence live.
+  describe("weight entry", () => {
+    it("editing the weight field stages a numeric patch", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ weightPct: null })]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Weight for Midterm" }), { target: { value: "60" } });
+      expect(onUpdate).toHaveBeenCalledWith("a1", { weightPct: 60 });
+    });
+
+    it("clearing the weight field stages null, never a real zero — unknown and 0% are different claims", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ weightPct: 40 })]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Weight for Midterm" }), { target: { value: "" } });
+      expect(onUpdate).toHaveBeenCalledWith("a1", { weightPct: null });
+    });
+
+    it("clamps an out-of-range weight to migration 105's own CHECK bounds (0-100)", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ weightPct: null })]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      const input = screen.getByRole("spinbutton", { name: "Weight for Midterm" });
+      fireEvent.change(input, { target: { value: "150" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { weightPct: 100 });
+      fireEvent.change(input, { target: { value: "-5" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { weightPct: 0 });
+    });
+
+    it("ignores non-numeric weight input rather than staging NaN", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ weightPct: null })]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Weight for Midterm" }), { target: { value: "abc" } });
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   it("Add asks type first, then name+date, and stages via onAdd rather than calling the server", async () => {
     const onAdd = vi.fn();
     const user = userEvent.setup();
@@ -190,7 +263,7 @@ function rankedAssessment(
   score: number,
   confidence: ClassAssessment["risk"]["confidence"] = "moderate"
 ): ClassAssessment {
-  return { id, name, type: "quiz", date, task_id: null, risk: { score, band: score >= 50 ? "high" : "low", confidence } };
+  return { id, name, type: "quiz", date, task_id: null, weightPct: null, risk: { score, band: score >= 50 ? "high" : "low", confidence } };
 }
 
 // R28 (The Boss, 2026-09-02): confidence stays OUT of the sort key within one list, but
@@ -333,7 +406,7 @@ function realAssessment(id: string, name: string, date: string, weightPct: numbe
     projectedGradePct: 85,
   });
   const { score, band, confidence } = computeAssignmentRisk(input);
-  return { id, name, type: "quiz", date, task_id: null, risk: { score, band, confidence } };
+  return { id, name, type: "quiz", date, task_id: null, weightPct, risk: { score, band, confidence } };
 }
 
 describe("ClassAssessments — R35: the mixed confidence group is now reachable through the real engine", () => {

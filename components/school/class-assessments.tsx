@@ -16,6 +16,11 @@ export type ClassAssessment = {
   type: AssessmentType;
   date: string;
   task_id: string | null;
+  /** `class_assessments.weight_pct` (migration 105) — null means unknown, never zero
+   * (the column's own contract, see that migration's comment). The raw input the user
+   * actually edits; `risk` below is derived from it server-side, not recomputed live as
+   * you type — see this field's own editing-row comment for why. */
+  weightPct: number | null;
   /** Always computed by the caller (lib/school/get-class-cards.ts) from
    * computeAssignmentRisk — the engine degrades gracefully rather than needing this to
    * be optional. `confidence` (not a boolean prop) is what actually drives ranking now
@@ -105,7 +110,7 @@ export function ClassAssessments({
   /** Reference year for formatShortDate — never derive it from a raw Date (AGENTS.md). */
   todayStr: string;
   onAdd: (input: { name: string; type: AssessmentType; date: string }) => void;
-  onUpdate: (id: string, patch: Partial<{ name: string; type: AssessmentType; date: string }>) => void;
+  onUpdate: (id: string, patch: Partial<{ name: string; type: AssessmentType; date: string; weightPct: number | null }>) => void;
   onRemove: (id: string) => void;
 }) {
   const [addStep, setAddStep] = useState<"closed" | "type" | "details">("closed");
@@ -130,6 +135,20 @@ export function ClassAssessments({
     if (!pendingType || !name.trim() || !date) return;
     onAdd({ name: name.trim(), type: pendingType, date });
     setAddStep("closed");
+  }
+
+  // Clamped to migration 105's own CHECK (weight_pct between 0 and 100) client-side, so
+  // editing never stages a value the save would only reject later at the database. Empty
+  // input -> null (unknown, the column's own contract), never 0 (a real zero weight is a
+  // different claim). Garbage (non-numeric) input is ignored rather than staged as NaN.
+  function handleWeightChange(id: string, raw: string) {
+    if (raw.trim() === "") {
+      onUpdate(id, { weightPct: null });
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    onUpdate(id, { weightPct: Math.min(100, Math.max(0, parsed)) });
   }
 
   const hasLinkedTask = assessments.some((a) => a.task_id !== null);
@@ -193,7 +212,7 @@ export function ClassAssessments({
               <span>Name</span>
               <span>Type</span>
               <span>Date</span>
-              <span>Conf.</span>
+              <span>Wt %</span>
               <span aria-hidden />
             </div>
           )}
@@ -235,7 +254,25 @@ export function ClassAssessments({
                     aria-label={`Date for ${a.name || "new assessment"}`}
                     className="h-8 text-xs"
                   />
-                  <span className="text-xs text-muted-foreground">{CONFIDENCE_LABEL[a.risk.confidence]}</span>
+                  {/* Editable weight, not the read-only confidence badge (R35's follow-up,
+                      2026-09-02): confidence is DERIVED from weight (plus the class-level
+                      ratings), so this row edits the cause, not the effect. It does not
+                      recompute live as you type — `risk` arrives from the server
+                      (get-class-cards.ts), computed from the CURRENT saved weight_pct, so a
+                      changed weight here only changes this row's grouping/confidence after
+                      Save persists it and the page refreshes with a freshly computed `risk`. */}
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={a.weightPct ?? ""}
+                    onChange={(e) => handleWeightChange(a.id, e.target.value)}
+                    aria-label={`Weight for ${a.name || "new assessment"}`}
+                    placeholder="%"
+                    className="h-8 text-xs"
+                  />
                   <button
                     type="button"
                     onClick={() => onRemove(a.id)}
