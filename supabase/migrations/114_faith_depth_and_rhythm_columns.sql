@@ -42,7 +42,6 @@
 -- from the ribbon, which is the correct default (get-day-shape.ts only
 -- reads habits where cue_time is not null).
 
-begin;
 
 alter table public.user_domains
   add column depth text not null default 'prayers_only'
@@ -54,4 +53,3 @@ alter table public.profiles
 alter table public.deen_habits
   add column cue_time time null;
 
-commit;
