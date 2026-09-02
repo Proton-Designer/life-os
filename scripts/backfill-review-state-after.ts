@@ -1,4 +1,28 @@
 /**
+ * ⚠️ OBSOLETE AS OF MIGRATION 112 — THIS SCRIPT CAN NO LONGER RUN.
+ *
+ * `112_ulm_state_after_backfill_completion.sql` did two things that between
+ * them retire this file:
+ *   1. It DROPPED `public._backfill_review_state_after`, the RPC this script
+ *      calls. The call below now references a function that does not exist,
+ *      which is also why this file fails `tsc` (TS2345 on the RPC name) —
+ *      a pre-existing failure, not a regression from the R50 changes.
+ *   2. It set `reviews.state_after` NOT NULL. So there can be no rows with
+ *      `state_after IS NULL` left to find: the input set is empty BY
+ *      CONSTRAINT, not merely by circumstance.
+ *
+ * KEPT DELIBERATELY, NOT DELETED. `112`'s own header names this script as a
+ * prerequisite that must run before its `SET NOT NULL`. A deleted
+ * prerequisite is worse than an obsolete one — it leaves that header
+ * pointing at nothing and erases the record of how the backfill was actually
+ * performed. Read this as history plus a worked example of the derivation,
+ * and do not expect it to execute.
+ *
+ * The R50 targeting guards below are still correct and still enforced; they
+ * simply now protect a script whose remaining job is to be read.
+ *
+ * ── original header follows ──────────────────────────────────────────────
+ *
  * One-time (but re-runnable) backfill for `reviews.state_after`, part of
  * the `state_after` migration in the R1 draft
  * (ULM/docs/notes/r1-reviews-card-states-migration-draft.md §1) -- the
@@ -98,7 +122,10 @@ function parseTarget(argv: string[]): { url: string; allowProduction: boolean } 
     console.error(
       `backfill-review-state-after: --target got a Postgres connection string.\n` +
         `  This script reaches the database through PostgREST, so it needs a Supabase\n` +
-        `  project URL instead. A bare Postgres container cannot be targeted at all.`,
+        `  project URL instead — literally of the shape:\n` +
+        `      https://<ref>.supabase.co        (a hosted project)\n` +
+        `      http://127.0.0.1:54321           (a local Supabase stack)\n` +
+        `  A bare Postgres container cannot be targeted at all.`,
     );
     process.exit(1);
   }
