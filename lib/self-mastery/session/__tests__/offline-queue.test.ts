@@ -27,7 +27,7 @@ function pendingReview(
     aiFeedback: null,
     aiSuggestedRating: null,
     confidence: null,
-    nextState: { reps: 1, stability: 2, difficulty: 5, due_at: "2026-08-20T00:00:00.000Z", state: "learning" },
+    nextState: { reps: 1, stability: 2, difficulty: 5, due_at: "2026-08-20T00:00:00.000Z", state: "learning", learning_steps: 1 },
     ...overrides,
   };
 }

@@ -125,6 +125,21 @@ export interface NextStateForRpc {
   difficulty: number;
   due_at: string;
   state: DbFsrsState;
+  /**
+   * REQUIRED by `submit_review` since migration 111, which raises
+   * "learning_steps is required in p_next_state" without it.
+   *
+   * It was added to the RPC and never to this shape, so from the moment 111
+   * applied, EVERY review submission failed with HTTP 400 — the daily session's
+   * write path, dead in production, while `vitest` stayed green because it
+   * mocks the RPC. Found by the Playwright suite against production, which is
+   * the only gate that speaks to the real function.
+   *
+   * The read half of this same field (toFsrsCard hardcoding 0) was fixed
+   * earlier tonight. Same column, same migration, two independent breakages —
+   * one silent, one loud.
+   */
+  learning_steps: number;
 }
 
 export function toRpcNextState(card: Card): NextStateForRpc {
@@ -134,6 +149,7 @@ export function toRpcNextState(card: Card): NextStateForRpc {
     difficulty: card.difficulty,
     due_at: card.due.toISOString(),
     state: TS_TO_DB_STATE[card.state],
+    learning_steps: card.learning_steps,
   };
 }
 
