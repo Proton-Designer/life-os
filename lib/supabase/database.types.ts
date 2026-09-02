@@ -2562,9 +2562,12 @@ export type Database = {
           created_at: string
           ended_at: string | null
           id: string
+          kill_list_item_id: string | null
           kind: string
           local_date: string | null
           new_cards_introduced: number | null
+          promotion_id: string | null
+          rep_goal_id: string | null
           started_at: string
           user_id: string
         }
@@ -2574,9 +2577,12 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           id?: string
+          kill_list_item_id?: string | null
           kind?: string
           local_date?: string | null
           new_cards_introduced?: number | null
+          promotion_id?: string | null
+          rep_goal_id?: string | null
           started_at?: string
           user_id?: string
         }
@@ -2586,13 +2592,31 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           id?: string
+          kill_list_item_id?: string | null
           kind?: string
           local_date?: string | null
           new_cards_introduced?: number | null
+          promotion_id?: string | null
+          rep_goal_id?: string | null
           started_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "work_sessions_kill_list_item_fkey"
+            columns: ["user_id", "kill_list_item_id"]
+            isOneToOne: false
+            referencedRelation: "kill_list_items"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "work_sessions_rep_goal_fkey"
+            columns: ["user_id", "rep_goal_id"]
+            isOneToOne: false
+            referencedRelation: "rep_goals"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
       }
       workout_exercises: {
         Row: {
@@ -2985,9 +3009,12 @@ export type Database = {
           created_at: string
           ended_at: string | null
           id: string
+          kill_list_item_id: string | null
           kind: string
           local_date: string | null
           new_cards_introduced: number | null
+          promotion_id: string | null
+          rep_goal_id: string | null
           started_at: string
           user_id: string
         }
