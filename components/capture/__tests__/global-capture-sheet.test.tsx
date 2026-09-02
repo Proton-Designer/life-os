@@ -82,12 +82,11 @@ describe("GlobalCaptureSheet", () => {
     expect(captureDumpMock).toHaveBeenCalledTimes(0);
   });
 
-  // R57, re-enabled 2026-09-02 (migrations 119/120 on production). Worry and Note are
-  // both routed to captureDump with just {title} — no source distinction is passed from
-  // here, because dump_source is this surface's own provenance ("capture"), not a
-  // reflection of which button the user pressed (that's a content hint for them, not a
-  // persisted fact — see global-capture-sheet.tsx's own comment and captureDump's).
-  it("a worry capture routes through captureDump only, with no source field leaking through", async () => {
+  // R57, re-enabled 2026-09-02 (migrations 119/120 on production), corrected same day:
+  // dump_source is NOT uniform. Worry is a KIND the Night Plan's seeding/anti-worry hour
+  // must find regardless of surface, so the Worry button sends source: "worry"; Note is
+  // an undifferentiated capture with no kind, so it sends source: "capture".
+  it("a worry capture routes through captureDump with source 'worry'", async () => {
     const user = userEvent.setup();
     render(<GlobalCaptureSheet timezone="America/Chicago" />);
     await openSheet(user);
@@ -95,12 +94,12 @@ describe("GlobalCaptureSheet", () => {
     await user.type(screen.getByLabelText("Capture input"), "Worried about the exam");
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     expect(captureDumpMock).toHaveBeenCalledTimes(1);
-    expect(captureDumpMock).toHaveBeenCalledWith({ title: "Worried about the exam" });
+    expect(captureDumpMock).toHaveBeenCalledWith({ title: "Worried about the exam", source: "worry" });
     expect(captureTaskMock).toHaveBeenCalledTimes(0);
     expect(captureDistractionMock).toHaveBeenCalledTimes(0);
   });
 
-  it("a note capture also routes through captureDump only, identically to a worry capture", async () => {
+  it("a note capture routes through captureDump with source 'capture', not 'worry'", async () => {
     const user = userEvent.setup();
     render(<GlobalCaptureSheet timezone="America/Chicago" />);
     await openSheet(user);
@@ -108,7 +107,7 @@ describe("GlobalCaptureSheet", () => {
     await user.type(screen.getByLabelText("Capture input"), "Remember this idea");
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     expect(captureDumpMock).toHaveBeenCalledTimes(1);
-    expect(captureDumpMock).toHaveBeenCalledWith({ title: "Remember this idea" });
+    expect(captureDumpMock).toHaveBeenCalledWith({ title: "Remember this idea", source: "capture" });
   });
 
   it("closing and reopening resets the input, so a stale draft never persists on a later, unrelated confirm", async () => {

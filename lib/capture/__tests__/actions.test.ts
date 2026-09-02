@@ -70,38 +70,52 @@ describe("capture actions", () => {
     });
   });
 
-  // R57 follow-up (2026-09-02, migrations 119/120 on production): domain null +
-  // dump_source, never domain "school" — the lie R54 forbids. Per the LifeOS lead's
-  // vocabulary mapping, the global capture sheet owns dump_source 'capture' specifically
-  // (not 'worry'/'note', which are the Night Plan ritual's own values) — Worry vs Note in
-  // this UI is a content hint for the user, not a separate persisted origin.
+  // R57 follow-up + correction (2026-09-02, migrations 119/120 on production):
+  // domain null always — domain "school" was the lie R54 forbids. dump_source is NOT
+  // uniform, though: the Boss's correction distinguishes KINDS of seed (school, milestone,
+  // worry — findable by the Night Plan's own seeding/anti-worry-hour regardless of which
+  // surface parked them) from SURFACES (capture — an undifferentiated note with no kind).
+  // So the Worry button passes source: "worry"; the Note button passes source: "capture".
   describe("captureDump", () => {
-    it("inserts a tasks row with domain null and dump_source 'capture', never domain 'school' — asserted by reading the row back", async () => {
-      tasksInsertChain = makeChain({ data: { domain: null, dump_source: "capture" }, error: null });
-      await captureDump({ title: "Worried about the exam" });
+    it("a worry capture writes dump_source 'worry' — a kind the Night Plan must find regardless of surface", async () => {
+      tasksInsertChain = makeChain({ data: { domain: null, dump_source: "worry" }, error: null });
+      await captureDump({ title: "Worried about the exam", source: "worry" });
       expect(fromMock).toHaveBeenCalledWith("tasks");
 
       const insertedRow = tasksInsertChain.insert.mock.calls[0]![0] as Record<string, unknown>;
       expect(insertedRow.title).toBe("Worried about the exam");
       expect(insertedRow.domain).toBeNull();
-      expect(insertedRow.dump_source).toBe("capture");
+      expect(insertedRow.dump_source).toBe("worry");
       expect(insertedRow.domain).not.toBe("school");
       expect(typeof insertedRow.planned_date).toBe("string");
       expect(insertedRow).not.toHaveProperty("mit_rank");
       expect(insertedRow).not.toHaveProperty("estimated_minutes");
     });
 
-    it("throws if the row read back doesn't actually carry domain null + dump_source 'capture' — the write is verified, not just requested", async () => {
+    it("a note capture writes dump_source 'capture' — an undifferentiated note, no kind", async () => {
+      tasksInsertChain = makeChain({ data: { domain: null, dump_source: "capture" }, error: null });
+      await captureDump({ title: "Remember this idea", source: "capture" });
+      const insertedRow = tasksInsertChain.insert.mock.calls[0]![0] as Record<string, unknown>;
+      expect(insertedRow.domain).toBeNull();
+      expect(insertedRow.dump_source).toBe("capture");
+    });
+
+    it("throws if the row read back doesn't actually carry domain null + the requested dump_source — the write is verified, not just requested", async () => {
       // Simulates a regression (a reintroduced domain default, a trigger, anything that
       // could silently change what actually lands) — the read-back check must catch it
       // even though the INSERT call itself asked for the right shape.
-      tasksInsertChain = makeChain({ data: { domain: "school", dump_source: "capture" }, error: null });
-      await expect(captureDump({ title: "x" })).rejects.toThrow();
+      tasksInsertChain = makeChain({ data: { domain: "school", dump_source: "worry" }, error: null });
+      await expect(captureDump({ title: "x", source: "worry" })).rejects.toThrow();
+    });
+
+    it("also throws if the read-back dump_source doesn't match the requested source, even with domain correctly null", async () => {
+      tasksInsertChain = makeChain({ data: { domain: null, dump_source: "capture" }, error: null });
+      await expect(captureDump({ title: "x", source: "worry" })).rejects.toThrow();
     });
 
     it("throws when the insert fails, rather than silently swallowing the error", async () => {
       tasksInsertChain = makeChain({ data: null, error: { message: "boom" } });
-      await expect(captureDump({ title: "x" })).rejects.toThrow();
+      await expect(captureDump({ title: "x", source: "worry" })).rejects.toThrow();
     });
   });
 });

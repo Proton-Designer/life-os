@@ -15,13 +15,11 @@ import type { DistractionDomain } from "@/lib/distractions/types";
 type CaptureType = "task" | "distraction" | "worry" | "note";
 
 // R57, re-enabled 2026-09-02 once migrations 119 (tasks.domain nullable) and 120
-// (tasks.dump_source) landed on production. captureDump now writes domain: null +
-// dump_source: "capture" — see that function's own comment for why "capture" (this
-// surface's provenance) rather than "worry"/"note" (the Night Plan evening-close
-// ritual's own values, app/(app)/close/plan-actions.ts). Worry and Note stay as two
-// picker options because they're a useful content hint for the person typing (different
-// placeholder copy below), not because they persist differently — both call captureDump
-// identically.
+// (tasks.dump_source) landed on production. captureDump now writes domain: null always;
+// dump_source depends on WHICH of these two is picked (Boss correction, 2026-09-02):
+// Worry is a KIND the Night Plan's seeding/anti-worry hour must find regardless of
+// surface, so it writes dump_source "worry"; Note is an undifferentiated capture with no
+// kind, so it writes "capture" — see handleConfirm and captureDump's own comment.
 const TYPE_OPTIONS: { label: string; value: CaptureType }[] = [
   { label: "Task", value: "task" },
   { label: "Distraction", value: "distraction" },
@@ -167,8 +165,13 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
         await captureTask({ title: parsed.title, dueDate: parsed.date });
       } else if (captureType === "distraction") {
         await captureDistraction({ title: parsed.title, domain });
+      } else if (captureType === "worry") {
+        // "worry" is a KIND the Night Plan's seeding/anti-worry hour must find regardless
+        // of surface — never flattened to "capture" (Boss correction, 2026-09-02).
+        await captureDump({ title: parsed.title, source: "worry" });
       } else {
-        await captureDump({ title: parsed.title });
+        // "note": an undifferentiated capture with no kind to seed by.
+        await captureDump({ title: parsed.title, source: "capture" });
       }
       handleClose();
     } catch (e) {

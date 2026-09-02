@@ -53,22 +53,26 @@ export async function captureDistraction(input: { title: string; domain: Distrac
  * `mit_rank` is left null (a real "written down, not chosen" state, per that migration's
  * own comment — never defaulted, never backfilled).
  *
- * `domain: null` + `dump_source: "capture"` (migrations 119/120, both on production
- * 2026-09-02): `domain: "school"` was the lie R54 forbids — a captured worry stored as
- * school work — and Worry/Note were hidden from the picker (R57) until this landed.
+ * `domain: null` always (migrations 119/120, both on production 2026-09-02): `domain:
+ * "school"` was the lie R54 forbids — a captured worry stored as school work — and
+ * Worry/Note were hidden from the picker (R57) until this landed.
  *
- * `dump_source` IS "capture", not "worry"/"note" — per the LifeOS lead's vocabulary
- * mapping between the Night Plan engine's `DumpSource` and this column: `worry` and
- * `note` (`user`) are the Night Plan ritual's own values (app/(app)/close/plan-actions.ts),
- * `capture` is this surface's, and that is the ONLY fact that will later tell "typed
- * during the evening close" apart from "typed anytime via global capture" — the Worry vs
- * Note choice in THIS sheet is a content hint for the person typing, not a second
- * persisted origin, so it is never passed here.
+ * `dump_source` is NOT uniform, though — corrected after the first pass wrote "capture"
+ * for everything. The Boss's distinction: `dump_source` mixes KINDS of seed (school,
+ * milestone, worry) with SURFACES (capture). A parked worry is a KIND the Night Plan's
+ * seeding and the Monday anti-worry hour must find regardless of which surface parked
+ * it, so it can never be flattened to "capture" just because it came through this sheet.
+ * Only an undifferentiated note — no kind, nothing to seed by — gets "capture". So the
+ * caller passes `source` explicitly: the Worry button sends `"worry"`, the Note button
+ * sends `"capture"`. (`"note"`, the fourth CHECK value, is the evening-close ritual's own
+ * — app/(app)/close/plan-actions.ts, same concept as the engine's `DumpSource: "user"` —
+ * never written from this sheet.)
  *
  * The write is VERIFIED, not just requested: reads the row back via `.select().single()`
- * and throws if it doesn't actually carry `domain: null` / `dump_source: "capture"` —
- * catches a future regression (a reintroduced default, an unexpected trigger) the moment
- * it ships rather than letting a captured worry silently look like something else again.
+ * and throws if it doesn't actually carry `domain: null` and the REQUESTED `dump_source`
+ * — catches a future regression (a reintroduced default, an unexpected trigger, a source
+ * silently swapped) the moment it ships rather than letting a captured worry silently
+ * look like something else again.
  *
  * `today` is always resolved via `localDateString`, never `new Date()`/`current_date`
  * directly (AGENTS.md's timezone rule, and the LifeOS lead's own production proof that a
@@ -76,7 +80,7 @@ export async function captureDistraction(input: { title: string; domain: Distrac
  * day disagree) — `planned_date` is the day the worry/note was dumped, not a parsed date,
  * so "today" is always correct for it.
  */
-export async function captureDump(input: { title: string }): Promise<void> {
+export async function captureDump(input: { title: string; source: "worry" | "capture" }): Promise<void> {
   const { supabase, userId } = await requireUser();
   const plannedDate = await todayForCapture();
   const { data, error } = await supabase
@@ -84,14 +88,14 @@ export async function captureDump(input: { title: string }): Promise<void> {
     .insert({
       user_id: userId,
       domain: null,
-      dump_source: "capture",
+      dump_source: input.source,
       title: input.title,
       planned_date: plannedDate,
     })
     .select("domain, dump_source")
     .single();
   if (error) throw error;
-  if (data.domain !== null || data.dump_source !== "capture") {
+  if (data.domain !== null || data.dump_source !== input.source) {
     throw new Error(`captureDump wrote the wrong shape: domain=${data.domain}, dump_source=${data.dump_source}`);
   }
   revalidatePath("/");
