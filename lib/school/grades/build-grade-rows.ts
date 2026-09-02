@@ -1,3 +1,4 @@
+import type { Database } from "@/lib/supabase/database.types";
 import type { AssessmentGradeRow } from "./grade-ledger";
 
 /**
@@ -19,30 +20,29 @@ import type { AssessmentGradeRow } from "./grade-ledger";
  *   points_earned = 0      → graded, scored nothing (counts, and should)
  *   is_excused = true      → removed from the calculation entirely, denominator shrinks
  *
- * COLUMN TYPES ARE DECLARED LOCALLY, NOT TAKEN FROM `database.types.ts`.
- * That file does not know about migrations 105/106 — it was regenerated at 21:35 tonight,
- * after both were written, and contains zero occurrences of `points_earned`,
- * `points_possible`, `is_excused` or `weight_pct`. Same workaround `lib/school/get-class-cards.ts`
- * uses for 105's `classes` columns, for the same reason and with the same cost: this shape
- * is hand-maintained and will silently drift from the database until the types are
- * regenerated against a database that actually has these columns. Fix the generator, then
- * delete this comment and the local type.
+ * THE SHAPE IS DERIVED FROM THE GENERATED TYPES, NOT HAND-DECLARED.
+ * It briefly was hand-declared: `database.types.ts` did not know about migrations
+ * 105/106, so this file and `lib/school/get-class-cards.ts` each carried their own copy
+ * of the column shape. That is drift becoming code -- two hand-maintained mirrors of a
+ * schema, with nothing to make them disagree out loud. Fixed at the source (8eda53c,
+ * regenerated from production, and regeneration is now automatic after every production
+ * apply), so the local type is gone.
+ *
+ * A `Pick` rather than the whole Row on purpose: a caller should be able to `select` just
+ * these five columns without having to satisfy every field of the table. The Pick still
+ * fails to compile if any of the five is renamed or retyped, which is the guarantee the
+ * hand-declared version could not give.
  */
-export interface AssessmentGradeSource {
-  id: string;
-  /** `class_assessments.weight_pct` (105). Null = no weight recorded, NOT 0% weight. */
-  weight_pct: number | null;
-  /** `class_assessments.points_earned` (106). Null = ungraded, never zero. */
-  points_earned: number | null;
-  /** `class_assessments.points_possible` (106). Null = ungraded. Strictly positive when set. */
-  points_possible: number | null;
-  /** `class_assessments.is_excused` (106). NOT NULL with a false default in the schema. */
-  is_excused: boolean;
-}
+type ClassAssessmentRow = Database["public"]["Tables"]["class_assessments"]["Row"];
+
+export type AssessmentGradeSource = Pick<
+  ClassAssessmentRow,
+  "id" | "weight_pct" | "points_earned" | "points_possible" | "is_excused"
+>;
 
 /**
  * Straight field-for-field mapping, snake to camel. No defaulting, no coalescing, no
- * inference — deliberately boring, and it should stay boring. If a future caller wants a
+ * inference -- deliberately boring, and it should stay boring. If a future caller wants a
  * zero where a null is, it makes that decision at its own call site where a reader can see
  * it, not here where it would be invisible to every consumer at once.
  *
