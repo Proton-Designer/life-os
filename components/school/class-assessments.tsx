@@ -69,12 +69,11 @@ const TYPE_COLOR: Record<AssessmentType, string> = {
   midterm_final: "text-accent-coop",
 };
 
-// Name gets the remaining space; Type/Date/Actions are fixed and as narrow
-// as a short label allows — the exact inversion of the original <table>,
-// where "Midterm/Final" (a category repeated on every row) claimed several
-// times the width of the assessment's own name, crushing it to "Mid…"/
-// "Tak…" on a phone (Ayman's actual mobile screen, and the failure a
-// temporarily-seeded long title surfaced during review).
+// EDITING only now (R7 fix, 2026-09-02 — see the read-only row's own comment for why
+// read-only stopped using this grid entirely). Name gets the remaining space; Type/Date/
+// Confidence/Actions are fixed and as narrow as a short label allows — the original
+// inversion of the old <table>, where "Midterm/Final" (a category repeated on every row)
+// claimed several times the width of the assessment's own name.
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_1.75rem]";
 
 /**
@@ -185,17 +184,19 @@ export function ClassAssessments({
         <p className="text-xs text-muted-foreground">No assessments yet.</p>
       ) : (
         <div className="flex flex-col gap-1">
-          {/* Fixed column widths (name flexes, type/date/confidence/actions
-              don't) so a long name never pushes the date into the Remove
-              button — the exact collision Ayman's screenshot showed in the
-              old <table>. */}
-          <div className={cn("grid gap-3 px-1 text-xs text-muted-foreground", ROW_GRID)}>
-            <span>Name</span>
-            <span>Type</span>
-            <span>Date</span>
-            <span>Conf.</span>
-            <span aria-hidden />
-          </div>
+          {/* Grid column headers only make sense while editing — that's the only mode
+              still laid out as discrete columns (see the read-only row's own comment).
+              A simple flex-col list of rows doesn't need a header, same as
+              TaskListModule/KpiTaskDialog elsewhere in this app. */}
+          {editing && (
+            <div className={cn("grid gap-3 px-1 text-xs text-muted-foreground", ROW_GRID)}>
+              <span>Name</span>
+              <span>Type</span>
+              <span>Date</span>
+              <span>Conf.</span>
+              <span aria-hidden />
+            </div>
+          )}
           {displayAssessments.map((a) => (
             <Fragment key={a.id}>
               {a.id === firstInsufficientId && (
@@ -245,21 +246,30 @@ export function ClassAssessments({
                   </button>
                 </div>
               ) : (
+                // R7 fix (2026-09-02): this used to share ROW_GRID with the editing row —
+                // four fixed-width columns (Type/Date/Conf/Actions) reserved their full
+                // width even at 390px, leaving the Name column ~56px against real names
+                // needing 170-230px ("Midterm Exam 2 — Stereochemistry"), clipped to a few
+                // characters while Type/Date/Conf rendered in full. Grid columns can't fix
+                // this — there's no width split that gives a long name room AND keeps four
+                // more columns beside it on a 390px screen. Name now gets the full row
+                // width on its own line; Type/Date/Confidence move to a second, compact
+                // line below — the same `metaBelow` shape already proven at 390px in
+                // components/shared/task-row-list.tsx (title never shares a line with meta
+                // on a phone).
                 <div
                   key={a.id}
                   data-testid={`assessment-row-${a.id}`}
-                  className={cn(
-                    "grid items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0",
-                    ROW_GRID
-                  )}
+                  className="flex flex-col gap-0.5 border-t border-border/40 px-1 py-1.5 first:border-t-0"
                 >
-                  <span className="truncate">{a.name}</span>
-                  <span className={cn("truncate text-xs font-medium", TYPE_COLOR[a.type])}>{TYPE_SHORT_LABEL[a.type]}</span>
-                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                    {formatShortDate(a.date, todayStr)}
+                  <span className="min-w-0 truncate text-sm">{a.name}</span>
+                  <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className={cn("shrink-0 font-medium", TYPE_COLOR[a.type])}>{TYPE_SHORT_LABEL[a.type]}</span>
+                    <span aria-hidden>·</span>
+                    <span className="shrink-0 font-mono tabular-nums">{formatShortDate(a.date, todayStr)}</span>
+                    <span aria-hidden>·</span>
+                    <span className="shrink-0">{CONFIDENCE_LABEL[a.risk.confidence]}</span>
                   </span>
-                  <span className="text-xs text-muted-foreground">{CONFIDENCE_LABEL[a.risk.confidence]}</span>
-                  <span aria-hidden />
                 </div>
               )}
             </Fragment>

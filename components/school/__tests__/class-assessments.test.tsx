@@ -45,6 +45,33 @@ describe("ClassAssessments", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  // R7 capture, production, 2026-09-02 (fixture seed-domains@lifeos.test): at 390px the
+  // Name column was clipped to "Midter…"/"Reacti…" while Type/Date/Conf rendered in
+  // full. jsdom has no real layout engine, so this can only confirm the full name is
+  // still IN THE DOCUMENT on its own line, not that it visually fits at 390px — the
+  // LifeOS lead's scrollWidth-vs-clientWidth check against the live page is the actual
+  // gate for that, and he re-captures once this lands.
+  it("renders a long real-world name in full, not the ISO date or type crowding it off its own line", () => {
+    const longName = "Midterm Exam 2 — Stereochemistry";
+    render(
+      <ClassAssessments
+        assessments={[assessment({ name: longName })]}
+        editing={false}
+        todayStr="2026-08-26"
+        onAdd={vi.fn()}
+        onUpdate={vi.fn()}
+        onRemove={vi.fn()}
+      />
+    );
+    expect(screen.getByText(longName)).toBeInTheDocument();
+    // Name and its meta are siblings on separate lines, not columns in one row — the
+    // structural half of the fix (metaBelow-style), independent of pixel measurement.
+    const nameEl = screen.getByText(longName);
+    const metaEl = screen.getByText("Mid/Final");
+    expect(nameEl.parentElement).toBe(metaEl.parentElement?.parentElement);
+    expect(nameEl.parentElement?.className).toContain("flex-col");
+  });
+
   it("shows the empty message when there are zero assessments", () => {
     render(
       <ClassAssessments
