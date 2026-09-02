@@ -1078,6 +1078,98 @@ export type Database = {
         }
         Relationships: []
       }
+      lesson_promotions: {
+        Row: {
+          accepted_text: string
+          area_id: string
+          cadence: string | null
+          created_at: string
+          cue: string | null
+          id: string
+          lesson_id: string
+          retired_at: string | null
+          started_at: string
+          user_id: string
+          verdict_due_at: string
+        }
+        Insert: {
+          accepted_text: string
+          area_id: string
+          cadence?: string | null
+          created_at?: string
+          cue?: string | null
+          id?: string
+          lesson_id: string
+          retired_at?: string | null
+          started_at?: string
+          user_id: string
+          verdict_due_at?: string
+        }
+        Update: {
+          accepted_text?: string
+          area_id?: string
+          cadence?: string | null
+          created_at?: string
+          cue?: string | null
+          id?: string
+          lesson_id?: string
+          retired_at?: string | null
+          started_at?: string
+          user_id?: string
+          verdict_due_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lesson_promotions_user_id_area_id_fkey"
+            columns: ["user_id", "area_id"]
+            isOneToOne: false
+            referencedRelation: "user_domains"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "lesson_promotions_user_id_lesson_id_fkey"
+            columns: ["user_id", "lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      lesson_verdicts: {
+        Row: {
+          id: string
+          promotion_id: string
+          reason: string | null
+          user_id: string
+          verdict: Database["public"]["Enums"]["lesson_verdict"]
+          verdict_at: string
+        }
+        Insert: {
+          id?: string
+          promotion_id: string
+          reason?: string | null
+          user_id: string
+          verdict: Database["public"]["Enums"]["lesson_verdict"]
+          verdict_at?: string
+        }
+        Update: {
+          id?: string
+          promotion_id?: string
+          reason?: string | null
+          user_id?: string
+          verdict?: Database["public"]["Enums"]["lesson_verdict"]
+          verdict_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lesson_verdicts_user_id_promotion_id_fkey"
+            columns: ["user_id", "promotion_id"]
+            isOneToOne: false
+            referencedRelation: "lesson_promotions"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       lessons: {
         Row: {
           action_template: string | null
@@ -2613,6 +2705,13 @@ export type Database = {
             referencedColumns: ["user_id", "id"]
           },
           {
+            foreignKeyName: "work_sessions_promotion_fkey"
+            columns: ["user_id", "promotion_id"]
+            isOneToOne: false
+            referencedRelation: "lesson_promotions"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
             foreignKeyName: "work_sessions_rep_goal_fkey"
             columns: ["user_id", "rep_goal_id"]
             isOneToOne: false
@@ -3102,6 +3201,7 @@ export type Database = {
         | "done"
         | "failed"
       lesson_status: "active" | "archived" | "rejected"
+      lesson_verdict: "adopted" | "abandoned" | "still_testing"
       prompt_type: "free_recall" | "application" | "cloze" | "why"
       relevance_floor_status: "not_checked" | "passed" | "failed"
     }
@@ -3254,6 +3354,7 @@ export const Constants = {
         "failed",
       ],
       lesson_status: ["active", "archived", "rejected"],
+      lesson_verdict: ["adopted", "abandoned", "still_testing"],
       prompt_type: ["free_recall", "application", "cloze", "why"],
       relevance_floor_status: ["not_checked", "passed", "failed"],
     },
