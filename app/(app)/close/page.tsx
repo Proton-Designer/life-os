@@ -5,6 +5,8 @@ import { getEveningCloseData } from "./actions";
 import { CloseAccountStage } from "@/components/evening-close/close-account-stage";
 import { CloseReflectStage } from "@/components/evening-close/close-reflect-stage";
 import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
+import { VerdictDueList } from "@/components/promotions/verdict-card";
+import { getDuePromotions } from "@/lib/promotions/read";
 
 /**
  * The evening close — B1.
@@ -23,6 +25,12 @@ import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
 export default async function EveningClosePage() {
   const data = await getEveningCloseData();
   if (data === null) redirect("/login");
+
+  // Renders NOTHING when nothing is due — no card, no empty state. Most nights
+  // this is empty and the close should be exactly as long as it was before
+  // promotions existed, so there is no wrapper and no heading here: the
+  // component supplies its own <h3>.
+  const duePromotions = await getDuePromotions();
 
   return (
     <PageContainer>
@@ -45,6 +53,7 @@ export default async function EveningClosePage() {
               weekdayBaselines={data.weekdayBaselines}
               weekdayIndex={data.weekdayIndex}
             />
+            <VerdictDueList promotions={duePromotions} />
             <ClosePlanStage initialLines={data.tomorrowLines} />
           </>
         ) : null}

@@ -3,6 +3,9 @@ import { PageContainer } from "@/components/shell/page-container";
 import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { LessonCard } from "./lesson-card";
+import { PromoteLessonSheet } from "@/components/promotions/promote-lesson-sheet";
+import { getPromotableAreas, getActivePromotionForLesson } from "@/lib/promotions/read";
+import { hasAction } from "@/lib/promotions/types";
 import { getBookDetail } from "@/lib/self-mastery/get-book-detail";
 import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
 
@@ -15,6 +18,20 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
   if (!book) notFound();
 
   const now = new Date();
+
+  // One query for the whole page, hoisted above the lesson loop as the
+  // contract asks — not called per lesson.
+  const promotableAreas = await getPromotableAreas();
+
+  // Resolve every lesson's active promotion BEFORE the loop. The contract's
+  // getActivePromotionForLesson is per-lesson, and calling it inside .map()
+  // is both illegal (await in a non-async callback) and an N+1. Resolving in
+  // parallel keeps it one round trip's latency instead of N.
+  const activePromotions = new Map(
+    await Promise.all(
+      book.lessons.map(async (l) => [l.id, await getActivePromotionForLesson(l.id)] as const)
+    )
+  );
 
   return (
     <PageContainer>
@@ -64,7 +81,27 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
           />
           <div className="flex flex-col gap-4">
             {book.lessons.map((lesson) => (
-              <LessonCard key={lesson.id} lesson={lesson} />
+              <div key={lesson.id}>
+                <LessonCard lesson={lesson} />
+                {/* Sibling, not a child: LessonCard takes no children and it is
+                    not my component to widen. The wrapper is conditioned on
+                    hasAction — the ULM lead's own predicate, one definition —
+                    because the sheet renders nothing without an
+                    action_template and cannot suppress a container it does not
+                    own. Without the guard, every lesson lacking a proposed
+                    action would show an empty bordered row. */}
+                {hasAction(lesson.actionTemplate) ? (
+                  <div className="mt-3 border-t pt-3">
+                    <PromoteLessonSheet
+                      lessonId={lesson.id}
+                      lessonTitle={lesson.title}
+                      actionTemplate={lesson.actionTemplate}
+                      areas={promotableAreas}
+                      existingPromotion={activePromotions.get(lesson.id) ?? null}
+                    />
+                  </div>
+                ) : null}
+              </div>
             ))}
           </div>
         </>
