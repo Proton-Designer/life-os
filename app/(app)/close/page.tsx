@@ -39,7 +39,12 @@ export default async function EveningClosePage() {
             should probably rewrite this". */}
         {data.blockers.length === 0 ? (
           <>
-            <CloseReflectStage todaysThree={data.todaysThree} hoursTodayMinutes={data.hoursTodayMinutes} />
+            <CloseReflectStage
+              todaysThree={data.todaysThree}
+              hoursTodayMinutes={data.hoursTodayMinutes}
+              weekdayBaselines={data.weekdayBaselines}
+              weekdayIndex={data.weekdayIndex}
+            />
             <ClosePlanStage initialLines={data.tomorrowLines} />
           </>
         ) : null}

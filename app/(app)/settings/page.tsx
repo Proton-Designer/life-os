@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/server";
 import { SettingsForm, type SettingsFormData } from "@/components/settings/settings-form";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
 import { ApiKeySettings } from "@/components/settings/api-key-settings";
 import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
 import { PROVIDERS, PROVIDER_IDS } from "@/lib/ai/providers";
@@ -30,6 +32,17 @@ export default async function SettingsPage() {
   // before. Never spread the raw profile object into a Client Component's
   // props: it also carries pin_hash, which must never reach the client.
   const profile = await getProfile();
+
+  // Read the weekly shape here rather than inside the editor: the editor is a
+  // Client Component, and NULL vs an array is exactly the distinction it must
+  // preserve — better it receives the real value than fetches and defaults.
+  const supabase = await createClient();
+  const { data: settingsRow } = await supabase
+    .from("user_settings")
+    .select("weekday_baselines")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
 
   // Plain serializable values only across the RSC boundary — the provider
   // registry is const-asserted, so it is spread into a plain array here rather
@@ -86,6 +99,15 @@ export default async function SettingsPage() {
           />
           <Panel id="notifications" className="scroll-mt-24" title="Notifications">
             <NotificationSettings />
+          </Panel>
+
+          <Panel title="Weekly shape">
+            <p className="text-xs text-muted-foreground">
+              What a normal day looks like, so the evening close can tell you whether today matched it.
+            </p>
+            <div className="mt-3">
+              <WeekdayBaselineSettings initial={weekdayBaselines} />
+            </div>
           </Panel>
           <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
             <ApiKeySettings

@@ -1,5 +1,6 @@
 import type { PlannedItem } from "@/app/(app)/close/actions";
 import { formatHoursMinutes } from "@/lib/evening-close/format-hours";
+import { dayWonVerdict } from "@/lib/evening-close/day-won";
 
 /**
  * Stage (b) of the evening close: reflect.
@@ -26,11 +27,16 @@ import { formatHoursMinutes } from "@/lib/evening-close/format-hours";
 export function CloseReflectStage({
   todaysThree,
   hoursTodayMinutes,
+  weekdayBaselines,
+  weekdayIndex,
 }: {
   todaysThree: PlannedItem[];
   hoursTodayMinutes: number;
+  weekdayBaselines: number[] | null;
+  weekdayIndex: number;
 }) {
   const done = todaysThree.filter((t) => t.completed).length;
+  const verdict = dayWonVerdict(hoursTodayMinutes, weekdayBaselines, weekdayIndex);
 
   return (
     <section aria-labelledby="close-reflect-heading" className="space-y-4">
@@ -42,8 +48,23 @@ export function CloseReflectStage({
         <p className="text-sm">
           Hours today <span className="font-medium tabular-nums">{formatHoursMinutes(hoursTodayMinutes)}</span>
         </p>
-        {/* No baseline line until 122 — see the note above. Its absence is the
-            correct rendering of an unanswered question, not a missing feature. */}
+        {/* Four outcomes. `absent` renders NOTHING extra — the hours line stands
+            alone, which is the correct rendering of a question never asked.
+            Adding "no baseline set" here would nag someone about a setting on
+            the screen meant to close their day. */}
+        {verdict.kind === "rest" ? (
+          <p className="mt-1 text-xs text-muted-foreground">A rest day. Nothing to beat.</p>
+        ) : null}
+        {verdict.kind === "won" ? (
+          <p className="mt-1 text-xs font-medium text-primary">
+            Day won — {verdict.baselineHours}h was the bar.
+          </p>
+        ) : null}
+        {verdict.kind === "short" ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {formatHoursMinutes(verdict.shortByMinutes)} short of {verdict.baselineHours}h.
+          </p>
+        ) : null}
       </div>
 
       {todaysThree.length === 0 ? (

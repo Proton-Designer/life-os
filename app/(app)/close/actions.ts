@@ -37,6 +37,10 @@ export type EveningCloseData = {
    * failed day rather than an unanswered question.
    */
   hoursTodayMinutes: number;
+  /** `user_settings.weekday_baselines` (122). Null = never set: the comparison is ABSENT, not failed. */
+  weekdayBaselines: number[] | null;
+  /** The USER'S weekday, 0 = Sunday. Computed in their timezone, never the server's. */
+  weekdayIndex: number;
   /** Lines already dumped for TOMORROW, so re-entering the ceremony resumes rather than restarts. */
   tomorrowLines: { id: string; title: string }[];
 };
@@ -67,7 +71,11 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   const dayStart = resolveLocalTime(today, "00:00", timezone).toISOString();
   const dayEnd = resolveLocalTime(today, "23:59", timezone).toISOString();
 
-  const [triggers, unplannedTodayCount, planned, sessions, tomorrowRows] = await Promise.all([
+  // The user's weekday, not the server's. `today` is already their local
+  // calendar date; a noon UTC instant off that date cannot slip either way.
+  const weekdayIndex = new Date(`${today}T12:00:00Z`).getUTCDay();
+
+  const [triggers, unplannedTodayCount, planned, sessions, tomorrowRows, settings] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
     getTodayDistractionCount(supabase, user.id, today),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
@@ -96,6 +104,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .eq("user_id", user.id)
       .eq("planned_date", tomorrow)
       .order("created_at", { ascending: true }),
+    supabase.from("user_settings").select("weekday_baselines").eq("user_id", user.id).maybeSingle(),
   ]);
 
   const blockers = closeBlockers({ triggers, unplannedTodayCount });
@@ -111,6 +120,8 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       // "write your first plan" affordance instead of the rewrite.
       .map((t) => ({ trigger: t, todayCount: t.todayCount, isNew: false })),
     unplannedTodayCount,
+    weekdayBaselines: (settings.data?.weekday_baselines ?? null) as number[] | null,
+    weekdayIndex,
     hoursTodayMinutes: computeFocusTimeMinutes(
       (sessions.data ?? []).map((s) => ({
         startedAt: new Date(s.started_at),
