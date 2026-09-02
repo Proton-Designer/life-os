@@ -16,7 +16,16 @@ export const PROVIDERS = {
     id: "deepseek",
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com",
-    defaultModel: "deepseek-chat",
+    // A LISTED name, not a bet on an alias: DeepSeek's live API reference
+    // lists exactly three models (deepseek-v4-flash, deepseek-v4-pro,
+    // deepseek-v4-flash-vision-exp) -- "deepseek-chat" isn't one of them,
+    // and nobody had verified whether it still resolves as an alias before
+    // this was the model a user's freshly-pasted key gets tested against.
+    // flash, not pro: nobody pays pro rates to learn their key works, and
+    // every interactive call here (verifyKey, answer feedback) is exactly
+    // that kind of call. Ingestion's model is a separate decision, made
+    // once a real book is measured on flash -- not this constant.
+    defaultModel: "deepseek-v4-flash",
     /** Where a user goes to create one. Shown in the UI so they aren't hunting. */
     consoleUrl: "https://platform.deepseek.com/api_keys",
     keyPrefix: "sk-",

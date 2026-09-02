@@ -11,6 +11,13 @@ describe("provider registry", () => {
     }
   });
 
+  it("defaultModel is a name DeepSeek's own API reference actually lists, and it's flash, not pro (Boss ruling: nobody pays pro rates to learn their key works)", () => {
+    // Pins against silently reverting to an unverified/aliased name --
+    // "deepseek-chat" was never confirmed to resolve and isn't one of the
+    // three models DeepSeek's live reference lists.
+    expect(PROVIDERS.deepseek.defaultModel).toBe("deepseek-v4-flash");
+  });
+
   it("rejects unknown providers so a crafted form post can't reach storage", () => {
     expect(isProviderId("deepseek")).toBe(true);
     expect(isProviderId("anthropic")).toBe(false);

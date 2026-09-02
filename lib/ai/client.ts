@@ -49,6 +49,18 @@ export async function chat(
     if (res.status === 429) {
       return { ok: false, message: `${label} says you're out of quota or rate-limited.` };
     }
+    if (res.status === 400) {
+      // Deliberately NOT worded like the 401/403 message. This is the exact
+      // screen a user has just pasted their own key and pressed "Test key"
+      // on -- a bad request (e.g. a stale/renamed model id, malformed body)
+      // has nothing to do with whether their key is valid, but the old
+      // generic "HTTP 400" message read as if it might, and the first BYO-
+      // key tester to hit it would reasonably go regenerate a perfectly
+      // good key. Keep this branch distinct from 401/403 -- collapsing them
+      // back together is exactly the regression lib/ai/__tests__/client.test.ts
+      // pins against.
+      return { ok: false, message: `That request to ${label} was rejected — this is a problem on our side, not with your key.` };
+    }
     if (!res.ok) {
       // Deliberately not surfacing the provider's raw body: it can echo request
       // content, and on some providers that includes the Authorization header
@@ -58,6 +70,10 @@ export async function chat(
 
     const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const content = json.choices?.[0]?.message?.content;
+    // A 2xx response with an empty (or missing) `content` is a failure, not
+    // a success -- DeepSeek's own docs admit this happens. Falls through to
+    // its own message rather than letting a caller's `!res.content` check
+    // treat `ok: true, content: ""` as a real, if blank, answer.
     if (!content) return { ok: false, message: `${label} returned an empty response.` };
     return { ok: true, content };
   } catch (e) {
