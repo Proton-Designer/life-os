@@ -17,7 +17,8 @@ the point is to make a number unavailable the moment it is promised.
 | `113` | CollegeOS / B1 | Night Plan `tasks` schema: `mit_rank`, `planned_date`, partial unique index `tasks_mit_rank_per_day_idx` | allocated |
 | `114` | LifeOS Eng 2 (95858) | Additive: `user_domains.depth` (NOT NULL), `profiles.evening_close_time`, `deen_habits.cue_time` | allocated |
 | `115` | LifeOS Eng 2 (95858) | R27 flatten: `user_domains.key` CHECK change + `personal_growth` row split | allocated |
-| `116`+ | — | next free | — |
+| `116` | LifeOS Eng 2 (95858) | Generic reading-log table (date, units, optional source/title, `user_id`) — NOT a `quran_sessions` reuse: all 6 consumers of that table treat every row as a real Qur'an session | allocated |
+| `117`+ | — | next free | — |
 
 **Applied through `110`.** `111` is a failed partial: `questions` exists (0 rows, RLS, 3
 indexes) and the `reviews` columns exist, but `reviews_item_xor`,
