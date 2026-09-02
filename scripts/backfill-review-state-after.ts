@@ -337,7 +337,31 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+/**
+ * RUN ONLY WHEN INVOKED AS A SCRIPT — never on import.
+ *
+ * This call used to be unguarded, so `import { planCardBackfill } from …`
+ * EXECUTED `main()`. `scripts/__tests__/backfill-review-state-after.test.ts`
+ * does exactly that, which meant every `vitest run` ran this script's entry
+ * point and called `process.exit(1)` inside a vitest worker — vitest warns
+ * that a `process.exit` mid-run can produce false-positive test results.
+ *
+ * Today it failed CLOSED (no `--target`, so it refused before connecting).
+ * But "the only thing between a test run and a production write is the
+ * absence of an argv flag" is not a guarantee, it is a coincidence of the
+ * current invocation. Found by the LifeOS lead, 2026-09-02.
+ *
+ * The check is on argv rather than `require.main === module` or
+ * `import.meta.url` because this file is run through tsx (CommonJS package,
+ * `module: esnext` in tsconfig) and imported by vitest under Vite's ESM —
+ * only one of those two idioms exists in each context. Both directions of
+ * this guard are verified in the commit message, not assumed.
+ */
+const INVOKED_AS_SCRIPT = (process.argv[1] ?? "").includes("backfill-review-state-after");
+
+if (INVOKED_AS_SCRIPT) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
