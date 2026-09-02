@@ -15,11 +15,13 @@ import {
   countDueCards,
   countNewCards,
   countDueTomorrow,
+  fetchDueCardDetail,
   submitSelfExplanation as submitSelfExplanationCore,
   type LessonContext,
 } from "@/lib/self-mastery/session/build-session";
 import { seedMeditationsDeckForUser as seedMeditationsDeckForUserCore } from "@/lib/self-mastery/seed-meditations-deck";
 import type { BuiltSession, SessionCompletionResult } from "@/lib/self-mastery/session/types";
+import type { SelfMasterySummary } from "@/lib/home/build-candidates";
 
 /**
  * Resolves "today" server-side from the caller's own stored timezone
@@ -249,6 +251,41 @@ export async function getDueSummary(): Promise<DueSummary | null> {
   // default lives.
   const estimatedMinutes = data?.session_target_minutes ?? 8;
   return { dueCount, newCount, estimatedMinutes, starterDeckMissing: false };
+}
+
+/**
+ * Real evidence for the arbiter's Self-Mastery candidate (R19, R28-
+ * restated item 1's admission gate generalized): `hasCandidate` is the
+ * gate -- true only when there's something real to offer (dueCount or
+ * newCount > 0, the same condition getDueSummary itself uses to decide
+ * "nothing to show"). A starter deck that never seeded, or a genuinely
+ * caught-up account, both correctly produce hasCandidate: false here --
+ * there is no real Self-Mastery work to rank in either case, which is
+ * different from "we don't know" (R37's distinction, restated for this
+ * source): this isn't a missing-evidence case, it's a real absence of
+ * anything to do.
+ *
+ * `dueAt`/`decay` describe only the DUE subset and stay null for a fresh,
+ * never-touched deck (real NEW cards, nothing due yet) -- that's still a
+ * real candidate via `hasCandidate`, just one with no due-card evidence
+ * to report. `cost` reuses getDueSummary's own `estimatedMinutes` rather
+ * than re-deriving it -- one estimate, one source of truth, same value
+ * SessionEntryCard already shows the user.
+ */
+export async function getSelfMasteryCandidateInput(): Promise<SelfMasterySummary> {
+  const summary = await getDueSummary();
+  const hasCandidate = !!summary && (summary.dueCount > 0 || summary.newCount > 0);
+  if (!summary || !hasCandidate) {
+    return { hasCandidate: false, dueAt: null, decay: null, cost: null };
+  }
+  const { supabase, userId } = await requireUser();
+  const detail = await fetchDueCardDetail(supabase, userId, new Date());
+  return {
+    hasCandidate: true,
+    dueAt: detail.earliestDueAt ? new Date(detail.earliestDueAt) : null,
+    decay: detail.lowestRetrievability,
+    cost: summary.estimatedMinutes,
+  };
 }
 
 /**

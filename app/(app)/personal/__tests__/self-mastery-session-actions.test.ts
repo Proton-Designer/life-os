@@ -169,6 +169,89 @@ describe("Self-Mastery session actions", () => {
     });
   });
 
+  describe("getSelfMasteryCandidateInput (R19: real evidence for the arbiter's Self-Mastery candidate)", () => {
+    it("hasCandidate: false, everything else null, when nothing is due and nothing is new -- and never fetches due-card detail for a candidate that doesn't exist", async () => {
+      const dueChain = makeChain({ data: null, error: null, count: 0 });
+      const newChain = makeChain({ data: null, error: null, count: 0 });
+      const booksChain = makeChain({ data: null, error: null, count: 1 }); // genuinely caught up, not a failed seed
+      let cardStatesCall = 0;
+      fromImpl = (table) => {
+        if (table === "card_states") {
+          cardStatesCall += 1;
+          if (cardStatesCall <= 2) return cardStatesCall === 1 ? dueChain : newChain;
+          throw new Error("fetchDueCardDetail must not run when there is no candidate");
+        }
+        if (table === "books") return booksChain;
+        throw new Error(`unexpected table: ${table}`);
+      };
+      const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
+
+      const result = await getSelfMasteryCandidateInput();
+
+      expect(result).toEqual({ hasCandidate: false, dueAt: null, decay: null, cost: null });
+    });
+
+    it("a real candidate carries the earliest due card's dueAt, the lowest retrievability among due cards, and the session's own cost estimate", async () => {
+      const dueChain = makeChain({ data: null, error: null, count: 3 });
+      const newChain = makeChain({ data: null, error: null, count: 0 });
+      const dueCardRow = {
+        stability: 5,
+        difficulty: 5,
+        due_at: "2026-09-01T12:00:00Z",
+        reps: 4,
+        lapses: 0,
+        state: "review" as const,
+        last_review_at: "2026-08-25T12:00:00Z",
+      };
+      const detailChain = makeChain({ data: [dueCardRow], error: null });
+      let cardStatesCall = 0;
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_settings: makeChain({ data: { session_target_minutes: 15 }, error: null }),
+      };
+      fromImpl = (table) => {
+        if (table === "card_states") {
+          cardStatesCall += 1;
+          if (cardStatesCall === 1) return dueChain;
+          if (cardStatesCall === 2) return newChain;
+          return detailChain;
+        }
+        return tables[table];
+      };
+      const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
+
+      const result = await getSelfMasteryCandidateInput();
+
+      expect(result.hasCandidate).toBe(true);
+      expect(result.dueAt).toEqual(new Date(dueCardRow.due_at));
+      expect(result.decay).not.toBeNull();
+      expect(result.cost).toBe(15); // the session's own estimatedMinutes, not re-derived
+    });
+
+    it("a fresh deck (real NEW cards, nothing due yet) is still a real candidate -- dueAt/decay stay null, cost is still real", async () => {
+      const dueChain = makeChain({ data: null, error: null, count: 0 });
+      const newChain = makeChain({ data: null, error: null, count: 12 });
+      const detailChain = makeChain({ data: [], error: null }); // no due cards to describe
+      let cardStatesCall = 0;
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_settings: makeChain({ data: { session_target_minutes: 8 }, error: null }),
+      };
+      fromImpl = (table) => {
+        if (table === "card_states") {
+          cardStatesCall += 1;
+          if (cardStatesCall === 1) return dueChain;
+          if (cardStatesCall === 2) return newChain;
+          return detailChain;
+        }
+        return tables[table];
+      };
+      const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
+
+      const result = await getSelfMasteryCandidateInput();
+
+      expect(result).toEqual({ hasCandidate: true, dueAt: null, decay: null, cost: 8 });
+    });
+  });
+
   describe("retryStarterDeckSeed (Boss ruling, R7: a seed failure must be visible and recoverable, never silent)", () => {
     it("calls the same seed RPC seedMeditationsDeckForUser uses, and revalidates Home on success", async () => {
       rpcMock.mockResolvedValueOnce({
