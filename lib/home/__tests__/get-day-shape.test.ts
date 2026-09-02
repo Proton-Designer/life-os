@@ -11,6 +11,8 @@ function dataSource(overrides: Partial<DayShapeDataSource> = {}): DayShapeDataSo
       timezone: "UTC",
       prayer_calc_method: "MWL",
       asr_madhab: "standard",
+      checkin_window_start: "08:00",
+      checkin_window_end: "22:00",
     }),
     getPrayers: async () => [],
     getWorkoutSchedule: async () => null,
@@ -31,7 +33,17 @@ describe("getDayShape", () => {
     const result = await getDayShape(
       "u1",
       NOW,
-      dataSource({ getProfile: async () => ({ location_lat: null, location_lng: null, timezone: "UTC", prayer_calc_method: "MWL", asr_madhab: "standard" }) })
+      dataSource({
+        getProfile: async () => ({
+          location_lat: null,
+          location_lng: null,
+          timezone: "UTC",
+          prayer_calc_method: "MWL",
+          asr_madhab: "standard",
+          checkin_window_start: "08:00",
+          checkin_window_end: "22:00",
+        }),
+      })
     );
     expect(result.prayers.every((p) => p.window === null)).toBe(true);
     expect(result.prayers.every((p) => p.status === "pending")).toBe(true);
@@ -40,6 +52,56 @@ describe("getDayShape", () => {
   it("computes real windows and statuses when a location is set", async () => {
     const result = await getDayShape("u1", NOW, dataSource());
     expect(result.prayers.every((p) => p.window !== null)).toBe(true);
+  });
+
+  // A3 Part 1: dayBounds comes from profiles.checkin_window_start/end, not
+  // from prayers — a location-less account (no window computable at all,
+  // see the "no location" test above) must still get a real dayBounds.
+  describe("dayBounds", () => {
+    it("resolves start/end from checkin_window_start/end against the profile's own timezone", async () => {
+      const result = await getDayShape(
+        "u1",
+        NOW,
+        dataSource({
+          getProfile: async () => ({
+            location_lat: 41.83,
+            location_lng: -87.75,
+            timezone: "America/Chicago",
+            prayer_calc_method: "MWL",
+            asr_madhab: "standard",
+            checkin_window_start: "06:30",
+            checkin_window_end: "23:00",
+          }),
+        })
+      );
+      // 2026-08-15 in America/Chicago is CDT (UTC-5).
+      expect(result.dayBounds.start).toEqual(new Date("2026-08-15T11:30:00.000Z"));
+      expect(result.dayBounds.end).toEqual(new Date("2026-08-16T04:00:00.000Z"));
+    });
+
+    it("still produces valid dayBounds when there's no location set at all — the axis never depends on Faith", async () => {
+      const result = await getDayShape(
+        "u1",
+        NOW,
+        dataSource({
+          getProfile: async () => ({
+            location_lat: null,
+            location_lng: null,
+            timezone: "UTC",
+            prayer_calc_method: "MWL",
+            asr_madhab: "standard",
+            checkin_window_start: "08:00",
+            checkin_window_end: "22:00",
+          }),
+        })
+      );
+      expect(result.dayBounds).toEqual({ start: new Date("2026-08-15T08:00:00.000Z"), end: new Date("2026-08-15T22:00:00.000Z") });
+    });
+
+    it("falls back to the same 08:00/22:00 defaults the DB columns carry when there's no profile row at all", async () => {
+      const result = await getDayShape("u1", NOW, dataSource({ getProfile: async () => null }));
+      expect(result.dayBounds).toEqual({ start: new Date("2026-08-15T08:00:00.000Z"), end: new Date("2026-08-15T22:00:00.000Z") });
+    });
   });
 
   it("a stored status always wins over the derived one", async () => {

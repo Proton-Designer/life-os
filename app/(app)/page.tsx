@@ -145,7 +145,7 @@ export default async function HomePage() {
     showPlanningNudge = (upcomingGoals?.length ?? 0) === 0;
   }
 
-  const ribbonLayout = computeDayRibbon({ prayers: dayShape.prayers, activities: dayShape.activities, now });
+  const ribbonLayout = computeDayRibbon({ dayBounds: dayShape.dayBounds, prayers: dayShape.prayers, activities: dayShape.activities, now });
 
   return (
     <PageContainer>

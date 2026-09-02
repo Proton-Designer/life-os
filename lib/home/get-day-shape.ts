@@ -37,6 +37,13 @@ export type DayShapeProfile = {
   timezone: string;
   prayer_calc_method: string;
   asr_madhab: string;
+  /** "HH:MM[:SS]" local clock time — A3 Part 1: the day axis's own bounds,
+   * same columns lib/checkins/schedule.ts already reuses as WakeSleepBounds
+   * (NOT NULL with DB defaults 08:00/22:00, so every account — including
+   * one that predates the Rhythm onboarding screen — already has usable
+   * values; no migration, no absent-state to design for). */
+  checkin_window_start: string;
+  checkin_window_end: string;
 };
 export type DayShapePrayerRow = { prayer_name: string; status: string };
 export type DayShapeWorkoutSchedule = { workout_name: string; time: string | null };
@@ -78,6 +85,8 @@ export function defaultDataSource(): DayShapeDataSource {
         timezone: profile.timezone,
         prayer_calc_method: profile.prayer_calc_method,
         asr_madhab: profile.asr_madhab,
+        checkin_window_start: profile.checkin_window_start,
+        checkin_window_end: profile.checkin_window_end,
       };
     },
     async getPrayers(userId, date) {
@@ -158,21 +167,38 @@ export function defaultDataSource(): DayShapeDataSource {
   };
 }
 
+// DB defaults for profiles.checkin_window_start/end (NOT NULL columns) —
+// used only when there's no profile row at all (an edge case `getProfile`
+// already treats as possible via its `| null` return), so a missing row
+// produces the exact same day bounds a real row with untouched defaults
+// would. Not a "fallback in case a real value is absent" — every real row
+// already has a value.
+const DEFAULT_WAKE_TIME = "08:00";
+const DEFAULT_SLEEP_TIME = "22:00";
+
 /**
- * Today's prayers as windows+derived-status, plus the day's other activity
+ * Today's prayers as windows+derived-status, the day's other activity
  * blocks (scheduled workout, timed School/Work tasks, focus/Lock-In
- * sessions) — the raw material for DayRibbon. Genuinely new data assembly,
- * not a re-render of the old point-marker version: this is the one place
- * "here's my whole day's shape" exists cross-domain in the app.
+ * sessions), and the day axis's own wake->sleep bounds (A3 Part 1) — the
+ * raw material for DayRibbon. Genuinely new data assembly, not a re-render
+ * of the old point-marker version: this is the one place "here's my whole
+ * day's shape" exists cross-domain in the app.
  */
 export async function getDayShape(
   userId: string,
   now: Date,
   dataSource: DayShapeDataSource = defaultDataSource()
-): Promise<{ prayers: RibbonPrayerInput[]; activities: RibbonActivityInput[] }> {
+): Promise<{ prayers: RibbonPrayerInput[]; activities: RibbonActivityInput[]; dayBounds: { start: Date; end: Date } }> {
   const profile = await dataSource.getProfile(userId);
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
+  // resolveLocalTime, not `${dateStr}T${time}Z` — see AGENTS.md's timezone
+  // entry. computeDayRibbon owns the overnight-wrap/degenerate handling;
+  // this is just the two resolved instants, same-day, unwrapped.
+  const dayBounds = {
+    start: resolveLocalTime(dateStr, (profile?.checkin_window_start ?? DEFAULT_WAKE_TIME).slice(0, 5), timezone),
+    end: resolveLocalTime(dateStr, (profile?.checkin_window_end ?? DEFAULT_SLEEP_TIME).slice(0, 5), timezone),
+  };
 
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
   const [prayerRows, workoutSchedule, timedTasks, focusSessions, scheduleEvents] = await Promise.all([
@@ -272,5 +298,5 @@ export async function getDayShape(
     });
   }
 
-  return { prayers, activities };
+  return { prayers, activities, dayBounds };
 }

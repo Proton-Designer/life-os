@@ -98,11 +98,18 @@ function spanState(status: EffectivePrayerStatus): RibbonSpanState {
 }
 
 /**
- * The Day Ribbon's layout — Fajr's window through Isha's window (window.end,
- * not window.start: Isha's window extends to the next day's Fajr), each
- * prayer rendered as a SPAN (window.start to window.end), not a point.
- * Points would throw away Phase 1's entire "windows, not instants" thesis
- * in the one module whose job is showing the day's actual shape.
+ * The Day Ribbon's layout — an axis from wake to sleep (A3 Part 1;
+ * BOSS-VISION §4.1/§4b). Prayers are ONE anchor provider among several
+ * (classes, shifts, workouts, sessions), never the axis itself: the range
+ * comes from `dayBounds`, and a prayer's span is clamped into it exactly
+ * like an activity block already is, never used to extend it. This is the
+ * defect §4b rule 1 names directly ("the current ribbon's prayer dependency
+ * is a defect to remove, not a design to keep") — a user who never picked
+ * Faith, or picked it and has no location set, still gets a real day axis.
+ *
+ * Each placeable prayer still renders as a SPAN (window.start to
+ * window.end), not a point — Phase 1's "windows, not instants" thesis is
+ * unrelated to who owns the range and stays exactly as it was.
  *
  * Fed pre-derived EffectivePrayerStatus, never a raw stored status — the
  * caller (page.tsx) resolves it via lib/deen/prayer-status.ts. Deriving
@@ -110,31 +117,40 @@ function spanState(status: EffectivePrayerStatus): RibbonSpanState {
  * back to reading as "upcoming forever", the exact bug the derivation
  * ripple fixed everywhere else.
  *
- * Returns null when there are no placeable prayers at all — no location set
- * (empty `prayers`), or every window is null (cannot determine; see
- * lib/prayer-times/windows.ts's high-latitude clamp). A null layout means
- * the caller renders a distinct setup prompt, not a bare/broken track.
+ * `dayBounds` is the caller's already-resolved wake/sleep instants for the
+ * day (get-day-shape.ts, via `resolveLocalTime` against
+ * profiles.checkin_window_start/end — never a raw `Date`/UTC-midnight
+ * string; see AGENTS.md's timezone entry). Two failure shapes are handled
+ * explicitly, not just left to fall out of the arithmetic:
+ *   - `end <= start` on the SAME calendar instant pair (e.g. wake 23:00,
+ *     sleep 06:00) is a real overnight rhythm, not an error — the range
+ *     wraps by adding 24h to `end`. A night-shift user is a user.
+ *   - `end === start` exactly (e.g. wake and sleep both unset to the same
+ *     value) is genuinely degenerate — returns null rather than the
+ *     zero-width layout that produced the "every block collapses to the
+ *     left edge" symptom AGENTS.md's timezone entry describes.
+ * null means exactly this dayBounds failure now — NOT "no prayers" (see
+ * above). The caller renders a distinct setup prompt only for this case.
  */
 export function computeDayRibbon({
+  dayBounds,
   prayers,
   activities,
   now,
 }: {
+  dayBounds: { start: Date; end: Date };
   prayers: RibbonPrayerInput[];
   activities: RibbonActivityInput[];
   now: Date;
 }): DayRibbonLayout | null {
-  const placeable = prayers.filter((p): p is RibbonPrayerInput & { window: PrayerWindow } => p.window !== null);
-  if (placeable.length === 0) return null;
+  const rangeStart = dayBounds.start;
+  let rangeEnd = dayBounds.end;
+  if (rangeEnd.getTime() <= rangeStart.getTime()) {
+    if (rangeEnd.getTime() === rangeStart.getTime()) return null;
+    rangeEnd = new Date(rangeEnd.getTime() + 24 * 60 * 60 * 1000);
+  }
 
-  const rangeStart = placeable.reduce(
-    (min, p) => (p.window.start.getTime() < min.getTime() ? p.window.start : min),
-    placeable[0].window.start
-  );
-  const rangeEnd = placeable.reduce(
-    (max, p) => (p.window.end.getTime() > max.getTime() ? p.window.end : max),
-    placeable[0].window.end
-  );
+  const placeable = prayers.filter((p): p is RibbonPrayerInput & { window: PrayerWindow } => p.window !== null);
 
   // Two label rows' minimum separation, in percent of the ribbon's full
   // width, below which adjacent prayer labels would visually overlap
