@@ -301,8 +301,31 @@ const server = createServer((req, res) => {
     // Kills the spawned `claude -p` if the caller disconnects mid-request —
     // see runClaude's header for why this path specifically needed an
     // explicit fix rather than relying on the process exiting on its own.
+    //
+    // ⚠️ REAL BUG, FOUND LIVE (2026-09-02, CollegeOS lead: every real call
+    // through the committed shim failed in ~0.3s with a misleading "client
+    // disconnected" error). Root cause, isolated with a minimal repro
+    // BEFORE touching this file: listening on `req.on("close")`
+    // (IncomingMessage) is wrong. That event fires the moment the REQUEST
+    // BODY is fully read, not when the connection actually closes — proven
+    // with a standalone Node http server: 'close' fired 1ms after the body
+    // finished arriving, `res.writableEnded` still false, while curl was
+    // still there and received a real response two seconds later. Every
+    // real call was self-aborting almost immediately after its own request
+    // body finished sending, before `claude -p` had any chance to run.
+    // FIX: listen on `res.on("close")` (ServerResponse) instead — that
+    // event correctly reflects the underlying SOCKET closing. Verified with
+    // the same repro harness: on a normal completed request it fires AFTER
+    // the response is sent (`res.writableEnded === true` by then); on a
+    // real disconnect (curl --max-time forcing an early exit) it fires
+    // BEFORE the response (`res.writableEnded === false`) — so the
+    // `!res.writableEnded` guard below is what actually distinguishes "the
+    // client left early" from "the response finished and the socket is
+    // now, correctly, closing."
     const controller = new AbortController();
-    req.on("close", () => controller.abort());
+    res.on("close", () => {
+      if (!res.writableEnded) controller.abort();
+    });
     try {
       const { status, body: responseBody } = await handleChatCompletions(body, controller.signal);
       if (!res.writableEnded) {
