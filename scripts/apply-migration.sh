@@ -57,11 +57,20 @@ fi
 # migration creates something is checked against this manifest, never against
 # where it happened to run. `grep -c 'create table'` is the minimum honest form
 # of this check and it costs nothing.
+# Comments stripped for BOTH lists, same reason as NON_TX_HITS below: these
+# parse SQL out of file text, and a header sentence is not SQL. Migration 123's
+# comment "a promotion_id can hold an id that references nothing" made the
+# second list report a table called `nothing`. The object list has the same
+# exposure via any comment beginning with create/alter/drop.
+#
+# Fixed together rather than one at a time: patching only the line that was
+# tripped over is the bypassed-chokepoint mistake this project keeps making.
+SQL_ONLY="$(sed -e 's/--.*$//' "$FILE")"
 echo "--- objects this file CREATES/ALTERS (parsed from the text, not the DB) ---"
-grep -inE '^[[:space:]]*(create|alter|drop)[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?(table|index|unique[[:space:]]+index|function|trigger|type|policy|view|constraint)' "$FILE" \
+printf '%s\n' "$SQL_ONLY" | grep -inE '^[[:space:]]*(create|alter|drop)[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?(table|index|unique[[:space:]]+index|function|trigger|type|policy|view|constraint)' \
   | sed -E 's/[[:space:]]+/ /g; s/^/    /' | cut -c1-140
 echo "--- tables merely REFERENCED but never created here (must already exist) ---"
-grep -oiE 'references[[:space:]]+(public\.)?[a-z_]+' "$FILE" | awk '{print $2}' | sed 's/^public\.//' | sort -u | sed 's/^/    /'
+printf '%s\n' "$SQL_ONLY" | grep -oiE 'references[[:space:]]+(public\.)?[a-z_]+' | awk '{print $2}' | sed 's/^public\.//' | sort -u | sed 's/^/    /'
 echo "---------------------------------------------------------------------------"
 
 
