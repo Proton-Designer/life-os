@@ -64,6 +64,33 @@ cp "$REPO/.env.local" "$WT/" 2>/dev/null
 cp -r "$REPO/.vercel" "$WT/" 2>/dev/null
 
 cd "$WT"
+
+# WORKING-TREE VERIFICATION IS MEANINGLESS HERE — read this before adding a gate.
+#
+# In a shared tree where engineers are told to write a FAILING TEST FIRST, a
+# lead's `vitest`/`tsc` run reads the working tree, which legitimately contains
+# other agents' deliberate reds. On 2026-09-02 a full-suite run showed
+# "6 failed" and `next build` exited 1 — all of it one engineer's in-flight red
+# for the sentinel split, none of it in HEAD, which passed 12/12 clean.
+#
+# The danger is not the noise. It is that the noise is indistinguishable from a
+# real regression, so the honest reading of a red tree is "I cannot tell" while
+# the tempting reading is "probably someone else's."
+#
+# I ADDED A tsc GATE HERE AND REMOVED IT AGAIN, which is worth recording:
+# a fresh worktree has no `.next/types`, so `LayoutProps` is undefined and tsc
+# fails on a perfectly healthy HEAD. A gate that cannot tell "HEAD is broken"
+# from "the worktree lacks generated types" is worse than no gate — it produces
+# a red nobody can act on, and it gets disabled the first time it blocks
+# someone. Same shape as every false instrument in 05-HOW-THIS-TEAM-WORKS.md,
+# built by the person who wrote that file, an hour after writing it.
+#
+# THE REAL HEAD GATE ALREADY EXISTS AND IS REMOTE: Vercel builds and typechecks
+# the uploaded commit. A broken HEAD fails there and is never aliased, which is
+# why the failed deploy earlier today never reached production. Don't duplicate
+# it badly here. To check HEAD locally, build in a worktree (generating types)
+# rather than typechecking one.
+
 OUT="$(mktemp)"
 npx vercel --prod --yes --token "$TOKEN" 2>&1 | tee "$OUT"
 RC=${PIPESTATUS[0]}
