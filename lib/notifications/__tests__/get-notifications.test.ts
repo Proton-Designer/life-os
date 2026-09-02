@@ -42,6 +42,7 @@ function priorityItem(overrides: Partial<PriorityItem> = {}): PriorityItem {
     completed: false,
     actionType: "toggle_prayer",
     actionRefId: "fajr",
+    cost: null,
     ...overrides,
   };
 }

@@ -193,6 +193,7 @@ export default async function DeenPage() {
         completed: false,
         actionType: "toggle_prayer",
         actionRefId: nextPrayer.name,
+        cost: null,
       }
     : null;
 

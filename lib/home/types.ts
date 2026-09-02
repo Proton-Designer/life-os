@@ -87,4 +87,17 @@ export type PriorityItem = {
   completed: boolean;
   actionType: ActionType;
   actionRefId: string;
+  /**
+   * Estimated minutes to complete -- the arbiter's "cost" signal (R18(5)/
+   * R19). LIVE FOR EXACTLY ONE OF FIVE DOMAINS TODAY: a scheduled Fitness
+   * session's own `durationMinutes` (already computed internally in
+   * get-priority-items.ts's fitness section, just not surfaced before
+   * this). `null` on Deen/Business/School/co_op is not a gap to close by
+   * inventing an estimate -- R18(5) is explicit that a domain with no real
+   * cost source stays absent, permanently, not approximated. Null also on
+   * a micro-goal-only fitness row itself -- no fixed duration exists for
+   * an open-ended set of exercise targets either, per R18(5)'s explicit
+   * "tasks get no invented effort."
+   */
+  cost: number | null;
 };

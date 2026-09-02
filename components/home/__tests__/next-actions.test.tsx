@@ -34,6 +34,7 @@ function item(overrides: Partial<PriorityItem> & Pick<PriorityItem, "id" | "doma
     completed: false,
     actionType: "toggle_task",
     actionRefId: overrides.id,
+    cost: null,
     ...overrides,
   };
 }

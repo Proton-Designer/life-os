@@ -309,6 +309,26 @@ describe("getPriorityItems", () => {
       expect(fitnessItem?.actionRefId).toBe("s1");
     });
 
+    // R18(5)/R19: cost is plumbed onto PriorityItem for the two real
+    // sources that exist -- Self-Mastery's session estimate, and Fitness's
+    // per-session duration here, which was already computed internally
+    // (SessionInput.durationMinutes) and simply discarded before this.
+    it("carries the scheduled session's own durationMinutes as cost", async () => {
+      const dataSource = emptyDataSource({
+        getFitness: async () => ({
+          microPlanName: null,
+          microTotals: [],
+          microFreqs: [],
+          sessions: [{ sessionId: "s1", name: "Push Day A", durationMinutes: 45, startTime: null, confirmedToday: false }],
+        }),
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      const fitnessItem = items.find((i) => i.domain === "fitness");
+
+      expect(fitnessItem?.cost).toBe(45);
+    });
+
     it("emits a row titled with the active micro plan's name when only micro goals are unmet", async () => {
       const dataSource = emptyDataSource({
         getFitness: async () => ({
@@ -325,6 +345,35 @@ describe("getPriorityItems", () => {
       expect(fitnessItem).toBeDefined();
       expect(fitnessItem?.title).toBe("Starter Reps");
       expect(fitnessItem?.actionType).toBe("open_fitness");
+    });
+
+    // A micro-goal-only row has no fixed duration to report -- cost stays
+    // absent (never invented), same as every non-fitness domain.
+    it("cost is null for a micro-goal-only row -- no fixed-duration source exists for it", async () => {
+      const dataSource = emptyDataSource({
+        getFitness: async () => ({
+          microPlanName: "Starter Reps",
+          microTotals: [{ exerciseId: "e1", name: "Pull-ups", target: 30, loggedToday: 10, notes: null }],
+          microFreqs: [],
+          sessions: [],
+        }),
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      const fitnessItem = items.find((i) => i.domain === "fitness");
+
+      expect(fitnessItem?.cost).toBeNull();
+    });
+
+    it("cost is null for every non-fitness domain -- never invented (R18(5))", async () => {
+      const dataSource = emptyDataSource({
+        getKillListItems: async () => [{ id: "k1", text: "Call the landlord", completed: false, position: 0, completed_at: null }],
+      });
+
+      const items = await getPriorityItems("user-1", now, dataSource);
+      const killListItem = items.find((i) => i.domain === "business");
+
+      expect(killListItem?.cost).toBeNull();
     });
 
     it("shows only the session's name (never both, never concatenated) when both a session and micro goals are pending", async () => {

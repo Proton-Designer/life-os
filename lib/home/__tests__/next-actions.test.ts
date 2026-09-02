@@ -14,6 +14,7 @@ function item(overrides: Partial<PriorityItem>): PriorityItem {
     completed: false,
     actionType: "toggle_prayer",
     actionRefId: "ref",
+    cost: null,
     ...overrides,
   };
 }

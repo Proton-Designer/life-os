@@ -302,6 +302,7 @@ export async function getPriorityItems(
       completed: false,
       actionType: "toggle_prayer",
       actionRefId: prayerName,
+      cost: null,
     });
   }
 
@@ -324,6 +325,7 @@ export async function getPriorityItems(
       completed: false,
       actionType: "toggle_kill_list",
       actionRefId: next.id,
+      cost: null,
     });
   }
 
@@ -341,6 +343,7 @@ export async function getPriorityItems(
       completed: false,
       actionType: "toggle_task",
       actionRefId: task.id,
+      cost: null,
     });
   }
 
@@ -379,6 +382,11 @@ export async function getPriorityItems(
       completed: false,
       actionType: "open_fitness",
       actionRefId: pendingSession ? pendingSession.sessionId : "micro",
+      // The arbiter's cost signal (R18(5)) -- real only for a scheduled
+      // SESSION, which already carries its own fixed durationMinutes.
+      // Null for the micro-goal-only case: no fixed duration exists for
+      // an open-ended set of exercise targets, so nothing is invented.
+      cost: pendingSession ? pendingSession.durationMinutes : null,
     });
   }
 
