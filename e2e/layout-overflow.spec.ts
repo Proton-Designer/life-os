@@ -210,6 +210,17 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
   // checks are blind to content that only exists once a dialog is opened.
   // This batch is specifically about that dialog, so it gets its own
   // coverage rather than staying a page-load-only spec.
+  // WHAT THIS TEST CANNOT SEE. It runs as SEED, which has 6 classes and ZERO
+  // class_assessments — so the assessments list it opens is EMPTY, and its
+  // green says nothing about that list's layout. The crushed Name column
+  // (box 56px for 229px of text) lived here for a week under this passing
+  // test. The assessments list is covered by
+  // e2e/school-class-dialog.domains.spec.ts, which runs as the R41 domains
+  // fixture and refuses to measure until the rows are present.
+  //
+  // Kept, not repointed: it still covers the dialog's chrome, header and
+  // task-list sections, which SEED does populate. Read its green as "the
+  // dialog frame does not overflow", never as "the dialog is fine".
   test("the expanded class view dialog has no horizontal overflow at any breakpoint", async ({ page }) => {
     for (const width of BREAKPOINTS) {
       await page.setViewportSize({ width, height: 900 });
