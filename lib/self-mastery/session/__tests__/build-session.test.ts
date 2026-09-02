@@ -3,6 +3,7 @@ import {
   hydrateQueueCards,
   fetchCardAnswer,
   fetchLessonContext,
+  fetchDueCardDetail,
   startTodaysSession,
   submitCardReview,
   submitSelfExplanation,
@@ -10,6 +11,7 @@ import {
   countNewCards,
 } from "../build-session";
 import { buildTodaysSession } from "../build-session";
+import { cardRetrievability } from "@/lib/self-mastery/memory-strength";
 import type { QueueEntry } from "../types";
 
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
@@ -75,6 +77,63 @@ describe("the non-negotiable invariant: the answer must never reach the client b
     const context = await fetchLessonContext(client, "lesson-2");
 
     expect(context).toEqual({ mechanism: null, actionTemplate: null });
+  });
+
+  it("fetchDueCardDetail returns nulls when there are no due cards -- a fresh deck (real NEW cards) is a real candidate without this", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const detail = await fetchDueCardDetail(client, "user-1", new Date("2026-09-02T12:00:00Z"));
+
+    expect(client.from).toHaveBeenCalledWith("card_states");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(chain.neq).toHaveBeenCalledWith("state", "new");
+    expect(chain.lte).toHaveBeenCalledWith("due_at", "2026-09-02T12:00:00.000Z");
+    expect(detail).toEqual({ earliestDueAt: null, lowestRetrievability: null });
+  });
+
+  it("fetchDueCardDetail picks the EARLIEST due_at (R19: 'a real deadline') and the LOWEST retrievability among due cards, real numbers not fabricated", async () => {
+    const now = new Date("2026-09-02T12:00:00Z");
+    // Row A: strong, recently reviewed -- high retrievability, due 1 day ago.
+    const rowA = {
+      stability: 30,
+      difficulty: 5,
+      due_at: "2026-09-01T12:00:00Z",
+      reps: 5,
+      lapses: 0,
+      state: "review" as const,
+      last_review_at: "2026-08-31T12:00:00Z",
+    };
+    // Row B: weak, reviewed long ago -- low retrievability, due 3 days ago (EARLIER than A).
+    const rowB = {
+      stability: 2,
+      difficulty: 5,
+      due_at: "2026-08-30T12:00:00Z",
+      reps: 3,
+      lapses: 1,
+      state: "review" as const,
+      last_review_at: "2026-08-20T12:00:00Z",
+    };
+    const chain = makeChain({ data: [rowA, rowB], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const detail = await fetchDueCardDetail(client, "user-1", now);
+
+    // Computed via the exact same function this code calls -- never a
+    // hand-guessed number that could silently drift from the real FSRS
+    // curve.
+    const retrievabilityA = cardRetrievability(
+      { stability: rowA.stability, difficulty: rowA.difficulty, dueAt: rowA.due_at, reps: rowA.reps, lapses: rowA.lapses, state: rowA.state, lastReviewAt: rowA.last_review_at },
+      now
+    );
+    const retrievabilityB = cardRetrievability(
+      { stability: rowB.stability, difficulty: rowB.difficulty, dueAt: rowB.due_at, reps: rowB.reps, lapses: rowB.lapses, state: rowB.state, lastReviewAt: rowB.last_review_at },
+      now
+    );
+
+    expect(detail.earliestDueAt).toBe(rowB.due_at); // rowB is due earlier (further in the past)
+    expect(detail.lowestRetrievability).toBe(Math.min(retrievabilityA, retrievabilityB));
+    expect(retrievabilityB).toBeLessThan(retrievabilityA); // sanity: the weak card really is lower
   });
 
   it("hydrateQueueCards skips a card that vanished between the queue snapshot and this fetch, rather than crashing", async () => {

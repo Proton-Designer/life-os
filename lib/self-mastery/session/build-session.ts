@@ -16,6 +16,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { getScheduler, toFsrsCard, toRpcNextState, computeNextState, type DbCardState } from "@/lib/self-mastery/fsrs-scheduler";
+import { cardRetrievability } from "@/lib/self-mastery/memory-strength";
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
 import type {
@@ -207,6 +208,60 @@ export async function fetchLessonContext(client: TypedClient, lessonId: string):
   const { data, error } = await client.from("lessons").select("mechanism, action_template").eq("id", lessonId).single();
   if (error) throw error;
   return { mechanism: data.mechanism, actionTemplate: data.action_template };
+}
+
+export interface DueCardDetail {
+  /** The earliest (furthest-in-the-past) due card's own due_at -- R19: "a real deadline, so it competes in the same lexicographic frame as dated items rather than always losing." Null when there are no due cards. */
+  earliestDueAt: string | null;
+  /** Lowest retrievability among due cards (R19). Null when there are no due cards to compute it from -- a fresh, never-touched deck with real NEW cards is still a real candidate; this function only ever describes the DUE subset, never the whole library. */
+  lowestRetrievability: number | null;
+}
+
+/**
+ * Real evidence for the arbiter's Self-Mastery candidate (R19). Same
+ * `neq('state','new')` + `lte('due_at', now)` shape as countDueCards --
+ * this fetches the actual rows that count is over, since dueAt/decay need
+ * real per-card fields, not just a count. Self-mastery decks are small
+ * (dozens of cards, single-user), so fetching real rows here is the same
+ * scale assumption the rest of this module already makes.
+ */
+export async function fetchDueCardDetail(client: TypedClient, userId: string, now: Date): Promise<DueCardDetail> {
+  const { data, error } = await client
+    .from("card_states")
+    .select("stability, difficulty, due_at, reps, lapses, state, last_review_at")
+    .eq("user_id", userId)
+    .neq("state", "new")
+    .lte("due_at", now.toISOString());
+  if (error) throw error;
+  const rows = data ?? [];
+  if (rows.length === 0) return { earliestDueAt: null, lowestRetrievability: null };
+
+  let earliestDueAt: string | null = null;
+  let earliestTime = Infinity;
+  let lowestRetrievability = Infinity;
+  for (const row of rows) {
+    if (row.due_at) {
+      const time = new Date(row.due_at).getTime();
+      if (time < earliestTime) {
+        earliestTime = time;
+        earliestDueAt = row.due_at;
+      }
+    }
+    const retrievability = cardRetrievability(
+      {
+        stability: row.stability,
+        difficulty: row.difficulty,
+        dueAt: row.due_at,
+        reps: row.reps,
+        lapses: row.lapses,
+        state: row.state,
+        lastReviewAt: row.last_review_at,
+      },
+      now
+    );
+    if (retrievability < lowestRetrievability) lowestRetrievability = retrievability;
+  }
+  return { earliestDueAt, lowestRetrievability };
 }
 
 /** Reads a card's current FSRS scheduling state — the input submitCardReview needs to compute the next state. Contains no prompt/answer text, only scheduling numbers. `null` means the card has never been reviewed. */
