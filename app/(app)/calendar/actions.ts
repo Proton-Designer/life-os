@@ -195,7 +195,18 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
       title: `Due: ${task.title}`,
       startMinutes,
       durationMinutes: 15,
-      colorVar: task.domain === "school" ? "--series-school" : "--series-coop",
+      // Three branches, not two. A two-branch ternary on a nullable column is
+      // an assumption written as code: `=== "school"` is legal against any
+      // type, so tsc will never flag it, and a dumped task (domain NULL after
+      // 119) would silently render in the co-op colour instead of neutral.
+      // Found by CollegeOS Eng 2 auditing my own reader list, which had this
+      // file down as not reading tasks.domain at all.
+      colorVar:
+        task.domain === "school"
+          ? "--series-school"
+          : task.domain === "co_op"
+            ? "--series-coop"
+            : "--series-other",
       kind: "task",
       detail: {
         timeRange: formatClockTime(startMinutes),

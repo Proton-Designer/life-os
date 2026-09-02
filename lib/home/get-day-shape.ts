@@ -50,7 +50,15 @@ export type DayShapeProfile = {
 };
 export type DayShapePrayerRow = { prayer_name: string; status: string };
 export type DayShapeWorkoutSchedule = { workout_name: string; time: string | null };
-export type DayShapeTaskRow = { title: string; domain: "school" | "co_op"; due_time: string };
+/**
+ * `domain` is NULLABLE (migration 119): a dumped Night Plan item has no domain
+ * yet. Declared here as such rather than as the narrow union it used to be —
+ * the narrow version plus the `as DayShapeTaskRow[]` cast below would have kept
+ * asserting a non-null value even after database.types.ts regenerated, because
+ * an assertion overrides inference. That is the cast-outlives-the-type shape,
+ * and it is why this type is written by hand at all.
+ */
+export type DayShapeTaskRow = { title: string; domain: "school" | "co_op" | null; due_time: string };
 export type DayShapeSessionRow = { started_at: string; ended_at: string | null; kind: "deep_work" | "deep_study" };
 export type DayShapeScheduleEventRow = {
   id: string;
@@ -268,7 +276,14 @@ export async function getDayShape(
     const start = resolveLocalTime(dateStr, task.due_time, timezone);
     activities.push({
       label: task.title,
-      colorVar: task.domain === "school" ? "--series-school" : "--series-coop",
+      // Three branches — see the note on DayShapeTaskRow. A null-domain task
+      // is neutral, not co-op.
+      colorVar:
+        task.domain === "school"
+          ? "--series-school"
+          : task.domain === "co_op"
+            ? "--series-coop"
+            : "--series-other",
       kind: "task",
       start,
       end: new Date(start.getTime() + NOMINAL_TASK_MS),
