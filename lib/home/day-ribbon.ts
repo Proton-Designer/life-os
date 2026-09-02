@@ -31,7 +31,10 @@ export type RibbonActivityDetail = {
  * sync with the weekly calendar's own vocabulary (components/calendar) —
  * the two surfaces must not disagree on what a block's kind means.
  */
-export type RibbonActivityKind = "class" | "work" | "fitness" | "task" | "focus";
+// "habit" (A3 Part 3): a generic-practice-engine habit with a cue_time —
+// any area's Habit Builder entry, not Faith-specific despite deen_habits'
+// table name (see that migration's own header, 114).
+export type RibbonActivityKind = "class" | "work" | "fitness" | "task" | "focus" | "habit";
 
 export type RibbonActivityInput = {
   label: string;

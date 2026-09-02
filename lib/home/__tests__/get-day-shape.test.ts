@@ -19,6 +19,7 @@ function dataSource(overrides: Partial<DayShapeDataSource> = {}): DayShapeDataSo
     getTimedTasks: async () => [],
     getFocusSessions: async () => [],
     getScheduleEvents: async () => [],
+    getHabitsWithCueTime: async () => [],
     ...overrides,
   };
 }
@@ -168,6 +169,29 @@ describe("getDayShape", () => {
     expect(sessionBlocks[0].end).toEqual(new Date("2026-08-15T15:30:00Z"));
     expect(sessionBlocks[1].label).toBe("Deep Study");
     expect(sessionBlocks[1].end).toBeNull();
+  });
+
+  // A3 Part 3 (generic practice engine): a habit with a cue_time is a new
+  // anchor source, unifying "named daily practice with a cue" with the
+  // existing Habit Builder rather than a parallel table.
+  describe("habits with a cue_time (generic practice engine anchors)", () => {
+    it("includes a block for a habit with a cue_time, at that time, with a nominal duration", async () => {
+      const result = await getDayShape(
+        "u1",
+        NOW,
+        dataSource({ getHabitsWithCueTime: async () => [{ name: "Morning pages", cue_time: "07:00" }] })
+      );
+      const habitBlocks = result.activities.filter((a) => a.kind === "habit");
+      expect(habitBlocks).toHaveLength(1);
+      expect(habitBlocks[0].label).toBe("Morning pages");
+      expect(habitBlocks[0].start).toEqual(new Date("2026-08-15T07:00:00.000Z"));
+      expect(habitBlocks[0].end).not.toBeNull();
+    });
+
+    it("includes no habit block when a habit has no cue_time at all — most habits are simply absent from the ribbon", async () => {
+      const result = await getDayShape("u1", NOW, dataSource());
+      expect(result.activities.filter((a) => a.kind === "habit")).toHaveLength(0);
+    });
   });
 
   // Classes/work — a new SOURCE for the existing activity-block mechanism,

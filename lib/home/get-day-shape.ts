@@ -25,6 +25,9 @@ const PRAYER_LABEL: Record<PrayerName, string> = {
 const NOMINAL_WORKOUT_MS = 45 * 60_000;
 const NOMINAL_TASK_MS = 15 * 60_000;
 const NOMINAL_SCHEDULE_EVENT_MS = 60 * 60_000;
+// A habit has no tracked duration any more than a timed task does (a cue,
+// not a session) -- same nominal-band reasoning as NOMINAL_TASK_MS above.
+const NOMINAL_HABIT_MS = 15 * 60_000;
 
 function formatTimeRange(start: Date, end: Date, timezone: string): string {
   const fmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" });
@@ -63,6 +66,8 @@ export type DayShapeScheduleEventRow = {
   /** Whether TODAY's occurrence of this event is cancelled — resolved from schedule_event_cancellations (migration 046), never the deprecated `cancelled_on` column. */
   cancelled: boolean;
 };
+/** A3 Part 3: any active habit that opted into a daily cue_time (migration 114) — not Faith-specific, despite the table name. */
+export type DayShapeHabitRow = { name: string; cue_time: string };
 
 export type DayShapeDataSource = {
   getProfile: (userId: string) => Promise<DayShapeProfile | null>;
@@ -72,6 +77,8 @@ export type DayShapeDataSource = {
   getFocusSessions: (userId: string, date: string, timezone: string) => Promise<DayShapeSessionRow[]>;
   /** Today's recurring + one-off schedule_events (classes, work) — school and co_op domains only. */
   getScheduleEvents: (userId: string, date: string, dayOfWeek: number) => Promise<DayShapeScheduleEventRow[]>;
+  /** Active habits with a non-null cue_time — most habits have none and are simply absent from the ribbon; that's the correct default, not a gap. */
+  getHabitsWithCueTime: (userId: string) => Promise<DayShapeHabitRow[]>;
 };
 
 export function defaultDataSource(): DayShapeDataSource {
@@ -164,6 +171,16 @@ export function defaultDataSource(): DayShapeDataSource {
       );
       return rows.map((r) => ({ ...r, cancelled: isOccurrenceCancelled(cancelledDates, r.id, date) }));
     },
+    async getHabitsWithCueTime(userId) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("deen_habits")
+        .select("name, cue_time")
+        .eq("user_id", userId)
+        .eq("archived", false)
+        .not("cue_time", "is", null);
+      return (data ?? []) as DayShapeHabitRow[];
+    },
   };
 }
 
@@ -201,12 +218,13 @@ export async function getDayShape(
   };
 
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
-  const [prayerRows, workoutSchedule, timedTasks, focusSessions, scheduleEvents] = await Promise.all([
+  const [prayerRows, workoutSchedule, timedTasks, focusSessions, scheduleEvents, habitsWithCueTime] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
     dataSource.getWorkoutSchedule(userId, dayOfWeek),
     dataSource.getTimedTasks(userId, dateStr),
     dataSource.getFocusSessions(userId, dateStr, timezone),
     dataSource.getScheduleEvents(userId, dateStr, dayOfWeek),
+    dataSource.getHabitsWithCueTime(userId),
   ]);
 
   const hasLocation = profile?.location_lat != null && profile?.location_lng != null;
@@ -295,6 +313,20 @@ export async function getDayShape(
         instructor: event.instructor ?? undefined,
         domain: event.domain,
       },
+    });
+  }
+
+  // A3 Part 3: the generic practice engine's own anchor source. --series-
+  // other, not a domain-specific color, since a habit isn't owned by any
+  // one area (deen_habits has no domain column at all, by design).
+  for (const habit of habitsWithCueTime) {
+    const start = resolveLocalTime(dateStr, habit.cue_time, timezone);
+    activities.push({
+      label: habit.name,
+      colorVar: "--series-other",
+      kind: "habit",
+      start,
+      end: new Date(start.getTime() + NOMINAL_HABIT_MS),
     });
   }
 

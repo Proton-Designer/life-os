@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useTransition } from "react";
-import { ListChecks, Timer, type LucideIcon } from "lucide-react";
+import { ListChecks, Timer, Repeat, type LucideIcon } from "lucide-react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,6 +20,7 @@ const RIBBON_KIND_ICON: Record<RibbonActivityKind, LucideIcon> = {
   fitness: DOMAIN_ICON.fitness,
   task: ListChecks,
   focus: Timer,
+  habit: Repeat,
 };
 
 const RIBBON_KIND_LABEL: Record<RibbonActivityKind, string> = {
@@ -28,6 +29,7 @@ const RIBBON_KIND_LABEL: Record<RibbonActivityKind, string> = {
   fitness: "Fitness",
   task: "Task",
   focus: "Focus",
+  habit: "Habit",
 };
 
 // Second label row is bumped further below the track than the first —
