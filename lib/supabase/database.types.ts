@@ -2189,7 +2189,7 @@ export type Database = {
           completed: boolean
           completed_at: string | null
           created_at: string
-          domain: string
+          domain: string | null
           due_date: string | null
           due_time: string | null
           id: string
@@ -2205,7 +2205,7 @@ export type Database = {
           completed?: boolean
           completed_at?: string | null
           created_at?: string
-          domain: string
+          domain?: string | null
           due_date?: string | null
           due_time?: string | null
           id?: string
@@ -2221,7 +2221,7 @@ export type Database = {
           completed?: boolean
           completed_at?: string | null
           created_at?: string
-          domain?: string
+          domain?: string | null
           due_date?: string | null
           due_time?: string | null
           id?: string
