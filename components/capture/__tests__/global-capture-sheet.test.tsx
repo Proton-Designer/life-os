@@ -82,25 +82,20 @@ describe("GlobalCaptureSheet", () => {
     expect(captureDumpMock).toHaveBeenCalledTimes(0);
   });
 
-  it("a worry capture routes through captureDump only", async () => {
+  // R57 (2026-09-02): storing a captured worry/note as domain "school" is the lie R54
+  // forbids — writing false domain data is worse than not capturing at all. Hidden from
+  // the type picker until migration 120 (tasks.dump_source; 119 makes tasks.domain
+  // nullable) is on production; captureDump itself is untouched underneath for
+  // re-enabling then.
+  it("hides Worry and Note from the type picker until migration 120 lands (R57)", async () => {
     const user = userEvent.setup();
     render(<GlobalCaptureSheet timezone="America/Chicago" />);
     await openSheet(user);
-    await user.click(screen.getByRole("button", { name: "Worry" }));
-    await user.type(screen.getByLabelText("Capture input"), "Worried about the exam");
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(captureDumpMock).toHaveBeenCalledTimes(1);
-    expect(captureTaskMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("a note capture also routes through captureDump only", async () => {
-    const user = userEvent.setup();
-    render(<GlobalCaptureSheet timezone="America/Chicago" />);
-    await openSheet(user);
-    await user.click(screen.getByRole("button", { name: "Note" }));
-    await user.type(screen.getByLabelText("Capture input"), "Remember this idea");
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(captureDumpMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Worry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Note" })).not.toBeInTheDocument();
+    // Task and distraction stay live.
+    expect(screen.getByRole("button", { name: "Task" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Distraction" })).toBeInTheDocument();
   });
 
   it("closing and reopening resets the input, so a stale draft never persists on a later, unrelated confirm", async () => {

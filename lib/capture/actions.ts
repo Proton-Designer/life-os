@@ -56,14 +56,17 @@ export async function captureDistraction(input: { title: string; domain: Distrac
  * since `tasks.domain`'s CHECK constraint (school|co_op) has no domain-agnostic value to
  * reach for instead.
  *
- * FLAGGED, NOT DECIDED UNILATERALLY (reported 2026-09-02, R51 resume): there is also no
- * column distinguishing a captured "worry" from a "note" today. `DumpSource` ("worry" vs
- * "user") in lib/night-plan/night-plan.ts is an in-memory engine concept with nothing
- * backing it in the schema — SPEC.md §4 lists "parked worries" as one of exactly three
- * future seeding sources, which implies something will eventually need to tell a captured
- * worry apart from an ordinary task to seed it back into a dump. Both persist identically
- * (a plain planned_date task) until that gap is closed, most likely by a future migration
- * adding a `source`/`kind` column — not something to invent here without a ruling.
+ * RULED, R57 (2026-09-02): writing a captured worry/note as `domain: "school"` is the lie
+ * R54 forbids, so this function is currently UNREACHABLE from the capture sheet — Worry
+ * and Note are hidden from the type picker (components/capture/global-capture-sheet.tsx's
+ * own comment) until migration 120 lands. Two migrations are in progress (LifeOS lead):
+ * 119 makes `tasks.domain` nullable; 120 (its own file) adds `tasks.dump_source`
+ * (school|milestone|worry|note|capture) — the column this function was missing when the
+ * domain question was first flagged (2026-09-02, R51 resume). Once 120 is on production:
+ * write `domain: null` and `dump_source` (accept it as a new required param here) instead
+ * of the placeholder below, and re-add Worry/Note to the picker. Nothing else about this
+ * function's caller contract changes.
+ *
  * `today` is always resolved via `localDateString`, never `new Date()`/`current_date`
  * directly (AGENTS.md's timezone rule) — `planned_date` is the day the worry/note was
  * dumped, not a parsed date, so "today" is always correct for it.
