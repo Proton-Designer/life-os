@@ -8,7 +8,21 @@ import { updateProfile, type ProfileUpdatable } from "@/app/(app)/settings/actio
 import type { Json } from "@/lib/supabase/database.types";
 import { seedMeditationsDeckForUser } from "@/lib/self-mastery/seed-meditations-deck";
 
-export type DomainKey = "personal_growth" | "work" | "school";
+/**
+ * Every key `user_domains.key` may legally hold — the TypeScript mirror of
+ * that column's CHECK, which is what check-enum-drift.sh pairs this against.
+ * Migration 115 widens the CHECK (faith/body/learning/business), so this
+ * widens with it: a DB value TS does not name renders `undefined` through any
+ * exhaustive Record, which is the drift direction that check exists to catch.
+ *
+ * DELIBERATELY NOT the same list as DOMAIN_KEYS below, and they must not be
+ * merged. This type answers "what may exist"; DOMAIN_KEYS answers "what this
+ * onboarding flow manages" — and DOMAIN_KEYS drives `toArchive`, so adding a
+ * key there archives every row of that key for any user who completes
+ * onboarding without picking it. Widening this type is safe; widening that
+ * list would silently archive users' post-115 Faith/Body/Learning rows.
+ */
+export type DomainKey = "personal_growth" | "faith" | "body" | "learning" | "business" | "work" | "school";
 
 export type SubdomainInput = {
   key: string;
@@ -18,6 +32,10 @@ export type SubdomainInput = {
   config?: Record<string, unknown>;
 };
 
+// The keys THIS FLOW offers and therefore manages. Scoped deliberately: it
+// drives `toArchive` below, so it must never list a key the flow cannot also
+// offer. It widens when onboarding actually offers the new areas (R27.2), not
+// when the database learns to accept them.
 const DOMAIN_KEYS: readonly DomainKey[] = ["personal_growth", "work", "school"];
 
 /**

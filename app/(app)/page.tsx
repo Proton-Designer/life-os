@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { hasArea } from "@/lib/domains/area-vocabulary";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { Inbox } from "lucide-react";
@@ -75,9 +76,9 @@ export default async function HomePage() {
       getUserDomains(),
     ]);
 
-  const hasSelfMastery =
-    domainsState.mode === "domains" &&
-    domainsState.subdomains.some((s) => s.domainKey === "personal_growth" && s.key === "self_mastery");
+  // Via the 115 bridge — reading "personal_growth:self_mastery" directly
+  // makes Self-Mastery disappear the moment the group row is archived.
+  const hasSelfMastery = hasArea(domainsState, "learning");
 
   // Body-level gating (Opus Lead finding, stranger-journey e2e): the nav
   // gates correctly, but Home's own content did not — Sector progress and

@@ -1,4 +1,5 @@
 import type { UserDomainsState } from "@/lib/domains/get-user-domains";
+import { areaWeight } from "@/lib/domains/area-vocabulary";
 import type { AreaWeightLookup } from "./build-candidates";
 
 /**
@@ -36,14 +37,18 @@ export function resolveAreaWeights(state: UserDomainsState): AreaWeightLookup {
 
   const lookup: AreaWeightLookup = {};
 
-  const personalGrowth = state.domains.find((d) => d.key === "personal_growth");
-  if (personalGrowth) {
-    const subdomainPosition = (key: string): number | null =>
-      state.subdomains.find((s) => s.domainKey === "personal_growth" && s.key === key)?.position ?? null;
-    lookup.deen = { weightTier: personalGrowth.weight, position: subdomainPosition("faith") };
-    lookup.fitness = { weightTier: personalGrowth.weight, position: subdomainPosition("fitness") };
-    lookup.self_mastery = { weightTier: personalGrowth.weight, position: subdomainPosition("self_mastery") };
-  }
+  // Through the 115 bridge. Pre-flatten all three inherit the group row's
+  // single tier (unchanged behaviour); post-flatten each carries its OWN
+  // tier, which is the entire point of the migration — weight stops being
+  // shared by three areas that merely happened to sit under one group.
+  // Absence still means the user opted out, exactly as this file's header
+  // says: areaWeight widens where we look, it never invents a fallback.
+  const deen = areaWeight(state, "faith");
+  if (deen) lookup.deen = deen;
+  const fitness = areaWeight(state, "body");
+  if (fitness) lookup.fitness = fitness;
+  const selfMastery = areaWeight(state, "learning");
+  if (selfMastery) lookup.self_mastery = selfMastery;
 
   const school = state.domains.find((d) => d.key === "school");
   if (school) {

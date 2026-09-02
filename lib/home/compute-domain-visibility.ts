@@ -1,4 +1,5 @@
 import type { UserDomainsState } from "@/lib/domains/get-user-domains";
+import { hasArea } from "@/lib/domains/area-vocabulary";
 
 export type DomainVisibility = {
   hasFaith: boolean;
@@ -28,14 +29,16 @@ export type DomainVisibility = {
  */
 export function computeDomainVisibility(domainsState: UserDomainsState): DomainVisibility {
   const isLegacy = domainsState.mode === "legacy";
-  const activeSubdomains = new Set(
-    domainsState.mode === "domains" ? domainsState.subdomains.map((s) => `${s.domainKey}:${s.key}`) : []
-  );
   const activeDomains = new Set(domainsState.mode === "domains" ? domainsState.domains.map((d) => d.key) : []);
 
   return {
-    hasFaith: isLegacy || activeSubdomains.has("personal_growth:faith"),
-    hasFitness: isLegacy || activeSubdomains.has("personal_growth:fitness"),
+    // Resolved through the 115 bridge, not by reading "personal_growth:*"
+    // directly: after the flatten those subdomains are unreachable (their
+    // parent row is archived, so getUserDomains never queries them) and both
+    // sectors would silently vanish. hasArea checks the post-115 top-level
+    // key first, then the legacy group form. See lib/domains/area-vocabulary.ts.
+    hasFaith: isLegacy || hasArea(domainsState, "faith"),
+    hasFitness: isLegacy || hasArea(domainsState, "body"),
     hasWork: isLegacy || activeDomains.has("work"),
     hasSchoolDomain: isLegacy || activeDomains.has("school"),
   };
