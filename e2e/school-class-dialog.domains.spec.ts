@@ -101,7 +101,11 @@ test.describe("School class dialog, against a fixture with real assessments", ()
   test("the same title fits in both the assessments list and the grade ledger", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     const dialog = await openClassDialogWithAssessments(page);
-    await expect(dialog.getByText("Grade")).toBeVisible();
+    // Role-scoped, not getByText: the dialog also contains the prose
+    // "75% of the grade is not yet weighted.", so a bare getByText("Grade")
+    // is a substring match that resolves to two elements and dies on strict
+    // mode — a failure that reads like the ledger never rendered.
+    await expect(dialog.getByRole("heading", { name: "Grade", exact: true })).toBeVisible();
 
     const boxes = await page.evaluate(() => {
       const root = document.querySelector('[role="dialog"]')!;

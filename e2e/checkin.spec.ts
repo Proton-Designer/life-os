@@ -42,15 +42,22 @@ test("answering an allocation check-in records it and Insights' Signal:Noise pan
     checkinId = row.id;
 
     expect(row).toMatchObject({ kind: "allocation", answered: true });
-    const allocations: { domain: string; minutes: number }[] = row.checkin_allocations;
+    const allocations: { domain: string | null; minutes: number; is_wasted?: boolean }[] =
+      row.checkin_allocations;
     expect(allocations).toEqual(
-      expect.arrayContaining([
-        { domain: "business", minutes: 30 },
-        // wasted = TOTAL_MINUTES(120) - assigned(30), derived and persisted
-        // by save_allocation_checkin itself, not something this test computes.
-        { domain: "wasted", minutes: 90 },
-      ])
+      expect.arrayContaining([expect.objectContaining({ domain: "business", minutes: 30 })])
     );
+    // Migration 108 split the wasted sentinel OUT of `domain`: wasted time is
+    // now `is_wasted = true` with `domain IS NULL`, guarded by a XOR check and
+    // a CHECK that forbids the literal 'wasted' as a domain. This spec asserted
+    // the pre-108 shape and had been red ever since. Assert the real one --
+    // and assert the null, since "no domain" is the whole point of the split:
+    // wasted time belongs to no domain rather than to one called "wasted".
+    // wasted = TOTAL_MINUTES(120) - assigned(30), derived and persisted by
+    // save_allocation_checkin itself, not something this test computes.
+    const wasted = allocations.filter((a) => a.domain === null);
+    expect(wasted).toHaveLength(1);
+    expect(wasted[0].minutes).toBe(90);
 
     await page.goto("/insights");
     await dismissCheckinDialogIfPresent(page);
