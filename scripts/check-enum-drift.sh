@@ -97,7 +97,26 @@ check_pair() { # <table.column>:<file>  -> 0 ok, 1 drift
   local db ts missing extra
   db="$(db_values "$table" "$col")"
   ts="$(ts_values "$file")"
-  if [ -z "$db" ]; then echo "  ? $tc — no CHECK found (column may have become an enum); review manually"; return 1; fi
+  if [ -z "$db" ]; then
+    # Distinguish "the column does not exist yet" from "it exists with no CHECK".
+    # The first is a PENDING MIGRATION -- the pair was committed alongside a
+    # migration that has not been applied to this database yet, which is correct
+    # practice and must not read as drift. The second is a real finding.
+    #
+    # Without this split the check emits a permanent "?" between a migration
+    # being committed and applied, and this script's own header warns that
+    # permanent noise trains a reader to skim -- which is worse than no check.
+    local exists
+    exists="$(psql "$URL" -X -q -t -A </dev/null -c "
+      select count(*) from information_schema.columns
+       where table_schema='public' and table_name='$table' and column_name='$col';" 2>/dev/null | tr -d ' ')"
+    if [ "$exists" = "0" ]; then
+      echo "  ~ $tc — column not on this database yet (migration pending); not drift"
+      return 0
+    fi
+    echo "  ? $tc — column EXISTS but has no CHECK (may have become an enum); review manually"
+    return 1
+  fi
   missing="$(comm -23 <(echo "$db") <(echo "$ts"))"
   extra="$(comm -13 <(echo "$db") <(echo "$ts"))"
   if [ -n "$missing" ]; then
