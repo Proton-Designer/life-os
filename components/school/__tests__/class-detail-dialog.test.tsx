@@ -39,6 +39,7 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     hasSyllabus: false,
     tasksDueThisWeek: 0,
     upcomingAssessment: null,
+    difficultyRating: null,
     assessments: [],
     tasks: [],
     ...overrides,
@@ -56,7 +57,9 @@ describe("ClassDetailDialog", () => {
         open
         onOpenChange={vi.fn()}
         classData={baseClassData({
-          assessments: [{ id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1" }],
+          assessments: [
+            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low" } },
+          ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
         })}
         timezone="America/Chicago"
@@ -193,7 +196,9 @@ describe("ClassDetailDialog", () => {
         open
         onOpenChange={vi.fn()}
         classData={baseClassData({
-          assessments: [{ id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1" }],
+          assessments: [
+            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low" } },
+          ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
         })}
         timezone="America/Chicago"
@@ -218,7 +223,9 @@ describe("ClassDetailDialog", () => {
         open
         onOpenChange={vi.fn()}
         classData={baseClassData({
-          assessments: [{ id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1" }],
+          assessments: [
+            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low" } },
+          ],
         })}
         timezone="America/Chicago"
       />

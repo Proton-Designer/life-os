@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
+import type { RiskBand } from "@/lib/school/risk/assignment-risk";
 
 export type ClassAssessment = {
   id: string;
@@ -14,7 +15,17 @@ export type ClassAssessment = {
   type: AssessmentType;
   date: string;
   task_id: string | null;
+  /** Always computed by the caller (lib/school/get-class-cards.ts), even before the class
+   * has a difficulty rating — the engine degrades gracefully rather than needing this to
+   * be optional. Whether it's actually used to ORDER the list is `rankedByRisk`'s call, not
+   * this field's presence. */
+  risk: { score: number; band: RiskBand };
 };
+
+/** Exact copy, per the Lead's spec — shown in place of a risk-ranked order until the class
+ * has a difficulty rating, since ranking a class's assessments off nothing but the
+ * always-excluded/renormalized factors would read as "ranked" when it's mostly not yet. */
+const UNRANKED_CAPTION = "ranked by due date until you rate difficulty.";
 
 const TYPE_LABEL: Record<AssessmentType, string> = {
   quiz: "Quiz",
@@ -66,6 +77,7 @@ export function ClassAssessments({
   assessments,
   editing,
   todayStr,
+  rankedByRisk,
   onAdd,
   onUpdate,
   onRemove,
@@ -74,6 +86,12 @@ export function ClassAssessments({
   editing: boolean;
   /** Reference year for formatShortDate — never derive it from a raw Date (AGENTS.md). */
   todayStr: string;
+  /** `classes.difficulty_rating != null` for this class, computed by the caller. Gates the
+   * display order: risk-ranked once the class has a rating, date order (as `assessments`
+   * already arrives from the query) until then — never a partial risk order built mostly
+   * out of always-excluded/renormalized factors, which would read as "ranked" when the one
+   * input that would actually move the needle for this class is still missing. */
+  rankedByRisk: boolean;
   onAdd: (input: { name: string; type: AssessmentType; date: string }) => void;
   onUpdate: (id: string, patch: Partial<{ name: string; type: AssessmentType; date: string }>) => void;
   onRemove: (id: string) => void;
@@ -104,6 +122,16 @@ export function ClassAssessments({
 
   const hasLinkedTask = assessments.some((a) => a.task_id !== null);
 
+  // Sort by risk score, date as the tiebreak, THEN this is the whole list — never a
+  // date-sorted-then-truncated set with risk only reordering within it. That was
+  // College-app's own DeadlineRadar bug (8d77e73): risk that can only reorder a set
+  // already chosen by date isn't risk-ranking, it's decoration. `assessments` already
+  // arrives date-ascending from the query, so the unranked branch is a no-op copy, not a
+  // second sort that could silently disagree with the server's order.
+  const displayAssessments = rankedByRisk
+    ? [...assessments].sort((a, b) => b.risk.score - a.risk.score || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    : assessments;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -118,6 +146,8 @@ export function ClassAssessments({
         </Button>
       </div>
 
+      {!rankedByRisk && assessments.length > 0 && <p className="text-xs text-muted-foreground">{UNRANKED_CAPTION}</p>}
+
       {assessments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No assessments yet.</p>
       ) : (
@@ -131,10 +161,11 @@ export function ClassAssessments({
             <span>Date</span>
             <span aria-hidden />
           </div>
-          {assessments.map((a) =>
+          {displayAssessments.map((a) =>
             editing ? (
               <div
                 key={a.id}
+                data-testid={`assessment-row-${a.id}`}
                 className={cn("grid items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5", ROW_GRID)}
               >
                 <Input
@@ -174,6 +205,7 @@ export function ClassAssessments({
             ) : (
               <div
                 key={a.id}
+                data-testid={`assessment-row-${a.id}`}
                 className={cn(
                   "grid items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0",
                   ROW_GRID

@@ -9,7 +9,15 @@ import { ClassAssessments, type ClassAssessment } from "../class-assessments";
 // rather than mocking class-actions.
 
 function assessment(overrides: Partial<ClassAssessment> = {}): ClassAssessment {
-  return { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", task_id: "t1", ...overrides };
+  return {
+    id: "a1",
+    name: "Midterm",
+    type: "midterm_final",
+    date: "2026-10-06",
+    task_id: "t1",
+    risk: { score: 0, band: "low" },
+    ...overrides,
+  };
 }
 
 describe("ClassAssessments", () => {
@@ -19,6 +27,7 @@ describe("ClassAssessments", () => {
         assessments={[assessment()]}
         editing={false}
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -41,6 +50,7 @@ describe("ClassAssessments", () => {
         assessments={[]}
         editing={false}
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -57,6 +67,7 @@ describe("ClassAssessments", () => {
         assessments={[assessment()]}
         editing
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={onRemove}
@@ -77,6 +88,7 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ name: "Q" })]}
         editing
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={onUpdate}
         onRemove={vi.fn()}
@@ -90,7 +102,15 @@ describe("ClassAssessments", () => {
     const onAdd = vi.fn();
     const user = userEvent.setup();
     render(
-      <ClassAssessments assessments={[]} editing todayStr="2026-08-26" onAdd={onAdd} onUpdate={vi.fn()} onRemove={vi.fn()} />
+      <ClassAssessments
+        assessments={[]}
+        editing
+        todayStr="2026-08-26"
+        rankedByRisk={false}
+        onAdd={onAdd}
+        onUpdate={vi.fn()}
+        onRemove={vi.fn()}
+      />
     );
     await user.click(screen.getByRole("button", { name: "Add assessment" }));
     expect(screen.getByText("Assessment type")).toBeInTheDocument();
@@ -113,6 +133,7 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ task_id: "t1" })]}
         editing
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -125,6 +146,7 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ task_id: "t1" })]}
         editing={false}
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -137,11 +159,89 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ task_id: null })]}
         editing
         todayStr="2026-08-26"
+        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
       />
     );
     expect(screen.queryByText("Removing an assessment also removes its linked task.")).not.toBeInTheDocument();
+  });
+});
+
+// RED TEST (2026-09-02, risk-engine port): as of the pre-port production code,
+// ClassAssessments had no `risk` field on its assessments and no `rankedByRisk` prop at
+// all — it rendered whatever order it was handed, unconditionally. The tests below
+// failed against that code (3/3 red — two on order, one on the missing empty-state copy)
+// before class-assessments.tsx was wired to sort by risk; they pass now.
+
+function rankedAssessment(id: string, name: string, date: string, score: number): ClassAssessment {
+  return { id, name, type: "quiz", date, task_id: null, risk: { score, band: score >= 50 ? "high" : "low" } };
+}
+
+describe("ClassAssessments — risk ranking", () => {
+  it("without a difficulty rating, keeps date order and shows why", () => {
+    const items = [
+      rankedAssessment("a", "Low-risk quiz due first", "2026-09-01", 10),
+      rankedAssessment("b", "High-risk final due later", "2026-09-10", 90),
+    ];
+    render(
+      <ClassAssessments
+        assessments={items}
+        editing={false}
+        todayStr="2026-08-20"
+        rankedByRisk={false}
+        onAdd={() => {}}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-a", "assessment-row-b"]);
+    expect(screen.getByText("ranked by due date until you rate difficulty.")).toBeInTheDocument();
+  });
+
+  it("once the class has a difficulty rating, ranks by risk score instead of date order", () => {
+    const items = [
+      rankedAssessment("a", "Low-risk quiz due first", "2026-09-01", 10),
+      rankedAssessment("b", "High-risk final due later", "2026-09-10", 90),
+    ];
+    render(
+      <ClassAssessments
+        assessments={items}
+        editing={false}
+        todayStr="2026-08-20"
+        rankedByRisk
+        onAdd={() => {}}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    // b scores higher risk than a, despite being LATER by date — proves ranking is by
+    // risk, not by the array/date order it was handed (the exact 8d77e73 sort-then-slice
+    // failure mode: risk that only ever reorders within a date-sorted set is not risk-ranked).
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-b", "assessment-row-a"]);
+    expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
+  });
+
+  it("date breaks a tie in risk score", () => {
+    const items = [
+      rankedAssessment("a", "Same risk, later date", "2026-09-10", 50),
+      rankedAssessment("b", "Same risk, earlier date", "2026-09-01", 50),
+    ];
+    render(
+      <ClassAssessments
+        assessments={items}
+        editing={false}
+        todayStr="2026-08-20"
+        rankedByRisk
+        onAdd={() => {}}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-b", "assessment-row-a"]);
   });
 });

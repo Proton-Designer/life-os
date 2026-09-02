@@ -1,6 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { weekDatesFrom } from "@/lib/date-utils";
+import { buildAssessmentRiskInput } from "@/lib/school/risk/build-assessment-risk-input";
+import { computeAssignmentRisk, type RiskBand } from "@/lib/school/risk/assignment-risk";
+
+// `difficulty_rating` / `confidence_rating` / `target_grade_pct` (classes) and
+// `weight_pct` (class_assessments) landed in migration 105 — see that file's own
+// comment for why every one of them is nullable by design. `database.types.ts` has not
+// been regenerated for them yet (it's mid-edit elsewhere in this shared tree for
+// unrelated work — R1's review/card_states columns — and regenerating it here would
+// clobber that in-flight change). `.returns<T>()` overrides the inferred row shape for
+// just these two queries without touching the generated file; confirmed against the
+// live schema (read-only check, 2026-09-02) that these columns already exist in
+// production. Remove this once database.types.ts is regenerated to include them.
+type ClassRiskColumns = { difficulty_rating: number | null; confidence_rating: number | null; target_grade_pct: number | null };
+type AssessmentRiskColumns = { weight_pct: number | null };
 
 export type ClassCardData = {
   id: string;
@@ -15,11 +29,27 @@ export type ClassCardData = {
   hasSyllabus: boolean;
   tasksDueThisWeek: number;
   upcomingAssessment: { name: string; date: string } | null;
+  /** `classes.difficulty_rating` (migration 105). Null for every class until a rating
+   * capture UI exists — that's expected, not an error state. Gates whether the
+   * assessments list below is risk-ranked or date-ranked (see class-assessments.tsx). */
+  difficultyRating: number | null;
   /** All of this class's assessments, date ascending — carried alongside
    * `upcomingAssessment` (still derived from this same array, not a
    * separate query) so the expanded class view can render its full list
-   * without a second round-trip once it opens (item A2). */
-  assessments: { id: string; name: string; type: string; date: string; taskId: string | null }[];
+   * without a second round-trip once it opens (item A2). Stays date-ascending
+   * here regardless of risk — `upcomingAssessment` below relies on that order
+   * to find the nearest one; risk-ranking for display is the caller's job
+   * (class-detail-dialog.tsx / class-assessments.tsx), not this function's. */
+  assessments: {
+    id: string;
+    name: string;
+    type: string;
+    date: string;
+    taskId: string | null;
+    /** Always computed, even with every risk input null — the engine degrades
+     * gracefully (DOMAIN_ENGINE_SPEC.md §0) rather than needing this to be optional. */
+    risk: { score: number; band: RiskBand };
+  }[];
   /** This class's incomplete tasks, regardless of week — deliberately
    * wider than `tasksDueThisWeek`'s this-week/incomplete filter, since the
    * expanded class view's task list isn't scoped to the week the way the
@@ -59,10 +89,11 @@ export async function getClassCards(
 
   const { data: classRows, error: classError } = await supabase
     .from("classes")
-    .select("id, short_name, code, room, instructor, syllabus_path")
+    .select("id, short_name, code, room, instructor, syllabus_path, difficulty_rating, confidence_rating, target_grade_pct")
     .eq("user_id", userId)
     .order("position", { ascending: true, nullsFirst: false })
-    .order("code", { ascending: true });
+    .order("code", { ascending: true })
+    .returns<(Database["public"]["Tables"]["classes"]["Row"] & ClassRiskColumns)[]>();
   if (classError) throw classError;
   const classes = classRows ?? [];
   if (classes.length === 0) return [];
@@ -84,10 +115,11 @@ export async function getClassCards(
       .in("class_id", classIds),
     supabase
       .from("class_assessments")
-      .select("id, class_id, name, type, date, task_id")
+      .select("id, class_id, name, type, date, task_id, weight_pct")
       .eq("user_id", userId)
       .in("class_id", classIds)
-      .order("date", { ascending: true }),
+      .order("date", { ascending: true })
+      .returns<(Database["public"]["Tables"]["class_assessments"]["Row"] & AssessmentRiskColumns)[]>(),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
@@ -107,18 +139,36 @@ export async function getClassCards(
     tasksByClass.set(t.class_id, list);
   }
 
-  const assessmentsByClass = new Map<string, ClassCardData["assessments"]>();
+  type RawAssessment = { id: string; name: string; type: string; date: string; taskId: string | null; weightPct: number | null };
+  const assessmentsByClass = new Map<string, RawAssessment[]>();
   for (const a of assessmentRows ?? []) {
     const list = assessmentsByClass.get(a.class_id) ?? [];
-    list.push({ id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.task_id });
+    list.push({ id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.task_id, weightPct: a.weight_pct });
     assessmentsByClass.set(a.class_id, list);
   }
 
   return classes.map((c) => {
     const tasks = tasksByClass.get(c.id) ?? [];
-    const assessments = assessmentsByClass.get(c.id) ?? [];
-    // Rows are already ordered by date ascending, so the first future
-    // assessment is the nearest upcoming one — no separate min() pass.
+    const rawAssessments = assessmentsByClass.get(c.id) ?? [];
+    // computeAssignmentRisk is pure and per-assessment; this class's own ratings apply to
+    // every one of its assessments identically (difficulty/confidence are properties of
+    // the class, migration 105), so only weightPct and date vary assessment-to-assessment.
+    const assessments = rawAssessments.map((a) => {
+      const riskInput = buildAssessmentRiskInput({
+        today: todayStr,
+        dueDate: a.date,
+        weightPct: a.weightPct,
+        difficultyRating: c.difficulty_rating,
+        confidenceRating: c.confidence_rating,
+        targetGradePct: c.target_grade_pct,
+      });
+      const { score, band } = computeAssignmentRisk(riskInput);
+      return { id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.taskId, risk: { score, band } };
+    });
+    // Rows are already ordered by date ascending (risk is attached in place, not
+    // re-sorted), so the first future assessment is still the nearest upcoming one — no
+    // separate min() pass. Display-order risk-ranking is the caller's job (see
+    // class-assessments.tsx's `rankedByRisk`), not this function's.
     const upcomingAssessment = assessments.find((a) => a.date >= todayStr) ?? null;
     return {
       id: c.id,
@@ -126,6 +176,7 @@ export async function getClassCards(
       code: c.code,
       room: c.room,
       instructor: c.instructor,
+      difficultyRating: c.difficulty_rating,
       hasSyllabus: c.syllabus_path !== null,
       tasksDueThisWeek: tasks.filter((t) => t.dueDate !== null && t.dueDate >= weekStart && t.dueDate <= weekEnd).length,
       upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,

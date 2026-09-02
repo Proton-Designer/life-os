@@ -9,7 +9,10 @@ function makeSelectResult(rows: Row[]) {
   // supabase-js query builder's own thenable shape closely enough for this
   // pure data-shaping function, which only ever awaits the final result.
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "in", "gte", "lte", "order"]) {
+  // `.returns<T>()` is a type-only override in the real supabase-js client — it returns
+  // `this` and changes nothing at runtime, so the fake mirrors that rather than needing
+  // its own case per call site.
+  for (const method of ["select", "eq", "in", "gte", "lte", "order", "returns"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (resolve: (v: { data: Row[]; error: null }) => void) => resolve({ data: rows, error: null });
@@ -35,26 +38,44 @@ function task(id: string, classId: string, dueDate: string, overrides: Row = {})
 }
 
 function assessment(id: string, classId: string, name: string, date: string, overrides: Row = {}): Row {
-  return { id, class_id: classId, name, type: "quiz", date, task_id: null, ...overrides };
+  return { id, class_id: classId, name, type: "quiz", date, task_id: null, weight_pct: null, ...overrides };
+}
+
+// This suite is about data SHAPING (grouping, this-week filtering, nearest-upcoming
+// selection) — the risk SCORE's exact value is the risk engine's own contract, covered
+// exhaustively in lib/school/risk/__tests__. Stripping it here keeps this suite from
+// having to hand-duplicate that math, while still asserting the field exists and looks
+// like a real risk result (see the shape check below each toEqual).
+function stripRisk<T extends { assessments: { risk: unknown }[] }>(classCard: T) {
+  return { ...classCard, assessments: classCard.assessments.map(({ risk, ...rest }) => rest) };
+}
+
+function expectRealRiskResult(assessments: { risk: { score: number; band: string } }[]) {
+  for (const a of assessments) {
+    expect(Number.isFinite(a.risk.score)).toBe(true);
+    expect(["low", "moderate", "high", "critical"]).toContain(a.risk.band);
+  }
 }
 
 describe("getClassCards", () => {
   it("shapes a normal class: this-week task count derived from the full task list, nearest upcoming assessment, full arrays carried through", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: "FO 2.404", instructor: "Nemec", syllabus_path: "u/c1/x.pdf" }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: "FO 2.404", instructor: "Nemec", syllabus_path: "u/c1/x.pdf", difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
       tasks: [task("t1", "c1", "2026-08-25"), task("t2", "c1", "2026-08-26"), task("t3", "c1", "2026-09-15")],
       class_assessments: [assessment("a1", "c1", "Quiz 2", "2026-09-10"), assessment("a2", "c1", "Quiz 3", "2026-09-20")],
     });
 
     const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
 
-    expect(result).toEqual([
+    expectRealRiskResult(result[0]!.assessments);
+    expect(result.map(stripRisk)).toEqual([
       {
         id: "c1",
         shortName: "DSA",
         code: "CS-3345-HON",
         room: "FO 2.404",
         instructor: "Nemec",
+        difficultyRating: null,
         hasSyllabus: true,
         tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
@@ -78,7 +99,7 @@ describe("getClassCards", () => {
   // not crash and not show "undefined".
   it("shapes a class with nothing else attached to it (the Lin Alg / MATH 2418 shape) without crashing or producing undefined", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c2", short_name: "Lin Alg", code: "MATH 2418", room: null, instructor: null, syllabus_path: null }],
+      classes: [{ id: "c2", short_name: "Lin Alg", code: "MATH 2418", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
       tasks: [],
       class_assessments: [],
     });
@@ -92,6 +113,7 @@ describe("getClassCards", () => {
         code: "MATH 2418",
         room: null,
         instructor: null,
+        difficultyRating: null,
         hasSyllabus: false,
         tasksDueThisWeek: 0,
         upcomingAssessment: null,
@@ -113,8 +135,8 @@ describe("getClassCards", () => {
   it("never attributes another class's task count or assessment to a class with none of its own", async () => {
     const supabase = makeFakeSupabase({
       classes: [
-        { id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null },
-        { id: "c2", short_name: "Phys", code: "PHYS-2326-002", room: null, instructor: null, syllabus_path: null },
+        { id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null },
+        { id: "c2", short_name: "Phys", code: "PHYS-2326-002", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null },
       ],
       tasks: [task("t1", "c1", "2026-08-25")],
       class_assessments: [assessment("a1", "c1", "Exam 1", "2026-09-01")],
@@ -130,7 +152,7 @@ describe("getClassCards", () => {
 
   it("keeps a class's full incomplete task list even for tasks outside this week — not just the this-week count", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
       tasks: [task("t1", "c1", "2026-08-25"), task("t2", "c1", "2026-10-01")],
       class_assessments: [],
     });
@@ -142,7 +164,7 @@ describe("getClassCards", () => {
 
   it("ignores a past assessment when picking the nearest upcoming one, but still carries it in the full array", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
       tasks: [],
       class_assessments: [assessment("a1", "c1", "Past Quiz", "2026-08-01"), assessment("a2", "c1", "Future Quiz", "2026-09-01")],
     });

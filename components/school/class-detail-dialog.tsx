@@ -23,7 +23,7 @@ import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-uti
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
 function mapAssessments(source: ClassCardData["assessments"]): ClassAssessment[] {
-  return source.map((a) => ({ id: a.id, name: a.name, type: a.type as AssessmentType, date: a.date, task_id: a.taskId }));
+  return source.map((a) => ({ id: a.id, name: a.name, type: a.type as AssessmentType, date: a.date, task_id: a.taskId, risk: a.risk }));
 }
 
 function mapTasks(source: ClassCardData["tasks"], className: string): TaskListItem[] {
@@ -363,6 +363,7 @@ export function ClassDetailDialog({
               assessments={assessments}
               editing={editing}
               todayStr={todayStr}
+              rankedByRisk={classData.difficultyRating != null}
               onAdd={handleAddAssessment}
               onUpdate={handleUpdateAssessment}
               onRemove={handleRemoveAssessment}
