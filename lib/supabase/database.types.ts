@@ -1611,6 +1611,34 @@ export type Database = {
         }
         Relationships: []
       }
+      // HAND-PATCHED ahead of migration 116 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
+      reading_logs: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          source: string | null
+          units_read: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          source?: string | null
+          units_read: number
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          source?: string | null
+          units_read?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       reflection_entries: {
         Row: {
           created_at: string

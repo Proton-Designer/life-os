@@ -3,6 +3,8 @@
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString } from "@/lib/date-utils";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
+import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import type { CalendarItem } from "@/components/calendar/week-hour-grid";
 import type { WeeklyGoalEntry } from "@/components/shared/weekly-goals-header";
 
@@ -47,6 +49,10 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
+  // See lib/domains/weekly-goal-domains.ts's own header: a bare
+  // ["deen","business"] literal silently excludes a user who deselected
+  // Faith the moment that becomes possible to do.
+  const domainsState = await getUserDomains();
 
   const [{ data: eventRows }, { data: weeklyGoalsRows }, { data: taskRows }, { data: activePlanRow }, { data: quranSessionRows }] =
     await Promise.all([
@@ -60,7 +66,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         .select("domain, headline, milestones, quran_page_target")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", ["deen", "business"]),
+        .in("domain", weeklyGoalDomains(domainsState)),
       supabase
         .from("tasks")
         .select("id, title, domain, due_date, due_time, completed")

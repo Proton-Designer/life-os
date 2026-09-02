@@ -25,6 +25,7 @@ import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
 
 export default async function HomePage() {
@@ -43,7 +44,15 @@ export default async function HomePage() {
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, domainsState] =
+  // Fetched ahead of the Promise.all below (not inside it) because the
+  // weekly_goals query's own domain filter now depends on its resolved
+  // value — see weeklyGoalDomains' own header for why ["deen","business"]
+  // silently excludes any user who deselected Faith the moment that
+  // becomes possible. cache()-wrapped, so this costs nothing extra where
+  // getUserDomains() is called again below for hasSelfMastery/visibility.
+  const domainsState = await getUserDomains();
+
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -55,7 +64,7 @@ export default async function HomePage() {
         .select("domain, headline, milestones, quran_page_target")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", ["deen", "business"]),
+        .in("domain", weeklyGoalDomains(domainsState)),
       getAllTriggers(supabase, userId, dateStr),
       getTodayDistractionCount(supabase, userId, dateStr),
       // D-004: a lightweight "this is still happening" affordance for
@@ -69,11 +78,6 @@ export default async function HomePage() {
       // call start_session — a user glancing at Home never creates a real
       // work_sessions row just by loading the page.
       getDueSummary(),
-      // Gates the entry card below on Self-Mastery actually being
-      // selected — a legacy account (predates domain selection entirely)
-      // or one that opted out of Self-Mastery must not see a card
-      // advertising a feature they never chose.
-      getUserDomains(),
     ]);
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
