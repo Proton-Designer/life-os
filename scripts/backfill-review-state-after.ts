@@ -316,7 +316,23 @@ async function main() {
       // `_backfill_review_state_after`), and its own `where state_after is
       // null` guard is the belt-and-suspenders against overwriting a value
       // another run already wrote.
-      const { error: updateError } = await supabase.rpc("_backfill_review_state_after", {
+      // MIGRATION 112 DROPPED THIS RPC, so its name is no longer in the
+      // generated union and this call is a hard `tsc` error. The file's own
+      // header called that "a pre-existing failure, not a regression" — true,
+      // and it understated the consequence: the error blocked `next build`,
+      // and therefore EVERY PRODUCTION DEPLOY, for as long as it stood. A
+      // knowingly-broken file inside the build path is not a dormant wart, it
+      // is a stopped release pipeline.
+      //
+      // The cast asserts a FACT rather than hiding an unknown: the function
+      // does not exist, this script is documented as unable to run, and `112`
+      // set `state_after` NOT NULL so `planCardBackfill` can never return a
+      // step to apply. If the script is ever revived this line must fail
+      // again — that is what the comment is for.
+      const { error: updateError } = await (supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>
+      ) => Promise<{ error: { message: string } | null }>)("_backfill_review_state_after", {
         p_id: step.id,
         p_state_after: step.stateAfter,
       });

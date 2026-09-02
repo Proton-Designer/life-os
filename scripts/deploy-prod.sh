@@ -124,7 +124,14 @@ if [ $RC -eq 0 ]; then
   echo "deployed $SHA"
 else
   echo "DEPLOY FAILED (exit $RC) — nothing was aliased" >&2
-  echo "  'Could not retrieve Project Settings' means the TOKEN, not .vercel/ —" >&2
-  echo "  that message names the project but the usual cause is a stale credential." >&2
+  echo "  READ THE BUILD OUTPUT ABOVE BEFORE TOUCHING CREDENTIALS." >&2
+  echo "  This hint used to say the message 'means the TOKEN'. On 2026-09-02 that" >&2
+  echo "  sent the operator to check a token that was perfectly valid: the real" >&2
+  echo "  cause was a tsc error in an obsolete script, which failed the BUILD." >&2
+  echo "  Both causes produce 'Could not retrieve Project Settings'." >&2
+  echo "    build failure  -> look for 'error TS' / 'Failed to compile' above" >&2
+  echo "    stale token    -> npx vercel whoami --token <t>   (fails if bad)" >&2
+  echo "  A diagnostic that names ONE cause for a symptom with two is worse than" >&2
+  echo "  no diagnostic: it does not merely fail to help, it misdirects." >&2
 fi
 exit $RC
