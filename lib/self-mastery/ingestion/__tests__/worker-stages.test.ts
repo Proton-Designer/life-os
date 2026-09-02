@@ -313,12 +313,16 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
               };
             },
             update(vals: { status?: string }) {
-              return {
-                eq: async () => {
+              const builder = {
+                eq() {
+                  return builder;
+                },
+                then(resolve: (v: { error: null }) => void) {
                   if (vals.status) opts.onPromote?.(vals.status);
-                  return { error: null };
+                  resolve({ error: null });
                 },
               };
+              return builder;
             },
           };
         }

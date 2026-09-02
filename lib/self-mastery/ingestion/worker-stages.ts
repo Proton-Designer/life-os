@@ -388,8 +388,20 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
 
   // D-018: promote iff at least one card survived; a denied lesson keeps
   // its pre-promotion ('archived') status, never touched further here.
+  //
+  // SCOPING FIX (the Boss's finding): this update was unconditional on
+  // `id` alone -- every other write in this file that touches a specific
+  // lesson row scopes by `status='archived'` too (extractingLessonsStage's
+  // delete, mergingStage's reset), so a promotion here that isn't similarly
+  // scoped is the one write in the pipeline that would blindly overwrite
+  // whatever state the row is actually in, rather than only ever moving it
+  // from the one state this stage is entitled to promote out of.
   if (cards.length > 0) {
-    const { error: promoteError } = await ctx.supabase.from("lessons").update({ status: "active" }).eq("id", lessonRow.id);
+    const { error: promoteError } = await ctx.supabase
+      .from("lessons")
+      .update({ status: "active" })
+      .eq("id", lessonRow.id)
+      .eq("status", "archived");
     if (promoteError) throw promoteError;
   }
 
