@@ -71,4 +71,30 @@ describe("selectNextActionPerDomain", () => {
     const deen = result.find((i) => i.domain === "deen");
     expect(deen?.id).toBe("d2");
   });
+
+  // Live bug (Boss ruling, R7 task 1): getPriorityItems computes a real
+  // urgency bucket per domain and sorts by it, but this function threw that
+  // sort away and walked a hardcoded domain order instead. Both Business
+  // and School/co_op render through the same taskable list in
+  // next-actions.tsx (Fitness alone is structurally segregated into its
+  // own row below, so a Fitness-vs-School version of this test would not
+  // reproduce anything real) — so a kill-list item with no due time at all
+  // rendered above a School/co_op deadline due in 20 minutes, because
+  // "business" sits before "school" in NEXT_ACTION_ORDER regardless of
+  // urgency.
+  it("ranks a School item due in 20 minutes above a Business item with no due time at all", () => {
+    const now = new Date("2026-08-17T12:00:00.000Z");
+    const items = [
+      item({ id: "b1", domain: "business", title: "Call the landlord", dueAt: null, urgencyBucket: "later_today" }),
+      item({
+        id: "s1",
+        domain: "school",
+        title: "Essay due",
+        dueAt: new Date(now.getTime() + 20 * 60 * 1000),
+        urgencyBucket: "right_now",
+      }),
+    ];
+    const result = selectNextActionPerDomain(items);
+    expect(result.map((i) => i.id)).toEqual(["s1", "b1"]);
+  });
 });
