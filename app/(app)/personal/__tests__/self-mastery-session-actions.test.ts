@@ -57,23 +57,52 @@ describe("Self-Mastery session actions", () => {
       expect(fromMock).not.toHaveBeenCalled();
     });
 
-    it("returns zero without querying user_settings when nothing is due and nothing is new", async () => {
+    it("returns zero without querying user_settings when nothing is due and nothing is new, and flags starterDeckMissing when the user has zero books at all", async () => {
       const dueChain = makeChain({ data: null, error: null, count: 0 });
       const newChain = makeChain({ data: null, error: null, count: 0 });
+      const booksChain = makeChain({ data: null, error: null, count: 0 });
       let cardStatesCall = 0;
       fromImpl = (table) => {
         if (table === "card_states") {
           cardStatesCall += 1;
           return cardStatesCall === 1 ? dueChain : newChain;
         }
+        if (table === "books") return booksChain;
         throw new Error(`unexpected table: ${table}`);
       };
       const { getDueSummary } = await import("../self-mastery-session-actions");
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0 });
+      // Boss ruling, R7: the onboarding seed step's own failure is
+      // deliberately swallowed (completeOnboarding never blocks reaching
+      // the app), so by the time Home ever renders, seeding has already
+      // been attempted -- zero due, zero new, AND zero books at all is the
+      // reliable, structural signal that it never landed. This must not
+      // read identically to "genuinely caught up" (which always has at
+      // least one book).
+      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: true });
       expect(fromMock).not.toHaveBeenCalledWith("user_settings");
+    });
+
+    it("does NOT flag starterDeckMissing when nothing is due/new but the user has at least one book -- a genuinely caught-up deck, not a failed seed", async () => {
+      const dueChain = makeChain({ data: null, error: null, count: 0 });
+      const newChain = makeChain({ data: null, error: null, count: 0 });
+      const booksChain = makeChain({ data: null, error: null, count: 1 });
+      let cardStatesCall = 0;
+      fromImpl = (table) => {
+        if (table === "card_states") {
+          cardStatesCall += 1;
+          return cardStatesCall === 1 ? dueChain : newChain;
+        }
+        if (table === "books") return booksChain;
+        throw new Error(`unexpected table: ${table}`);
+      };
+      const { getDueSummary } = await import("../self-mastery-session-actions");
+
+      const result = await getDueSummary();
+
+      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: false });
     });
 
     it("reads session_target_minutes from user_settings when cards are due", async () => {
@@ -94,7 +123,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 12, newCount: 4, estimatedMinutes: 15 });
+      expect(result).toEqual({ dueCount: 12, newCount: 4, estimatedMinutes: 15, starterDeckMissing: false });
     });
 
     it("falls back to the column default (8) when no user_settings row exists yet", async () => {
@@ -115,7 +144,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 3, newCount: 0, estimatedMinutes: 8 });
+      expect(result).toEqual({ dueCount: 3, newCount: 0, estimatedMinutes: 8, starterDeckMissing: false });
     });
 
     it("shows a fresh deck's never-reviewed cards even when dueCount is 0 -- day one, not caught up", async () => {
@@ -136,7 +165,33 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 0, newCount: 12, estimatedMinutes: 8 });
+      expect(result).toEqual({ dueCount: 0, newCount: 12, estimatedMinutes: 8, starterDeckMissing: false });
+    });
+  });
+
+  describe("retryStarterDeckSeed (Boss ruling, R7: a seed failure must be visible and recoverable, never silent)", () => {
+    it("calls the same seed RPC seedMeditationsDeckForUser uses, and revalidates Home on success", async () => {
+      rpcMock.mockResolvedValueOnce({
+        data: { seeded: true, alreadySeeded: false, bookId: "book-1", lessonCount: 12, cardCount: 47 },
+        error: null,
+      });
+      const { revalidatePath } = await import("next/cache");
+      const { retryStarterDeckSeed } = await import("../self-mastery-session-actions");
+
+      const result = await retryStarterDeckSeed();
+
+      expect(rpcMock).toHaveBeenCalledWith("seed_meditations_deck", expect.objectContaining({ p_lessons: expect.anything() }));
+      expect(result).toEqual({ ok: true });
+      expect(revalidatePath).toHaveBeenCalledWith("/");
+    });
+
+    it("a repeated RPC failure returns ok:false rather than throwing -- the retry button itself must never crash the page", async () => {
+      rpcMock.mockRejectedValueOnce(new Error("still down"));
+      const { retryStarterDeckSeed } = await import("../self-mastery-session-actions");
+
+      const result = await retryStarterDeckSeed();
+
+      expect(result).toEqual({ ok: false });
     });
   });
 

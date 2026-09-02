@@ -18,6 +18,7 @@ import {
   submitSelfExplanation as submitSelfExplanationCore,
   type LessonContext,
 } from "@/lib/self-mastery/session/build-session";
+import { seedMeditationsDeckForUser as seedMeditationsDeckForUserCore } from "@/lib/self-mastery/seed-meditations-deck";
 import type { BuiltSession, SessionCompletionResult } from "@/lib/self-mastery/session/types";
 
 /**
@@ -206,6 +207,24 @@ export interface DueSummary {
    */
   newCount: number;
   estimatedMinutes: number;
+  /**
+   * true only when nothing is due, nothing is new, AND the user has zero
+   * books at all (Boss ruling, R7: a silent onboarding-seed failure must
+   * become a visible signal, not a screen indistinguishable from "caught
+   * up"). completeOnboarding calls seedMeditationsDeckForUser exactly
+   * once, synchronously, before Home can ever render, and deliberately
+   * swallows its failure rather than blocking the user's first reach of
+   * the app -- so by the time this function ever runs, seeding has
+   * definitely already been attempted. Zero books for an account that
+   * kept Self-Mastery therefore reliably means it failed (or, for an
+   * account that added Self-Mastery after onboarding, was never attempted
+   * -- the same "no deck yet" state, fixed the same way: retry). Never
+   * true once a book exists, regardless of how caught-up its cards are --
+   * an existing book with zero due/new cards is a real, legitimate "you're
+   * done for now," not a failure. See session-entry-card.tsx for the
+   * distinct copy this drives.
+   */
+  starterDeckMissing: boolean;
 }
 
 export async function getDueSummary(): Promise<DueSummary | null> {
@@ -216,7 +235,10 @@ export async function getDueSummary(): Promise<DueSummary | null> {
     countDueCards(supabase, user.id, new Date()),
     countNewCards(supabase, user.id),
   ]);
-  if (dueCount === 0 && newCount === 0) return { dueCount: 0, newCount: 0, estimatedMinutes: 0 };
+  if (dueCount === 0 && newCount === 0) {
+    const { count } = await supabase.from("books").select("id", { count: "exact", head: true }).eq("user_id", user.id);
+    return { dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: (count ?? 0) === 0 };
+  }
   const { data } = await supabase
     .from("user_settings")
     .select("session_target_minutes")
@@ -226,5 +248,24 @@ export async function getDueSummary(): Promise<DueSummary | null> {
   // default (066), not re-derived here, so this stays the one place that
   // default lives.
   const estimatedMinutes = data?.session_target_minutes ?? 8;
-  return { dueCount, newCount, estimatedMinutes };
+  return { dueCount, newCount, estimatedMinutes, starterDeckMissing: false };
+}
+
+/**
+ * Home's visible retry for a starter deck that never seeded (Boss ruling,
+ * R7 -- "a seed failure must be visible... never silent"). Safe to call any
+ * number of times: seed_meditations_deck (the RPC underneath) is
+ * idempotent and self-gates on the self_mastery subdomain, so a repeat
+ * call either seeds a genuinely missing deck or is a documented no-op --
+ * it never duplicates a book that already exists.
+ */
+export async function retryStarterDeckSeed(): Promise<{ ok: boolean }> {
+  const { supabase } = await requireUser();
+  try {
+    const result = await seedMeditationsDeckForUserCore(supabase);
+    revalidatePath("/");
+    return { ok: result.seeded };
+  } catch {
+    return { ok: false };
+  }
 }
