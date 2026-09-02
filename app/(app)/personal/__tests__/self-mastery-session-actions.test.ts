@@ -170,30 +170,34 @@ describe("Self-Mastery session actions", () => {
   });
 
   describe("getSelfMasteryCandidateInput (R19: real evidence for the arbiter's Self-Mastery candidate)", () => {
-    it("hasCandidate: false, everything else null, when nothing is due and nothing is new -- and never fetches due-card detail for a candidate that doesn't exist", async () => {
-      const dueChain = makeChain({ data: null, error: null, count: 0 });
-      const newChain = makeChain({ data: null, error: null, count: 0 });
-      const booksChain = makeChain({ data: null, error: null, count: 1 }); // genuinely caught up, not a failed seed
-      let cardStatesCall = 0;
-      fromImpl = (table) => {
-        if (table === "card_states") {
-          cardStatesCall += 1;
-          if (cardStatesCall <= 2) return cardStatesCall === 1 ? dueChain : newChain;
-          throw new Error("fetchDueCardDetail must not run when there is no candidate");
-        }
-        if (table === "books") return booksChain;
-        throw new Error(`unexpected table: ${table}`);
+    // Takes an ALREADY-FETCHED DueSummary (page.tsx fetches it once,
+    // unconditionally, for SessionEntryCard -- getDueSummary isn't
+    // cache()-wrapped, so a second internal call would be a real
+    // duplicate round trip, not a free re-read).
+    it("hasCandidate: false, everything else null, when the summary is null (unauthenticated) -- and never fetches due-card detail", async () => {
+      fromImpl = () => {
+        throw new Error("fetchDueCardDetail must not run when there is no candidate");
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput();
+      const result = await getSelfMasteryCandidateInput(null);
+
+      expect(result).toEqual({ hasCandidate: false, dueAt: null, decay: null, cost: null });
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    it("hasCandidate: false when nothing is due and nothing is new (genuinely caught up, or a starter deck that never seeded) -- and never fetches due-card detail", async () => {
+      fromImpl = () => {
+        throw new Error("fetchDueCardDetail must not run when there is no candidate");
+      };
+      const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
+
+      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: false });
 
       expect(result).toEqual({ hasCandidate: false, dueAt: null, decay: null, cost: null });
     });
 
     it("a real candidate carries the earliest due card's dueAt, the lowest retrievability among due cards, and the session's own cost estimate", async () => {
-      const dueChain = makeChain({ data: null, error: null, count: 3 });
-      const newChain = makeChain({ data: null, error: null, count: 0 });
       const dueCardRow = {
         stability: 5,
         difficulty: 5,
@@ -204,22 +208,13 @@ describe("Self-Mastery session actions", () => {
         last_review_at: "2026-08-25T12:00:00Z",
       };
       const detailChain = makeChain({ data: [dueCardRow], error: null });
-      let cardStatesCall = 0;
-      const tables: Record<string, ReturnType<typeof makeChain>> = {
-        user_settings: makeChain({ data: { session_target_minutes: 15 }, error: null }),
-      };
       fromImpl = (table) => {
-        if (table === "card_states") {
-          cardStatesCall += 1;
-          if (cardStatesCall === 1) return dueChain;
-          if (cardStatesCall === 2) return newChain;
-          return detailChain;
-        }
-        return tables[table];
+        if (table === "card_states") return detailChain;
+        throw new Error(`unexpected table: ${table}`);
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput();
+      const result = await getSelfMasteryCandidateInput({ dueCount: 3, newCount: 0, estimatedMinutes: 15, starterDeckMissing: false });
 
       expect(result.hasCandidate).toBe(true);
       expect(result.dueAt).toEqual(new Date(dueCardRow.due_at));
@@ -228,25 +223,14 @@ describe("Self-Mastery session actions", () => {
     });
 
     it("a fresh deck (real NEW cards, nothing due yet) is still a real candidate -- dueAt/decay stay null, cost is still real", async () => {
-      const dueChain = makeChain({ data: null, error: null, count: 0 });
-      const newChain = makeChain({ data: null, error: null, count: 12 });
       const detailChain = makeChain({ data: [], error: null }); // no due cards to describe
-      let cardStatesCall = 0;
-      const tables: Record<string, ReturnType<typeof makeChain>> = {
-        user_settings: makeChain({ data: { session_target_minutes: 8 }, error: null }),
-      };
       fromImpl = (table) => {
-        if (table === "card_states") {
-          cardStatesCall += 1;
-          if (cardStatesCall === 1) return dueChain;
-          if (cardStatesCall === 2) return newChain;
-          return detailChain;
-        }
-        return tables[table];
+        if (table === "card_states") return detailChain;
+        throw new Error(`unexpected table: ${table}`);
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput();
+      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 12, estimatedMinutes: 8, starterDeckMissing: false });
 
       expect(result).toEqual({ hasCandidate: true, dueAt: null, decay: null, cost: 8 });
     });

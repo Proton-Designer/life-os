@@ -22,11 +22,15 @@ import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
 import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
-import { getDueSummary } from "@/app/(app)/personal/self-mastery-session-actions";
+import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
+import { resolveAreaWeights } from "@/lib/home/resolve-area-weights";
+import { selectNextActionPerDomain } from "@/lib/home/next-actions";
+import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate } from "@/lib/home/build-candidates";
+import { rankCandidates } from "@/lib/home/arbiter";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -152,13 +156,38 @@ export default async function HomePage() {
 
   const ribbonLayout = computeDayRibbon({ dayBounds: dayShape.dayBounds, prayers: dayShape.prayers, activities: dayShape.activities, now });
 
+  // A2 wiring (R18/R19): the real cross-domain arbiter, not a fixed
+  // domain array or an unconditional layout position. weights comes from
+  // resolveAreaWeights -- transitional per R27, real per what's landed on
+  // production today. selfMasteryCandidateInput takes the ALREADY-fetched
+  // dueSummary rather than re-querying (see that function's own comment).
+  const weights = resolveAreaWeights(domainsState);
+  const selfMasteryCandidateInput = hasSelfMastery
+    ? await getSelfMasteryCandidateInput(dueSummary)
+    : { hasCandidate: false as const, dueAt: null, decay: null, cost: null };
+  const selfMasteryCandidate = buildSelfMasteryCandidate(selfMasteryCandidateInput, weights);
+  const rankedTopItems = selectNextActionPerDomain(items, weights, now);
+  const topOtherCandidate = rankedTopItems.length > 0 ? buildCandidatesFromPriorityItems([rankedTopItems[0]], weights)[0] : null;
+  // Self-Mastery only wins the top slot when it's a real candidate AND
+  // either nothing else exists to compare against, or it genuinely
+  // outranks the current top of the five-domain list -- never by default
+  // position, which is the exact composition-level bug this closes (a
+  // fixed deadline in 5 minutes must outrank a "ready to start" deck with
+  // no due date at all).
+  const selfMasteryRanksFirst =
+    !!selfMasteryCandidate && (!topOtherCandidate || rankCandidates([selfMasteryCandidate, topOtherCandidate], now)[0]?.area === "self_mastery");
+
   return (
     <PageContainer>
       <PageHeader title="Home" />
 
       <InProgressBanner items={inProgressItems} />
 
-      <SessionEntryCard dueSummary={hasSelfMastery ? dueSummary : null} />
+      {/* Position responds to the real arbiter ranking (A2 wiring), not
+          a fixed layout slot -- Self-Mastery only renders first when it
+          genuinely outranks the current top of the five-domain list.
+          See selfMasteryRanksFirst's own comment above. */}
+      {selfMasteryRanksFirst && <SessionEntryCard dueSummary={hasSelfMastery ? dueSummary : null} />}
 
       <WeeklyGoalsHeader
         deen={deenGoal}
@@ -177,6 +206,7 @@ export default async function HomePage() {
           <Panel title="Now">
             <NextActions
               items={items}
+              weights={weights}
               completedToday={completedToday}
               isFreshInstall={isFreshInstall}
               nowIso={now.toISOString()}
@@ -196,6 +226,8 @@ export default async function HomePage() {
           </Panel>
         </div>
       </div>
+
+      {!selfMasteryRanksFirst && <SessionEntryCard dueSummary={hasSelfMastery ? dueSummary : null} />}
 
       <Panel title="The day's shape">
         {ribbonLayout ? (

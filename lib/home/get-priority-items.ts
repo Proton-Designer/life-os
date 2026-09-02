@@ -5,16 +5,21 @@ import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/praye
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import { localDateString, localWeekday, resolveLocalTime, dayOfWeekFromDateString, addDaysToDateString } from "@/lib/date-utils";
 import { buildDailyLog, pendingDailyLog, type MicroTotalInput, type MicroFreqInput, type SessionInput } from "@/lib/fitness/daily-log";
-import { urgencyBucket } from "./urgency";
-import type { PriorityItem, CompletedItem, Domain } from "./types";
+import { classifyUrgency } from "./urgency";
+import type { PriorityItem, CompletedItem, UrgencyBucket } from "./types";
 
-const DOMAIN_PRIORITY: Record<Domain, number> = {
-  deen: 0,
-  business: 1,
-  school: 2,
-  co_op: 2,
-  fitness: 3,
-};
+/**
+ * Cross-item tie-break order, urgency-classified only -- DOMAIN_PRIORITY
+ * (a hardcoded per-domain array, once used as the final tie-break here)
+ * is deleted per R18(3): the real cross-domain arbiter (selectNextAction
+ * PerDomain, lib/home/next-actions.ts) re-ranks everything downstream
+ * regardless of what order this function hands it, so a domain-based
+ * tie-break here was already inert for cross-domain purposes -- the one
+ * thing this sort must still guarantee is WITHIN-domain "most urgent
+ * first" (selectNextActionPerDomain's own `.find()`-first-match relies on
+ * it), which urgency + dueAt alone already provide.
+ */
+const URGENCY_SORT_ORDER: Record<UrgencyBucket, number> = { right_now: 0, later_today: 1, absent: 2 };
 
 export type HomeProfile = {
   location_lat: number | null;
@@ -283,7 +288,11 @@ export async function getPriorityItems(
     const effective = effectivePrayerStatus(stored, window, now);
     if (effective !== "pending") continue;
     const dueAt = window ? window.start : null;
-    const bucket = dueAt ? urgencyBucket(dueAt, now) : "later_today";
+    // R18(4): a pending prayer with no real window (no location set, or a
+    // high-latitude sun-angle-unreachable edge case) has NO urgency
+    // signal -- "absent," not a defaulted "later_today." Real for every
+    // other pending prayer, whose window.start is always known.
+    const bucket = classifyUrgency(dueAt, now);
 
     const title = prayerName === "dhuhr" && isFriday
       ? "Jummah"
@@ -339,7 +348,7 @@ export async function getPriorityItems(
       title: task.title,
       dueAt,
       windowEndAt: null,
-      urgencyBucket: urgencyBucket(dueAt, now),
+      urgencyBucket: classifyUrgency(dueAt, now),
       completed: false,
       actionType: "toggle_task",
       actionRefId: task.id,
@@ -392,12 +401,22 @@ export async function getPriorityItems(
 
   items.sort((a, b) => {
     if (a.urgencyBucket !== b.urgencyBucket) {
-      return a.urgencyBucket === "right_now" ? -1 : 1;
+      return URGENCY_SORT_ORDER[a.urgencyBucket] - URGENCY_SORT_ORDER[b.urgencyBucket];
     }
     const aTime = a.dueAt?.getTime() ?? Infinity;
     const bTime = b.dueAt?.getTime() ?? Infinity;
-    if (aTime !== bTime) return aTime - bTime;
-    return DOMAIN_PRIORITY[a.domain] - DOMAIN_PRIORITY[b.domain];
+    return aTime - bTime;
+    // No further tie-break needed. Cross-domain ties on urgency+dueAt DO
+    // happen (Business's kill list and a Fitness row both always carry
+    // dueAt: null, so they're permanently tied here) -- a stable sort
+    // just preserves this function's own push order (prayers, kill list,
+    // tasks, fitness) for those, deterministic but not a deliberate
+    // ranking. That's fine: kill list and fitness each contribute AT MOST
+    // ONE item to this array, so "which one sorts first among ties" never
+    // affects selectNextActionPerDomain's within-domain "first match"
+    // selection, and that function fully re-ranks the cross-domain result
+    // through the real arbiter afterward regardless of the order it
+    // receives here.
   });
 
   return items.map((item) => ({ ...item, date: dateStr }));

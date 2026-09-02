@@ -77,7 +77,10 @@ describe("getPriorityItems", () => {
     expect(dhuhrItem?.sunnahCompletions).toEqual(["before"]);
   });
 
-  it("buckets a task due today with no time as later_today", async () => {
+  // A2 wiring, R18(4): a task due today with no specific time has no real
+  // urgency signal at all -- "absent," not a defaulted "later_today"
+  // (the old two-state urgencyBucket function's own default, now retired).
+  it("buckets a task due today with no time as absent, never a defaulted bucket", async () => {
     const now = new Date("2026-08-10T18:00:00Z");
     const dataSource = emptyDataSource({
       getTasks: async () => [
@@ -97,7 +100,7 @@ describe("getPriorityItems", () => {
     const task = items.find((i) => i.actionRefId === "t1");
 
     expect(task).toBeDefined();
-    expect(task?.urgencyBucket).toBe("later_today");
+    expect(task?.urgencyBucket).toBe("absent");
     expect(task?.dueAt).toBeNull();
   });
 

@@ -272,8 +272,15 @@ export async function getDueSummary(): Promise<DueSummary | null> {
  * than re-deriving it -- one estimate, one source of truth, same value
  * SessionEntryCard already shows the user.
  */
-export async function getSelfMasteryCandidateInput(): Promise<SelfMasterySummary> {
-  const summary = await getDueSummary();
+/**
+ * Takes an ALREADY-FETCHED DueSummary rather than calling getDueSummary()
+ * itself -- page.tsx already fetches it once (unconditionally, for
+ * SessionEntryCard); getDueSummary isn't cache()-wrapped the way
+ * getUserDomains is, so a second internal call here would be a real
+ * duplicate round trip (2x countDueCards, 2x countNewCards, ...), not a
+ * free re-read.
+ */
+export async function getSelfMasteryCandidateInput(summary: DueSummary | null): Promise<SelfMasterySummary> {
   const hasCandidate = !!summary && (summary.dueCount > 0 || summary.newCount > 0);
   if (!summary || !hasCandidate) {
     return { hasCandidate: false, dueAt: null, decay: null, cost: null };

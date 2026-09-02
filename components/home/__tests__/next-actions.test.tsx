@@ -59,7 +59,7 @@ describe("NextActions", () => {
   // single most common end-of-day state once the app is in real use.
   describe("the four active/completed combinations", () => {
     it("nothing at all: shows the all-clear empty state with a planning link, no Completed section", () => {
-      render(<NextActions items={[]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={[]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
       expect(screen.getByText("You're all clear")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Plan the week" })).toHaveAttribute("href", "#weekly-focus");
       expect(screen.queryByText("Completed")).not.toBeInTheDocument();
@@ -71,7 +71,7 @@ describe("NextActions", () => {
           items={[item({ id: "fajr", domain: "deen", title: "Fajr" })]}
           completedToday={[]}
           isFreshInstall={false}
-          nowIso={NOW_ISO}
+          nowIso={NOW_ISO} weights={{}}
         />
       );
       expect(screen.getByText("Fajr")).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("NextActions", () => {
           items={[]}
           completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
           isFreshInstall={false}
-          nowIso={NOW_ISO}
+          nowIso={NOW_ISO} weights={{}}
         />
       );
       expect(screen.getByText("You're all clear")).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe("NextActions", () => {
           items={[item({ id: "dhuhr", domain: "deen", title: "Dhuhr" })]}
           completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
           isFreshInstall={false}
-          nowIso={NOW_ISO}
+          nowIso={NOW_ISO} weights={{}}
         />
       );
       expect(screen.getByText("Dhuhr")).toBeInTheDocument();
@@ -124,7 +124,7 @@ describe("NextActions", () => {
           items={[item({ id: "fitness-today", domain: "fitness", title: "Push Day A", actionType: "open_fitness" })]}
           completedToday={[]}
           isFreshInstall={false}
-          nowIso={NOW_ISO}
+          nowIso={NOW_ISO} weights={{}}
         />
       );
       expect(screen.getByRole("link", { name: /Push Day A/ })).toBeInTheDocument();
@@ -139,7 +139,7 @@ describe("NextActions", () => {
           items={[item({ id: "fitness-today", domain: "fitness", title: "Push Day A", actionType: "open_fitness" })]}
           completedToday={[completedItem({ id: "fajr", domain: "deen", title: "Fajr" })]}
           isFreshInstall={false}
-          nowIso={NOW_ISO}
+          nowIso={NOW_ISO} weights={{}}
         />
       );
       expect(screen.getByRole("link", { name: /Push Day A/ })).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe("NextActions", () => {
   });
 
   it("shows the fresh-install copy instead when isFreshInstall and nothing is pending", () => {
-    render(<NextActions items={[]} completedToday={[]} isFreshInstall nowIso={NOW_ISO} />);
+    render(<NextActions items={[]} completedToday={[]} isFreshInstall nowIso={NOW_ISO} weights={{}} />);
     expect(screen.getByText("Welcome — head into a domain tab to get started")).toBeInTheDocument();
   });
 
@@ -161,7 +161,7 @@ describe("NextActions", () => {
       item({ id: "fajr", domain: "deen", title: "Fajr" }),
       item({ id: "kill-list", domain: "business", title: "Ship the proposal" }),
     ];
-    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
     expect(screen.getByText("Fajr")).toBeInTheDocument();
     expect(screen.getByText("Ship the proposal")).toBeInTheDocument();
@@ -181,7 +181,7 @@ describe("NextActions", () => {
         urgencyBucket: "later_today",
       }),
     ];
-    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={staleNowIso} />);
+    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={staleNowIso} weights={{}} />);
     expect(screen.getByText("in 45m")).toBeInTheDocument();
   });
 
@@ -206,7 +206,7 @@ describe("NextActions", () => {
         }),
         item({ id: "task-1", domain: "school", title: "Essay", urgencyBucket: "later_today" }),
       ];
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       expect(screen.getAllByText(/^Now/)).toHaveLength(1);
       const fajrRow = screen.getByText("Fajr").closest("li");
@@ -234,7 +234,7 @@ describe("NextActions", () => {
           urgencyBucket: "right_now",
         }),
       ];
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       const fajrRow = screen.getByText("Fajr").closest("li");
       expect(fajrRow).not.toBeNull();
@@ -269,7 +269,7 @@ describe("NextActions", () => {
           urgencyBucket: "right_now",
         }),
       ];
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       const maghribRow = screen.getByText("Maghrib").closest("li");
       expect(maghribRow).not.toBeNull();
@@ -286,7 +286,7 @@ describe("NextActions", () => {
       vi.mocked(toggleItem).mockResolvedValue(undefined);
       const items = [item({ id: "fajr", domain: "deen", title: "Fajr" })];
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       const button = screen.getByRole("button", { name: 'Mark "Fajr" done' });
       await user.click(button);
@@ -306,7 +306,7 @@ describe("NextActions", () => {
 
   it("shows a fitness row that navigates to /fitness instead of completing in place", () => {
     const items = [item({ id: "fitness-today", domain: "fitness", title: "Push Day A", actionType: "open_fitness" })];
-    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+    render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
     expect(screen.getByRole("link", { name: /Push Day A/ })).toHaveAttribute("href", "/fitness");
   });
@@ -328,7 +328,7 @@ describe("NextActions", () => {
           sunnahCompletions: [],
         }),
       ];
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       expect(screen.getByRole("button", { name: "Sunnah for Fajr" })).toBeInTheDocument();
       expect(screen.getByText("0/1")).toBeInTheDocument();
@@ -339,7 +339,7 @@ describe("NextActions", () => {
       // has-sunnah case and rely on the badge count assertion above; this
       // test instead confirms non-prayer items never get a chevron at all.
       const items = [item({ id: "task-1", domain: "school", title: "Essay", actionType: "toggle_task" })];
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       expect(screen.queryByRole("button", { name: /sunnah/i })).not.toBeInTheDocument();
     });
@@ -357,7 +357,7 @@ describe("NextActions", () => {
       ];
       vi.mocked(toggleItem).mockClear();
       const user = userEvent.setup();
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       const chevron = screen.getByRole("button", { name: "Sunnah for Fajr" });
       await user.click(chevron);
@@ -381,7 +381,7 @@ describe("NextActions", () => {
       ];
       vi.mocked(toggleItem).mockClear();
       const user = userEvent.setup();
-      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} />);
+      render(<NextActions items={items} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
 
       await user.click(screen.getByRole("button", { name: 'Mark "Fajr" done' }));
       expect(toggleItem).toHaveBeenCalledTimes(1);

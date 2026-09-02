@@ -3,7 +3,7 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { toggleItem } from "@/app/(app)/actions";
 import type { PriorityItem } from "@/lib/home/types";
-import { urgencyBucket } from "@/lib/home/urgency";
+import { classifyUrgency } from "@/lib/home/urgency";
 import { cn } from "@/lib/utils";
 
 const TICK_MS = 60 * 1000;
@@ -82,9 +82,16 @@ export function PriorityList({ items }: { items: PriorityItem[] }) {
 
   const byDueAtAsc = (a: PriorityItem, b: PriorityItem) =>
     (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity);
-  const bucketOf = (item: PriorityItem) => (now ? urgencyBucket(item.dueAt, now) : item.urgencyBucket);
+  const bucketOf = (item: PriorityItem) => (now ? classifyUrgency(item.dueAt, now) : item.urgencyBucket);
   const rightNow = optimisticItems.filter((i) => bucketOf(i) === "right_now").sort(byDueAtAsc);
-  const laterToday = optimisticItems.filter((i) => bucketOf(i) === "later_today").sort(byDueAtAsc);
+  // This component's own display has exactly two groups -- "absent"
+  // (no due date at all) reads into the same visual bucket "later_today"
+  // already occupied, same as the old two-state urgencyBucket function's
+  // own default did, preserving this dead-code component's own behavior
+  // unchanged. Never true ranking logic (that lives in the arbiter, which
+  // this component predates and doesn't participate in) -- purely a
+  // display grouping.
+  const laterToday = optimisticItems.filter((i) => bucketOf(i) !== "right_now").sort(byDueAtAsc);
 
   return (
     <div className="flex flex-col gap-6">

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronRight, ListChecks } from "lucide-react";
 import { toggleItem } from "@/app/(app)/actions";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
+import type { AreaWeightLookup } from "@/lib/home/build-candidates";
 import type { PriorityItem, CompletedItem } from "@/lib/home/types";
 import { formatWindowRelativeTime } from "@/lib/date-utils";
 import { IconChip } from "@/components/ui/icon-chip";
@@ -27,7 +28,9 @@ function relativeTime(item: PriorityItem, now: Date): string {
 }
 
 // The single most urgent item across the module: right_now bucket, earliest
-// dueAt. Ties/no dueAt fall back to array order (stable NEXT_ACTION_ORDER).
+// dueAt. Ties/no dueAt fall back to selectNextActionPerDomain's own order
+// (the real cross-domain arbiter -- weight tier, then position -- not a
+// fixed array anymore; see lib/home/next-actions.ts).
 function mostUrgentId(items: PriorityItem[]): string | null {
   const candidates = items.filter((i) => i.urgencyBucket === "right_now");
   if (candidates.length === 0) return null;
@@ -108,6 +111,7 @@ export function NextActions({
   completedToday,
   isFreshInstall,
   nowIso,
+  weights,
 }: {
   items: PriorityItem[];
   completedToday: CompletedItem[];
@@ -120,12 +124,9 @@ export function NextActions({
   // client render matches the server-rendered HTML exactly (same string in,
   // same Date out), so there's no blank frame and no hydration mismatch.
   nowIso: string;
+  /** resolveAreaWeights(domainsState) -- server-resolved, passed down as a plain serializable prop (no functions, no class instances beyond Dates). An area with no entry falls to the arbiter's own "important" floor. */
+  weights: AreaWeightLookup;
 }) {
-  const nextActions = selectNextActionPerDomain(items);
-  const fitnessItem = nextActions.find((i) => i.actionType === "open_fitness") ?? null;
-  const taskable = nextActions.filter((i) => i.actionType !== "open_fitness");
-  const byId = new Map(taskable.map((i) => [i.id, i]));
-
   const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
     // The immediate tick matters as much as the nowIso seed above, not just
@@ -142,6 +143,14 @@ export function NextActions({
     const interval = setInterval(tick, TICK_MS);
     return () => clearInterval(interval);
   }, []);
+
+  // Ranked with the SAME `now` that drives the relative-time ticks below,
+  // so a minute boundary that flips urgency and a minute boundary that
+  // flips "in 2h" text never disagree with each other.
+  const nextActions = selectNextActionPerDomain(items, weights, now);
+  const fitnessItem = nextActions.find((i) => i.actionType === "open_fitness") ?? null;
+  const taskable = nextActions.filter((i) => i.actionType !== "open_fitness");
+  const byId = new Map(taskable.map((i) => [i.id, i]));
 
   const mostUrgent = mostUrgentId(nextActions);
   const rowItems: TaskRowItem[] = [

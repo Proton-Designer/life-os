@@ -30,7 +30,16 @@ export type Domain = "deen" | "business" | "fitness" | "school" | "co_op";
  */
 export type DisplayDomain = Domain | (string & {});
 
-export type UrgencyBucket = "right_now" | "later_today";
+/**
+ * Widened to three states (A2 wiring, R18(4)): a candidate with no real
+ * due-time signal is "absent," never defaulted to "later_today" -- "a
+ * defaulting ranker input is the null-is-zero bug wearing a string" (Boss
+ * ruling). Same name kept so every existing `UrgencyBucket` import stays
+ * valid; only the underlying value set widened. See lib/home/urgency.ts's
+ * classifyUrgency, the sole classifier now that the old two-state
+ * urgencyBucket function is retired.
+ */
+export type UrgencyBucket = "right_now" | "later_today" | "absent";
 
 export type ActionType =
   | "toggle_prayer"

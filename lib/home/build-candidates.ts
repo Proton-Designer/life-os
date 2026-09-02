@@ -6,6 +6,7 @@
 // retrievability) are the next increment, not built here.
 import type { PriorityItem } from "./types";
 import type { Area, Candidate, WeightTier } from "./arbiter";
+import { SELF_MASTERY_CANDIDATE_ID } from "./resolve-candidate-source";
 
 export interface AreaWeight {
   weightTier: WeightTier | null;
@@ -98,7 +99,7 @@ export function buildSelfMasteryCandidate(summary: SelfMasterySummary, weights: 
   if (!summary.hasCandidate) return null;
   const w = weights.self_mastery;
   return {
-    id: "self-mastery-session",
+    id: SELF_MASTERY_CANDIDATE_ID,
     area: "self_mastery",
     title: "Self-Mastery",
     dueAt: summary.dueAt,

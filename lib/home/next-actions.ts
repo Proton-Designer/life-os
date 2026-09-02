@@ -1,47 +1,37 @@
-import type { PriorityItem, Domain } from "./types";
-
-/** Fixed display order, per Ayman's enumeration: deen, kill list, fitness, school, co-op. */
-export const NEXT_ACTION_ORDER: Domain[] = ["deen", "business", "fitness", "school", "co_op"];
-
-const NEXT_ACTION_ORDER_INDEX: Record<Domain, number> = Object.fromEntries(
-  NEXT_ACTION_ORDER.map((domain, i) => [domain, i])
-) as Record<Domain, number>;
+import type { PriorityItem } from "./types";
+import { buildCandidatesFromPriorityItems, type AreaWeightLookup } from "./build-candidates";
+import { rankCandidates } from "./arbiter";
 
 /**
- * One item per domain — the most urgent pending item in each — ordered by
- * urgency across domains (right_now before later_today, earlier dueAt
- * first), not by a fixed domain order. A School deadline due in 20 minutes
- * must outrank a Business kill-list item with no due time; NEXT_ACTION_ORDER
- * alone can't express that, since it's a static domain ranking, not an
- * urgency one. (Fitness is a separate case: next-actions.tsx renders it in
- * its own row below the shared list regardless of this function's output
- * order, so the ordering guarantee here matters most for the domains that
- * actually share a render — Deen/Business/School/co_op. This function has
- * one caller, next-actions.tsx; lib/notifications/get-notifications.ts
- * reads getPriorityItems directly and sorts its own feed by dueAt alone, so
- * it's unaffected by anything here.)
+ * One item per domain -- the most urgent pending item in each -- ordered
+ * by the real cross-domain arbiter (urgency -> dueAt -> weight tier ->
+ * position -> decay -> cost -> riskScore). Replaces the old
+ * NEXT_ACTION_ORDER-tie-broken version (A2 wiring, R18(3)'s full ruling:
+ * "weight tier, then position" as the tie-break once real weight data
+ * exists -- resolveAreaWeights, migration 110, is now on production, so
+ * there is no reason left to fall back to a hardcoded domain array).
  *
- * NEXT_ACTION_ORDER is still load-bearing here, as the tie-break: when two
- * domains' items land in the same urgency bucket with the same (or absent)
- * dueAt, mirroring getPriorityItems' own tie-break keeps Home from
- * reshuffling those ties on every render, which was the reason the fixed
- * order existed in the first place ("if and whenever those are
- * applicable"). Domains with nothing pending are omitted entirely.
+ * `weights` comes from resolveAreaWeights(domainsState) -- an area with
+ * no resolved entry (today: Business, co_op) falls to the arbiter's own
+ * "important" floor, never a guessed tier; see build-candidates.ts's own
+ * AreaWeightLookup comment for why that gap is real and named, not an
+ * oversight.
  */
-export function selectNextActionPerDomain(items: PriorityItem[]): PriorityItem[] {
-  const picked: PriorityItem[] = [];
-  for (const domain of NEXT_ACTION_ORDER) {
-    const match = items.find((item) => item.domain === domain);
-    if (match) picked.push(match);
+export function selectNextActionPerDomain(items: PriorityItem[], weights: AreaWeightLookup, now: Date): PriorityItem[] {
+  const byDomain = new Map<string, PriorityItem>();
+  // "Most urgent item within a domain wins" -- items arrives already
+  // sorted by urgency (getPriorityItems' own sort), so the FIRST match
+  // per domain is the most urgent one. Same selection semantics the old
+  // `.find()`-based version had; only the CROSS-domain ordering below
+  // changed.
+  for (const item of items) {
+    if (!byDomain.has(item.domain)) byDomain.set(item.domain, item);
   }
+  const picked = [...byDomain.values()];
+  if (picked.length === 0) return [];
 
-  return picked.sort((a, b) => {
-    if (a.urgencyBucket !== b.urgencyBucket) {
-      return a.urgencyBucket === "right_now" ? -1 : 1;
-    }
-    const aTime = a.dueAt?.getTime() ?? Infinity;
-    const bTime = b.dueAt?.getTime() ?? Infinity;
-    if (aTime !== bTime) return aTime - bTime;
-    return NEXT_ACTION_ORDER_INDEX[a.domain] - NEXT_ACTION_ORDER_INDEX[b.domain];
-  });
+  const candidates = buildCandidatesFromPriorityItems(picked, weights);
+  const ranked = rankCandidates(candidates, now);
+  const itemById = new Map(picked.map((item) => [item.id, item]));
+  return ranked.map((c) => itemById.get(c.id)!);
 }
