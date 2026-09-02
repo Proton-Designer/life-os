@@ -27,11 +27,12 @@
 # written, and a non-local host is refused unless --allow-production is passed.
 set -uo pipefail
 
-TARGET=""; USER_ID=""; COMMIT=0; ALLOW_PROD=0; STOP_AFTER_PROMOTE=0
+TARGET=""; USER_ID=""; COMMIT=0; ALLOW_PROD=0; STOP_AFTER_PROMOTE=0; LESSON_ID=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --target)           TARGET="${2:-}"; shift 2 ;;
     --user)             USER_ID="${2:-}"; shift 2 ;;
+    --lesson)           LESSON_ID="${2:-}"; shift 2 ;;
     --commit)           COMMIT=1; shift ;;
     --stop-after-promote) STOP_AFTER_PROMOTE=1; shift ;;
     --allow-production) ALLOW_PROD=1; shift ;;
@@ -147,7 +148,7 @@ echo "loop-e2e-walk: account has ${AREAS} active area(s) -- eligible to promote.
 echo "loop-e2e-walk: preconditions met (124 + 126 present, queue filters suspended cards)."
 echo
 
-psql "$TARGET" -X -q -t -A -v ON_ERROR_STOP=1 -v uid="$USER_ID" -v commit="$COMMIT" -v stop_after_promote="$STOP_AFTER_PROMOTE" </dev/null <<'SQL'
+psql "$TARGET" -X -q -t -A -v ON_ERROR_STOP=1 -v uid="$USER_ID" -v lesson="$LESSON_ID" -v commit="$COMMIT" -v stop_after_promote="$STOP_AFTER_PROMOTE" </dev/null <<'SQL'
 begin;
 select set_config('request.jwt.claim.sub', :'uid', false);
 
@@ -159,6 +160,16 @@ select '  ' || q.reason || '  ' || left(l.title, 44) || '   [card ' || right(q.c
  order by q.queue_position;
 
 \echo '--- STEP 2: pick a lesson that is IN the queue and not yet promoted ----'
+-- --lesson NAMES the subject. Without it the walk takes whichever eligible
+-- lesson comes back first, which is fine for a rehearsal and WRONG for a
+-- capture: I ran it against a seeded fixture and it promoted a different
+-- lesson entirely, so the cleanup keyed on the fixture would have left a real
+-- promotion behind on a real account. Same rule as --user: when a write has to
+-- be undone afterwards, the thing written is named, not guessed.
+-- psql does NOT interpolate :vars inside a dollar-quoted DO body, so the
+-- requested lesson is parked in a temp table the DO block can read instead.
+create temporary table walk_request on commit drop as select nullif(:'lesson', '') as lesson_id;
+
 create temporary table walk_subject on commit drop as
 select l.id as lesson_id, l.title,
        (select count(*) from public.cards c2 where c2.lesson_id = l.id and c2.suspended_at is null) as live_cards
@@ -167,7 +178,15 @@ select l.id as lesson_id, l.title,
   join public.lessons l on l.id = c.lesson_id
  where not exists (select 1 from public.lesson_promotions p
                     where p.lesson_id = l.id and p.user_id = auth.uid() and p.retired_at is null)
+   and ((select lesson_id from walk_request) is null
+        or l.id::text = (select lesson_id from walk_request))
  limit 1;
+
+do $$ begin
+  if (select lesson_id from walk_request) is not null and not exists (select 1 from walk_subject) then
+    raise exception 'loop-e2e-walk: lesson % is not an eligible subject -- it is not in this account''s queue, or it is already promoted. A NAMED subject is never silently replaced with a different lesson.', (select lesson_id from walk_request);
+  end if;
+end $$;
 
 select case when count(*) = 0
        then '  NO SUBJECT: every queued lesson is already promoted, or the queue is empty. COVERAGE GAP, not a pass.'
