@@ -141,21 +141,17 @@ export function ClassAssessments({
   // never a date-sorted-then-truncated set with risk only reordering within it — that was
   // College-app's own DeadlineRadar bug (8d77e73).
   //
-  // The MIXED case below (some but not all items insufficient) cannot happen on this
-  // surface today, and it is worth writing down rather than someone finding it "dead" and
-  // deleting it. `computeAssignmentRisk` can only exclude three factors — difficulty,
-  // knowledgeGap, gradeHeadroom — and all three read from CLASS-level columns
-  // (classes.difficulty_rating/confidence_rating/target_grade_pct), never per-assessment
-  // ones. `weightPct` is the only per-assessment risk input, and it's required, never
-  // excludable (build-assessment-risk-input.ts defaults an unknown weight to 0 rather than
-  // excluding it). So every assessment in one class shares the same missing set and
-  // therefore the same confidence — this component only ever renders per-class
-  // (class-detail-dialog.tsx) — meaning "mixed" is structurally impossible until either a
-  // per-assessment factor becomes excludable (most plausibly weightPct, if the engine ever
-  // treats an unknown weight as missing rather than requiring a number) or this component
-  // starts rendering assessments from more than one class at once. Kept correct and
-  // tested anyway: the reachable case (all insufficient) is the trivial one, and the day
-  // this stops being unreachable is exactly the day a silent gap here would matter most.
+  // HISTORY (R35, 2026-09-02): the MIXED case (some but not all items insufficient) was
+  // structurally impossible on this surface until this date — `weightPct` was the only
+  // per-assessment risk input and was required, never excludable, so every assessment in
+  // one class (this component only ever renders per-class) shared the same missing set
+  // and therefore the same confidence. R35 made `weightPct` excludable, and `weightPct` is
+  // genuinely per-assessment (unlike difficulty/confidence/target, which are class-level),
+  // so two assessments in the same class can now land in different confidence groups —
+  // one weighted, one not. This is the reason this branch was written and tested before it
+  // had a reachable case: the day it stopped being dead was exactly the day a silent gap
+  // here would have mattered most. See components/school/__tests__/class-assessments.test.tsx's
+  // "R35: the mixed confidence group is now reachable" suite, derived from the real engine.
   const displayAssessments = [...assessments].sort((a, b) => {
     const aRanked = a.risk.confidence !== "insufficient";
     const bRanked = b.risk.confidence !== "insufficient";

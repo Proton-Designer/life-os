@@ -31,21 +31,13 @@ const NO_CALENDAR_BUSY_SOURCE = { committedHours: 0, availableHours: 1 } as cons
 export interface AssessmentRiskFacts {
   today: LocalDate;
   dueDate: LocalDate;
-  /** `class_assessments.weight_pct` — null means unknown, never zero weight (the column's
-   * own contract). The adapter must still hand the engine a number, so an unknown weight
-   * becomes 0 here — the same call CollegeOS's own adapter makes for a deliverable with no
-   * grade-item weight (packages/api/src/day/risk.ts). It costs *this* assessment's weight
-   * factor, never another one's.
-   *
-   * KNOWN EDGE, not yet a problem (Lead review, 2026-09-02): `weightPct` is the only
-   * per-assessment risk input and is never excludable — `AssignmentRiskInput.weightPct` is
-   * required, not optional, so this adapter has no "exclude" path for it the way it does
-   * for difficulty/confidence/target. Today every real `weight_pct` is null, so every
-   * assessment gets 0 uniformly and the factor contributes nothing to anyone — harmless.
-   * The moment a user weights SOME assessments and not others, the unweighted ones will
-   * rank as if genuinely worth 0% of the grade — "no evidence read as a low value," the
-   * exact failure R28 exists to prevent, one level up. The real fix is engine-side (make
-   * weight excludable like the other three); this adapter has no better option until then. */
+  /** `class_assessments.weight_pct` — null excludes the weight factor and renormalizes
+   * (R35), same as difficulty/confidence/target below. Was previously defaulted to 0 — see
+   * git history on this line for why that was a known, then-unavoidable edge (the engine
+   * had no exclude path for weight yet): an unweighted assessment scored as though its
+   * weight were confirmed at 0%, which is "no evidence read as a low value" at the exact
+   * factor R28 exists to prevent one level up. Fixed at the source now that
+   * `AssignmentRiskInput.weightPct` is optional. */
   weightPct: number | null;
   /** `classes.difficulty_rating` — null excludes the factor (never defaulted). */
   difficultyRating: number | null;
@@ -74,11 +66,11 @@ export function buildAssessmentRiskInput(facts: AssessmentRiskFacts): Assignment
   return {
     today: facts.today,
     dueDate: facts.dueDate,
-    weightPct: facts.weightPct ?? 0,
     ...NO_CALENDAR_BUSY_SOURCE,
     plannedUnits: 0,
     completedUnits: 0,
     globalMeanStartDelayDays: GLOBAL_MEAN_START_DELAY_DAYS_PRIOR,
+    ...(facts.weightPct != null ? { weightPct: facts.weightPct } : {}),
     ...(facts.difficultyRating != null ? { difficultyRating: facts.difficultyRating } : {}),
     ...(facts.confidenceRating != null ? { confidenceRating: facts.confidenceRating } : {}),
     ...(facts.targetGradePct != null ? { targetPct: facts.targetGradePct } : {}),

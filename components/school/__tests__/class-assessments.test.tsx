@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ClassAssessments, type ClassAssessment } from "../class-assessments";
+import { buildAssessmentRiskInput } from "@/lib/school/risk/build-assessment-risk-input";
+import { computeAssignmentRisk } from "@/lib/school/risk/assignment-risk";
 
 // Batch 3 (2026-08-26 afternoon) rewrite: ClassAssessments no longer talks
 // to the server or holds its own list — it's a pure staged-state renderer,
@@ -221,7 +223,13 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
     expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
   });
 
-  it("orders multiple insufficient-confidence items by date among themselves", () => {
+  // Tied scores + "wrong" input array order, deliberately: with the real engine, two
+  // insufficient-confidence items in one class can never have conflicting date/score
+  // order (proximity is monotonic — closer due date never scores lower, holding
+  // everything else fixed — see assignment-risk.test.ts), so this property can only be
+  // isolated with synthetic data. A stable sort keyed on score alone would leave a tie
+  // in ARRAY order (the "wrong" order below); only a real date-tiebreak fixes it.
+  it("orders multiple insufficient-confidence items by date among themselves, not array order", () => {
     const items = [
       rankedAssessment("later", "Insufficient, later date", "2026-09-10", 0, "insufficient"),
       rankedAssessment("earlier", "Insufficient, earlier date", "2026-09-01", 0, "insufficient"),
@@ -242,11 +250,10 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
     expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
   });
 
-  // The only state reachable in production today (Lead review, 2026-09-02): confidence is
-  // driven entirely by CLASS-level columns (difficulty_rating/confidence_rating/
-  // target_grade_pct), and this component renders one class's assessments at a time, so
-  // every row shares the same confidence. A mixed list can't occur until either a
-  // per-assessment factor becomes excludable or this component starts spanning classes.
+  // Still the universal state in production today even after R35 (Lead review,
+  // 2026-09-02): no rating-capture or weight-entry UI exists yet, so every class is
+  // unrated AND every assessment is unweighted — everything is insufficient until both
+  // ship. See the "R35" describe block below for the now-reachable mixed case.
   it("when every item is insufficient, shows the whole-list caption instead of the per-group prompt, and falls back to date order", () => {
     const items = [
       rankedAssessment("later", "Unrated, later date, higher raw score", "2026-09-10", 99, "insufficient"),
@@ -278,5 +285,82 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       />
     );
     expect(screen.getByText(label)).toBeInTheDocument();
+  });
+});
+
+// R35 (2026-09-02): weight became excludable, so weightPct now varies per-assessment
+// confidence within one class — the mixed group the R28 tests above could only reach
+// synthetically is real now. These derive `risk` from the ACTUAL engine
+// (buildAssessmentRiskInput + computeAssignmentRisk), not a hand-picked confidence, to
+// prove the split is real and not assumed.
+function realAssessment(id: string, name: string, date: string, weightPct: number | null): ClassAssessment {
+  // A rated class with a projection — the shape that makes weighted read `moderate` and
+  // unweighted read `insufficient` (verified by the assertions below before rendering).
+  const input = buildAssessmentRiskInput({
+    today: "2026-08-20",
+    dueDate: date,
+    weightPct,
+    difficultyRating: 3,
+    confidenceRating: 3,
+    targetGradePct: 90,
+    projectedGradePct: 85,
+  });
+  const { score, band, confidence } = computeAssignmentRisk(input);
+  return { id, name, type: "quiz", date, task_id: null, risk: { score, band, confidence } };
+}
+
+describe("ClassAssessments — R35: the mixed confidence group is now reachable through the real engine", () => {
+  it("one weighted and one unweighted assessment in the same rated+projected class land in different confidence groups — even when the unweighted one scores higher", () => {
+    // Deliberately adversarial (values found by probing the real engine, not guessed):
+    // the unweighted item is due SOONER and scores HIGHER than the weighted one. A naive
+    // "sort by score" would rank it first; only real confidence-based grouping puts the
+    // properly-evidenced item on top regardless.
+    const weighted = realAssessment("weighted", "Weighted quiz, due later, low weight", "2026-09-20", 5);
+    const unweighted = realAssessment("unweighted", "Unweighted quiz, due sooner", "2026-09-01", null);
+    // Confirm the premise against the real engine before asserting on the UI: this split
+    // was structurally impossible before R35 (weight was never excludable) — see the
+    // unreachable-branch note this scenario retires in class-assessments.tsx.
+    expect(weighted.risk.confidence).toBe("moderate");
+    expect(unweighted.risk.confidence).toBe("insufficient");
+    expect(unweighted.risk.score).toBeGreaterThan(weighted.risk.score); // the adversarial part
+
+    render(
+      <ClassAssessments
+        assessments={[unweighted, weighted]}
+        editing={false}
+        todayStr="2026-08-20"
+        onAdd={() => {}}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-weighted", "assessment-row-unweighted"]);
+    expect(screen.getByText("rate difficulty to rank this")).toBeInTheDocument();
+  });
+
+  // A real-data integration check, not a tiebreak-isolation proof: proximity is
+  // monotonic (assignment-risk.test.ts), so two same-shaped rows differing only by date
+  // can never have their score order disagree with their date order — the synthetic
+  // "orders multiple insufficient-confidence items by date among themselves, not array
+  // order" test above is what actually isolates the tiebreak rule from the score.
+  it("two unweighted assessments in the same class both land insufficient, and order by date among themselves", () => {
+    const later = realAssessment("later", "Unweighted, later date", "2026-09-10", null);
+    const earlier = realAssessment("earlier", "Unweighted, earlier date", "2026-09-01", null);
+    expect(later.risk.confidence).toBe("insufficient");
+    expect(earlier.risk.confidence).toBe("insufficient");
+
+    render(
+      <ClassAssessments
+        assessments={[later, earlier]}
+        editing={false}
+        todayStr="2026-08-20"
+        onAdd={() => {}}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-earlier", "assessment-row-later"]);
   });
 });

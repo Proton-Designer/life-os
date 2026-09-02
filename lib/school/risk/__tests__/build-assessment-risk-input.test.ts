@@ -12,14 +12,21 @@ const facts = {
 } as const;
 
 describe("buildAssessmentRiskInput", () => {
-  it("falls back an unknown weight to 0 rather than inventing a share of the grade", () => {
+  // R35 (2026-09-02): weight moved from "default an unknown weight to 0" to excludable,
+  // same as difficulty/confidence/target below — an unweighted assessment is unmeasured,
+  // not confirmed worth 0% of the grade.
+  it("omits weightPct entirely when unknown, so the engine excludes rather than defaults it — RED before R35, GREEN after", () => {
     const input = buildAssessmentRiskInput({ ...facts, weightPct: null });
-    expect(input.weightPct).toBe(0);
+    expect(input).not.toHaveProperty("weightPct");
+    const result = computeAssignmentRisk(input);
+    expect(result.missingFactors).toContain("weight");
   });
 
   it("passes a known weight through unchanged", () => {
     const input = buildAssessmentRiskInput({ ...facts, weightPct: 40 });
     expect(input.weightPct).toBe(40);
+    const result = computeAssignmentRisk(input);
+    expect(result.missingFactors).not.toContain("weight");
   });
 
   it("has no calendar-busy source: committedHours is always 0, availableHours always positive", () => {

@@ -161,6 +161,50 @@ describe("computeAssignmentRisk", () => {
     expect(result.confidence).toBe("moderate");
   });
 
+  // R35 (2026-09-02): weight joins difficulty/knowledgeGap/gradeHeadroom as excludable —
+  // an unweighted assessment is unmeasured, not confirmed worth 0% of the grade.
+  it("excludes a missing weight and renormalizes, rather than scoring it as worth 0% of the grade", () => {
+    const { weightPct, ...withoutWeight } = base;
+    const withWeight = computeAssignmentRisk({ ...base, weightPct: 20, dueDate: "2026-08-25" });
+    const withoutWeightResult = computeAssignmentRisk({ ...withoutWeight, dueDate: "2026-08-25" });
+    expect(withoutWeightResult.missingFactors).toEqual(["weight"]);
+    const weightEntry = withoutWeightResult.trace.find((t) => t.key === "weight");
+    expect(weightEntry?.weight).toBe(0);
+    expect(weightEntry?.contribution).toBe(0);
+    const remainingWeightSum = withoutWeightResult.trace.filter((t) => t.key !== "weight").reduce((s, t) => s + t.weight, 0);
+    expect(remainingWeightSum).toBeCloseTo(1, 6);
+    // Missing data should not be a free discount: not scoring lower than a real 0% weight would.
+    const zeroWeight = computeAssignmentRisk({ ...base, weightPct: 0, dueDate: "2026-08-25" });
+    expect(withoutWeightResult.score).toBeGreaterThanOrEqual(zeroWeight.score);
+    expect(withWeight.missingFactors).not.toContain("weight");
+  });
+
+  // The safety property that lets R35 land ahead of the weight-entry UI (Lead ruling,
+  // 2026-09-02): today, every real `weight_pct` is null, so every assessment in a class
+  // gains the SAME missing mass and is scaled by the SAME renormalization constant.
+  // Scaling every row's `base` by one shared positive constant cannot reverse their
+  // relative order — proven here directly (not assumed) for today's exact shape: an
+  // unrated class (difficulty/confidence/target all absent too) with several assessments
+  // that differ only by due date. Old behavior (weightPct: 0, a real zero) and new
+  // behavior (weightPct omitted, excluded) may produce different absolute scores, but
+  // must never disagree on ORDER — that's what a user actually sees.
+  it("R35 safety: making weight excludable does not change relative ordering for today's all-unrated shape", () => {
+    const commonUnrated = {
+      today: "2026-08-20",
+      completedUnits: 0,
+      plannedUnits: 0,
+      committedHours: 0,
+      availableHours: 1,
+      globalMeanStartDelayDays: 1.5,
+    };
+    const dueDates = ["2026-08-21", "2026-08-25", "2026-08-30", "2026-09-05", "2026-09-10", "2026-09-20"];
+    const oldStyleScores = dueDates.map((dueDate) => computeAssignmentRisk({ ...commonUnrated, dueDate, weightPct: 0 }).score);
+    const newStyleScores = dueDates.map((dueDate) => computeAssignmentRisk({ ...commonUnrated, dueDate }).score);
+
+    const rankOrder = (scores: number[]) => scores.map((_, i) => i).sort((a, b) => scores[b]! - scores[a]!);
+    expect(rankOrder(newStyleScores)).toEqual(rankOrder(oldStyleScores));
+  });
+
   it("downgrades confidence further as more factors go missing", () => {
     const { difficultyRating, confidenceRating, targetPct, projectedPct, ...rest } = base;
     const result = computeAssignmentRisk({ ...rest, weightPct: 20, dueDate: "2026-08-25" });

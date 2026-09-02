@@ -82,8 +82,10 @@ function daysBetween(from: LocalDate, to: LocalDate): number {
 export interface AssignmentRiskInput {
   today: LocalDate;
   dueDate: LocalDate;
-  /** Share of the class grade, 0-100. */
-  weightPct: number;
+  /** Share of the class grade, 0-100. Missing -> factor excluded and weights renormalized
+   * (R35) — never defaulted to 0, which would score an unweighted assessment as though it
+   * were confirmed worth nothing rather than simply unmeasured. */
+  weightPct?: number;
   /** 1-5 estimated difficulty. Missing -> factor excluded and weights renormalized. */
   difficultyRating?: number;
   /** 1-5 self-rated understanding. Missing -> factor excluded and weights renormalized. */
@@ -140,16 +142,19 @@ function normalizeProximity(today: LocalDate, dueDate: LocalDate): number {
  */
 export function computeAssignmentRisk(input: AssignmentRiskInput): AssignmentRiskResult {
   const proximity = normalizeProximity(input.today, input.dueDate);
-  const weight = clamp01(input.weightPct / WEIGHT_SATURATION_PCT);
+  const weight = input.weightPct != null ? clamp01(input.weightPct / WEIGHT_SATURATION_PCT) : 0;
 
   const missingFactors: FactorKey[] = [];
-  // This exact push order sums to precisely 0.35 (difficulty 0.08 + knowledgeGap 0.15 +
-  // gradeHeadroom 0.12) when School's every-class-unrated state pushes all three — one of
-  // `confidenceForMissingMass`'s own thresholds. Reordering these for readability changes
-  // nothing about WHICH factors are missing, but can change the float sum by one ULP
-  // (0.35 vs 0.35000000000000003) and flip which side of that threshold it lands on
-  // without `MISSING_MASS_EPSILON`. The epsilon makes reordering safe; do not remove one
-  // to "simplify" the other.
+  // Exhaustively checked (2026-09-02) against every subset of {weight 0.18, difficulty
+  // 0.08, knowledgeGap 0.15, gradeHeadroom 0.12} in both push orders: only two subsets
+  // land near a `confidenceForMissingMass` threshold at all — knowledgeGap alone (exactly
+  // 0.15) and difficulty+knowledgeGap+gradeHeadroom (exactly 0.35, School's
+  // every-class-unrated state, in THIS push order only) — and `MISSING_MASS_EPSILON`
+  // already covers both regardless of push order. No subset that includes `weight`
+  // lands near either boundary. Reordering these pushes for readability is therefore
+  // still safe, but re-verify with the same exhaustive check (not spot-checking) if a
+  // ninth excludable factor is ever added.
+  if (input.weightPct == null) missingFactors.push("weight");
   if (input.difficultyRating == null) missingFactors.push("difficulty");
   if (input.confidenceRating == null) missingFactors.push("knowledgeGap");
   if (input.targetPct == null || input.projectedPct == null) missingFactors.push("gradeHeadroom");
@@ -221,7 +226,7 @@ function rawInputFor(key: FactorKey, input: AssignmentRiskInput): unknown {
     case "proximity":
       return { today: input.today, dueDate: input.dueDate };
     case "weight":
-      return input.weightPct;
+      return input.weightPct ?? null;
     case "difficulty":
       return input.difficultyRating ?? null;
     case "knowledgeGap":
