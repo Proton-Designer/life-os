@@ -27,12 +27,13 @@
 # written, and a non-local host is refused unless --allow-production is passed.
 set -uo pipefail
 
-TARGET=""; USER_ID=""; COMMIT=0; ALLOW_PROD=0
+TARGET=""; USER_ID=""; COMMIT=0; ALLOW_PROD=0; STOP_AFTER_PROMOTE=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --target)           TARGET="${2:-}"; shift 2 ;;
     --user)             USER_ID="${2:-}"; shift 2 ;;
     --commit)           COMMIT=1; shift ;;
+    --stop-after-promote) STOP_AFTER_PROMOTE=1; shift ;;
     --allow-production) ALLOW_PROD=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -49,8 +50,30 @@ case "$HOST" in
        echo "loop-e2e-walk: REFUSING a non-local host without --allow-production." >&2; exit 2
      fi ;;
 esac
-[ "$COMMIT" -eq 1 ] && echo "loop-e2e-walk: --commit given; state WILL be left behind." \
-                    || echo "loop-e2e-walk: rehearsal; the transaction is rolled back at the end."
+if [ "$COMMIT" -eq 1 ]; then
+  echo "loop-e2e-walk: --commit given; state WILL be left behind."
+  if [ "$STOP_AFTER_PROMOTE" -eq 1 ]; then
+    echo "loop-e2e-walk: --stop-after-promote; a promotion is committed, NO verdict is recorded."
+    echo "                That promotion is REVERSIBLE: delete it and nothing remains."
+  else
+    # PERMANENCE WARNING. Proven on a container as superuser, not assumed:
+    #   deleting the verdict      -> REFUSED (lesson_verdicts is append-only,
+    #                                no role exemption)
+    #   deleting the promotion    -> REFUSED (cascades into the verdict, which
+    #                                refuses)
+    #   un-suspending the cards   -> succeeds, and then check-suspension-drift
+    #                                goes RED, because the adopted verdict that
+    #                                justifies the suspension cannot be removed
+    # So a committed full walk cannot be cleanly undone on ANY account.
+    echo "loop-e2e-walk: WARNING -- a committed full walk is PERMANENT."
+    echo "                The verdict cannot be deleted (append-only, no role exemption),"
+    echo "                the promotion cannot be deleted (it cascades into the verdict),"
+    echo "                and un-suspending the cards alone turns check-suspension-drift RED."
+    echo "                Use --stop-after-promote if you only need the verdict card to render."
+  fi
+else
+  echo "loop-e2e-walk: rehearsal; the transaction is rolled back at the end."
+fi
 
 # PRECONDITION GATE (R70). A walk against a database missing the mechanism must
 # FAIL LOUDLY, never print a tidy "0 cards in queue, pass". "Could not measure"
@@ -124,7 +147,7 @@ echo "loop-e2e-walk: account has ${AREAS} active area(s) -- eligible to promote.
 echo "loop-e2e-walk: preconditions met (124 + 126 present, queue filters suspended cards)."
 echo
 
-psql "$TARGET" -X -q -t -A -v ON_ERROR_STOP=1 -v uid="$USER_ID" -v commit="$COMMIT" </dev/null <<'SQL'
+psql "$TARGET" -X -q -t -A -v ON_ERROR_STOP=1 -v uid="$USER_ID" -v commit="$COMMIT" -v stop_after_promote="$STOP_AFTER_PROMOTE" </dev/null <<'SQL'
 begin;
 select set_config('request.jwt.claim.sub', :'uid', false);
 
@@ -158,10 +181,15 @@ do $$ begin
 end $$;
 
 \echo '--- STEP 3: PROMOTE it ------------------------------------------------'
-insert into public.lesson_promotions (user_id, lesson_id, area_id, accepted_text)
+-- In --stop-after-promote mode the due date is set to NOW so the verdict card
+-- renders immediately in the close. That date is fabricated for the capture
+-- and is the one dishonest value in this script -- stated here rather than
+-- left for someone to discover. The alternative is waiting thirty days.
+insert into public.lesson_promotions (user_id, lesson_id, area_id, accepted_text, verdict_due_at)
 select '00000000-0000-0000-0000-000000000000', s.lesson_id,
        (select id from public.user_domains where user_id = auth.uid() and archived_at is null order by position limit 1),
-       'loop-e2e-walk: the thing I said I would actually do'
+       'loop-e2e-walk: the thing I said I would actually do',
+       case when :stop_after_promote = 1 then now() else now() + interval '30 days' end
   from walk_subject s;
 
 select '  promotion created: ' || left(p.id::text, 8) || '  retired_at=' || coalesce(p.retired_at::text, 'null (active)')
@@ -174,6 +202,15 @@ select '  live cards for the subject still queued: ' || count(*)
   from public.get_session_queue(20, 20) q
   join public.cards c on c.id = q.card_id
   join walk_subject s on s.lesson_id = c.lesson_id;
+
+\if :stop_after_promote
+  \echo '--- STOPPING AFTER PROMOTE (--stop-after-promote) ---------------------'
+  \echo '    A promotion exists and is due NOW, so the verdict card renders in'
+  \echo '    the close. No verdict recorded, nothing suspended, fully reversible:'
+  \echo '      delete from public.lesson_promotions where id = <the id above>;'
+  commit;
+  \q
+\endif
 
 \echo '--- STEP 5: record the ADOPTED verdict --------------------------------'
 insert into public.lesson_verdicts (promotion_id, verdict)
