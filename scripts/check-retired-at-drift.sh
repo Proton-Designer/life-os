@@ -108,10 +108,13 @@ begin;
 -- retirement no entry in the log can account for.
 with inj as (
   update public.lesson_promotions p set retired_at = now()
-   where p.retired_at is null
-     and not exists (select 1 from public.lesson_verdicts v
-                      where v.promotion_id = p.id
-                        and v.verdict in ('adopted','abandoned'))
+   where p.id = (
+     select p2.id from public.lesson_promotions p2
+      where p2.retired_at is null
+        and not exists (select 1 from public.lesson_verdicts v
+                         where v.promotion_id = p2.id
+                           and v.verdict in ('adopted','abandoned'))
+      limit 1)
    returning 1)
 select 'orphan_injected=' || count(*) from inj;
 
@@ -121,13 +124,19 @@ select 'orphan_injected=' || count(*) from inj;
 -- free slot.
 with inj as (
   update public.lesson_promotions p set retired_at = null
-   where p.retired_at is not null
-     and exists (select 1 from public.lesson_verdicts v
-                  where v.promotion_id = p.id
-                    and v.verdict in ('adopted','abandoned'))
-     and not exists (select 1 from public.lesson_promotions o
-                      where o.user_id = p.user_id and o.lesson_id = p.lesson_id
-                        and o.id <> p.id and o.retired_at is null)
+   where p.id = (
+     -- EXACTLY ONE row. An earlier version updated every qualifying row and
+     -- collided with ITSELF once a lesson had two retired promotions: both
+     -- passed the "no active sibling" test and then both became active.
+     select p2.id from public.lesson_promotions p2
+      where p2.retired_at is not null
+        and exists (select 1 from public.lesson_verdicts v
+                     where v.promotion_id = p2.id
+                       and v.verdict in ('adopted','abandoned'))
+        and not exists (select 1 from public.lesson_promotions o
+                         where o.user_id = p2.user_id and o.lesson_id = p2.lesson_id
+                           and o.id <> p2.id and o.retired_at is null)
+      limit 1)
    returning 1)
 select 'missed_injected=' || count(*) from inj;
 
@@ -162,6 +171,20 @@ fi
 LINE=$(query "$DRIFT_SQL" | grep -E '^[0-9]+\|[0-9]+\|[0-9]+$' | tail -1)
 MISSED=$(echo "$LINE" | cut -d'|' -f1); ORPHAN=$(echo "$LINE" | cut -d'|' -f2); TOTAL=$(echo "$LINE" | cut -d'|' -f3)
 report "${MISSED:-?}" "${ORPHAN:-?}" "${TOTAL:-?}" "live"
+
+# A query that did not come back as three integers is a FAILED CHECK, never a
+# zero. Before this guard the live path exited 0 against a database where the
+# column did not exist yet: the SQL errored, LINE was empty, TOTAL defaulted to
+# 0, and the "empty table" branch reported success. A check that passes when its
+# subject is ABSENT is worse than no check, because it is quoted as evidence.
+if ! echo "${LINE:-}" | grep -qE '^[0-9]+\|[0-9]+\|[0-9]+$'; then
+  echo "CHECK FAILED TO RUN: the drift query did not return three integers." >&2
+  echo "  Subject: lesson_promotions/lesson_verdicts" >&2
+  echo "  Raw output follows -- a missing table or column reads as a query error here," >&2
+  echo "  which is the honest result; it is not a pass." >&2
+  query "$DRIFT_SQL" | sed 's/^/    /' >&2
+  exit 1
+fi
 
 if [ "${TOTAL:-0}" -eq 0 ]; then
   echo "NOTE: zero promotions exist. This is a clean result about an EMPTY table," >&2
