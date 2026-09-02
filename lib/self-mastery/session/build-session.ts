@@ -185,6 +185,30 @@ export async function fetchCardAnswer(client: TypedClient, cardId: string): Prom
   return data.answer;
 }
 
+export interface LessonContext {
+  mechanism: string | null;
+  actionTemplate: string | null;
+}
+
+/**
+ * `lessons.mechanism`/`action_template` for the card just revealed — "why it
+ * works" / "try this," the same two fields book-detail-view.tsx already
+ * shows, now surfaced on the card that taught them. Read-only: no promotion
+ * flow, no commitment creation (that's Phase 4).
+ *
+ * Same reveal-only discipline as fetchCardAnswer, for the same reason: a
+ * "why"/"application" prompt is often testing exactly this content, so
+ * showing it before the user commits an attempt would hand them the answer.
+ * Unlike fetchCardAnswer this isn't the ONE function allowed to select
+ * `answer` — it reads a different table entirely — but the call site
+ * discipline (only from handleReveal, after commit) is identical.
+ */
+export async function fetchLessonContext(client: TypedClient, lessonId: string): Promise<LessonContext> {
+  const { data, error } = await client.from("lessons").select("mechanism, action_template").eq("id", lessonId).single();
+  if (error) throw error;
+  return { mechanism: data.mechanism, actionTemplate: data.action_template };
+}
+
 /** Reads a card's current FSRS scheduling state — the input submitCardReview needs to compute the next state. Contains no prompt/answer text, only scheduling numbers. `null` means the card has never been reviewed. */
 export async function fetchCardState(client: TypedClient, userId: string, cardId: string): Promise<DbCardState | null> {
   const { data, error } = await client

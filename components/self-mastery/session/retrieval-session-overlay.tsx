@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { X } from "lucide-react";
+import { Sparkles, Target, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
@@ -18,6 +18,7 @@ import { buildCardSequence, rollNextInterstitialGap } from "./build-card-sequenc
 import {
   loadTodaysSession,
   revealCardAnswer,
+  revealLessonContext,
   fetchCurrentCardState,
   finishSession,
   logSelfExplanation,
@@ -25,6 +26,7 @@ import {
   type FinishSessionResult,
 } from "@/app/(app)/personal/self-mastery-session-actions";
 import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
+import type { LessonContext } from "@/lib/self-mastery/session/build-session";
 import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types";
 
 type Confidence = "sure" | "think_so" | "guessing";
@@ -71,6 +73,12 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   // fire-and-forget after reveal, never awaited before showing the grade
   // buttons -- a second opinion, never a gate.
   const [aiFeedback, setAiFeedback] = useState<AnswerFeedback | null>(null);
+  // The lesson's "why it works" / "try this" — read-only, same content
+  // book-detail-view.tsx already shows. Fetched alongside revealCardAnswer
+  // (Promise.all in handleReveal), never before it, for the same reason:
+  // a "why"/"application" prompt can be testing exactly this content. Its
+  // own failure never blocks reveal -- see handleReveal's .catch(() => null).
+  const [lessonContext, setLessonContext] = useState<LessonContext | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [explanationText, setExplanationText] = useState("");
   const [completion, setCompletion] = useState<FinishSessionResult | null>(null);
@@ -165,6 +173,7 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setConfidence(null);
     setRevealedAnswer(null);
     setAiFeedback(null);
+    setLessonContext(null);
   }
 
   async function handleReveal() {
@@ -172,8 +181,16 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setError(null);
     setIsSubmitting(true);
     try {
-      const answer = await revealCardAnswer(currentCard.id);
+      // lessonContext's own fetch is caught independently -- it's optional
+      // display content, not part of the reveal invariant's success/failure
+      // path, so a failure here must never block or error out the reveal
+      // the way a failed revealCardAnswer does.
+      const [answer, context] = await Promise.all([
+        revealCardAnswer(currentCard.id),
+        revealLessonContext(currentCard.lessonId).catch(() => null),
+      ]);
       setRevealedAnswer(answer);
+      setLessonContext(context);
       setPhase("revealed");
     } catch {
       setError("Couldn't load the answer. Try again.");
@@ -456,6 +473,31 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                       <p className="text-xs text-muted-foreground">Answer</p>
                       <p className="mt-1">{revealedAnswer}</p>
                     </div>
+                    {/* Read-only -- the same mechanism/action_template
+                        book-detail-view.tsx already shows, surfaced here on
+                        the card that taught them. No promotion flow, no
+                        "try this" button; that's Phase 4. Absent for any
+                        lesson missing one or both fields (a real state --
+                        never fabricated), and absent entirely while its own
+                        fetch is still in flight or failed. */}
+                    {lessonContext?.mechanism && (
+                      <div className="flex gap-2.5 rounded-lg border border-border/40 bg-card p-4">
+                        <Sparkles className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-xs font-medium text-muted-foreground">Why it works</p>
+                          <p className="text-sm text-foreground">{lessonContext.mechanism}</p>
+                        </div>
+                      </div>
+                    )}
+                    {lessonContext?.actionTemplate && (
+                      <div className="flex gap-2.5 rounded-lg border border-border/40 bg-card p-4">
+                        <Target className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-xs font-medium text-muted-foreground">Try this</p>
+                          <p className="text-sm text-foreground">{lessonContext.actionTemplate}</p>
+                        </div>
+                      </div>
+                    )}
                     {/* Renders only when a key is set AND the request
                         actually landed before this paint -- no key, a
                         provider error, or an abandoned (already-graded)

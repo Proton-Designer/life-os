@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   hydrateQueueCards,
   fetchCardAnswer,
+  fetchLessonContext,
   startTodaysSession,
   submitCardReview,
   submitSelfExplanation,
@@ -52,6 +53,28 @@ describe("the non-negotiable invariant: the answer must never reach the client b
     expect(chain.eq).toHaveBeenCalledWith("id", "c1");
     expect(chain.single).toHaveBeenCalled();
     expect(answer).toBe("the real answer");
+  });
+
+  it("fetchLessonContext reads mechanism/action_template from lessons by id, only at reveal time (Boss ruling, R7 task 2)", async () => {
+    const chain = makeChain({ data: { mechanism: "why it works", action_template: "try this" }, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const context = await fetchLessonContext(client, "lesson-1");
+
+    expect(client.from).toHaveBeenCalledWith("lessons");
+    expect(chain.select).toHaveBeenCalledWith("mechanism, action_template");
+    expect(chain.eq).toHaveBeenCalledWith("id", "lesson-1");
+    expect(chain.single).toHaveBeenCalled();
+    expect(context).toEqual({ mechanism: "why it works", actionTemplate: "try this" });
+  });
+
+  it("fetchLessonContext maps a lesson missing both fields to nulls, not empty strings or omission", async () => {
+    const chain = makeChain({ data: { mechanism: null, action_template: null }, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const context = await fetchLessonContext(client, "lesson-2");
+
+    expect(context).toEqual({ mechanism: null, actionTemplate: null });
   });
 
   it("hydrateQueueCards skips a card that vanished between the queue snapshot and this fetch, rather than crashing", async () => {

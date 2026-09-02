@@ -7,6 +7,7 @@ import { localDateString } from "@/lib/date-utils";
 import {
   buildTodaysSession,
   fetchCardAnswer as fetchCardAnswerCore,
+  fetchLessonContext as fetchLessonContextCore,
   fetchCardState,
   submitCardReview,
   loadSessionSettings,
@@ -15,6 +16,7 @@ import {
   countNewCards,
   countDueTomorrow,
   submitSelfExplanation as submitSelfExplanationCore,
+  type LessonContext,
 } from "@/lib/self-mastery/session/build-session";
 import type { BuiltSession, SessionCompletionResult } from "@/lib/self-mastery/session/types";
 
@@ -63,6 +65,18 @@ export async function loadTodaysSession(): Promise<BuiltSession> {
 export async function revealCardAnswer(cardId: string): Promise<string> {
   const { supabase } = await requireUser();
   return fetchCardAnswerCore(supabase, cardId);
+}
+
+/**
+ * The lesson's `mechanism`/`action_template` for the card just revealed —
+ * same reveal-only discipline as revealCardAnswer, for the same reason: a
+ * "why"/"application" prompt can be testing exactly this content, so
+ * fetching it before commit would hand the user the answer. Read-only, no
+ * promotion flow.
+ */
+export async function revealLessonContext(lessonId: string): Promise<LessonContext> {
+  const { supabase } = await requireUser();
+  return fetchLessonContextCore(supabase, lessonId);
 }
 
 export interface GradeCardInput {

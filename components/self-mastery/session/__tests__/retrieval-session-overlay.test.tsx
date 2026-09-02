@@ -6,6 +6,7 @@ import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types
 
 const loadTodaysSessionMock = vi.fn();
 const revealCardAnswerMock = vi.fn();
+const revealLessonContextMock = vi.fn();
 const fetchCurrentCardStateMock = vi.fn();
 const finishSessionMock = vi.fn();
 const logSelfExplanationMock = vi.fn();
@@ -14,6 +15,7 @@ const revalidateAfterReviewMock = vi.fn();
 vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
   loadTodaysSession: () => loadTodaysSessionMock(),
   revealCardAnswer: (cardId: string) => revealCardAnswerMock(cardId),
+  revealLessonContext: (lessonId: string) => revealLessonContextMock(lessonId),
   fetchCurrentCardState: (cardId: string) => fetchCurrentCardStateMock(cardId),
   finishSession: (sessionId: string) => finishSessionMock(sessionId),
   logSelfExplanation: (input: unknown) => logSelfExplanationMock(input),
@@ -59,6 +61,8 @@ describe("RetrievalSessionOverlay", () => {
   beforeEach(() => {
     loadTodaysSessionMock.mockReset();
     revealCardAnswerMock.mockReset();
+    revealLessonContextMock.mockReset();
+    revealLessonContextMock.mockResolvedValue({ mechanism: null, actionTemplate: null }); // the common case: not every lesson has both fields
     fetchCurrentCardStateMock.mockReset();
     finishSessionMock.mockReset();
     logSelfExplanationMock.mockReset();
@@ -374,6 +378,104 @@ describe("RetrievalSessionOverlay", () => {
         {},
         expect.objectContaining({ aiFeedback: "Solid recall.", aiSuggestedRating: 3, rating: 4 })
       );
+    });
+  });
+
+  describe("lesson context on card reveal (mechanism / action_template, read-only)", () => {
+    it("is called ONLY after reveal, never before -- with the card's lessonId", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      expect(revealLessonContextMock).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      await waitFor(() => expect(revealLessonContextMock).toHaveBeenCalledWith("lesson-c1"));
+    });
+
+    it("renders mechanism as 'Why it works' and actionTemplate as 'Try this' once both arrive", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      revealLessonContextMock.mockResolvedValue({
+        mechanism: "Spaced repetition beats cramming because it exploits the forgetting curve.",
+        actionTemplate: "This week, review one card daily instead of all at once.",
+      });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      expect(await screen.findByText("Why it works")).toBeInTheDocument();
+      expect(screen.getByText("Spaced repetition beats cramming because it exploits the forgetting curve.")).toBeInTheDocument();
+      expect(screen.getByText("Try this")).toBeInTheDocument();
+      expect(screen.getByText("This week, review one card daily instead of all at once.")).toBeInTheDocument();
+    });
+
+    it("a lesson with neither field renders neither section -- a real, non-error state, never fabricated", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      revealLessonContextMock.mockResolvedValue({ mechanism: null, actionTemplate: null });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+      expect(screen.queryByText("Why it works")).not.toBeInTheDocument();
+      expect(screen.queryByText("Try this")).not.toBeInTheDocument();
+    });
+
+    it("only mechanism present renders only 'Why it works', not an empty 'Try this' section", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      revealLessonContextMock.mockResolvedValue({ mechanism: "It works because of X.", actionTemplate: null });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      expect(await screen.findByText("Why it works")).toBeInTheDocument();
+      expect(screen.queryByText("Try this")).not.toBeInTheDocument();
+    });
+
+    it("a rejected lesson-context request never blocks or errors reveal -- the answer still shows, no alert", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      revealLessonContextMock.mockRejectedValue(new Error("network"));
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      await waitFor(() => expect(screen.getByText("Answer text")).toBeInTheDocument());
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText("Why it works")).not.toBeInTheDocument();
+      expect(screen.queryByText("Try this")).not.toBeInTheDocument();
+    });
+
+    it("resets between cards -- a stale mechanism from the previous card never bleeds onto the next one", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "First prompt"), card("c2", "Second prompt")]));
+      revealCardAnswerMock.mockResolvedValue("Answer text");
+      revealLessonContextMock.mockResolvedValueOnce({ mechanism: "First mechanism.", actionTemplate: null });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("First prompt")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      expect(await screen.findByText("First mechanism.")).toBeInTheDocument();
+
+      revealLessonContextMock.mockResolvedValue({ mechanism: null, actionTemplate: null });
+      await user.click(screen.getByRole("button", { name: "Good" }));
+
+      await waitFor(() => expect(screen.getByText("Second prompt")).toBeInTheDocument());
+      expect(screen.queryByText("First mechanism.")).not.toBeInTheDocument();
     });
   });
 });
