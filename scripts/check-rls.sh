@@ -60,7 +60,8 @@ read_counts() {
          and not (t.tablename = 'migration_ledger'
               and not exists (select 1 from information_schema.columns c
                                where c.table_schema='public' and c.table_name=t.tablename
-                                 and c.column_name='user_id'))),
+                                 and c.column_name='user_id'))
+         and t.tablename <> 'migration_115_orphaned_group_weight_log'),
       (select count(*) from pg_tables where schemaname='public');"
 }
 
@@ -87,6 +88,24 @@ TOTAL="$(echo "$OUT" | cut -d'|' -f3)"
 
 echo "public tables: $TOTAL   rls_off: $OFF   rls_on_but_no_policy: $NOPOL"
 
+# Exempted tables are REPORTED, never silently skipped. An allowlist that
+# hides its own entries is how a real finding gets muted by a stale
+# exemption -- the entry has to stay visible so a reader can re-judge it.
+#
+#   migration_ledger  — no user_id; the runner writes it as table owner.
+#   migration_115_orphaned_group_weight_log — audit-only. Records a user's
+#     Personal Growth weight tier when 115's flatten found no live children
+#     to attach it to, so a protect-two answer is not silently discarded.
+#     It HAS a user_id, so unlike migration_ledger it is not exempt by
+#     shape; it is exempt by decision, and that is why it is named here.
+#     If this table ever becomes app-facing it needs a real policy, and
+#     this line must come out.
+query "select '  exempt (audit-only, service-role reads only): '||t.tablename
+       from pg_tables t where t.schemaname='public' and t.rowsecurity=true
+         and not exists (select 1 from pg_policies p where p.schemaname='public' and p.tablename=t.tablename)
+         and t.tablename in ('migration_ledger','migration_115_orphaned_group_weight_log')
+       order by 1;"
+
 FAIL=0
 if [ "${OFF:-0}" -gt 0 ]; then
   FAIL=1; echo; echo "FAIL — tables with RLS DISABLED (readable/writable by any authenticated user):"
@@ -100,8 +119,9 @@ if [ "${NOPOL:-0}" -gt 0 ]; then
               and not exists (select 1 from information_schema.columns c
                                where c.table_schema='public' and c.table_name=t.tablename
                                  and c.column_name='user_id'))
+         and t.tablename <> 'migration_115_orphaned_group_weight_log'
          order by 1;"
 fi
 
-[ "$FAIL" -eq 0 ] && { echo "OK — every public table has RLS enabled and at least one policy."; exit 0; }
+[ "$FAIL" -eq 0 ] && { echo "OK — every public table has RLS enabled and at least one policy, except the audit-only tables listed above."; exit 0; }
 exit 1
