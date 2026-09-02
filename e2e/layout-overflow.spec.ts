@@ -121,6 +121,52 @@ async function assertNoHorizontalOverflow(page: import("@playwright/test").Page,
 // ancestor gets silently clipped instead, which the document-level check
 // can't see. Charts inside Panels (Phase C onward) are exactly that risk,
 // per the Phase B review. Every Panel carries `data-panel` for this reason.
+/**
+ * CRUSHED text, which is a different instrument from overflow (R48).
+ *
+ * Found 2026-09-02 capturing R7 evidence: School's grade-ledger dialog renders
+ * the Name column as `Midter…` at 390px while the identical string renders in
+ * full 400px lower in the same dialog — box 56px, needs 229px. Roughly a
+ * quarter of the title is visible.
+ *
+ * NEITHER existing assertion sees it. `assertNoHorizontalOverflow` measures the
+ * document, and a clipped cell overflows nothing — it is clipped precisely so
+ * it doesn't. `assertNoPanelOverflow` measures `[data-panel]` bounds, same
+ * reason. A column-overlap check (boxes intersecting) also reports clean,
+ * because the columns never intersect; one is simply too narrow. That check was
+ * written for this exact bug and passed twice.
+ *
+ * THRESHOLD, stated because it is a judgment and not a law: this flags text
+ * showing LESS THAN HALF its content, which is "crushed", not "truncated". A
+ * deliberate ellipsis on a long user-supplied title usually shows most of it and
+ * is a legitimate design choice; 24% is a column-sizing bug. Tightening the
+ * ratio makes this noisier, not stricter — if it starts flagging real
+ * ellipses, fix the ratio, do not add an allowlist. An allowlist here is a
+ * mute button on the only check that can see this class of defect.
+ */
+async function assertNoCrushedText(page: import("@playwright/test").Page, width: number, scope = "body") {
+  const crushed = await page.evaluate(
+    ({ scope }) => {
+      const root = document.querySelector(scope) ?? document.body;
+      const out: { text: string; box: number; needs: number }[] = [];
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+        if (el.children.length > 0) continue; // leaf text nodes only
+        const text = (el.textContent ?? "").trim();
+        if (text.length < 8) continue; // short labels legitimately abbreviate
+        const box = el.clientWidth;
+        const needs = el.scrollWidth;
+        if (box > 0 && needs > box * 2) out.push({ text: text.slice(0, 40), box, needs });
+      }
+      return out;
+    },
+    { scope }
+  );
+  expect(
+    crushed,
+    `text crushed to under half its width at ${width}px: ${JSON.stringify(crushed)}`
+  ).toEqual([]);
+}
+
 async function assertNoPanelOverflow(page: import("@playwright/test").Page, width: number) {
   await expect
     .poll(
@@ -179,6 +225,7 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
 
       await assertNoHorizontalOverflow(page, width);
       await assertNoPanelOverflow(page, width);
+      await assertNoCrushedText(page, width, '[role="dialog"]');
     }
   });
 
