@@ -22,6 +22,24 @@ export function isTerminal(verdict: Verdict): boolean {
   return (TERMINAL_VERDICTS as readonly string[]).includes(verdict);
 }
 
+/**
+ * THE one definition of "this lesson can be promoted".
+ *
+ * A lesson with no `action_template` has nothing to commit to, so
+ * PromoteLessonSheet renders nothing for it. But the sheet cannot suppress a
+ * container it does not own -- a bordered row or a "Practice" heading around
+ * it would be an empty box on exactly those lessons. So the mounting surface
+ * has to condition on the same rule, and this export is how it does that
+ * WITHOUT a second copy of the rule drifting from the first.
+ *
+ * Takes the field rather than a lesson object on purpose: the two call sites
+ * have different lesson shapes, and a predicate that demands a shape invites a
+ * cast at the call site, which is where the copy would come back.
+ */
+export function hasAction(actionTemplate: string | null | undefined): boolean {
+  return typeof actionTemplate === "string" && actionTemplate.trim().length > 0;
+}
+
 /** One of the user's areas, as `lesson_promotions.area_id` needs it. */
 export interface PromotableArea {
   /** `user_domains.id` — the FK target. NOT the domain key. */

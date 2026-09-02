@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { promoteLesson } from "@/lib/promotions/actions";
-import type { PromotableAreasState } from "@/lib/promotions/types";
+import { hasAction, type PromotableAreasState } from "@/lib/promotions/types";
 
 const TEXTAREA_CLASS =
   "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
@@ -75,8 +75,10 @@ export function PromoteLessonSheet({
   const [isPending, startTransition] = useTransition();
 
   // Nothing to promote. See the header: this is deliberate silence, not an
-  // early return covering a missing case.
-  if (!actionTemplate) return null;
+  // early return covering a missing case. Uses the SAME predicate the mounting
+  // surface uses to decide whether to render its wrapper -- one rule, one
+  // definition, so the two cannot drift into a visible empty box.
+  if (!hasAction(actionTemplate)) return null;
 
   function handleOpenChange(next: boolean) {
     if (isPending) return;

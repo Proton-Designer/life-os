@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { PromoteLessonSheet } from "../promote-lesson-sheet";
 import { VerdictDueList } from "../verdict-card";
+import { hasAction } from "@/lib/promotions/types";
 import type { ActivePromotion } from "@/lib/promotions/types";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
@@ -57,6 +58,35 @@ describe("PromoteLessonSheet", () => {
     // The form must not be reachable: a second active promotion is impossible
     // in the database, so offering it would be offering a guaranteed error.
     expect(screen.queryByTestId("promote-lesson-trigger")).toBeNull();
+  });
+});
+
+describe("hasAction — the shared predicate", () => {
+  // The mounting surface conditions its wrapper on this and the sheet
+  // conditions its render on it. If they ever disagree the user gets an empty
+  // bordered box, so the agreement is asserted rather than assumed.
+  it("agrees with the sheet: whitespace is not an action", () => {
+    expect(hasAction("   ")).toBe(false);
+    expect(hasAction("")).toBe(false);
+    expect(hasAction(null)).toBe(false);
+    expect(hasAction(undefined)).toBe(false);
+    expect(hasAction("Do the thing")).toBe(true);
+  });
+
+  it("the sheet renders nothing for exactly the inputs hasAction rejects", () => {
+    for (const template of ["   ", ""]) {
+      const { container } = render(
+        <PromoteLessonSheet
+          lessonId="l1"
+          lessonTitle="A lesson"
+          actionTemplate={template}
+          areas={READY}
+          existingPromotion={null}
+        />,
+      );
+      expect(hasAction(template)).toBe(false);
+      expect(container).toBeEmptyDOMElement();
+    }
   });
 });
 
