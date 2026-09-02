@@ -38,7 +38,12 @@ export async function POST(request: NextRequest) {
   const windowEnd = resolveLocalTime(todayStr, "03:00", timezone);
 
   const body = (await request.json().catch(() => ({}))) as { allocation?: Partial<Allocation> };
-  const allocation: Allocation = { ...emptyAllocation(), ...(body.allocation ?? { business: 30 }) };
+  // Allocation is now Record<string, number> (ruling b) — TS can't prove a
+  // spread of Partial<Record<string, number>> excludes `undefined` the way
+  // it could for the old closed-key Record, even though every real caller
+  // here only ever supplies concrete numbers. Explicit cast, not a runtime
+  // behavior change.
+  const allocation = { ...emptyAllocation(), ...(body.allocation ?? { business: 30 }) } as Allocation;
 
   await saveAllocationCheckin(windowStart.toISOString(), windowEnd.toISOString(), allocation);
 

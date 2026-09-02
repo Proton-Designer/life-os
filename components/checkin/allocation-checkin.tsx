@@ -28,6 +28,7 @@ import {
   increment,
   decrement,
   setMinutes,
+  minutesFor,
   type Allocation,
   type DomainKey,
 } from "@/lib/checkins/allocation";
@@ -82,7 +83,7 @@ export function minutesAtPointer(
   const x = Math.min(Math.max(clientX - barRect.left, 0), barRect.width);
   const domainIndex = DOMAIN_KEYS.indexOf(domain);
   let before = 0;
-  for (let i = 0; i < domainIndex; i++) before += allocation[DOMAIN_KEYS[i]];
+  for (let i = 0; i < domainIndex; i++) before += minutesFor(allocation, DOMAIN_KEYS[i]);
   const totalAtPointer = barRect.width === 0 ? 0 : (x / barRect.width) * TOTAL_MINUTES;
   return totalAtPointer - before;
 }
@@ -234,7 +235,7 @@ export function AllocationCheckin({
         role="presentation"
       >
         {DOMAIN_KEYS.map((domain) => {
-          const minutes = allocation[domain];
+          const minutes = minutesFor(allocation, domain);
           const isSelected = selected === domain;
           return (
             <div
@@ -262,7 +263,7 @@ export function AllocationCheckin({
       <ul ref={listRef} className="flex flex-col gap-2">
         {DOMAIN_KEYS.map((domain) => {
           const Icon = DOMAIN_ICON[domain];
-          const minutes = allocation[domain];
+          const minutes = minutesFor(allocation, domain);
           const isSelected = selected === domain;
           const ceiling = minutes + wasted;
           const wasPrefilled = prefilled[domain];

@@ -6,6 +6,7 @@ import {
   decrement,
   emptyAllocation,
   increment,
+  minutesFor,
   setMinutes,
   wastedMinutes,
   type Allocation,
@@ -140,6 +141,78 @@ describe("setMinutes (drag entry point)", () => {
     a = setMinutes(a, "business", 30); // business: 30, wasted: 90
     expect(setMinutes(a, "deen", Infinity).deen).toBe(90); // ceiling = deen's own (0) + wasted (90)
     expect(setMinutes(a, "deen", -Infinity).deen).toBe(0);
+  });
+});
+
+// Ruling (b): Allocation must not be closed to the 5 legacy domain keys —
+// a user-created Work subdomain (or any future registry key) has to be
+// able to hold real allocation minutes through exactly the same pure pool
+// math, with no separate code path. This is the type-level widening most
+// of the other tests in this file don't exercise (they all pass DOMAIN_KEYS
+// literals, which remain valid — this proves something NEITHER in that
+// list works too).
+describe("Allocation admits keys outside the legacy 5 (ruling b)", () => {
+  it("emptyAllocation accepts an arbitrary key list, not just the legacy default", () => {
+    const a = emptyAllocation(["acme_inc", "night_shift"]);
+    expect(a).toEqual({ acme_inc: 0, night_shift: 0 });
+  });
+
+  it("increment/decrement/setMinutes work identically for a non-legacy key", () => {
+    let a = emptyAllocation(["acme_inc"]);
+    a = increment(a, "acme_inc");
+    expect(a.acme_inc).toBe(15);
+    expect(wastedMinutes(a)).toBe(105);
+    a = decrement(a, "acme_inc");
+    expect(a.acme_inc).toBe(0);
+    a = setMinutes(a, "acme_inc", 47);
+    expect(a.acme_inc).toBe(45);
+  });
+
+  it("a mix of legacy and non-legacy keys shares one pool correctly", () => {
+    let a = emptyAllocation(["deen", "acme_inc"]);
+    a = increment(a, "deen"); // deen: 15
+    a = increment(a, "acme_inc"); // acme_inc: 15
+    expect(wastedMinutes(a)).toBe(90);
+  });
+
+  it("emptyAllocation with no argument still defaults to the legacy 5 (unchanged for every existing caller)", () => {
+    expect(emptyAllocation()).toEqual({ deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 });
+  });
+});
+
+// Opus Lead's caution on ruling (b): Record<DomainKey, number> guaranteed
+// every key existed; the open Allocation map does not. Bare `a[domain]`
+// used to be safely `number` and is now silently `undefined` for a key the
+// object never had — invisible to tsc since noUncheckedIndexedAccess isn't
+// on, and NaN-through-arithmetic is the null-is-never-zero rule failing in
+// the direction nobody notices. These prove the distinction is real and
+// that reading through `minutesFor` (not a bare index) keeps a ratio
+// calculation correct rather than corrupted, even for a genuinely sparse
+// allocation object.
+describe("a missing key is not silently 0 — ruling (b)'s NaN risk, closed via minutesFor", () => {
+  it("bare bracket access on a missing key is undefined, not 0 — the distinction the risk depends on is real", () => {
+    const a: Allocation = { deen: 30 };
+    expect(a.business).toBeUndefined();
+    expect(a.business).not.toBe(0);
+  });
+
+  it("minutesFor returns an explicit 0 for a missing key, never undefined", () => {
+    const a: Allocation = { deen: 30 };
+    expect(minutesFor(a, "business")).toBe(0);
+  });
+
+  it("a sum built from bare indexing into a sparse allocation goes NaN — the exact failure mode the Lead flagged", () => {
+    const a: Allocation = { deen: 30 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately exercising unsafe bare access
+    const naiveSum = DOMAIN_KEYS.reduce((sum, k) => sum + (a as any)[k], 0);
+    expect(Number.isNaN(naiveSum)).toBe(true);
+  });
+
+  it("the same sum built through minutesFor stays a correct, finite ratio input for a sparse allocation", () => {
+    const a: Allocation = { deen: 30 };
+    const sum = DOMAIN_KEYS.reduce((total, k) => total + minutesFor(a, k), 0);
+    expect(sum).toBe(30);
+    expect(wastedMinutes(a)).toBe(TOTAL_MINUTES - 30);
   });
 });
 

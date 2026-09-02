@@ -1,4 +1,4 @@
-import { DOMAIN_KEYS, STEP, emptyAllocation, type Allocation, type DomainKey } from "./allocation";
+import { DOMAIN_KEYS, STEP, emptyAllocation, minutesFor, type Allocation, type DomainKey } from "./allocation";
 import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from "./schedule";
 
 /**
@@ -204,13 +204,13 @@ function windowLengthMinutes(window: AllocationWindow): number {
  */
 function capBelowFullWindow(a: Allocation, window: AllocationWindow): Allocation {
   const limit = Math.max(0, windowLengthMinutes(window) - STEP);
-  const sum = DOMAIN_KEYS.reduce((s, k) => s + a[k], 0);
+  const sum = DOMAIN_KEYS.reduce((s, k) => s + minutesFor(a, k), 0);
   if (sum <= limit) return a;
 
   const scale = limit / sum;
   const scaled = { ...a };
   for (const key of DOMAIN_KEYS as DomainKey[]) {
-    scaled[key] = Math.floor((a[key] * scale) / STEP) * STEP;
+    scaled[key] = Math.floor((minutesFor(a, key) * scale) / STEP) * STEP;
   }
   return scaled;
 }

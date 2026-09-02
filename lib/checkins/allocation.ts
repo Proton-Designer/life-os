@@ -24,18 +24,49 @@ export const STEP = 15;
  */
 export const STARTER_BLOCK_MINUTES = 5;
 
+/**
+ * The legacy default registry — deen/business/school/fitness/co_op — kept
+ * as a plain convenience export, NOT a type constraint any more (ruling b).
+ * `Allocation` itself is an open, registry-driven map: every real call site
+ * today still only ever populates it with these 5 keys (nothing yet tags
+ * allocation minutes to a user-created Work subdomain), so passing this as
+ * `emptyAllocation()`'s default keeps every existing caller's behavior
+ * byte-for-byte unchanged. The type system no longer assumes it's the only
+ * possible key set, which is the actual deliverable — a registry (e.g. a
+ * user's real domains + Work subdomains, once that wiring exists) can be
+ * passed to `emptyAllocation` instead, and every operation below already
+ * works over it with zero further changes, since none of them ever
+ * hardcoded a key list internally.
+ */
 export type DomainKey = "deen" | "business" | "school" | "fitness" | "co_op";
 
 export const DOMAIN_KEYS: DomainKey[] = ["deen", "business", "school", "fitness", "co_op"];
 
-export type Allocation = Record<DomainKey, number>;
+export type Allocation = Record<string, number>;
 
-export function emptyAllocation(): Allocation {
-  return { deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 };
+export function emptyAllocation(keys: string[] = DOMAIN_KEYS): Allocation {
+  return Object.fromEntries(keys.map((k) => [k, 0]));
 }
 
 function assignedMinutes(a: Allocation): number {
-  return DOMAIN_KEYS.reduce((sum, k) => sum + a[k], 0);
+  return Object.values(a).reduce((sum, v) => sum + v, 0);
+}
+
+/**
+ * The Opus Lead's caution on ruling (b), verbatim: `Record<DomainKey,
+ * number>` guaranteed every key existed; the open `Allocation` map does
+ * not. Direct bracket access (`a[domain]`) that used to be safely `number`
+ * can now silently be `undefined` for a key the object never had — which
+ * is invisible here because `noUncheckedIndexedAccess` isn't on, so
+ * TypeScript still reports it as `number` while the runtime value is
+ * `undefined`. Fed into arithmetic, that becomes `NaN`, which typically
+ * renders as blank or (worse) coerces into something that reads as a real
+ * zero — the null-is-never-zero rule failing in exactly the direction
+ * nobody notices. Every read of a specific domain's minutes should go
+ * through this, not a bare `a[domain]`.
+ */
+export function minutesFor(a: Allocation, domain: string): number {
+  return a[domain] ?? 0;
 }
 
 /** TOTAL - sum(allocations), floored at 0. */
@@ -44,16 +75,17 @@ export function wastedMinutes(a: Allocation): number {
 }
 
 /** Adds min(STEP, wasted) to `domain`. A full pool is a no-op — not an error. */
-export function increment(a: Allocation, domain: DomainKey): Allocation {
+export function increment(a: Allocation, domain: string): Allocation {
   const wasted = wastedMinutes(a);
   if (wasted === 0) return a;
-  return { ...a, [domain]: a[domain] + Math.min(STEP, wasted) };
+  return { ...a, [domain]: minutesFor(a, domain) + Math.min(STEP, wasted) };
 }
 
 /** Subtracts min(STEP, a[domain]) from `domain`, floored at 0. Freed minutes return to wasted. */
-export function decrement(a: Allocation, domain: DomainKey): Allocation {
-  if (a[domain] === 0) return a;
-  return { ...a, [domain]: a[domain] - Math.min(STEP, a[domain]) };
+export function decrement(a: Allocation, domain: string): Allocation {
+  const own = minutesFor(a, domain);
+  if (own === 0) return a;
+  return { ...a, [domain]: own - Math.min(STEP, own) };
 }
 
 /**
@@ -62,7 +94,7 @@ export function decrement(a: Allocation, domain: DomainKey): Allocation {
  * rule verbatim: "increase it by whatever it can be increased but stop it
  * off by whatever was extra."
  */
-export function setMinutes(a: Allocation, domain: DomainKey, requested: number): Allocation {
+export function setMinutes(a: Allocation, domain: string, requested: number): Allocation {
   // A drag handler derives `requested` from pointer position over element
   // width — width 0 (not yet laid out, hidden breakpoint, mid-transition)
   // is a divide-by-zero producing NaN (undefined behaves the same way once
@@ -74,7 +106,7 @@ export function setMinutes(a: Allocation, domain: DomainKey, requested: number):
   // below (to `ceiling` / 0 respectively) and that's the desired behavior.
   const snapped = Math.round(requested / STEP) * STEP;
   if (Number.isNaN(snapped)) return a;
-  const ceiling = a[domain] + wastedMinutes(a);
+  const ceiling = minutesFor(a, domain) + wastedMinutes(a);
   const clamped = Math.min(Math.max(snapped, 0), ceiling);
   return { ...a, [domain]: clamped };
 }

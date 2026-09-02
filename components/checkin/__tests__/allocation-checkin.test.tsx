@@ -5,7 +5,9 @@ import { AllocationCheckin, minutesAtPointer } from "../allocation-checkin";
 import { emptyAllocation, type Allocation, type DomainKey } from "@/lib/checkins/allocation";
 
 function alloc(partial: Partial<Allocation>): Allocation {
-  return { ...emptyAllocation(), ...partial };
+  // Cast, not a behavior change — see the identical note in
+  // app/api/test/save-allocation-checkin/route.ts.
+  return { ...emptyAllocation(), ...partial } as Allocation;
 }
 
 describe("AllocationCheckin", () => {
