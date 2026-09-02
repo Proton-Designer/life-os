@@ -7,10 +7,11 @@
  * configuration table; app/api/self-mastery/ingestion/step/route.ts is the
  * one handler that reads it.
  *
- * ONLY `verifying_grounding` IS WIRED. chunking/extracting_lessons/
- * embedding/merging/generating_cards/finalizing have no handler here yet —
- * they depend on infrastructure this repo does not have. A route hitting
- * an unhandled stage returns 501 with the stage named, not a silent no-op.
+ * Every `ingest_stage` except `embedding` has a handler below (`embedding`
+ * is deliberately skipped -- no embedder exists in this repo, ADR-003/R43;
+ * `chunkingStage` advances straight past it). A route hitting a genuinely
+ * unhandled stage still returns 501 with the stage named, not a silent
+ * no-op -- that discipline is unchanged, there's just nothing left to hit it.
  *
  * ⚠️ FAIL CLOSED WHEN NO REAL PROVIDER IS AVAILABLE — R43, and it reverses
  * this file's own earlier behaviour. The first version of this stage ran
@@ -114,7 +115,7 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
         book_id: ctx.job.book_id,
         // Trigger-derived (set_user_id_from_book, 063) -- overwritten
         // unconditionally before the row is stored; never read from here.
-        user_id: "",
+        user_id: "00000000-0000-0000-0000-000000000000",
         text: c.text,
         page_start: c.pageStart,
         page_end: c.pageEnd,
@@ -203,7 +204,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
     const { error: insertError } = await ctx.supabase.from("lessons").insert(
       candidates.map((c) => ({
         book_id: ctx.job.book_id,
-        user_id: "", // trigger-derived (set_user_id_from_book, 064)
+        user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 064)
         source_chunk_id: c.sourceChunkId,
         title: c.title,
         core_claim: c.coreClaim,
@@ -375,7 +376,7 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
       cards.map((c, i) => ({
         lesson_id: lessonRow.id,
         book_id: ctx.job.book_id,
-        user_id: "", // trigger-derived (set_user_id_from_book, 065)
+        user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 065)
         prompt_type: c.promptType,
         prompt: c.prompt,
         answer: c.answer,
