@@ -78,7 +78,22 @@ export async function POST(request: Request) {
   if (claimError) {
     return NextResponse.json({ ok: false, reason: "claim_failed", error: claimError.message }, { status: 500 });
   }
-  if (!job) {
+  // BUG FOUND LIVE, running item 7 against an empty ingestion_jobs table:
+  // `claim_ingestion_job` (109) is declared to RETURN a `public.ingestion_jobs`
+  // composite. When its own `UPDATE ... RETURNING * INTO claimed` matches zero
+  // rows (no eligible job), `claimed` is left as a ROW OF NULLS, not a genuine
+  // SQL NULL -- `select claim_ingestion_job() is null` is `true` at the SQL
+  // level (composite-null semantics), but PostgREST serializes that same value
+  // over the RPC boundary as a JSON OBJECT with every field null
+  // (`{"id":null,"stage":null,...}`), confirmed directly against the REST
+  // endpoint, not assumed. `!job` is false for that object (it's a truthy
+  // JS object), so this check was silently dead code for the exact "nothing
+  // to do" case it exists to catch -- every empty-queue poll fell through to
+  // `STAGE_HANDLERS[null]` and returned a 501 `stage_not_implemented` instead
+  // of the intended 200 `no_eligible_job`. `job.id` is this table's primary
+  // key and can never be legitimately null for a real claimed row, so it's
+  // the correct discriminator here without touching the RPC's return shape.
+  if (!job || job.id === null) {
     return NextResponse.json({ ok: true, reason: "no_eligible_job" }, { status: 200 });
   }
 

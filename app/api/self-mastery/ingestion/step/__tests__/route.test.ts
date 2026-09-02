@@ -95,6 +95,24 @@ describe("POST /api/self-mastery/ingestion/step", () => {
     expect(mock.rpcCalls.some((c) => c.fn === "advance_ingestion_cursor")).toBe(false);
   });
 
+  it("REGRESSION: treats claim_ingestion_job's real PostgREST shape for 'nothing found' (a composite ROW OF NULLS, not JS null) as no_eligible_job too -- found live running item 7 against an empty table, confirmed against the real REST endpoint: `{\"id\":null,\"stage\":null,...}` is what PostgREST actually returns, not `null`, and a bare `!job` check is dead code against it", async () => {
+    const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+    const allNullRow = {
+      id: null, book_id: null, user_id: null, stage: null, cursor_attempt: null,
+      max_attempts: null, leased_until: null, last_error: null, reingest: null,
+      created_at: null, updated_at: null, cursor_chunk_index: null,
+    };
+    const mock = makeMockSupabase({ claimedJob: allNullRow });
+    vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.reason).toBe("no_eligible_job");
+    expect(mock.rpcCalls.some((c) => c.fn === "advance_ingestion_cursor")).toBe(false);
+  });
+
   it("returns 501 for a stage with no registered handler -- never calls advance", async () => {
     const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
     const mock = makeMockSupabase({
