@@ -424,30 +424,42 @@ export type Database = {
           created_at: string
           date: string
           id: string
+          is_excused: boolean
           name: string
+          points_earned: number | null
+          points_possible: number | null
           task_id: string | null
           type: string
           user_id: string
+          weight_pct: number | null
         }
         Insert: {
           class_id: string
           created_at?: string
           date: string
           id?: string
+          is_excused?: boolean
           name: string
+          points_earned?: number | null
+          points_possible?: number | null
           task_id?: string | null
           type: string
           user_id?: string
+          weight_pct?: number | null
         }
         Update: {
           class_id?: string
           created_at?: string
           date?: string
           id?: string
+          is_excused?: boolean
           name?: string
+          points_earned?: number | null
+          points_possible?: number | null
           task_id?: string | null
           type?: string
           user_id?: string
+          weight_pct?: number | null
         }
         Relationships: [
           {
@@ -469,35 +481,44 @@ export type Database = {
       classes: {
         Row: {
           code: string
+          confidence_rating: number | null
           created_at: string
+          difficulty_rating: number | null
           id: string
           instructor: string | null
           position: number | null
           room: string | null
           short_name: string | null
           syllabus_path: string | null
+          target_grade_pct: number | null
           user_id: string
         }
         Insert: {
           code: string
+          confidence_rating?: number | null
           created_at?: string
+          difficulty_rating?: number | null
           id?: string
           instructor?: string | null
           position?: number | null
           room?: string | null
           short_name?: string | null
           syllabus_path?: string | null
+          target_grade_pct?: number | null
           user_id?: string
         }
         Update: {
           code?: string
+          confidence_rating?: number | null
           created_at?: string
+          difficulty_rating?: number | null
           id?: string
           instructor?: string | null
           position?: number | null
           room?: string | null
           short_name?: string | null
           syllabus_path?: string | null
+          target_grade_pct?: number | null
           user_id?: string
         }
         Relationships: []
@@ -896,12 +917,68 @@ export type Database = {
           },
         ]
       }
+      ingestion_job_stage_attempts: {
+        Row: {
+          attempt: number
+          chunk_index: number | null
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          job_id: string
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          started_at: string
+          succeeded: boolean | null
+          tokens_in: number | null
+          tokens_out: number | null
+          user_id: string
+        }
+        Insert: {
+          attempt?: number
+          chunk_index?: number | null
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id: string
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          started_at?: string
+          succeeded?: boolean | null
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id: string
+        }
+        Update: {
+          attempt?: number
+          chunk_index?: number | null
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id?: string
+          stage?: Database["public"]["Enums"]["ingest_stage"]
+          started_at?: string
+          succeeded?: boolean | null
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingestion_job_stage_attempts_job_id_fkey"
+            columns: ["user_id", "job_id"]
+            isOneToOne: false
+            referencedRelation: "ingestion_jobs"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       ingestion_jobs: {
         Row: {
-          attempts: number
           book_id: string
           created_at: string
-          heartbeat_at: string | null
+          cursor_attempt: number
+          cursor_chunk_index: number | null
           id: string
           last_error: string | null
           leased_until: string | null
@@ -912,10 +989,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          attempts?: number
           book_id: string
           created_at?: string
-          heartbeat_at?: string | null
+          cursor_attempt?: number
+          cursor_chunk_index?: number | null
           id?: string
           last_error?: string | null
           leased_until?: string | null
@@ -926,10 +1003,10 @@ export type Database = {
           user_id: string
         }
         Update: {
-          attempts?: number
           book_id?: string
           created_at?: string
-          heartbeat_at?: string | null
+          cursor_attempt?: number
+          cursor_chunk_index?: number | null
           id?: string
           last_error?: string | null
           leased_until?: string | null
@@ -1445,6 +1522,59 @@ export type Database = {
         }
         Relationships: []
       }
+      questions: {
+        Row: {
+          active: boolean
+          answer: string
+          class_id: string
+          created_at: string
+          id: string
+          origin: string
+          prompt: string
+          source_anchor: string | null
+          source_skipped: boolean
+          topic: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          answer: string
+          class_id: string
+          created_at?: string
+          id?: string
+          origin?: string
+          prompt: string
+          source_anchor?: string | null
+          source_skipped?: boolean
+          topic?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          answer?: string
+          class_id?: string
+          created_at?: string
+          id?: string
+          origin?: string
+          prompt?: string
+          source_anchor?: string | null
+          source_skipped?: boolean
+          topic?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "questions_class_id_fkey"
+            columns: ["user_id", "class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       quran_sessions: {
         Row: {
           created_at: string
@@ -1542,20 +1672,24 @@ export type Database = {
           ai_feedback: string | null
           ai_suggested_rating: number | null
           answered_text: string | null
-          book_id: string
-          card_id: string
+          book_id: string | null
+          card_id: string | null
           confidence: Database["public"]["Enums"]["confidence_level"] | null
+          correct: boolean | null
           difficulty_after: number | null
           difficulty_before: number | null
           elapsed_ms: number | null
           id: string
+          learning_steps_after: number | null
+          question_id: string | null
           rating: number
+          request_retention: number
           reviewed_at: string
           scheduled_days: number | null
           session_id: string | null
           stability_after: number | null
           stability_before: number | null
-          state_after: Database["public"]["Enums"]["fsrs_state"] | null // HAND-PATCHED ahead of its migration (pending a number, R1 draft §5) -- same "codegen has no access token here" situation as extracted_by (docs/notes/extracted-by-design.md, ULM repo). Remove this comment and re-verify via real codegen once the column lands for real.
+          state_after: Database["public"]["Enums"]["fsrs_state"] | null
           state_before: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -1563,20 +1697,24 @@ export type Database = {
           ai_feedback?: string | null
           ai_suggested_rating?: number | null
           answered_text?: string | null
-          book_id: string
-          card_id: string
+          book_id?: string | null
+          card_id?: string | null
           confidence?: Database["public"]["Enums"]["confidence_level"] | null
+          correct?: boolean | null
           difficulty_after?: number | null
           difficulty_before?: number | null
           elapsed_ms?: number | null
           id?: string
+          learning_steps_after?: number | null
+          question_id?: string | null
           rating: number
+          request_retention: number
           reviewed_at?: string
           scheduled_days?: number | null
           session_id?: string | null
           stability_after?: number | null
           stability_before?: number | null
-          state_after?: Database["public"]["Enums"]["fsrs_state"] | null // HAND-PATCHED, see Row above
+          state_after?: Database["public"]["Enums"]["fsrs_state"] | null
           state_before?: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -1584,20 +1722,24 @@ export type Database = {
           ai_feedback?: string | null
           ai_suggested_rating?: number | null
           answered_text?: string | null
-          book_id?: string
-          card_id?: string
+          book_id?: string | null
+          card_id?: string | null
           confidence?: Database["public"]["Enums"]["confidence_level"] | null
+          correct?: boolean | null
           difficulty_after?: number | null
           difficulty_before?: number | null
           elapsed_ms?: number | null
           id?: string
+          learning_steps_after?: number | null
+          question_id?: string | null
           rating?: number
+          request_retention?: number
           reviewed_at?: string
           scheduled_days?: number | null
           session_id?: string | null
           stability_after?: number | null
           stability_before?: number | null
-          state_after?: Database["public"]["Enums"]["fsrs_state"] | null // HAND-PATCHED, see Row above
+          state_after?: Database["public"]["Enums"]["fsrs_state"] | null
           state_before?: Database["public"]["Enums"]["fsrs_state"] | null
           user_id?: string
         }
@@ -2571,14 +2713,51 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _backfill_review_state_after: {
+        Args: {
+          p_id: string
+          p_state_after: Database["public"]["Enums"]["fsrs_state"]
+        }
+        Returns: undefined
+      }
+      advance_ingestion_cursor: {
+        Args: {
+          p_expected_attempt: number
+          p_expected_chunk_index: number
+          p_expected_stage: Database["public"]["Enums"]["ingest_stage"]
+          p_job_id: string
+          p_next_chunk_index: number
+          p_next_stage: Database["public"]["Enums"]["ingest_stage"]
+        }
+        Returns: {
+          book_id: string
+          created_at: string
+          cursor_attempt: number
+          cursor_chunk_index: number | null
+          id: string
+          last_error: string | null
+          leased_until: string | null
+          max_attempts: number
+          reingest: boolean
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ingestion_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       book_is_deleted: { Args: { p_book_id: string }; Returns: boolean }
       claim_ingestion_job: {
         Args: never
         Returns: {
-          attempts: number
           book_id: string
           created_at: string
-          heartbeat_at: string | null
+          cursor_attempt: number
+          cursor_chunk_index: number | null
           id: string
           last_error: string | null
           leased_until: string | null
@@ -2631,10 +2810,6 @@ export type Database = {
           decrypted_secret: string
           name: string
         }[]
-      }
-      heartbeat_ingestion_job: {
-        Args: { p_job_id: string }
-        Returns: undefined
       }
       merge_subdomain_config: {
         Args: { p_patch: Json; p_subdomain_id: string }
@@ -2772,19 +2947,24 @@ export type Database = {
           ai_feedback: string | null
           ai_suggested_rating: number | null
           answered_text: string | null
-          book_id: string
-          card_id: string
+          book_id: string | null
+          card_id: string | null
           confidence: Database["public"]["Enums"]["confidence_level"] | null
+          correct: boolean | null
           difficulty_after: number | null
           difficulty_before: number | null
           elapsed_ms: number | null
           id: string
+          learning_steps_after: number | null
+          question_id: string | null
           rating: number
+          request_retention: number
           reviewed_at: string
           scheduled_days: number | null
           session_id: string | null
           stability_after: number | null
           stability_before: number | null
+          state_after: Database["public"]["Enums"]["fsrs_state"] | null
           state_before: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -2819,6 +2999,7 @@ export type Database = {
         | "embedding"
         | "extracting_lessons"
         | "merging"
+        | "verifying_grounding"
         | "generating_cards"
         | "finalizing"
         | "done"
@@ -2968,6 +3149,7 @@ export const Constants = {
         "embedding",
         "extracting_lessons",
         "merging",
+        "verifying_grounding",
         "generating_cards",
         "finalizing",
         "done",

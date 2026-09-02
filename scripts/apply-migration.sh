@@ -82,3 +82,27 @@ psql "$URL" -X -q </dev/null -c \
    values ('$NAME','$MD5','applied','via apply-migration.sh')
    on conflict (filename) do nothing;" >/dev/null
 echo "APPLIED and recorded: $NAME"
+
+# R32.4: regenerate the generated types as a POST-STEP of a successful production
+# apply, so the file can never describe a database that no longer exists.
+#
+# WHY THIS IS AUTOMATIC AND NOT A REMINDER: database.types.ts was regenerated
+# against a scratch missing 105/106, so it carried none of their columns -- and
+# two engineers hand-declared the shapes to work around it, which is drift
+# becoming code. It also silently lacked 109's advance_ingestion_cursor. Nobody
+# was careless; regeneration was simply a step someone had to remember, and the
+# generated file gives no sign of being stale.
+#
+# Only for the production URL: types must come from production, or a scratch
+# PROVEN identical by the R24 diff -- never from whatever database happened to
+# be at hand.
+if printf '%s' "$URL" | grep -q 'pooler.supabase.com'; then
+  echo "regenerating lib/supabase/database.types.ts from the database just applied to..."
+  if npx supabase gen types typescript --db-url "$URL" > /tmp/_regen_types.ts 2>/dev/null && [ -s /tmp/_regen_types.ts ]; then
+    cp /tmp/_regen_types.ts lib/supabase/database.types.ts
+    echo "  types regenerated -- COMMIT THIS DIFF WITH THE MIGRATION."
+  else
+    echo "  WARNING: type regeneration failed. The generated file now describes an OLDER schema" >&2
+    echo "  than the database. Regenerate manually before trusting it." >&2
+  fi
+fi
