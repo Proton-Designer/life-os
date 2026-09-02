@@ -19,7 +19,14 @@ the point is to make a number unavailable the moment it is promised.
 | `115` | LifeOS Eng 2 (95858) | R27 flatten: `user_domains.key` CHECK change + `personal_growth` row split | **APPLIED** (sha `0494e0f3`) |
 | `116` | LifeOS Eng 2 (95858) | Generic reading-log table (date, units, optional source/title, `user_id`) — NOT a `quran_sessions` reuse: all 6 consumers of that table treat every row as a real Qur'an session | allocated |
 | `117` | ULM lead (42335) | Per-lesson `relevance_floor` (`checked` / `not_checked`) — the deferred embedding arm. R43 killed the local embedder on security grounds (4 unfixable highs in decoder code fed by user uploads), so the floor records that it was NOT checked rather than silently reading as a pass | allocated |
-| `118`+ | — | next free | — |
+| `118` | ULM Eng 1 (54590) | `submit_review`'s `user_settings` lazy upsert + a `pg_proc` guard. NOT in `112` — `112` is the two `SET NOT NULL`s, the `learning_steps` correction and the backfill-RPC drop, so `111`'s raise path stays open until this lands | allocated |
+| `119`+ | — | next free | — |
+
+**`112` HAS A PREREQUISITE OUTSIDE THE FILE.** `scripts/backfill-review-state-after.ts` must be RUN
+before applying `112`, and its result recorded — including when it is a no-op. Do not skip it as
+obviously unnecessary: "obviously nothing to do" is a prediction, and the only thing that makes it
+a fact is running it. This night has already produced an append-only guarantee reported OFF from an
+UPDATE that touched zero rows on an empty table.
 
 **Applied: `110`, `111`, `114`, `115`.** Still pending: `112` (ULM, file on disk, awaiting
 their verification) and `113` (CollegeOS, not yet written).
