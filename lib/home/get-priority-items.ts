@@ -133,7 +133,14 @@ export function defaultDataSource(): HomeDataSource {
         .from("tasks")
         .select("id, domain, title, due_date, due_time, completed, completed_at")
         .eq("user_id", userId)
-        .eq("due_date", date);
+        .eq("due_date", date)
+        // Migration 119 made `domain` nullable so the Night Plan's dump has
+        // somewhere to write. A null-domain row is a dumped plan item, not
+        // class work, and the Night Plan reads it via planned_date/mit_rank.
+        // Excluded explicitly rather than left to chance: HomeTaskRow types
+        // `domain` as "school" | "co_op", and without this filter that type
+        // starts lying the moment a real row carries null.
+        .not("domain", "is", null);
       return (data ?? []) as HomeTaskRow[];
     },
     async getTasksCompletedBetween(userId, dayStartIso, dayEndIso) {
@@ -144,7 +151,8 @@ export function defaultDataSource(): HomeDataSource {
         .eq("user_id", userId)
         .eq("completed", true)
         .gte("completed_at", dayStartIso)
-        .lt("completed_at", dayEndIso);
+        .lt("completed_at", dayEndIso)
+        .not("domain", "is", null); // same reason as getTasks above (119)
       return (data ?? []) as HomeTaskRow[];
     },
     async getFitness(userId, date, dayOfWeek) {
