@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MoreHorizontal, TrendingUp, Settings, type LucideIcon } from "lucide-react";
+import { MoreHorizontal, TrendingUp, Settings, CalendarDays, ClipboardCheck, type LucideIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
@@ -13,8 +13,20 @@ import { usePinToVisualViewport } from "./use-pin-to-visual-viewport";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentToken };
 
+/**
+ * The Review grouping (R61). "Review" here means **"am I on track?"** — the
+ * evening close, Insights and the Calendar — NOT retrieval review. Sessions
+ * start from Now and nowhere else, which is why there is no cards surface in
+ * this list and no new route for one.
+ *
+ * It lives in the More popover rather than as a fifth primary tab because M4
+ * caps the primary row at four, driven by the user's real domain selection.
+ * Adding a fifth would quietly break that cap for every account.
+ */
 const MORE_ITEMS: NavItem[] = [
+  { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },
   { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 
