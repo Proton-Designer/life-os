@@ -44,6 +44,7 @@ interface CardStateRow {
   reps: number;
   lapses: number;
   last_review_at: string | null;
+  learning_steps: number;
 }
 
 export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | null> => {
@@ -84,7 +85,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
   const { data: stateRows, error: statesError } =
     cardIds.length > 0
       ? await untypedFrom(supabase, "card_states")
-          .select("card_id, state, stability, difficulty, due_at, reps, lapses, last_review_at")
+          .select("card_id, state, stability, difficulty, due_at, reps, lapses, last_review_at, learning_steps")
           .eq("user_id", userId)
           .in("card_id", cardIds)
           .returns<CardStateRow[]>()
@@ -102,6 +103,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
           reps: row.reps,
           lapses: row.lapses,
           lastReviewAt: row.last_review_at,
+          learningSteps: row.learning_steps,
         }
       : null;
 
@@ -132,6 +134,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
         state: row?.state ?? "new",
         stability: row?.stability ?? null,
         lastReviewAt: row?.last_review_at ?? null,
+        learningSteps: row?.learning_steps ?? 0,
       };
     });
 

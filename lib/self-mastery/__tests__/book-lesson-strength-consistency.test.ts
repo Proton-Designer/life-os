@@ -12,6 +12,7 @@ function reviewed(daysAgo: number, stability: number): CardStateForStrength {
     reps: 3,
     lapses: 0,
     lastReviewAt: new Date(NOW.getTime() - daysAgo * 86_400_000).toISOString(),
+    learningSteps: 0,
   };
 }
 

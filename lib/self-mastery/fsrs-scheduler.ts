@@ -86,6 +86,17 @@ export interface DbCardState {
   lapses: number;
   state: DbFsrsState;
   lastReviewAt: string | null;
+  /**
+   * ts-fsrs's step INDEX within the learning/relearning ladder — not a count of
+   * anything. Persisted by migration 111 as `card_states.learning_steps`.
+   *
+   * WITHOUT IT A CARD CAN NEVER GRADUATE. `toFsrsCard` used to hardcode 0, so a
+   * card re-hydrated from the database restarted at step 0 on every review: two
+   * Good ratings across two sessions would leave it in `learning` forever,
+   * while the same two ratings inside one session graduated it. The column
+   * existed and nothing read it.
+   */
+  learningSteps: number;
 }
 
 /** Convert a `card_states` row into a ts-fsrs `Card`. Pass `null` for a card with no row yet (never scheduled) — equivalent to a fresh `createEmptyCard`. */
@@ -99,7 +110,7 @@ export function toFsrsCard(row: DbCardState | null, now: Date): Card {
     difficulty: row.difficulty ?? 0,
     elapsed_days: 0,
     scheduled_days: 0,
-    learning_steps: 0,
+    learning_steps: row.learningSteps,
     reps: row.reps,
     lapses: row.lapses,
     state: DB_TO_TS_STATE[row.state],

@@ -12,6 +12,7 @@ function reviewed(overrides: Partial<CardStateForStrength> = {}): CardStateForSt
     reps: 3,
     lapses: 0,
     lastReviewAt: NOW.toISOString(),
+    learningSteps: 0,
     ...overrides,
   };
 }
@@ -23,7 +24,7 @@ describe("cardRetrievability", () => {
 
   it("returns 0 for a card still in the 'new' state", () => {
     expect(
-      cardRetrievability({ state: "new", stability: null, difficulty: null, dueAt: null, reps: 0, lapses: 0, lastReviewAt: null }, NOW)
+      cardRetrievability({ state: "new", stability: null, difficulty: null, dueAt: null, reps: 0, lapses: 0, lastReviewAt: null, learningSteps: 0 }, NOW)
     ).toBe(0);
   });
 

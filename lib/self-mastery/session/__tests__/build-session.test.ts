@@ -103,6 +103,7 @@ describe("the non-negotiable invariant: the answer must never reach the client b
       lapses: 0,
       state: "review" as const,
       last_review_at: "2026-08-31T12:00:00Z",
+      learning_steps: 0,
     };
     // Row B: weak, reviewed long ago -- low retrievability, due 3 days ago (EARLIER than A).
     const rowB = {
@@ -113,6 +114,7 @@ describe("the non-negotiable invariant: the answer must never reach the client b
       lapses: 1,
       state: "review" as const,
       last_review_at: "2026-08-20T12:00:00Z",
+      learning_steps: 0,
     };
     const chain = makeChain({ data: [rowA, rowB], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
@@ -123,11 +125,11 @@ describe("the non-negotiable invariant: the answer must never reach the client b
     // hand-guessed number that could silently drift from the real FSRS
     // curve.
     const retrievabilityA = cardRetrievability(
-      { stability: rowA.stability, difficulty: rowA.difficulty, dueAt: rowA.due_at, reps: rowA.reps, lapses: rowA.lapses, state: rowA.state, lastReviewAt: rowA.last_review_at },
+      { stability: rowA.stability, difficulty: rowA.difficulty, dueAt: rowA.due_at, reps: rowA.reps, lapses: rowA.lapses, state: rowA.state, lastReviewAt: rowA.last_review_at, learningSteps: rowA.learning_steps },
       now
     );
     const retrievabilityB = cardRetrievability(
-      { stability: rowB.stability, difficulty: rowB.difficulty, dueAt: rowB.due_at, reps: rowB.reps, lapses: rowB.lapses, state: rowB.state, lastReviewAt: rowB.last_review_at },
+      { stability: rowB.stability, difficulty: rowB.difficulty, dueAt: rowB.due_at, reps: rowB.reps, lapses: rowB.lapses, state: rowB.state, lastReviewAt: rowB.last_review_at, learningSteps: rowB.learning_steps },
       now
     );
 

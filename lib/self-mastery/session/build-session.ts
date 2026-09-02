@@ -228,7 +228,7 @@ export interface DueCardDetail {
 export async function fetchDueCardDetail(client: TypedClient, userId: string, now: Date): Promise<DueCardDetail> {
   const { data, error } = await client
     .from("card_states")
-    .select("stability, difficulty, due_at, reps, lapses, state, last_review_at")
+    .select("stability, difficulty, due_at, reps, lapses, state, last_review_at, learning_steps")
     .eq("user_id", userId)
     .neq("state", "new")
     .lte("due_at", now.toISOString());
@@ -249,6 +249,7 @@ export async function fetchDueCardDetail(client: TypedClient, userId: string, no
     }
     const retrievability = cardRetrievability(
       {
+        learningSteps: row.learning_steps,
         stability: row.stability,
         difficulty: row.difficulty,
         dueAt: row.due_at,
@@ -268,7 +269,7 @@ export async function fetchDueCardDetail(client: TypedClient, userId: string, no
 export async function fetchCardState(client: TypedClient, userId: string, cardId: string): Promise<DbCardState | null> {
   const { data, error } = await client
     .from("card_states")
-    .select("stability, difficulty, due_at, reps, lapses, state, last_review_at")
+    .select("stability, difficulty, due_at, reps, lapses, state, last_review_at, learning_steps")
     .eq("card_id", cardId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -282,6 +283,7 @@ export async function fetchCardState(client: TypedClient, userId: string, cardId
     lapses: data.lapses,
     state: data.state,
     lastReviewAt: data.last_review_at,
+    learningSteps: data.learning_steps,
   };
 }
 

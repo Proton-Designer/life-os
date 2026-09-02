@@ -222,6 +222,12 @@ export function planCardBackfill(reviews: ReviewForBackfill[]): BackfillStep[] {
       lapses: priorLapses,
       state: row.state_before,
       lastReviewAt: priorLastReviewAt,
+
+      // This script is OBSOLETE (see the header); learning_steps is not on a
+
+      // review row, and 0 is the value toFsrsCard used before 111 existed.
+
+      learningSteps: 0,
     };
     const priorCard = toFsrsCard(priorSnapshot, new Date(row.reviewed_at));
     const { card } = computeNextState(scheduler, priorCard, row.rating as 1 | 2 | 3 | 4, new Date(row.reviewed_at));
