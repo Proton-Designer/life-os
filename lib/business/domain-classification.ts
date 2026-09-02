@@ -33,12 +33,37 @@
 export type DomainWeightTier = "essential" | "important" | "background";
 
 /** A domains-mode user's real weights, keyed by TOP-LEVEL domain (user_domains.key) — not by legacy domain, not by subdomain. */
-export type DomainWeights = Partial<Record<"personal_growth" | "work" | "school", DomainWeightTier>>;
+export type DomainWeights = Partial<
+  Record<"personal_growth" | "faith" | "body" | "learning" | "business" | "work" | "school", DomainWeightTier>
+>;
 
-const LEGACY_TO_TOP_LEVEL: Partial<Record<string, keyof DomainWeights>> = {
-  deen: "personal_growth",
-  fitness: "personal_growth",
-  school: "school",
+// Migration 115 flattens Personal Growth: `faith`/`body`/`learning` become
+// peer top-level rows and the `personal_growth` group row is archived, so
+// getUserDomainWeights (active rows only) stops returning that key at all.
+//
+// Each legacy domain therefore resolves through an ORDERED candidate list —
+// post-115 key first, pre-115 group key second — and the first key PRESENT
+// in the map wins. Two reasons it is a list rather than a straight remap:
+//
+//   1. A migration and a deploy cannot be atomic with each other. Whichever
+//      lands first leaves a window where one vocabulary is live and the
+//      other is not; reading the first present key is correct on both sides
+//      of that window, in either order, so there is no window at all.
+//   2. It keeps ABSENCE meaning exactly one thing. Before 115, a missing
+//      `personal_growth` meant the user DESELECTED it in onboarding — a real
+//      answer, and "other" is the right classification for it. After 115 the
+//      same absence would have meant only "this key no longer exists,"
+//      silently reversing Ayman's 2026-08-19 ruling for every domains-mode
+//      user. Mapping onto keys that still exist restores the single meaning;
+//      falling back to the legacy split on an absent tier would have
+//      destroyed it, by turning a deliberate deselection into missing data.
+//
+// The `personal_growth` arm is transitional. It can be dropped once no
+// production row carries that key — not before, and not on a schedule.
+const LEGACY_TO_TOP_LEVEL: Partial<Record<string, ReadonlyArray<keyof DomainWeights>>> = {
+  deen: ["faith", "personal_growth"],
+  fitness: ["body", "personal_growth"],
+  school: ["school"],
 };
 
 // The 5 legacy domain values this whole classification universe is defined
@@ -64,11 +89,21 @@ export type DomainClassification = "signal" | "other" | "unrecognized";
 export function classifyDomain(domain: string, weights: DomainWeights | null): DomainClassification {
   if (!RECOGNIZED_LEGACY_DOMAINS.has(domain)) return "unrecognized";
 
-  const topLevel = LEGACY_TO_TOP_LEVEL[domain];
-  if (weights === null || topLevel === undefined) {
+  const candidates = LEGACY_TO_TOP_LEVEL[domain];
+  if (weights === null || candidates === undefined) {
     return LEGACY_SIGNAL.has(domain) ? "signal" : "other";
   }
 
-  const tier = weights[topLevel];
+  // First candidate PRESENT wins. An absent tier after every candidate has
+  // been tried is a deselected area, not missing data — "other", never the
+  // legacy fallback.
+  let tier: DomainWeightTier | undefined;
+  for (const key of candidates) {
+    const candidate = weights[key];
+    if (candidate !== undefined) {
+      tier = candidate;
+      break;
+    }
+  }
   return tier === "essential" ? "signal" : "other";
 }

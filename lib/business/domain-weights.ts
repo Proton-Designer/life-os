@@ -17,14 +17,35 @@ import type { DomainWeights, DomainWeightTier } from "./domain-classification";
  * every domain as "other" (an empty DomainWeights object would do that,
  * since no key would ever equal "essential").
  */
+type TopLevelKey = keyof DomainWeights;
+
+/**
+ * Every key this fetch is willing to carry into a DomainWeights map. This
+ * MUST stay in step with DomainWeights itself: a key the migration creates
+ * but this set omits is dropped silently here, and classifyDomain then reads
+ * its absence as a deselected area — the user's real answer, discarded one
+ * layer before anything could notice. Migration 115 adds faith/body/learning
+ * (and business, which stays unmapped in classifyDomain for now, but is
+ * carried so it is available the moment T-0002 lands).
+ */
+const TOP_LEVEL_KEYS = new Set<TopLevelKey>([
+  "personal_growth",
+  "faith",
+  "body",
+  "learning",
+  "business",
+  "work",
+  "school",
+]);
+
 export async function getUserDomainWeights(userId: string): Promise<DomainWeights | null> {
   const supabase = await createClient();
   const { data } = await supabase.from("user_domains").select("key, weight").eq("user_id", userId).is("archived_at", null);
   if (!data || data.length === 0) return null;
   const weights: DomainWeights = {};
   for (const row of data) {
-    if (row.key === "personal_growth" || row.key === "work" || row.key === "school") {
-      weights[row.key] = row.weight as DomainWeightTier;
+    if (TOP_LEVEL_KEYS.has(row.key as TopLevelKey)) {
+      weights[row.key as TopLevelKey] = row.weight as DomainWeightTier;
     }
   }
   return weights;
