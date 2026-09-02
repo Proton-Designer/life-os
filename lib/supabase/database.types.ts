@@ -666,6 +666,7 @@ export type Database = {
           commitment_note: string | null
           committed_date: string
           created_at: string
+          cue_time: string | null // HAND-PATCHED ahead of migration 114 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
           id: string
           name: string
           stage_override: string | null
@@ -677,6 +678,7 @@ export type Database = {
           commitment_note?: string | null
           committed_date: string
           created_at?: string
+          cue_time?: string | null // HAND-PATCHED, see Row above
           id?: string
           name: string
           stage_override?: string | null
@@ -688,6 +690,7 @@ export type Database = {
           commitment_note?: string | null
           committed_date?: string
           created_at?: string
+          cue_time?: string | null // HAND-PATCHED, see Row above
           id?: string
           name?: string
           stage_override?: string | null
@@ -1437,6 +1440,7 @@ export type Database = {
           checkin_window_start: string
           created_at: string
           display_name: string | null
+          evening_close_time: string // HAND-PATCHED ahead of migration 114 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
           location_label: string | null
           location_lat: number | null
           location_lng: number | null
@@ -1458,6 +1462,7 @@ export type Database = {
           checkin_window_start?: string
           created_at?: string
           display_name?: string | null
+          evening_close_time?: string // HAND-PATCHED, see Row above
           location_label?: string | null
           location_lat?: number | null
           location_lng?: number | null
@@ -1479,6 +1484,7 @@ export type Database = {
           checkin_window_start?: string
           created_at?: string
           display_name?: string | null
+          evening_close_time?: string // HAND-PATCHED, see Row above
           location_label?: string | null
           location_lat?: number | null
           location_lng?: number | null
@@ -2294,6 +2300,7 @@ export type Database = {
         Row: {
           archived_at: string | null
           created_at: string
+          depth: string // HAND-PATCHED ahead of migration 114 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
           id: string
           key: string
           position: number
@@ -2304,6 +2311,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           created_at?: string
+          depth?: string // HAND-PATCHED, see Row above
           id?: string
           key: string
           position: number
@@ -2314,6 +2322,7 @@ export type Database = {
         Update: {
           archived_at?: string | null
           created_at?: string
+          depth?: string // HAND-PATCHED, see Row above
           id?: string
           key?: string
           position?: number

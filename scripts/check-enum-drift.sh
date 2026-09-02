@@ -63,7 +63,8 @@ class_assessments.type:app/(app)/school/class-actions.ts
 user_domains.key:app/(app)/onboarding/actions.ts
 user_subdomains.kind:app/(app)/onboarding/actions.ts
 user_api_keys.provider:lib/ai/providers.ts
-user_domains.weight:lib/business/domain-classification.ts"
+user_domains.weight:lib/business/domain-classification.ts
+user_domains.depth:lib/deen/faith-depth.ts"
 
 db_values() { # <table> <column> -> newline-separated allowed values
   psql "$URL" -X -q -t -A </dev/null -c "
