@@ -15,8 +15,10 @@
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then DRY_RUN=1; shift; fi
 URL="${1:-}"; FILE="${2:-}"
-[ -n "$URL" ] && [ -n "$FILE" ] || { echo "usage: apply-migration.sh <url> <file>" >&2; exit 2; }
+[ -n "$URL" ] && [ -n "$FILE" ] || { echo "usage: apply-migration.sh [--dry-run] <url> <file>" >&2; exit 2; }
 [ -f "$FILE" ] || { echo "no such file: $FILE" >&2; exit 2; }
 
 NAME="$(basename "$FILE")"
@@ -31,6 +33,38 @@ if [ -n "$PRIOR" ]; then
     || { echo "  WARNING: file has CHANGED since it was applied." >&2
          echo "  The database was built by a different version of this file." >&2
          echo "  Write a new migration; do not re-run an edited one." >&2; exit 1; }
+fi
+
+# OBJECT MANIFEST, DERIVED FROM THE FILE TEXT (R31's standing gate).
+#
+# WHY: 111 was reported cold-verified as "creating questions" by two people who
+# had genuinely watched it run. It never contained a `create table` at all — it
+# REFERENCED public.questions in two FKs and two trigger bodies, and its own
+# comment said "097 created questions_user_id_id_key", which read as context
+# rather than as the contradiction it was. Their scratch had the table from a
+# separate apply; the claim was about the database, and the defect was in the
+# file. It failed at line 190 on the first database that had never had it —
+# production.
+#
+# So: print what the FILE says it does, before running it. A claim that a
+# migration creates something is checked against this manifest, never against
+# where it happened to run. `grep -c 'create table'` is the minimum honest form
+# of this check and it costs nothing.
+echo "--- objects this file CREATES/ALTERS (parsed from the text, not the DB) ---"
+grep -inE '^[[:space:]]*(create|alter|drop)[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?(table|index|unique[[:space:]]+index|function|trigger|type|policy|view|constraint)' "$FILE" \
+  | sed -E 's/[[:space:]]+/ /g; s/^/    /' | cut -c1-140
+echo "--- tables merely REFERENCED but never created here (must already exist) ---"
+grep -oiE 'references[[:space:]]+(public\.)?[a-z_]+' "$FILE" | awk '{print $2}' | sed 's/^public\.//' | sort -u | sed 's/^/    /'
+echo "---------------------------------------------------------------------------"
+
+if [ "$DRY_RUN" = "1" ]; then
+  # R32.2: a manifest must be obtainable WITHOUT touching the database. I produced
+  # one by re-running a real migration against production to demonstrate the gate,
+  # which created a table and advanced production's state -- a demonstration on a
+  # real file against production IS an apply. This exit is what makes that
+  # impossible to repeat by accident.
+  echo "(dry run: nothing was applied)"
+  exit 0
 fi
 
 LOG="$(mktemp)"
