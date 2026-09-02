@@ -1,44 +1,24 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { PageContainer } from "@/components/shell/page-container";
-import { PageHeader } from "@/components/shell/page-header";
-import { getReviewItems } from "@/lib/distractions/queries";
-import { isReviewOpen, reviewDateFor } from "@/lib/distractions/plan-rules";
-import { ReviewClient } from "@/components/distractions/review-client";
 
-// Formats a plain YYYY-MM-DD (already the LOCAL date reviewDateFor picked —
-// see plan-rules.ts's 4am tail) into "Saturday 23 Aug". Deliberately formats
-// in UTC against a noon instant rather than the user's own timezone: the
-// date string is already the correct local calendar date, and re-running it
-// through timezone conversion could shift it a day in either direction.
-function formatReviewDateHeader(dateStr: string): string {
-  const noon = new Date(`${dateStr}T12:00:00Z`);
-  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", day: "numeric", month: "short" }).format(noon);
-}
-
-export default async function ReviewPage() {
-  const user = await getAuthedUser();
-  if (!user) redirect("/login");
-
-  const profile = await getProfile();
-  const timezone = profile?.timezone ?? "UTC";
-  const now = new Date();
-
-  // Someone navigating here directly (not via the topbar's conditionally-
-  // shown button) before 9pm/after the 4am tail gets sent home rather than
-  // an empty or stale review — isReviewOpen and reviewDateFor share the
-  // same window by construction (plan-rules.ts).
-  if (!isReviewOpen(now, timezone)) redirect("/");
-
-  const reviewDate = reviewDateFor(now, timezone);
-  const supabase = await createClient();
-  const groups = await getReviewItems(supabase, user.id, reviewDate);
-
-  return (
-    <PageContainer>
-      <PageHeader title={`Review · ${formatReviewDateHeader(reviewDate)}`} />
-      <ReviewClient groups={groups} />
-    </PageContainer>
-  );
+/**
+ * The distraction review is now the evening close's ACCOUNT STAGE (R61).
+ *
+ * THIS REDIRECT IS ONLY SAFE BECAUSE THE REWRITE MOVED WITH IT. The account
+ * stage mounts `ReviewItemCard` inline, so a three-strike plan is rewritten
+ * without leaving `/close`. Shipping this redirect on its own — which the
+ * ruling originally called for, on the belief that the absorption had already
+ * happened — would have produced:
+ *
+ *     blocker card -> /review -> /close -> the same blocker card
+ *
+ * and, worse than the loop, no rewrite surface anywhere. The forced rewrite
+ * would have become unresolvable and the close permanently uncompletable for
+ * anyone with a failing plan. Every screen would still have rendered
+ * correctly; the link would simply have returned you where you were.
+ *
+ * If you ever remove the inline rewrite from the account stage, remove this
+ * redirect in the same commit.
+ */
+export default function ReviewRedirectPage() {
+  redirect("/close");
 }

@@ -28,7 +28,11 @@ export default async function EveningClosePage() {
     <PageContainer>
       <PageHeader title="Evening close" />
       <div className="space-y-8">
-        <CloseAccountStage blockers={data.blockers} unplannedTodayCount={data.unplannedTodayCount} />
+        <CloseAccountStage
+          blockers={data.blockers}
+          blockingItems={data.blockingItems}
+          unplannedTodayCount={data.unplannedTodayCount}
+        />
         {/* Reflect renders only once account is satisfied — the stage order is
             a mechanism (close-stages.ts), and showing a later stage beside an
             unresolved blocker is how "you must rewrite this" becomes "you

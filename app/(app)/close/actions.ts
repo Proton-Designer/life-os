@@ -5,6 +5,7 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
+import type { ReviewItem } from "@/lib/distractions/types";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 import { resolveLocalTime } from "@/lib/date-utils";
 
@@ -14,6 +15,14 @@ export type EveningCloseData = {
   /** Local date the close is for, computed in the USER'S timezone. */
   dateLabel: string;
   blockers: CloseBlocker[];
+  /**
+   * The blocking triggers as full ReviewItems, so the rewrite UI can be mounted
+   * INLINE in the account stage (R61 corrected). Without these the stage could
+   * only link out to /review — and once /review redirects here that link is a
+   * loop with no way to rewrite, which makes the close permanently
+   * uncompletable for anyone with a three-strike plan.
+   */
+  blockingItems: ReviewItem[];
   unplannedTodayCount: number;
   /**
    * What last night's close crowned and starred FOR today — read back so the
@@ -89,9 +98,18 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .order("created_at", { ascending: true }),
   ]);
 
+  const blockers = closeBlockers({ triggers, unplannedTodayCount });
+  const blockingIds = new Set(blockers.map((b) => b.triggerId));
+
   return {
     dateLabel: today,
-    blockers: closeBlockers({ triggers, unplannedTodayCount }),
+    blockers,
+    blockingItems: triggers
+      .filter((t) => blockingIds.has(t.id))
+      // isNew is false: a blocking trigger by definition HAS a plan — it has
+      // one that has failed three times. Claiming otherwise would render the
+      // "write your first plan" affordance instead of the rewrite.
+      .map((t) => ({ trigger: t, todayCount: t.todayCount, isNew: false })),
     unplannedTodayCount,
     hoursTodayMinutes: computeFocusTimeMinutes(
       (sessions.data ?? []).map((s) => ({

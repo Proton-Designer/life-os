@@ -1,5 +1,7 @@
-import Link from "next/link";
 import type { CloseBlocker } from "@/lib/evening-close/evening-close";
+import type { ReviewItem } from "@/lib/distractions/types";
+import { CloseBlockerRewrite } from "./close-blocker-rewrite";
+import Link from "next/link";
 
 /**
  * Stage (a) of the evening close: account.
@@ -20,9 +22,11 @@ import type { CloseBlocker } from "@/lib/evening-close/evening-close";
  */
 export function CloseAccountStage({
   blockers,
+  blockingItems,
   unplannedTodayCount,
 }: {
   blockers: CloseBlocker[];
+  blockingItems: ReviewItem[];
   unplannedTodayCount: number;
 }) {
   const blocked = blockers.length > 0;
@@ -44,18 +48,11 @@ export function CloseAccountStage({
             Skipped three times without once being followed. Re-confirming it would just book the same
             night again.
           </p>
-          <ul className="space-y-2">
-            {blockers.map((b) => (
-              <li key={b.triggerId}>
-                <Link
-                  href="/review"
-                  className="block rounded-md border bg-background px-3 py-2 text-sm hover:bg-accent"
-                >
-                  {b.triggerName}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {/* The rewrite happens HERE. These used to be links to /review; once
+              /review redirects to /close that link is a loop with no rewrite
+              surface behind it, and the close becomes permanently
+              uncompletable. Absorbing the UI is what makes the redirect safe. */}
+          <CloseBlockerRewrite items={blockingItems} />
         </div>
       ) : (
         <div className="rounded-lg border p-4">
