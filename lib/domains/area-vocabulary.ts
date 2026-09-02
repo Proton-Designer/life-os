@@ -51,7 +51,24 @@ const AREA_FORMS: Record<Area, { topLevel: string; legacySubdomain: string }> = 
 
 const LEGACY_GROUP = "personal_growth";
 
-/** True when the user actively tracks this area, in whichever vocabulary is live. */
+/**
+ * True when the user actively tracks this area, in whichever vocabulary is live.
+ *
+ * LEGACY MODE RETURNS FALSE, AND CALLERS MUST DECIDE WHAT THAT MEANS. There is
+ * no single right default, which is why this function does not pick one:
+ *
+ *   - Self-Mastery did not exist before domain selection, so false is correct.
+ *   - Faith and Fitness DID exist in the original app. For any surface that a
+ *     legacy account can still see, false is an M6 violation — it would remove
+ *     something that account has always had.
+ *
+ * `computeDomainVisibility` handles this with an explicit `isLegacy ||` per
+ * flag, and `weekly-goal-domains.ts` overrides it the same way for Deen goal
+ * cards (found by Eng 2 while de-hardcoding the weekly_goals filter — reusing
+ * this function's default directly would have made a legacy account's Deen
+ * goal card silently disappear). If you are calling hasArea on a path a legacy
+ * account can reach, decide the legacy answer deliberately at the call site.
+ */
 export function hasArea(state: UserDomainsState, area: Area): boolean {
   if (state.mode !== "domains") return false;
   const form = AREA_FORMS[area];
