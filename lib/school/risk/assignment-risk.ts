@@ -35,10 +35,25 @@ function downgradeOneLevel(confidence: Confidence): Confidence {
   return CONFIDENCE_LEVELS[Math.min(idx + 1, CONFIDENCE_LEVELS.length - 1)]!;
 }
 
-function confidenceForMissingMass(missingMass: number): Confidence {
+/**
+ * `<= 0` is left exact: missing mass is a sum of non-negative weights and is exactly 0
+ * only when nothing is missing (an empty reduce) — there is no float error to absorb
+ * there, and an epsilon would only let a hypothetical 1e-10 mass read as `high`.
+ *
+ * The other two thresholds carry an epsilon because a real input lands exactly on one:
+ * today's universal missing set (difficulty + knowledgeGap + gradeHeadroom, see
+ * `missingFactors.push` below) sums to exactly 0.35, and IEEE754 addition is not
+ * associative — summed in the other order it's 0.35000000000000003, one ULP over the
+ * boundary. 1e-9 is deliberate: eight orders of magnitude larger than that ~3e-17 error,
+ * seven orders smaller than the smallest real factor weight (procrastination, 0.05), so
+ * it absorbs float noise without ever being able to swallow a genuine missing factor.
+ */
+const MISSING_MASS_EPSILON = 1e-9;
+
+export function confidenceForMissingMass(missingMass: number): Confidence {
   if (missingMass <= 0) return "high";
-  if (missingMass <= 0.15) return "moderate";
-  if (missingMass <= 0.35) return "low";
+  if (missingMass <= 0.15 + MISSING_MASS_EPSILON) return "moderate";
+  if (missingMass <= 0.35 + MISSING_MASS_EPSILON) return "low";
   return "insufficient";
 }
 
@@ -128,6 +143,13 @@ export function computeAssignmentRisk(input: AssignmentRiskInput): AssignmentRis
   const weight = clamp01(input.weightPct / WEIGHT_SATURATION_PCT);
 
   const missingFactors: FactorKey[] = [];
+  // This exact push order sums to precisely 0.35 (difficulty 0.08 + knowledgeGap 0.15 +
+  // gradeHeadroom 0.12) when School's every-class-unrated state pushes all three — one of
+  // `confidenceForMissingMass`'s own thresholds. Reordering these for readability changes
+  // nothing about WHICH factors are missing, but can change the float sum by one ULP
+  // (0.35 vs 0.35000000000000003) and flip which side of that threshold it lands on
+  // without `MISSING_MASS_EPSILON`. The epsilon makes reordering safe; do not remove one
+  // to "simplify" the other.
   if (input.difficultyRating == null) missingFactors.push("difficulty");
   if (input.confidenceRating == null) missingFactors.push("knowledgeGap");
   if (input.targetPct == null || input.projectedPct == null) missingFactors.push("gradeHeadroom");
