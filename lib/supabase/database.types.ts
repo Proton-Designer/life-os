@@ -1163,6 +1163,36 @@ export type Database = {
           },
         ]
       }
+      migration_115_orphaned_group_weight_log: {
+        Row: {
+          group_archived_at: string | null
+          group_id: string
+          group_position: number
+          id: string
+          logged_at: string
+          user_id: string
+          weight: string
+        }
+        Insert: {
+          group_archived_at?: string | null
+          group_id: string
+          group_position: number
+          id?: string
+          logged_at?: string
+          user_id: string
+          weight: string
+        }
+        Update: {
+          group_archived_at?: string | null
+          group_id?: string
+          group_position?: number
+          id?: string
+          logged_at?: string
+          user_id?: string
+          weight?: string
+        }
+        Relationships: []
+      }
       migration_ledger: {
         Row: {
           applied_at: string
