@@ -22,6 +22,21 @@ the point is to make a number unavailable the moment it is promised.
 | `118` | ULM Eng 1 (54590) | `submit_review`'s `user_settings` lazy upsert + a `pg_proc` guard. NOT in `112` — `112` is the two `SET NOT NULL`s, the `learning_steps` correction and the backfill-RPC drop, so `111`'s raise path stays open until this lands | allocated |
 | `119`+ | — | next free | — |
 
+**`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
+
+```
+npx tsx scripts/backfill-review-state-after.ts
+→ backfill-review-state-after: 0 cards with a null state_after row. Nothing to do.
+
+reviews total 0 · state_after IS NULL 0 · learning_steps_after IS NULL 0
+```
+
+A genuine no-op, and recorded as a RESULT rather than a prediction — those look
+identical in a report and are not the same evidence. Note the script's own header
+documents "28 reviews, 28 distinct cards"; production has zero. That header
+describes a different database, the same way a `database.types.ts` generated
+against scratch once described a `deen_habits.cue_time` production did not have.
+
 **`112` HAS A PREREQUISITE OUTSIDE THE FILE.** `scripts/backfill-review-state-after.ts` must be RUN
 before applying `112`, and its result recorded — including when it is a no-op. Do not skip it as
 obviously unnecessary: "obviously nothing to do" is a prediction, and the only thing that makes it
