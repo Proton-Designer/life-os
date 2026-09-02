@@ -3,6 +3,7 @@ import { PageContainer } from "@/components/shell/page-container";
 import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { LessonCard } from "./lesson-card";
+import { Button } from "@/components/ui/button";
 import { PromoteLessonSheet } from "@/components/promotions/promote-lesson-sheet";
 import { getPromotableAreas, getActivePromotionForLesson } from "@/lib/promotions/read";
 import { hasAction } from "@/lib/promotions/types";
@@ -98,6 +99,19 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
                       actionTemplate={lesson.actionTemplate}
                       areas={promotableAreas}
                       existingPromotion={activePromotions.get(lesson.id) ?? null}
+                      // A DISTINCT LABEL, because LessonCard already prints
+                      // "Try this" as the heading above the proposed action
+                      // (lesson-card.tsx:55). The sheet's default trigger is
+                      // also "Try this", so the mount rendered the same two
+                      // words twice on one lesson meaning two different
+                      // things: one labels the suggestion, one commits to it.
+                      // Caught by looking at the 390px capture — the test-id
+                      // assertion passed happily, because both existed.
+                      trigger={
+                        <Button type="button" variant="outline" size="sm" data-testid="promote-lesson-trigger">
+                          Commit to this
+                        </Button>
+                      }
                     />
                   </div>
                 ) : null}
