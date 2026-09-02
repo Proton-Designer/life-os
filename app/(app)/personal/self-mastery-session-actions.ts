@@ -9,6 +9,7 @@ import {
   fetchCardAnswer as fetchCardAnswerCore,
   fetchCardState,
   submitCardReview,
+  loadSessionSettings,
   completeTodaysSession,
   countDueCards,
   countNewCards,
@@ -87,7 +88,12 @@ export interface GradeCardInput {
 export async function gradeCard(input: GradeCardInput): Promise<{ scheduledDays: number }> {
   const { supabase, userId } = await requireUser();
   const currentState = await fetchCardState(supabase, userId, input.cardId);
+  // Load the caller's own desired_retention rather than letting the scheduler
+  // fall back to 0.9. Without this the path schedules every review at the
+  // default no matter what the user chose — see submitCardReview's comment.
+  const { desiredRetention } = await loadSessionSettings(supabase, userId);
   const { scheduledDays } = await submitCardReview(supabase, {
+    desiredRetention,
     currentState,
     cardId: input.cardId,
     sessionId: input.sessionId,

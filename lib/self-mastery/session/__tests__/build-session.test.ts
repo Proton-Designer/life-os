@@ -314,3 +314,54 @@ describe("a brand-new user's very first session", () => {
     ).toBe(true);
   });
 });
+
+
+describe("desired_retention actually reaches the scheduler", () => {
+  /**
+   * The test ULM's lead flagged as missing: their own fix was committed as
+   * "believed-fixed, not verified" because nothing proved a NON-DEFAULT
+   * retention reaches a real grade.
+   *
+   * This asserts behaviour, not wiring. A higher desired retention means the
+   * user wants to be re-shown material sooner, so the SAME card graded the SAME
+   * way must schedule a SHORTER interval at 0.95 than at 0.80. If the parameter
+   * were being dropped — which it was on this path until now, defaulting to 0.9
+   * regardless of the user's setting — both calls would return an identical
+   * interval and this test fails.
+   */
+  const submitAt = async (desiredRetention: number) => {
+    const rpc = vi.fn(async (_fn: string, args: Record<string, unknown>) => ({
+      data: { id: "review-1", scheduled_days: (args.p_next_state as { scheduled_days?: number })?.scheduled_days },
+      error: null,
+    }));
+    const client = { rpc } as unknown as Parameters<typeof submitCardReview>[0];
+    const result = await submitCardReview(client, {
+      desiredRetention,
+      currentState: {
+        stability: 10,
+        difficulty: 5,
+        due_at: "2026-09-01T12:00:00Z",
+        reps: 3,
+        lapses: 0,
+        state: "review",
+        last_review_at: "2026-08-22T12:00:00Z",
+      } as never,
+      cardId: "c1",
+      sessionId: "sess-1",
+      rating: 3,
+      elapsedMs: 5000,
+      answeredText: "a",
+      aiFeedback: null,
+      aiSuggestedRating: null,
+      confidence: null,
+      now: new Date("2026-09-01T12:00:00Z"),
+    });
+    return result.scheduledDays;
+  };
+
+  it("a higher desired retention schedules a SHORTER interval", async () => {
+    const atLowRetention = await submitAt(0.8);
+    const atHighRetention = await submitAt(0.95);
+    expect(atHighRetention).toBeLessThan(atLowRetention);
+  });
+});

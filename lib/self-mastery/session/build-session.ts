@@ -252,6 +252,9 @@ export async function buildTodaysSession(
 }
 
 export interface SubmitCardReviewInput {
+  /** The caller's user_settings.desired_retention. Omitting it falls back to the
+   * FSRS default, which is correct ONLY where there is no user context. */
+  desiredRetention?: number;
   currentState: DbCardState | null;
   cardId: string;
   sessionId: string;
@@ -273,7 +276,19 @@ export interface SubmittedReview {
 
 /** Computes the next FSRS state and submits it through submit_review, which re-validates the transition server-side before writing the review row and the card state in one transaction. Never writes card_states directly. */
 export async function submitCardReview(client: TypedClient, input: SubmitCardReviewInput): Promise<SubmittedReview> {
-  const scheduler = getScheduler();
+  // The caller's OWN desired_retention, never the default.
+  //
+  // This previously called getScheduler() bare, so every review written through
+  // this path was scheduled at 0.9 regardless of what the user had chosen. The
+  // live grade path (the session overlay -> offline queue) computes nextState
+  // itself with the correct value, so the defect was invisible: this function
+  // is currently reachable only via gradeCard, which no UI calls today. It was
+  // documented as "the simpler, correct online-only path" — and it was not
+  // correct, so the first future caller would have silently lost the setting.
+  //
+  // Exactly the chokepoint-bypass shape AGENTS.md records for the prayer-time
+  // fix: when a value is fixed at one call site, grep for the ones that skip it.
+  const scheduler = getScheduler(input.desiredRetention);
   const current = toFsrsCard(input.currentState, input.now);
   const { card: nextCard, scheduledDays } = computeNextState(scheduler, current, input.rating, input.now);
   const nextState = toRpcNextState(nextCard);
