@@ -38,7 +38,19 @@ function task(id: string, classId: string, dueDate: string, overrides: Row = {})
 }
 
 function assessment(id: string, classId: string, name: string, date: string, overrides: Row = {}): Row {
-  return { id, class_id: classId, name, type: "quiz", date, task_id: null, weight_pct: null, ...overrides };
+  return {
+    id,
+    class_id: classId,
+    name,
+    type: "quiz",
+    date,
+    task_id: null,
+    weight_pct: null,
+    points_earned: null,
+    points_possible: null,
+    is_excused: false,
+    ...overrides,
+  };
 }
 
 // This suite is about data SHAPING (grouping, this-week filtering, nearest-upcoming
@@ -80,8 +92,8 @@ describe("getClassCards", () => {
         tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
         assessments: [
-          { id: "a1", name: "Quiz 2", type: "quiz", date: "2026-09-10", taskId: null },
-          { id: "a2", name: "Quiz 3", type: "quiz", date: "2026-09-20", taskId: null },
+          { id: "a1", name: "Quiz 2", type: "quiz", date: "2026-09-10", taskId: null, weightPct: null, pointsEarned: null, pointsPossible: null, isExcused: false },
+          { id: "a2", name: "Quiz 3", type: "quiz", date: "2026-09-20", taskId: null, weightPct: null, pointsEarned: null, pointsPossible: null, isExcused: false },
         ],
         tasks: [
           { id: "t1", title: "Task t1", dueDate: "2026-08-25", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
@@ -160,6 +172,25 @@ describe("getClassCards", () => {
     const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
     expect(result[0].tasksDueThisWeek).toBe(1);
     expect(result[0].tasks).toHaveLength(2);
+  });
+
+  it("carries weight/points/excused through unchanged, neither defaulted nor coalesced", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      tasks: [],
+      class_assessments: [
+        assessment("a1", "c1", "Midterm", "2026-09-10", { weight_pct: 20, points_earned: 45, points_possible: 50, is_excused: false }),
+        assessment("a2", "c1", "Excused Quiz", "2026-09-01", { weight_pct: 5, points_earned: null, points_possible: null, is_excused: true }),
+        assessment("a3", "c1", "Not Yet Graded", "2026-09-20", { weight_pct: 10 }),
+      ],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+    const byId = new Map(result[0]!.assessments.map((a) => [a.id, a]));
+
+    expect(byId.get("a1")).toMatchObject({ weightPct: 20, pointsEarned: 45, pointsPossible: 50, isExcused: false });
+    expect(byId.get("a2")).toMatchObject({ weightPct: 5, pointsEarned: null, pointsPossible: null, isExcused: true });
+    expect(byId.get("a3")).toMatchObject({ weightPct: 10, pointsEarned: null, pointsPossible: null, isExcused: false });
   });
 
   it("ignores a past assessment when picking the nearest upcoming one, but still carries it in the full array", async () => {

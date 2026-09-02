@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ClassAssessments, type ClassAssessment } from "@/components/school/class-assessments";
+import { ClassGradeLedger } from "@/components/school/class-grade-ledger";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
 import { TaskWizardDialog, type TaskWizardSubmitInput } from "@/components/school/task-wizard-dialog";
@@ -371,6 +372,14 @@ export function ClassDetailDialog({
           <div className="rounded-2xl border border-border/40 bg-card p-4">
             <SyllabusPanel classId={classData.id} hasSyllabus={classData.hasSyllabus} editing={editing} />
           </div>
+        </div>
+
+        {/* Reads straight from classData.assessments (server props), not the
+            staged `assessments` state above — there's no grade-entry UI yet
+            (out of scope for this pass), so there's nothing to stage. Same
+            B3 instant-load contract as everything else in this dialog. */}
+        <div className="rounded-2xl border border-border/40 bg-card p-4">
+          <ClassGradeLedger assessments={classData.assessments} />
         </div>
 
         <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">

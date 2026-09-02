@@ -58,7 +58,18 @@ describe("ClassDetailDialog", () => {
         onOpenChange={vi.fn()}
         classData={baseClassData({
           assessments: [
-            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low", confidence: "insufficient" } },
+            {
+              id: "a1",
+              name: "Midterm",
+              type: "midterm_final",
+              date: "2026-10-06",
+              taskId: "t1",
+              risk: { score: 10, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+            },
           ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
         })}
@@ -68,8 +79,12 @@ describe("ClassDetailDialog", () => {
     expect(screen.getByRole("heading", { name: "Assessments" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Syllabus" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Task list" })).toBeInTheDocument();
-    expect(screen.getByText("Midterm")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Grade" })).toBeInTheDocument();
+    // "Midterm" appears twice now — once in the Assessments list, once in
+    // the Grade ledger mounted alongside it — both instant, from the same props.
+    expect(screen.getAllByText("Midterm")).toHaveLength(2);
     expect(screen.queryByText(/Loading assessments/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading grade/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Loading tasks/i)).not.toBeInTheDocument();
   });
 
@@ -197,7 +212,18 @@ describe("ClassDetailDialog", () => {
         onOpenChange={vi.fn()}
         classData={baseClassData({
           assessments: [
-            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low", confidence: "insufficient" } },
+            {
+              id: "a1",
+              name: "Midterm",
+              type: "midterm_final",
+              date: "2026-10-06",
+              taskId: "t1",
+              risk: { score: 10, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+            },
           ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
         })}
@@ -224,7 +250,18 @@ describe("ClassDetailDialog", () => {
         onOpenChange={vi.fn()}
         classData={baseClassData({
           assessments: [
-            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low", confidence: "insufficient" } },
+            {
+              id: "a1",
+              name: "Midterm",
+              type: "midterm_final",
+              date: "2026-10-06",
+              taskId: "t1",
+              risk: { score: 10, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+            },
           ],
         })}
         timezone="America/Chicago"

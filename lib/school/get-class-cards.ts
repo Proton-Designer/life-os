@@ -48,6 +48,16 @@ export type ClassCardData = {
      * proxy — an `insufficient`-confidence score isn't a rank claim regardless of its
      * numeric value. */
     risk: { score: number; band: RiskBand; confidence: Confidence };
+    /** `weight_pct`/`points_earned`/`points_possible`/`is_excused` (migrations 105/106) —
+     * unlike every other field on this row, these (points/excused) are genuinely
+     * per-assessment, not a class-level rating applied uniformly. Feed straight into
+     * `toAssessmentGradeRows` (lib/school/grades/build-grade-rows.ts) alongside
+     * `weightPct`; do not default or coalesce here — null-is-never-zero is enforced at
+     * that boundary. */
+    weightPct: number | null;
+    pointsEarned: number | null;
+    pointsPossible: number | null;
+    isExcused: boolean;
   }[];
   /** This class's incomplete tasks, regardless of week — deliberately
    * wider than `tasksDueThisWeek`'s this-week/incomplete filter, since the
@@ -113,7 +123,7 @@ export async function getClassCards(
       .in("class_id", classIds),
     supabase
       .from("class_assessments")
-      .select("id, class_id, name, type, date, task_id, weight_pct")
+      .select("id, class_id, name, type, date, task_id, weight_pct, points_earned, points_possible, is_excused")
       .eq("user_id", userId)
       .in("class_id", classIds)
       .order("date", { ascending: true }),
@@ -136,11 +146,31 @@ export async function getClassCards(
     tasksByClass.set(t.class_id, list);
   }
 
-  type RawAssessment = { id: string; name: string; type: string; date: string; taskId: string | null; weightPct: number | null };
+  type RawAssessment = {
+    id: string;
+    name: string;
+    type: string;
+    date: string;
+    taskId: string | null;
+    weightPct: number | null;
+    pointsEarned: number | null;
+    pointsPossible: number | null;
+    isExcused: boolean;
+  };
   const assessmentsByClass = new Map<string, RawAssessment[]>();
   for (const a of assessmentRows ?? []) {
     const list = assessmentsByClass.get(a.class_id) ?? [];
-    list.push({ id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.task_id, weightPct: a.weight_pct });
+    list.push({
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      date: a.date,
+      taskId: a.task_id,
+      weightPct: a.weight_pct,
+      pointsEarned: a.points_earned,
+      pointsPossible: a.points_possible,
+      isExcused: a.is_excused,
+    });
     assessmentsByClass.set(a.class_id, list);
   }
 
@@ -160,7 +190,18 @@ export async function getClassCards(
         targetGradePct: c.target_grade_pct,
       });
       const { score, band, confidence } = computeAssignmentRisk(riskInput);
-      return { id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.taskId, risk: { score, band, confidence } };
+      return {
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        date: a.date,
+        taskId: a.taskId,
+        risk: { score, band, confidence },
+        weightPct: a.weightPct,
+        pointsEarned: a.pointsEarned,
+        pointsPossible: a.pointsPossible,
+        isExcused: a.isExcused,
+      };
     });
     // Rows are already ordered by date ascending (risk is attached in place, not
     // re-sorted), so the first future assessment is still the nearest upcoming one — no
