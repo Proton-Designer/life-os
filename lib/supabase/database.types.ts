@@ -225,7 +225,7 @@ export type Database = {
       card_states: {
         Row: {
           book_id: string | null
-          card_id: string
+          card_id: string | null
           difficulty: number | null
           due_at: string | null
           id: string
@@ -241,7 +241,7 @@ export type Database = {
         }
         Insert: {
           book_id?: string | null
-          card_id: string
+          card_id?: string | null
           difficulty?: number | null
           due_at?: string | null
           id?: string
@@ -257,7 +257,7 @@ export type Database = {
         }
         Update: {
           book_id?: string | null
-          card_id?: string
+          card_id?: string | null
           difficulty?: number | null
           due_at?: string | null
           id?: string
