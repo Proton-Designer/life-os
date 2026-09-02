@@ -100,7 +100,7 @@ describe("ClassGradeLedger — required-score verdict", () => {
         targetGradePct={90}
       />
     );
-    expect(screen.getByText("Need 94.0% on the rest to reach 90%.")).toBeInTheDocument();
+    expect(screen.getByText("Need 94.0% across the remaining 70%.")).toBeInTheDocument();
   });
 
   it("says the target is already secured rather than a required percentage", () => {
@@ -126,6 +126,31 @@ describe("ClassGradeLedger — required-score verdict", () => {
         targetGradePct={90}
       />
     );
-    expect(screen.getByText("Not reachable even with 100% on the rest — the max possible is 68.0%.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Target missed — even 100% on the remaining 20% caps you at 68.0%.")
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ClassGradeLedger — R59: unassigned weight is unknown, not zero", () => {
+  it("fixture A end-to-end: 25-weight midterm at 78%, nothing else assigned", () => {
+    render(
+      <ClassGradeLedger
+        assessments={[assessment({ id: "m1", name: "Midterm", weightPct: 25, pointsEarned: 78, pointsPossible: 100 })]}
+        targetGradePct={90}
+      />
+    );
+    // Class-level current (78.0%) and the midterm's own row status (also
+    // 78.0%, its single-item categoryPct) — never the old bug's 19.5%.
+    // Projected isn't shown separately: it equals current exactly, so the
+    // component's own within-0.05 suppression hides it, which is itself
+    // part of the fix working (no second, disagreeing number on screen).
+    expect(screen.getAllByText("78.0%")).toHaveLength(2);
+    expect(screen.queryByText(/19\.5%/)).not.toBeInTheDocument();
+    expect(screen.getByText("75% of the grade is not yet weighted.")).toBeInTheDocument();
+    expect(screen.getByText("Need 94.0% across the remaining 75%.")).toBeInTheDocument();
+    // The two numbers must not disagree the way they did in the reported bug:
+    // no "Target missed" anywhere on this render.
+    expect(screen.queryByText(/target missed/i)).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import { computeClassGrade } from "@/lib/school/grades/grade-ledger";
+import { projectClassGrade } from "@/lib/school/grades/grade-projection";
 import { requiredScoreVerdictText } from "@/lib/school/grades/required-score-verdict";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
@@ -46,6 +47,10 @@ export function ClassGradeLedger({
   const result = computeClassGrade(assessments);
   const byAssessmentId = new Map(result.categoryResults.map((c) => [c.categoryId, c]));
   const verdictText = requiredScoreVerdictText(result, targetGradePct);
+  // R59: current/projected/unweighted all come from one function so they can
+  // never disagree about what unassigned weight means the way currentGrade/
+  // projectedGrade off the raw engine result once did.
+  const projection = projectClassGrade(result);
 
   function statusFor(a: GradeLedgerAssessment): string {
     if (a.isExcused) return "Excused";
@@ -63,17 +68,23 @@ export function ClassGradeLedger({
     <div className="flex flex-col gap-2">
       <h3 className="text-sm font-medium">Grade</h3>
 
-      {result.currentGrade == null ? (
+      {projection.currentGrade == null ? (
         <p className="text-xs text-muted-foreground">No grade yet — nothing has been scored.</p>
       ) : (
         <p className="text-sm">
-          <span className="font-medium">{result.currentGrade.toFixed(1)}%</span>
+          <span className="font-medium">{projection.currentGrade.toFixed(1)}%</span>
           <span className="text-muted-foreground"> current</span>
-          {result.projectedGrade != null && Math.abs(result.projectedGrade - result.currentGrade) > 0.05 && (
-            <span className="text-muted-foreground"> · {result.projectedGrade.toFixed(1)}% projected</span>
+          {projection.projectedGrade != null && Math.abs(projection.projectedGrade - projection.currentGrade) > 0.05 && (
+            <span className="text-muted-foreground"> · {projection.projectedGrade.toFixed(1)}% projected</span>
           )}
         </p>
       )}
+
+      {projection.unweightedPct != null ? (
+        <p className="text-xs text-muted-foreground">
+          {projection.unweightedPct.toFixed(0)}% of the grade is not yet weighted.
+        </p>
+      ) : null}
 
       {verdictText != null ? (
         <p className="text-xs text-muted-foreground">{verdictText}</p>

@@ -16,37 +16,40 @@ describe("requiredScoreVerdictText — no target set", () => {
   });
 });
 
-describe("requiredScoreVerdictText — onTrack (the assigned red)", () => {
-  it("target 90, current 80.7% resolved at 30% weight, 70% remaining: states the exact required percentage", () => {
-    const categories: GradeCategory[] = [
-      { id: "resolved", name: "Resolved so far", weightPct: 30, dropLowestN: 0, expectedItemCount: 1 },
-      { id: "rest", name: "The rest", weightPct: 70, dropLowestN: 0, expectedItemCount: 1 },
-    ];
-    const items: GradeItem[] = [
-      item({ id: "r1", categoryId: "resolved", pointsEarned: 80.7, pointsPossible: 100 }),
-      item({ id: "f1", categoryId: "rest", pointsEarned: null, pointsPossible: 100 }),
-    ];
+describe("requiredScoreVerdictText — R59 fixture A: unassigned weight, onTrack", () => {
+  it("target 90, 25-weight midterm at 78%, nothing else assigned: solves over the full remaining 75%", () => {
+    const categories: GradeCategory[] = [{ id: "mid", name: "Midterm", weightPct: 25, dropLowestN: 0, expectedItemCount: 1 }];
+    const items: GradeItem[] = [item({ id: "m1", categoryId: "mid", pointsEarned: 78, pointsPossible: 100 })];
     const course = computeCourseGrade(categories, items);
-    // earnedWeightPoints = 0.30*80.7 = 24.21; neededPct = (90-24.21)/70*100 = 93.985714...
-    const text = requiredScoreVerdictText(course, 90);
-    expect(text).toBe("Need 94.0% on the rest to reach 90%.");
+    // earnedRaw = 0.25*78 = 19.5; remainingWeight = 100-25 = 75; neededPct = (90-19.5)/75*100 = 94.0
+    expect(requiredScoreVerdictText(course, 90)).toBe("Need 94.0% across the remaining 75%.");
   });
 });
 
-describe("requiredScoreVerdictText — impossible target", () => {
-  it("says plainly that the target isn't reachable, and gives the real ceiling", () => {
+describe("requiredScoreVerdictText — R59 fixture B: genuinely unreachable (control)", () => {
+  it("target 90, 60-weight midterm at 78%, nothing else assigned: still Target missed, correctly", () => {
+    const categories: GradeCategory[] = [{ id: "mid", name: "Midterm", weightPct: 60, dropLowestN: 0, expectedItemCount: 1 }];
+    const items: GradeItem[] = [item({ id: "m1", categoryId: "mid", pointsEarned: 78, pointsPossible: 100 })];
+    const course = computeCourseGrade(categories, items);
+    // earnedRaw = 0.60*78 = 46.8; remainingWeight = 40; max = 46.8+40 = 86.8 < 90
+    expect(requiredScoreVerdictText(course, 90)).toBe(
+      "Target missed — even 100% on the remaining 40% caps you at 86.8%."
+    );
+  });
+});
+
+describe("requiredScoreVerdictText — R59 fixture C: fully specified, same number as fixture A", () => {
+  it("25-weight midterm at 78% + a real 75-weight ungraded final: identical verdict text to fixture A", () => {
     const categories: GradeCategory[] = [
-      { id: "resolved", name: "Resolved so far", weightPct: 80, dropLowestN: 0, expectedItemCount: 1 },
-      { id: "rest", name: "The rest", weightPct: 20, dropLowestN: 0, expectedItemCount: 1 },
+      { id: "mid", name: "Midterm", weightPct: 25, dropLowestN: 0, expectedItemCount: 1 },
+      { id: "final", name: "Final", weightPct: 75, dropLowestN: 0, expectedItemCount: 1 },
     ];
     const items: GradeItem[] = [
-      item({ id: "r1", categoryId: "resolved", pointsEarned: 60, pointsPossible: 100 }),
-      item({ id: "f1", categoryId: "rest", pointsEarned: null, pointsPossible: 100 }),
+      item({ id: "m1", categoryId: "mid", pointsEarned: 78, pointsPossible: 100 }),
+      item({ id: "f1", categoryId: "final", pointsEarned: null, pointsPossible: 100 }),
     ];
     const course = computeCourseGrade(categories, items);
-    // earnedWeightPoints = 0.8*60 = 48; maxAchievable = 48 + 20 = 68
-    const text = requiredScoreVerdictText(course, 90);
-    expect(text).toBe("Not reachable even with 100% on the rest — the max possible is 68.0%.");
+    expect(requiredScoreVerdictText(course, 90)).toBe("Need 94.0% across the remaining 75%.");
   });
 });
 
@@ -81,5 +84,20 @@ describe("requiredScoreVerdictText — nothing weighted yet", () => {
   it("renders no number when there is nothing in the ledger to solve against", () => {
     const course = computeCourseGrade([], []);
     expect(requiredScoreVerdictText(course, 90)).toBeNull();
+  });
+});
+
+describe("requiredScoreVerdictText — nothing graded yet, but a target is set", () => {
+  it("still solves — needed percentage equals the target itself when zero weight is graded", () => {
+    const categories: GradeCategory[] = [
+      { id: "a", name: "A", weightPct: 50, dropLowestN: 0, expectedItemCount: 1 },
+      { id: "b", name: "B", weightPct: 50, dropLowestN: 0, expectedItemCount: 1 },
+    ];
+    const items: GradeItem[] = [
+      item({ id: "a1", categoryId: "a", pointsEarned: null, pointsPossible: 100 }),
+      item({ id: "b1", categoryId: "b", pointsEarned: null, pointsPossible: 100 }),
+    ];
+    const course = computeCourseGrade(categories, items);
+    expect(requiredScoreVerdictText(course, 90)).toBe("Need 90.0% across the remaining 100%.");
   });
 });
