@@ -2190,6 +2190,8 @@ export type Database = {
           due_date: string | null
           due_time: string | null
           id: string
+          mit_rank: number | null
+          planned_date: string | null
           task_type: string | null
           task_type_other_label: string | null
           title: string
@@ -2204,6 +2206,8 @@ export type Database = {
           due_date?: string | null
           due_time?: string | null
           id?: string
+          mit_rank?: number | null
+          planned_date?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
           title: string
@@ -2218,6 +2222,8 @@ export type Database = {
           due_date?: string | null
           due_time?: string | null
           id?: string
+          mit_rank?: number | null
+          planned_date?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
           title?: string
