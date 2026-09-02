@@ -107,12 +107,41 @@ export async function POST(request: Request) {
     // bracketStage already recorded this attempt as succeeded=false with
     // the error. Do NOT call advance_ingestion_cursor here — there is no
     // succeeded=true row for this exact position, so it would refuse
-    // anyway (109's own CAS guard). The job's lease expires and
-    // claim_ingestion_job offers it again, bounded by max_attempts (gate 5,
-    // not yet built) — not routing around the DB's refusal, just not
-    // fighting it with a call that can only fail.
+    // anyway (109's own CAS guard) — not routing around the DB's refusal,
+    // just not fighting it with a call that can only fail.
+    const errorMessage = e instanceof Error ? e.message : String(e);
+
+    // GATE 5: max_attempts enforced at the cursor. claim_ingestion_job's
+    // own WHERE clause (109) already excludes `cursor_attempt >=
+    // max_attempts` from ever being claimed again — that half needed no
+    // work here. THE GAP: nothing marked the job's `stage` as `failed` when
+    // that threshold was crossed, so an exhausted job didn't stop being
+    // claimed by ACCIDENT (it structurally couldn't be) but it also never
+    // became OBSERVABLE as failed — it just silently stopped appearing to
+    // anyone, indistinguishable from "not due yet" to a caller that only
+    // checks `stage`. `job.cursor_attempt` here is the count claim_
+    // ingestion_job already incremented FOR this attempt (109's claim body:
+    // `cursor_attempt = cursor_attempt + 1`), so `>= max_attempts` means
+    // this was the last one it was ever going to get.
+    if (job.cursor_attempt >= job.max_attempts) {
+      const { error: failError } = await supabase
+        .from("ingestion_jobs")
+        .update({ stage: "failed", last_error: `${expectedStage} (chunk ${expectedChunkIndex}): exhausted ${job.max_attempts} attempts -- last error: ${errorMessage}` })
+        .eq("id", job.id);
+      if (failError) {
+        return NextResponse.json(
+          { ok: false, reason: "stage_work_failed_and_could_not_mark_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, failError: failError.message },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json(
+        { ok: false, reason: "attempts_exhausted", stage: expectedStage, chunkIndex: expectedChunkIndex, maxAttempts: job.max_attempts, error: errorMessage },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
-      { ok: false, reason: "stage_work_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: e instanceof Error ? e.message : String(e) },
+      { ok: false, reason: "stage_work_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage },
       { status: 500 },
     );
   }

@@ -42,7 +42,14 @@ function makeMockSupabase(opts: {
     const result = opts.rpcResults?.[fn];
     return Promise.resolve(result ?? { data: null, error: null });
   });
-  return { rpc, rpcCalls, from: vi.fn() };
+  const updateCalls: { table: string; values: unknown }[] = [];
+  const from = vi.fn((table: string) => ({
+    update: (values: unknown) => {
+      updateCalls.push({ table, values });
+      return { eq: vi.fn(() => Promise.resolve({ error: null })) };
+    },
+  }));
+  return { rpc, rpcCalls, from, updateCalls };
 }
 
 describe("POST /api/self-mastery/ingestion/step", () => {
@@ -170,5 +177,63 @@ describe("POST /api/self-mastery/ingestion/step", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.alreadyAdvanced).toBe(true);
+  });
+
+  /**
+   * GATE 5: max_attempts enforced at the cursor. `claim_ingestion_job`'s own
+   * WHERE clause (109, `cursor_attempt < max_attempts`) already makes an
+   * exhausted position unclaimable -- Eng 1's, not re-proven here. What
+   * these two tests prove: THIS route explicitly marks a job `failed`
+   * (observable) the moment a failure exhausts its last attempt, rather
+   * than leaving it to silently stop appearing with no signal why -- "must
+   * stop being claimed" without "and something says so" is exactly the
+   * self-chaining-driver trap the track plan names: a stuck chunk retries
+   * until attempts run out, then just vanishes from view.
+   */
+  it("GATE 5, red case reproduced: on the LAST allowed attempt, a stage failure marks the job stage='failed' with last_error naming why", async () => {
+    vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+      STAGE_HANDLERS: {
+        verifying_grounding: vi.fn().mockRejectedValue(new Error("embedder unreachable")),
+      },
+    }));
+    const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+    const mock = makeMockSupabase({
+      // cursor_attempt=3, max_attempts=3 -- claim_ingestion_job already
+      // incremented cursor_attempt to 3 for THIS attempt, so this is the
+      // last one this position will ever get.
+      claimedJob: { id: "job-1", stage: "verifying_grounding", cursor_chunk_index: 0, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+    });
+    vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.reason).toBe("attempts_exhausted");
+    expect(mock.updateCalls).toHaveLength(1);
+    expect(mock.updateCalls[0]!.table).toBe("ingestion_jobs");
+    expect(mock.updateCalls[0]!.values).toMatchObject({ stage: "failed" });
+    expect((mock.updateCalls[0]!.values as { last_error: string }).last_error).toContain("embedder unreachable");
+  });
+
+  it("does NOT mark the job failed when attempts remain -- stays retryable, no update issued", async () => {
+    vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+      STAGE_HANDLERS: {
+        verifying_grounding: vi.fn().mockRejectedValue(new Error("transient failure")),
+      },
+    }));
+    const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+    const mock = makeMockSupabase({
+      claimedJob: { id: "job-1", stage: "verifying_grounding", cursor_chunk_index: 0, cursor_attempt: 1, max_attempts: 3, book_id: "book-1" },
+    });
+    vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+
+    const body = await res.json();
+    expect(body.reason).toBe("stage_work_failed");
+    expect(mock.updateCalls).toHaveLength(0);
   });
 });
