@@ -63,6 +63,10 @@ test.describe("stranger journey", () => {
   test.setTimeout(180_000);
 
   test("a stranger reaches a completed retrieval session unaided", async ({ page }) => {
+    // 390px throughout: this is a mobile-first product and R7 makes a 390px
+    // view the evidence a task is done. Running the journey at desktop width
+    // was measuring a viewport almost nobody uses.
+    await page.setViewportSize({ width: 390, height: 844 });
     const findings: string[] = [];
     const note = (s: string) => { findings.push(s); console.log(`  [finding] ${s}`); };
 
