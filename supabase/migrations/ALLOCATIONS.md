@@ -25,7 +25,9 @@ the point is to make a number unavailable the moment it is promised.
 | `121` | ULM Eng 1 (54590) | `118` guard follow-up (moved from `120`) | allocated |
 | `122` | LifeOS Eng 2 (95858) | `user_settings.weekday_baselines smallint[7]` (R58) — populated by A3's rhythm screen. Until set, the Day Won comparison is ABSENT, never a zero baseline | allocated |
 | `123` | LifeOS lead (51713) | Polymorphic session→commitment binding (R30/B3): three nullable columns on `work_sessions`, composite FKs for the two targets that exist, at-most-one CHECK. **`<= 1`, not `= 1`** — most sessions serve no commitment | allocated |
-| `124`+ | — | next free | — |
+| `124` | ULM lead (42335) | Phase C additive tables: `lesson_promotions`, append-only `lesson_verdicts`, `adopted` status + suspend-trigger extension, `retired_at` single-writer trigger + its drift instrument, `(user_id,id)` unique on `user_domains` if missing, and the composite FK closing `work_sessions.promotion_id` (left FK-less by `123`) | allocated |
+| `125` | ULM lead (42335) | Card suspension (R64): `cards.suspended_at`, a trigger on lessons archived/adopted, and `get_session_queue` excluding suspended cards. **Never ported from ULM.** Touches the daily session's hot path — re-run `stranger-journey` after it deploys. Latent only: today nothing archives a lesson that has cards | allocated |
+| `126`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
