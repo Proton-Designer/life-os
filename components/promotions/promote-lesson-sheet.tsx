@@ -39,8 +39,17 @@ function formatDueDate(iso: string): string {
 }
 
 /**
- * "Try this" — the confirm sheet that turns a lesson's `action_template` into
- * a real commitment (`lesson_promotions`, migration 124).
+ * The confirm sheet that turns a lesson's `action_template` into a real
+ * commitment (`lesson_promotions`, migration 124).
+ *
+ * THE DEFAULT TRIGGER SAYS "Commit to this", NOT "Try this". `LessonCard`
+ * already prints "Try this" as the LABEL above the proposed action, so the
+ * original default put the same two words twice on one lesson -- one naming
+ * the suggestion, one committing to it. The LifeOS lead hit it at the mount
+ * and his test-id assertion passed the whole time, because both existed. A
+ * label collision is invisible to every assertion that checks for presence.
+ * Changed here rather than only at his mount site, so the next surface to
+ * mount this cannot inherit the same collision.
  *
  * THREE STATES THIS RENDERS HONESTLY, none of them a placeholder that looks
  * like data:
@@ -122,7 +131,7 @@ export function PromoteLessonSheet({
         {trigger ?? (
           <Button type="button" variant="outline" size="sm" className="gap-1.5" data-testid="promote-lesson-trigger">
             <Sprout className="size-4" />
-            Try this
+            Commit to this
           </Button>
         )}
       </DialogTrigger>
