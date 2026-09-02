@@ -22,11 +22,27 @@ const DOMAIN_KEYS: readonly DomainKey[] = ["personal_growth", "work", "school"];
 
 /**
  * Selection order becomes `position` (M3: domains are walked in the order
- * picked). Idempotent and reconciling: keys present in `keys` are upserted
- * (un-archiving if previously dropped), keys absent from `keys` but
+ * picked). Idempotent and reconciling: keys present in `keys` are kept
+ * active (un-archiving if previously dropped), keys absent from `keys` but
  * currently active are archived — never deleted, so a changed selection
  * (wizard back-nav, or a genuine re-onboarding) keeps history instead of
  * losing it.
+ *
+ * Insert and update are deliberately TWO separate calls, not one upsert
+ * (R10 / ruling c): `weight` (essential/important/background) must be set
+ * on a genuinely new row — first selected gets essential, the rest
+ * important — but must never be touched on a row that already exists. This
+ * function can run again for the same user (back-nav, a future add/remove-
+ * domains action), and a single upsert can't express "set this column only
+ * on insert": Postgres materializes `excluded.weight` from the attempted
+ * row INCLUDING its column default for any key the payload omits, so
+ * `ON CONFLICT DO UPDATE SET weight = excluded.weight` would silently reset
+ * an already-existing domain's weight back to the default on every re-run —
+ * the exact "reordering silently re-weights" failure R10 was written to
+ * prevent, just moved from `position` to a repeat call of this function.
+ * Keeping `weight` out of the update payload entirely, not just out of a
+ * shared upsert row, is what makes that structurally impossible rather than
+ * merely unlikely.
  */
 export async function saveDomainSelection(keys: DomainKey[]): Promise<void> {
   if (keys.length === 0) {
@@ -47,15 +63,45 @@ export async function saveDomainSelection(keys: DomainKey[]): Promise<void> {
     if (error) throw error;
   }
 
-  const rows = keys.map((key, index) => ({
-    user_id: userId,
-    key,
-    position: index,
-    archived_at: null,
-    updated_at: now,
-  }));
-  const { error } = await supabase.from("user_domains").upsert(rows, { onConflict: "user_id,key" });
-  if (error) throw error;
+  const { data: existingRows, error: existingError } = await supabase
+    .from("user_domains")
+    .select("key")
+    .eq("user_id", userId)
+    .in("key", keys);
+  if (existingError) throw existingError;
+  const existingKeys = new Set((existingRows ?? []).map((r) => r.key));
+
+  const newRows = keys
+    .map((key, position) => ({ key, position }))
+    .filter(({ key }) => !existingKeys.has(key))
+    .map(({ key, position }) => ({
+      user_id: userId,
+      key,
+      position,
+      archived_at: null,
+      updated_at: now,
+      // R10: first-selected (position 0 of the WHOLE selection, not just
+      // of the new ones) is essential; every other new row is important.
+      // Nothing is ever born background.
+      weight: position === 0 ? "essential" : "important",
+    }));
+  if (newRows.length > 0) {
+    const { error } = await supabase.from("user_domains").insert(newRows);
+    if (error) throw error;
+  }
+
+  // Existing rows: only reconcile position/archived_at/updated_at.
+  // Small counts (<=3 top-level domains), so a per-row update is simplest
+  // and — critically — each call's payload has no `weight` key at all.
+  for (const [position, key] of keys.entries()) {
+    if (!existingKeys.has(key)) continue;
+    const { error } = await supabase
+      .from("user_domains")
+      .update({ position, archived_at: null, updated_at: now })
+      .eq("user_id", userId)
+      .eq("key", key);
+    if (error) throw error;
+  }
 
   revalidatePath("/onboarding");
 }

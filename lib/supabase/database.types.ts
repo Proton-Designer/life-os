@@ -1555,6 +1555,7 @@ export type Database = {
           session_id: string | null
           stability_after: number | null
           stability_before: number | null
+          state_after: Database["public"]["Enums"]["fsrs_state"] | null // HAND-PATCHED ahead of its migration (pending a number, R1 draft §5) -- same "codegen has no access token here" situation as extracted_by (docs/notes/extracted-by-design.md, ULM repo). Remove this comment and re-verify via real codegen once the column lands for real.
           state_before: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -1575,6 +1576,7 @@ export type Database = {
           session_id?: string | null
           stability_after?: number | null
           stability_before?: number | null
+          state_after?: Database["public"]["Enums"]["fsrs_state"] | null // HAND-PATCHED, see Row above
           state_before?: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -1595,6 +1597,7 @@ export type Database = {
           session_id?: string | null
           stability_after?: number | null
           stability_before?: number | null
+          state_after?: Database["public"]["Enums"]["fsrs_state"] | null // HAND-PATCHED, see Row above
           state_before?: Database["public"]["Enums"]["fsrs_state"] | null
           user_id?: string
         }
@@ -2154,6 +2157,7 @@ export type Database = {
           position: number
           updated_at: string
           user_id: string
+          weight: string
         }
         Insert: {
           archived_at?: string | null
@@ -2163,6 +2167,7 @@ export type Database = {
           position: number
           updated_at?: string
           user_id?: string
+          weight?: string
         }
         Update: {
           archived_at?: string | null
@@ -2172,6 +2177,7 @@ export type Database = {
           position?: number
           updated_at?: string
           user_id?: string
+          weight?: string
         }
         Relationships: []
       }

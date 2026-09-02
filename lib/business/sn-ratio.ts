@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
 import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
+import { classifyDomain, type DomainWeights, type DomainWeightTier } from "./domain-classification";
 
 /**
  * `domain` is `null` exactly when `isWasted` is `true` (mirrors
@@ -21,17 +22,17 @@ export type SignalNoiseResult = {
   display: string;
 };
 
-const SIGNAL_DOMAINS = new Set(["deen", "business"]);
-const OTHER_COMMITMENT_DOMAINS = new Set(["school", "fitness", "co_op"]);
-
 /**
- * Priority-allocation Signal:Noise, per Ayman's 2026-08-19 ruling
- * (docs/superpowers/specs/2026-08-19-checkin-allocation-system.md):
- * Signal = Deen + Business, his stated priorities — "after deen, my
- * priority is business... I can't include everything under signal, it has
- * to be priority based." Noise = School + Fitness + Work + Wasted —
- * everything else. Sleep is outside the measurement window entirely and
- * never queried, so it's neither signal nor noise, not just excluded here.
+ * Priority-allocation Signal:Noise (ruling c, R10): signal/other is no
+ * longer a hardcoded pair — `classifyDomain` (lib/business/domain-
+ * classification.ts) derives it from the user's own `user_domains.weight`
+ * tiers (essential = signal, important/background = other), with the
+ * original hardcoded split (deen+business = signal) as the exact fallback
+ * for a legacy-mode account (`weights: null` — reproduces today's behavior
+ * with zero regression for the one account this matters most for; see that
+ * module's own header for the full reasoning, including why deen and
+ * fitness share one tier and why business/co_op keep their legacy meaning
+ * in every mode).
  *
  * Noise is always reported SPLIT (otherCommitments vs wasted), never just a
  * combined total — a heavy school week and a lost afternoon both land on
@@ -39,7 +40,10 @@ const OTHER_COMMITMENT_DOMAINS = new Set(["school", "fitness", "co_op"]);
  * legitimate tradeoff indistinguishable from a leak and quietly pressure
  * skipping the gym to look good on paper.
  */
-export function bucketAllocationMinutes(rows: AllocationRow[]): {
+export function bucketAllocationMinutes(
+  rows: AllocationRow[],
+  weights: DomainWeights | null = null
+): {
   signalMinutes: number;
   noiseMinutes: number;
   otherCommitmentsMinutes: number;
@@ -49,11 +53,17 @@ export function bucketAllocationMinutes(rows: AllocationRow[]): {
   let otherCommitmentsMinutes = 0;
   let wastedMinutes = 0;
   for (const row of rows) {
-    if (row.isWasted) wastedMinutes += row.minutes;
-    else if (row.domain !== null && SIGNAL_DOMAINS.has(row.domain)) signalMinutes += row.minutes;
-    else if (row.domain !== null && OTHER_COMMITMENT_DOMAINS.has(row.domain)) otherCommitmentsMinutes += row.minutes;
-    // An unrecognized (or null, non-wasted) domain is ignored, not silently
-    // folded into either side — better a gap than a miscounted total.
+    if (row.isWasted) {
+      wastedMinutes += row.minutes;
+    } else if (row.domain !== null) {
+      const classification = classifyDomain(row.domain, weights);
+      if (classification === "signal") signalMinutes += row.minutes;
+      else if (classification === "other") otherCommitmentsMinutes += row.minutes;
+      // "unrecognized" (and a null, non-wasted domain) is ignored, not
+      // silently folded into either side — better a gap than a miscounted
+      // total. A user-created Work subdomain key lands here today, since
+      // it isn't wired into Signal:Noise tagging yet (T-0002).
+    }
   }
   return {
     signalMinutes,
@@ -73,6 +83,10 @@ export type SnDataSource = {
     startIso: string,
     endIso: string
   ) => Promise<{ startedAt: Date; endedAt: Date | null; storedHours: { hourStartIso: string; domain: "business" | "wasted" }[] }[]>;
+  /** Ruling (c): the user's real top-level domain weight tiers, or null for
+   * a legacy-mode account (no active user_domains rows) — classifyDomain's
+   * exact fallback signal. */
+  getDomainWeights: (userId: string) => Promise<DomainWeights | null>;
 };
 
 function defaultDataSource(): SnDataSource {
@@ -96,6 +110,26 @@ function defaultDataSource(): SnDataSource {
       return (data ?? []).flatMap((c) =>
         (c.checkin_allocations ?? []).map((row) => ({ domain: row.domain, minutes: row.minutes, isWasted: row.is_wasted }))
       );
+    },
+    async getDomainWeights(userId) {
+      const supabase = await createClient();
+      // Active (non-archived) top-level domains only — an archived one
+      // isn't part of "what this user currently tracks," same rule
+      // computeNavDomainState applies for the four-tab shell. Zero rows is
+      // exactly legacy mode (see the module header): returning null here,
+      // not an empty object, is what makes classifyDomain fall back to the
+      // hardcoded deen+business split instead of silently classifying
+      // every domain as "other" (an empty DomainWeights object would do
+      // that, since no key would ever equal "essential").
+      const { data } = await supabase.from("user_domains").select("key, weight").eq("user_id", userId).is("archived_at", null);
+      if (!data || data.length === 0) return null;
+      const weights: DomainWeights = {};
+      for (const row of data) {
+        if (row.key === "personal_growth" || row.key === "work" || row.key === "school") {
+          weights[row.key] = row.weight as DomainWeightTier;
+        }
+      }
+      return weights;
     },
     getStoredAllocationSpans,
     getSessionsWithStoredHours,
@@ -141,11 +175,12 @@ export async function getWeeklySignalNoiseRatio(
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
   const weekStartIso = weekStart.toISOString();
   const weekEndIso = weekEnd.toISOString();
-  const [rows, extraWasted] = await Promise.all([
+  const [rows, extraWasted, weights] = await Promise.all([
     dataSource.getAllocations(userId, weekStartIso, weekEndIso),
     getMissedHourWasteMinutes(userId, weekStartIso, weekEndIso, now, dataSource),
+    dataSource.getDomainWeights(userId),
   ]);
-  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows);
+  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows, weights);
   const display = computeRatioDisplay(
     signalMinutes,
     noiseMinutes + extraWasted,
@@ -179,11 +214,12 @@ export async function getSignalNoiseForRange(
   const end = new Date(anchor.getTime() + rangeMs);
   const startIso = anchor.toISOString();
   const endIso = end.toISOString();
-  const [rows, extraWasted] = await Promise.all([
+  const [rows, extraWasted, weights] = await Promise.all([
     dataSource.getAllocations(userId, startIso, endIso),
     getMissedHourWasteMinutes(userId, startIso, endIso, now, dataSource),
+    dataSource.getDomainWeights(userId),
   ]);
-  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows);
+  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows, weights);
   const display = computeRatioDisplay(
     signalMinutes,
     noiseMinutes + extraWasted,

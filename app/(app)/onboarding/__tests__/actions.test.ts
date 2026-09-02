@@ -62,41 +62,75 @@ describe("Onboarding actions", () => {
       expect(fromMock).not.toHaveBeenCalled();
     });
 
-    it("upserts in selection order, position = array index — the order-preserved contract M3 depends on", async () => {
-      const chain = makeChain();
-      fromImpl = () => chain;
+    // Ruling (c)/R10: saveDomainSelection is idempotent/reconciling — called
+    // again on wizard back-nav or a future add/remove-domains action. A
+    // single upsert can't set `weight` only for genuinely NEW rows: Postgres
+    // materializes `excluded.<col>` from the attempted row INCLUDING column
+    // defaults for any key the JS payload omitted, so a batch upsert with
+    // `weight` present in even one row's object generates one uniform
+    // `ON CONFLICT DO UPDATE SET weight = excluded.weight` that would
+    // silently reset every conflicting (already-existing) row's weight back
+    // to the default — exactly the "reordering silently re-weights" bug R10
+    // exists to prevent, just moved from `position` to a repeat call. So the
+    // insert and update paths are genuinely separate calls now: only the
+    // insert path's payload includes `weight`, and it's never present
+    // anywhere in the update path at all.
+    it("brand-new keys go through insert() with weight computed — first (position 0) essential, rest important", async () => {
+      const selectChain = makeChain({ data: [], error: null }); // no existing rows for either key
+      const insertChain = makeChain();
+      fromImpl = (table) => {
+        if (table !== "user_domains") throw new Error(`unexpected table ${table}`);
+        return insertChain;
+      };
+      // select() is called first to find existing keys; route it to its own resolved chain.
+      insertChain.select = vi.fn(() => selectChain);
       const { saveDomainSelection } = await import("../actions");
 
       await saveDomainSelection(["school", "personal_growth"]);
 
-      expect(fromMock).toHaveBeenCalledWith("user_domains");
-      expect(chain.upsert).toHaveBeenCalledWith(
-        [
-          expect.objectContaining({ user_id: "user-1", key: "school", position: 0, archived_at: null }),
-          expect.objectContaining({ user_id: "user-1", key: "personal_growth", position: 1, archived_at: null }),
-        ],
-        expect.objectContaining({ onConflict: "user_id,key" })
-      );
+      expect(insertChain.insert).toHaveBeenCalledWith([
+        expect.objectContaining({ user_id: "user-1", key: "school", position: 0, weight: "essential", archived_at: null }),
+        expect.objectContaining({ user_id: "user-1", key: "personal_growth", position: 1, weight: "important", archived_at: null }),
+      ]);
+      expect(insertChain.upsert).not.toHaveBeenCalled();
     });
 
-    it("re-selecting an archived domain resets archived_at to null via the upsert row rather than inserting a new row — the behaviour the (user_id,key) unique index is betting on", async () => {
+    it("a key that already has a row (active or archived) goes through update(), and the payload never includes weight at all", async () => {
+      const selectChain = makeChain({ data: [{ key: "work" }], error: null }); // "work" already exists
       const chain = makeChain();
+      chain.select = vi.fn(() => selectChain);
       fromImpl = () => chain;
       const { saveDomainSelection } = await import("../actions");
 
       await saveDomainSelection(["work"]);
 
-      const [rows, opts] = chain.upsert.mock.calls[0];
-      expect(rows[0]).toEqual(expect.objectContaining({ key: "work", archived_at: null }));
-      expect(opts.onConflict).toBe("user_id,key");
-      // Same call shape whether "work" is brand new or was previously
-      // archived — the upsert is what makes both cases identical from the
-      // action's point of view; only the DB-side conflict target decides
-      // insert vs. update.
+      expect(chain.insert).not.toHaveBeenCalled();
+      const updateCall = chain.update.mock.calls.find((c) => "archived_at" in (c[0] as object) && (c[0] as { archived_at: unknown }).archived_at === null);
+      expect(updateCall).toBeDefined();
+      expect(updateCall![0]).not.toHaveProperty("weight");
+      expect(updateCall![0]).toEqual(expect.objectContaining({ position: 0, archived_at: null }));
+    });
+
+    it("a mixed selection (one new key, one existing) inserts the new one with weight and updates the existing one without touching weight", async () => {
+      const selectChain = makeChain({ data: [{ key: "work" }], error: null }); // only "work" pre-exists
+      const chain = makeChain();
+      chain.select = vi.fn(() => selectChain);
+      fromImpl = () => chain;
+      const { saveDomainSelection } = await import("../actions");
+
+      await saveDomainSelection(["work", "school"]);
+
+      expect(chain.insert).toHaveBeenCalledWith([
+        expect.objectContaining({ key: "school", position: 1, weight: "important" }),
+      ]);
+      const updateCall = chain.update.mock.calls.find((c) => "archived_at" in (c[0] as object) && (c[0] as { archived_at: unknown }).archived_at === null);
+      expect(updateCall![0]).not.toHaveProperty("weight");
     });
 
     it("archives domains dropped from the selection — via update, never delete", async () => {
+      const selectChain = makeChain({ data: [], error: null });
       const chain = makeChain();
+      chain.select = vi.fn(() => selectChain);
       fromImpl = () => chain;
       const { saveDomainSelection } = await import("../actions");
 
@@ -110,13 +144,16 @@ describe("Onboarding actions", () => {
     });
 
     it("selecting all three domains issues no archive call at all", async () => {
+      const selectChain = makeChain({ data: [], error: null });
       const chain = makeChain();
+      chain.select = vi.fn(() => selectChain);
       fromImpl = () => chain;
       const { saveDomainSelection } = await import("../actions");
 
       await saveDomainSelection(["personal_growth", "work", "school"]);
 
-      expect(chain.update).not.toHaveBeenCalled();
+      const archiveCall = chain.update.mock.calls.find((c) => "archived_at" in (c[0] as object) && (c[0] as { archived_at: unknown }).archived_at !== null);
+      expect(archiveCall).toBeUndefined();
     });
   });
 

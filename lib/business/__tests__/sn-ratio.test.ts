@@ -12,6 +12,7 @@ function dataSourceWith(rows: AllocationRow[]): SnDataSource {
     getAllocations: async () => rows,
     getStoredAllocationSpans: async () => [],
     getSessionsWithStoredHours: async () => [],
+    getDomainWeights: async () => null,
   };
 }
 
@@ -101,6 +102,42 @@ describe("getWeeklySignalNoiseRatio", () => {
     expect(result.wastedMinutes).toBe(105);
     expect(result.noiseMinutes).toBe(105);
   });
+
+  // Ruling (c): getWeeklySignalNoiseRatio must actually fetch and apply the
+  // user's real weights, not just have classifyDomain support them unused.
+  it("a domains-mode account uses real weight tiers instead of the legacy deen+business split", async () => {
+    const rows: AllocationRow[] = [
+      { domain: "deen", minutes: 30, isWasted: false }, // personal_growth: background here -> other
+      { domain: "school", minutes: 30, isWasted: false }, // school: essential here -> signal
+    ];
+    const dataSource: SnDataSource = {
+      getAllocations: async () => rows,
+      getStoredAllocationSpans: async () => [],
+      getSessionsWithStoredHours: async () => [],
+      getDomainWeights: async () => ({ personal_growth: "background", school: "essential" }),
+    };
+    const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSource);
+
+    expect(result.signalMinutes).toBe(30);
+    expect(result.otherCommitmentsMinutes).toBe(30);
+  });
+
+  it("a legacy account (zero user_domains rows, getDomainWeights returns null) reproduces the hardcoded deen+business split", async () => {
+    const rows: AllocationRow[] = [
+      { domain: "deen", minutes: 30, isWasted: false },
+      { domain: "school", minutes: 30, isWasted: false },
+    ];
+    const dataSource: SnDataSource = {
+      getAllocations: async () => rows,
+      getStoredAllocationSpans: async () => [],
+      getSessionsWithStoredHours: async () => [],
+      getDomainWeights: async () => null,
+    };
+    const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSource);
+
+    expect(result.signalMinutes).toBe(30); // deen, legacy signal
+    expect(result.otherCommitmentsMinutes).toBe(30); // school, legacy other
+  });
 });
 
 describe("getSignalNoiseForRange", () => {
@@ -113,6 +150,7 @@ describe("getSignalNoiseForRange", () => {
       },
       getStoredAllocationSpans: async () => [],
       getSessionsWithStoredHours: async () => [],
+      getDomainWeights: async () => null,
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
     await getSignalNoiseForRange("user-1", "day", anchor, dataSource);
@@ -132,6 +170,7 @@ describe("getSignalNoiseForRange", () => {
       },
       getStoredAllocationSpans: async () => [],
       getSessionsWithStoredHours: async () => [],
+      getDomainWeights: async () => null,
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
     await getSignalNoiseForRange("user-1", "week", anchor, dataSource);
@@ -156,6 +195,20 @@ describe("getSignalNoiseForRange", () => {
     expect(result.noiseMinutes).toBe(30);
     expect(result.display).toBe("1.0 : 1");
   });
+
+  it("also applies real weight tiers, same as the weekly ratio", async () => {
+    const rows: AllocationRow[] = [{ domain: "deen", minutes: 30, isWasted: false }];
+    const dataSource: SnDataSource = {
+      getAllocations: async () => rows,
+      getStoredAllocationSpans: async () => [],
+      getSessionsWithStoredHours: async () => [],
+      getDomainWeights: async () => ({ personal_growth: "background" }),
+    };
+    const result = await getSignalNoiseForRange("user-1", "day", new Date("2026-08-10T00:00:00Z"), dataSource);
+
+    expect(result.signalMinutes).toBe(0);
+    expect(result.otherCommitmentsMinutes).toBe(30);
+  });
 });
 
 // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md, acceptance
@@ -179,6 +232,7 @@ describe("Signal:Noise reads missed Lock-In hours as wasted", () => {
           storedHours: [{ hourStartIso: "2026-08-19T12:00:00.000Z", domain: "business" }],
         },
       ],
+      getDomainWeights: async () => null,
     };
     const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
 
@@ -195,6 +249,7 @@ describe("Signal:Noise reads missed Lock-In hours as wasted", () => {
         { start: new Date("2026-08-19T12:00:00.000Z"), end: new Date("2026-08-19T14:00:00.000Z") },
       ],
       getSessionsWithStoredHours: async () => [{ startedAt: sessionStart, endedAt: null, storedHours: [] }],
+      getDomainWeights: async () => null,
     };
     const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
 
