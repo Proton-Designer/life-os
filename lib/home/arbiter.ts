@@ -10,6 +10,7 @@
 // throughout (prove the pure logic, then wire real data sources).
 import type { Domain } from "./types";
 import { classifyUrgency, type UrgencyLevel } from "./urgency";
+import type { Confidence as RiskConfidence } from "@/lib/school/risk/types";
 
 /**
  * `Domain` deliberately stays closed to the five DB-frozen values
@@ -43,10 +44,57 @@ export interface Candidate {
   decay: number | null;
   /** Estimated minutes to complete. Null where no source exists (R18(5): absent, never invented, for School/co_op/Business/Deen). */
   cost: number | null;
+  /**
+   * A risk/procrastination-likelihood score (higher = more at risk), the
+   * tail of the lexicographic order (Boss ruling, R37 addendum). Reuses
+   * `lib/school/risk`'s own `Confidence`-scored shape rather than a
+   * second hand-rolled type -- School is the only source today, and this
+   * codebase has been bitten by exactly this class of drift before
+   * (`EvidenceStrength`/`WorkSessionKind`). Null when no risk source
+   * exists for this candidate's area at all.
+   *
+   * CRITICAL: `riskScore` never gates whether a candidate is admitted to
+   * this list -- that's the caller's decision, made before a Candidate
+   * ever reaches `rankCandidates` (R37: "a due date is real evidence,"
+   * School is admitted on `dueAt` alone regardless of risk confidence).
+   * This field only affects ORDERING among already-admitted candidates,
+   * and only when `riskConfidence` clears the bar below.
+   */
+  riskScore: number | null;
+  /**
+   * Confidence in `riskScore`. `riskScore` only participates in ordering
+   * when this is `"low"` or better (`"moderate"`/`"high"`) -- at
+   * `"insufficient"` or `null`, `riskScore` is treated as absent for
+   * ranking purposes even if a real number exists (R37: confidence below
+   * the bar means "we don't trust this number," not "there's nothing
+   * here" -- the number is still real, just not usable yet).
+   */
+  riskConfidence: RiskConfidence | null;
 }
 
 const URGENCY_ORDER: Record<UrgencyLevel, number> = { right_now: 0, later_today: 1, absent: 2 };
 const WEIGHT_TIER_ORDER: Record<WeightTier, number> = { essential: 0, important: 1, background: 2 };
+const RISK_CONFIDENCE_ORDER: Record<RiskConfidence, number> = { insufficient: 0, low: 1, moderate: 2, high: 3 };
+
+/** `riskScore` gated by `riskConfidence` -- null (unusable) below "low", regardless of whether a real number exists. See Candidate.riskConfidence's own comment. */
+function effectiveRiskScore(candidate: Candidate): number | null {
+  if (candidate.riskScore == null || candidate.riskConfidence == null) return null;
+  return RISK_CONFIDENCE_ORDER[candidate.riskConfidence] >= RISK_CONFIDENCE_ORDER.low ? candidate.riskScore : null;
+}
+
+/**
+ * Descending (higher risk ranks first), missing sorts last -- the inverse
+ * direction of `compareWithMissingLast` below (cost/decay/position all
+ * want "lower is better, ascending"; risk wants "higher is more urgent,
+ * descending"), written as its own function rather than reusing the other
+ * one with swapped arguments, which would obscure the null-handling.
+ */
+function compareRiskDescendingMissingLast(a: number | null, b: number | null): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return b - a;
+}
 
 /**
  * Compares two REAL due dates already known to share an urgency tier.
@@ -109,9 +157,9 @@ function compareWithMissingLast(a: number | null, b: number | null): number {
 }
 
 /**
- * The cross-domain arbiter's ranking order (R18/R19, Boss ruling):
- * urgency -> dueAt -> weight tier -> position -> decay -> cost.
- * Lexicographic, deliberately not a weighted blend -- an additive score
+ * The cross-domain arbiter's ranking order (R18/R19, Boss ruling, R37
+ * addendum): urgency -> dueAt -> weight tier -> position -> decay -> cost
+ * -> riskScore. Lexicographic, deliberately not a weighted blend -- an additive score
  * would make a missing signal equivalent to a bad one (null-is-zero again,
  * moved up to the aggregate level), which given today's real signal
  * coverage (most candidates are missing most signals) would be actively
@@ -145,6 +193,14 @@ export function rankCandidates(candidates: Candidate[], now: Date): Candidate[] 
 
     const costCmp = compareWithMissingLast(a.cost, b.cost); // cheaper wins a genuine tie, missing never invented (R18(5))
     if (costCmp !== 0) return costCmp;
+
+    // R37 addendum: the tail of the order. Gated through
+    // effectiveRiskScore, which already resolves "no source" and
+    // "confidence below low" to the same absent-for-ranking null -- never
+    // gates ADMISSION (a candidate is already in this list on real
+    // evidence by the time it reaches here).
+    const riskCmp = compareRiskDescendingMissingLast(effectiveRiskScore(a), effectiveRiskScore(b));
+    if (riskCmp !== 0) return riskCmp;
 
     return 0;
   });

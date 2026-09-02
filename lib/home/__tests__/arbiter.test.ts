@@ -9,6 +9,8 @@ function candidate(overrides: Partial<Candidate> & Pick<Candidate, "id" | "area"
     position: null,
     decay: null,
     cost: null,
+    riskScore: null,
+    riskConfidence: null,
     ...overrides,
   };
 }
@@ -156,6 +158,60 @@ describe("rankCandidates — the corrected order (R18/R19): urgency -> dueAt -> 
     // writing this exact test first: two null-vs-real pairs each read as
     // tied while the two real values are not, a genuine contradiction).
     expect(ranked.map((c) => c.id)).toEqual(["quick-workout", "long-workout", "school-task"]);
+  });
+
+  // Boss ruling, R37 addendum: riskScore is the tail of the order, never a
+  // gate on admission -- a candidate is already in this list because its
+  // caller decided it has real evidence (R37: School is admitted on dueAt
+  // alone). This section only covers ordering AMONG already-admitted
+  // candidates.
+  describe("riskScore (R37 addendum: participates only at riskConfidence >= low, tied on everything else)", () => {
+    it("higher riskScore ranks first when both candidates have real, sufficiently-confident scores", () => {
+      const now = new Date("2026-09-02T12:00:00Z");
+      const higherRisk = candidate({ id: "high-risk", area: "school", riskScore: 0.8, riskConfidence: "moderate" });
+      const lowerRisk = candidate({ id: "low-risk", area: "school", riskScore: 0.2, riskConfidence: "high" });
+
+      const ranked = rankCandidates([lowerRisk, higherRisk], now);
+
+      expect(ranked.map((c) => c.id)).toEqual(["high-risk", "low-risk"]);
+    });
+
+    it("riskConfidence 'insufficient' makes riskScore absent for ordering purposes, even though a real number exists", () => {
+      const now = new Date("2026-09-02T12:00:00Z");
+      // A high risk NUMBER but insufficient confidence in it -- must not
+      // outrank a real, if lower, confidently-known score. Confidence <
+      // low means "we don't trust this number," not "ignore the fact that
+      // it's the only information here" -- see the next test for that.
+      const unreliableHighNumber = candidate({ id: "unreliable", area: "school", riskScore: 0.99, riskConfidence: "insufficient" });
+      const reliableLowNumber = candidate({ id: "reliable", area: "school", riskScore: 0.1, riskConfidence: "low" });
+
+      const ranked = rankCandidates([unreliableHighNumber, reliableLowNumber], now);
+
+      expect(ranked.map((c) => c.id)).toEqual(["reliable", "unreliable"]);
+    });
+
+    it("a real, sufficiently-confident risk score beats a candidate with no risk source at all", () => {
+      const now = new Date("2026-09-02T12:00:00Z");
+      const noRiskSource = candidate({ id: "no-risk-source", area: "business" });
+      const hasRisk = candidate({ id: "has-risk", area: "school", riskScore: 0.5, riskConfidence: "low" });
+
+      const ranked = rankCandidates([noRiskSource, hasRisk], now);
+
+      expect(ranked.map((c) => c.id)).toEqual(["has-risk", "no-risk-source"]);
+    });
+
+    it("two candidates both lacking a usable risk score (null, or real number but insufficient confidence) stay tied at this tier -- never fabricated", () => {
+      const now = new Date("2026-09-02T12:00:00Z");
+      const noSource = candidate({ id: "no-source", area: "business" });
+      const insufficientConfidence = candidate({ id: "insufficient-confidence", area: "school", riskScore: 0.9, riskConfidence: "insufficient" });
+
+      const ranked = rankCandidates([insufficientConfidence, noSource], now);
+
+      // Falls through to input order (stable sort) since neither is a
+      // usable risk value -- not decided by the 0.9 number that exists
+      // but isn't trusted.
+      expect(ranked.map((c) => c.id)).toEqual(["insufficient-confidence", "no-source"]);
+    });
   });
 });
 

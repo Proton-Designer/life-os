@@ -46,6 +46,11 @@ export type AreaWeightLookup = Partial<Record<Area, AreaWeight>>;
  * see buildSelfMasteryCandidate below). `cost` passes through whatever
  * getPriorityItems already computed (real for Fitness's scheduled
  * sessions, null everywhere else -- see PriorityItem.cost's own comment).
+ * `riskScore`/`riskConfidence` are always null here too: School's risk
+ * engine (lib/school/risk, CollegeOS's A4 track) isn't wired into
+ * PriorityItem yet -- the same shape as `cost` before Fitness's
+ * durationMinutes got plumbed onto it. Real wiring is a School-specific
+ * follow-up, not invented here.
  */
 export function buildCandidatesFromPriorityItems(items: PriorityItem[], weights: AreaWeightLookup): Candidate[] {
   return items.map((item) => {
@@ -59,6 +64,8 @@ export function buildCandidatesFromPriorityItems(items: PriorityItem[], weights:
       position: w?.position ?? null,
       decay: null,
       cost: item.cost,
+      riskScore: null,
+      riskConfidence: null,
     };
   });
 }
@@ -99,5 +106,10 @@ export function buildSelfMasteryCandidate(summary: SelfMasterySummary, weights: 
     position: w?.position ?? null,
     decay: summary.decay,
     cost: summary.cost,
+    // No risk concept applies to Self-Mastery -- riskScore/riskConfidence
+    // stay null structurally, not "not wired yet" the way PriorityItem's
+    // are above.
+    riskScore: null,
+    riskConfidence: null,
   };
 }
