@@ -234,10 +234,35 @@ export interface ProcLine {
   pid: number;
   ppid: number;
   command: string;
+  /** True if the process was still running when the call finished. MCP servers persist
+   *  for the session; the CLI's housekeeping children do not. */
+  stillAliveAtEnd?: boolean;
 }
 
 /** Commands that are MCP servers on this machine, plus a generic catch. */
 const MCP_COMMAND_PATTERN = /claude-peers-mcp|terminal-mcp|[/\s-]mcp[/\s-]|mcp[-_]server/i;
+
+/**
+ * Children the CLI spawns for its own housekeeping, which are NOT MCP servers and must not
+ * be reported as findings.
+ *
+ * FOUND BY RUNNING IT, NOT BY DESIGNING IT. A real `claude -p --tools ""` run spawned:
+ *   /bin/sh -c ps aux | grep -E "Visual Studio Code|Code Helper|Cursor Helper|…"
+ *   python3 …
+ *   (bash)
+ * — an IDE-detection probe and its helpers. With tools disabled. The descendant arm flagged
+ * all three, and every one is legitimate.
+ *
+ * That matters more than the noise: an instrument that cries wolf on every clean run gets
+ * ignored, and then the one real hit is dismissed with it. Same failure as the self-flagging
+ * false positive, arriving from the opposite direction — there the detector reported itself,
+ * here it reports the thing it is watching doing something innocuous.
+ *
+ * The discriminator is LIFETIME, not name: an MCP server persists for the session, while
+ * these are transient. `stillAliveAtEnd` carries that, so an unrecognised server is still
+ * caught by the descendant arm while a housekeeping probe is not.
+ */
+const CLI_HOUSEKEEPING_PATTERN = /Visual Studio Code|Code Helper|Cursor Helper|Windsurf|Devin|^\(bash\)$|^\/bin\/sh -c ps /i;
 
 /**
  * Pure so its red is deterministic — no spawning, no timing, no live call needed to prove
@@ -271,12 +296,17 @@ export function findSpawnedMcpProcesses(
     }
     return false;
   };
-  return sample.filter(
-    (p) =>
-      !baselinePids.has(p.pid) &&
-      !excludePids.has(p.pid) &&
-      (MCP_COMMAND_PATTERN.test(p.command) || descendsFromRoot(p)),
-  );
+  return sample.filter((p) => {
+    if (baselinePids.has(p.pid) || excludePids.has(p.pid)) return false;
+    // The pattern arm is precise and always applies.
+    if (MCP_COMMAND_PATTERN.test(p.command)) return true;
+    // The descendant arm catches a server we would not recognise, but only when it
+    // OUTLIVES the call — see CLI_HOUSEKEEPING_PATTERN. A transient child is the CLI
+    // doing its own work, not a tool surface.
+    if (!descendsFromRoot(p)) return false;
+    if (CLI_HOUSEKEEPING_PATTERN.test(p.command.trim())) return false;
+    return p.stillAliveAtEnd === true;
+  });
 }
 
 describe("R22 MCP containment — the detector can fail", () => {
@@ -302,7 +332,7 @@ describe("R22 MCP containment — the detector can fail", () => {
 
   it("flags an UNRECOGNISED child of the headless process — the case the pattern would miss", () => {
     const found = findSpawnedMcpProcesses(
-      [{ pid: 97, ppid: 50, command: "some-server-nobody-has-named-yet --stdio" }],
+      [{ pid: 97, ppid: 50, command: "some-server-nobody-has-named-yet --stdio", stillAliveAtEnd: true }],
       baseline,
       50,
     );
@@ -312,8 +342,8 @@ describe("R22 MCP containment — the detector can fail", () => {
   it("walks more than one hop, so a grandchild is not missed", () => {
     const found = findSpawnedMcpProcesses(
       [
-        { pid: 96, ppid: 50, command: "sh -c launcher" },
-        { pid: 95, ppid: 96, command: "opaque-binary --stdio" },
+        { pid: 96, ppid: 50, command: "sh -c launcher", stillAliveAtEnd: true },
+        { pid: 95, ppid: 96, command: "opaque-binary --stdio", stillAliveAtEnd: true },
       ],
       baseline,
       50,
@@ -337,6 +367,19 @@ describe("R22 MCP containment — the detector can fail", () => {
       baseline,
       null,
       new Set([77]),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("does not flag the CLI's own housekeeping children — observed on a real clean run", () => {
+    // Verbatim shapes from a real `claude -p --tools ""` run that spawned ZERO MCP servers.
+    const found = findSpawnedMcpProcesses(
+      [
+        { pid: 88, ppid: 50, command: '/bin/sh -c ps aux | grep -E "Visual Studio Code|Code Helper"' },
+        { pid: 89, ppid: 50, command: "(bash)" },
+      ],
+      baseline,
+      50,
     );
     expect(found).toEqual([]);
   });
