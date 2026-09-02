@@ -18,7 +18,8 @@ the point is to make a number unavailable the moment it is promised.
 | `114` | LifeOS Eng 2 (95858) | Additive: `user_domains.depth` (NOT NULL), `profiles.evening_close_time`, `deen_habits.cue_time` | **APPLIED** |
 | `115` | LifeOS Eng 2 (95858) | R27 flatten: `user_domains.key` CHECK change + `personal_growth` row split | **APPLIED** (sha `0494e0f3`) |
 | `116` | LifeOS Eng 2 (95858) | Generic reading-log table (date, units, optional source/title, `user_id`) — NOT a `quran_sessions` reuse: all 6 consumers of that table treat every row as a real Qur'an session | allocated |
-| `117`+ | — | next free | — |
+| `117` | ULM lead (42335) | Per-lesson `relevance_floor` (`checked` / `not_checked`) — the deferred embedding arm. R43 killed the local embedder on security grounds (4 unfixable highs in decoder code fed by user uploads), so the floor records that it was NOT checked rather than silently reading as a pass | allocated |
+| `118`+ | — | next free | — |
 
 **Applied: `110`, `111`, `114`, `115`.** Still pending: `112` (ULM, file on disk, awaiting
 their verification) and `113` (CollegeOS, not yet written).
