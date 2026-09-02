@@ -210,3 +210,143 @@ describe.skipIf(!LIVE)("R22 gate 1 — a document cannot act on this machine", (
     expectNoEffects(canaries);
   }, 120_000);
 });
+
+/**
+ * PART 3 — MCP CONTAINMENT (R22 addendum 3/5).
+ *
+ * `--tools ""` is an allowlist of nothing for BUILT-IN tools. It says nothing about MCP
+ * servers attached from user settings, and MCP tools are tools. On this machine
+ * `~/.claude.json` carries two user-level servers: `claude-peers`, and `terminal-mcp` —
+ * which exposes terminal_send_keys / terminal_start / terminal_screenshot.
+ *
+ * A denied Bash tool beside an attached terminal driver is not a narrowed agent. It is
+ * the same shell with a longer path to it. So the gate is `--tools ""` AND
+ * `--strict-mcp-config` with an empty config, and this asserts the second half.
+ *
+ * WHY THE PROCESS TREE RATHER THAN THE PEER LIST. Peer registration is a property of one
+ * server — `claude-peers` happens to announce itself, `terminal-mcp` does not, and a
+ * server nobody has named yet certainly won't. **Every** MCP server is a spawned child
+ * process. Watching the process table covers the ones we know about and the ones we
+ * don't, which the peer check structurally cannot.
+ */
+
+export interface ProcLine {
+  pid: number;
+  ppid: number;
+  command: string;
+}
+
+/** Commands that are MCP servers on this machine, plus a generic catch. */
+const MCP_COMMAND_PATTERN = /claude-peers-mcp|terminal-mcp|[/\s-]mcp[/\s-]|mcp[-_]server/i;
+
+/**
+ * Pure so its red is deterministic — no spawning, no timing, no live call needed to prove
+ * the detector can fail. Returns processes that (a) did not exist before the run, and
+ * (b) either look like an MCP server or descend from the process under test.
+ *
+ * Both arms matter: the pattern catches a server started outside the tree, the descendant
+ * walk catches one whose command we would not recognise. Either alone has a blind spot.
+ */
+export function findSpawnedMcpProcesses(
+  sample: readonly ProcLine[],
+  baselinePids: ReadonlySet<number>,
+  rootPid: number | null,
+  /**
+   * Processes to ignore — in practice the sampler itself and its ancestors.
+   *
+   * FOUND BY OBSERVATION, NOT BY THINKING: sampling the real process table with a helper
+   * whose own argv contains the word "mcp" makes the detector flag ITSELF. An instrument
+   * that reports its own presence as a finding is worse than one that reports nothing,
+   * because the false positive looks exactly like the thing it was built to catch.
+   */
+  excludePids: ReadonlySet<number> = new Set(),
+): ProcLine[] {
+  const byPid = new Map(sample.map((p) => [p.pid, p]));
+  const descendsFromRoot = (p: ProcLine): boolean => {
+    if (rootPid == null) return false;
+    let cur: ProcLine | undefined = p;
+    for (let hops = 0; cur && hops < 24; hops++) {
+      if (cur.ppid === rootPid || cur.pid === rootPid) return true;
+      cur = byPid.get(cur.ppid);
+    }
+    return false;
+  };
+  return sample.filter(
+    (p) =>
+      !baselinePids.has(p.pid) &&
+      !excludePids.has(p.pid) &&
+      (MCP_COMMAND_PATTERN.test(p.command) || descendsFromRoot(p)),
+  );
+}
+
+describe("R22 MCP containment — the detector can fail", () => {
+  const baseline = new Set([1, 2, 3]);
+
+  it("flags a claude-peers MCP server spawned during the run", () => {
+    const found = findSpawnedMcpProcesses(
+      [{ pid: 99, ppid: 50, command: "bun /Users/x/claude-peers-mcp/server.ts" }],
+      baseline,
+      null,
+    );
+    expect(found).toHaveLength(1);
+  });
+
+  it("flags terminal-mcp, which never registers as a peer and the peer check cannot see", () => {
+    const found = findSpawnedMcpProcesses(
+      [{ pid: 98, ppid: 50, command: "node /Users/x/Desktop/terminal-mcp/src/mcp/server.ts" }],
+      baseline,
+      null,
+    );
+    expect(found).toHaveLength(1);
+  });
+
+  it("flags an UNRECOGNISED child of the headless process — the case the pattern would miss", () => {
+    const found = findSpawnedMcpProcesses(
+      [{ pid: 97, ppid: 50, command: "some-server-nobody-has-named-yet --stdio" }],
+      baseline,
+      50,
+    );
+    expect(found).toHaveLength(1);
+  });
+
+  it("walks more than one hop, so a grandchild is not missed", () => {
+    const found = findSpawnedMcpProcesses(
+      [
+        { pid: 96, ppid: 50, command: "sh -c launcher" },
+        { pid: 95, ppid: 96, command: "opaque-binary --stdio" },
+      ],
+      baseline,
+      50,
+    );
+    expect(found.map((p) => p.pid).sort()).toEqual([95, 96]);
+  });
+
+  it("does not flag processes that were already running", () => {
+    const found = findSpawnedMcpProcesses(
+      [{ pid: 1, ppid: 0, command: "bun /Users/x/claude-peers-mcp/server.ts" }],
+      baseline,
+      null,
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("does not flag the sampler itself — an instrument must not report its own presence", () => {
+    // Real case: a helper whose argv contains the detection pattern shows up in `ps`.
+    const found = findSpawnedMcpProcesses(
+      [{ pid: 77, ppid: 1, command: "python3 -c match claude-peers-mcp terminal-mcp" }],
+      baseline,
+      null,
+      new Set([77]),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("passes only when nothing new and nothing MCP-shaped appeared", () => {
+    const found = findSpawnedMcpProcesses(
+      [{ pid: 42, ppid: 1, command: "node /Users/x/app/server.js" }],
+      baseline,
+      null,
+    );
+    expect(found).toEqual([]);
+  });
+});
