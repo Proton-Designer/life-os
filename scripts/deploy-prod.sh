@@ -90,6 +90,44 @@ cd "$WT"
 # why the failed deploy earlier today never reached production. Don't duplicate
 # it badly here. To check HEAD locally, build in a worktree (generating types)
 # rather than typechecking one.
+#
+# ── LOCAL HEAD GATE (R65) ─────────────────────────────────────────────────
+# The remote gate works but reports opaquely: on 2026-09-02 a `tsc` error in an
+# obsolete script failed the build, and Vercel surfaced it as "Could not
+# retrieve Project Settings" — which reads like an auth failure and sent the
+# operator to check a perfectly valid token. Every deploy was blocked and the
+# symptom named the wrong subsystem.
+#
+# WHY THIS IS `tsc` AND NOT `next build`, HAVING TRIED BOTH. `next build` in the
+# worktree is the truest gate and it does not work here: Turbopack refuses a
+# `node_modules` symlink pointing outside the project root ("Symlink
+# [project]/node_modules is invalid"), and installing or copying node_modules
+# per deploy is slow enough that nobody would keep the gate.
+#
+# WHY `tsc` ALONE USED TO FALSE-RED, AND WHY IT NO LONGER DOES. An earlier
+# version ran bare `tsc --noEmit` in a fresh worktree and failed on healthy
+# HEADs, because a clean checkout has no `.next/types` and `LayoutProps` is
+# undefined without them. Copying the repo's `.next/types` in supplies exactly
+# the generated context the build would have produced. Verified BOTH ways
+# before being trusted:
+#     HEAD (healthy)              -> exit 0
+#     58029d4 (the blocked commit) -> TS2345 on the dropped RPC, refused
+#
+# AND NOTHING IS FILTERED. That is the actual lesson of the incident: `tsc` DID
+# report this error while it was live, and it was greped away as "another
+# team's file". A gate that shows you only the errors you already expected is
+# not a gate.
+echo "--- HEAD gate: typechecking the exact commit being shipped ---"
+mkdir -p "$WT/.next"
+cp -r "$REPO/.next/types" "$WT/.next/types" 2>/dev/null
+ln -s "$REPO/node_modules" "$WT/node_modules" 2>/dev/null
+if ! npx tsc --noEmit; then
+  echo "" >&2
+  echo "HEAD DOES NOT TYPECHECK — not uploading. Nothing was deployed." >&2
+  echo "  Every error above is on the commit you are shipping, not your working tree." >&2
+  exit 1
+fi
+echo "--- HEAD typechecks; uploading ---"
 
 OUT="$(mktemp)"
 npx vercel --prod --yes --token "$TOKEN" 2>&1 | tee "$OUT"
