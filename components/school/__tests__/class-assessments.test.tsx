@@ -15,7 +15,7 @@ function assessment(overrides: Partial<ClassAssessment> = {}): ClassAssessment {
     type: "midterm_final",
     date: "2026-10-06",
     task_id: "t1",
-    risk: { score: 0, band: "low" },
+    risk: { score: 0, band: "low", confidence: "moderate" },
     ...overrides,
   };
 }
@@ -27,7 +27,6 @@ describe("ClassAssessments", () => {
         assessments={[assessment()]}
         editing={false}
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -50,7 +49,6 @@ describe("ClassAssessments", () => {
         assessments={[]}
         editing={false}
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -67,7 +65,6 @@ describe("ClassAssessments", () => {
         assessments={[assessment()]}
         editing
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={onRemove}
@@ -88,7 +85,6 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ name: "Q" })]}
         editing
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={onUpdate}
         onRemove={vi.fn()}
@@ -102,15 +98,7 @@ describe("ClassAssessments", () => {
     const onAdd = vi.fn();
     const user = userEvent.setup();
     render(
-      <ClassAssessments
-        assessments={[]}
-        editing
-        todayStr="2026-08-26"
-        rankedByRisk={false}
-        onAdd={onAdd}
-        onUpdate={vi.fn()}
-        onRemove={vi.fn()}
-      />
+      <ClassAssessments assessments={[]} editing todayStr="2026-08-26" onAdd={onAdd} onUpdate={vi.fn()} onRemove={vi.fn()} />
     );
     await user.click(screen.getByRole("button", { name: "Add assessment" }));
     expect(screen.getByText("Assessment type")).toBeInTheDocument();
@@ -133,7 +121,6 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ task_id: "t1" })]}
         editing
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -146,7 +133,6 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ task_id: "t1" })]}
         editing={false}
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -159,7 +145,6 @@ describe("ClassAssessments", () => {
         assessments={[assessment({ task_id: null })]}
         editing
         todayStr="2026-08-26"
-        rankedByRisk={false}
         onAdd={vi.fn()}
         onUpdate={vi.fn()}
         onRemove={vi.fn()}
@@ -169,79 +154,106 @@ describe("ClassAssessments", () => {
   });
 });
 
-// RED TEST (2026-09-02, risk-engine port): as of the pre-port production code,
-// ClassAssessments had no `risk` field on its assessments and no `rankedByRisk` prop at
-// all — it rendered whatever order it was handed, unconditionally. The tests below
-// failed against that code (3/3 red — two on order, one on the missing empty-state copy)
-// before class-assessments.tsx was wired to sort by risk; they pass now.
-
-function rankedAssessment(id: string, name: string, date: string, score: number): ClassAssessment {
-  return { id, name, type: "quiz", date, task_id: null, risk: { score, band: score >= 50 ? "high" : "low" } };
+function rankedAssessment(
+  id: string,
+  name: string,
+  date: string,
+  score: number,
+  confidence: ClassAssessment["risk"]["confidence"] = "moderate"
+): ClassAssessment {
+  return { id, name, type: "quiz", date, task_id: null, risk: { score, band: score >= 50 ? "high" : "low", confidence } };
 }
 
-describe("ClassAssessments — risk ranking", () => {
-  it("without a difficulty rating, keeps date order and shows why", () => {
+// R28 (The Boss, 2026-09-02): confidence stays OUT of the sort key within one list, but
+// drives grouping — `insufficient`-confidence items fall to the bottom with a prompt,
+// and every row shows its confidence. RED TEST history: before this ranking existed at
+// all, ClassAssessments had no `risk` field and no notion of order beyond the array it
+// was handed — 3/3 failed on that code (two on order, one on the missing copy). The
+// original design gated ranking on a boolean prop derived from the class's difficulty
+// rating; R28 replaced that with per-item `confidence`, so these tests target the
+// current (confidence-driven) contract directly.
+describe("ClassAssessments — confidence-based ranking (R28)", () => {
+  it("ranks confidence >= low items by risk score, date as tiebreak — even when a higher-risk item is due later", () => {
     const items = [
-      rankedAssessment("a", "Low-risk quiz due first", "2026-09-01", 10),
-      rankedAssessment("b", "High-risk final due later", "2026-09-10", 90),
+      rankedAssessment("a", "Low-risk quiz due first", "2026-09-01", 10, "low"),
+      rankedAssessment("b", "High-risk final due later", "2026-09-10", 90, "low"),
     ];
     render(
-      <ClassAssessments
-        assessments={items}
-        editing={false}
-        todayStr="2026-08-20"
-        rankedByRisk={false}
-        onAdd={() => {}}
-        onUpdate={() => {}}
-        onRemove={() => {}}
-      />
-    );
-    const rows = screen.getAllByTestId(/^assessment-row-/);
-    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-a", "assessment-row-b"]);
-    expect(screen.getByText("ranked by due date until you rate difficulty.")).toBeInTheDocument();
-  });
-
-  it("once the class has a difficulty rating, ranks by risk score instead of date order", () => {
-    const items = [
-      rankedAssessment("a", "Low-risk quiz due first", "2026-09-01", 10),
-      rankedAssessment("b", "High-risk final due later", "2026-09-10", 90),
-    ];
-    render(
-      <ClassAssessments
-        assessments={items}
-        editing={false}
-        todayStr="2026-08-20"
-        rankedByRisk
-        onAdd={() => {}}
-        onUpdate={() => {}}
-        onRemove={() => {}}
-      />
+      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     const rows = screen.getAllByTestId(/^assessment-row-/);
     // b scores higher risk than a, despite being LATER by date — proves ranking is by
     // risk, not by the array/date order it was handed (the exact 8d77e73 sort-then-slice
     // failure mode: risk that only ever reorders within a date-sorted set is not risk-ranked).
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-b", "assessment-row-a"]);
-    expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
   });
 
-  it("date breaks a tie in risk score", () => {
+  it("date breaks a tie in risk score among ranked items", () => {
     const items = [
-      rankedAssessment("a", "Same risk, later date", "2026-09-10", 50),
-      rankedAssessment("b", "Same risk, earlier date", "2026-09-01", 50),
+      rankedAssessment("a", "Same risk, later date", "2026-09-10", 50, "moderate"),
+      rankedAssessment("b", "Same risk, earlier date", "2026-09-01", 50, "moderate"),
     ];
     render(
+      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-b", "assessment-row-a"]);
+  });
+
+  it("groups insufficient-confidence items at the bottom regardless of score or date, and shows the prompt", () => {
+    const items = [
+      // Earlier date AND a higher raw score than the ranked item below — neither should
+      // matter, because its confidence can't support a rank claim.
+      rankedAssessment("insufficient-item", "Unrated, due first, scores high", "2026-08-25", 99, "insufficient"),
+      rankedAssessment("ranked-item", "Rated, due later, scores low", "2026-09-15", 5, "low"),
+    ];
+    render(
+      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
+      "assessment-row-ranked-item",
+      "assessment-row-insufficient-item",
+    ]);
+    expect(screen.getByText("rate difficulty to rank this")).toBeInTheDocument();
+  });
+
+  it("orders multiple insufficient-confidence items by date among themselves", () => {
+    const items = [
+      rankedAssessment("later", "Insufficient, later date", "2026-09-10", 0, "insufficient"),
+      rankedAssessment("earlier", "Insufficient, earlier date", "2026-09-01", 0, "insufficient"),
+    ];
+    render(
+      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+    );
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-earlier", "assessment-row-later"]);
+  });
+
+  it("shows no insufficient-group prompt when every item is confidently ranked", () => {
+    const items = [rankedAssessment("a", "Rated quiz", "2026-09-01", 40, "low")];
+    render(
+      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+    );
+    expect(screen.queryByText("rate difficulty to rank this")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["high", "High"],
+    ["moderate", "Mod"],
+    ["low", "Low"],
+    ["insufficient", "None"],
+  ] as const)("shows a %s-confidence badge on every row, not just insufficient ones", (confidence, label) => {
+    render(
       <ClassAssessments
-        assessments={items}
+        assessments={[rankedAssessment("a", "Some assessment", "2026-09-01", 30, confidence)]}
         editing={false}
         todayStr="2026-08-20"
-        rankedByRisk
         onAdd={() => {}}
         onUpdate={() => {}}
         onRemove={() => {}}
       />
     );
-    const rows = screen.getAllByTestId(/^assessment-row-/);
-    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-b", "assessment-row-a"]);
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 });

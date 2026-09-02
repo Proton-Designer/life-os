@@ -3,18 +3,14 @@ import type { Database } from "@/lib/supabase/database.types";
 import { weekDatesFrom } from "@/lib/date-utils";
 import { buildAssessmentRiskInput } from "@/lib/school/risk/build-assessment-risk-input";
 import { computeAssignmentRisk, type RiskBand } from "@/lib/school/risk/assignment-risk";
+import type { Confidence } from "@/lib/school/risk/types";
 
 // `difficulty_rating` / `confidence_rating` / `target_grade_pct` (classes) and
 // `weight_pct` (class_assessments) landed in migration 105 — see that file's own
-// comment for why every one of them is nullable by design. `database.types.ts` has not
-// been regenerated for them yet (it's mid-edit elsewhere in this shared tree for
-// unrelated work — R1's review/card_states columns — and regenerating it here would
-// clobber that in-flight change). `.returns<T>()` overrides the inferred row shape for
-// just these two queries without touching the generated file; confirmed against the
-// live schema (read-only check, 2026-09-02) that these columns already exist in
-// production. Remove this once database.types.ts is regenerated to include them.
-type ClassRiskColumns = { difficulty_rating: number | null; confidence_rating: number | null; target_grade_pct: number | null };
-type AssessmentRiskColumns = { weight_pct: number | null };
+// comment for why every one of them is nullable by design. database.types.ts was
+// regenerated from production in 8eda53c, so the `.select(...)` strings below are now
+// checked against the real schema directly (a renamed/retyped column fails THIS file to
+// compile, no separate Pick/`.returns<T>()` workaround needed anymore).
 
 export type ClassCardData = {
   id: string;
@@ -47,8 +43,11 @@ export type ClassCardData = {
     date: string;
     taskId: string | null;
     /** Always computed, even with every risk input null — the engine degrades
-     * gracefully (DOMAIN_ENGINE_SPEC.md §0) rather than needing this to be optional. */
-    risk: { score: number; band: RiskBand };
+     * gracefully (DOMAIN_ENGINE_SPEC.md §0) rather than needing this to be optional.
+     * `confidence` (R28) is what class-assessments.tsx actually ranks on, not a boolean
+     * proxy — an `insufficient`-confidence score isn't a rank claim regardless of its
+     * numeric value. */
+    risk: { score: number; band: RiskBand; confidence: Confidence };
   }[];
   /** This class's incomplete tasks, regardless of week — deliberately
    * wider than `tasksDueThisWeek`'s this-week/incomplete filter, since the
@@ -92,8 +91,7 @@ export async function getClassCards(
     .select("id, short_name, code, room, instructor, syllabus_path, difficulty_rating, confidence_rating, target_grade_pct")
     .eq("user_id", userId)
     .order("position", { ascending: true, nullsFirst: false })
-    .order("code", { ascending: true })
-    .returns<(Database["public"]["Tables"]["classes"]["Row"] & ClassRiskColumns)[]>();
+    .order("code", { ascending: true });
   if (classError) throw classError;
   const classes = classRows ?? [];
   if (classes.length === 0) return [];
@@ -118,8 +116,7 @@ export async function getClassCards(
       .select("id, class_id, name, type, date, task_id, weight_pct")
       .eq("user_id", userId)
       .in("class_id", classIds)
-      .order("date", { ascending: true })
-      .returns<(Database["public"]["Tables"]["class_assessments"]["Row"] & AssessmentRiskColumns)[]>(),
+      .order("date", { ascending: true }),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
@@ -162,8 +159,8 @@ export async function getClassCards(
         confidenceRating: c.confidence_rating,
         targetGradePct: c.target_grade_pct,
       });
-      const { score, band } = computeAssignmentRisk(riskInput);
-      return { id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.taskId, risk: { score, band } };
+      const { score, band, confidence } = computeAssignmentRisk(riskInput);
+      return { id: a.id, name: a.name, type: a.type, date: a.date, taskId: a.taskId, risk: { score, band, confidence } };
     });
     // Rows are already ordered by date ascending (risk is attached in place, not
     // re-sorted), so the first future assessment is still the nearest upcoming one — no

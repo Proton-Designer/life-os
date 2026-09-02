@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { AssessmentType } from "@/app/(app)/school/class-actions";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import type { RiskBand } from "@/lib/school/risk/assignment-risk";
+import type { Confidence } from "@/lib/school/risk/types";
 
 export type ClassAssessment = {
   id: string;
@@ -15,17 +16,26 @@ export type ClassAssessment = {
   type: AssessmentType;
   date: string;
   task_id: string | null;
-  /** Always computed by the caller (lib/school/get-class-cards.ts), even before the class
-   * has a difficulty rating — the engine degrades gracefully rather than needing this to
-   * be optional. Whether it's actually used to ORDER the list is `rankedByRisk`'s call, not
-   * this field's presence. */
-  risk: { score: number; band: RiskBand };
+  /** Always computed by the caller (lib/school/get-class-cards.ts) from
+   * computeAssignmentRisk — the engine degrades gracefully rather than needing this to
+   * be optional. `confidence` (not a boolean prop) is what actually drives ranking now
+   * (R28): score alone isn't a rank claim when it was built from mostly-excluded factors. */
+  risk: { score: number; band: RiskBand; confidence: Confidence };
 };
 
-/** Exact copy, per the Lead's spec — shown in place of a risk-ranked order until the class
- * has a difficulty rating, since ranking a class's assessments off nothing but the
- * always-excluded/renormalized factors would read as "ranked" when it's mostly not yet. */
-const UNRANKED_CAPTION = "ranked by due date until you rate difficulty.";
+// Short forms so a narrow column never truncates mid-word — same reasoning as
+// TYPE_SHORT_LABEL below.
+const CONFIDENCE_LABEL: Record<Confidence, string> = { high: "High", moderate: "Mod", low: "Low", insufficient: "None" };
+
+/**
+ * R28 (The Boss, 2026-09-02): within a list drawing on one factor set, confidence stays
+ * OUT of the sort key (score already reflects the available evidence, renormalized) —
+ * that rule is for the cross-domain arbiter comparing incomparable score qualities, not
+ * this list. What confidence DOES drive here: an `insufficient`-confidence item (today,
+ * every assessment in an unrated class) is grouped at the bottom with this prompt, rather
+ * than silently taking a rank its score can't actually justify.
+ */
+const INSUFFICIENT_GROUP_PROMPT = "rate difficulty to rank this";
 
 const TYPE_LABEL: Record<AssessmentType, string> = {
   quiz: "Quiz",
@@ -55,7 +65,7 @@ const TYPE_COLOR: Record<AssessmentType, string> = {
 // times the width of the assessment's own name, crushing it to "Mid…"/
 // "Tak…" on a phone (Ayman's actual mobile screen, and the failure a
 // temporarily-seeded long title surfaced during review).
-const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_1.75rem]";
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_1.75rem]";
 
 /**
  * Left half of the expanded class view (item 6c / B2 redesign, 2026-08-26
@@ -77,7 +87,6 @@ export function ClassAssessments({
   assessments,
   editing,
   todayStr,
-  rankedByRisk,
   onAdd,
   onUpdate,
   onRemove,
@@ -86,12 +95,6 @@ export function ClassAssessments({
   editing: boolean;
   /** Reference year for formatShortDate — never derive it from a raw Date (AGENTS.md). */
   todayStr: string;
-  /** `classes.difficulty_rating != null` for this class, computed by the caller. Gates the
-   * display order: risk-ranked once the class has a rating, date order (as `assessments`
-   * already arrives from the query) until then — never a partial risk order built mostly
-   * out of always-excluded/renormalized factors, which would read as "ranked" when the one
-   * input that would actually move the needle for this class is still missing. */
-  rankedByRisk: boolean;
   onAdd: (input: { name: string; type: AssessmentType; date: string }) => void;
   onUpdate: (id: string, patch: Partial<{ name: string; type: AssessmentType; date: string }>) => void;
   onRemove: (id: string) => void;
@@ -122,15 +125,19 @@ export function ClassAssessments({
 
   const hasLinkedTask = assessments.some((a) => a.task_id !== null);
 
-  // Sort by risk score, date as the tiebreak, THEN this is the whole list — never a
-  // date-sorted-then-truncated set with risk only reordering within it. That was
-  // College-app's own DeadlineRadar bug (8d77e73): risk that can only reorder a set
-  // already chosen by date isn't risk-ranking, it's decoration. `assessments` already
-  // arrives date-ascending from the query, so the unranked branch is a no-op copy, not a
-  // second sort that could silently disagree with the server's order.
-  const displayAssessments = rankedByRisk
-    ? [...assessments].sort((a, b) => b.risk.score - a.risk.score || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-    : assessments;
+  // R28: rank by score (date as tiebreak) among items whose confidence actually supports
+  // a rank claim; group `insufficient`-confidence items at the bottom, ordered by date
+  // among themselves (their own score isn't comparable to anything). Sorts the FULL list,
+  // never a date-sorted-then-truncated set with risk only reordering within it — that was
+  // College-app's own DeadlineRadar bug (8d77e73).
+  const displayAssessments = [...assessments].sort((a, b) => {
+    const aRanked = a.risk.confidence !== "insufficient";
+    const bRanked = b.risk.confidence !== "insufficient";
+    if (aRanked !== bRanked) return aRanked ? -1 : 1;
+    if (aRanked) return b.risk.score - a.risk.score || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+  });
+  const firstInsufficientId = displayAssessments.find((a) => a.risk.confidence === "insufficient")?.id ?? null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -146,80 +153,89 @@ export function ClassAssessments({
         </Button>
       </div>
 
-      {!rankedByRisk && assessments.length > 0 && <p className="text-xs text-muted-foreground">{UNRANKED_CAPTION}</p>}
-
       {assessments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No assessments yet.</p>
       ) : (
         <div className="flex flex-col gap-1">
-          {/* Fixed column widths (name flexes, type/date/actions don't) so a
-              long name never pushes the date into the Remove button — the
-              exact collision Ayman's screenshot showed in the old <table>. */}
+          {/* Fixed column widths (name flexes, type/date/confidence/actions
+              don't) so a long name never pushes the date into the Remove
+              button — the exact collision Ayman's screenshot showed in the
+              old <table>. */}
           <div className={cn("grid gap-3 px-1 text-xs text-muted-foreground", ROW_GRID)}>
             <span>Name</span>
             <span>Type</span>
             <span>Date</span>
+            <span>Conf.</span>
             <span aria-hidden />
           </div>
-          {displayAssessments.map((a) =>
-            editing ? (
-              <div
-                key={a.id}
-                data-testid={`assessment-row-${a.id}`}
-                className={cn("grid items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5", ROW_GRID)}
-              >
-                <Input
-                  value={a.name}
-                  onChange={(e) => onUpdate(a.id, { name: e.target.value })}
-                  aria-label={`Name for ${a.name || "new assessment"}`}
-                  className="h-8"
-                />
-                <select
-                  value={a.type}
-                  onChange={(e) => onUpdate(a.id, { type: e.target.value as AssessmentType })}
-                  aria-label={`Type for ${a.name || "new assessment"}`}
-                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+          {displayAssessments.map((a) => (
+            <Fragment key={a.id}>
+              {a.id === firstInsufficientId && (
+                <p key={`${a.id}-prompt`} className="px-1 text-xs text-muted-foreground">
+                  {INSUFFICIENT_GROUP_PROMPT}
+                </p>
+              )}
+              {editing ? (
+                <div
+                  key={a.id}
+                  data-testid={`assessment-row-${a.id}`}
+                  className={cn("grid items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5", ROW_GRID)}
                 >
-                  {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
-                    <option key={type} value={type}>
-                      {TYPE_LABEL[type]}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  type="date"
-                  value={a.date}
-                  onChange={(e) => onUpdate(a.id, { date: e.target.value })}
-                  aria-label={`Date for ${a.name || "new assessment"}`}
-                  className="h-8 text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => onRemove(a.id)}
-                  aria-label={`Remove ${a.name || "this assessment"}`}
-                  className="justify-self-end rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  <Input
+                    value={a.name}
+                    onChange={(e) => onUpdate(a.id, { name: e.target.value })}
+                    aria-label={`Name for ${a.name || "new assessment"}`}
+                    className="h-8"
+                  />
+                  <select
+                    value={a.type}
+                    onChange={(e) => onUpdate(a.id, { type: e.target.value as AssessmentType })}
+                    aria-label={`Type for ${a.name || "new assessment"}`}
+                    className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                  >
+                    {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
+                      <option key={type} value={type}>
+                        {TYPE_LABEL[type]}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    type="date"
+                    value={a.date}
+                    onChange={(e) => onUpdate(a.id, { date: e.target.value })}
+                    aria-label={`Date for ${a.name || "new assessment"}`}
+                    className="h-8 text-xs"
+                  />
+                  <span className="text-xs text-muted-foreground">{CONFIDENCE_LABEL[a.risk.confidence]}</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(a.id)}
+                    aria-label={`Remove ${a.name || "this assessment"}`}
+                    className="justify-self-end rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  key={a.id}
+                  data-testid={`assessment-row-${a.id}`}
+                  className={cn(
+                    "grid items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0",
+                    ROW_GRID
+                  )}
                 >
-                  <Trash2 className="size-3.5" aria-hidden />
-                </button>
-              </div>
-            ) : (
-              <div
-                key={a.id}
-                data-testid={`assessment-row-${a.id}`}
-                className={cn(
-                  "grid items-center gap-3 border-t border-border/40 px-1 py-1.5 text-sm first:border-t-0",
-                  ROW_GRID
-                )}
-              >
-                <span className="truncate">{a.name}</span>
-                <span className={cn("truncate text-xs font-medium", TYPE_COLOR[a.type])}>{TYPE_SHORT_LABEL[a.type]}</span>
-                <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  {formatShortDate(a.date, todayStr)}
-                </span>
-                <span aria-hidden />
-              </div>
-            )
-          )}
+                  <span className="truncate">{a.name}</span>
+                  <span className={cn("truncate text-xs font-medium", TYPE_COLOR[a.type])}>{TYPE_SHORT_LABEL[a.type]}</span>
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {formatShortDate(a.date, todayStr)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{CONFIDENCE_LABEL[a.risk.confidence]}</span>
+                  <span aria-hidden />
+                </div>
+              )}
+            </Fragment>
+          ))}
         </div>
       )}
 

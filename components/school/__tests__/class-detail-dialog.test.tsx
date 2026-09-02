@@ -58,7 +58,7 @@ describe("ClassDetailDialog", () => {
         onOpenChange={vi.fn()}
         classData={baseClassData({
           assessments: [
-            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low" } },
+            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low", confidence: "insufficient" } },
           ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
         })}
@@ -197,7 +197,7 @@ describe("ClassDetailDialog", () => {
         onOpenChange={vi.fn()}
         classData={baseClassData({
           assessments: [
-            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low" } },
+            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low", confidence: "insufficient" } },
           ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
         })}
@@ -224,7 +224,7 @@ describe("ClassDetailDialog", () => {
         onOpenChange={vi.fn()}
         classData={baseClassData({
           assessments: [
-            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low" } },
+            { id: "a1", name: "Midterm", type: "midterm_final", date: "2026-10-06", taskId: "t1", risk: { score: 10, band: "low", confidence: "insufficient" } },
           ],
         })}
         timezone="America/Chicago"

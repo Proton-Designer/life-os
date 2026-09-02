@@ -363,7 +363,6 @@ export function ClassDetailDialog({
               assessments={assessments}
               editing={editing}
               todayStr={todayStr}
-              rankedByRisk={classData.difficultyRating != null}
               onAdd={handleAddAssessment}
               onUpdate={handleUpdateAssessment}
               onRemove={handleRemoveAssessment}
