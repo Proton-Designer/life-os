@@ -1094,6 +1094,7 @@ export type Database = {
           page_ref: number | null
           provenance_quote: string
           rank: number | null
+          relevance_floor: Database["public"]["Enums"]["relevance_floor_status"]
           section_id: string | null
           source_chunk_id: string | null
           status: Database["public"]["Enums"]["lesson_status"]
@@ -1115,6 +1116,7 @@ export type Database = {
           page_ref?: number | null
           provenance_quote: string
           rank?: number | null
+          relevance_floor?: Database["public"]["Enums"]["relevance_floor_status"]
           section_id?: string | null
           source_chunk_id?: string | null
           status?: Database["public"]["Enums"]["lesson_status"]
@@ -1136,6 +1138,7 @@ export type Database = {
           page_ref?: number | null
           provenance_quote?: string
           rank?: number | null
+          relevance_floor?: Database["public"]["Enums"]["relevance_floor_status"]
           section_id?: string | null
           source_chunk_id?: string | null
           status?: Database["public"]["Enums"]["lesson_status"]
@@ -1732,7 +1735,7 @@ export type Database = {
           difficulty_before: number | null
           elapsed_ms: number | null
           id: string
-          learning_steps_after: number | null
+          learning_steps_after: number
           question_id: string | null
           rating: number
           request_retention: number
@@ -1741,7 +1744,7 @@ export type Database = {
           session_id: string | null
           stability_after: number | null
           stability_before: number | null
-          state_after: Database["public"]["Enums"]["fsrs_state"] | null
+          state_after: Database["public"]["Enums"]["fsrs_state"]
           state_before: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -1757,7 +1760,7 @@ export type Database = {
           difficulty_before?: number | null
           elapsed_ms?: number | null
           id?: string
-          learning_steps_after?: number | null
+          learning_steps_after: number
           question_id?: string | null
           rating: number
           request_retention: number
@@ -1766,7 +1769,7 @@ export type Database = {
           session_id?: string | null
           stability_after?: number | null
           stability_before?: number | null
-          state_after?: Database["public"]["Enums"]["fsrs_state"] | null
+          state_after: Database["public"]["Enums"]["fsrs_state"]
           state_before?: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -1782,7 +1785,7 @@ export type Database = {
           difficulty_before?: number | null
           elapsed_ms?: number | null
           id?: string
-          learning_steps_after?: number | null
+          learning_steps_after?: number
           question_id?: string | null
           rating?: number
           request_retention?: number
@@ -1791,7 +1794,7 @@ export type Database = {
           session_id?: string | null
           stability_after?: number | null
           stability_before?: number | null
-          state_after?: Database["public"]["Enums"]["fsrs_state"] | null
+          state_after?: Database["public"]["Enums"]["fsrs_state"]
           state_before?: Database["public"]["Enums"]["fsrs_state"] | null
           user_id?: string
         }
@@ -2781,13 +2784,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      _backfill_review_state_after: {
-        Args: {
-          p_id: string
-          p_state_after: Database["public"]["Enums"]["fsrs_state"]
-        }
-        Returns: undefined
-      }
       advance_ingestion_cursor: {
         Args: {
           p_expected_attempt: number
@@ -3023,7 +3019,7 @@ export type Database = {
           difficulty_before: number | null
           elapsed_ms: number | null
           id: string
-          learning_steps_after: number | null
+          learning_steps_after: number
           question_id: string | null
           rating: number
           request_retention: number
@@ -3032,7 +3028,7 @@ export type Database = {
           session_id: string | null
           stability_after: number | null
           stability_before: number | null
-          state_after: Database["public"]["Enums"]["fsrs_state"] | null
+          state_after: Database["public"]["Enums"]["fsrs_state"]
           state_before: Database["public"]["Enums"]["fsrs_state"] | null
           user_id: string
         }
@@ -3074,6 +3070,7 @@ export type Database = {
         | "failed"
       lesson_status: "active" | "archived" | "rejected"
       prompt_type: "free_recall" | "application" | "cloze" | "why"
+      relevance_floor_status: "not_checked" | "passed" | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3225,6 +3222,7 @@ export const Constants = {
       ],
       lesson_status: ["active", "archived", "rejected"],
       prompt_type: ["free_recall", "application", "cloze", "why"],
+      relevance_floor_status: ["not_checked", "passed", "failed"],
     },
   },
 } as const
