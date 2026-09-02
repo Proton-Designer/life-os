@@ -131,6 +131,30 @@ Two rules fall out:
   with a runtime override (`addStyleTag`, a route stub) rather than editing the
   source — in a shared tree, editing another agent's file to prove a point is
   its own hazard, and the override is faster anyway.
+#### Overlap and truncation are different instruments
+
+Re-found on 2026-09-02 capturing R7 evidence for School's grade ledger. The
+assessments table's Name column renders `Midter…` / `Reacti…` at 390px — the
+identical strings render in full 400px lower in the same dialog:
+
+```
+Assessments table  "Midterm Exam 2 — Stereochemistry"   box  56px  needs 229px  CLIPPED
+Grade section      "Midterm Exam 2 — Stereochemistry"   box 229px  needs 229px  fits
+```
+
+The check written for it was a **column-overlap** detector — cells whose boxes
+intersect — and it reported `NONE`, cleanly, twice. **The columns never
+overlap. One is too narrow and clips with an ellipsis**, which an overlap
+detector structurally cannot see. It was found by looking at the screenshot,
+then re-measuring `el.scrollWidth > el.clientWidth` per element.
+
+This is the same table the note above describes being missed by an overlap
+check on an empty fixture. Seeding it fixed *that* gap and exposed a second
+one: the fixture was finally right and the **instrument** was still measuring
+the wrong property. A layout gate needs both — intersection AND clipping —
+and page-level `scrollWidth === clientWidth` proves neither, since a clipped
+cell overflows nothing.
+
 - **When asserting on layout or stacking, assert the property itself**
   (computed `z-index`, `scrollWidth`, a measured box), not a proxy that
   *feels* more end-to-end. The realistic-looking assertion is the one most
