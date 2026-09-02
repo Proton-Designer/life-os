@@ -14,30 +14,47 @@
 --
 -- SCOPE — R64. This file is ADDITIVE ONLY and touches nothing on the daily
 -- session's path. "Adopted lessons leave the deck" is NOT delivered here and
--- must not be claimed until `125` proves it: the suspension mechanism ULM had
+-- must not be claimed until `126` proves it: the suspension mechanism ULM had
 -- (`cards.suspended_at` + a trigger + a `get_session_queue` filter) was never
--- ported, so adding `adopted` to the enum changes what a row can SAY, not what
--- the queue DOES. Adding the enum value here is what lets 125 be a small,
--- isolated change to the hot path.
+-- ported, so a row saying "adopted" changes what a row can SAY, not what the
+-- queue DOES.
 --
 -- Transaction control is the RUNNER's (R33) — no begin/commit in this file.
 
 -- ── 1. Verdict vocabulary ───────────────────────────────────────────────────
 create type public.lesson_verdict as enum ('adopted', 'abandoned', 'still_testing');
 
--- `adopted` on lesson_status is NOT added here. `ALTER TYPE ... ADD VALUE`
--- cannot run inside a transaction block, and this file is otherwise atomic —
--- two tables, five indexes, four triggers and an FK. Running the whole thing
--- with --no-transaction to accommodate one statement would re-create exactly
--- the half-applied hazard that put `111` on production in pieces.
+-- `adopted` on lesson_status is NOT added here, and after this file was
+-- written it was decided it is not added ANYWHERE. `125` was allocated for
+-- `alter type lesson_status add value 'adopted'` and is now WITHDRAWN; the
+-- number is burned, not recycled. Adoption lives in the append-only
+-- `lesson_verdicts` log below, and `126` reads it from there.
 --
--- The runner REFUSED this file when the statement was here (R33's guard,
--- working), which is what forced the split rather than anyone noticing it.
--- The enum value ships in its own single-statement --no-transaction migration
--- ahead of `125`, which is the change that actually gives the value behaviour.
--- Mechanically `archived` would have worked; they are different facts —
--- `archived` already means "lost the merge", and "you now do this" is the
--- literal distinction the return arc queries on.
+-- The three reasons, in ascending order of how much they matter, because the
+-- third is the one that decided it:
+--   1. `get_session_queue` selects from card_states, sources and books. It
+--      never joins `lessons`. A lesson's status is invisible to the queue, so
+--      the enum value would have changed no behaviour by itself.
+--   2. `archived` is not a user action — it is the ingestion pipeline's
+--      pre-promotion holding state (worker-stages.ts, D-018). A suspension
+--      trigger keyed on it would fire on a value that already means "lost the
+--      merge". The paragraph this replaces already said that and queued the
+--      value anyway.
+--   3. `worker-stages.ts:392` does an unconditional
+--      `update({status:'active'}).eq('id', lessonRow.id)` for any lesson that
+--      yields cards. The extraction stage guards its idempotency by scoping
+--      writes to `status='archived'`; the promote has NO such guard. A resumed
+--      or re-run `generating_cards` stage would therefore OVERWRITE `adopted`
+--      with `active` — silently, with no error and no wrong-looking value,
+--      just a fact that quietly stops being true. An enum value is also a
+--      one-way door: removing one means rebuilding the type.
+--
+-- The verdict log cannot be clobbered that way: it is append-only, enforced by
+-- trigger. That is why the mechanism hangs off it instead.
+--
+-- (The runner did REFUSE this file when the `alter type` was still in it —
+-- R33's guard working — which is what forced the split that then made the
+-- value easy to examine on its own and withdraw.)
 
 -- ── 2. lesson_promotions — the promotion IS the commitment (R30) ────────────
 create table if not exists public.lesson_promotions (
