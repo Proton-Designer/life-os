@@ -144,6 +144,12 @@ describe("Self-Mastery session actions", () => {
     it("fetches current card_states first, then submits the review with confidence passed through", async () => {
       const tables: Record<string, ReturnType<typeof makeChain>> = {
         card_states: makeChain({ data: null, error: null }), // no prior state -> new card
+        // gradeCard now loads the caller's own desired_retention rather than
+        // letting the scheduler silently fall back to 0.9.
+        user_settings: makeChain({
+          data: { session_target_minutes: 10, daily_new_limit: 5, ai_grading_enabled: false, desired_retention: 0.9 },
+          error: null,
+        }),
       };
       fromImpl = (table) => tables[table];
       rpcMock.mockImplementationOnce(async () => ({ data: { id: "review-1" }, error: null }));
