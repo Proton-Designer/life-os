@@ -216,6 +216,9 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       "assessment-row-insufficient-item",
     ]);
     expect(screen.getByText("rate difficulty to rank this")).toBeInTheDocument();
+    // Mixed state uses the per-group prompt, not the whole-list caption — see the two-copy
+    // ruling in class-assessments.tsx's own comment.
+    expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
   });
 
   it("orders multiple insufficient-confidence items by date among themselves", () => {
@@ -236,6 +239,26 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     expect(screen.queryByText("rate difficulty to rank this")).not.toBeInTheDocument();
+    expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
+  });
+
+  // The only state reachable in production today (Lead review, 2026-09-02): confidence is
+  // driven entirely by CLASS-level columns (difficulty_rating/confidence_rating/
+  // target_grade_pct), and this component renders one class's assessments at a time, so
+  // every row shares the same confidence. A mixed list can't occur until either a
+  // per-assessment factor becomes excludable or this component starts spanning classes.
+  it("when every item is insufficient, shows the whole-list caption instead of the per-group prompt, and falls back to date order", () => {
+    const items = [
+      rankedAssessment("later", "Unrated, later date, higher raw score", "2026-09-10", 99, "insufficient"),
+      rankedAssessment("earlier", "Unrated, earlier date, lower raw score", "2026-09-01", 1, "insufficient"),
+    ];
+    render(
+      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+    );
+    expect(screen.getByText("ranked by due date until you rate difficulty.")).toBeInTheDocument();
+    expect(screen.queryByText("rate difficulty to rank this")).not.toBeInTheDocument();
+    const rows = screen.getAllByTestId(/^assessment-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-earlier", "assessment-row-later"]);
   });
 
   it.each([

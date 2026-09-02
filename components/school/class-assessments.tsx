@@ -31,11 +31,21 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = { high: "High", moderate: "
  * R28 (The Boss, 2026-09-02): within a list drawing on one factor set, confidence stays
  * OUT of the sort key (score already reflects the available evidence, renormalized) —
  * that rule is for the cross-domain arbiter comparing incomparable score qualities, not
- * this list. What confidence DOES drive here: an `insufficient`-confidence item (today,
- * every assessment in an unrated class) is grouped at the bottom with this prompt, rather
- * than silently taking a rank its score can't actually justify.
+ * this list. What confidence DOES drive here: an `insufficient`-confidence item is
+ * grouped at the bottom with this prompt, rather than silently taking a rank its score
+ * can't actually justify.
+ *
+ * Two different copies for two different states, per the Lead's ruling — not
+ * interchangeable:
+ * - MIXED (some but not all items insufficient): this per-group prompt, right above the
+ *   group it explains. "Grouped at the bottom" is a meaningful thing to say here.
+ * - ALL insufficient (the only state reachable today — see the sort's own comment for
+ *   why): `ALL_INSUFFICIENT_CAPTION` instead. "Grouped at the bottom" is meaningless when
+ *   there is no top to be below; the caption explains the ordering, which is the more
+ *   useful thing to say when nothing is ranked at all.
  */
 const INSUFFICIENT_GROUP_PROMPT = "rate difficulty to rank this";
+const ALL_INSUFFICIENT_CAPTION = "ranked by due date until you rate difficulty.";
 
 const TYPE_LABEL: Record<AssessmentType, string> = {
   quiz: "Quiz",
@@ -130,6 +140,22 @@ export function ClassAssessments({
   // among themselves (their own score isn't comparable to anything). Sorts the FULL list,
   // never a date-sorted-then-truncated set with risk only reordering within it — that was
   // College-app's own DeadlineRadar bug (8d77e73).
+  //
+  // The MIXED case below (some but not all items insufficient) cannot happen on this
+  // surface today, and it is worth writing down rather than someone finding it "dead" and
+  // deleting it. `computeAssignmentRisk` can only exclude three factors — difficulty,
+  // knowledgeGap, gradeHeadroom — and all three read from CLASS-level columns
+  // (classes.difficulty_rating/confidence_rating/target_grade_pct), never per-assessment
+  // ones. `weightPct` is the only per-assessment risk input, and it's required, never
+  // excludable (build-assessment-risk-input.ts defaults an unknown weight to 0 rather than
+  // excluding it). So every assessment in one class shares the same missing set and
+  // therefore the same confidence — this component only ever renders per-class
+  // (class-detail-dialog.tsx) — meaning "mixed" is structurally impossible until either a
+  // per-assessment factor becomes excludable (most plausibly weightPct, if the engine ever
+  // treats an unknown weight as missing rather than requiring a number) or this component
+  // starts rendering assessments from more than one class at once. Kept correct and
+  // tested anyway: the reachable case (all insufficient) is the trivial one, and the day
+  // this stops being unreachable is exactly the day a silent gap here would matter most.
   const displayAssessments = [...assessments].sort((a, b) => {
     const aRanked = a.risk.confidence !== "insufficient";
     const bRanked = b.risk.confidence !== "insufficient";
@@ -137,7 +163,11 @@ export function ClassAssessments({
     if (aRanked) return b.risk.score - a.risk.score || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
     return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
   });
-  const firstInsufficientId = displayAssessments.find((a) => a.risk.confidence === "insufficient")?.id ?? null;
+  const insufficientCount = assessments.filter((a) => a.risk.confidence === "insufficient").length;
+  const allInsufficient = assessments.length > 0 && insufficientCount === assessments.length;
+  const firstInsufficientId = allInsufficient
+    ? null // the whole-list caption covers this state; the per-group prompt would be redundant.
+    : (displayAssessments.find((a) => a.risk.confidence === "insufficient")?.id ?? null);
 
   return (
     <div className="flex flex-col gap-2">
@@ -152,6 +182,8 @@ export function ClassAssessments({
           Add assessment
         </Button>
       </div>
+
+      {allInsufficient && <p className="text-xs text-muted-foreground">{ALL_INSUFFICIENT_CAPTION}</p>}
 
       {assessments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No assessments yet.</p>

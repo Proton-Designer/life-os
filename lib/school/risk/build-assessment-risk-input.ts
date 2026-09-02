@@ -35,7 +35,17 @@ export interface AssessmentRiskFacts {
    * own contract). The adapter must still hand the engine a number, so an unknown weight
    * becomes 0 here — the same call CollegeOS's own adapter makes for a deliverable with no
    * grade-item weight (packages/api/src/day/risk.ts). It costs *this* assessment's weight
-   * factor, never another one's. */
+   * factor, never another one's.
+   *
+   * KNOWN EDGE, not yet a problem (Lead review, 2026-09-02): `weightPct` is the only
+   * per-assessment risk input and is never excludable — `AssignmentRiskInput.weightPct` is
+   * required, not optional, so this adapter has no "exclude" path for it the way it does
+   * for difficulty/confidence/target. Today every real `weight_pct` is null, so every
+   * assessment gets 0 uniformly and the factor contributes nothing to anyone — harmless.
+   * The moment a user weights SOME assessments and not others, the unweighted ones will
+   * rank as if genuinely worth 0% of the grade — "no evidence read as a low value," the
+   * exact failure R28 exists to prevent, one level up. The real fix is engine-side (make
+   * weight excludable like the other three); this adapter has no better option until then. */
   weightPct: number | null;
   /** `classes.difficulty_rating` — null excludes the factor (never defaulted). */
   difficultyRating: number | null;
