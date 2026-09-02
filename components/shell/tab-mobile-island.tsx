@@ -22,6 +22,11 @@ type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentTo
  * It lives in the More popover rather than as a fifth primary tab because M4
  * caps the primary row at four, driven by the user's real domain selection.
  * Adding a fifth would quietly break that cap for every account.
+ *
+ * KEPT IN STEP WITH tab-sidebar-nav.tsx. There are four nav renderers in this
+ * shell — these two for domains mode, sidebar-nav.tsx and mobile-island.tsx
+ * for legacy. Updating one is the partial-bridge mistake: it looks handled and
+ * is not.
  */
 const MORE_ITEMS: NavItem[] = [
   { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },

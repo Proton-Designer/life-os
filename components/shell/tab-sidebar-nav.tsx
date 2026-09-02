@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { TrendingUp, Settings, type LucideIcon } from "lucide-react";
+import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
@@ -13,8 +13,18 @@ import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentToken; activeBase?: string };
 
+/**
+ * The Review grouping (R61) — kept in step with tab-mobile-island.tsx.
+ *
+ * THERE ARE FOUR NAV RENDERERS in this shell: this one and
+ * tab-mobile-island.tsx for domains mode, sidebar-nav.tsx and
+ * mobile-island.tsx for legacy. Updating one is the partial-bridge mistake —
+ * it looks handled and is not. If you add an item here, add it there.
+ */
 const MORE_ITEMS: NavItem[] = [
+  { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },
   { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 
