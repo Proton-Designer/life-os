@@ -224,39 +224,48 @@ export type Database = {
       }
       card_states: {
         Row: {
-          book_id: string
+          book_id: string | null
           card_id: string
           difficulty: number | null
           due_at: string | null
+          id: string
           lapses: number
           last_rating: number | null
           last_review_at: string | null
+          learning_steps: number
+          question_id: string | null
           reps: number
           stability: number | null
           state: Database["public"]["Enums"]["fsrs_state"]
           user_id: string
         }
         Insert: {
-          book_id: string
+          book_id?: string | null
           card_id: string
           difficulty?: number | null
           due_at?: string | null
+          id?: string
           lapses?: number
           last_rating?: number | null
           last_review_at?: string | null
+          learning_steps?: number
+          question_id?: string | null
           reps?: number
           stability?: number | null
           state?: Database["public"]["Enums"]["fsrs_state"]
           user_id: string
         }
         Update: {
-          book_id?: string
+          book_id?: string | null
           card_id?: string
           difficulty?: number | null
           due_at?: string | null
+          id?: string
           lapses?: number
           last_rating?: number | null
           last_review_at?: string | null
+          learning_steps?: number
+          question_id?: string | null
           reps?: number
           stability?: number | null
           state?: Database["public"]["Enums"]["fsrs_state"]
@@ -275,6 +284,13 @@ export type Database = {
             columns: ["user_id", "card_id"]
             isOneToOne: false
             referencedRelation: "cards"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "card_states_question_id_fkey"
+            columns: ["user_id", "question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
             referencedColumns: ["user_id", "id"]
           },
         ]
@@ -666,7 +682,6 @@ export type Database = {
           commitment_note: string | null
           committed_date: string
           created_at: string
-          cue_time: string | null // HAND-PATCHED ahead of migration 114 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
           id: string
           name: string
           stage_override: string | null
@@ -678,7 +693,6 @@ export type Database = {
           commitment_note?: string | null
           committed_date: string
           created_at?: string
-          cue_time?: string | null // HAND-PATCHED, see Row above
           id?: string
           name: string
           stage_override?: string | null
@@ -690,7 +704,6 @@ export type Database = {
           commitment_note?: string | null
           committed_date?: string
           created_at?: string
-          cue_time?: string | null // HAND-PATCHED, see Row above
           id?: string
           name?: string
           stage_override?: string | null
@@ -1440,7 +1453,6 @@ export type Database = {
           checkin_window_start: string
           created_at: string
           display_name: string | null
-          evening_close_time: string // HAND-PATCHED ahead of migration 114 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
           location_label: string | null
           location_lat: number | null
           location_lng: number | null
@@ -1462,7 +1474,6 @@ export type Database = {
           checkin_window_start?: string
           created_at?: string
           display_name?: string | null
-          evening_close_time?: string // HAND-PATCHED, see Row above
           location_label?: string | null
           location_lat?: number | null
           location_lng?: number | null
@@ -1484,7 +1495,6 @@ export type Database = {
           checkin_window_start?: string
           created_at?: string
           display_name?: string | null
-          evening_close_time?: string // HAND-PATCHED, see Row above
           location_label?: string | null
           location_lat?: number | null
           location_lng?: number | null
@@ -1607,34 +1617,6 @@ export type Database = {
           juz?: number | null
           pages_read?: number
           surah?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
-      // HAND-PATCHED ahead of migration 116 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
-      reading_logs: {
-        Row: {
-          created_at: string
-          date: string
-          id: string
-          source: string | null
-          units_read: number
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          date: string
-          id?: string
-          source?: string | null
-          units_read: number
-          user_id?: string
-        }
-        Update: {
-          created_at?: string
-          date?: string
-          id?: string
-          source?: string | null
-          units_read?: number
           user_id?: string
         }
         Relationships: []
@@ -1790,6 +1772,13 @@ export type Database = {
             columns: ["user_id", "card_id"]
             isOneToOne: false
             referencedRelation: "cards"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "reviews_question_id_fkey"
+            columns: ["user_id", "question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
             referencedColumns: ["user_id", "id"]
           },
           {
@@ -2328,7 +2317,6 @@ export type Database = {
         Row: {
           archived_at: string | null
           created_at: string
-          depth: string // HAND-PATCHED ahead of migration 114 -- see that file's header. Remove this comment and re-verify via real codegen once it lands.
           id: string
           key: string
           position: number
@@ -2339,7 +2327,6 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           created_at?: string
-          depth?: string // HAND-PATCHED, see Row above
           id?: string
           key: string
           position: number
@@ -2350,7 +2337,6 @@ export type Database = {
         Update: {
           archived_at?: string | null
           created_at?: string
-          depth?: string // HAND-PATCHED, see Row above
           id?: string
           key?: string
           position?: number
