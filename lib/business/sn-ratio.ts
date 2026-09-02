@@ -3,7 +3,15 @@ import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
 import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
 
-export type AllocationRow = { domain: string; minutes: number };
+/**
+ * `domain` is `null` exactly when `isWasted` is `true` (mirrors
+ * checkin_allocations' own nullable-XOR shape post-108). `isWasted` — not a
+ * `domain === "wasted"` string check — is what makes a row count as
+ * unaccounted time; the string "wasted" itself carries no special meaning
+ * any more, so once a real (user-created) domain can be named anything, one
+ * named "wasted" is just an ordinary domain, not an accounting collision.
+ */
+export type AllocationRow = { domain: string | null; minutes: number; isWasted: boolean };
 
 export type SignalNoiseResult = {
   signalMinutes: number;
@@ -41,11 +49,11 @@ export function bucketAllocationMinutes(rows: AllocationRow[]): {
   let otherCommitmentsMinutes = 0;
   let wastedMinutes = 0;
   for (const row of rows) {
-    if (SIGNAL_DOMAINS.has(row.domain)) signalMinutes += row.minutes;
-    else if (row.domain === "wasted") wastedMinutes += row.minutes;
-    else if (OTHER_COMMITMENT_DOMAINS.has(row.domain)) otherCommitmentsMinutes += row.minutes;
-    // An unrecognized domain string is ignored, not silently folded into
-    // either side — better a gap than a miscounted total.
+    if (row.isWasted) wastedMinutes += row.minutes;
+    else if (row.domain !== null && SIGNAL_DOMAINS.has(row.domain)) signalMinutes += row.minutes;
+    else if (row.domain !== null && OTHER_COMMITMENT_DOMAINS.has(row.domain)) otherCommitmentsMinutes += row.minutes;
+    // An unrecognized (or null, non-wasted) domain is ignored, not silently
+    // folded into either side — better a gap than a miscounted total.
   }
   return {
     signalMinutes,
@@ -80,12 +88,14 @@ function defaultDataSource(): SnDataSource {
       // unanswered anyway, so this changes zero real numbers.
       const { data } = await supabase
         .from("checkins")
-        .select("checkin_allocations(domain, minutes)")
+        .select("checkin_allocations(domain, minutes, is_wasted)")
         .eq("user_id", userId)
         .eq("kind", "allocation")
         .gte("window_start", weekStartIso)
         .lt("window_start", weekEndIso);
-      return (data ?? []).flatMap((c) => c.checkin_allocations ?? []);
+      return (data ?? []).flatMap((c) =>
+        (c.checkin_allocations ?? []).map((row) => ({ domain: row.domain, minutes: row.minutes, isWasted: row.is_wasted }))
+      );
     },
     getStoredAllocationSpans,
     getSessionsWithStoredHours,

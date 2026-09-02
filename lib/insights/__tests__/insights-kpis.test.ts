@@ -9,9 +9,16 @@ const weekStart = "2026-08-09"; // Sunday
 const previousWeekStart = "2026-08-02";
 const TZ = "America/Chicago";
 
-function row(windowStartIso: string, answered: boolean, allocations: { domain: string; minutes: number }[]): InsightsKpisRow {
+function row(
+  windowStartIso: string,
+  answered: boolean,
+  allocations: { domain: string | null; minutes: number; isWasted: boolean }[]
+): InsightsKpisRow {
   return { windowStartIso, answered, allocations };
 }
+
+const wasted = (minutes: number) => ({ domain: null, minutes, isWasted: true });
+const domain = (d: string, minutes: number) => ({ domain: d, minutes, isWasted: false });
 
 describe("getInsightsKpis", () => {
   it("computes this week's coverage as answered / total slots", async () => {
@@ -21,9 +28,9 @@ describe("getInsightsKpis", () => {
       previousWeekStart,
       TZ,
       dataSourceWith([
-        row("2026-08-10T15:00:00Z", true, [{ domain: "deen", minutes: 15 }]),
+        row("2026-08-10T15:00:00Z", true, [domain("deen", 15)]),
         row("2026-08-10T17:00:00Z", false, []),
-        row("2026-08-11T15:00:00Z", true, [{ domain: "business", minutes: 30 }]),
+        row("2026-08-11T15:00:00Z", true, [domain("business", 30)]),
       ])
     );
     expect(result.coveragePct).toBeCloseTo(66.7, 0);
@@ -38,9 +45,9 @@ describe("getInsightsKpis", () => {
       previousWeekStart,
       TZ,
       dataSourceWith([
-        row("2026-08-10T15:00:00Z", true, [{ domain: "business", minutes: 30 }]),
-        row("2026-08-10T17:00:00Z", true, [{ domain: "deen", minutes: 15 }]),
-        row("2026-08-10T19:00:00Z", true, [{ domain: "wasted", minutes: 105 }]),
+        row("2026-08-10T15:00:00Z", true, [domain("business", 30)]),
+        row("2026-08-10T17:00:00Z", true, [domain("deen", 15)]),
+        row("2026-08-10T19:00:00Z", true, [wasted(105)]),
       ])
     );
     expect(result.mostFocusedDomain).toBe("business");
@@ -52,9 +59,26 @@ describe("getInsightsKpis", () => {
       weekStart,
       previousWeekStart,
       TZ,
-      dataSourceWith([row("2026-08-10T15:00:00Z", true, [{ domain: "wasted", minutes: 120 }])])
+      dataSourceWith([row("2026-08-10T15:00:00Z", true, [wasted(120)])])
     );
     expect(result.mostFocusedDomain).toBeNull();
+  });
+
+  // Ruling (a): before the fix this file's `mostFocusedDomain` logic
+  // excluded any row whose `domain` string equaled "wasted" — meaning a
+  // real (user-created) domain named "wasted" could never become the
+  // most-focused domain even with real, non-accounting minutes behind it.
+  // Now exclusion is driven by `isWasted`, so a domain that merely shares
+  // the name is treated like any other real domain.
+  it("a domain literally named 'wasted' (isWasted: false) is eligible as most-focused, unlike the true wasted bucket", async () => {
+    const result = await getInsightsKpis(
+      "user-1",
+      weekStart,
+      previousWeekStart,
+      TZ,
+      dataSourceWith([row("2026-08-10T15:00:00Z", true, [domain("wasted", 60)])])
+    );
+    expect(result.mostFocusedDomain).toBe("wasted");
   });
 
   it("computes noise share this week and its delta vs last week", async () => {
@@ -65,12 +89,12 @@ describe("getInsightsKpis", () => {
       TZ,
       dataSourceWith([
         // Last week: 60 signal, 60 noise (50%)
-        row("2026-08-03T15:00:00Z", true, [{ domain: "deen", minutes: 60 }]),
-        row("2026-08-03T17:00:00Z", true, [{ domain: "wasted", minutes: 60 }]),
+        row("2026-08-03T15:00:00Z", true, [domain("deen", 60)]),
+        row("2026-08-03T17:00:00Z", true, [wasted(60)]),
         // This week: 90 signal, 30 noise (25%)
-        row("2026-08-10T15:00:00Z", true, [{ domain: "deen", minutes: 45 }]),
-        row("2026-08-10T17:00:00Z", true, [{ domain: "business", minutes: 45 }]),
-        row("2026-08-10T19:00:00Z", true, [{ domain: "school", minutes: 30 }]),
+        row("2026-08-10T15:00:00Z", true, [domain("deen", 45)]),
+        row("2026-08-10T17:00:00Z", true, [domain("business", 45)]),
+        row("2026-08-10T19:00:00Z", true, [domain("school", 30)]),
       ])
     );
     expect(result.noiseSharePct).toBeCloseTo(25, 0);
@@ -100,7 +124,7 @@ describe("getInsightsKpis", () => {
       TZ,
       dataSourceWith([
         // Last week has nothing. This week has real signal minutes.
-        row("2026-08-10T15:00:00Z", true, [{ domain: "deen", minutes: 45 }]),
+        row("2026-08-10T15:00:00Z", true, [domain("deen", 45)]),
       ])
     );
     expect(result.hasNoiseComparisonData).toBe(false);
@@ -112,7 +136,7 @@ describe("getInsightsKpis", () => {
       weekStart,
       previousWeekStart,
       TZ,
-      dataSourceWith([row("2026-08-10T15:00:00Z", false, [{ domain: "wasted", minutes: 120 }])])
+      dataSourceWith([row("2026-08-10T15:00:00Z", false, [wasted(120)])])
     );
     expect(result.noiseSharePct).toBe(0);
     expect(result.mostFocusedDomain).toBeNull();

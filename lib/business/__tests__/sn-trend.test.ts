@@ -5,10 +5,10 @@ describe("bucketSignalNoiseByWeek", () => {
   it("buckets allocation minutes into signal/noise per week", () => {
     const weeks = bucketSignalNoiseByWeek(
       [
-        { windowStartIso: "2026-08-03T10:00:00Z", domain: "deen", minutes: 30 },
-        { windowStartIso: "2026-08-03T11:00:00Z", domain: "school", minutes: 30 },
-        { windowStartIso: "2026-08-10T10:00:00Z", domain: "business", minutes: 60 },
-        { windowStartIso: "2026-08-10T12:00:00Z", domain: "business", minutes: 60 },
+        { windowStartIso: "2026-08-03T10:00:00Z", domain: "deen", minutes: 30, isWasted: false },
+        { windowStartIso: "2026-08-03T11:00:00Z", domain: "school", minutes: 30, isWasted: false },
+        { windowStartIso: "2026-08-10T10:00:00Z", domain: "business", minutes: 60, isWasted: false },
+        { windowStartIso: "2026-08-10T12:00:00Z", domain: "business", minutes: 60, isWasted: false },
       ] satisfies SnAllocationRow[],
       [
         { weekStartIso: "2026-08-02T00:00:00Z", weekEndIso: "2026-08-09T00:00:00Z", label: "Aug 2" },
@@ -35,7 +35,7 @@ describe("bucketSignalNoiseByWeek", () => {
 
   it("excludes a row outside the week's own boundary", () => {
     const weeks = bucketSignalNoiseByWeek(
-      [{ windowStartIso: "2026-08-09T00:00:00Z", domain: "deen", minutes: 30 }] satisfies SnAllocationRow[],
+      [{ windowStartIso: "2026-08-09T00:00:00Z", domain: "deen", minutes: 30, isWasted: false }] satisfies SnAllocationRow[],
       [{ weekStartIso: "2026-08-02T00:00:00Z", weekEndIso: "2026-08-09T00:00:00Z", label: "Aug 2" }]
     );
     expect(weeks[0].signalMinutes).toBe(0);

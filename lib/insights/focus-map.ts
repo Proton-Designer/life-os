@@ -7,7 +7,7 @@ export type FocusMapDataSource = {
     userId: string,
     startIso: string,
     endIso: string
-  ) => Promise<{ domain: string; minutes: number }[]>;
+  ) => Promise<{ domain: string | null; minutes: number; isWasted: boolean }[]>;
   /** Same missed-hour-as-wasted derivation sn-ratio.ts uses — see its own doc comment for the range bound and double-count guard. */
   getStoredAllocationSpans: (userId: string, startIso: string, endIso: string) => Promise<{ start: Date; end: Date }[]>;
   getSessionsWithStoredHours: (
@@ -32,12 +32,14 @@ function defaultDataSource(): FocusMapDataSource {
       // minutes rows to join against regardless.
       const { data } = await supabase
         .from("checkins")
-        .select("checkin_allocations(domain, minutes)")
+        .select("checkin_allocations(domain, minutes, is_wasted)")
         .eq("user_id", userId)
         .eq("kind", "allocation")
         .gte("window_start", startIso)
         .lt("window_start", endIso);
-      return (data ?? []).flatMap((c) => c.checkin_allocations ?? []);
+      return (data ?? []).flatMap((c) =>
+        (c.checkin_allocations ?? []).map((row) => ({ domain: row.domain, minutes: row.minutes, isWasted: row.is_wasted }))
+      );
     },
     getStoredAllocationSpans,
     getSessionsWithStoredHours,
@@ -91,15 +93,25 @@ export async function getFocusMap(
     getMissedHourWasteMinutes(userId, startIso, endIso, now, dataSource),
   ]);
 
+  // Real domains and wasted time are aggregated in structurally separate
+  // buckets, never sharing one string-keyed Map — ruling (a)'s whole point.
+  // A user-created domain that happened to be named "wasted" (isWasted:
+  // false) would otherwise merge into the same Map key as genuine
+  // unaccounted time (isWasted: true) the moment the domain set widens
+  // past the closed legacy 5; keeping them apart until the final display
+  // list is built means that collision is structurally impossible, not
+  // just unlikely.
   const minutesByDomain = new Map<string, number>();
+  let wastedTotal = extraWasted;
   for (const row of rows) {
-    minutesByDomain.set(row.domain, (minutesByDomain.get(row.domain) ?? 0) + row.minutes);
-  }
-  if (extraWasted > 0) {
-    minutesByDomain.set("wasted", (minutesByDomain.get("wasted") ?? 0) + extraWasted);
+    if (row.isWasted) {
+      wastedTotal += row.minutes;
+    } else if (row.domain !== null) {
+      minutesByDomain.set(row.domain, (minutesByDomain.get(row.domain) ?? 0) + row.minutes);
+    }
   }
 
-  const total = [...minutesByDomain.values()].reduce((a, b) => a + b, 0);
+  const total = [...minutesByDomain.values()].reduce((a, b) => a + b, 0) + wastedTotal;
   const segments = [...minutesByDomain.entries()]
     .filter(([, minutes]) => minutes > 0)
     .map(([domain, minutes]) => ({
@@ -107,6 +119,9 @@ export async function getFocusMap(
       minutes,
       pct: total === 0 ? 0 : (minutes / total) * 100,
     }));
+  if (wastedTotal > 0) {
+    segments.push({ domain: "wasted", minutes: wastedTotal, pct: total === 0 ? 0 : (wastedTotal / total) * 100 });
+  }
 
   return { segments };
 }

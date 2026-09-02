@@ -244,12 +244,14 @@ export function defaultDataSource(): DomainSnapshotDataSource {
       // never a tag_type count.
       const { data } = await supabase
         .from("checkins")
-        .select("checkin_allocations(domain, minutes)")
+        .select("checkin_allocations(domain, minutes, is_wasted)")
         .eq("user_id", userId)
         .eq("work_session_id", sessionId)
         .eq("kind", "allocation")
         .eq("answered", true);
-      return (data ?? []).flatMap((c) => c.checkin_allocations ?? []);
+      return (data ?? []).flatMap((c) =>
+        (c.checkin_allocations ?? []).map((row) => ({ domain: row.domain, minutes: row.minutes, isWasted: row.is_wasted }))
+      );
     },
     async getKillListItems(userId, date) {
       const supabase = await createClient();

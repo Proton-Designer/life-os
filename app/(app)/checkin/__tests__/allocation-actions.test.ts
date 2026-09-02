@@ -21,7 +21,11 @@ vi.mock("@/lib/checkins/get-allocation-queue", () => ({
 describe("saveAllocationCheckin", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("calls the save_allocation_checkin RPC with the window and a wasted row included", async () => {
+  // Ruling (a): the accounting value travels as its own p_wasted_minutes
+  // param now, never embedded as a "wasted" key inside the domain-keyed
+  // p_allocations map — that embedding was the write-path instance of the
+  // sentinel-sharing-a-namespace bug (108_split_wasted_allocation_sentinel.sql).
+  it("calls the save_allocation_checkin RPC with the window, domain allocations, and wasted minutes as a separate param", async () => {
     rpcMock.mockResolvedValue({ data: "checkin-1", error: null });
     const { saveAllocationCheckin } = await import("../allocation-actions");
 
@@ -36,7 +40,8 @@ describe("saveAllocationCheckin", () => {
     expect(rpcMock).toHaveBeenCalledWith("save_allocation_checkin", {
       p_window_start: "2026-08-19T13:00:00.000Z",
       p_window_end: "2026-08-19T15:00:00.000Z",
-      p_allocations: { deen: 15, business: 30, school: 0, fitness: 0, co_op: 0, wasted: 75 },
+      p_allocations: { deen: 15, business: 30, school: 0, fitness: 0, co_op: 0 },
+      p_wasted_minutes: 75,
     });
   });
 

@@ -331,24 +331,27 @@ export type Database = {
         Row: {
           checkin_id: string
           created_at: string
-          domain: string
+          domain: string | null
           id: string
+          is_wasted: boolean
           minutes: number
           user_id: string
         }
         Insert: {
           checkin_id: string
           created_at?: string
-          domain: string
+          domain?: string | null
           id?: string
+          is_wasted?: boolean
           minutes: number
           user_id?: string
         }
         Update: {
           checkin_id?: string
           created_at?: string
-          domain?: string
+          domain?: string | null
           id?: string
+          is_wasted?: boolean
           minutes?: number
           user_id?: string
         }
@@ -2696,6 +2699,7 @@ export type Database = {
       save_allocation_checkin: {
         Args: {
           p_allocations: Json
+          p_wasted_minutes: number
           p_window_end: string
           p_window_start: string
         }

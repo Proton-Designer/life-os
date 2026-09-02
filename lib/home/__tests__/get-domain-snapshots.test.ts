@@ -150,8 +150,8 @@ describe("getDomainSnapshots", () => {
       const dataSource = baseDataSource({
         getActiveWorkSession: async () => ({ id: "session-1", startedAt: "2026-08-10T17:00:00.000Z" }),
         getSessionAllocations: async () => [
-          { domain: "business", minutes: 30 },
-          { domain: "wasted", minutes: 30 },
+          { domain: "business", minutes: 30, isWasted: false },
+          { domain: null, minutes: 30, isWasted: true },
         ],
       });
       const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);

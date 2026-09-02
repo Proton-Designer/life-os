@@ -8,9 +8,13 @@ import { wastedMinutes, type Allocation } from "@/lib/checkins/allocation";
 /**
  * Saves one allocation check-in via the save_allocation_checkin RPC
  * (020_save_allocation_checkin_fn.sql, made idempotent in
- * 022_save_allocation_checkin_idempotent.sql), which writes the checkins
- * parent row and every checkin_allocations child row (including the
- * derived `wasted` row) as one atomic call. A second call for the same
+ * 022_save_allocation_checkin_idempotent.sql, given an explicit
+ * p_wasted_minutes param in 108_split_wasted_allocation_sentinel.sql so the
+ * accounting value never travels through the domain-keyed jsonb map — see
+ * that migration's header for why "wasted" sharing a namespace with real
+ * domain values was a real bug, not just a TS-side one), which writes the
+ * checkins parent row and every checkin_allocations child row (including
+ * the one derived `is_wasted` row) as one atomic call. A second call for the same
  * (user, window_start) — reload mid-save, two tabs, a client retry after a
  * timeout where the write actually landed — is impossible to double-write
  * at the database level (021_checkins_one_allocation_per_window.sql's
@@ -31,7 +35,8 @@ export async function saveAllocationCheckin(
   const { error } = await supabase.rpc("save_allocation_checkin", {
     p_window_start: windowStart,
     p_window_end: windowEnd,
-    p_allocations: { ...allocation, wasted: wastedMinutes(allocation) },
+    p_allocations: allocation,
+    p_wasted_minutes: wastedMinutes(allocation),
   });
   if (error) throw error;
   revalidatePath("/");

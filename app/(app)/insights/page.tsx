@@ -177,7 +177,7 @@ export default async function InsightsPage({
     getWeeklyCompletion(userId, now, profile),
     supabase
       .from("checkins")
-      .select("window_start, checkin_allocations(domain, minutes)")
+      .select("window_start, checkin_allocations(domain, minutes, is_wasted)")
       .eq("user_id", userId)
       .eq("kind", "allocation")
       .gte("window_start", snWeeks[0].weekStartIso),
@@ -202,7 +202,7 @@ export default async function InsightsPage({
       .lt("date", weekStart),
     supabase
       .from("checkins")
-      .select("window_start, checkin_allocations(domain, minutes)")
+      .select("window_start, checkin_allocations(domain, minutes, is_wasted)")
       .eq("user_id", userId)
       .eq("kind", "allocation")
       .gte("window_start", recapSnWeeks[0].weekStartIso),
@@ -227,7 +227,7 @@ export default async function InsightsPage({
   // feeds the Focus Map / Per-domain panels further down. ---
   const hasSnData = rangeSn.signalMinutes + rangeSn.noiseMinutes > 0;
   const snAllocationRows: SnAllocationRow[] = (snCheckinRows ?? []).flatMap((c) =>
-    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes }))
+    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes, isWasted: a.is_wasted }))
   );
   const snByWeek = bucketSignalNoiseByWeek(snAllocationRows, snWeeks);
   const thisWeekSn = snByWeek[snByWeek.length - 1];
@@ -240,7 +240,7 @@ export default async function InsightsPage({
   // --- Week over week recap (relocated from Weekly Planning) ---
   const recap = buildWeeklyRecap(recapPrayerRows ?? [], recapKillListRows ?? [], recapQuranRows ?? [], recapWeeks);
   const recapSnAllocationRows: SnAllocationRow[] = (recapCheckinRows ?? []).flatMap((c) =>
-    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes }))
+    (c.checkin_allocations ?? []).map((a) => ({ windowStartIso: c.window_start ?? "", domain: a.domain, minutes: a.minutes, isWasted: a.is_wasted }))
   );
   const recapSnByWeek = bucketSignalNoiseByWeek(recapSnAllocationRows, recapSnWeeks);
   const recapSnBars = recapSnByWeek.map((w) => ({

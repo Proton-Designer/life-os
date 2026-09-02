@@ -33,7 +33,7 @@ function defaultDataSource(): InsightsKpisDataSource {
       // no checkin_allocations rows to join against regardless.
       const { data } = await supabase
         .from("checkins")
-        .select("window_start, answered, checkin_allocations(domain, minutes)")
+        .select("window_start, answered, checkin_allocations(domain, minutes, is_wasted)")
         .eq("user_id", userId)
         .eq("kind", "allocation")
         .gte("window_start", startIso)
@@ -41,7 +41,7 @@ function defaultDataSource(): InsightsKpisDataSource {
       return (data ?? []).map((r) => ({
         windowStartIso: r.window_start ?? "",
         answered: r.answered,
-        allocations: r.checkin_allocations ?? [],
+        allocations: (r.checkin_allocations ?? []).map((a) => ({ domain: a.domain, minutes: a.minutes, isWasted: a.is_wasted })),
       }));
     },
   };
@@ -91,7 +91,7 @@ export async function getInsightsKpis(
   const minutesByDomain = new Map<string, number>();
   for (const row of thisWeekAnswered) {
     for (const a of row.allocations) {
-      if (a.domain === "wasted") continue; // not a focus area, same exclusion as the old noise/other_work skip
+      if (a.isWasted || a.domain === null) continue; // not a focus area, same exclusion as the old noise/other_work skip
       minutesByDomain.set(a.domain, (minutesByDomain.get(a.domain) ?? 0) + a.minutes);
     }
   }

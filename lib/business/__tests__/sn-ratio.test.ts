@@ -18,18 +18,18 @@ function dataSourceWith(rows: AllocationRow[]): SnDataSource {
 describe("bucketAllocationMinutes", () => {
   it("sums deen + business into signal", () => {
     const result = bucketAllocationMinutes([
-      { domain: "deen", minutes: 30 },
-      { domain: "business", minutes: 60 },
+      { domain: "deen", minutes: 30, isWasted: false },
+      { domain: "business", minutes: 60, isWasted: false },
     ]);
     expect(result.signalMinutes).toBe(90);
   });
 
   it("sums school + fitness + co_op + wasted into noise, split from otherCommitments", () => {
     const result = bucketAllocationMinutes([
-      { domain: "school", minutes: 15 },
-      { domain: "fitness", minutes: 30 },
-      { domain: "co_op", minutes: 15 },
-      { domain: "wasted", minutes: 45 },
+      { domain: "school", minutes: 15, isWasted: false },
+      { domain: "fitness", minutes: 30, isWasted: false },
+      { domain: "co_op", minutes: 15, isWasted: false },
+      { domain: null, minutes: 45, isWasted: true },
     ]);
     expect(result.otherCommitmentsMinutes).toBe(60);
     expect(result.wastedMinutes).toBe(45);
@@ -37,18 +37,36 @@ describe("bucketAllocationMinutes", () => {
   });
 
   it("ignores an unrecognized domain rather than folding it into either side", () => {
-    const result = bucketAllocationMinutes([{ domain: "bogus", minutes: 100 }]);
+    const result = bucketAllocationMinutes([{ domain: "bogus", minutes: 100, isWasted: false }]);
     expect(result.signalMinutes).toBe(0);
     expect(result.noiseMinutes).toBe(0);
+  });
+
+  // The whole point of ruling (a): once user-created domains exist, nothing
+  // stops one from being literally named "wasted". The split sentinel means
+  // that string carries no special meaning any more — only `isWasted` does.
+  // A domain row whose *name* happens to be "wasted" must be treated as an
+  // ordinary (here: unrecognized) domain, never silently merged into the
+  // accounting bucket.
+  it("a domain literally named 'wasted' is not treated as the accounting sentinel — only isWasted is", () => {
+    const result = bucketAllocationMinutes([{ domain: "wasted", minutes: 100, isWasted: false }]);
+    expect(result.wastedMinutes).toBe(0);
+    expect(result.signalMinutes).toBe(0);
+    expect(result.noiseMinutes).toBe(0);
+  });
+
+  it("an isWasted row is counted as wasted regardless of what (if anything) domain contains", () => {
+    const result = bucketAllocationMinutes([{ domain: null, minutes: 45, isWasted: true }]);
+    expect(result.wastedMinutes).toBe(45);
   });
 });
 
 describe("getWeeklySignalNoiseRatio", () => {
   it("computes a normal ratio from allocation minutes", async () => {
     const rows: AllocationRow[] = [
-      { domain: "deen", minutes: 30 },
-      { domain: "business", minutes: 90 },
-      { domain: "school", minutes: 30 },
+      { domain: "deen", minutes: 30, isWasted: false },
+      { domain: "business", minutes: 90, isWasted: false },
+      { domain: "school", minutes: 30, isWasted: false },
     ];
     const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith(rows));
 
@@ -60,7 +78,7 @@ describe("getWeeklySignalNoiseRatio", () => {
   });
 
   it("shows 'All Signal' when noise is zero", async () => {
-    const rows: AllocationRow[] = [{ domain: "business", minutes: 120 }];
+    const rows: AllocationRow[] = [{ domain: "business", minutes: 120, isWasted: false }];
     const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith(rows));
 
     expect(result.display).toBe("All Signal");
@@ -74,8 +92,8 @@ describe("getWeeklySignalNoiseRatio", () => {
 
   it("reports wasted separately from other commitments, never merged silently", async () => {
     const rows: AllocationRow[] = [
-      { domain: "deen", minutes: 15 },
-      { domain: "wasted", minutes: 105 },
+      { domain: "deen", minutes: 15, isWasted: false },
+      { domain: null, minutes: 105, isWasted: true },
     ];
     const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSourceWith(rows));
 
@@ -126,9 +144,9 @@ describe("getSignalNoiseForRange", () => {
 
   it("computes the same signal/noise split as the weekly ratio", async () => {
     const rows: AllocationRow[] = [
-      { domain: "deen", minutes: 30 },
-      { domain: "school", minutes: 15 },
-      { domain: "wasted", minutes: 15 },
+      { domain: "deen", minutes: 30, isWasted: false },
+      { domain: "school", minutes: 15, isWasted: false },
+      { domain: null, minutes: 15, isWasted: true },
     ];
     const result = await getSignalNoiseForRange("user-1", "day", new Date("2026-08-10T00:00:00Z"), dataSourceWith(rows));
 
@@ -152,7 +170,7 @@ describe("Signal:Noise reads missed Lock-In hours as wasted", () => {
     // 13:00 fired-and-superseded -> missed, 14:00 is the current due slot -> pending, excluded entirely.
     const now = new Date("2026-08-19T14:05:00.000Z");
     const dataSource: SnDataSource = {
-      getAllocations: async () => [{ domain: "business", minutes: 60 }],
+      getAllocations: async () => [{ domain: "business", minutes: 60, isWasted: false }],
       getStoredAllocationSpans: async () => [],
       getSessionsWithStoredHours: async () => [
         {
@@ -172,7 +190,7 @@ describe("Signal:Noise reads missed Lock-In hours as wasted", () => {
   it("does not double-count a missed hour whose surrounding 2h window was already confirmed (a wider stored row covers it)", async () => {
     const now = new Date("2026-08-19T14:05:00.000Z");
     const dataSource: SnDataSource = {
-      getAllocations: async () => [{ domain: "wasted", minutes: 120 }], // the confirmed 2h window's own stored total, already includes this hour
+      getAllocations: async () => [{ domain: null, minutes: 120, isWasted: true }], // the confirmed 2h window's own stored total, already includes this hour
       getStoredAllocationSpans: async () => [
         { start: new Date("2026-08-19T12:00:00.000Z"), end: new Date("2026-08-19T14:00:00.000Z") },
       ],
