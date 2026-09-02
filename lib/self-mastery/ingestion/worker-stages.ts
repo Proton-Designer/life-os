@@ -409,6 +409,31 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
  * finished ingesting must actually become visible/usable, which needs a
  * real `book_status` terminal value, not just an `ingestion_jobs.stage` no
  * one but the worker reads.
+ *
+ * ZERO SURVIVING LESSONS FAILS THE BOOK -- found by the Lead reading this
+ * handler, not designed here originally: a book where every candidate was
+ * rejected (empty source, or the firewall genuinely dropping everything)
+ * must not read as `ready`/`progress_pct: 100`/`lesson_count: 0` -- that is
+ * the emptiest possible success, on the exact run (item 7) whose purpose is
+ * measuring whether the firewall actually drops anything. Ported behaviour,
+ * not a new design choice: ULM's reference `apps/worker/src/pipeline.ts`
+ * throws `HumanReadableFailure("We couldn't find teachable lessons in this
+ * file.")` in this exact case, and it is a documented row in
+ * `docs/specs/L2-ingestion.md`'s failure matrix (`ULM/docs/specs/
+ * L2-ingestion.md:154`) -- carrying the same user-facing text forward.
+ *
+ * TERMINAL ON FIRST OCCURRENCE, NOT ROUTED THROUGH max_attempts: this
+ * failure is deterministic, not transient -- a book that produced zero
+ * teachable lessons will produce zero teachable lessons again on a retry of
+ * the exact same source text, so consuming attempts against it before
+ * failing would only delay an inevitable, identical outcome. Achieved by
+ * NOT throwing: this returns a normal, successful StageWorkResult whose
+ * `nextStage` is the terminal `'failed'` value -- the bracketed attempt
+ * genuinely succeeded (it correctly finished deciding the book failed),
+ * `advance_ingestion_cursor` moves `ingestion_jobs.stage` to `'failed'`
+ * cleanly on the very first attempt, and gate 5's `cursor_attempt >=
+ * max_attempts` codepath in route.ts (which only fires on a THROW) never
+ * gets a chance to relitigate it.
  */
 async function finalizingStage(ctx: StageContext): Promise<StageWorkResult> {
   const { count, error: countError } = await ctx.supabase
@@ -418,9 +443,19 @@ async function finalizingStage(ctx: StageContext): Promise<StageWorkResult> {
     .eq("status", "active");
   if (countError) throw countError;
 
+  if (!count || count === 0) {
+    const { error: failError } = await ctx.supabase
+      .from("books")
+      .update({ status: "failed", error_message: "We couldn't find teachable lessons in this file." })
+      .eq("id", ctx.job.book_id);
+    if (failError) throw failError;
+
+    return { nextStage: "failed", nextChunkIndex: null };
+  }
+
   const { error: updateError } = await ctx.supabase
     .from("books")
-    .update({ status: "ready", ready_at: new Date().toISOString(), progress_pct: 100, lesson_count: count ?? 0 })
+    .update({ status: "ready", ready_at: new Date().toISOString(), progress_pct: 100, lesson_count: count })
     .eq("id", ctx.job.book_id);
   if (updateError) throw updateError;
 
