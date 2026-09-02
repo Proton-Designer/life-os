@@ -59,6 +59,31 @@ their verification) and `113` (CollegeOS, not yet written).
 absent. Read the ledger as a set, never as "everything below this is applied" — that
 misreading is how `089` was asserted applied when it wasn't.
 
+## Operator actions on production
+
+Actions taken by hand, outside a migration. Recorded here because they change
+production state and a migration file will never mention them.
+
+**2026-09-02 08:08 — item 7 (`60fd192e…`): manual cursor advance 101 → 202, Boss R80.**
+Extraction stopped at 46% on the shim's run-budget cap ($5, exhausted at $4.97246;
+the HTTP 402 refusal is recorded in `ingestion_job_stage_attempts` in the provider's
+own words). 130 lesson candidates were already extracted against a target cap of 60,
+so further extraction could not change which stages run. Remaining budget $10 for
+merging → verifying_grounding → generating_cards.
+
+**CHUNKS 102–202 WERE NEVER EXTRACTED. This job reaching `stage=done` is NOT full
+extraction of this book** — the arithmetic says so independently of this note: highest
+touched chunk is 100 of 201.
+
+No telemetry row accompanies it. The intended one was refused by
+`ingestion_job_stage_attempts_error_shape` and would also have broken
+`..._finish_shape`: an attempts row is either in flight (`finished_at`, `succeeded`,
+`error` all null) or finished (`error` only when `succeeded IS FALSE`). **There is no
+legal shape for "not an attempt"**, and the alternative — `succeeded = false` — would
+have fabricated a second failed attempt, turning a true `102 succeeded / 1 failed`
+into `2 failed` with one fictional. Corrupting a real metric to carry prose is worse
+than the prose being absent. A proper operator-actions slot is a Day-2 item.
+
 ## Rules
 
 - **Numbers are allocated by the LifeOS lead only** (R5), and recorded here at the moment

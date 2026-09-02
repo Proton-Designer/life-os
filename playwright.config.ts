@@ -43,11 +43,23 @@ export default defineConfig({
     },
     {
       name: "Desktop Chrome",
+      // The domains specs belong to the "Domains Fixture" project, which
+      // carries seed-domains' storageState. Without this ignore they also run
+      // HERE, as SEED — a legacy-mode account with no assessments — and their
+      // content precondition correctly refuses to measure an empty table.
+      // That refusal was right; running them under this project was not.
+      testIgnore: /.*\.domains\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], storageState: "playwright/.auth/user.json" },
       dependencies: ["setup"],
     },
     {
       name: "Mobile Chrome",
+      // The domains specs belong to the "Domains Fixture" project, which
+      // carries seed-domains' storageState. Without this ignore they also run
+      // HERE, as SEED — a legacy-mode account with no assessments — and their
+      // content precondition correctly refuses to measure an empty table.
+      // That refusal was right; running them under this project was not.
+      testIgnore: /.*\.domains\.spec\.ts/,
       use: { ...devices["Pixel 7"], storageState: "playwright/.auth/user.json" },
       dependencies: ["setup"],
     },
