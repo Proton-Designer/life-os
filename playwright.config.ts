@@ -33,6 +33,15 @@ export default defineConfig({
   projects: [
     { name: "setup", testMatch: /.*\.setup\.ts/ },
     {
+      // The domains-mode fixture (R41). Its own project and its own
+      // storageState path — never the shared one, since two writers on
+      // playwright/.auth/user.json is what corrupted it before.
+      name: "Domains Fixture",
+      testMatch: /.*\.domains\.spec\.ts/,
+      use: { ...devices["Pixel 7"], storageState: "playwright/.auth/seed-domains.json" },
+      dependencies: ["setup"],
+    },
+    {
       name: "Desktop Chrome",
       use: { ...devices["Desktop Chrome"], storageState: "playwright/.auth/user.json" },
       dependencies: ["setup"],
