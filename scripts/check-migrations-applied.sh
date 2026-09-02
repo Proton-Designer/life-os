@@ -55,8 +55,20 @@ if [ "$SELFTEST" = "1" ]; then
   echo "$OUT" >&2; exit 1
 fi
 
+# R70: `2>/dev/null` used to swallow psql's error, so a WRONG PASSWORD arrived
+# here as an empty result and was reported as "no migration_ledger (102 not
+# applied?)" — a schema conclusion drawn from an auth failure. Keep stderr and
+# distinguish the two, because sending someone to look for a missing migration
+# when the real problem is a credential costs more than saying nothing.
 LEDGER="$(psql "$URL" -X -q -t -A </dev/null -c \
-  "select filename||' '||md5||' '||status from public.migration_ledger;" 2>/dev/null)"
+  "select filename||' '||md5||' '||status from public.migration_ledger;" 2>&1)"
+case "$LEDGER" in
+  *"error:"*|*"FATAL"*|*"could not connect"*)
+    echo "CANNOT MEASURE — the connection failed; this says nothing about the ledger:" >&2
+    printf '%s\n' "$LEDGER" | head -3 >&2
+    exit 1
+    ;;
+esac
 if [ -z "$LEDGER" ]; then
   echo "No migration_ledger on this database (migration 102 not applied?)." >&2; exit 2
 fi

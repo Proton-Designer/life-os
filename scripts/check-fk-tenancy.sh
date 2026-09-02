@@ -72,6 +72,32 @@ if [ "$MODE" = "selftest" ]; then
   exit 1
 fi
 
+# ── R70: REFUSE TO INTERPRET A NON-RESULT ────────────────────────────────────
+# This script reported "OK — zero single-column FKs to user-scoped parents"
+# against a reachable database with a WRONG PASSWORD. psql wrote its error to
+# stderr, the query produced no rows, and zero rows is indistinguishable from
+# a clean result.
+#
+# It is one of the two instruments that answers "is user data isolated", and it
+# was structurally incapable of saying no. Found by the ULM lead auditing every
+# check in both trees against an unauthenticatable URL.
+#
+# The fix is not to parse the error text — it is to require POSITIVE evidence
+# that the query ran: this database must have public tables, and a connection
+# that cannot count them has not measured anything.
+PROBE="$(psql "$URL" -X -q -t -A </dev/null -c "select count(*) from pg_tables where schemaname='public';" 2>&1)"
+case "$PROBE" in
+  ''|*[!0-9]*)
+    echo "CANNOT MEASURE — the connection did not return a table count:" >&2
+    printf '%s\n' "$PROBE" | head -3 >&2
+    exit 1
+    ;;
+esac
+if [ "$PROBE" -eq 0 ]; then
+  echo "CANNOT MEASURE — this database has no public tables; a zero-FK result would be vacuous." >&2
+  exit 1
+fi
+
 ALL="$(psql "$URL" -X -q -t -A </dev/null -c "$QUERY" | grep -v '^$')"
 MINE="$(echo "$ALL" | grep -Ev "^($NOT_MINE)\." | grep -v '^$')"
 THEIRS="$(echo "$ALL" | grep -E "^($NOT_MINE)\." | grep -v '^$')"

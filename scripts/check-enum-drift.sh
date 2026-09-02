@@ -110,7 +110,19 @@ check_pair() { # <table.column>:<file>  -> 0 ok, 1 drift
     exists="$(psql "$URL" -X -q -t -A </dev/null -c "
       select count(*) from information_schema.columns
        where table_schema='public' and table_name='$table' and column_name='$col';" 2>/dev/null | tr -d ' ')"
-    if [ "$exists" = "0" ]; then
+    # R70: a connection failure lands in `exists` as psql's error text, and the
+  # old code fell through to "column EXISTS but has no CHECK (may have become
+  # an enum)" — reporting SCHEMA DRIFT for a wrong password. A misdiagnosis is
+  # worse than a bare failure: it sends someone to look at the right table for
+  # the wrong reason.
+  case "$exists" in
+    ''|*[!0-9]*)
+      echo "  CANNOT MEASURE $tc — the connection did not return a count:" >&2
+      printf '%s\n' "$exists" | head -2 >&2
+      return 1
+      ;;
+  esac
+  if [ "$exists" = "0" ]; then
       echo "  ~ $tc — column not on this database yet (migration pending); not drift"
       return 0
     fi

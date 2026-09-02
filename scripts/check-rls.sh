@@ -82,6 +82,34 @@ fi
 
 OUT="$(read_counts)"
 case "$OUT" in *ERROR*|"") echo "could not query: $OUT" >&2; exit 2;; esac
+
+# ── R70: REFUSE TO INTERPRET A NON-RESULT ────────────────────────────────────
+# This script reported GREEN against a reachable database with a wrong
+# password. psql failed, its error text landed in the variables the checks
+# read, bash complained on stderr that it had been given a string where it
+# wanted an integer -- and the script exited 0 anyway.
+#
+# Found by the ULM lead auditing every instrument in both trees. It matters
+# more here than almost anywhere: this is one of the two checks that answers
+# "is user data isolated", and it was structurally incapable of saying no.
+#
+# A check must distinguish MEASURED ZERO from COULD NOT MEASURE. A shell
+# default that silently turns the second into the first is a bug in the check,
+# not in the shell.
+require_integer() { # <value> <what>
+  case "$1" in
+    ''|*[!0-9]*)
+      echo "CANNOT MEASURE — expected an integer for $2, got:" >&2
+      printf '%s\n' "$1" | head -3 >&2
+      exit 1
+      ;;
+  esac
+}
+
+require_integer "$(echo "$OUT" | cut -d'|' -f1)" "rls_off"
+require_integer "$(echo "$OUT" | cut -d'|' -f2)" "rls_on_but_no_policy"
+require_integer "$(echo "$OUT" | cut -d'|' -f3)" "total public tables"
+
 OFF="$(echo "$OUT" | cut -d'|' -f1)"
 NOPOL="$(echo "$OUT" | cut -d'|' -f2)"
 TOTAL="$(echo "$OUT" | cut -d'|' -f3)"
