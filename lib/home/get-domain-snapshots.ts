@@ -19,6 +19,8 @@ import {
 import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { getWeeklySignalNoiseRatio, bucketAllocationMinutes, type SignalNoiseResult, type AllocationRow } from "@/lib/business/sn-ratio";
+import { getUserDomainWeights } from "@/lib/business/domain-weights";
+import type { DomainWeights } from "@/lib/business/domain-classification";
 import { calculateWeeklyConsistency } from "@/lib/fitness/consistency";
 import { getDomainPulse, type DomainPulse } from "./get-domain-pulse";
 
@@ -93,6 +95,10 @@ export type DomainSnapshotDataSource = {
   getHabitLogDates: (userId: string, habitId: string, sinceDate: string) => Promise<string[]>;
   getActiveWorkSession: (userId: string) => Promise<{ id: string; startedAt: string } | null>;
   getSessionAllocations: (userId: string, sessionId: string) => Promise<AllocationRow[]>;
+  /** Ruling (c): same fetch every other Signal:Noise surface uses (see
+   * lib/business/domain-weights.ts) — so the live session's ratio can never
+   * classify a domain differently than the weekly ratio right beside it. */
+  getDomainWeights: (userId: string) => Promise<DomainWeights | null>;
   getKillListItems: (userId: string, date: string) => Promise<{ completed: boolean }[]>;
   getWeeklySnRatio: (userId: string, weekStart: string, timezone: string) => Promise<SignalNoiseResult>;
   getWorkoutSchedule: (
@@ -236,6 +242,7 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .maybeSingle();
       return data ? { id: data.id, startedAt: data.started_at } : null;
     },
+    getDomainWeights: getUserDomainWeights,
     async getSessionAllocations(userId, sessionId) {
       const supabase = await createClient();
       // kind = 'allocation', answered = true — same rule as every other
@@ -398,6 +405,7 @@ export async function getDomainSnapshots(
     schoolTasksThisWeek,
     currentCoopTargetTasks,
     pulse,
+    domainWeights,
   ] = await Promise.all([
     dataSource.getPrayers(userId, dateStr),
     dataSource.getPrayerHistory(userId, oneDayAgoStr),
@@ -415,6 +423,7 @@ export async function getDomainSnapshots(
     dataSource.getSchoolTasksThisWeek(userId, weekStart),
     dataSource.getCurrentCoopTargetTasks(userId),
     dataSource.getDomainPulse(userId, dateStr),
+    dataSource.getDomainWeights(userId),
   ]);
 
   // Deen — windowed, not instants. "Next prayer" is the first one that's
@@ -501,7 +510,7 @@ export async function getDomainSnapshots(
   let activeSessionSummary: BusinessSnapshot["activeSession"] = null;
   if (activeSession) {
     const sessionAllocations = await dataSource.getSessionAllocations(userId, activeSession.id);
-    const { signalMinutes, noiseMinutes } = bucketAllocationMinutes(sessionAllocations);
+    const { signalMinutes, noiseMinutes } = bucketAllocationMinutes(sessionAllocations, domainWeights);
     activeSessionSummary = {
       elapsedMs: now.getTime() - new Date(activeSession.startedAt).getTime(),
       sessionRatioDisplay: computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0),

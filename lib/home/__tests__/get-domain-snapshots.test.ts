@@ -25,6 +25,7 @@ function baseDataSource(overrides: Partial<DomainSnapshotDataSource> = {}): Doma
     getHabitLogDates: async () => [],
     getActiveWorkSession: async () => null,
     getSessionAllocations: async () => [],
+    getDomainWeights: async () => null,
     getKillListItems: async () => [],
     getWeeklySnRatio: async () => ({ signalMinutes: 0, noiseMinutes: 0, otherCommitmentsMinutes: 0, wastedMinutes: 0, display: "No data" }),
     getWorkoutSchedule: async () => null,
@@ -158,6 +159,23 @@ describe("getDomainSnapshots", () => {
       expect(snapshots.business.activeSession).not.toBeNull();
       expect(snapshots.business.activeSession?.elapsedMs).toBe(60 * 60 * 1000);
       expect(snapshots.business.activeSession?.sessionRatioDisplay).toBe("1.0 : 1");
+    });
+
+    // Ruling (c) scoping gap closed: the active session's own ratio must
+    // read the SAME real weights as the weekly ratio beside it, not the
+    // legacy hardcoded split — a legacy-mode-shaped fixture (weights: null)
+    // would pass even with the wiring silently missing, since deen already
+    // falls out to signal in that mode by coincidence.
+    it("uses real domain weight tiers for the active session's ratio, not the legacy fallback", async () => {
+      const dataSource = baseDataSource({
+        getActiveWorkSession: async () => ({ id: "session-1", startedAt: "2026-08-10T17:00:00.000Z" }),
+        getSessionAllocations: async () => [{ domain: "deen", minutes: 30, isWasted: false }],
+        // personal_growth: background -> deen is "other" here, the exact
+        // opposite of its legacy-mode ("deen = signal") classification.
+        getDomainWeights: async () => ({ personal_growth: "background" }),
+      });
+      const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
+      expect(snapshots.business.activeSession?.sessionRatioDisplay).toBe("0.0 : 1");
     });
 
     it("falls back to kill-list completion + weekly ratio when no session is active", async () => {

@@ -1,11 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { bucketAllocationMinutes, type AllocationRow } from "@/lib/business/sn-ratio";
+import { getUserDomainWeights } from "@/lib/business/domain-weights";
+import type { DomainWeights } from "@/lib/business/domain-classification";
 
 export type InsightsKpisRow = { windowStartIso: string; answered: boolean; allocations: AllocationRow[] };
 
 export type InsightsKpisDataSource = {
   getAllCheckins: (userId: string, startIso: string, endIso: string) => Promise<InsightsKpisRow[]>;
+  /** Ruling (c): same fetch every other Signal:Noise surface uses (see
+   * lib/business/domain-weights.ts) — so this KPI's noise share can never
+   * classify a domain differently than the donut/trend chart beside it. */
+  getDomainWeights: (userId: string) => Promise<DomainWeights | null>;
 };
 
 export type InsightsKpisResult = {
@@ -44,13 +50,14 @@ function defaultDataSource(): InsightsKpisDataSource {
         allocations: (r.checkin_allocations ?? []).map((a) => ({ domain: a.domain, minutes: a.minutes, isWasted: a.is_wasted })),
       }));
     },
+    getDomainWeights: getUserDomainWeights,
   };
 }
 
-function noiseShare(rows: InsightsKpisRow[]): { pct: number; totalMinutes: number } {
+function noiseShare(rows: InsightsKpisRow[], weights: DomainWeights | null): { pct: number; totalMinutes: number } {
   const answered = rows.filter((r) => r.answered);
   const allocations = answered.flatMap((r) => r.allocations);
-  const { signalMinutes, noiseMinutes } = bucketAllocationMinutes(allocations);
+  const { signalMinutes, noiseMinutes } = bucketAllocationMinutes(allocations, weights);
   const total = signalMinutes + noiseMinutes;
   return { pct: total === 0 ? 0 : (noiseMinutes / total) * 100, totalMinutes: total };
 }
@@ -81,7 +88,10 @@ export async function getInsightsKpis(
   const weekEndIso = resolveLocalTime(addDaysToDateString(weekStart, 7), "00:00", timezone).toISOString();
   const previousWeekStartIso = resolveLocalTime(previousWeekStart, "00:00", timezone).toISOString();
 
-  const rows = await dataSource.getAllCheckins(userId, previousWeekStartIso, weekEndIso);
+  const [rows, weights] = await Promise.all([
+    dataSource.getAllCheckins(userId, previousWeekStartIso, weekEndIso),
+    dataSource.getDomainWeights(userId),
+  ]);
   const thisWeek = rows.filter((r) => r.windowStartIso >= weekStartIso && r.windowStartIso < weekEndIso);
   const lastWeek = rows.filter((r) => r.windowStartIso >= previousWeekStartIso && r.windowStartIso < weekStartIso);
 
@@ -104,8 +114,8 @@ export async function getInsightsKpis(
     }
   }
 
-  const thisWeekNoise = noiseShare(thisWeek);
-  const lastWeekNoise = noiseShare(lastWeek);
+  const thisWeekNoise = noiseShare(thisWeek, weights);
+  const lastWeekNoise = noiseShare(lastWeek, weights);
 
   return {
     coveragePct,

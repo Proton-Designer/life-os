@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getInsightsKpis, type InsightsKpisDataSource, type InsightsKpisRow } from "../insights-kpis";
 
 function dataSourceWith(rows: InsightsKpisRow[]): InsightsKpisDataSource {
-  return { getAllCheckins: async () => rows };
+  return { getAllCheckins: async () => rows, getDomainWeights: async () => null };
 }
 
 const weekStart = "2026-08-09"; // Sunday
@@ -128,6 +128,23 @@ describe("getInsightsKpis", () => {
       ])
     );
     expect(result.hasNoiseComparisonData).toBe(false);
+  });
+
+  // Ruling (c) scoping gap closed: noise share must read the SAME real
+  // weights as the rest of the Signal:Noise system, not the legacy
+  // fallback. A legacy-mode-shaped fixture would pass even with the wiring
+  // silently missing, since deen already falls out to signal in that mode
+  // by coincidence — this fixture flips a tier so it only passes if the
+  // real weights are actually applied.
+  it("uses real domain weight tiers for noise share, not the legacy fallback", async () => {
+    const dataSource: InsightsKpisDataSource = {
+      getAllCheckins: async () => [row("2026-08-10T15:00:00Z", true, [domain("deen", 30)])],
+      // personal_growth: background -> deen is "other" here, the exact
+      // opposite of its legacy-mode ("deen = signal") classification.
+      getDomainWeights: async () => ({ personal_growth: "background" }),
+    };
+    const result = await getInsightsKpis("user-1", weekStart, previousWeekStart, TZ, dataSource);
+    expect(result.noiseSharePct).toBe(100);
   });
 
   it("excludes an unanswered check-in's allocations from noise share and most-focused", async () => {

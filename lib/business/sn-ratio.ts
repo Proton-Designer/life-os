@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
 import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
-import { classifyDomain, type DomainWeights, type DomainWeightTier } from "./domain-classification";
+import { classifyDomain, type DomainWeights } from "./domain-classification";
+import { getUserDomainWeights } from "./domain-weights";
 
 /**
  * `domain` is `null` exactly when `isWasted` is `true` (mirrors
@@ -111,26 +112,7 @@ function defaultDataSource(): SnDataSource {
         (c.checkin_allocations ?? []).map((row) => ({ domain: row.domain, minutes: row.minutes, isWasted: row.is_wasted }))
       );
     },
-    async getDomainWeights(userId) {
-      const supabase = await createClient();
-      // Active (non-archived) top-level domains only — an archived one
-      // isn't part of "what this user currently tracks," same rule
-      // computeNavDomainState applies for the four-tab shell. Zero rows is
-      // exactly legacy mode (see the module header): returning null here,
-      // not an empty object, is what makes classifyDomain fall back to the
-      // hardcoded deen+business split instead of silently classifying
-      // every domain as "other" (an empty DomainWeights object would do
-      // that, since no key would ever equal "essential").
-      const { data } = await supabase.from("user_domains").select("key, weight").eq("user_id", userId).is("archived_at", null);
-      if (!data || data.length === 0) return null;
-      const weights: DomainWeights = {};
-      for (const row of data) {
-        if (row.key === "personal_growth" || row.key === "work" || row.key === "school") {
-          weights[row.key] = row.weight as DomainWeightTier;
-        }
-      }
-      return weights;
-    },
+    getDomainWeights: getUserDomainWeights,
     getStoredAllocationSpans,
     getSessionsWithStoredHours,
   };
