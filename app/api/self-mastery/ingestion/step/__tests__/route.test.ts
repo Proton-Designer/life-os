@@ -27,6 +27,7 @@ vi.mock("@/lib/self-mastery/ingestion/worker-stages", () => ({
 // re-deriving bracketStage's own insert/update chain mocking.
 vi.mock("@/lib/self-mastery/ingestion/telemetry", () => ({
   bracketStage: vi.fn((_client: unknown, _params: unknown, work: () => Promise<unknown>) => work()),
+  describeError: (e: unknown) => (e instanceof Error ? e.message : typeof e === "object" && e !== null && "message" in e ? String((e as { message: unknown }).message) : String(e)),
 }));
 
 const SECRET = "test-ingestion-secret";

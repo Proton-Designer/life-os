@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { bracketStage } from "@/lib/self-mastery/ingestion/telemetry";
+import { bracketStage, describeError } from "@/lib/self-mastery/ingestion/telemetry";
 import { STAGE_HANDLERS } from "@/lib/self-mastery/ingestion/worker-stages";
 
 /**
@@ -124,7 +124,9 @@ export async function POST(request: Request) {
     // succeeded=true row for this exact position, so it would refuse
     // anyway (109's own CAS guard) — not routing around the DB's refusal,
     // just not fighting it with a call that can only fail.
-    const errorMessage = e instanceof Error ? e.message : String(e);
+    // Same "[object Object]" bug as telemetry.ts's own bracketStage catch --
+    // a thrown Supabase PostgrestError isn't `instanceof Error`. Shared fix.
+    const errorMessage = describeError(e);
 
     // GATE 5: max_attempts enforced at the cursor. claim_ingestion_job's
     // own WHERE clause (109) already excludes `cursor_attempt >=

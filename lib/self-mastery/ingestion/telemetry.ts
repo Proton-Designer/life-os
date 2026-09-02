@@ -40,6 +40,25 @@ export interface StageAttemptHandle {
   attemptId: string;
 }
 
+/**
+ * BUG FOUND LIVE, running item 7, alongside the uuid one above: a thrown
+ * Supabase client error (`PostgrestError` -- what every `if (error) throw
+ * error` in worker-stages.ts throws) is a plain object with a `.message`
+ * string, never `instanceof Error`. `e instanceof Error ? e.message :
+ * String(e)` -- used here and in the route handler -- silently produced the
+ * literal text `"[object Object]"` for every real database error, which is
+ * exactly the failure class most likely to happen and least useful to lose
+ * the message for. Checked message-shaped objects before falling back to
+ * `String(e)`, which stays correct for a genuine thrown string/other value.
+ */
+export function describeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string") {
+    return (e as { message: string }).message;
+  }
+  return String(e);
+}
+
 export interface StageAttemptResult {
   succeeded: boolean;
   tokensIn?: number;
@@ -67,9 +86,19 @@ export async function beginStageAttempt(
       // column is NOT NULL with no DEFAULT -- it doesn't know the column is
       // trigger-derived (set_user_id_from_ingestion_job, 107), never
       // client-supplied. Whatever is passed here is unconditionally
-      // overwritten by that trigger before the row is stored; the empty
-      // string documents "this value is never read," not a real user id.
-      user_id: "",
+      // overwritten by that trigger before the row is stored.
+      //
+      // BUG FOUND LIVE, running item 7: an empty string ("") here fails
+      // BEFORE the trigger ever runs -- Postgres has to type-check an
+      // INSERT's literal values against the column's declared type
+      // (`uuid`) as part of parsing the statement, and that check happens
+      // before any BEFORE INSERT trigger executes. `""` is not a valid uuid
+      // literal, so every call raised `invalid input syntax for type uuid`
+      // immediately, never reaching `work()` at all -- confirmed directly
+      // against the real database, not inferred. The nil UUID IS a valid
+      // literal (type-checks fine) and is overwritten by the trigger
+      // exactly the same as any other placeholder would be.
+      user_id: "00000000-0000-0000-0000-000000000000",
     })
     .select("id")
     .single();
@@ -130,7 +159,7 @@ export async function bracketStage<T extends { tokensIn?: number; tokensOut?: nu
   } catch (e) {
     await finishStageAttempt(supabase, handle, {
       succeeded: false,
-      error: e instanceof Error ? e.message : String(e),
+      error: describeError(e),
     });
     throw e;
   }

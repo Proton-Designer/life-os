@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { beginStageAttempt, finishStageAttempt, bracketStage, type StageAttemptParams } from "../telemetry";
+import { beginStageAttempt, finishStageAttempt, bracketStage, describeError, type StageAttemptParams } from "../telemetry";
+
+// Real Postgres uuid literal shape -- used by the fake below to reproduce the
+// exact validation Postgres does at INSERT-statement parse time, BEFORE any
+// BEFORE INSERT trigger runs. This is the check the real database applies
+// that an in-memory fake wouldn't apply by default -- and not applying it is
+// exactly how the empty-string user_id bug (found live, running item 7)
+// slipped past every mocked test in this file for as long as it did.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * In-memory fake standing in for `ingestion_job_stage_attempts` (107) --
@@ -29,7 +37,16 @@ function makeFakeSupabase() {
     from(table: string) {
       if (table !== "ingestion_job_stage_attempts") throw new Error(`unexpected table ${table}`);
       return {
-        insert(values: Partial<FakeRow>) {
+        insert(values: Partial<FakeRow> & { user_id?: string }) {
+          // Mirrors Postgres's own INSERT-statement type-check on a `uuid`
+          // column, which runs before any trigger -- a real client library
+          // would surface this as a thrown PostgrestError, not a JS
+          // exception, so this fake raises the same non-Error-shaped object
+          // real code needs to handle (describeError's own regression test
+          // below covers that half).
+          if (typeof values.user_id !== "string" || !UUID_RE.test(values.user_id)) {
+            throw { message: `invalid input syntax for type uuid: "${values.user_id}"`, code: "22P02" };
+          }
           const row: FakeRow = {
             id: String(nextId++),
             job_id: values.job_id!,
@@ -88,6 +105,13 @@ describe("beginStageAttempt / finishStageAttempt", () => {
     const { client } = makeFakeSupabase();
     const handle = await beginStageAttempt(client, { jobId: "job-1", stage: "chunking", attempt: 1 });
     await expect(finishStageAttempt(client, handle, { succeeded: true, error: "should not be here" })).rejects.toThrow(/must not be set/);
+  });
+
+  it("REGRESSION: begin's own user_id placeholder is a syntactically valid uuid -- found live, running item 7: an empty string (\"\") failed Postgres's own type-check on the INSERT statement BEFORE the trigger that overwrites it ever ran, so every real call threw immediately and zero attempt rows were ever created, not just mis-attributed ones. The fake above enforces the same check a real uuid column does; this test exists so a future placeholder change can't silently regress to something non-uuid-shaped again.", async () => {
+    const { client } = makeFakeSupabase();
+    await expect(
+      beginStageAttempt(client, { jobId: "job-1", stage: "chunking", attempt: 1 }),
+    ).resolves.toMatchObject({ attemptId: expect.any(String) });
   });
 });
 
@@ -197,5 +221,22 @@ describe("stage boundaries bracket the work, not follow it", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("describeError", () => {
+  it("REGRESSION: a thrown Supabase-shaped error (PostgrestError -- a plain object with .message, never instanceof Error) is not stringified to the literal text \"[object Object]\" -- found live, running item 7: every real database error thrown by a worker-stages.ts handler's own `if (error) throw error` was being recorded exactly that way, in both this file's bracketStage and the route handler's own catch block, destroying the diagnostic value of the one column that exists to explain a failure.", () => {
+    const postgrestShapedError = { message: "invalid input syntax for type uuid: \"\"", code: "22P02", details: null, hint: null };
+    expect(describeError(postgrestShapedError)).toBe('invalid input syntax for type uuid: ""');
+    expect(describeError(postgrestShapedError)).not.toBe("[object Object]");
+  });
+
+  it("still handles a genuine Error instance", () => {
+    expect(describeError(new Error("boom"))).toBe("boom");
+  });
+
+  it("falls back to String() for a value with no message shape at all", () => {
+    expect(describeError("a plain string throw")).toBe("a plain string throw");
+    expect(describeError(42)).toBe("42");
   });
 });
