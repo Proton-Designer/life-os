@@ -98,6 +98,29 @@ if [ -n "$MISSING_TRIMMED" ]; then
   fi
   exit 1
 fi
+# SECOND GATE: this ACCOUNT must be able to promote at all.
+#
+# `lesson_promotions.area_id` is NOT NULL and FKs to user_domains, so an
+# account with no areas (legacy mode -- Ayman's real account and SEED are both
+# in that state) cannot promote anything. Without this check the walk would
+# reach STEP 3 and die on a not-null violation, which reads as "the loop is
+# broken" when the truth is "this account was never eligible". Distinguishing
+# those two is the entire job of a gate.
+AREAS=$(psql "$TARGET" -X -q -t -A </dev/null 2>&1 -c \
+  "select count(*) from public.user_domains where user_id = '$USER_ID' and archived_at is null;")
+if ! printf '%s' "$AREAS" | grep -qE '^[0-9]+$'; then
+  echo "loop-e2e-walk: could not count this account's areas -- the query never ran:" >&2
+  printf '%s\n' "$AREAS" | sed 's/^/    /' >&2
+  exit 1
+fi
+if [ "$AREAS" -eq 0 ]; then
+  echo "NOT ELIGIBLE: user $USER_ID has no active user_domains rows." >&2
+  echo "  lesson_promotions.area_id is NOT NULL, so this account cannot promote anything." >&2
+  echo "  That is a legacy-mode account, not a broken loop. Run this on a domains-mode" >&2
+  echo "  account (seed-domains), not on SEED." >&2
+  exit 1
+fi
+echo "loop-e2e-walk: account has ${AREAS} active area(s) -- eligible to promote."
 echo "loop-e2e-walk: preconditions met (124 + 126 present, queue filters suspended cards)."
 echo
 
