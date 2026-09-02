@@ -16,9 +16,16 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 DRY_RUN=0
-if [ "${1:-}" = "--dry-run" ]; then DRY_RUN=1; shift; fi
+NO_TX=0
+while :; do
+  case "${1:-}" in
+    --dry-run)        DRY_RUN=1; shift ;;
+    --no-transaction) NO_TX=1;   shift ;;
+    *) break ;;
+  esac
+done
 URL="${1:-}"; FILE="${2:-}"
-[ -n "$URL" ] && [ -n "$FILE" ] || { echo "usage: apply-migration.sh [--dry-run] <url> <file>" >&2; exit 2; }
+[ -n "$URL" ] && [ -n "$FILE" ] || { echo "usage: apply-migration.sh [--dry-run] [--no-transaction] <url> <file>" >&2; exit 2; }
 [ -f "$FILE" ] || { echo "no such file: $FILE" >&2; exit 2; }
 
 NAME="$(basename "$FILE")"
@@ -57,6 +64,90 @@ echo "--- tables merely REFERENCED but never created here (must already exist) -
 grep -oiE 'references[[:space:]]+(public\.)?[a-z_]+' "$FILE" | awk '{print $2}' | sed 's/^public\.//' | sort -u | sed 's/^/    /'
 echo "---------------------------------------------------------------------------"
 
+
+# TRANSACTIONAL BY DEFAULT (R33).
+#
+# THE ROOT CAUSE OF TWO HALF-APPLIES TONIGHT: this script ran psql with
+# ON_ERROR_STOP but WITHOUT --single-transaction, and 111 carried no
+# begin/commit of its own. So every statement autocommitted and a failure
+# midway left everything above it applied. Production ended up with a
+# `questions` table and five new `reviews` columns but none of the
+# constraints -- a state no file describes and no ledger records.
+#
+# ON_ERROR_STOP only stops the RUN. It never unwinds what already committed.
+# Those are different guarantees and the gap between them is a half-migrated
+# production database.
+#
+# Opting out requires BOTH the flag and a header line naming the statement
+# that needs it, because a flag alone is a thing someone passes to make an
+# error go away.
+NON_TX_PATTERN='alter[[:space:]]+type[[:space:]]+[^;]*add[[:space:]]+value|create[[:space:]]+index[[:space:]]+concurrently|reindex[[:space:]]+concurrently|^[[:space:]]*vacuum'
+HEADER_MARK='REQUIRES-NO-TRANSACTION:'
+
+NON_TX_HITS="$(grep -inE "$NON_TX_PATTERN" "$FILE" | head -5 || true)"
+
+# THE RUNNER OWNS THE TRANSACTION; FILES CARRY NONE (R33 addendum).
+#
+# Under --single-transaction a file's own `commit;` ENDS the runner's
+# transaction early. Everything after it then runs unprotected while every
+# reader believes the whole file is covered -- and the failure only shows up
+# the day someone appends a statement below that line. Caught by the ULM lead
+# before either change landed.
+#
+# The pattern requires the semicolon immediately after the keyword, which is
+# what distinguishes top-level transaction control from a plpgsql body's
+# `begin` (no semicolon) and its `end;` (a different word).
+# HISTORICAL EXEMPTION: migrations 054, 055, 085, 108 and 110 carry bare
+# begin;/commit; from the old runner, which did NOT wrap files itself. They are
+# correct history and must never be rewritten -- a replay would otherwise read
+# five pieces of correct history as five bugs, and someone would "fix" them.
+# The rule binds files numbered ABOVE 110, which is where the runner took
+# ownership of the transaction.
+MIG_NUM="$(basename "$FILE" | grep -oE '^[0-9]+' || echo "")"
+TX_CTRL_EXEMPT=0
+if [ -n "$MIG_NUM" ] && [ "$((10#$MIG_NUM))" -le 110 ]; then TX_CTRL_EXEMPT=1; fi
+
+TX_CTRL_HITS="$(grep -inE '^[[:space:]]*(begin|commit|rollback)[[:space:]]*;' "$FILE" | head -5 || true)"
+if [ "$TX_CTRL_EXEMPT" = "1" ] && [ -n "$TX_CTRL_HITS" ]; then
+  echo "note: $MIG_NUM is pre-111 history and may carry its own begin/commit; not refused."
+  TX_CTRL_HITS=""
+fi
+if [ -n "$TX_CTRL_HITS" ]; then
+  echo "REFUSING: this file contains its own transaction control:" >&2
+  printf '%s\n' "$TX_CTRL_HITS" | sed 's/^/    /' >&2
+  echo "  The RUNNER owns the transaction (--single-transaction is the default)." >&2
+  echo "  A file's own commit; ends the runner's transaction early, so anything" >&2
+  echo "  appended below it later runs UNPROTECTED while looking covered." >&2
+  echo "  Remove the begin;/commit; and let the runner wrap the file." >&2
+  exit 7
+fi
+
+
+if [ "$NO_TX" = "0" ] && [ -n "$NON_TX_HITS" ]; then
+  echo "REFUSING: this file contains statements Postgres cannot run inside a transaction," >&2
+  echo "and a transactional apply would fail on them:" >&2
+  printf '%s\n' "$NON_TX_HITS" | sed 's/^/    /' >&2
+  echo "  Re-run with --no-transaction AND add a header line:" >&2
+  echo "    -- $HEADER_MARK <which statement and why>" >&2
+  echo "  Note: an enum value added and USED in the same transaction fails even on PG17." >&2
+  exit 5
+fi
+
+if [ "$NO_TX" = "1" ] && ! grep -q "$HEADER_MARK" "$FILE"; then
+  echo "REFUSING: --no-transaction passed, but the file does not say why." >&2
+  echo "  Add a header line naming the non-transactable statement:" >&2
+  echo "    -- $HEADER_MARK <which statement and why>" >&2
+  echo "  Without a transaction a mid-file failure leaves production half-applied," >&2
+  echo "  which is how 111 happened. The flag alone is not a reason." >&2
+  exit 6
+fi
+
+# Dry run exits HERE -- AFTER the refusal checks, not before.
+# It sat above them first, so --dry-run silently bypassed every guard and
+# reported success on a file the real apply would have refused. A preview
+# that does not preview the refusals is worse than no preview: it answers
+# "would this be allowed?" with a confident yes.
+
 if [ "$DRY_RUN" = "1" ]; then
   # R32.2: a manifest must be obtainable WITHOUT touching the database. I produced
   # one by re-running a real migration against production to demonstrate the gate,
@@ -68,7 +159,12 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 LOG="$(mktemp)"
-psql "$URL" -X -q -v ON_ERROR_STOP=1 -f "$FILE" </dev/null > "$LOG" 2>&1
+if [ "$NO_TX" = "1" ]; then
+  echo "applying WITHOUT a transaction (file declares $HEADER_MARK) -- a failure will leave partial state."
+  psql "$URL" -X -q -v ON_ERROR_STOP=1 -f "$FILE" </dev/null > "$LOG" 2>&1
+else
+  psql "$URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f "$FILE" </dev/null > "$LOG" 2>&1
+fi
 RC=$?
 # psql errors read "psql:file:line: ERROR:", so a '^ERROR' anchor never matches —
 # that exact bug once reported "0 errors" from a check that examined nothing.
