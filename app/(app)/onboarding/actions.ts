@@ -36,6 +36,13 @@ export type SubdomainInput = {
 // drives `toArchive` below, so it must never list a key the flow cannot also
 // offer. It widens when onboarding actually offers the new areas (R27.2), not
 // when the database learns to accept them.
+//
+// DO NOT MERGE THIS WITH `DomainKey` ABOVE. They look like the same list and
+// they are not: the type answers "what may exist", this answers "what this
+// flow manages". Collapsing them to one constant is the obvious tidy-up and
+// it is a DATA-LOSS BUG — every post-115 Faith/Body/Learning row would land
+// in `toArchive` and be archived the next time any user completed onboarding
+// without picking an area this flow cannot even display yet.
 const DOMAIN_KEYS: readonly DomainKey[] = ["personal_growth", "work", "school"];
 
 /**
