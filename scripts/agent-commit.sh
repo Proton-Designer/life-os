@@ -3,6 +3,15 @@
 #
 # WHY THIS EXISTS
 # ---------------
+# BACKTICKS IN YOUR MESSAGE ARE COMMAND SUBSTITUTION, NOT MARKDOWN.
+# The message arrives as a normal double-quoted shell argument, so `title`
+# inside it runs `title` and splices in its (empty) output. Commit 3837ad0
+# landed reading "DumpItem's field is , not ," -- the two identifiers it
+# existed to name were silently deleted, and the commit still succeeded.
+# Nothing warns you; the only symptom is a "command not found" line above an
+# otherwise normal success. Quote code with 'single quotes' in commit messages,
+# or escape the backticks.
+#
 # Several agents edit ONE working tree with ONE .git directory, which means
 # they share ONE index. Both obvious commit strategies race:
 #
