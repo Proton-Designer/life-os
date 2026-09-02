@@ -304,6 +304,8 @@ export type Database = {
           prompt: string
           prompt_type: Database["public"]["Enums"]["prompt_type"]
           sort_order: number
+          suspended_at: string | null
+          suspended_reason: string | null
           user_id: string
         }
         Insert: {
@@ -314,6 +316,8 @@ export type Database = {
           prompt: string
           prompt_type: Database["public"]["Enums"]["prompt_type"]
           sort_order?: number
+          suspended_at?: string | null
+          suspended_reason?: string | null
           user_id: string
         }
         Update: {
@@ -324,6 +328,8 @@ export type Database = {
           prompt?: string
           prompt_type?: Database["public"]["Enums"]["prompt_type"]
           sort_order?: number
+          suspended_at?: string | null
+          suspended_reason?: string | null
           user_id?: string
         }
         Relationships: [
