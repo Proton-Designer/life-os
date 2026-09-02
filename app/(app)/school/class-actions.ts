@@ -92,7 +92,7 @@ export async function deleteClassAssessment(assessmentId: string) {
  */
 export async function updateClassAssessment(
   assessmentId: string,
-  fields: { name: string; type: AssessmentType; date: string }
+  fields: { name: string; type: AssessmentType; date: string; weightPct?: number | null }
 ) {
   const { supabase, userId } = await requireUser();
 
@@ -106,7 +106,14 @@ export async function updateClassAssessment(
 
   const { error } = await supabase
     .from("class_assessments")
-    .update({ name: fields.name, type: fields.type, date: fields.date })
+    .update({
+      name: fields.name,
+      type: fields.type,
+      date: fields.date,
+      // undefined (field omitted entirely) leaves the column untouched;
+      // null is a real, storable "unknown weight" — never coalesced away.
+      ...(fields.weightPct !== undefined ? { weight_pct: fields.weightPct } : {}),
+    })
     .eq("id", assessmentId)
     .eq("user_id", userId);
   if (error) throw error;

@@ -24,7 +24,15 @@ import { localDateString, getWeekStartDate, weekDatesFrom } from "@/lib/date-uti
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
 function mapAssessments(source: ClassCardData["assessments"]): ClassAssessment[] {
-  return source.map((a) => ({ id: a.id, name: a.name, type: a.type as AssessmentType, date: a.date, task_id: a.taskId, risk: a.risk }));
+  return source.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type as AssessmentType,
+    date: a.date,
+    task_id: a.taskId,
+    risk: a.risk,
+    weightPct: a.weightPct,
+  }));
 }
 
 function mapTasks(source: ClassCardData["tasks"], className: string): TaskListItem[] {
@@ -226,7 +234,10 @@ export function ClassDetailDialog({
         const assessmentsToRemove = originalAssessments.filter((a) => !currentAssessmentIds.has(a.id));
         const assessmentsToUpdate = assessments.filter((a) => {
           const orig = originalAssessmentById.get(a.id);
-          return orig !== undefined && (orig.name !== a.name || orig.type !== a.type || orig.date !== a.date);
+          return (
+            orig !== undefined &&
+            (orig.name !== a.name || orig.type !== a.type || orig.date !== a.date || orig.weightPct !== a.weightPct)
+          );
         });
 
         // A removed assessment's own delete RPC also deletes its linked
@@ -270,7 +281,7 @@ export function ClassDetailDialog({
           });
         }
         for (const a of assessmentsToUpdate) {
-          await updateClassAssessment(a.id, { name: a.name, type: a.type, date: a.date });
+          await updateClassAssessment(a.id, { name: a.name, type: a.type, date: a.date, weightPct: a.weightPct });
         }
         for (const t of tasksToUpdate) {
           await updateTask(t.id, {
@@ -379,7 +390,7 @@ export function ClassDetailDialog({
             (out of scope for this pass), so there's nothing to stage. Same
             B3 instant-load contract as everything else in this dialog. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
-          <ClassGradeLedger assessments={classData.assessments} />
+          <ClassGradeLedger assessments={classData.assessments} targetGradePct={classData.targetGradePct} />
         </div>
 
         <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">

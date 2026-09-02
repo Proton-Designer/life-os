@@ -1,4 +1,5 @@
 import { computeClassGrade } from "@/lib/school/grades/grade-ledger";
+import { requiredScoreVerdictText } from "@/lib/school/grades/required-score-verdict";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
 export type GradeLedgerAssessment = ClassCardData["assessments"][number];
@@ -23,7 +24,16 @@ export type GradeLedgerAssessment = ClassCardData["assessments"][number];
  * — never assessments.length, which can't tell "nothing to grade" apart
  * from "nothing graded yet."
  */
-export function ClassGradeLedger({ assessments }: { assessments: GradeLedgerAssessment[] }) {
+export function ClassGradeLedger({
+  assessments,
+  targetGradePct,
+}: {
+  assessments: GradeLedgerAssessment[];
+  /** `classData.targetGradePct` — null until the user sets one. Passed straight
+   * through to `requiredScoreVerdictText`, which is the only place that turns
+   * it into a number; this component never computes a verdict itself. */
+  targetGradePct: number | null;
+}) {
   if (assessments.length === 0) {
     return (
       <div className="flex flex-col gap-2">
@@ -35,6 +45,7 @@ export function ClassGradeLedger({ assessments }: { assessments: GradeLedgerAsse
 
   const result = computeClassGrade(assessments);
   const byAssessmentId = new Map(result.categoryResults.map((c) => [c.categoryId, c]));
+  const verdictText = requiredScoreVerdictText(result, targetGradePct);
 
   function statusFor(a: GradeLedgerAssessment): string {
     if (a.isExcused) return "Excused";
@@ -63,6 +74,12 @@ export function ClassGradeLedger({ assessments }: { assessments: GradeLedgerAsse
           )}
         </p>
       )}
+
+      {verdictText != null ? (
+        <p className="text-xs text-muted-foreground">{verdictText}</p>
+      ) : targetGradePct == null && result.categoryResults.length > 0 ? (
+        <p className="text-xs text-muted-foreground">Set a target grade to see what you need on the rest.</p>
+      ) : null}
 
       <div className="flex flex-col gap-1">
         {assessments.map((a) => (

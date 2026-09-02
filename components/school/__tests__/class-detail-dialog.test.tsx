@@ -40,6 +40,7 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     tasksDueThisWeek: 0,
     upcomingAssessment: null,
     difficultyRating: null,
+    targetGradePct: null,
     assessments: [],
     tasks: [],
     ...overrides,
@@ -274,10 +275,71 @@ describe("ClassDetailDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
 
     await waitFor(() =>
-      expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", { name: "Midterm Exam", type: "midterm_final", date: "2026-10-06" })
+      expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", {
+        name: "Midterm Exam",
+        type: "midterm_final",
+        date: "2026-10-06",
+        weightPct: null,
+      })
     );
     expect(addClassAssessmentMock).not.toHaveBeenCalled();
     expect(deleteClassAssessmentMock).not.toHaveBeenCalled();
+  });
+
+  it("persists a typed weight through Save — the last-mile bug where mapAssessments/the diff/updateClassAssessment all silently dropped it", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClassDetailDialog
+        open
+        onOpenChange={vi.fn()}
+        classData={baseClassData({
+          assessments: [
+            {
+              id: "a1",
+              name: "Midterm",
+              type: "midterm_final",
+              date: "2026-10-06",
+              taskId: "t1",
+              risk: { score: 10, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+            },
+            {
+              id: "a2",
+              name: "Pop Quiz",
+              type: "quiz",
+              date: "2026-10-01",
+              taskId: null,
+              risk: { score: 5, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+            },
+          ],
+        })}
+        timezone="America/Chicago"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Lin Alg" }));
+    const weightField = screen.getByRole("spinbutton", { name: "Weight for Midterm" });
+    await user.type(weightField, "60");
+    await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
+
+    await waitFor(() =>
+      expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", {
+        name: "Midterm",
+        type: "midterm_final",
+        date: "2026-10-06",
+        weightPct: 60,
+      })
+    );
+    // The untouched sibling's weight must not be reported as changed, and must
+    // never be sent as an update at all.
+    expect(updateClassAssessmentMock).not.toHaveBeenCalledWith("a2", expect.anything());
   });
 
   it("surfaces a Save error, stays in editing mode with staged state intact, and never refreshes", async () => {

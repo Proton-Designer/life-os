@@ -29,6 +29,10 @@ export type ClassCardData = {
    * capture UI exists — that's expected, not an error state. Gates whether the
    * assessments list below is risk-ranked or date-ranked (see class-assessments.tsx). */
   difficultyRating: number | null;
+  /** `classes.target_grade_pct` (migration 105). Null until the user sets a target —
+   * the required-score verdict (lib/school/grades/requiredScore.ts) must show no
+   * number at all in that case, never a fabricated one. */
+  targetGradePct: number | null;
   /** All of this class's assessments, date ascending — carried alongside
    * `upcomingAssessment` (still derived from this same array, not a
    * separate query) so the expanded class view can render its full list
@@ -215,6 +219,7 @@ export async function getClassCards(
       room: c.room,
       instructor: c.instructor,
       difficultyRating: c.difficulty_rating,
+      targetGradePct: c.target_grade_pct,
       hasSyllabus: c.syllabus_path !== null,
       tasksDueThisWeek: tasks.filter((t) => t.dueDate !== null && t.dueDate >= weekStart && t.dueDate <= weekEnd).length,
       upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,

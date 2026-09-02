@@ -88,6 +88,7 @@ describe("getClassCards", () => {
         room: "FO 2.404",
         instructor: "Nemec",
         difficultyRating: null,
+        targetGradePct: null,
         hasSyllabus: true,
         tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
@@ -126,6 +127,7 @@ describe("getClassCards", () => {
         room: null,
         instructor: null,
         difficultyRating: null,
+        targetGradePct: null,
         hasSyllabus: false,
         tasksDueThisWeek: 0,
         upcomingAssessment: null,
