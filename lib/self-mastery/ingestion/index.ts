@@ -29,4 +29,7 @@ export * from "./cards";
 export * from "./invariants";
 export * from "./evidence-strength";
 export * from "./promotion";
+export * from "./pdf";
+export * from "./telemetry";
+export * from "./worker-stages";
 export * from "./llm";
