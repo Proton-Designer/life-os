@@ -23,7 +23,9 @@ the point is to make a number unavailable the moment it is promised.
 | `119` | LifeOS lead (51713) | `tasks.domain` DROP NOT NULL — CHECK retained for non-null values | **APPLIED** |
 | `120` | LifeOS lead (51713) | `tasks.dump_source` — school/milestone/worry/note/capture. **APPLIED.** Its CHECK carries the Postgres-GENERATED name `tasks_dump_source_check` (declared inline on `add column`), deterministic but chosen by nobody — that is the name to use if it ever needs dropping or altering | **APPLIED** |
 | `121` | ULM Eng 1 (54590) | `118` guard follow-up (moved from `120`) | allocated |
-| `122`+ | — | next free | — |
+| `122` | LifeOS Eng 2 (95858) | `user_settings.weekday_baselines smallint[7]` (R58) — populated by A3's rhythm screen. Until set, the Day Won comparison is ABSENT, never a zero baseline | allocated |
+| `123` | LifeOS lead (51713) | Polymorphic session→commitment binding (R30/B3): three nullable columns on `work_sessions`, composite FKs for the two targets that exist, at-most-one CHECK. **`<= 1`, not `= 1`** — most sessions serve no commitment | allocated |
+| `124`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
