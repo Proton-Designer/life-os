@@ -179,6 +179,23 @@ describe("processOneScheduledAction — dispatch through the REAL runMcpTool/wri
     expect(final).toMatchObject({ status: "cancelled", last_outcome: "ok", attempt_count: 0 });
   });
 
+  it("a FAILED one-off ('remind me at 4pm' style — the primary use case for run_at, not a secondary one beside cron) is NOT cancelled -- it stays active and retries, same bounded policy a recurring action gets, until MAX_CONSECUTIVE_FAILURES", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockResolvedValue(errorResult("transient failure"));
+    const { client, updateCalls } = makeServiceClient();
+
+    const outcome = await processOneScheduledAction(client, makeRow({ run_at: "2026-09-08T20:00:00.000Z", cron_expression: null, attempt_count: 0 }), now);
+
+    expect(outcome).toBe("error");
+    const final = updateCalls.find((c) => c.row.status !== undefined)!.row;
+    // NOT "cancelled" -- a one-off is only ever cancelled on a real success
+    // (or an explicit user cancel/pause). A transient failure must still
+    // get its retry budget, the same as any recurring action would.
+    expect(final).toMatchObject({ status: "active", last_outcome: "error", attempt_count: 1 });
+    expect(new Date(final.next_run_at as string).getTime()).toBeGreaterThan(now.getTime());
+  });
+
   it("a recurring action (cron_expression set) advances next_run_at and stays active on success, resetting attempt_count to 0", async () => {
     getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
     isUserActiveMock.mockResolvedValue(true);

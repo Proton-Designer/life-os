@@ -25,6 +25,10 @@ export interface ScheduledActionItem {
   domain: string;
   entity: string;
   action: string;
+  /** The underlying write's own target row id, if it targets an existing row (edit-shaped actions) — null for a create-shaped one. */
+  write_id: string | null;
+  /** The underlying write's own patch — surfaced in full, not summarized, so a caller reviewing "what's pending" (team-lead's own framing: seeing this without opening a database client) can see exactly what will run, not just its name. */
+  write_patch: Record<string, unknown> | null;
   cron_expression: string | null;
   run_at: string | null;
   next_run_at: string;
@@ -38,7 +42,7 @@ export interface ScheduledActionItem {
 
 interface ScheduledActionRow {
   id: string;
-  args: { domain?: string; entity?: string; action?: string };
+  args: { domain?: string; entity?: string; action?: string; id?: string; patch?: Record<string, unknown> };
   cron_expression: string | null;
   run_at: string | null;
   next_run_at: string;
@@ -56,6 +60,8 @@ function toItem(row: ScheduledActionRow): ScheduledActionItem {
     domain: row.args.domain ?? "",
     entity: row.args.entity ?? "",
     action: row.args.action ?? "",
+    write_id: row.args.id ?? null,
+    write_patch: row.args.patch ?? null,
     cron_expression: row.cron_expression,
     run_at: row.run_at,
     next_run_at: row.next_run_at,

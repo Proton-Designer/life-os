@@ -38,7 +38,7 @@ describe("listScheduledActionsCore", () => {
       listData: [
         {
           id: "s1",
-          args: { domain: "checkins", entity: "allocation", action: "save" },
+          args: { domain: "checkins", entity: "allocation", action: "save", patch: { allocations: { deen: 30 } } },
           cron_expression: "0 20 * * *",
           run_at: null,
           next_run_at: "2026-09-09T01:00:00.000Z",
@@ -58,6 +58,8 @@ describe("listScheduledActionsCore", () => {
         domain: "checkins",
         entity: "allocation",
         action: "save",
+        write_id: null,
+        write_patch: { allocations: { deen: 30 } },
         cron_expression: "0 20 * * *",
         run_at: null,
         next_run_at: "2026-09-09T01:00:00.000Z",
@@ -69,6 +71,28 @@ describe("listScheduledActionsCore", () => {
         updated_at: "2026-09-08T20:00:00.000Z",
       },
     ]);
+  });
+
+  it("surfaces write_id when the underlying write targets an existing row, so the caller can see WHICH row without a second lookup", async () => {
+    const { client } = makeClient({
+      listData: [
+        {
+          id: "s2",
+          args: { domain: "work", entity: "target", action: "edit", id: "target-1", patch: { title: "New title" } },
+          cron_expression: null,
+          run_at: "2026-09-09T16:00:00.000Z",
+          next_run_at: "2026-09-09T16:00:00.000Z",
+          last_run_at: null,
+          last_outcome: null,
+          last_error: null,
+          attempt_count: 0,
+          status: "active",
+          updated_at: "2026-09-08T20:00:00.000Z",
+        },
+      ],
+    });
+    const items = await listScheduledActionsCore(client, "user-1");
+    expect(items[0]).toMatchObject({ write_id: "target-1", write_patch: { title: "New title" } });
   });
 });
 
