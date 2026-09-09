@@ -20,6 +20,8 @@ import { PageHeader } from "@/components/shell/page-header";
 import { InProgressBanner } from "@/components/shell/in-progress-banner";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { renderWidgets } from "@/lib/widgets/render";
+import { McpWidgetsPanel } from "@/components/home/mcp-widgets-panel";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
 import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/personal/self-mastery-session-actions";
@@ -56,7 +58,7 @@ export default async function HomePage() {
   // getUserDomains() is called again below for hasSelfMastery/visibility.
   const domainsState = await getUserDomains();
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, mcpWidgets] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -82,6 +84,9 @@ export default async function HomePage() {
       // call start_session — a user glancing at Home never creates a real
       // work_sessions row just by loading the page.
       getDueSummary(),
+      // L11/R7 Tier 1 declarative widgets — degrades to [] the same way
+      // getInProgressBooks() does until WIDGETS-MIGRATION-NEEDED.md lands.
+      renderWidgets(supabase, userId, "home"),
     ]);
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
@@ -240,6 +245,8 @@ export default async function HomePage() {
           />
         )}
       </Panel>
+
+      <McpWidgetsPanel widgets={mcpWidgets} />
     </PageContainer>
   );
 }
