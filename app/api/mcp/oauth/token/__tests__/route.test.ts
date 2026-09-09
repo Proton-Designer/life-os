@@ -7,13 +7,22 @@ const rotateRefreshToken = vi.fn();
 const mintRefreshToken = vi.fn();
 const findAccessTokenForRefreshToken = vi.fn();
 const findLiveAccessTokenIdsForClient = vi.fn();
-vi.mock("@/lib/mcp/oauth", () => ({
-  consumeAuthorizationCode: (...args: unknown[]) => consumeAuthorizationCode(...args),
-  rotateRefreshToken: (...args: unknown[]) => rotateRefreshToken(...args),
-  mintRefreshToken: (...args: unknown[]) => mintRefreshToken(...args),
-  findAccessTokenForRefreshToken: (...args: unknown[]) => findAccessTokenForRefreshToken(...args),
-  findLiveAccessTokenIdsForClient: (...args: unknown[]) => findLiveAccessTokenIdsForClient(...args),
-}));
+const getOAuthClient = vi.fn();
+vi.mock("@/lib/mcp/oauth", async (importActual) => {
+  // formatOAuthTokenLabel is kept REAL (importActual), not mocked — it's a
+  // pure function, and mocking it would make these tests assert against a
+  // fake label shape instead of the real one that shipped the bug.
+  const actual = await importActual<typeof import("@/lib/mcp/oauth")>();
+  return {
+    ...actual,
+    consumeAuthorizationCode: (...args: unknown[]) => consumeAuthorizationCode(...args),
+    rotateRefreshToken: (...args: unknown[]) => rotateRefreshToken(...args),
+    mintRefreshToken: (...args: unknown[]) => mintRefreshToken(...args),
+    findAccessTokenForRefreshToken: (...args: unknown[]) => findAccessTokenForRefreshToken(...args),
+    findLiveAccessTokenIdsForClient: (...args: unknown[]) => findLiveAccessTokenIdsForClient(...args),
+    getOAuthClient: (...args: unknown[]) => getOAuthClient(...args),
+  };
+});
 
 const createAccessToken = vi.fn();
 const revokeAccessToken = vi.fn();
@@ -40,6 +49,8 @@ beforeEach(() => {
   mintRefreshToken.mockReset();
   findAccessTokenForRefreshToken.mockReset();
   findLiveAccessTokenIdsForClient.mockReset();
+  getOAuthClient.mockReset();
+  getOAuthClient.mockResolvedValue(null); // default: unnamed client, unless a test overrides it
   createAccessToken.mockReset();
   revokeAccessToken.mockReset();
   getTokenScopesById.mockReset();
@@ -87,7 +98,23 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(body.refresh_token).toBe("lifeos_oauthrefresh_new");
       expect(body.scope).toBe("read write");
       expect(body).not.toHaveProperty("expires_in");
-      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: cid", ["read", "write"]);
+      // No client_name on record (default mock) -> the honest fallback label, never the raw client_id.
+      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read", "write"]);
+    });
+
+    it("labels the minted token with the client's registered name, never the raw client_id — the actual /settings overflow + unreadable-label bug", async () => {
+      consumeAuthorizationCode.mockResolvedValueOnce({ ok: true, userId: "user-1", scopes: ["read"], resource: null });
+      getOAuthClient.mockResolvedValueOnce({ client_id: "lifeos_client_Oqnz20Fqx4YJ2WbhzSFCROot", client_name: "Claude", redirect_uris: [], created_at: "2026-09-09T00:00:00Z" });
+      createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_new", status: { id: "tok-1", scopes: ["read"] } });
+      mintRefreshToken.mockResolvedValueOnce({ ok: true, refreshToken: "lifeos_oauthrefresh_new" });
+
+      await POST(
+        formRequest({ grant_type: "authorization_code", code: "c", redirect_uri: "https://a.example.com/cb", client_id: "lifeos_client_Oqnz20Fqx4YJ2WbhzSFCROot", code_verifier: "v" })
+      );
+
+      const label = createAccessToken.mock.calls[0][2] as string;
+      expect(label).toBe("OAuth: Claude");
+      expect(label).not.toContain("lifeos_client_");
     });
   });
 
@@ -151,7 +178,7 @@ describe("POST /api/mcp/oauth/token", () => {
 
       const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
 
-      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: cid", ["read"]);
+      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read"]);
       expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old");
       expect(response.status).toBe(200);
       const body = await response.json();

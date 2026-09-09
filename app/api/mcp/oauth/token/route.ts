@@ -6,6 +6,8 @@ import {
   mintRefreshToken,
   findAccessTokenForRefreshToken,
   findLiveAccessTokenIdsForClient,
+  getOAuthClient,
+  formatOAuthTokenLabel,
 } from "@/lib/mcp/oauth";
 import { createAccessToken, revokeAccessToken, getTokenScopesById } from "@/lib/mcp/tokens";
 
@@ -23,7 +25,10 @@ import { createAccessToken, revokeAccessToken, getTokenScopesById } from "@/lib/
  * same table and shape L2's Settings "Create token" button produces, per
  * the explicit instruction not to invent a parallel credential. It shows up
  * in Settings' connector list like any other PAT (labeled "OAuth: <client
- * _id>"), with the same one-click revocation.
+ * _name>" via lib/mcp/oauth.ts's formatOAuthTokenLabel — NOT the raw
+ * client_id; see that function's own header for why an earlier version of
+ * this label was a real bug, not a cosmetic choice), with the same
+ * one-click revocation.
  *
  * NO `expires_in` IN THE RESPONSE — DELIBERATE, NOT AN OMISSION. This
  * access token does not carry a clock-based expiry (mcp_access_tokens has no
@@ -79,7 +84,11 @@ export async function POST(request: Request) {
     const consumed = await consumeAuthorizationCode(supabase, { rawCode: code, clientId, redirectUri, codeVerifier });
     if (!consumed.ok) return tokenError(consumed.error, consumed.message);
 
-    const minted = await createAccessToken(supabase, consumed.userId, `OAuth: ${clientId}`, consumed.scopes);
+    // Label with the DCR-supplied client_name ("Claude"), never the raw
+    // client_id (a ~50-char random string) — see formatOAuthTokenLabel's
+    // own header for why this is a fix, not a cosmetic choice.
+    const client = await getOAuthClient(supabase, clientId);
+    const minted = await createAccessToken(supabase, consumed.userId, formatOAuthTokenLabel(client), consumed.scopes);
     if (!minted.ok || !minted.token || !minted.status) {
       return tokenError("server_error", minted.message, 500);
     }
@@ -147,7 +156,8 @@ export async function POST(request: Request) {
       return tokenError("invalid_grant", "The access token this refresh token belongs to no longer exists.");
     }
 
-    const minted = await createAccessToken(supabase, rotated.userId, `OAuth: ${rotated.clientId}`, priorScopes);
+    const rotatedClient = await getOAuthClient(supabase, rotated.clientId);
+    const minted = await createAccessToken(supabase, rotated.userId, formatOAuthTokenLabel(rotatedClient), priorScopes);
     if (!minted.ok || !minted.token || !minted.status) {
       return tokenError("server_error", minted.message, 500);
     }

@@ -7,6 +7,7 @@ import {
   validateClientRegistration,
   registerOAuthClient,
   getOAuthClient,
+  formatOAuthTokenLabel,
   mintAuthorizationCode,
   consumeAuthorizationCode,
   mintRefreshToken,
@@ -224,6 +225,27 @@ describe("getOAuthClient", () => {
     const row = { client_id: "lifeos_client_abc", client_name: "Claude", redirect_uris: ["https://a.example.com/cb"], created_at: "2026-09-09T00:00:00Z" };
     const client = clientReturning(makeChain({ data: row, error: null }));
     expect(await getOAuthClient(client, "lifeos_client_abc")).toEqual(row);
+  });
+});
+
+describe("formatOAuthTokenLabel — the actual /settings overflow + unreadable-label regression", () => {
+  it("uses the registered client_name", () => {
+    expect(formatOAuthTokenLabel({ client_name: "Claude" })).toBe("OAuth: Claude");
+  });
+
+  it("never contains a raw client_id — that was the bug", () => {
+    const label = formatOAuthTokenLabel({ client_name: null });
+    expect(label).not.toMatch(/lifeos_client_/);
+  });
+
+  it("falls back to an honest generic label when no client_name was registered, not the client_id", () => {
+    expect(formatOAuthTokenLabel({ client_name: null })).toBe("OAuth: unnamed connector");
+    expect(formatOAuthTokenLabel({ client_name: "" })).toBe("OAuth: unnamed connector");
+    expect(formatOAuthTokenLabel({ client_name: "   " })).toBe("OAuth: unnamed connector");
+  });
+
+  it("handles a null client row (unknown client) the same as no name", () => {
+    expect(formatOAuthTokenLabel(null)).toBe("OAuth: unnamed connector");
   });
 });
 

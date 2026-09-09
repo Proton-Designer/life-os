@@ -257,6 +257,23 @@ export async function registerOAuthClient(
   };
 }
 
+/**
+ * The label an OAuth-issued mcp_access_tokens row gets in Settings'
+ * connector list. MUST use the human-meaningful `client_name` a DCR
+ * registration provided ("Claude", "ChatGPT"), never the raw `client_id`
+ * (a ~50-char random string, e.g. `lifeos_client_Oqnz20Fqx4YJ2WbhzSFCROot`)
+ * — found live: the client_id-based label was both what triggered a real
+ * 320px overflow in Settings (a long, unbroken value with no wrap points
+ * beats a flex box with no `min-w-0`, see components/settings/
+ * connector-settings.tsx) and, independent of that display bug, useless to
+ * Ayman for the thing this list exists for — recognizing which connector to
+ * revoke. A registration that supplied no client_name falls back to a
+ * plain, honest "unnamed connector", NOT the client_id either.
+ */
+export function formatOAuthTokenLabel(client: { client_name: string | null } | null): string {
+  return `OAuth: ${client?.client_name?.trim() || "unnamed connector"}`;
+}
+
 /** SERVICE-ROLE — see the file header. Returns null for an unknown client_id, never throws. */
 export async function getOAuthClient(supabase: SupabaseClient, clientId: string): Promise<OAuthClientRow | null> {
   const { data, error } = await supabase

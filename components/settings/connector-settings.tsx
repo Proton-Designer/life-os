@@ -146,9 +146,19 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
               key={t.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/40 p-3"
             >
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">{t.label ?? "Untitled token"}</span>
-                <span className="font-mono text-xs text-muted-foreground">
+              {/* min-w-0: WITHOUT it, a flex child never shrinks below its
+                  content's intrinsic width, so a long unbroken label value
+                  (found live: an old OAuth-issued token auto-labeled with a
+                  40-char client_id) forces this whole row, and the page,
+                  wider than the viewport — 320px overflow, not a display
+                  preference. break-all on both spans is the second half:
+                  min-w-0 lets the box shrink, break-all is what lets the
+                  TEXT actually wrap inside it once it does. Applies to any
+                  long label, not just this one value — a user-typed label
+                  has the same failure mode. */}
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-sm font-medium break-all">{t.label ?? "Untitled token"}</span>
+                <span className="font-mono text-xs text-muted-foreground break-all">
                   ····{t.last4} · {t.scopes.join(" + ")} · created {new Date(t.createdAt).toLocaleDateString()}
                   {t.lastUsedAt ? ` · last used ${new Date(t.lastUsedAt).toLocaleDateString()}` : " · never used"}
                 </span>
