@@ -76,6 +76,7 @@ export type Database = {
           date: string
           id: string
           period: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -83,6 +84,7 @@ export type Database = {
           date: string
           id?: string
           period: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -90,6 +92,7 @@ export type Database = {
           date?: string
           id?: string
           period?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -99,6 +102,7 @@ export type Database = {
           created_at: string
           date: string
           id: string
+          updated_at: string
           user_id: string
           waist_in: number | null
           weight_lb: number | null
@@ -107,6 +111,7 @@ export type Database = {
           created_at?: string
           date: string
           id?: string
+          updated_at?: string
           user_id?: string
           waist_in?: number | null
           weight_lb?: number | null
@@ -115,6 +120,7 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          updated_at?: string
           user_id?: string
           waist_in?: number | null
           weight_lb?: number | null
@@ -452,6 +458,7 @@ export type Database = {
           points_possible: number | null
           task_id: string | null
           type: string
+          updated_at: string
           user_id: string
           weight_pct: number | null
         }
@@ -466,6 +473,7 @@ export type Database = {
           points_possible?: number | null
           task_id?: string | null
           type: string
+          updated_at?: string
           user_id?: string
           weight_pct?: number | null
         }
@@ -480,6 +488,7 @@ export type Database = {
           points_possible?: number | null
           task_id?: string | null
           type?: string
+          updated_at?: string
           user_id?: string
           weight_pct?: number | null
         }
@@ -513,6 +522,7 @@ export type Database = {
           short_name: string | null
           syllabus_path: string | null
           target_grade_pct: number | null
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -527,6 +537,7 @@ export type Database = {
           short_name?: string | null
           syllabus_path?: string | null
           target_grade_pct?: number | null
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -541,6 +552,7 @@ export type Database = {
           short_name?: string | null
           syllabus_path?: string | null
           target_grade_pct?: number | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -554,6 +566,7 @@ export type Database = {
           position: number | null
           status: string
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -564,6 +577,7 @@ export type Database = {
           position?: number | null
           status?: string
           title: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -574,6 +588,7 @@ export type Database = {
           position?: number | null
           status?: string
           title?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -588,6 +603,7 @@ export type Database = {
           status: string
           target_id: string
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -599,6 +615,7 @@ export type Database = {
           status?: string
           target_id: string
           title: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -610,6 +627,7 @@ export type Database = {
           status?: string
           target_id?: string
           title?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -655,6 +673,7 @@ export type Database = {
           date: string
           habit_id: string
           id: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -662,6 +681,7 @@ export type Database = {
           date: string
           habit_id: string
           id?: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -669,6 +689,7 @@ export type Database = {
           date?: string
           habit_id?: string
           id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -692,6 +713,7 @@ export type Database = {
           id: string
           name: string
           stage_override: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -704,6 +726,7 @@ export type Database = {
           id?: string
           name: string
           stage_override?: string | null
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -716,6 +739,7 @@ export type Database = {
           id?: string
           name?: string
           stage_override?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -725,6 +749,7 @@ export type Database = {
           created_at: string
           habit_id: string
           id: string
+          updated_at: string
           user_id: string
           week_start_date: string
         }
@@ -732,6 +757,7 @@ export type Database = {
           created_at?: string
           habit_id: string
           id?: string
+          updated_at?: string
           user_id?: string
           week_start_date: string
         }
@@ -739,6 +765,7 @@ export type Database = {
           created_at?: string
           habit_id?: string
           id?: string
+          updated_at?: string
           user_id?: string
           week_start_date?: string
         }
@@ -805,6 +832,7 @@ export type Database = {
           domain: string
           id: string
           name: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -814,6 +842,7 @@ export type Database = {
           domain: string
           id?: string
           name: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -823,6 +852,7 @@ export type Database = {
           domain?: string
           id?: string
           name?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -835,6 +865,7 @@ export type Database = {
           name: string
           primary_muscles: string[]
           secondary_muscles: string[]
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -844,6 +875,7 @@ export type Database = {
           name: string
           primary_muscles?: string[]
           secondary_muscles?: string[]
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -853,6 +885,7 @@ export type Database = {
           name?: string
           primary_muscles?: string[]
           secondary_muscles?: string[]
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -864,6 +897,7 @@ export type Database = {
           exercise_id: string | null
           id: string
           max_reps: number
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -872,6 +906,7 @@ export type Database = {
           exercise_id?: string | null
           id?: string
           max_reps: number
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -880,6 +915,7 @@ export type Database = {
           exercise_id?: string | null
           id?: string
           max_reps?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -1060,6 +1096,7 @@ export type Database = {
           id: string
           position: number
           text: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -1070,6 +1107,7 @@ export type Database = {
           id?: string
           position?: number
           text: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -1080,6 +1118,7 @@ export type Database = {
           id?: string
           position?: number
           text?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1266,6 +1305,315 @@ export type Database = {
             referencedColumns: ["user_id", "id"]
           },
         ]
+      }
+      mcp_access_tokens: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          last_used_at: string | null
+          revoked_at: string | null
+          scopes: string[]
+          token_hash: string
+          token_last4: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          revoked_at?: string | null
+          scopes: string[]
+          token_hash: string
+          token_last4: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          revoked_at?: string | null
+          scopes?: string[]
+          token_hash?: string
+          token_last4?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mcp_audit_log: {
+        Row: {
+          args: Json
+          created_at: string
+          id: number
+          operation: string
+          outcome: string
+          result_summary: string | null
+          token_id: string | null
+          tool_name: string
+          user_id: string
+        }
+        Insert: {
+          args: Json
+          created_at?: string
+          id?: never
+          operation: string
+          outcome: string
+          result_summary?: string | null
+          token_id?: string | null
+          tool_name: string
+          user_id: string
+        }
+        Update: {
+          args?: Json
+          created_at?: string
+          id?: never
+          operation?: string
+          outcome?: string
+          result_summary?: string | null
+          token_id?: string | null
+          tool_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_audit_log_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_access_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mcp_oauth_clients: {
+        Row: {
+          client_id: string
+          client_name: string | null
+          created_at: string
+          id: string
+          redirect_uris: string[]
+        }
+        Insert: {
+          client_id: string
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          redirect_uris: string[]
+        }
+        Update: {
+          client_id?: string
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          redirect_uris?: string[]
+        }
+        Relationships: []
+      }
+      mcp_oauth_codes: {
+        Row: {
+          client_id: string
+          code_challenge: string
+          code_challenge_method: string
+          code_hash: string
+          created_at: string
+          expires_at: string
+          id: string
+          redirect_uri: string
+          resource: string | null
+          scopes: string[]
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          code_challenge: string
+          code_challenge_method: string
+          code_hash: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          redirect_uri: string
+          resource?: string | null
+          scopes: string[]
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          code_challenge?: string
+          code_challenge_method?: string
+          code_hash?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          redirect_uri?: string
+          resource?: string | null
+          scopes?: string[]
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_oauth_codes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_oauth_clients"
+            referencedColumns: ["client_id"]
+          },
+        ]
+      }
+      mcp_oauth_refresh_tokens: {
+        Row: {
+          access_token_id: string
+          client_id: string
+          created_at: string
+          id: string
+          rotated_at: string | null
+          token_hash: string
+          user_id: string
+        }
+        Insert: {
+          access_token_id: string
+          client_id: string
+          created_at?: string
+          id?: string
+          rotated_at?: string | null
+          token_hash: string
+          user_id: string
+        }
+        Update: {
+          access_token_id?: string
+          client_id?: string
+          created_at?: string
+          id?: string
+          rotated_at?: string | null
+          token_hash?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_oauth_refresh_tokens_access_token_id_fkey"
+            columns: ["access_token_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_access_tokens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mcp_oauth_refresh_tokens_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_oauth_clients"
+            referencedColumns: ["client_id"]
+          },
+        ]
+      }
+      mcp_scheduled_actions: {
+        Row: {
+          args: Json
+          attempt_count: number
+          created_at: string
+          cron_expression: string | null
+          id: string
+          last_error: string | null
+          last_outcome: string | null
+          last_run_at: string | null
+          next_run_at: string
+          operation: string
+          run_at: string | null
+          status: string
+          token_id: string
+          tool_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          args: Json
+          attempt_count?: number
+          created_at?: string
+          cron_expression?: string | null
+          id?: string
+          last_error?: string | null
+          last_outcome?: string | null
+          last_run_at?: string | null
+          next_run_at: string
+          operation: string
+          run_at?: string | null
+          status?: string
+          token_id: string
+          tool_name: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          args?: Json
+          attempt_count?: number
+          created_at?: string
+          cron_expression?: string | null
+          id?: string
+          last_error?: string | null
+          last_outcome?: string | null
+          last_run_at?: string | null
+          next_run_at?: string
+          operation?: string
+          run_at?: string | null
+          status?: string
+          token_id?: string
+          tool_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_scheduled_actions_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_access_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mcp_widgets: {
+        Row: {
+          created_at: string
+          data_source: Json
+          display: Json
+          id: string
+          kind: string
+          position: number
+          slot: string
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data_source: Json
+          display?: Json
+          id?: string
+          kind: string
+          position?: number
+          slot?: string
+          status?: string
+          title: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          data_source?: Json
+          display?: Json
+          id?: string
+          kind?: string
+          position?: number
+          slot?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       migration_115_orphaned_group_weight_log: {
         Row: {
@@ -1588,6 +1936,7 @@ export type Database = {
           created_at: string
           display_name: string | null
           evening_close_time: string
+          hidden_features: string[]
           location_label: string | null
           location_lat: number | null
           location_lng: number | null
@@ -1597,9 +1946,11 @@ export type Database = {
           pin_lock_enabled: boolean
           prayer_calc_method: string
           qada_owed: number
+          theme_preset: string
           timezone: string
           tracking_started_on: string | null
           traveling_mode: boolean
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -1610,6 +1961,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           evening_close_time?: string
+          hidden_features?: string[]
           location_label?: string | null
           location_lat?: number | null
           location_lng?: number | null
@@ -1619,9 +1971,11 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
+          theme_preset?: string
           timezone?: string
           tracking_started_on?: string | null
           traveling_mode?: boolean
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -1632,6 +1986,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           evening_close_time?: string
+          hidden_features?: string[]
           location_label?: string | null
           location_lat?: number | null
           location_lng?: number | null
@@ -1641,9 +1996,11 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
+          theme_preset?: string
           timezone?: string
           tracking_started_on?: string | null
           traveling_mode?: boolean
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1967,6 +2324,7 @@ export type Database = {
           event_id: string
           event_time: string
           id: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -1976,6 +2334,7 @@ export type Database = {
           event_id: string
           event_time: string
           id?: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -1985,6 +2344,7 @@ export type Database = {
           event_id?: string
           event_time?: string
           id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -2013,6 +2373,7 @@ export type Database = {
           is_recurring: boolean
           location: string | null
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -2030,6 +2391,7 @@ export type Database = {
           is_recurring?: boolean
           location?: string | null
           title: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -2047,6 +2409,7 @@ export type Database = {
           is_recurring?: boolean
           location?: string | null
           title?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -2259,6 +2622,7 @@ export type Database = {
           id: string
           prayer_name: string
           slot: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -2268,6 +2632,7 @@ export type Database = {
           id?: string
           prayer_name: string
           slot: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -2277,6 +2642,7 @@ export type Database = {
           id?: string
           prayer_name?: string
           slot?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -2297,6 +2663,7 @@ export type Database = {
           task_type: string | null
           task_type_other_label: string | null
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -2314,6 +2681,7 @@ export type Database = {
           task_type?: string | null
           task_type_other_label?: string | null
           title: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -2331,6 +2699,7 @@ export type Database = {
           task_type?: string | null
           task_type_other_label?: string | null
           title?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -2351,6 +2720,7 @@ export type Database = {
           supersede_reason: string | null
           superseded_at: string | null
           trigger_id: string
+          updated_at: string
           user_id: string
           version: number
         }
@@ -2361,6 +2731,7 @@ export type Database = {
           supersede_reason?: string | null
           superseded_at?: string | null
           trigger_id: string
+          updated_at?: string
           user_id?: string
           version: number
         }
@@ -2371,6 +2742,7 @@ export type Database = {
           supersede_reason?: string | null
           superseded_at?: string | null
           trigger_id?: string
+          updated_at?: string
           user_id?: string
           version?: number
         }
@@ -2392,6 +2764,7 @@ export type Database = {
           id: string
           plan_id: string
           trigger_id: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -2401,6 +2774,7 @@ export type Database = {
           id?: string
           plan_id: string
           trigger_id: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -2410,6 +2784,7 @@ export type Database = {
           id?: string
           plan_id?: string
           trigger_id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -2503,6 +2878,7 @@ export type Database = {
           notification_enabled: boolean
           notification_time: string
           session_target_minutes: number
+          updated_at: string
           user_id: string
           weekday_baselines: number[] | null
         }
@@ -2513,6 +2889,7 @@ export type Database = {
           notification_enabled?: boolean
           notification_time?: string
           session_target_minutes?: number
+          updated_at?: string
           user_id?: string
           weekday_baselines?: number[] | null
         }
@@ -2523,6 +2900,7 @@ export type Database = {
           notification_enabled?: boolean
           notification_time?: string
           session_target_minutes?: number
+          updated_at?: string
           user_id?: string
           weekday_baselines?: number[] | null
         }
@@ -2629,6 +3007,7 @@ export type Database = {
           locked: boolean
           milestones: Json
           quran_page_target: number | null
+          updated_at: string
           user_id: string
           week_start_date: string
         }
@@ -2640,6 +3019,7 @@ export type Database = {
           locked?: boolean
           milestones?: Json
           quran_page_target?: number | null
+          updated_at?: string
           user_id?: string
           week_start_date: string
         }
@@ -2651,6 +3031,7 @@ export type Database = {
           locked?: boolean
           milestones?: Json
           quran_page_target?: number | null
+          updated_at?: string
           user_id?: string
           week_start_date?: string
         }
@@ -2784,6 +3165,7 @@ export type Database = {
           id: string
           kind: string
           name: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -2792,6 +3174,7 @@ export type Database = {
           id?: string
           kind: string
           name: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -2800,6 +3183,7 @@ export type Database = {
           id?: string
           kind?: string
           name?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -2896,6 +3280,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -2903,6 +3288,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
@@ -2910,6 +3296,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -3094,6 +3481,7 @@ export type Database = {
           supersede_reason: string | null
           superseded_at: string | null
           trigger_id: string
+          updated_at: string
           user_id: string
           version: number
         }
