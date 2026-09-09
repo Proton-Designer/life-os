@@ -5,49 +5,94 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
- * R4 (PROGRAM-PLAN.md): the locally-signed ES256 session JWT, minted per MCP
- * request with ZERO Auth-server round trips — the mirror image of the local
- * ES256 *verify* `getClaims()` already does (lib/supabase/auth.ts:10-13).
+ * R4 (PROGRAM-PLAN.md): the locally-signed session JWT, minted per MCP
+ * request with ZERO Auth-server round trips — the mirror image of the
+ * local ES256 *verify* `getClaims()` already does (lib/supabase/auth.ts:
+ * 10-13) for a cookie session.
  *
- * THE ONE-TIME SETUP THIS DEPENDS ON (R4b, Ayman's to perform, not code):
- * generate an ES256 keypair (`supabase gen signing-key --algorithm ES256`),
- * import the PUBLIC half into the project's JWT Signing Keys, keep the
- * PRIVATE half as `MCP_SIGNING_KEY_JWK` (a JSON-stringified private JWK) in
- * server secrets. Until that import happens, minting still works (it's pure
- * local signing) but Supabase will reject the resulting JWT at the RLS
- * boundary, because the public half isn't in its JWKS yet — an end-to-end
- * RLS round trip failing for that reason alone is expected, not a bug here.
+ * WHY HS256 WITH A LEGACY SHARED SECRET, NOT ES256 — this is the second
+ * design here, and the reason is not laziness: R4b's original plan
+ * (generate an ES256 keypair, import the PUBLIC half into Supabase's JWT
+ * Signing Keys, self-sign with the PRIVATE half) is IMPOSSIBLE on this
+ * project. The owner checked Supabase's actual dashboard (JWT Keys page,
+ * 2026-09-09): it offers "Create Standby Key" only — there is no
+ * import-your-own-key path at all. `MCP_SIGNING_KEY_JWK`/the ES256 code
+ * path below were built against a setup step that was never actually
+ * available; they are kept, inert, in case that ever changes (see
+ * `signingMaterial()`), not because they were wrong to build.
  *
- * KID must match exactly what was (or will be) imported on the Supabase
- * side — it's how Supabase's JWKS-based verification picks the right public
- * key to check against, the same way `lib/supabase/auth.ts`'s own ES256
- * verification does for Supabase's own key.
+ * What the dashboard's key list DOES show is a **previous** key: "Legacy
+ * HS256 (Shared Secret)" — still valid for verifying tokens that haven't
+ * expired. The lead tested this directly against production before
+ * building on it: a symmetric HS256 JWT (sub=<real user>, role=
+ * authenticated, aud=authenticated, 5m exp), signed with that secret, was
+ * ACCEPTED by PostgREST and RLS scoped correctly to that one user's own
+ * rows — the identical guarantee the ES256 design was after, available
+ * today with a shared secret instead of a keypair.
+ *
+ * ⚠️ THE FRAGILITY, WRITTEN DOWN SO IT IS NOT ONLY IN A CREDENTIALS FILE:
+ * Supabase's own dashboard labels this key "previous... revoke once all
+ * tokens have expired." It is a legacy artifact kept around for exactly
+ * this kind of transition, not a permanent credential. REVOKING IT BREAKS
+ * THIS CONNECTOR — every read and write tool mints its session through
+ * this file, and there is no fallback once it's gone except reverting to
+ * this exact problem (no self-signing path exists) or a real architecture
+ * change. If `SUPABASE_LEGACY_JWT_SECRET` starts failing verification
+ * with no code change here, check the Supabase dashboard's JWT Keys page
+ * for a revocation before assuming a bug in this file.
  */
-const KID = "ff83fd87-4fbf-4ff4-9aae-f609538947e8";
-const ALG = "ES256";
 const SESSION_TTL_SECONDS = 5 * 60; // short-lived by design — Supabase's own signing-keys docs: "prefer shorter-lived tokens"
 
-let cachedKey: Awaited<ReturnType<typeof importJWK>> | null = null;
+type SigningMaterial = { alg: "HS256"; key: Uint8Array } | { alg: "ES256"; key: Awaited<ReturnType<typeof importJWK>>; kid: string };
 
-/** Loads the private signing key from MCP_SIGNING_KEY_JWK, a JSON-stringified private ES256 JWK. Memoized for the life of the process — it's a pure function of an env var, not of any request. */
-async function signingKey() {
-  if (cachedKey) return cachedKey;
-  const raw = process.env.MCP_SIGNING_KEY_JWK;
-  if (!raw) {
-    throw new Error(
-      "MCP_SIGNING_KEY_JWK is not set. The MCP connector cannot mint sessions until the " +
-        "one-time ES256 keypair setup (R4b, docs/ai-connector/PROGRAM-PLAN.md) is done.",
-    );
+let cachedMaterial: SigningMaterial | null = null;
+
+/**
+ * HS256 with `SUPABASE_LEGACY_JWT_SECRET` is the LIVE path, checked first
+ * and unconditionally preferred — it is NOT a fallback behind ES256, and
+ * must never become conditional on `MCP_SIGNING_KEY_JWK` being absent or
+ * present (that key is dead weight kept only for the day self-signing
+ * becomes possible again, which nothing here should assume). ES256 is
+ * only reachable at all if someone explicitly sets `MCP_SIGNING_KEY_JWK`
+ * back up on top of a real Signing Keys import — a state this project is
+ * not in today.
+ */
+async function signingMaterial(): Promise<SigningMaterial> {
+  if (cachedMaterial) return cachedMaterial;
+
+  const legacySecret = process.env.SUPABASE_LEGACY_JWT_SECRET;
+  if (legacySecret) {
+    cachedMaterial = { alg: "HS256", key: new TextEncoder().encode(legacySecret) };
+    return cachedMaterial;
   }
-  let jwk: JWK;
-  try {
-    jwk = JSON.parse(raw) as JWK;
-  } catch {
-    throw new Error("MCP_SIGNING_KEY_JWK is not valid JSON.");
+
+  const rawJwk = process.env.MCP_SIGNING_KEY_JWK;
+  if (rawJwk) {
+    let jwk: JWK;
+    try {
+      jwk = JSON.parse(rawJwk) as JWK;
+    } catch {
+      throw new Error("MCP_SIGNING_KEY_JWK is not valid JSON.");
+    }
+    const key = await importJWK(normalizeForSigning(jwk), "ES256");
+    cachedMaterial = { alg: "ES256", key, kid: ES256_KID };
+    return cachedMaterial;
   }
-  cachedKey = await importJWK(normalizeForSigning(jwk), ALG);
-  return cachedKey;
+
+  throw new Error(
+    "SUPABASE_LEGACY_JWT_SECRET is not set. The MCP connector cannot mint sessions without it — " +
+      "see lib/mcp/session.ts's own header for why this is the live path (Supabase's dashboard has " +
+      "no import-your-own-key option, so ES256 self-signing is not available on this project).",
+  );
 }
+
+/**
+ * KID for the ES256 path only — must match exactly what was (or will be)
+ * imported into Supabase's JWKS on that side. Meaningless for HS256, which
+ * carries no `kid` at all (a symmetric key isn't published in a JWKS and
+ * has nothing for a `kid` to select between).
+ */
+const ES256_KID = "ff83fd87-4fbf-4ff4-9aae-f609538947e8";
 
 /**
  * `supabase gen signing-key --algorithm ES256` emits a JWK with
@@ -61,7 +106,8 @@ async function signingKey() {
  * stripped entirely succeeds, `key_ops: ["sign"]` also succeeds. Stripping
  * is what this does — deleting the field before use looks like superstition
  * to the next reader without this paragraph, so it's written down here
- * rather than left as a bare `delete`.
+ * rather than left as a bare `delete`. Kept for the ES256 path only; HS256
+ * has no JWK and no `key_ops` question at all.
  */
 function normalizeForSigning(jwk: JWK): JWK {
   const { key_ops, ...rest } = jwk;
@@ -78,14 +124,17 @@ function normalizeForSigning(jwk: JWK): JWK {
  * every check GoTrue would otherwise have made.
  */
 export async function mintSessionJwt(userId: string): Promise<string> {
-  const key = await signingKey();
+  const material = await signingMaterial();
   const now = Math.floor(Date.now() / 1000);
-  return new SignJWT({ role: "authenticated" })
-    .setProtectedHeader({ alg: ALG, kid: KID })
+  const signer = new SignJWT({ role: "authenticated", aud: "authenticated" })
     .setSubject(userId)
     .setIssuedAt(now)
-    .setExpirationTime(now + SESSION_TTL_SECONDS)
-    .sign(key);
+    .setExpirationTime(now + SESSION_TTL_SECONDS);
+
+  if (material.alg === "HS256") {
+    return signer.setProtectedHeader({ alg: "HS256" }).sign(material.key);
+  }
+  return signer.setProtectedHeader({ alg: "ES256", kid: material.kid }).sign(material.key);
 }
 
 /**
@@ -113,7 +162,7 @@ export function buildUserScopedClient(jwt: string): SupabaseClient<Database> {
   });
 }
 
-/** Test-only escape hatch: lets lib/mcp/__tests__/session.test.ts force a fresh key load after swapping MCP_SIGNING_KEY_JWK, instead of reusing the process-lifetime cache. Not exported from anywhere a production caller would find it by accident. */
+/** Test-only escape hatch: lets lib/mcp/__tests__/session.test.ts force a fresh key load after swapping env vars, instead of reusing the process-lifetime cache. Not exported from anywhere a production caller would find it by accident. */
 export function __resetSigningKeyCacheForTests(): void {
-  cachedKey = null;
+  cachedMaterial = null;
 }

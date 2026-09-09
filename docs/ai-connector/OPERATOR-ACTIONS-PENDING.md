@@ -3,32 +3,44 @@
 Two production actions are written, verified as far as they can be, and
 **intentionally not executed.** Both are gated on the same thing.
 
-## 1. The ES256 public-key import (R4b) — Ayman only
+## 1. The ES256 public-key import (R4b) — RESOLVED, mechanism changed, not by this route
 
-**Status: BLOCKING everything.** Runbook: `SETUP-signing-key.md`.
+**Status: unblocked.** The import path this item describes turned out not to exist —
+Supabase's real dashboard offers no way to import a public key at all. The owner instead
+supplied the secret for a previous "Legacy HS256 (Shared Secret)" key still valid on the
+project; the lead tested it directly against production (HS256 JWT accepted by PostgREST,
+RLS scoped correctly) before anyone built on it. `SUPABASE_LEGACY_JWT_SECRET` is already set
+in Vercel (Production + Preview) and in `.env.local` — no operator action was actually
+needed here beyond supplying that one secret, which already happened.
 
-I checked whether I could do it myself rather than keep waiting: the Supabase CLI on this
-machine is authenticated to an account that **cannot see this project**, and there is no
-stored management token. It is a capability limit, not caution.
+`lib/mcp/session.ts` now signs HS256 with that secret as the live path (ES256/
+`MCP_SIGNING_KEY_JWK` kept, inert, in case real key import ever becomes possible). Full
+story, including the fragility of relying on a key Supabase's own dashboard calls
+"previous" and revocable: `SETUP-signing-key.md`, rewritten in place rather than left
+describing a plan that was never actually available.
 
-Until it lands, every `read` and `write` tool call reaches the final step and returns
-`No suitable key or wrong key type` — Supabase does not recognise our `kid`. Everything
-around it is proven on production.
+Every `read`/`write` tool call should now mint successfully rather than hitting
+`No suitable key or wrong key type` — the lead is doing the real end-to-end proof (a
+genuine MCP client against production) once this lands; not asserted here as already
+verified.
 
 ## 2. The `pg_cron` poll for scheduled actions — GATED ON #1, deliberately
 
 The registration SQL is written (in migration 142's originating draft). It is **not run**,
 and the reason is worth stating rather than leaving as an omission:
 
-**A scheduled action cannot succeed until the signing key is imported.** It fires through
-the identical `runMcpTool` path a live call uses, so it hits the identical wall. Registering
-the poll now would produce a **failed attempt every five minutes, indefinitely** — filling
-the audit log with noise that looks like a broken scheduler rather than an unfinished
-setup step, and burning the retry budget (5 consecutive failures → pause) on rows that
-would have worked fine later.
+**A scheduled action cannot succeed until session minting actually works end to end.** It
+fires through the identical `runMcpTool` path a live call uses, so it hits the identical
+wall if that path is broken. Registering the poll before that's confirmed would produce a
+**failed attempt every five minutes, indefinitely** — filling the audit log with noise that
+looks like a broken scheduler rather than an unfinished setup step, and burning the retry
+budget (5 consecutive failures → pause) on rows that would have worked fine later.
 
-So the order is: **import the key → verify a tool call returns real data → then register the
-poll.** Not before.
+So the order is: **confirm minting works end to end (item #1, now code-complete — the lead's
+real end-to-end proof against production is the remaining step) → verify a tool call returns
+real data → then register the poll.** Not before. (Originally phrased as "import the key" —
+that specific mechanism didn't happen; the underlying requirement, a working signed
+session, is what actually gates this.)
 
 Verified already, so this is the only step left when the time comes:
 ```
