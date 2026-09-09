@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import type { PrayerName } from "@/lib/prayer-times/windows";
 import type { SunnahSlot } from "@/lib/deen/sunnah";
 import type { HabitStage } from "@/lib/deen/habit-stage";
+import { markPrayerCore, toggleSunnahCore, toggleAdhkarCore, fetchTimezone } from "@/lib/deen/actions-core";
 
 async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string) {
   const { data: profile } = await supabase
@@ -23,6 +24,13 @@ async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["s
  * and every other caller go through). Strictly AFTER today only — today
  * itself must stay markable, since this is also Home's day-ribbon
  * `handleMark` and the Salah panel's own primary logging flow.
+ *
+ * THIN WRAPPER over markPrayerCore (lib/deen/actions-core.ts, L6/R5) — the
+ * MCP write tool (lib/mcp/tools/write.ts) calls the exact same core, with
+ * its own bearer-authed userClient/userId in place of this cookie-authed
+ * requireUser()/fetchTimezone() pair. The future-date guard lives in the
+ * core, so both paths enforce it identically; this wrapper's only job is
+ * resolving the cookie-authed identity/timezone and revalidating paths.
  */
 export async function markPrayer(
   date: string,
@@ -30,20 +38,8 @@ export async function markPrayer(
   status: "on_time" | "qada" | "missed"
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const today = await todayForUser(supabase, userId);
-  if (date > today) throw new Error("date cannot be after today");
-
-  const { error } = await supabase.from("prayers").upsert(
-    {
-      user_id: userId,
-      date,
-      prayer_name: prayerName,
-      status,
-      logged_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,date,prayer_name" }
-  );
-  if (error) throw error;
+  const timezone = await fetchTimezone(supabase, userId);
+  await markPrayerCore(supabase, userId, timezone, new Date(), date, prayerName, status);
   revalidatePath("/deen");
   revalidatePath("/");
 }
@@ -77,27 +73,10 @@ export async function unmarkPrayer(
   revalidatePath("/");
 }
 
+/** THIN WRAPPER over toggleAdhkarCore (lib/deen/actions-core.ts, L6/R5) — same core the MCP write tool calls. */
 export async function toggleAdhkar(date: string, period: "morning" | "evening"): Promise<void> {
   const { supabase, userId } = await requireUser();
-
-  const { data: existing } = await supabase
-    .from("adhkar_logs")
-    .select("completed")
-    .eq("user_id", userId)
-    .eq("date", date)
-    .eq("period", period)
-    .maybeSingle();
-
-  const { error } = await supabase.from("adhkar_logs").upsert(
-    {
-      user_id: userId,
-      date,
-      period,
-      completed: !existing?.completed,
-    },
-    { onConflict: "user_id,date,period" }
-  );
-  if (error) throw error;
+  await toggleAdhkarCore(supabase, userId, date, period);
   revalidatePath("/deen");
   revalidatePath("/");
 }
@@ -256,6 +235,9 @@ export async function toggleDeenHabitLog(habitId: string, date: string): Promise
  * ruling): a future sunnah being toggleable while a future prayer isn't
  * would be an inconsistency between two closely-related logging flows on
  * the same page. Today itself stays toggleable.
+ *
+ * THIN WRAPPER over toggleSunnahCore (lib/deen/actions-core.ts, L6/R5) —
+ * same core the MCP write tool calls.
  */
 export async function toggleSunnah(
   date: string,
@@ -263,29 +245,8 @@ export async function toggleSunnah(
   slot: SunnahSlot
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const today = await todayForUser(supabase, userId);
-  if (date > today) throw new Error("date cannot be after today");
-
-  const { data: existing } = await supabase
-    .from("sunnah_logs")
-    .select("completed")
-    .eq("user_id", userId)
-    .eq("date", date)
-    .eq("prayer_name", prayerName)
-    .eq("slot", slot)
-    .maybeSingle();
-
-  const { error } = await supabase.from("sunnah_logs").upsert(
-    {
-      user_id: userId,
-      date,
-      prayer_name: prayerName,
-      slot,
-      completed: !existing?.completed,
-    },
-    { onConflict: "user_id,date,prayer_name,slot" }
-  );
-  if (error) throw error;
+  const timezone = await fetchTimezone(supabase, userId);
+  await toggleSunnahCore(supabase, userId, timezone, new Date(), date, prayerName, slot);
   revalidatePath("/deen");
 }
 

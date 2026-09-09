@@ -6,17 +6,18 @@ import { isUserActive } from "@/lib/mcp/active-user";
 import { runMcpTool } from "@/lib/mcp/tool-wrapper";
 import { listCapabilitiesTool, resolveListCapabilitiesOperation } from "@/lib/mcp/tools/list-capabilities";
 import { readTool, resolveReadOperation, type ReadArgs } from "@/lib/mcp/tools/read";
+import { writeTool, resolveWriteOperation, type WriteArgs } from "@/lib/mcp/tools/write";
 
 /**
- * L3 (docs/ai-connector/PROGRAM-PLAN.md), scope updated per the team-lead's
- * adoption of Eng2's TOOL-ARCHITECTURE.md (commit 2855e96): two of the
- * seven generic tools, the two that prove the architecture —
- * `list_capabilities` (discovery) and `read` (every domain read, wired to
- * exactly one domain/entity here: `deen`/`prayer` — see
- * lib/mcp/registry.ts's own header for why only that one). The full
- * `domain`/`entity`/`action` matrix and the remaining five tools
- * (`search`, `fetch`, `write`, `scheduler_manage`, `widget_manage`) are
- * explicitly out of scope for this layer.
+ * L3+L6 (docs/ai-connector/PROGRAM-PLAN.md), scope per the team-lead's
+ * adoption of Eng2's TOOL-ARCHITECTURE.md (commit 2855e96): three of the
+ * seven generic tools — `list_capabilities` (discovery), `read` (every
+ * domain read, wired to `deen`'s 8 entities — lib/mcp/registry.ts), and
+ * `write` (every domain write, wired to `deen.prayer.log`,
+ * `deen.sunnah_log.toggle`, `deen.adhkar.toggle` — lib/mcp/write-registry.ts).
+ * `deen.prayer.unlog` is deliberately NOT wired — see write-registry.ts's
+ * header. The remaining tools (`search`, `fetch`, `scheduler_manage`,
+ * `widget_manage`) are explicitly out of scope for this layer.
  *
  * Streamable HTTP only — no SSE, no Redis (settled in PROGRAM-PLAN.md's
  * findings: Claude is deprecating SSE, Gemini rejects it outright, and
@@ -74,6 +75,14 @@ const ListCapabilitiesInputSchema = z.object({
   domain: z.string().optional(),
 });
 
+const WriteInputSchema = z.object({
+  domain: z.string(),
+  entity: z.string(),
+  action: z.string(),
+  id: z.string().optional(),
+  patch: z.record(z.string(), z.unknown()).optional(),
+});
+
 const handler = createMcpHandler(
   (server) => {
     // One service-role client per request (createMcpHandler's own "per-
@@ -121,6 +130,26 @@ const handler = createMcpHandler(
           "read",
           args,
           (userClient, userId) => readTool(userClient, userId, args as ReadArgs),
+        ),
+    );
+
+    server.registerTool(
+      "write",
+      {
+        title: "Write",
+        description:
+          "Write data to any domain/entity/action this connector exposes. Requires a token with 'write' scope — a read-only token is denied and the denial is audited. Call list_capabilities first if unsure of valid domain/entity names.",
+        inputSchema: WriteInputSchema,
+      },
+      async (args, ctx) =>
+        runMcpTool(
+          serviceClient,
+          ctx.http?.authInfo,
+          "write",
+          resolveWriteOperation(args as WriteArgs),
+          "write",
+          args,
+          (userClient, userId) => writeTool(userClient, userId, args as WriteArgs),
         ),
     );
   },

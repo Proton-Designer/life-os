@@ -16,6 +16,11 @@ function makeChain() {
   // fine for this file's fixed 2026-08-10 test dates (always in the past
   // relative to whenever this suite actually runs).
   chain.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+  // markPrayerCore (lib/deen/actions-core.ts, L6) selects `id, logged_at`
+  // back off its own upsert — `.upsert(...).select(...).single()` — for
+  // the MCP write tool's {id, updated_at} contract. This file's own
+  // toggle_prayer path goes through the exact same core now.
+  chain.single = vi.fn(async () => ({ data: { id: "row-1", logged_at: "2026-08-10T00:00:00.000Z" }, error: null }));
   chain.then = (resolve: (v: { error: null }) => void) => resolve({ error: null });
   return chain as {
     upsert: ReturnType<typeof vi.fn>;
@@ -24,6 +29,7 @@ function makeChain() {
     eq: ReturnType<typeof vi.fn>;
     select: ReturnType<typeof vi.fn>;
     maybeSingle: ReturnType<typeof vi.fn>;
+    single: ReturnType<typeof vi.fn>;
   };
 }
 

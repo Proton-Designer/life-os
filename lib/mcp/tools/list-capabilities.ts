@@ -1,5 +1,6 @@
 import "server-only";
 import { listDomains, getDomain } from "../registry";
+import { listWriteActions } from "../write-registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 
 /**
@@ -38,17 +39,25 @@ export async function listCapabilitiesTool(domain?: string): Promise<RunMcpToolO
     throw new Error(`Unknown domain "${domain}". Known domains: ${known.join(", ") || "(none yet)"}.`);
   }
 
-  const entities = Object.values(domainDef.entities).map((e) => ({
-    entity: e.entity,
-    description: e.description,
-    detail_levels: ["ids", "summary", "full"],
-    fields: { summary: e.summaryColumns, full: e.fullColumns },
-    filterable_fields: e.filterableColumns,
-    // Read-only for now, honestly: no write tool is registered in this
-    // layer, so advertising "write" here would be discovery lying to the
-    // one caller who actually reads it before acting.
-    actions: ["read"],
-  }));
+  const entities = Object.values(domainDef.entities).map((e) => {
+    // "read" is always available once an entity is in this registry at
+    // all; "write" + whatever action names exist come from the SEPARATE
+    // write-registry (lib/mcp/write-registry.ts) — queried live, not
+    // hardcoded, so this list can never drift from what `write` will
+    // actually accept. deen.prayer genuinely has only "log" (no "unlog" —
+    // see write-registry.ts's header and docs/ai-connector/
+    // WRITE-DELETE-DECISION.md), and that absence is exactly what this
+    // tool must report honestly rather than rounding up to "write".
+    const writeActions = listWriteActions(domainDef.domain, e.entity);
+    return {
+      entity: e.entity,
+      description: e.description,
+      detail_levels: ["ids", "summary", "full"],
+      fields: { summary: e.summaryColumns, full: e.fullColumns },
+      filterable_fields: e.filterableColumns,
+      actions: writeActions.length > 0 ? ["read", ...writeActions.map((a) => `write:${a}`)] : ["read"],
+    };
+  });
 
   const payload = { domain, entities };
   return {

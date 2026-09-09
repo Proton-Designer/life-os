@@ -27,7 +27,14 @@ vi.mock("@/lib/mcp/tokens", async () => {
   const actual = await vi.importActual<typeof import("@/lib/mcp/tokens")>("@/lib/mcp/tokens");
   return {
     ...actual,
-    verifyAccessToken: vi.fn(async () => ({ userId: "user-1", tokenId: "tok-1", scopes: ["read", "write"] as const })),
+    // The bearer token itself picks the scope set, so one mock can drive
+    // both the full-access and read-only-token cases in the same file
+    // without per-test module-mock gymnastics.
+    verifyAccessToken: vi.fn(async (_client: unknown, rawToken: string) => ({
+      userId: "user-1",
+      tokenId: rawToken.includes("readonly") ? "tok-readonly" : "tok-1",
+      scopes: rawToken.includes("readonly") ? (["read"] as const) : (["read", "write"] as const),
+    })),
   };
 });
 vi.mock("@/lib/mcp/active-user", () => ({ isUserActive: vi.fn(async () => true) }));
@@ -68,13 +75,23 @@ function fakeServiceClient() {
   return { client: { from }, auditInserts };
 }
 
-/** Stands in for the RLS-scoped client `read`'s registry dispatch queries — `prayers` is the only table L3 wires (lib/mcp/registry.ts). */
-function fakeUserClient() {
-  const from = vi.fn((_table: string) => {
+/**
+ * Stands in for the RLS-scoped client `read`/`write`'s dispatch queries
+ * touch — `prayers`/`profiles` are what L3/L6 wire (lib/mcp/registry.ts,
+ * lib/mcp/write-registry.ts). `upsert(...).select(...).single()` is the
+ * shape `markPrayerCore` (lib/deen/actions-core.ts) needs for its `write
+ * -> {id, updated_at}` contract.
+ */
+function fakeUserClient(profileTimezone = "America/Chicago") {
+  const from = vi.fn((table: string) => {
     const chain: Record<string, unknown> = {};
     for (const m of ["select", "eq", "order"]) chain[m] = vi.fn(() => chain);
     chain.range = vi.fn(async () => ({ data: PRAYER_ROWS, error: null, count: PRAYER_ROWS.length }));
-    chain.maybeSingle = vi.fn(async () => ({ data: PRAYER_ROWS[0], error: null }));
+    chain.maybeSingle = vi.fn(async () =>
+      table === "profiles" ? { data: { timezone: profileTimezone }, error: null } : { data: PRAYER_ROWS[0], error: null },
+    );
+    chain.upsert = vi.fn(() => chain);
+    chain.single = vi.fn(async () => ({ data: { id: "p-new", logged_at: "2026-09-08T20:00:00.000Z" }, error: null }));
     return chain;
   });
   return { from };
@@ -105,7 +122,7 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     await client.connect(transport);
 
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read", "write"]);
 
     // Discovery first — the actual intended usage pattern (memo §5: "call
     // whenever unsure"), and it should cost nothing against a real DB.
@@ -123,12 +140,64 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     expect(payload.items).toHaveLength(2);
     expect(payload.items[0]).toMatchObject({ id: "p1", updated_at: "2026-09-08T11:00:00Z", date: "2026-09-08", prayer_name: "fajr", status: "on_time" });
 
+    // Now the actual WRITE — L6's whole point — through the exact same chain.
+    const writeResult = await client.callTool({
+      name: "write",
+      arguments: { domain: "deen", entity: "prayer", action: "log", patch: { date: "2026-09-08", prayer_name: "fajr", status: "on_time" } },
+    });
+    expect(writeResult.isError).toBeFalsy();
+    const writeBlock = (writeResult.content as { type: string; text?: string }[])[0];
+    const writePayload = JSON.parse(writeBlock.text ?? "{}");
+    expect(writePayload).toMatchObject({ id: "p-new", date: "2026-09-08", status: "on_time" });
+
     // The wrapper's own guarantee, proven at the real protocol boundary:
-    // two tool calls left exactly two audit rows, each carrying the
+    // three tool calls left exactly three audit rows, each carrying the
     // RESOLVED operation (migration 131), not just the generic tool name.
-    expect(auditInserts).toHaveLength(2);
+    expect(auditInserts).toHaveLength(3);
     expect(auditInserts[0]).toMatchObject({ tool_name: "list_capabilities", operation: "discovery.deen.list_capabilities", outcome: "ok" });
     expect(auditInserts[1]).toMatchObject({ tool_name: "read", operation: "deen.prayer.read", outcome: "ok", user_id: "user-1", token_id: "tok-1" });
+    expect(auditInserts[2]).toMatchObject({ tool_name: "write", operation: "deen.prayer.log", outcome: "ok", user_id: "user-1", token_id: "tok-1" });
+
+    await client.close();
+  });
+
+  it("DENIES a write from a read-only token, and audits it as denied — the scope check actually biting, not decorative", async () => {
+    const { client: serviceClient, auditInserts } = fakeServiceClient();
+    createServiceRoleClient.mockReturnValue(serviceClient);
+
+    const { GET, POST, DELETE } = await import("../route");
+    const bridgeFetch = async (url: string | URL, init?: RequestInit) => {
+      const req = new Request(url, init);
+      if (req.method === "GET") return GET(req);
+      if (req.method === "DELETE") return DELETE(req);
+      return POST(req);
+    };
+
+    const transport = new StreamableHTTPClientTransport(new URL("http://localhost/api/mcp"), {
+      fetch: bridgeFetch,
+      // "readonly" in the token string is what this file's verifyAccessToken
+      // mock keys off of to return scopes: ["read"] only.
+      requestInit: { headers: { Authorization: "Bearer lifeos_pat_readonly-token" } },
+    });
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await client.connect(transport);
+
+    const result = await client.callTool({
+      name: "write",
+      arguments: { domain: "deen", entity: "prayer", action: "log", patch: { date: "2026-09-08", prayer_name: "fajr", status: "on_time" } },
+    });
+
+    expect(result.isError).toBe(true);
+    const block = (result.content as { type: string; text?: string }[])[0];
+    expect(block.text).toMatch(/write.*permission/i);
+
+    expect(auditInserts).toHaveLength(1);
+    expect(auditInserts[0]).toMatchObject({
+      tool_name: "write",
+      operation: "deen.prayer.log",
+      outcome: "denied",
+      token_id: "tok-readonly",
+    });
 
     await client.close();
   });

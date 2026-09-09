@@ -50,7 +50,10 @@ describe("Deen actions", () => {
   });
 
   it("markPrayer upserts into prayers keyed on (user_id, date, prayer_name)", async () => {
-    const prayersChain = makeChain();
+    // markPrayerCore selects `id, logged_at` back off the upsert (L6, for
+    // the MCP write tool's {id, updated_at} contract) — the chain needs a
+    // non-null row for that final .single() to resolve.
+    const prayersChain = makeChain({ data: { id: "row-1", logged_at: "2026-08-10T00:00:00.000Z" }, error: null });
     fromImpl = () => prayersChain;
     const { markPrayer } = await import("../actions");
 
@@ -83,7 +86,7 @@ describe("Deen actions", () => {
   });
 
   it("writes prayer_name 'dhuhr' (not a separate 'jummah' value) even on a Friday", async () => {
-    const prayersChain = makeChain();
+    const prayersChain = makeChain({ data: { id: "row-1", logged_at: "2026-08-14T00:00:00.000Z" }, error: null });
     fromImpl = () => prayersChain;
     const { markPrayer } = await import("../actions");
 
@@ -111,7 +114,7 @@ describe("Deen actions", () => {
   it("markPrayer allows marking today itself — the guard is strictly-after, not on-or-after", async () => {
     const chains: Record<string, ReturnType<typeof makeChain>> = {
       profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
-      prayers: makeChain(),
+      prayers: makeChain({ data: { id: "row-1", logged_at: "2026-08-15T18:00:00.000-05:00" }, error: null }),
     };
     fromImpl = (table) => chains[table];
     const { markPrayer } = await import("../actions");

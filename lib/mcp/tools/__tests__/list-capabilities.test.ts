@@ -32,7 +32,10 @@ describe("listCapabilitiesTool", () => {
     expect(prayer).toMatchObject({
       entity: "prayer",
       detail_levels: ["ids", "summary", "full"],
-      actions: ["read"],
+      // "write:log" only -- NOT "write:unlog" (see write-registry.ts's
+      // header + docs/ai-connector/WRITE-DELETE-DECISION.md). Discovery
+      // must report exactly what `write` will accept, never round up.
+      actions: ["read", "write:log"],
     });
     expect(prayer.fields.summary).toEqual(["date", "prayer_name", "status"]);
     expect(prayer.fields.full).toContain("logged_at");
@@ -43,12 +46,22 @@ describe("listCapabilitiesTool", () => {
     await expect(listCapabilitiesTool("fitness")).rejects.toThrow(/deen/);
   });
 
-  it("never advertises a \"write\" action — no write tool exists in this layer", async () => {
+  it("reports write actions ONLY for the 3 entities write-registry.ts actually wires — habit/habit_log/weekly_focus/etc. stay read-only, honestly", async () => {
     const outcome = await listCapabilitiesTool("deen");
     const payload = textPayload(outcome);
-    for (const entity of payload.entities) {
-      expect(entity.actions).not.toContain("write");
+    const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+    expect(byEntity.prayer).toEqual(["read", "write:log"]);
+    expect(byEntity.sunnah_log).toEqual(["read", "write:toggle"]);
+    expect(byEntity.adhkar).toEqual(["read", "write:toggle"]);
+    for (const stillReadOnly of ["quran_session", "reflection_entry", "habit", "habit_log", "weekly_focus"]) {
+      expect(byEntity[stillReadOnly]).toEqual(["read"]);
     }
+  });
+
+  it("source_chunks (self_mastery) has no write surface at all", async () => {
+    const outcome = await listCapabilitiesTool("self_mastery");
+    const payload = textPayload(outcome);
+    expect(payload.entities[0].actions).toEqual(["read"]);
   });
 });
 
