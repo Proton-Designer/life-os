@@ -27,7 +27,8 @@ export async function addTask(input: {
   taskTypeOtherLabel?: string;
   classId?: string | null;
 }): Promise<void> {
-  await addTaskCore({ domain: "school", ...input });
+  const { supabase, userId } = await requireUser();
+  await addTaskCore(supabase, userId, { domain: "school", ...input });
   revalidatePath("/school");
   revalidatePath("/");
 }
@@ -36,19 +37,22 @@ export async function updateTask(
   id: string,
   input: { title: string; dueDate?: string; taskType?: TaskType; taskTypeOtherLabel?: string; classId?: string | null }
 ): Promise<void> {
-  await updateTaskCore(id, input);
+  const { supabase, userId } = await requireUser();
+  await updateTaskCore(supabase, userId, id, input);
   revalidatePath("/school");
   revalidatePath("/");
 }
 
 export async function toggleTask(id: string): Promise<void> {
-  await toggleTaskCore(id);
+  const { supabase, userId } = await requireUser();
+  await toggleTaskCore(supabase, userId, id);
   revalidatePath("/school");
   revalidatePath("/");
 }
 
 export async function removeTask(id: string): Promise<void> {
-  await removeTaskCore(id);
+  const { supabase, userId } = await requireUser();
+  await removeTaskCore(supabase, userId, id);
   revalidatePath("/school");
   revalidatePath("/");
 }
@@ -57,17 +61,20 @@ export async function addScheduleEvent(
   title: string,
   options: { isRecurring: boolean; dayOfWeek?: number; eventDate?: string; eventTime?: string }
 ): Promise<void> {
-  await addScheduleEventCore("school", title, options);
+  const { supabase, userId } = await requireUser();
+  await addScheduleEventCore(supabase, userId, "school", title, options);
   revalidatePath("/school");
 }
 
 export async function cancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
-  await cancelScheduleOccurrenceCore(eventId, date);
+  const { supabase, userId } = await requireUser();
+  await cancelScheduleOccurrenceCore(supabase, userId, eventId, date);
   revalidatePath("/school");
 }
 
 export async function uncancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
-  await uncancelScheduleOccurrenceCore(eventId, date);
+  const { supabase, userId } = await requireUser();
+  await uncancelScheduleOccurrenceCore(supabase, userId, eventId, date);
   revalidatePath("/school");
 }
 

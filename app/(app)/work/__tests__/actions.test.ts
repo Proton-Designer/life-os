@@ -20,6 +20,11 @@ vi.mock("@/lib/tasks/actions-core", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathMock(path) }));
 
+const requireUserMock = vi.fn(async () => ({ supabase: { from: vi.fn() }, userId: "user-1" }));
+vi.mock("@/lib/supabase/auth", () => ({
+  requireUser: () => requireUserMock(),
+}));
+
 // Item 4 (2026-08-26 night batch 2): the free-text generic addScheduleEvent
 // is gone — "this schedule is just for work, this isn't to add new events."
 // Every write here is Work-specific: title is always "Work", never
@@ -32,7 +37,7 @@ describe("Work actions", () => {
   it("addWorkHours always titles the row 'Work' and scopes to co_op", async () => {
     const { addWorkHours } = await import("../actions");
     await addWorkHours(2, "09:00", "17:00");
-    expect(addScheduleEventCoreMock).toHaveBeenCalledWith("co_op", "Work", {
+    expect(addScheduleEventCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "co_op", "Work", {
       isRecurring: true,
       dayOfWeek: 2,
       eventTime: "09:00",
@@ -44,7 +49,7 @@ describe("Work actions", () => {
   it("updateWorkHours edits the permanent pattern in place", async () => {
     const { updateWorkHours } = await import("../actions");
     await updateWorkHours("event-1", { dayOfWeek: 3, eventTime: "10:00", endTime: "18:00" });
-    expect(updateScheduleEventCoreMock).toHaveBeenCalledWith("event-1", {
+    expect(updateScheduleEventCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "event-1", {
       dayOfWeek: 3,
       eventTime: "10:00",
       endTime: "18:00",
@@ -55,14 +60,14 @@ describe("Work actions", () => {
   it("removeWorkHours deletes the permanent row", async () => {
     const { removeWorkHours } = await import("../actions");
     await removeWorkHours("event-1");
-    expect(removeScheduleEventCoreMock).toHaveBeenCalledWith("event-1");
+    expect(removeScheduleEventCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "event-1");
     expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 
   it("addOneOffWorkShift creates a non-recurring 'Work' row for a single date", async () => {
     const { addOneOffWorkShift } = await import("../actions");
     await addOneOffWorkShift("2026-08-30", "13:00", "16:00");
-    expect(addScheduleEventCoreMock).toHaveBeenCalledWith("co_op", "Work", {
+    expect(addScheduleEventCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "co_op", "Work", {
       isRecurring: false,
       eventDate: "2026-08-30",
       eventTime: "13:00",
@@ -73,14 +78,14 @@ describe("Work actions", () => {
   it("setWorkHoursOverride sets a temporary time for one occurrence", async () => {
     const { setWorkHoursOverride } = await import("../actions");
     await setWorkHoursOverride("event-1", "2026-08-26", "12:00", "15:00");
-    expect(setScheduleEventOverrideCoreMock).toHaveBeenCalledWith("event-1", "2026-08-26", "12:00", "15:00");
+    expect(setScheduleEventOverrideCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "event-1", "2026-08-26", "12:00", "15:00");
     expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 
   it("removeWorkHoursOverride reverts an occurrence to its permanent time", async () => {
     const { removeWorkHoursOverride } = await import("../actions");
     await removeWorkHoursOverride("event-1", "2026-08-26");
-    expect(removeScheduleEventOverrideCoreMock).toHaveBeenCalledWith("event-1", "2026-08-26");
+    expect(removeScheduleEventOverrideCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "event-1", "2026-08-26");
     expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 
@@ -89,7 +94,7 @@ describe("Work actions", () => {
 
     await cancelScheduleOccurrence("event-1", "2026-08-24");
 
-    expect(cancelScheduleOccurrenceCoreMock).toHaveBeenCalledWith("event-1", "2026-08-24");
+    expect(cancelScheduleOccurrenceCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "event-1", "2026-08-24");
     expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 
@@ -98,7 +103,7 @@ describe("Work actions", () => {
 
     await uncancelScheduleOccurrence("event-1", "2026-08-24");
 
-    expect(uncancelScheduleOccurrenceCoreMock).toHaveBeenCalledWith("event-1", "2026-08-24");
+    expect(uncancelScheduleOccurrenceCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "event-1", "2026-08-24");
     expect(revalidatePathMock).toHaveBeenCalledWith("/work");
   });
 });

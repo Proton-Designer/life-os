@@ -11,8 +11,8 @@ function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: nu
   return chain as Record<string, ReturnType<typeof vi.fn>>;
 }
 
-const addTaskCoreMock = vi.fn(async (_input: unknown) => {});
-vi.mock("@/lib/tasks/actions-core", () => ({ addTaskCore: (input: unknown) => addTaskCoreMock(input) }));
+const addTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
+vi.mock("@/lib/tasks/actions-core", () => ({ addTaskCore: (...args: unknown[]) => addTaskCoreMock(...args) }));
 
 const createTriggerAndLogMock = vi.fn(async (_input: unknown) => ({ triggerId: "t1" }));
 vi.mock("@/app/(app)/distractions/actions", () => ({
@@ -47,19 +47,19 @@ describe("capture actions", () => {
   describe("captureTask", () => {
     it("routes to addTaskCore with domain school — the only path that action has", async () => {
       await captureTask({ title: "Submit lab report", dueDate: "2026-09-05" });
-      expect(addTaskCoreMock).toHaveBeenCalledWith({ domain: "school", title: "Submit lab report", dueDate: "2026-09-05" });
+      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "school", title: "Submit lab report", dueDate: "2026-09-05" });
     });
 
     it("never passes estimated_minutes or a taskType — a captured task earns both later", async () => {
       await captureTask({ title: "Submit lab report", dueDate: "2026-09-05" });
-      const call = addTaskCoreMock.mock.calls[0]![0] as Record<string, unknown>;
+      const call = addTaskCoreMock.mock.calls[0]![2] as Record<string, unknown>;
       expect(call).not.toHaveProperty("estimatedMinutes");
       expect(call).not.toHaveProperty("taskType");
     });
 
     it("omits dueDate entirely when nothing resolved, rather than fabricating today as a deadline", async () => {
       await captureTask({ title: "Buy notebook", dueDate: null });
-      expect(addTaskCoreMock).toHaveBeenCalledWith({ domain: "school", title: "Buy notebook" });
+      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "school", title: "Buy notebook" });
     });
   });
 

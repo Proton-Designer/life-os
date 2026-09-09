@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const removeTaskCoreMock = vi.fn(async (_id: string) => {});
+const removeTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
 const addTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
 const updateTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
 const revalidatePathMock = vi.fn();
 
 vi.mock("@/lib/tasks/actions-core", () => ({
-  addTaskCore: (input: unknown) => addTaskCoreMock(input),
-  updateTaskCore: (id: string, input: unknown) => updateTaskCoreMock(id, input),
+  addTaskCore: (...args: unknown[]) => addTaskCoreMock(...args),
+  updateTaskCore: (...args: unknown[]) => updateTaskCoreMock(...args),
   toggleTaskCore: vi.fn(),
-  removeTaskCore: (id: string) => removeTaskCoreMock(id),
+  removeTaskCore: (...args: unknown[]) => removeTaskCoreMock(...args),
   addScheduleEventCore: vi.fn(),
   cancelScheduleOccurrenceCore: vi.fn(),
   uncancelScheduleOccurrenceCore: vi.fn(),
@@ -44,7 +44,7 @@ describe("School actions — removeTask", () => {
 
     await removeTask("task-1");
 
-    expect(removeTaskCoreMock).toHaveBeenCalledWith("task-1");
+    expect(removeTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "task-1");
     expect(revalidatePathMock).toHaveBeenCalledWith("/school");
     expect(revalidatePathMock).toHaveBeenCalledWith("/");
   });
@@ -61,7 +61,7 @@ describe("School actions — addTask", () => {
 
     await addTask({ title: "Read chapter 4", dueDate: "2026-08-15", taskType: "quiz", classId: "class-1" });
 
-    expect(addTaskCoreMock).toHaveBeenCalledWith({
+    expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", {
       domain: "school",
       title: "Read chapter 4",
       dueDate: "2026-08-15",
@@ -82,7 +82,7 @@ describe("School actions — updateTask", () => {
 
     await updateTask("task-1", { title: "Renamed", dueDate: "2026-09-01", taskType: "exam", classId: "class-2" });
 
-    expect(updateTaskCoreMock).toHaveBeenCalledWith("task-1", {
+    expect(updateTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "task-1", {
       title: "Renamed",
       dueDate: "2026-09-01",
       taskType: "exam",

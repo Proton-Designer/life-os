@@ -28,7 +28,8 @@ async function todayForCapture(): Promise<string> {
  * nobody stated.
  */
 export async function captureTask(input: { title: string; dueDate?: string | null }): Promise<void> {
-  await addTaskCore({
+  const { supabase, userId } = await requireUser();
+  await addTaskCore(supabase, userId, {
     domain: "school",
     title: input.title,
     ...(input.dueDate ? { dueDate: input.dueDate } : {}),

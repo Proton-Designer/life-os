@@ -1,35 +1,25 @@
 /**
- * ⚠️ NOT R5-CORE-SHAPED, DESPITE THE FILENAME. Every function below still
- * calls `requireUser()` internally — it is a shared module for THREE
- * cookie-authed callers (app/(app)/work/actions.ts [schedule-event
- * functions only], app/(app)/school/actions.ts, lib/capture/actions.ts),
- * not a bearer-auth-reachable core. Calling anything here from an MCP tool
- * would reproduce the exact "Not authenticated" failure R4's whole spike
- * exists to prevent.
+ * R5 core(supabase, userId, ...) extraction — done for real (team-lead,
+ * school fan-out brief): "this is where lib/tasks/actions-core.ts genuinely
+ * is in the path... strip requireUser(), take supabase/userId as
+ * parameters, update the three callers." Same discipline as
+ * lib/deen/actions-core.ts, lib/coop/targets-core.ts, lib/coop/tasks-core.ts
+ * — NONE of the functions below call requireUser()/getProfile()/
+ * getAuthedUser(). The 3 cookie-authed callers (app/(app)/work/actions.ts
+ * [schedule-event functions only], app/(app)/school/actions.ts,
+ * lib/capture/actions.ts) now each do their own requireUser() and pass
+ * supabase/userId through explicitly.
  *
- * Found and flagged during L7 (docs/ai-connector/PROGRAM-PLAN.md, fanning
- * out `work`) while deciding what "work.task" should mean for MCP — this
- * file's `addTaskCore`/`updateTaskCore`/`toggleTaskCore`/`removeTaskCore`
- * operate on the GENERIC `tasks` table (domain='co_op' for Work), which is
- * a DIFFERENT, separate table from `coop_tasks` (the Work Targets-strip
- * pipeline, which IS wired for MCP — see lib/coop/tasks-core.ts,
- * lib/mcp/registry.ts's `work.task` entity). The owner's explicit example
- * ("advanceTask/retreatTask/blockTask/unblockTask") names the coop_tasks
- * functions specifically, so MCP's `work.task` was scoped to that table;
- * this file's generic-tasks surface was deliberately left out of L7,
- * rather than rushing a 3-caller refactor (touching school's domain too,
- * which is out of scope) under the same pass that stood up two new
- * domains. That deferral is why this file is untouched rather than fixed.
- *
- * The fix, when someone needs it (i.e. wiring an MCP entity on the generic
- * `tasks` table): strip every `requireUser()` call, make `supabase`/
- * `userId` explicit parameters on every exported function (same shape as
- * lib/deen/actions-core.ts, lib/coop/targets-core.ts, lib/coop/tasks-core.ts),
- * and update the 3 call sites to pass them through from their own
- * `requireUser()`. Mechanical, not risky — just a real piece of work, not
- * a rename.
+ * DELETE FUNCTIONS STAY IN THIS FILE, SHAPED LIKE EVERY OTHER FUNCTION HERE
+ * (per the lead's literal instruction to fix "every exported function" in
+ * this file), BUT ARE NOT WIRED INTO lib/mcp/write-registry.ts —
+ * removeTaskCore and removeScheduleEventCore are real DELETEs, and the MCP
+ * write path may never hard-delete a row (the standing guardrail, same
+ * posture as removeTarget/unmarkPrayer/removeTask's own deletes staying
+ * cookie-only elsewhere in this program). They are core-shaped because the
+ * cookie-authed callers need that shape too, not because MCP can reach them.
  */
-import { requireUser } from "@/lib/supabase/auth";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TaskType } from "./task-type";
 
 export type TaskDomain = "school" | "co_op";
@@ -47,19 +37,24 @@ export type AddTaskInput = {
   classId?: string | null;
 };
 
-export async function addTaskCore(input: AddTaskInput): Promise<void> {
-  const { supabase, userId } = await requireUser();
-  const { error } = await supabase.from("tasks").insert({
-    user_id: userId,
-    domain: input.domain,
-    title: input.title,
-    due_date: input.dueDate ?? null,
-    due_time: input.dueTime ?? null,
-    task_type: input.taskType ?? null,
-    task_type_other_label: input.taskType === "other" ? (input.taskTypeOtherLabel ?? null) : null,
-    class_id: input.classId ?? null,
-  });
+/** Selects the real row id back off the insert — the MCP write contract ({id, updated_at}) needs a real id, never a synthesized one; the 3 cookie-authed callers simply discard the return value (`Promise<void>` wrappers), so this is additive, not a behavior change for them. */
+export async function addTaskCore(supabase: SupabaseClient, userId: string, input: AddTaskInput): Promise<string> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      user_id: userId,
+      domain: input.domain,
+      title: input.title,
+      due_date: input.dueDate ?? null,
+      due_time: input.dueTime ?? null,
+      task_type: input.taskType ?? null,
+      task_type_other_label: input.taskType === "other" ? (input.taskTypeOtherLabel ?? null) : null,
+      class_id: input.classId ?? null,
+    })
+    .select("id")
+    .single();
   if (error) throw error;
+  return data.id;
 }
 
 export type UpdateTaskInput = {
@@ -71,8 +66,7 @@ export type UpdateTaskInput = {
 };
 
 /** Item 5's Edit popup: "change the contents of any task." Full-replace update, scoped by id + user_id like every other task mutation here. */
-export async function updateTaskCore(id: string, input: UpdateTaskInput): Promise<void> {
-  const { supabase, userId } = await requireUser();
+export async function updateTaskCore(supabase: SupabaseClient, userId: string, id: string, input: UpdateTaskInput): Promise<void> {
   const { error } = await supabase
     .from("tasks")
     .update({
@@ -87,9 +81,11 @@ export async function updateTaskCore(id: string, input: UpdateTaskInput): Promis
   if (error) throw error;
 }
 
-export async function toggleTaskCore(id: string): Promise<void> {
-  const { supabase, userId } = await requireUser();
+export interface ToggleTaskResult {
+  completed: boolean;
+}
 
+export async function toggleTaskCore(supabase: SupabaseClient, userId: string, id: string): Promise<ToggleTaskResult> {
   const { data: existing } = await supabase
     .from("tasks")
     .select("completed")
@@ -106,15 +102,18 @@ export async function toggleTaskCore(id: string): Promise<void> {
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;
+  return { completed: nowCompleted };
 }
 
-export async function removeTaskCore(id: string): Promise<void> {
-  const { supabase, userId } = await requireUser();
+/** A real DELETE — not reachable from lib/mcp/write-registry.ts. See this file's header comment. */
+export async function removeTaskCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
   const { error } = await supabase.from("tasks").delete().eq("id", id).eq("user_id", userId);
   if (error) throw error;
 }
 
 export async function addScheduleEventCore(
+  supabase: SupabaseClient,
+  userId: string,
   domain: TaskDomain,
   title: string,
   options: {
@@ -125,7 +124,6 @@ export async function addScheduleEventCore(
     endTime?: string;
   }
 ): Promise<void> {
-  const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("schedule_events").insert({
     user_id: userId,
     domain,
@@ -139,12 +137,13 @@ export async function addScheduleEventCore(
   if (error) throw error;
 }
 
-/** Permanent edit of a recurring schedule_events row's own day/time — e.g. Work's "edit hours permanently" (item 4). Never touches other rows; a multi-day pattern here is several independent rows, not a group. */
+/** Permanent edit of a recurring schedule_events row's own day/time — e.g. Work's "edit hours permanently" (item 4), School's "change the class permanently." Never touches other rows; a multi-day pattern here is several independent rows, not a group. */
 export async function updateScheduleEventCore(
+  supabase: SupabaseClient,
+  userId: string,
   id: string,
   options: { dayOfWeek: number; eventTime: string; endTime?: string }
 ): Promise<void> {
-  const { supabase, userId } = await requireUser();
   const { error } = await supabase
     .from("schedule_events")
     .update({ day_of_week: options.dayOfWeek, event_time: options.eventTime, end_time: options.endTime ?? null })
@@ -153,34 +152,36 @@ export async function updateScheduleEventCore(
   if (error) throw error;
 }
 
-export async function removeScheduleEventCore(id: string): Promise<void> {
-  const { supabase, userId } = await requireUser();
+/** A real DELETE — not reachable from lib/mcp/write-registry.ts. See this file's header comment. */
+export async function removeScheduleEventCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
   const { error } = await supabase.from("schedule_events").delete().eq("id", id).eq("user_id", userId);
   if (error) throw error;
 }
 
 /**
- * A temporary hours change for ONE occurrence — "temporarily for this week
- * or next week" (item 4) — distinct from cancelling (removal) and from
- * editing the permanent pattern (affects every future week). Upsert: a
- * second temporary edit on the same date replaces the first rather than
- * erroring, same idempotent-on-conflict shape as cancellation.
+ * A temporary hours/time change for ONE occurrence — "move next Tuesday's
+ * class" / "temporarily for this week or next week" (item 4) — distinct
+ * from cancelling (removal) and from editing the permanent pattern (affects
+ * every future week). Upsert: a second temporary edit on the same date
+ * replaces the first rather than erroring, same idempotent-on-conflict shape
+ * as cancellation.
  *
  * Also clears any existing cancellation for the same occurrence (Opus Lead
  * ruling): setting an override on a cancelled date means "actually I am
- * working, at these hours" — a stronger, more specific statement than the
- * cancellation it supersedes. The reverse never happens automatically —
- * cancelScheduleOccurrenceCore does not touch this table — an override
- * stays in place underneath a cancellation so undoing it restores the
- * changed hours, not the permanent ones.
+ * working/in class, at these hours" — a stronger, more specific statement
+ * than the cancellation it supersedes. The reverse never happens
+ * automatically — cancelScheduleOccurrenceCore does not touch this table —
+ * an override stays in place underneath a cancellation so undoing it
+ * restores the changed hours, not the permanent ones.
  */
 export async function setScheduleEventOverrideCore(
+  supabase: SupabaseClient,
+  userId: string,
   eventId: string,
   date: string,
   eventTime: string,
   endTime?: string
 ): Promise<void> {
-  const { supabase, userId } = await requireUser();
   const { error: upsertError } = await supabase
     .from("schedule_event_overrides")
     .upsert(
@@ -198,9 +199,8 @@ export async function setScheduleEventOverrideCore(
   if (deleteError) throw deleteError;
 }
 
-/** Reverts a single occurrence back to its permanent pattern's own time. */
-export async function removeScheduleEventOverrideCore(eventId: string, date: string): Promise<void> {
-  const { supabase, userId } = await requireUser();
+/** Reverts a single occurrence back to its permanent pattern's own time. A real DELETE — not reachable from lib/mcp/write-registry.ts. See this file's header comment and docs/ai-connector/SCHOOL-WRITE-SCOPE-DECISIONS.md. */
+export async function removeScheduleEventOverrideCore(supabase: SupabaseClient, userId: string, eventId: string, date: string): Promise<void> {
   const { error } = await supabase
     .from("schedule_event_overrides")
     .delete()
@@ -211,31 +211,34 @@ export async function removeScheduleEventOverrideCore(eventId: string, date: str
 }
 
 /**
- * Single-date exception: cancels one occurrence of a recurring event without
- * touching the recurring pattern itself, per spec. Recorded in
- * schedule_event_cancellations (migration 046), not the old single-column
- * `schedule_events.cancelled_on` — that column could hold only one cancelled
- * occurrence per event at a time, so cancelling a second occurrence silently
- * un-cancelled the first. `on conflict do nothing` makes a repeat cancel of
- * the same occurrence a no-op rather than an error.
+ * Single-date exception: cancels one occurrence of a recurring event
+ * without touching the recurring pattern itself — "cancel this one
+ * instance." Recorded in schedule_event_cancellations (migration 046), not
+ * the old single-column `schedule_events.cancelled_on` — that column could
+ * hold only one cancelled occurrence per event at a time, so cancelling a
+ * second occurrence silently un-cancelled the first. `on conflict do
+ * nothing` makes a repeat cancel of the same occurrence a no-op rather than
+ * an error.
  */
 export async function cancelScheduleOccurrenceCore(
+  supabase: SupabaseClient,
+  userId: string,
   eventId: string,
   date: string
 ): Promise<void> {
-  const { supabase, userId } = await requireUser();
   const { error } = await supabase
     .from("schedule_event_cancellations")
     .upsert({ event_id: eventId, user_id: userId, date }, { onConflict: "event_id,date", ignoreDuplicates: true });
   if (error) throw error;
 }
 
-/** Undoes a single cancelled occurrence — the counterpart every cancel UI must offer, since there is otherwise no way back short of writing SQL directly (see migration 046's own header comment). */
+/** Undoes a single cancelled occurrence — the counterpart every cancel UI must offer, since there is otherwise no way back short of writing SQL directly (see migration 046's own header comment). A real DELETE — not reachable from lib/mcp/write-registry.ts. See this file's header comment and docs/ai-connector/SCHOOL-WRITE-SCOPE-DECISIONS.md. */
 export async function uncancelScheduleOccurrenceCore(
+  supabase: SupabaseClient,
+  userId: string,
   eventId: string,
   date: string
 ): Promise<void> {
-  const { supabase, userId } = await requireUser();
   const { error } = await supabase
     .from("schedule_event_cancellations")
     .delete()
