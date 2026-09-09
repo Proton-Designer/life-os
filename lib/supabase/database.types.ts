@@ -130,32 +130,53 @@ export type Database = {
       book_sections: {
         Row: {
           book_id: string
+          created_at: string
           id: string
           level: number
           page_end: number | null
           page_start: number | null
           sort_order: number
+          summarized_at: string | null
+          summarized_by: Database["public"]["Enums"]["extracted_by"] | null
+          summary: string | null
+          summary_model: string | null
+          summary_source_chunk_ids: string[] | null
           title: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
           book_id: string
+          created_at?: string
           id?: string
           level?: number
           page_end?: number | null
           page_start?: number | null
           sort_order?: number
+          summarized_at?: string | null
+          summarized_by?: Database["public"]["Enums"]["extracted_by"] | null
+          summary?: string | null
+          summary_model?: string | null
+          summary_source_chunk_ids?: string[] | null
           title?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
           book_id?: string
+          created_at?: string
           id?: string
           level?: number
           page_end?: number | null
           page_start?: number | null
           sort_order?: number
+          summarized_at?: string | null
+          summarized_by?: Database["public"]["Enums"]["extracted_by"] | null
+          summary?: string | null
+          summary_model?: string | null
+          summary_source_chunk_ids?: string[] | null
           title?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
