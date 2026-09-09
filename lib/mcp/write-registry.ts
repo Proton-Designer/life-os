@@ -24,6 +24,7 @@ import type { CoopTaskStatus } from "@/lib/coop/tasks";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { saveAllocationCheckinCore } from "@/lib/checkins/actions-core";
 import { captureCore, logEventCore, saveActionPlanCore, recordPlanOutcomeCore } from "@/lib/distractions/actions-core";
+import { updateAppearanceCore, setWeekdayBaselinesCore, clearWeekdayBaselinesCore } from "@/lib/settings/actions-core";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 
 /**
@@ -1091,6 +1092,94 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
         },
       },
+    },
+  },
+  /**
+   * settings: DELIBERATELY NARROW, per the lead's exact scope — theme_preset/
+   * hidden_features on profile, weekday_baselines on user_setting. See
+   * lib/settings/actions-core.ts's own header for why everything else on
+   * user_settings is left unwired (checked, not assumed: it has no write
+   * path anywhere in the app today, not even through the real UI), and why
+   * `api_key` has NO entity/actions here at all — not an oversight, a
+   * permanent exclusion (a model that could write a provider key could
+   * exfiltrate one by writing a key it controls).
+   */
+  settings: {
+    domain: "settings",
+    entities: {
+      profile: {
+        entity: "profile",
+        actions: {
+          update: {
+            action: "update",
+            description:
+              "Change the account's theme preset and/or which nav features are hidden. No top-level id -- always the caller's own single profile row. `home`/`settings` can never appear in hidden_features (refused with a clear message, matching the DB's own CHECK -- see updateAppearanceCore's comment).",
+            patchShape: "{ theme_preset?: 'oxblood'|'ocean'|'forest'|'sunset'|'mono', hidden_features?: ('deen'|'work'|'business'|'school'|'fitness'|'insights')[] }",
+            handler: async (ctx, patch) => {
+              const result = await updateAppearanceCore(ctx.userClient, ctx.userId, { theme_preset: patch.theme_preset, hidden_features: patch.hidden_features });
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: ctx.userId, updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `updated appearance settings${result.theme_preset ? ` (theme: ${result.theme_preset})` : ""}${result.hidden_features ? ` (hidden: ${result.hidden_features.join(", ") || "none"})` : ""}`,
+              };
+            },
+          },
+          // No other profiles column is writable here -- display_name,
+          // timezone, location, prayer_calc_method/asr_madhab, the PIN
+          // fields, checkin window/interval, traveling_mode,
+          // onboarding_completed, paused_date are all out of scope for
+          // this pass, deliberately: the lead named theme_preset/
+          // hidden_features specifically, and pin_hash in particular is
+          // credential-adjacent (a model that could clear/set a PIN could
+          // defeat the app's own lock screen) -- the same class of concern
+          // as user_api_keys, not silently bundled in with an unrelated
+          // appearance action.
+        },
+      },
+      user_setting: {
+        entity: "user_setting",
+        actions: {
+          set_weekday_baselines: {
+            action: "set_weekday_baselines",
+            description: "Set all 7 weekday hour baselines (R58) for the Day Won comparison. No top-level id.",
+            patchShape: "{ values: number[7] }", // hours 0-12, Sunday first
+            handler: async (ctx, patch) => {
+              const result = await setWeekdayBaselinesCore(ctx.userClient, ctx.userId, patch.values);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: ctx.userId, updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `set weekday baselines to [${result.values.join(", ")}]`,
+              };
+            },
+          },
+          clear_weekday_baselines: {
+            action: "clear_weekday_baselines",
+            description: "Reset weekday baselines to NEVER SET -- not the same as a week of zeros (see clearWeekdayBaselinesCore's own comment). No top-level id, no patch.",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              await clearWeekdayBaselinesCore(ctx.userClient, ctx.userId);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ cleared: true }) }], structuredContent: { id: ctx.userId, updated_at: ctx.now.toISOString(), cleared: true } },
+                summary: "cleared weekday baselines back to never-set",
+              };
+            },
+          },
+          // daily_new_limit, notification_enabled, notification_time,
+          // desired_retention, ai_grading_enabled, session_target_minutes
+          // are deliberately absent -- see this domain's own header
+          // comment and lib/settings/actions-core.ts's: none of them has
+          // a write path anywhere in the app today, so wiring them here
+          // would make MCP the FIRST place they become editable at all,
+          // not an extension of an existing capability. Flagged to the
+          // lead rather than guessed at.
+        },
+      },
+      // `api_key` has NO entity here -- see this domain's own header
+      // comment. Permanent, not a "not yet."
     },
   },
 };
