@@ -279,31 +279,28 @@ all, but simply the projects that happened to run after the mitigation engaged.
 
 | L | state | evidence |
 |---|---|---|
-| **L0** | **done** | auth bridge = local ES256, zero round trips; platform auth reality established |
-| **L1** | **LIVE** | layout suite exit 0 at 320/390px both browsers; live browser check, 0 console errors |
-| **L2** | **LIVE** | migration 130 applied; `'{}'`/`['admin']` rejected on prod; connectors panel renders; 0 RSC errors |
-| **L3** | **LIVE** | 130/131/133 applied. Real MCP client vs production: `initialize`, `tools/list`, `list_capabilities` all OK. All 8 Deen entities wired. `source_chunks` raw text **provably** unreachable at any detail level |
-| **L4** | **LIVE + PROVEN** | migration 132 applied. Flow check **30/30** against production: register → authorize → consent → code → token → refresh, plus the reuse-detection race firing for real. Consent spec **14/14** |
-| **L6** | in progress | `write` tool for Deen — Eng1 |
-| **L10** | in progress | themes + feature visibility — Eng2 |
-| **L5, L7-L9, L11-L12** | not started | — |
+| **L0-L4** | **LIVE + PROVEN** | connector live; OAuth 30/30 + consent 14/14 vs production; `initialize`/`tools/list`/`list_capabilities` all working with a real MCP client |
+| **L5** read fan-out | 8 of ~14 domains | deen(8 entities), work(3), business(2), school(4), self_mastery(1), settings(3), checkins(2), distractions(4). calendar/review/home registered as honest zero-entity aggregation domains. **fitness in flight** |
+| **L6** write | deen, work, business, school | scope-enforced, audited with resolved operation, no hard deletes |
+| **L10** themes/features | **LIVE** | 5 presets, feature show/hide, `home`+`settings` structurally un-hideable |
+| **L7, L9, L11, L12** | not started | scheduling, book summaries, widgets, deploy tool |
 
-**Blocked on Ayman (R4b):** the ES256 public-key import. It is the *only* thing between
-here and `read` returning real data — every layer beneath it is proven on production.
+**Migrations applied tonight: 130-137**, every one hash-verified and proven red-then-green
+on production. Four of them (133, 135, 136, 137) exist for the same reason: the
+architecture's "`updated_at` on every entity" rule had **no schema behind it** — a
+trigger-maintained `updated_at` existed on exactly 1 of 68 tables. Each was scoped by
+reading real write paths, and each excluded at least one table that turned out to be
+genuinely append-only.
 
-**Bugs found and fixed, all by checks that could actually fail:**
-1. `scopes` CHECK used `array_length()`, which is NULL for `'{}'` — and a CHECK passes on NULL.
-2. Migration 131 `SET NOT NULL` with no backfill — proven against an *empty* table, where it
-   cannot fail.
-3. `key_ops: ["sign","verify"]` — WebCrypto permits only `["sign"]` on an EC private key.
-4. Refresh reuse-detection revoked the already-dead token, not the live one — i.e. it did
-   nothing in the exact race it existed for.
-5. `expires_at` computed and never inserted — every OAuth code mint failed. 168 mocked tests
-   could not see it, because **a test that mocks the database cannot test the database.**
+**Known gaps in "read everything", chosen with reasons rather than missed:**
+- `schedule_event_overrides`/`cancellations` — parent-owned, awaiting `parentFilter`.
+  Denormalising a `domain` column onto them was considered and **rejected**: a second
+  source of truth for a fact that already exists will drift.
+- Night Plan tasks (`domain IS NULL`) — `fixedFilter` can only express equality. Ruled:
+  it gains a null-discriminant, then `review.night_plan_task` registers on it.
 
-**Lead's own errors, recorded to the same standard:** deployed code ahead of its migration;
-`git mv` that left the old path in HEAD's tree; an RLS check that counted indexes as tables;
-a trigger test defeated by `now()` freezing inside a transaction.
+**Blocked on Ayman:** (1) the ES256 public-key import — the only thing between all of this
+and real data; (2) excluding `/api/mcp` + `/.well-known/*` from Vercel bot protection (R10).
 
 ### Exit criteria (the part that matters)
 
