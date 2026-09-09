@@ -18,6 +18,15 @@ import { generateKeyPair, exportJWK, importJWK, jwtVerify } from "jose";
  * Ayman's REAL keypair and its import into Supabase's JWKS are a one-time
  * setup step outside this repo (R4b) — this suite proves the signing
  * mechanism is correct independent of whether that step has happened yet.
+ *
+ * WHY THIS SUITE DID NOT CATCH THE key_ops BUG (found live on production,
+ * see session.ts's `normalizeForSigning` comment): `freshKeypair()` below
+ * generates its throwaway keys with `jose`'s own `generateKeyPair`, whose
+ * exported private JWK carries NO `key_ops` at all. Only a key from
+ * `supabase gen signing-key`'s generator carries the
+ * `key_ops: ["sign","verify"]` shape that WebCrypto rejects on a private
+ * key. A keypair this file generates itself can never reproduce that bug —
+ * the test below constructs that exact shape by hand instead.
  */
 
 const createClientMock = vi.fn((..._args: unknown[]) => ({ __fake: "supabase-client" }));
@@ -98,6 +107,20 @@ describe("mintSessionJwt", () => {
     __resetSigningKeyCacheForTests();
 
     await expect(mintSessionJwt("user-1")).rejects.toThrow(/valid JSON/);
+  });
+
+  it("mints successfully from a JWK carrying key_ops:['sign','verify'] — the exact shape `supabase gen signing-key` emits, and the exact shape that failed live on production with 'Unsupported key usage for a ECDSA key'", async () => {
+    const { publicJwk, privateJwk } = await freshKeypair();
+    const asGenerated = { ...privateJwk, key_ops: ["sign", "verify"] };
+    process.env.MCP_SIGNING_KEY_JWK = JSON.stringify(asGenerated);
+    const { mintSessionJwt, __resetSigningKeyCacheForTests } = await import("../session");
+    __resetSigningKeyCacheForTests();
+
+    const jwt = await mintSessionJwt("user-1");
+
+    const publicKey = await importJWK(publicJwk, "ES256");
+    const { payload } = await jwtVerify(jwt, publicKey);
+    expect(payload.sub).toBe("user-1");
   });
 
   it("mints distinct-looking tokens for different users from the same key", async () => {

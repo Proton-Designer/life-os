@@ -45,8 +45,27 @@ async function signingKey() {
   } catch {
     throw new Error("MCP_SIGNING_KEY_JWK is not valid JSON.");
   }
-  cachedKey = await importJWK(jwk, ALG);
+  cachedKey = await importJWK(normalizeForSigning(jwk), ALG);
   return cachedKey;
+}
+
+/**
+ * `supabase gen signing-key --algorithm ES256` emits a JWK with
+ * `key_ops: ["sign", "verify"]`, because the JWK describes a whole
+ * keypair's public+private material, not a single usage. WebCrypto, by
+ * spec, only permits `["sign"]` on an ECDSA PRIVATE key — `"verify"` is a
+ * public-key operation — so `importJWK` rejects the as-generated JWK with
+ * `Unsupported key usage for a ECDSA key`. Diagnosed live on production
+ * (team-lead) and reproduced locally against three variants of the real
+ * generated key: as-generated fails with that exact string, `key_ops`
+ * stripped entirely succeeds, `key_ops: ["sign"]` also succeeds. Stripping
+ * is what this does — deleting the field before use looks like superstition
+ * to the next reader without this paragraph, so it's written down here
+ * rather than left as a bare `delete`.
+ */
+function normalizeForSigning(jwk: JWK): JWK {
+  const { key_ops, ...rest } = jwk;
+  return rest;
 }
 
 /**
