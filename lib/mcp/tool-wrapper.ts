@@ -1,7 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import type { Database } from "@/lib/supabase/database.types";
 import { tokenHasScope, touchLastUsed, type McpScope } from "./tokens";
 import { checkRateLimit } from "./rate-limit";
 import { writeAuditRow, type McpAuditOutcome } from "./audit";
@@ -36,9 +35,16 @@ export async function runMcpTool(
   serviceClient: SupabaseClient,
   authInfo: AuthInfoLike | undefined,
   toolName: string,
+  operation: string,
   requiredScope: McpScope,
   args: unknown,
-  fn: (userClient: SupabaseClient<Database>, userId: string) => Promise<RunMcpToolOutcome>,
+  // Untyped on purpose: TOOL-ARCHITECTURE.md's `read`/`write` dispatch over
+  // a registry-driven table/column set (lib/mcp/registry.ts) cannot be
+  // statically typed against the generated `Database` union — the table
+  // name is a runtime string, not a literal this client's types can know
+  // about. Same mechanism as lib/mcp/tokens.ts's own untyped client, for a
+  // different (but structurally identical) reason.
+  fn: (userClient: SupabaseClient, userId: string) => Promise<RunMcpToolOutcome>,
 ): Promise<CallToolResult> {
   const auth = readMcpAuth(authInfo);
   if (!auth) {
@@ -55,6 +61,7 @@ export async function runMcpTool(
       userId: auth.userId,
       tokenId: auth.tokenId,
       toolName,
+      operation,
       args,
       outcome: "denied",
       resultSummary: message,
@@ -102,7 +109,7 @@ export async function runMcpTool(
   // confirm was recorded cannot be reported as a clean success without
   // quietly giving that guarantee up the one time it would have mattered.
   try {
-    await writeAuditRow(serviceClient, { userId: auth.userId, tokenId: auth.tokenId, toolName, args, outcome, resultSummary });
+    await writeAuditRow(serviceClient, { userId: auth.userId, tokenId: auth.tokenId, toolName, operation, args, outcome, resultSummary });
   } catch {
     return errorResult("That may have worked, but it couldn't be recorded, so it's being reported as failed. Try again.");
   }

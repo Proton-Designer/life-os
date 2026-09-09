@@ -7,7 +7,18 @@ export interface McpAuditEntry {
   userId: string;
   /** Null only for a call that somehow reached here with no resolvable token — should not happen past verifyAccessToken, kept nullable to match the column (migration 130's ON DELETE SET NULL). */
   tokenId: string | null;
+  /** The literal MCP tool name ("read", "list_capabilities", ...) — generic by the design in TOOL-ARCHITECTURE.md. */
   toolName: string;
+  /**
+   * The RESOLVED operation (migration 131) — e.g. "deen.prayer.read" —
+   * never just `toolName`. team-lead's explicit requirement: under the
+   * generic-tool design every call's `tool_name` would read "read" or
+   * "write", which guts the audit log's actual purpose (letting the owner
+   * see what a possibly-injected model DID, not just which of 7 generic
+   * verbs it invoked). Resolved from the call's own args BEFORE dispatch,
+   * so even a denied/errored call records what was actually attempted.
+   */
+  operation: string;
   /** Whatever the caller sent, as given to the tool — untrusted input, logged as-is for the audit trail's own sake, not re-validated here. */
   args: unknown;
   outcome: McpAuditOutcome;
@@ -32,6 +43,7 @@ export async function writeAuditRow(supabase: SupabaseClient, entry: McpAuditEnt
     user_id: entry.userId,
     token_id: entry.tokenId,
     tool_name: entry.toolName,
+    operation: entry.operation,
     args: entry.args ?? {},
     outcome: entry.outcome,
     result_summary: entry.resultSummary ?? null,

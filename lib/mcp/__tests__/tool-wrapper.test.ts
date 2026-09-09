@@ -62,7 +62,7 @@ describe("runMcpTool", () => {
     const { client, inserts } = makeServiceClient();
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, undefined, "get_profile", "read", {}, okFn);
+    const result = await runMcpTool(client, undefined, "get_profile", "test.get_profile", "read", {}, okFn);
 
     expect(result.isError).toBe(true);
     expect(inserts).toHaveLength(0);
@@ -73,13 +73,13 @@ describe("runMcpTool", () => {
     const { client, inserts } = makeServiceClient();
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, READ_ONLY_AUTH, "some_write_tool", "write", { x: 1 }, okFn);
+    const result = await runMcpTool(client, READ_ONLY_AUTH, "some_write_tool", "test.write_thing", "write", { x: 1 }, okFn);
 
     expect(result.isError).toBe(true);
     expect(okFn).not.toHaveBeenCalled();
     expect(inserts).toHaveLength(1);
     expect(inserts[0]).toEqual(
-      expect.objectContaining({ user_id: "user-1", token_id: "tok-1", tool_name: "some_write_tool", outcome: "denied" }),
+      expect.objectContaining({ user_id: "user-1", token_id: "tok-1", tool_name: "some_write_tool", operation: "test.write_thing", outcome: "denied" }),
     );
   });
 
@@ -87,7 +87,7 @@ describe("runMcpTool", () => {
     const { client, inserts } = makeServiceClient({ rateLimitCount: 999 });
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "read", {}, okFn);
+    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "test.get_profile", "read", {}, okFn);
 
     expect(result.isError).toBe(true);
     expect(okFn).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe("runMcpTool", () => {
     const { client } = makeServiceClient({ rateLimitError: { message: "db down" } });
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "read", {}, okFn);
+    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "test.get_profile", "read", {}, okFn);
 
     expect(result.isError).toBe(true);
     expect(okFn).not.toHaveBeenCalled();
@@ -108,7 +108,7 @@ describe("runMcpTool", () => {
     const { client, inserts } = makeServiceClient();
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "read", { q: "me" }, okFn);
+    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "test.get_profile", "read", { q: "me" }, okFn);
 
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toBe("ok");
@@ -116,7 +116,7 @@ describe("runMcpTool", () => {
     expect(buildUserScopedClientMock).toHaveBeenCalledWith("fake.jwt.token");
     expect(okFn).toHaveBeenCalledWith({ __fake: "user-scoped-client" }, "user-1");
     expect(inserts[0]).toEqual(
-      expect.objectContaining({ user_id: "user-1", token_id: "tok-1", tool_name: "get_profile", outcome: "ok", args: { q: "me" } }),
+      expect.objectContaining({ user_id: "user-1", token_id: "tok-1", tool_name: "get_profile", operation: "test.get_profile", outcome: "ok", args: { q: "me" } }),
     );
   });
 
@@ -127,7 +127,7 @@ describe("runMcpTool", () => {
     });
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "read", {}, throwingFn);
+    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "test.get_profile", "read", {}, throwingFn);
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).not.toContain("postgres column name");
@@ -138,7 +138,7 @@ describe("runMcpTool", () => {
     const { client } = makeServiceClient({ auditInsertError: { message: "write failed" } });
     const { runMcpTool } = await import("../tool-wrapper");
 
-    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "read", {}, okFn);
+    const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "test.get_profile", "read", {}, okFn);
 
     expect(okFn).toHaveBeenCalled(); // the tool DID run
     expect(result.isError).toBe(true); // but the caller is told it failed, because it couldn't be recorded
