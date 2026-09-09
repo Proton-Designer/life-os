@@ -700,8 +700,343 @@ export const REGISTRY: Record<string, DomainDef> = {
   },
   self_mastery: {
     domain: "self_mastery",
-    description: "Book ingestion and spaced-repetition study.",
+    description:
+      "Book ingestion and spaced-repetition study -- library metadata, chapter structure, extracted lessons, " +
+      "spaced-repetition cards and their FSRS state, the append-only review log, promotion/verdict tracking " +
+      "for adopted lessons, and CollegeOS's class question bank (shares this study engine's review log). " +
+      "The raw book text itself (source_chunks.text/.embedding) is structurally excluded -- see that entity below.",
     entities: {
+      /**
+       * FLAGGED TO THE LEAD, NOT DECIDED HERE (per the explicit instruction
+       * that this specific judgement call is theirs): `provenance_quote`
+       * below is genuinely verbatim book text, not a paraphrase -- the
+       * extraction prompt (lib/self-mastery/ingestion/llm/ollama-provider.ts
+       * ~line 161) instructs the model to copy "the ONE sentence (or short
+       * span)... that exact span, copied verbatim (same words, same order,
+       * same punctuation)", and `isGrounded()` (llm/grounding.ts) enforces
+       * that it verbatim-matches a substring of the source chunk for every
+       * provider, not just as documentation. So by DESIGN this is a short
+       * (~1 sentence) quote, not a paragraph -- but the DB constraint is
+       * only `length(btrim(...)) > 0` (064_ulm_lessons.sql), so nothing
+       * technically caps it at one sentence if a provider misbehaves. This
+       * is the "a card containing a 400-word extract is arguably the book"
+       * case named in the brief. I'm including it in fullColumns below
+       * (recommendation: the field's entire purpose is grounding/citation --
+       * proving the claim isn't hallucinated -- and core_claim/mechanism/
+       * action_template, the fields that actually carry the book's IDEAS,
+       * are independently required to be substantially reworded away from
+       * it by passesClaimNotQuote), but this is exactly the call the lead
+       * asked to make themselves, not have made for them. If the ruling
+       * goes the other way, exclude `provenance_quote` from `lesson`'s
+       * fullColumns the same way `source_chunks.text` is excluded below --
+       * no other change needed, `validateDisplay`/`resolveColumns` already
+       * enforce whatever the allowlist says.
+       *
+       * Checked and ruled OUT as separate concerns, for the record:
+       * `cards.prompt`/`.answer` are AI-generated Q&A pairs, never a direct
+       * copy of the quote -- passesAntiLeak/passesTopicality (invariants.ts)
+       * gate them against EACH OTHER, and cloze cards are built from
+       * `core_claim` (itself already required to be non-quote-like), never
+       * from `provenance_quote` directly. `lesson_promotions.accepted_text`/
+       * `.cue` are the USER's own wording (migration 124's own comment:
+       * "never a copy of lessons.action_template"). `reviews.answered_text`/
+       * `.ai_feedback` are the user's typed answer and feedback on it, not
+       * book content. None of these carry verbatim source text.
+       */
+      lesson: {
+        entity: "lesson",
+        table: "lessons",
+        description:
+          "One extracted, hallucination-firewalled lesson from a book: a claim, its mechanism, an action template, " +
+          "and the verbatim quote that grounds it (see this entity's own header comment above). Flat, not " +
+          "parent-scoped -- the owner explicitly wants 'all those mini reflections' browsable across the whole " +
+          "library, not book-by-book only; filter.book_id narrows to one book when wanted.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "FLAGGED, NOT INVENTED -- lessons has no updated_at column, only created_at, and created_at is not a " +
+          "faithful proxy: worker-stages.ts UPDATEs this table repeatedly post-creation (rank reordering at " +
+          "generating_cards time, status transitions active/failed) with created_at never touching. Checked for " +
+          "non-code writers per the standing rule, and found one: migration 140's composite-FK sweep changed " +
+          "lessons.section_id/source_chunk_id to ON DELETE SET NULL -- deleting a book_section or source_chunk " +
+          "silently nulls a column on this row via the FK action itself, no trigger, no app code involved. " +
+          "Exactly the active_workout_plans class of bug. A real updated_at needs a migration; until then, null " +
+          "is the honest answer, not a fabricated created_at that would make detail:'ids' reuse silently wrong.",
+        summaryColumns: ["title", "core_claim", "status", "book_id"],
+        fullColumns: [
+          "title",
+          "core_claim",
+          "mechanism",
+          "action_template",
+          "evidence_strength",
+          "provenance_quote",
+          "page_ref",
+          "rank",
+          "status",
+          "relevance_floor",
+          "extracted_by",
+          "book_id",
+          "section_id",
+          "source_chunk_id",
+          "created_at",
+        ],
+        // `embedding` (vector(384)) deliberately excluded -- meaningless
+        // numeric noise to a model, same reasoning as card/source_chunks
+        // below, not a security concern for this one.
+        filterableColumns: ["book_id", "status", "section_id"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
+      book: {
+        entity: "book",
+        table: "books",
+        description: "One uploaded book: title/author, ingestion progress, and lifecycle timestamps. Never the file itself -- see file_path's exclusion note below.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "FLAGGED, NOT INVENTED -- books has created_at but no updated_at, and this row is mutated extensively " +
+          "post-creation: the ingestion worker (worker-stages.ts) UPDATEs status/stage/progress_pct/error_message/" +
+          "lesson_count/ready_at repeatedly through the pipeline; complete_session (079) sets deck_completed_at; " +
+          "delete_book/restore_book (081) set/clear deleted_at. created_at never reflects any of this. Checked for " +
+          "non-code writers: books_create_source (069) fires AFTER INSERT only (creates the paired `sources` row, " +
+          "doesn't touch `books` itself), so no trigger mutates this table -- the staleness here is entirely from " +
+          "the missing column, not a hidden writer. Needs a real migration for a trustworthy updated_at.",
+        summaryColumns: ["title", "author", "status", "stage", "progress_pct"],
+        fullColumns: [
+          "title",
+          "author",
+          "status",
+          "stage",
+          "progress_pct",
+          "page_count",
+          "lesson_count",
+          "error_message",
+          "cover_hue",
+          "created_at",
+          "ready_at",
+          "deck_completed_at",
+        ],
+        // `file_path`/`file_size_bytes` deliberately excluded, a narrower
+        // call than source_chunks' but the same spirit: file_path is a live
+        // Storage retrieval key for the ORIGINAL PDF/book file -- exposing
+        // it hands a widget/MCP caller a working pointer to "the actual
+        // book/pdf" the owner explicitly asked to keep off this connector,
+        // even though it isn't raw text like source_chunks.text. `deleted_at`
+        // also excluded, not for secrecy but because it's pointless: RLS's
+        // own books_own_row policy already restricts every row a caller can
+        // see to deleted_at IS NULL, so the column would read as an always-
+        // null field in every row this entity could ever return.
+        filterableColumns: ["status", "stage"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
+      book_section: {
+        entity: "book_section",
+        table: "book_sections",
+        description:
+          "One book's chapter/section structure (title, page range, nesting level) -- the table the per-chapter " +
+          "summary this connector is supposed to expose would live on. Parent-scoped: always read for one named " +
+          "book via filter.book_id, never as a flat cross-book list (a section has no meaning outside its book).",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification: "No created_at/updated_at column at all (062_ulm_book_sections.sql) -- honestly null, not invented. Currently 0 rows in production, so there is nothing to go stale yet either way.",
+        summaryColumns: ["title", "sort_order", "page_start", "page_end"],
+        fullColumns: ["title", "sort_order", "page_start", "page_end", "level", "book_id"],
+        filterableColumns: ["book_id"],
+        orderBy: [{ column: "sort_order", ascending: true }],
+        parentFilter: { column: "book_id", parentTable: "books", parentIdColumn: "id" },
+      },
+      card: {
+        entity: "card",
+        table: "cards",
+        description:
+          "One spaced-repetition prompt/answer pair generated from a lesson. Flat, not parent-scoped, same " +
+          "reasoning as `lesson` -- filter.book_id or filter.lesson_id narrows when wanted.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "FLAGGED, NOT INVENTED -- cards has no created_at/updated_at column at all, and it is genuinely mutated " +
+          "post-creation by TWO DB TRIGGERS, not application code: migration 126's " +
+          "suspend_cards_on_adopted_verdict (AFTER INSERT on lesson_verdicts, sets suspended_at/suspended_reason " +
+          "on every card of an adopted lesson) and suspend_new_card_if_lesson_adopted (BEFORE INSERT on cards " +
+          "itself, for a re-ingested deck of an already-adopted lesson). Checked precisely because this is the " +
+          "active_workout_plans class of bug -- a non-code writer changing a row with nothing to record when. " +
+          "There is no faithful column to use; a real updated_at needs a migration.",
+        summaryColumns: ["prompt", "prompt_type", "book_id", "lesson_id"],
+        fullColumns: ["prompt", "answer", "prompt_type", "sort_order", "book_id", "lesson_id", "suspended_at", "suspended_reason"],
+        filterableColumns: ["book_id", "lesson_id", "prompt_type"],
+        orderBy: [{ column: "sort_order", ascending: true }],
+      },
+      card_state: {
+        entity: "card_state",
+        table: "card_states",
+        description: "FSRS spaced-repetition scheduling state for one card (or, in CollegeOS's half of this shared engine, one question -- see `question` below; nothing in this app writes that half yet).",
+        idColumn: "id",
+        updatedAtColumn: "last_review_at",
+        updatedAtVerification:
+          "Verified against the real write path: submit_review (081, rewritten by 111) is the ONLY place this " +
+          "table is UPDATEd, and it unconditionally sets `last_review_at = now()` in the same statement as every " +
+          "other field it touches (stability/difficulty/due_at/reps/lapses/state/learning_steps/last_rating) -- " +
+          "there is no way this row changes without last_review_at moving too. Checked for non-code writers: the " +
+          "table's FKs (card_id/book_id/question_id -> cards/books/questions, all ON DELETE CASCADE) only ever " +
+          "DELETE this row, never UPDATE it, so no cascade can silently change it out from under this column. " +
+          "Null on a brand-new (never-reviewed) row -- correct, since nothing has happened to it yet.",
+        summaryColumns: ["state", "due_at", "stability", "book_id"],
+        fullColumns: ["state", "due_at", "stability", "difficulty", "reps", "lapses", "learning_steps", "last_review_at", "last_rating", "book_id", "card_id", "question_id"],
+        filterableColumns: ["book_id", "state", "card_id", "question_id"],
+        orderBy: [{ column: "due_at", ascending: true }],
+      },
+      review: {
+        entity: "review",
+        table: "reviews",
+        description: "One append-only grading event from a study session -- the sacred log FSRS parameter fitting and the drift instrument depend on. Never overwritten, never deleted.",
+        idColumn: "id",
+        updatedAtColumn: "reviewed_at",
+        updatedAtVerification:
+          "The safest case in this whole domain: reviews_no_update/reviews_no_delete (072) reject ANY UPDATE or " +
+          "DELETE unconditionally at the trigger level, no role exemption (the one sanctioned door, " +
+          "purge_user_data, disables the trigger only for whole-account deletion, which removes rows rather than " +
+          "changing them). A row is byte-identical forever after its one INSERT, so reviewed_at (set once, then) " +
+          "cannot go stale by construction -- there is no non-code-writer question to even ask here.",
+        summaryColumns: ["rating", "reviewed_at", "book_id"],
+        fullColumns: [
+          "rating",
+          "confidence",
+          "correct",
+          "elapsed_ms",
+          "answered_text",
+          "ai_feedback",
+          "ai_suggested_rating",
+          "state_before",
+          "state_after",
+          "stability_before",
+          "stability_after",
+          "difficulty_before",
+          "difficulty_after",
+          "scheduled_days",
+          "request_retention",
+          "learning_steps_after",
+          "reviewed_at",
+          "book_id",
+          "card_id",
+          "question_id",
+        ],
+        filterableColumns: ["book_id", "card_id", "question_id", "rating"],
+        orderBy: [{ column: "reviewed_at", ascending: false }],
+      },
+      self_explanation: {
+        entity: "self_explanation",
+        table: "self_explanations",
+        description: "One ungraded self-explanation interstitial (the user restating a lesson in their own words; a skip is recorded as a null response, never penalised).",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "Verified genuinely immutable: submitSelfExplanation (lib/self-mastery/session/build-session.ts) is the " +
+          "ONLY write path in this repository and it only ever INSERTs -- grepped for every '.from(\"self_explanations\")' " +
+          "call and found no UPDATE. No FK on this table targets it with an ON DELETE SET NULL/CASCADE action " +
+          "that would mutate rather than remove it. created_at is a faithful proxy because nothing changes after it.",
+        summaryColumns: ["prompt", "response", "lesson_id"],
+        fullColumns: ["prompt", "response", "lesson_id", "created_at"],
+        filterableColumns: ["lesson_id"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
+      lesson_promotion: {
+        entity: "lesson_promotion",
+        table: "lesson_promotions",
+        description: "A lesson's action_template accepted by the user as a real, dated commitment ('the promotion IS the commitment') -- current state; `lesson_verdict` below is its append-only judgement log.",
+        idColumn: "id",
+        updatedAtColumn: "retired_at",
+        updatedAtVerification:
+          "Checked for non-code writers per the standing rule, and found exactly the active_workout_plans shape: " +
+          "promoteLesson (lib/promotions/actions.ts) only ever INSERTs this row; the ONLY thing that ever changes " +
+          "it afterward is trg_retire_promotion_on_terminal_verdict (migration 124), a DB TRIGGER that fires AFTER " +
+          "INSERT on lesson_verdicts (a different table) and sets retired_at on this one -- no application code " +
+          "path touches it directly. That trigger is also the row's ONLY possible mutation (guarded by " +
+          "coalesce(retired_at, ...), so it fires at most once) -- retired_at is therefore a completely faithful " +
+          "updated_at: null for an active (never-modified) promotion, set exactly once at the row's one real " +
+          "change, never touched again.",
+        summaryColumns: ["accepted_text", "lesson_id", "area_id", "retired_at"],
+        fullColumns: ["accepted_text", "lesson_id", "area_id", "cadence", "cue", "started_at", "verdict_due_at", "retired_at", "created_at"],
+        filterableColumns: ["lesson_id", "area_id"],
+        orderBy: [{ column: "started_at", ascending: false }],
+      },
+      lesson_verdict: {
+        entity: "lesson_verdict",
+        table: "lesson_verdicts",
+        description: "One append-only judgement (adopted / abandoned / still_testing) against a lesson_promotion. `still_testing` is non-terminal by design; adopted/abandoned retire the promotion via trigger.",
+        idColumn: "id",
+        updatedAtColumn: "verdict_at",
+        updatedAtVerification: "lesson_verdicts_no_update (124) rejects ANY UPDATE/DELETE unconditionally, same append-only shape as `review` above -- verdict_at cannot go stale, no non-code-writer question applies.",
+        summaryColumns: ["verdict", "promotion_id", "verdict_at"],
+        fullColumns: ["verdict", "reason", "promotion_id", "verdict_at"],
+        filterableColumns: ["promotion_id", "verdict"],
+        orderBy: [{ column: "verdict_at", ascending: false }],
+      },
+      source: {
+        entity: "source",
+        table: "sources",
+        description:
+          "The queue-visibility record pairing this study engine to one book (CollegeOS pairs the same table to a " +
+          "class via kind='course', kept out of this entity by fixedFilter -- see below). Existence/linkage only; " +
+          "no content of its own.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "No created_at/updated_at column at all (068_ulm_sources.sql). Genuinely immutable in practice too: " +
+          "books_create_source (069) is the ONLY writer anywhere (an AFTER INSERT trigger on `books`, not " +
+          "application code -- checked, no '.from(\"sources\")' write call exists in this repository), and it only " +
+          "ever INSERTs, never UPDATEs. Honestly null, not invented.",
+        summaryColumns: ["book_id"],
+        fullColumns: ["kind", "book_id"],
+        // fixedFilter, not a denylist -- `sources` is the shared table this
+        // file's own header names explicitly (num_nonnulls(book_id,
+        // class_id)=1: ULM's books XOR CollegeOS's classes, one row shape,
+        // two owners). Scoping this entity to kind='book' is the same
+        // mechanism weekly_goals' domain-column fixedFilter uses to keep one
+        // MCP entity from becoming a read path into a DIFFERENT domain's
+        // rows through a shared table. `class_id` is excluded from
+        // fullColumns for the same reason -- under this fixedFilter it is
+        // guaranteed always null, so exposing it would only ever mislead.
+        fixedFilter: { kind: "book" },
+        filterableColumns: ["book_id"],
+        orderBy: [{ column: "id", ascending: true }],
+      },
+      /**
+       * NOT A ULM/book table -- CollegeOS's class-linked question bank,
+       * unified into this SAME study engine's `review`/`card_state` log by
+       * migration 111 (reviews.question_id / card_states.question_id, XOR
+       * with card_id) specifically so "am I better calibrated on class
+       * questions than on book cards" is one query, not two disjoint logs.
+       * Registered under self_mastery, not school, on that basis -- it's
+       * part of the retrieval-practice engine this domain is about, even
+       * though its content comes from a class.
+       *
+       * VERIFICATION GAP, FLAGGED RATHER THAN GLOSSED OVER: grepped this
+       * entire repository for any '.from("questions")' call, in either
+       * direction, and found NONE -- no Server Action, RPC caller, or
+       * ingestion path anywhere in tracking-app creates, edits, or retires
+       * a question. The table (and its real, NOT NULL `updated_at` column)
+       * exists in production because migration 111 created it, but nothing
+       * in THIS codebase writes to it -- it is presumably written by
+       * CollegeOS's own application code, which is not in this repository
+       * and which I have no visibility into. I'm registering `updated_at`
+       * as the real column rather than fabricating a null (per the schema
+       * it IS a genuine trigger-free but NOT NULL, app-maintained-by-design
+       * column, not an absent one), but I cannot personally verify it's
+       * kept honest on every write the way the standing rule asks --
+       * that verification has to happen in whichever codebase actually
+       * writes this table.
+       */
+      question: {
+        entity: "question",
+        table: "questions",
+        description: "One retrieval-practice question from a class's question bank (CollegeOS). Scheduler state is NOT stored here -- it's replayed from `review`/`card_state`, same engine as book cards.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification: "See this entity's own header comment above -- the column is real (111_ulm_reviews_card_states_unify.sql) but this repository contains no writer of any kind for this table to verify against.",
+        summaryColumns: ["prompt", "topic", "active", "class_id"],
+        fullColumns: ["prompt", "answer", "topic", "origin", "source_anchor", "source_skipped", "active", "class_id", "created_at", "updated_at"],
+        filterableColumns: ["class_id", "active", "origin"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
       /**
        * REGISTERED, DELIBERATELY EMPTY — the concrete worked case from
        * TOOL-ARCHITECTURE.md §3: "the owner was explicit that the source

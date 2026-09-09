@@ -31,10 +31,14 @@ describe("listCapabilitiesTool", () => {
   it("source_chunks is listed (existence is not secret) but advertises ZERO readable fields at any tier (content is)", async () => {
     const outcome = await listCapabilitiesTool("self_mastery");
     const payload = textPayload(outcome);
-    expect(payload.entities).toHaveLength(1);
-    expect(payload.entities[0].entity).toBe("source_chunks");
-    expect(payload.entities[0].fields.summary).toEqual([]);
-    expect(payload.entities[0].fields.full).toEqual([]);
+    // Self_mastery's expansion (books/lessons/cards/etc., L11 follow-up)
+    // added 11 sibling entities around source_chunks -- found by entity
+    // name, not by array position, so this test doesn't silently break the
+    // moment the domain grows again.
+    const sourceChunks = payload.entities.find((e: { entity: string }) => e.entity === "source_chunks");
+    expect(sourceChunks).toBeTruthy();
+    expect(sourceChunks.fields.summary).toEqual([]);
+    expect(sourceChunks.fields.full).toEqual([]);
   });
 
   it("with a known domain, lists its entities with fields/detail/filterable info", async () => {
@@ -72,10 +76,12 @@ describe("listCapabilitiesTool", () => {
     }
   });
 
-  it("source_chunks (self_mastery) has no write surface at all", async () => {
+  it("self_mastery is registered read-only throughout, including source_chunks", async () => {
     const outcome = await listCapabilitiesTool("self_mastery");
     const payload = textPayload(outcome);
-    expect(payload.entities[0].actions).toEqual(["read"]);
+    for (const entity of payload.entities) {
+      expect(entity.actions).toEqual(["read"]);
+    }
   });
 
   it("work/business entities report their real write actions from write-registry.ts, live", async () => {
