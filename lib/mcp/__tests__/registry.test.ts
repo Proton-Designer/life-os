@@ -87,4 +87,21 @@ describe("registry", () => {
       }
     }
   });
+
+  it("migration 135's 4 tables now use the real trigger-backed updated_at — no longer honestly null", () => {
+    for (const [domain, entity] of [
+      ["work", "target"],
+      ["work", "task"],
+      ["business", "kill_list_item"],
+      ["business", "weekly_goal"],
+    ] as const) {
+      const def = getEntity(domain, entity)!;
+      expect(def.updatedAtColumn).toBe("updated_at");
+      expect(def.fullColumns).toContain("updated_at");
+    }
+  });
+
+  it("work.work_session keeps ended_at — migration 135 deliberately excluded it (already faithful)", () => {
+    expect(getEntity("work", "work_session")!.updatedAtColumn).toBe("ended_at");
+  });
 });
