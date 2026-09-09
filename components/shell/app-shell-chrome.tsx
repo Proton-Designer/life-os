@@ -13,6 +13,8 @@ import type { WeekCalendarData } from "@/components/calendar/week-calendar-view"
 import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
 import { GlobalCaptureSheet } from "@/components/capture/global-capture-sheet";
+import type { ThemePresetId } from "@/lib/theme-presets";
+import type { FeatureId } from "@/lib/features";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
@@ -34,6 +36,8 @@ export function AppShellChrome({
   onSaveBusiness,
   navMode,
   navDomainState,
+  themePreset,
+  hiddenFeatures,
   children,
 }: {
   account: { displayName: string; email: string };
@@ -49,6 +53,17 @@ export function AppShellChrome({
    * "domains". */
   navMode: "legacy" | "domains";
   navDomainState: NavDomainState | null;
+  /** L10: which of app/globals.css's `[data-theme-preset]` accent blocks to
+   * apply — see lib/theme-presets.ts. A plain string id, not a function, so
+   * there's nothing here that trips AGENTS.md's Server->Client prop rule. */
+  themePreset: ThemePresetId;
+  /** L10: nav destinations this account has turned off (lib/features.ts) —
+   * threaded into AppSidebar/MobileIsland only (legacy nav). The domains
+   * -mode nav (TabAppSidebar/TabMobileIsland) is NOT wired to this yet — a
+   * deliberate scope boundary, not an oversight: M6 already treats legacy
+   * and domains nav as separately-maintained code paths, and Ayman's own
+   * account (the one this feature is for) is legacy mode. */
+  hiddenFeatures: FeatureId[];
   /** Seeds the app-wide LockInOverlayProvider below — a Lock-In session
    * started before this request must still show its overlay/minimized
    * state on first paint, not just after a client-side start. */
@@ -64,6 +79,17 @@ export function AppShellChrome({
   children: React.ReactNode;
 }) {
   return (
+    // display:contents (Tailwind's `contents`, same idiom already used by
+    // components/settings/settings-form.tsx's <form>): this wrapper exists
+    // ONLY to carry data-theme-preset so app/globals.css's
+    // [data-theme-preset] blocks can override the accent custom properties
+    // for every descendant, INCLUDING LockInOverlay below (a sibling of the
+    // main shell div, not a child of it — this div has to wrap both, or
+    // Lock-In's own accent-tinted UI wouldn't pick up the preset). `contents`
+    // means this adds a node to the React/CSS-inheritance tree but NOT to
+    // layout — no flex/height/position semantics for anything already
+    // relying on being a direct child of whatever rendered AppShellChrome.
+    <div data-theme-preset={themePreset} className="contents">
     <AllocationQueueProvider>
       {/* Re-mounted 2026-08-26 (batch 2 afternoon): root cause found and
           fixed — see components/realtime/realtime-sync-provider.tsx's own
@@ -85,7 +111,7 @@ export function AppShellChrome({
           {navMode === "domains" && navDomainState ? (
             <TabAppSidebar account={account} navDomainState={navDomainState} />
           ) : (
-            <AppSidebar account={account} />
+            <AppSidebar account={account} hiddenFeatures={hiddenFeatures} />
           )}
           <div className="flex min-h-screen min-w-0 flex-1 flex-col">
             <Topbar
@@ -109,7 +135,7 @@ export function AppShellChrome({
           {navMode === "domains" && navDomainState ? (
             <TabMobileIsland navDomainState={navDomainState} />
           ) : (
-            <MobileIsland />
+            <MobileIsland hiddenFeatures={hiddenFeatures} />
           )}
           <AllocationCheckinGate />
           <CheckinToast />
@@ -117,5 +143,6 @@ export function AppShellChrome({
         <LockInOverlay timezone={timezone} killListSlots={killListSlots} />
       </LockInOverlayProvider>
     </AllocationQueueProvider>
+    </div>
   );
 }

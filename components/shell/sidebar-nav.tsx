@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
+import type { FeatureId } from "@/lib/features";
 
 export type SidebarVariant = "expanded" | "icon-rail";
 
@@ -108,14 +109,40 @@ function NavLink({
  * NOT reachable from this nav. They work by URL. When his account migrates to
  * domains mode the grouping arrives with it, and this comment can go.
  */
-export function SidebarNav({ variant }: { variant: SidebarVariant }) {
+export function SidebarNav({
+  variant,
+  hiddenFeatures = [],
+}: {
+  variant: SidebarVariant;
+  /** L10 (lib/features.ts): destinations to omit. Filters by the item's
+   * path segment (`/insights` -> "insights"), the same derivation
+   * mobile-island.tsx's PRIMARY_ITEMS filter uses, so both nav surfaces
+   * read one shared id space without a second mapping to keep in sync.
+   * Defaults to none — every existing caller keeps rendering the full nav. */
+  hiddenFeatures?: FeatureId[];
+}) {
   const pathname = usePathname();
   const iconOnly = variant === "icon-rail";
+
+  // Sections that end up with zero items after filtering are dropped
+  // entirely, not rendered as a bare header/divider over nothing — REVIEW
+  // today has exactly one item (Insights), so hiding it must remove the
+  // whole section, not leave an empty "REVIEW" label standing alone.
+  //
+  // Home (`href === "/"`) is excluded from filtering by an explicit runtime
+  // check, not just because FEATURE_IDS never names it — same reasoning as
+  // mobile-island.tsx's own primaryItems filter: a type-only guarantee
+  // doesn't survive a caller that bypasses the type, and Home is the one
+  // item that must never disappear regardless of what's in the array.
+  const visibleSections = SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => item.href === "/" || !hiddenFeatures.includes(item.href.slice(1) as FeatureId)),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <TooltipPrimitive.Provider delayDuration={200}>
       <nav aria-label="Primary" className="flex flex-col gap-5">
-        {SECTIONS.map((section, i) => (
+        {visibleSections.map((section, i) => (
           <div key={section.label} className="flex flex-col gap-1">
             {iconOnly ? (
               i > 0 && <div data-testid="sidebar-section-divider" className="mx-2 my-1 h-px bg-border/50" />

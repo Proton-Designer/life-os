@@ -2,6 +2,7 @@ import Link from "next/link";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
 import { AskAiLauncher } from "./ask-ai-launcher";
+import type { FeatureId } from "@/lib/features";
 
 // Very subtle oxblood vertical wash on the sidebar surface — echoes the
 // body's --glow-oxblood radial glow so the shell reads as this app's own,
@@ -30,8 +31,11 @@ function Logo({ iconOnly }: { iconOnly: boolean }) {
 
 export function AppSidebar({
   account,
+  hiddenFeatures = [],
 }: {
   account: { displayName: string; email: string };
+  /** L10: nav destinations to omit — see lib/features.ts. Defaults to none, so every existing caller (tests included) keeps rendering the full nav unchanged. */
+  hiddenFeatures?: FeatureId[];
 }) {
   return (
     <>
@@ -42,7 +46,7 @@ export function AppSidebar({
       >
         <Logo iconOnly />
         <div className="flex-1 overflow-y-auto px-2 py-4">
-          <SidebarNav variant="icon-rail" />
+          <SidebarNav variant="icon-rail" hiddenFeatures={hiddenFeatures} />
         </div>
         {/* System B: quick AI access, kept out of SidebarNav's SECTIONS on
             purpose — those items are internal pathname-tracked routes
@@ -63,7 +67,7 @@ export function AppSidebar({
       >
         <Logo iconOnly={false} />
         <div className="flex-1 overflow-y-auto px-3 py-4">
-          <SidebarNav variant="expanded" />
+          <SidebarNav variant="expanded" hiddenFeatures={hiddenFeatures} />
         </div>
         <div className="border-t border-border p-2">
           <AskAiLauncher variant="expanded" />

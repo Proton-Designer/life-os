@@ -96,4 +96,33 @@ describe("MobileIsland", () => {
     expect(screen.getByRole("link", { name: /insights/i })).toHaveAttribute("data-prefetch", "true");
     expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute("data-prefetch", "true");
   });
+
+  // L10 (docs/ai-connector/PROGRAM-PLAN.md).
+  describe("hiddenFeatures", () => {
+    it("omits the matching item from the fixed icon row, leaves the rest and the row's own touch-target math intact", () => {
+      render(<MobileIsland hiddenFeatures={["business"]} />);
+      expect(screen.queryByTestId("mobile-island-item-business")).not.toBeInTheDocument();
+      for (const key of ["home", "deen", "school", "fitness", "work"]) {
+        expect(screen.getByTestId(`mobile-island-item-${key}`)).toBeInTheDocument();
+      }
+    });
+
+    it("also omits Insights from the More popover when hidden", async () => {
+      const user = userEvent.setup();
+      render(<MobileIsland hiddenFeatures={["insights"]} />);
+      await user.click(screen.getByRole("button", { name: /more/i }));
+      expect(screen.queryByRole("link", { name: /^insights$/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
+    });
+
+    it("never hides Home, even given a bad value that bypasses FeatureId's type", () => {
+      render(<MobileIsland hiddenFeatures={["home"] as never} />);
+      expect(screen.getByTestId("mobile-island-item-home")).toBeInTheDocument();
+    });
+
+    it("defaults to hiding nothing when the prop is omitted", () => {
+      render(<MobileIsland />);
+      expect(screen.getAllByTestId(/^mobile-island-item-/)).toHaveLength(7);
+    });
+  });
 });

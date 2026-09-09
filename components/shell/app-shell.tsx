@@ -4,6 +4,8 @@ import { getActiveWorkSession } from "@/lib/business/active-session";
 import { getKillListSlots } from "@/lib/business/kill-list-slots";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { computeNavDomainState, type NavDomainState } from "@/lib/shell/nav-domain-state";
+import { resolveThemePreset } from "@/lib/theme-presets";
+import { sanitizeHiddenFeatures } from "@/lib/features";
 import { AppShellChrome } from "./app-shell-chrome";
 import type { LockInSessionKind } from "@/components/business/lock-in-overlay-context";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
@@ -34,6 +36,20 @@ export async function AppShell({
   // by the time it's called here — free, unlike the kill-list query below.
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
+
+  // L10: `theme_preset`/`hidden_features` are a NEW migration, not yet
+  // applied/regenerated into database.types.ts at the time this is written
+  // — same reasoning lib/mcp/tokens.ts documents for its own untyped
+  // SupabaseClient param. getProfile()'s return type won't carry these
+  // fields until that migration lands and types are regenerated, so this
+  // reads them via a loose, defensive cast rather than asserting a shape
+  // the generated Row type doesn't back up yet. resolveThemePreset/
+  // sanitizeHiddenFeatures both already treat "missing/unrecognized" as
+  // "use the safe default" — this is exactly that case until the column
+  // exists in production.
+  const profileThemeFields = profile as { theme_preset?: string; hidden_features?: string[] } | null;
+  const themePreset = resolveThemePreset(profileThemeFields?.theme_preset);
+  const hiddenFeatures = sanitizeHiddenFeatures(profileThemeFields?.hidden_features);
   const now = new Date();
   const dateStr = localDateString(now, timezone);
 
@@ -74,6 +90,8 @@ export async function AppShell({
       dateLabel={formatTopbarDate(now, timezone)}
       nowIso={now.toISOString()}
       timezone={timezone}
+      themePreset={themePreset}
+      hiddenFeatures={hiddenFeatures}
       activeWorkSession={
         activeWorkSession
           ? {

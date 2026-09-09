@@ -15,6 +15,7 @@ import { SECTIONS } from "./sidebar-nav";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 import { usePinToVisualViewport } from "./use-pin-to-visual-viewport";
 import { AskAiLinks } from "./ask-ai-launcher";
+import type { FeatureId } from "@/lib/features";
 
 const PRIMARY_ITEMS: {
   href: string;
@@ -54,9 +55,17 @@ function isActive(pathname: string, href: string) {
  * NOT reachable from this nav. They work by URL. When his account migrates to
  * domains mode the grouping arrives with it, and this comment can go.
  */
-export function MobileIsland() {
+export function MobileIsland({ hiddenFeatures = [] }: { hiddenFeatures?: FeatureId[] }) {
   const pathname = usePathname();
-  const moreActive = MORE_ITEMS.some((item) => isActive(pathname, item.href));
+  // L10 (lib/features.ts): Home is excluded from filtering by an explicit
+  // runtime check (`item.key === "home" ||`), not just by FeatureId's type
+  // never naming it — a type-only guarantee doesn't survive a caller that
+  // bypasses the type (a stale/corrupted DB value, a future bug upstream in
+  // sanitizeHiddenFeatures), and this is the one nav item that must never
+  // disappear regardless of what's in the array.
+  const primaryItems = PRIMARY_ITEMS.filter((item) => item.key === "home" || !hiddenFeatures.includes(item.key as FeatureId));
+  const moreItems = MORE_ITEMS.filter((item) => !hiddenFeatures.includes(item.href.slice(1) as FeatureId));
+  const moreActive = moreItems.some((item) => isActive(pathname, item.href));
   // Pinned to the visual viewport, not just floored to a minimum scale
   // (app/layout.tsx) — without this a pinch-zoom-in scales this `fixed`
   // element up and drifts it with the rest of the page (Ayman: "the bottom
@@ -82,7 +91,7 @@ export function MobileIsland() {
           backgroundColor: "rgba(40,42,54,0.55)",
         }}
       >
-        {PRIMARY_ITEMS.map((item) => {
+        {primaryItems.map((item) => {
           const active = isActive(pathname, item.href);
           const colorVar = ACCENT_VAR[item.accent];
           return (
@@ -127,7 +136,7 @@ export function MobileIsland() {
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-40 p-1" side="top" align="center">
-            {MORE_ITEMS.map((item) => (
+            {moreItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

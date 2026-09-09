@@ -155,6 +155,72 @@
   --series-other: #6a6a72;
 }
 
+/*
+ * L10 theme presets (docs/ai-connector/PROGRAM-PLAN.md). See
+ * lib/theme-presets.ts for the full reasoning: dark-first stays unchanged
+ * (same background/foreground/card/glow every preset shares), only the
+ * per-domain accents + the chrome accent vary. `[data-theme-preset]`
+ * targets any element, not `:root` specifically — the authenticated shell
+ * sets it on a `display:contents` wrapper (components/shell/
+ * app-shell-chrome.tsx), not on <html>, since a root layout serving
+ * login/signup has no per-user preference to read yet. Custom properties
+ * inherit normally regardless of which element carries the attribute.
+ *
+ * "oxblood" has NO override block here on purpose — its values ARE :root's
+ * own defaults above. Adding a redundant `[data-theme-preset="oxblood"]`
+ * block that repeats them would be a second place those six values could
+ * drift out of sync with the real default.
+ *
+ * --accent-warning and --accent-noise (destructive) are deliberately NEVER
+ * overridden here — see lib/theme-presets.ts's header for why semantic
+ * system colors stay constant across cosmetic presets.
+ *
+ * Re-step together, not one at a time, if any preset's palette ever
+ * changes — same discipline the --series-* set above already documents,
+ * for the same reason: these five (six, with --accent-info) read as a
+ * family in the UI (badges, nav actives, icon chips all together), and an
+ * isolated tweak to one is what breaks that.
+ */
+[data-theme-preset="ocean"] {
+  --accent-deen: #3ba7a0;
+  --accent-fitness: #5b8fd9;
+  --accent-business: #2ecc9c;
+  --accent-school: #4fc3d9;
+  --accent-coop: #6c7ee1;
+  --accent-info: #38b6cc;
+}
+
+[data-theme-preset="forest"] {
+  --accent-deen: #d4a04a;
+  --accent-fitness: #5fae7a;
+  --accent-business: #7fae4a;
+  --accent-school: #3f9e7a;
+  --accent-coop: #b06b4a;
+  --accent-info: #6fae5a;
+}
+
+[data-theme-preset="sunset"] {
+  --accent-deen: #f0a050;
+  --accent-fitness: #e06590;
+  --accent-business: #f2c14e;
+  --accent-school: #c76bd9;
+  --accent-coop: #ef7d5c;
+  --accent-info: #e88a5c;
+}
+
+/* The one preset that isn't hue-rotated but desaturated — "genuinely
+   distinct, not five tints of the same blue" (the Lead's own bar) is as
+   much about approach as hue: this is the only preset where domains read
+   as a family FIRST and by color second, which the other four don't do. */
+[data-theme-preset="mono"] {
+  --accent-deen: #c9c2b8;
+  --accent-fitness: #a8a4c9;
+  --accent-business: #a8c2ae;
+  --accent-school: #a8b8c9;
+  --accent-coop: #c9a8b8;
+  --accent-info: #b0b0b8;
+}
+
 html {
   color-scheme: dark;
 }

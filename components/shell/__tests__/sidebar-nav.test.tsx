@@ -125,4 +125,33 @@ describe("SidebarNav", () => {
       expect(link).toHaveAttribute("data-prefetch", "true");
     }
   });
+
+  // L10 (docs/ai-connector/PROGRAM-PLAN.md).
+  describe("hiddenFeatures", () => {
+    it("omits the matching destination, leaves everything else untouched", () => {
+      render(<SidebarNav variant="expanded" hiddenFeatures={["business"]} />);
+      expect(screen.queryByRole("link", { name: "Business" })).not.toBeInTheDocument();
+      for (const label of ["Home", "Deen", "Fitness", "School", "Work", "Insights", "Settings"]) {
+        expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
+      }
+    });
+
+    it("drops the whole REVIEW section, not just Insights, once it's the section's only item", () => {
+      render(<SidebarNav variant="expanded" hiddenFeatures={["insights"]} />);
+      expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
+      expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
+    });
+
+    it("never hides Home, even given a bad value that bypasses FeatureId's type", () => {
+      render(<SidebarNav variant="expanded" hiddenFeatures={["home"] as never} />);
+      expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    });
+
+    it("defaults to hiding nothing when the prop is omitted", () => {
+      render(<SidebarNav variant="expanded" />);
+      for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work", "Insights", "Settings"]) {
+        expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
+      }
+    });
+  });
 });

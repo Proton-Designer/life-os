@@ -65,6 +65,8 @@ function renderChrome(props: Partial<React.ComponentProps<typeof AppShellChrome>
       onSaveBusiness={async () => {}}
       navMode="legacy"
       navDomainState={null}
+      themePreset="oxblood"
+      hiddenFeatures={[]}
       {...props}
     >
       <div>Page content</div>
@@ -128,5 +130,27 @@ describe("AppShellChrome", () => {
     await user.click(screen.getByTestId("tab-mobile-island-item-more"));
     expect(screen.queryAllByRole("link", { name: "Insights" }).length).toBeGreaterThan(insightsBefore);
     expect(screen.queryAllByRole("link", { name: "Settings" }).length).toBeGreaterThan(0);
+  });
+
+  // L10 (docs/ai-connector/PROGRAM-PLAN.md).
+  it("sets data-theme-preset on a wrapper covering the whole shell, so app/globals.css's [data-theme-preset] accent overrides reach every descendant", () => {
+    const { container } = renderChrome({ themePreset: "ocean" });
+    expect(container.querySelector('[data-theme-preset="ocean"]')).toBeInTheDocument();
+  });
+
+  it("hiddenFeatures removes the matching nav destination from the fixed icon row, without touching the others", () => {
+    renderChrome({ navMode: "legacy", navDomainState: null, hiddenFeatures: ["business"] });
+
+    expect(screen.queryByTestId("mobile-island-item-business")).not.toBeInTheDocument();
+    for (const key of ["home", "deen", "fitness", "school", "work"]) {
+      expect(screen.getByTestId(`mobile-island-item-${key}`)).toBeInTheDocument();
+    }
+  });
+
+  it("hiddenFeatures never removes Home, even if somehow passed a bad value", () => {
+    // FeatureId's own type excludes "home" (lib/features.ts) — this proves
+    // the RUNTIME behavior holds too, not just the type.
+    renderChrome({ navMode: "legacy", navDomainState: null, hiddenFeatures: ["home" as never] });
+    expect(screen.getByTestId("mobile-island-item-home")).toBeInTheDocument();
   });
 });
