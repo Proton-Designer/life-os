@@ -11,7 +11,16 @@ describe("listCapabilitiesTool", () => {
   it("with no domain, lists only domains actually wired — honest, not the memo's full eventual matrix", async () => {
     const outcome = await listCapabilitiesTool();
     const payload = textPayload(outcome);
-    expect(payload.domains).toEqual([{ domain: "deen", description: expect.any(String) }]);
+    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual(["deen", "self_mastery"]);
+  });
+
+  it("source_chunks is listed (existence is not secret) but advertises ZERO readable fields at any tier (content is)", async () => {
+    const outcome = await listCapabilitiesTool("self_mastery");
+    const payload = textPayload(outcome);
+    expect(payload.entities).toHaveLength(1);
+    expect(payload.entities[0].entity).toBe("source_chunks");
+    expect(payload.entities[0].fields.summary).toEqual([]);
+    expect(payload.entities[0].fields.full).toEqual([]);
   });
 
   it("with a known domain, lists its entities with fields/detail/filterable info", async () => {

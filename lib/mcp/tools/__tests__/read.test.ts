@@ -191,3 +191,30 @@ describe("readTool — pagination", () => {
     expect(eqCalls).toContainEqual(["user_id", "user-1"]);
   });
 });
+
+describe("readTool — self_mastery/source_chunks, the registered-but-empty-allowlist case (memo §3)", () => {
+  const CHUNK_ROW = { id: "c1", text: "the actual book text", embedding: [0.1, 0.2], user_id: "user-1" };
+
+  it("even at detail:'full', returns ONLY {id, updated_at} — the raw text/embedding never reach the column list", async () => {
+    const { client } = makeClient({ list: [CHUNK_ROW] });
+    const outcome = await readTool(client, "user-1", { domain: "self_mastery", entity: "source_chunks", detail: "full" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    const { items } = JSON.parse(block.text);
+    expect(items).toEqual([{ id: "c1", updated_at: null }]);
+  });
+
+  it("REJECTS a fields request for 'text' — an allowlist of zero columns has nothing to widen into", async () => {
+    const { client } = makeClient({ list: [] });
+    await expect(
+      readTool(client, "user-1", { domain: "self_mastery", entity: "source_chunks", fields: ["text"] }),
+    ).rejects.toThrow(/not available.*text/i);
+  });
+
+  it("REJECTS a fields request for 'embedding' the same way", async () => {
+    const { client } = makeClient({ list: [] });
+    await expect(
+      readTool(client, "user-1", { domain: "self_mastery", entity: "source_chunks", fields: ["embedding"] }),
+    ).rejects.toThrow(/not available.*embedding/i);
+  });
+});

@@ -85,6 +85,49 @@ export const REGISTRY: Record<string, DomainDef> = {
       },
     },
   },
+  self_mastery: {
+    domain: "self_mastery",
+    description: "Book ingestion and spaced-repetition study.",
+    entities: {
+      /**
+       * REGISTERED, DELIBERATELY EMPTY — the concrete worked case from
+       * TOOL-ARCHITECTURE.md §3: "the owner was explicit that the source
+       * text itself stays off MCP, and the visibility registry is where
+       * that's enforced, not left to a `detail` parameter the model could
+       * otherwise turn up to 'full'." `source_chunks.text` is the actual
+       * book content ingestion extracts; `.embedding` is its pgvector
+       * representation. Neither may ever reach a model's context.
+       *
+       * An ALLOWLIST enforces this by construction: `summaryColumns` and
+       * `fullColumns` are both `[]`, so `read`'s own `resolveColumns` (see
+       * lib/mcp/tools/read.ts) has nothing to select beyond the id/
+       * updated_at every entity forces — and a `fields` request for
+       * `"text"` or `"embedding"` is rejected the same way a request for
+       * `user_api_keys.encrypted_key` would be: a clear error naming what
+       * IS available (nothing), never a silent 200 with the value in it.
+       * This is the "registered as excluded, same mechanism as the two
+       * RLS-deny-all operational tables, just decided by us instead of by
+       * Postgres" case the memo names explicitly.
+       *
+       * This entity is listed in `list_capabilities` — existence is not
+       * secret, content is. A caller that discovers `source_chunks` and
+       * tries `read(detail:"full")` gets `{id, updated_at}` and nothing
+       * else, which is itself the honest answer: "this exists, you cannot
+       * read it."
+       */
+      source_chunks: {
+        entity: "source_chunks",
+        table: "source_chunks",
+        description: "Raw ingested book text and its embedding — existence only; content is deliberately never exposed over MCP.",
+        idColumn: "id",
+        updatedAtColumn: null, // no created_at/updated_at on this table either (migration 063) — honestly null, not invented
+        summaryColumns: [],
+        fullColumns: [],
+        filterableColumns: [],
+        orderBy: [{ column: "id", ascending: true }],
+      },
+    },
+  },
 };
 
 export function listDomains(): { domain: string; description: string }[] {

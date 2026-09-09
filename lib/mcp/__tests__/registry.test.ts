@@ -2,8 +2,16 @@ import { describe, expect, it } from "vitest";
 import { REGISTRY, listDomains, getDomain, getEntity } from "../registry";
 
 describe("registry", () => {
-  it("lists exactly the domains actually wired — deen only, for L3", () => {
-    expect(listDomains()).toEqual([{ domain: "deen", description: expect.any(String) }]);
+  it("lists exactly the domains actually wired for L3 — deen and self_mastery, nothing aspirational", () => {
+    expect(listDomains().map((d) => d.domain).sort()).toEqual(["deen", "self_mastery"]);
+  });
+
+  it("self_mastery/source_chunks is registered but exposes ZERO columns — existence only, content deliberately unreachable", () => {
+    const entity = getEntity("self_mastery", "source_chunks");
+    expect(entity).not.toBeNull();
+    expect(entity!.summaryColumns).toEqual([]);
+    expect(entity!.fullColumns).toEqual([]);
+    expect(entity!.filterableColumns).toEqual([]);
   });
 
   it("getDomain returns null for an unregistered domain, never throws", () => {
