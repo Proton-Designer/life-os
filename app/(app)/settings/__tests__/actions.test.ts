@@ -92,4 +92,55 @@ describe("updateProfile", () => {
       expect.anything()
     );
   });
+
+  // L10 (docs/ai-connector/PROGRAM-PLAN.md).
+  describe("theme_preset / hidden_features (L10)", () => {
+    it("accepts a real preset id and writes it through", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ theme_preset: "ocean" });
+
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ theme_preset: "ocean" }), expect.anything());
+    });
+
+    it("rejects an unknown theme_preset before ever calling upsert", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await expect(updateProfile({ theme_preset: "not-a-real-preset" } as never)).rejects.toThrow(/theme_preset/);
+      expect(chain.upsert).not.toHaveBeenCalled();
+    });
+
+    it("accepts a real hidden_features list and writes it through", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ hidden_features: ["deen", "work"] });
+
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ hidden_features: ["deen", "work"] }), expect.anything());
+    });
+
+    it("rejects hidden_features containing an unknown id before ever calling upsert", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await expect(updateProfile({ hidden_features: ["deen", "not-real"] } as never)).rejects.toThrow(/hidden_features/);
+      expect(chain.upsert).not.toHaveBeenCalled();
+    });
+
+    it("rejects hidden_features containing 'home' or 'settings' — the lockout guard, enforced here too, not just in the type", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await expect(updateProfile({ hidden_features: ["home"] } as never)).rejects.toThrow();
+      await expect(updateProfile({ hidden_features: ["settings"] } as never)).rejects.toThrow();
+      expect(chain.upsert).not.toHaveBeenCalled();
+    });
+  });
 });

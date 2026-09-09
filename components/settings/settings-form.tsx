@@ -80,7 +80,8 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Theme: dark-first (the only theme for v1 — light mode is a future nice-to-have).
+            Theme: dark-first (still the only mode — light mode is a future nice-to-have). Pick an accent preset
+            below in Appearance.
           </p>
         </div>
       </Panel>

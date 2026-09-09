@@ -8,6 +8,10 @@ import { ApiKeySettings } from "@/components/settings/api-key-settings";
 import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
 import { ConnectorSettings } from "@/components/settings/connector-settings";
 import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
+import { ThemeSettings } from "@/components/settings/theme-settings";
+import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
+import { resolveThemePreset } from "@/lib/theme-presets";
+import { sanitizeHiddenFeatures } from "@/lib/features";
 import { PROVIDERS, PROVIDER_IDS } from "@/lib/ai/providers";
 import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 import { PageContainer } from "@/components/shell/page-container";
@@ -16,6 +20,8 @@ import { Panel } from "@/components/ui/panel";
 
 const SECTIONS = [
   { id: "profile", label: "Profile" },
+  { id: "appearance", label: "Appearance" },
+  { id: "features", label: "Features" },
   { id: "prayer", label: "Prayer" },
   { id: "location", label: "Location" },
   { id: "checkins", label: "Check-ins" },
@@ -46,6 +52,13 @@ export default async function SettingsPage() {
     .eq("user_id", user.id)
     .maybeSingle();
   const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
+
+  // L10: same defensive-cast reasoning as components/shell/app-shell.tsx —
+  // theme_preset/hidden_features are a NEW migration, not yet reflected in
+  // getProfile()'s generated return type at the time this is written.
+  const profileThemeFields = profile as { theme_preset?: string; hidden_features?: string[] } | null;
+  const themePreset = resolveThemePreset(profileThemeFields?.theme_preset);
+  const hiddenFeatures = sanitizeHiddenFeatures(profileThemeFields?.hidden_features);
 
   // Plain serializable values only across the RSC boundary — the provider
   // registry is const-asserted, so it is spread into a plain array here rather
@@ -101,6 +114,12 @@ export default async function SettingsPage() {
               pinLockEnabled: profile?.pin_lock_enabled ?? false,
             }}
           />
+          <Panel id="appearance" className="scroll-mt-24" title="Appearance">
+            <ThemeSettings initial={themePreset} />
+          </Panel>
+          <Panel id="features" className="scroll-mt-24" title="Features">
+            <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
+          </Panel>
           <Panel id="notifications" className="scroll-mt-24" title="Notifications">
             <NotificationSettings />
           </Panel>

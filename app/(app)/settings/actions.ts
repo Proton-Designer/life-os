@@ -4,9 +4,19 @@ import bcrypt from "bcryptjs";
 import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import type { Database } from "@/lib/supabase/database.types";
+import { THEME_PRESET_IDS, isThemePresetId, type ThemePresetId } from "@/lib/theme-presets";
+import { isFeatureId, type FeatureId } from "@/lib/features";
 
 // Every user-editable profiles column. `pin` is a virtual field — a raw PIN
 // gets hashed before storage, never persisted as-is.
+//
+// theme_preset/hidden_features (L10): a NEW migration, not yet applied at
+// the time this is written — see lib/theme-presets.ts and lib/features.ts.
+// Both are validated below BEFORE the upsert, the same "reject early with a
+// sentence a user can act on" posture lib/mcp/tokens.ts's validateScopes
+// already established — the DB's own CHECK constraints (once the migration
+// lands) are defense in depth for a direct/bypassed write, not the primary
+// guard for this action's normal callers.
 export type ProfileUpdatable = Partial<{
   display_name: string;
   prayer_calc_method: string;
@@ -23,6 +33,8 @@ export type ProfileUpdatable = Partial<{
   checkin_interval_minutes: number;
   traveling_mode: boolean;
   onboarding_completed: boolean;
+  theme_preset: ThemePresetId;
+  hidden_features: FeatureId[];
 }>;
 
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;
@@ -45,6 +57,17 @@ export async function updateProfile(fields: ProfileUpdatable): Promise<void> {
     throw new Error(
       "pin_hash must be a bcrypt hash — pass a raw PIN via the `pin` field instead, it will be hashed automatically."
     );
+  }
+
+  if ("theme_preset" in update && !isThemePresetId(update.theme_preset as string)) {
+    throw new Error(`Unknown theme_preset: "${update.theme_preset}". Valid presets: ${THEME_PRESET_IDS.join(", ")}.`);
+  }
+  if ("hidden_features" in update) {
+    const values = update.hidden_features as string[];
+    const bad = values.filter((v) => !isFeatureId(v));
+    if (bad.length > 0) {
+      throw new Error(`Unknown feature id(s) in hidden_features: ${bad.join(", ")}.`);
+    }
   }
 
   // Upsert, not update: a brand-new auth user has no profiles row yet
