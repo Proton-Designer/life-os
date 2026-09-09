@@ -199,7 +199,7 @@ const handler = createMcpHandler(
       {
         title: "Manage scheduled actions",
         description:
-          "Create, cancel, pause, or list deferred/recurring MCP writes (L7). Only VERIFIED IDEMPOTENT write actions can be scheduled -- create() is refused with a clear message otherwise, since at-least-once delivery means a scheduled action can fire twice for the same intended run. A one-off run needs patch.run_at (an ISO instant); a recurring one needs patch.cron_expression ('MM HH * * *' daily or 'MM HH * * D' weekly, D=0-6, all in the account's own local time) -- never both. 'create'/'cancel'/'pause' require a token with 'write' scope; 'list' only needs 'read'.",
+          "Create, cancel, pause, or list deferred/recurring MCP actions (L7) -- including reminders. patch.tool_name selects the shape: 'write' (patch.domain/entity/action/write_id?/write_patch? -- only VERIFIED IDEMPOTENT write actions can be scheduled, refused with a clear message otherwise, since at-least-once delivery means a scheduled action can fire twice for the same intended run) or 'notify' (patch.title/body -- a real push notification, e.g. \"remind me to review my kill list at 4pm\"; refused at create time if this account has no push subscription registered, since that reminder could never actually reach you). A one-off run needs patch.run_at (an ISO instant); a recurring one needs patch.cron_expression ('MM HH * * *' daily or 'MM HH * * D' weekly, D=0-6, all in the account's own local time) -- never both. 'create'/'cancel'/'pause' require a token with 'write' scope; 'list' only needs 'read'.",
         inputSchema: SchedulerManageInputSchema,
       },
       async (args, ctx) => {

@@ -3,8 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLiveTokenById } from "./tokens";
 import { isUserActive } from "./active-user";
 import { writeAuditRow } from "./audit";
-import { runMcpTool } from "./tool-wrapper";
+import { runMcpTool, type RunMcpToolOutcome } from "./tool-wrapper";
 import { writeTool, resolveWriteOperation, type WriteArgs } from "./tools/write";
+import { sendScheduledNotificationCore } from "@/lib/notifications/notify-core";
 import { computeNextRunAt } from "@/lib/scheduling/cron";
 import type { AuthInfoLike } from "./auth-info";
 
@@ -21,7 +22,21 @@ import type { AuthInfoLike } from "./auth-info";
  * functions `app/api/mcp/route.ts`'s live `write` tool calls. This file
  * never touches `write-registry.ts`'s handlers or a domain table directly.
  *
- * THE ONE NECESSARY EXCEPTION: when a token turns out to be revoked, or
+ * `notify` (a reminder) is dispatched through the SAME `runMcpTool` too —
+ * same scope check, same audit logging — but there is no LIVE synchronous
+ * "notify" tool for it to be identical to; the lead's ruling scoped this to
+ * scheduled reminders only, never a live push-right-now tool, so "identical
+ * code path" for notify means "goes through the one shared audit/scope
+ * wrapper every tool uses," not "mirrors a twin live call that doesn't
+ * exist." ONE NECESSARY DEVIATION, stated plainly: `sendScheduledNotificationCore`
+ * needs `get_vault_secrets` (lib/notifications/send-push.ts), which is
+ * GRANTED TO service_role ONLY (checked directly in the migration SQL, not
+ * assumed) — the per-user RLS-scoped client `runMcpTool` normally hands a
+ * tool's `fn` cannot call it. The notify dispatch closure below uses the
+ * SERVICE-ROLE client already in scope here instead of the `userClient`
+ * argument `runMcpTool` offers it, for that one reason.
+ *
+ * THE OTHER NECESSARY EXCEPTION: when a token turns out to be revoked, or
  * its user inactive, there is no live auth to hand `runMcpTool` at all —
  * its very first line is `readMcpAuth(authInfo)`, and a `null`/absent
  * `AuthInfoLike` makes it return silently with NO audit row (correct for
@@ -41,30 +56,51 @@ import type { AuthInfoLike } from "./auth-info";
  * FRESH via `getLiveTokenById` on every single firing — never cached from
  * schedule-creation time, never read off the stored row.
  *
- * REQUIREMENT #3 (bounded retry): a consecutive-failure streak past
- * `MAX_CONSECUTIVE_FAILURES` PAUSES the row rather than retrying forever —
- * a runaway loop against a write surface is this program's worst failure
- * mode. A DENIAL (revoked token, inactive user) pauses IMMEDIATELY,
- * without burning through the failure budget first — a denial is not a
- * transient condition; it will not resolve itself by trying again in 5
- * minutes the way a real transient error (a dropped connection, a brief
- * DB hiccup) might. `MAX_CONSECUTIVE_FAILURES` and `ONE_OFF_RETRY_DELAY_MS`
- * below are MINE, not specified — same posture rate-limit.ts's own
- * defaults take: placeholders the owner/lead should revisit once real
- * scheduled-action traffic exists, not researched constants.
+ * REQUIREMENT #3 (bounded retry): a WRITE's consecutive-failure streak
+ * past `MAX_CONSECUTIVE_FAILURES` PAUSES the row rather than retrying
+ * forever — a runaway loop against a write surface is this program's
+ * worst failure mode. A DENIAL (revoked token, inactive user) pauses
+ * IMMEDIATELY, without burning through the failure budget first — a
+ * denial is not a transient condition; it will not resolve itself by
+ * trying again in 5 minutes the way a real transient error (a dropped
+ * connection, a brief DB hiccup) might.
+ *
+ * A NOTIFY DELIVERY FAILURE IS DELIBERATELY A DIFFERENT POLICY, per the
+ * lead's own instinct ("shouldn't pause a recurring reminder forever
+ * because his phone was off") which this runner's own retry-code reading
+ * confirmed is the right call: a push failure has NO write-surface risk —
+ * nothing is corrupted by failing to deliver a notification repeatedly,
+ * unlike a runaway write loop. So a RECURRING notify's delivery failure
+ * NEVER pauses the schedule; it just proceeds to the next natural
+ * occurrence (no short retry-soon either — retrying a push 5 minutes
+ * later rarely helps and a recurring reminder gets a fresh chance
+ * tomorrow regardless). A ONE-OFF notify's delivery failure DOES get a
+ * few short retries (the moment hasn't fully passed yet) up to
+ * `NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS`, then is marked `cancelled` (not
+ * `paused` — there is nothing to resume, the reminder's moment is gone)
+ * with `last_outcome: 'error'` so it stays honestly visible via
+ * `scheduler_manage("list")`, never silently swept to "done."
+ *
+ * `MAX_CONSECUTIVE_FAILURES`, `NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS`, and
+ * `ONE_OFF_RETRY_DELAY_MS` below are MINE, not specified — same posture
+ * rate-limit.ts's own defaults take: placeholders the owner/lead should
+ * revisit once real scheduled-action traffic exists, not researched
+ * constants.
  *
  * REQUIREMENT #4 (at-least-once, so writes must tolerate running twice):
  * `claimDueActions`'s own comment explains the concrete mechanism (an
  * atomic claim-via-bump UPDATE) and the honest gap it leaves (a crash
  * between claim and finalize). This runner does NOT filter which actions
  * it will fire by idempotency — that gate is entirely at SCHEDULE time
- * (`createScheduledActionCore` refuses anything not marked
- * `idempotent: true` in write-registry.ts). By the time a row reaches
- * this runner, it was already only ever allowed to be created if it's
- * safe to run more than once.
+ * (`createScheduledActionCore` refuses any WRITE not marked
+ * `idempotent: true` in write-registry.ts; a notify's own idempotency
+ * comes from lib/notifications/notify-core.ts's dispatch-log check, not
+ * this gate). By the time a row reaches this runner, it was already only
+ * ever allowed to be created if it's safe to run more than once.
  */
 
 export const MAX_CONSECUTIVE_FAILURES = 5;
+export const NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS = 3;
 const ONE_OFF_RETRY_DELAY_MS = 5 * 60 * 1000;
 /** How long a claim's temporary bump holds before a crashed run's row becomes due again on its own — the self-healing half of "at-least-once," not a tunable retry interval. */
 const CLAIM_BUFFER_MS = 10 * 60 * 1000;
@@ -73,7 +109,8 @@ interface ScheduledActionRow {
   id: string;
   user_id: string;
   token_id: string;
-  args: WriteArgs;
+  tool_name: "write" | "notify";
+  args: WriteArgs | { title: string; body: string };
   cron_expression: string | null;
   run_at: string | null;
   attempt_count: number;
@@ -103,7 +140,7 @@ export async function claimDueActions(serviceClient: SupabaseClient, now: Date):
     .update({ next_run_at: claimedUntil })
     .eq("status", "active")
     .lte("next_run_at", nowIso)
-    .select("id, user_id, token_id, args, cron_expression, run_at, attempt_count");
+    .select("id, user_id, token_id, tool_name, args, cron_expression, run_at, attempt_count");
   if (error) throw error;
   return (data ?? []) as ScheduledActionRow[];
 }
@@ -131,26 +168,25 @@ async function finalizeRun(serviceClient: SupabaseClient, id: string, now: Date,
   if (error) throw error;
 }
 
-/** Fetches just the timezone this one row's owner needs to advance a recurring schedule — a per-row lookup, not threaded from anywhere, since a poll batch can span many different users. */
+/** Fetches just the timezone this one row's owner needs to advance a recurring schedule (or compute a notify's local dispatch-log date) — a per-row lookup, not threaded from anywhere, since a poll batch can span many different users. */
 async function fetchTimezoneForUser(serviceClient: SupabaseClient, userId: string): Promise<string> {
   const { data } = await serviceClient.from("profiles").select("timezone").eq("user_id", userId).maybeSingle();
   return (data?.timezone as string | undefined) ?? "UTC";
 }
 
-async function denyRow(
-  serviceClient: SupabaseClient,
-  row: ScheduledActionRow,
-  now: Date,
-  reason: string,
-): Promise<void> {
+function resolveOperation(row: ScheduledActionRow): string {
+  return row.tool_name === "notify" ? "notify.send" : resolveWriteOperation(row.args as WriteArgs);
+}
+
+async function denyRow(serviceClient: SupabaseClient, row: ScheduledActionRow, now: Date, reason: string): Promise<void> {
   // Same audit primitive runMcpTool itself calls internally -- see this
   // file's own header for why this is the one necessary exception to
   // "always dispatch through runMcpTool."
   await writeAuditRow(serviceClient, {
     userId: row.user_id,
     tokenId: row.token_id,
-    toolName: "write",
-    operation: resolveWriteOperation(row.args),
+    toolName: row.tool_name,
+    operation: resolveOperation(row),
     args: row.args,
     outcome: "denied",
     resultSummary: reason,
@@ -165,7 +201,81 @@ async function denyRow(
   });
 }
 
-/** Processes exactly one claimed row: fresh token/user check, dispatch through runMcpTool if live, then finalize (advance/pause/cancel). Exported separately from `processScheduledActions` so a test can drive one row without needing a real claim query. */
+/**
+ * The notify `fn` handed to `runMcpTool` — closes over `serviceClient`
+ * rather than using the `userClient` argument `runMcpTool` offers, for
+ * the Vault-RPC reason this file's own header names. THROWS on a genuine
+ * delivery failure (0 devices reached, whether from zero subscriptions or
+ * every send failing) so `runMcpTool` reports/audits it as a real error —
+ * this runner's OWN post-processing below is what then applies the
+ * separate, more lenient notify-failure policy, not this function.
+ */
+async function dispatchNotify(serviceClient: SupabaseClient, row: ScheduledActionRow, timezone: string, now: Date): Promise<RunMcpToolOutcome> {
+  const args = row.args as { title: string; body: string };
+  const result = await sendScheduledNotificationCore(serviceClient, row.user_id, timezone, now, row.id, args.title, args.body);
+  if (result.delivered === 0 && !result.alreadySent) {
+    throw new Error("Push delivery failed -- no device received it (expired/unregistered subscription, or none at all).");
+  }
+  return {
+    result: { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: { ...result } },
+    summary: result.alreadySent ? "notification already sent for this occurrence, skipped" : `delivered to ${result.delivered}/${result.total} device(s)`,
+  };
+}
+
+/** Advances a successful row to its next state: cancelled (one-off, done) or active with a recomputed next_run_at (recurring), resetting the failure streak to 0 either way. */
+async function finalizeSuccess(serviceClient: SupabaseClient, row: ScheduledActionRow, now: Date): Promise<void> {
+  if (row.run_at) {
+    // One-off: done. "cancelled" and "will never fire again because it
+    // succeeded" are the same fact `status` needs to carry -- see the
+    // migration draft's own header on why there's no separate "completed".
+    await finalizeRun(serviceClient, row.id, now, { status: "cancelled", nextRunAt: now.toISOString(), lastOutcome: "ok", lastError: null, attemptCount: 0 });
+    return;
+  }
+  const timezone = await fetchTimezoneForUser(serviceClient, row.user_id);
+  const nextRunAt = computeNextRunAt(row.cron_expression as string, now, timezone);
+  await finalizeRun(serviceClient, row.id, now, { status: "active", nextRunAt: nextRunAt.toISOString(), lastOutcome: "ok", lastError: null, attemptCount: 0 });
+}
+
+/** WRITE failure policy: bounded consecutive retries, then pause. See this file's header, requirement #3. */
+async function finalizeWriteFailure(serviceClient: SupabaseClient, row: ScheduledActionRow, now: Date, errorText: string | null): Promise<void> {
+  const attemptCount = row.attempt_count + 1;
+  if (attemptCount >= MAX_CONSECUTIVE_FAILURES) {
+    await finalizeRun(serviceClient, row.id, now, { status: "paused", nextRunAt: now.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount });
+  } else {
+    // Retry soon, not at the schedule's own next natural occurrence -- a
+    // one-off has no "next occurrence" at all, and a recurring action's
+    // real cadence could be a day or a week away, far too slow to recover
+    // from a transient failure within its own bounded-retry budget.
+    const nextRunAt = new Date(now.getTime() + ONE_OFF_RETRY_DELAY_MS);
+    await finalizeRun(serviceClient, row.id, now, { status: "active", nextRunAt: nextRunAt.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount });
+  }
+}
+
+/** NOTIFY delivery-failure policy: deliberately NOT the write policy — see this file's header, requirement #3's notify carve-out. */
+async function finalizeNotifyFailure(serviceClient: SupabaseClient, row: ScheduledActionRow, now: Date, errorText: string | null): Promise<void> {
+  if (row.run_at) {
+    // One-off: a short, bounded retry budget of its own (the moment
+    // hasn't fully passed yet), then cancelled -- never paused, there is
+    // nothing left to resume once its window has passed.
+    const attemptCount = row.attempt_count + 1;
+    if (attemptCount >= NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS) {
+      await finalizeRun(serviceClient, row.id, now, { status: "cancelled", nextRunAt: now.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount });
+    } else {
+      const nextRunAt = new Date(now.getTime() + ONE_OFF_RETRY_DELAY_MS);
+      await finalizeRun(serviceClient, row.id, now, { status: "active", nextRunAt: nextRunAt.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount });
+    }
+    return;
+  }
+  // Recurring: NEVER pauses on a delivery failure -- proceeds straight to
+  // the next natural occurrence. attempt_count still increments, for
+  // visibility via list() ("this has failed N times"), but nothing reads
+  // it as a pause trigger for notify.
+  const timezone = await fetchTimezoneForUser(serviceClient, row.user_id);
+  const nextRunAt = computeNextRunAt(row.cron_expression as string, now, timezone);
+  await finalizeRun(serviceClient, row.id, now, { status: "active", nextRunAt: nextRunAt.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount: row.attempt_count + 1 });
+}
+
+/** Processes exactly one claimed row: fresh token/user check, dispatch through runMcpTool if live, then finalize (advance/pause/cancel) using the policy for its `tool_name`. Exported separately from `processScheduledActions` so a test can drive one row without needing a real claim query. */
 export async function processOneScheduledAction(serviceClient: SupabaseClient, row: ScheduledActionRow, now: Date): Promise<"ok" | "error" | "denied"> {
   const liveToken = await getLiveTokenById(serviceClient, row.token_id);
   if (!liveToken) {
@@ -180,8 +290,15 @@ export async function processOneScheduledAction(serviceClient: SupabaseClient, r
   }
 
   const authInfo: AuthInfoLike = { scopes: liveToken.scopes, extra: { userId: liveToken.userId, tokenId: row.token_id } };
-  const operation = resolveWriteOperation(row.args); // recomputed fresh, never trusted from the stored column
-  const result = await runMcpTool(serviceClient, authInfo, "write", operation, "write", row.args, (userClient, userId) => writeTool(userClient, userId, row.args));
+  const operation = resolveOperation(row); // recomputed fresh, never trusted from the stored column
+
+  let result: RunMcpToolOutcome | Awaited<ReturnType<typeof runMcpTool>>;
+  if (row.tool_name === "notify") {
+    const timezone = await fetchTimezoneForUser(serviceClient, row.user_id);
+    result = await runMcpTool(serviceClient, authInfo, "notify", operation, "write", row.args, () => dispatchNotify(serviceClient, row, timezone, now));
+  } else {
+    result = await runMcpTool(serviceClient, authInfo, "write", operation, "write", row.args, (userClient, userId) => writeTool(userClient, userId, row.args as WriteArgs));
+  }
 
   // `runMcpTool`'s own return type carries only `isError` -- it does not
   // distinguish its internal "denied" (scope check failed) from a genuine
@@ -195,31 +312,14 @@ export async function processOneScheduledAction(serviceClient: SupabaseClient, r
   const errorText = result.isError ? (result.content[0]?.type === "text" ? result.content[0].text : "error") : null;
 
   if (outcome === "ok") {
-    if (row.run_at) {
-      // One-off: done. "cancelled" and "will never fire again because it
-      // succeeded" are the same fact `status` needs to carry -- see the
-      // migration draft's own header on why there's no separate "completed".
-      await finalizeRun(serviceClient, row.id, now, { status: "cancelled", nextRunAt: now.toISOString(), lastOutcome: "ok", lastError: null, attemptCount: 0 });
-    } else {
-      const timezone = await fetchTimezoneForUser(serviceClient, row.user_id);
-      const nextRunAt = computeNextRunAt(row.cron_expression as string, now, timezone);
-      // A SUCCESS resets the failure streak to 0 -- only CONSECUTIVE
-      // failures should ever pause a row, never a cumulative-ever count.
-      await finalizeRun(serviceClient, row.id, now, { status: "active", nextRunAt: nextRunAt.toISOString(), lastOutcome: "ok", lastError: null, attemptCount: 0 });
-    }
+    await finalizeSuccess(serviceClient, row, now);
     return "ok";
   }
 
-  const attemptCount = row.attempt_count + 1;
-  if (attemptCount >= MAX_CONSECUTIVE_FAILURES) {
-    await finalizeRun(serviceClient, row.id, now, { status: "paused", nextRunAt: now.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount });
+  if (row.tool_name === "notify") {
+    await finalizeNotifyFailure(serviceClient, row, now, errorText);
   } else {
-    // Retry soon, not at the schedule's own next natural occurrence -- a
-    // one-off has no "next occurrence" at all, and a recurring action's
-    // real cadence could be a day or a week away, far too slow to recover
-    // from a transient failure within its own bounded-retry budget.
-    const nextRunAt = new Date(now.getTime() + ONE_OFF_RETRY_DELAY_MS);
-    await finalizeRun(serviceClient, row.id, now, { status: "active", nextRunAt: nextRunAt.toISOString(), lastOutcome: "error", lastError: errorText, attemptCount });
+    await finalizeWriteFailure(serviceClient, row, now, errorText);
   }
   return "error";
 }
@@ -241,11 +341,11 @@ export async function processScheduledActions(serviceClient: SupabaseClient, now
       const outcome = await processOneScheduledAction(serviceClient, row, now);
       result[outcome]++;
     } catch {
-      // A row whose processing itself threw (not a write-tool error --
-      // those are already caught and reported by runMcpTool as `isError`,
-      // handled above) is left claimed-until-the-buffer-expires rather
-      // than crashing the whole batch; the next poll tick picks it back
-      // up once the claim buffer elapses, same self-healing path a
+      // A row whose processing itself threw (not a write-tool/notify error
+      // -- those are already caught and reported by runMcpTool as
+      // `isError`, handled above) is left claimed-until-the-buffer-expires
+      // rather than crashing the whole batch; the next poll tick picks it
+      // back up once the claim buffer elapses, same self-healing path a
       // process crash takes (see claimDueActions' own comment).
       result.error++;
     }

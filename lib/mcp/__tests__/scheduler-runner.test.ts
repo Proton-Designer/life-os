@@ -44,14 +44,40 @@ vi.mock("../tool-wrapper", () => ({
   runMcpTool: (...args: unknown[]) => runMcpToolMock(...args),
 }));
 
-const { claimDueActions, processOneScheduledAction, processScheduledActions, MAX_CONSECUTIVE_FAILURES } = await import("../scheduler-runner");
+/** Mocked here too (not just in lib/notifications/__tests__/notify-core.test.ts) so notify-dispatch tests can verify the RUNNER wires it correctly (right client, right args) without depending on the real push-sending stack. */
+const sendScheduledNotificationCoreMock = vi.fn<(...args: unknown[]) => Promise<{ delivered: number; total: number; alreadySent: boolean }>>();
+vi.mock("@/lib/notifications/notify-core", () => ({
+  sendScheduledNotificationCore: (...args: unknown[]) => sendScheduledNotificationCoreMock(...args),
+}));
+
+const { claimDueActions, processOneScheduledAction, processScheduledActions, MAX_CONSECUTIVE_FAILURES, NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS } = await import("../scheduler-runner");
 
 beforeEach(() => {
   getLiveTokenByIdMock.mockReset();
   isUserActiveMock.mockReset();
   writeAuditRowMock.mockClear();
   runMcpToolMock.mockReset();
+  sendScheduledNotificationCoreMock.mockReset();
 });
+
+/**
+ * A `runMcpTool` implementation that ACTUALLY INVOKES the passed `fn` (real
+ * pass-through, converting its `RunMcpToolOutcome` into a `CallToolResult`)
+ * rather than returning a canned value — used ONLY by the notify-dispatch
+ * tests below, which need to prove `dispatchNotify` (scheduler-runner.ts's
+ * own closure) actually reaches `sendScheduledNotificationCore` with the
+ * right arguments, not just that `runMcpTool` was called with the right
+ * top-level ones.
+ */
+async function passthroughRunMcpTool(...args: unknown[]): Promise<CallToolResult> {
+  const fn = args[6] as (userClient: unknown, userId: string) => Promise<{ result: CallToolResult; summary: string }>;
+  try {
+    const outcome = await fn({ __fake: "user-client" }, "user-1");
+    return outcome.result;
+  } catch (e) {
+    return { content: [{ type: "text" as const, text: e instanceof Error ? e.message : "error" }], isError: true };
+  }
+}
 
 function okResult(): CallToolResult {
   return { content: [{ type: "text", text: "{}" }] };
@@ -62,11 +88,23 @@ function errorResult(message: string): CallToolResult {
 
 const now = new Date("2026-09-08T20:00:00.000Z"); // 15:00 CDT
 
-function makeRow(overrides: Partial<{ id: string; user_id: string; token_id: string; args: WriteArgs; cron_expression: string | null; run_at: string | null; attempt_count: number }> = {}) {
+function makeRow(
+  overrides: Partial<{
+    id: string;
+    user_id: string;
+    token_id: string;
+    tool_name: "write" | "notify";
+    args: WriteArgs | { title: string; body: string };
+    cron_expression: string | null;
+    run_at: string | null;
+    attempt_count: number;
+  }> = {},
+) {
   return {
     id: "sched-1",
     user_id: "user-1",
     token_id: "tok-1",
+    tool_name: "write" as const,
     args: { domain: "settings", entity: "profile", action: "update", patch: { theme_preset: "ocean" } },
     cron_expression: null,
     run_at: "2026-09-08T20:00:00.000Z",
@@ -253,5 +291,87 @@ describe("processScheduledActions — batch resilience", () => {
     expect(result.processed).toBe(2);
     expect(result.ok).toBe(1);
     expect(result.error).toBe(1);
+  });
+});
+
+describe("processOneScheduledAction — notify dispatch (the reminder-delivery half)", () => {
+  it("dispatches through runMcpTool with toolName:'notify', requiredScope:'write', and reaches sendScheduledNotificationCore with the SERVICE-ROLE client, not runMcpTool's own userClient (get_vault_secrets is service_role-only)", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockImplementation(passthroughRunMcpTool);
+    sendScheduledNotificationCoreMock.mockResolvedValue({ delivered: 1, total: 1, alreadySent: false });
+    const { client } = makeServiceClient();
+    const row = makeRow({ tool_name: "notify", args: { title: "Kill list", body: "Go review it" }, run_at: "2026-09-08T20:00:00.000Z" });
+
+    const outcome = await processOneScheduledAction(client, row, now);
+
+    expect(outcome).toBe("ok");
+    expect(runMcpToolMock).toHaveBeenCalledWith(client, expect.objectContaining({ scopes: ["write"] }), "notify", "notify.send", "write", row.args, expect.any(Function));
+    expect(sendScheduledNotificationCoreMock).toHaveBeenCalledWith(client, "user-1", "America/Chicago", now, "sched-1", "Kill list", "Go review it");
+  });
+
+  it("a successful notify cancels a one-off, same as a successful write", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockImplementation(passthroughRunMcpTool);
+    sendScheduledNotificationCoreMock.mockResolvedValue({ delivered: 1, total: 1, alreadySent: false });
+    const { client, updateCalls } = makeServiceClient();
+
+    await processOneScheduledAction(client, makeRow({ tool_name: "notify", args: { title: "t", body: "b" }, run_at: "2026-09-08T20:00:00.000Z" }), now);
+
+    const final = updateCalls.find((c) => c.row.status !== undefined)!.row;
+    expect(final).toMatchObject({ status: "cancelled", last_outcome: "ok" });
+  });
+
+  it("a delivery failure for a ONE-OFF notify retries a bounded number of times, then CANCELS (not paused) -- nothing left to resume once its moment has passed", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockImplementation(passthroughRunMcpTool);
+    sendScheduledNotificationCoreMock.mockResolvedValue({ delivered: 0, total: 1, alreadySent: false });
+    const { client, updateCalls } = makeServiceClient();
+
+    const outcome = await processOneScheduledAction(
+      client,
+      makeRow({ tool_name: "notify", args: { title: "t", body: "b" }, run_at: "2026-09-08T20:00:00.000Z", attempt_count: NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS - 1 }),
+      now,
+    );
+
+    expect(outcome).toBe("error");
+    const final = updateCalls.find((c) => c.row.status !== undefined)!.row;
+    expect(final).toMatchObject({ status: "cancelled", last_outcome: "error", attempt_count: NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS });
+  });
+
+  it("a delivery failure for a RECURRING notify NEVER pauses -- advances straight to the next natural occurrence regardless of how many times it's failed, per the lead's own instinct (a phone being off shouldn't kill a daily reminder forever)", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockImplementation(passthroughRunMcpTool);
+    sendScheduledNotificationCoreMock.mockResolvedValue({ delivered: 0, total: 0, alreadySent: false });
+    const { client, updateCalls } = makeServiceClient({ profileTimezone: "America/Chicago" });
+
+    // Attempt count already WAY past MAX_CONSECUTIVE_FAILURES (the write
+    // budget) -- must not matter at all for a recurring notify.
+    const outcome = await processOneScheduledAction(
+      client,
+      makeRow({ tool_name: "notify", args: { title: "t", body: "b" }, run_at: null, cron_expression: "0 7 * * *", attempt_count: MAX_CONSECUTIVE_FAILURES + 20 }),
+      now,
+    );
+
+    expect(outcome).toBe("error");
+    const final = updateCalls.find((c) => c.row.status !== undefined)!.row;
+    expect(final.status).toBe("active"); // never paused
+    expect(final.next_run_at).toBe("2026-09-09T12:00:00.000Z"); // next day's 07:00 CDT, the schedule's own normal cadence
+  });
+
+  it("an already-delivered occurrence (alreadySent:true) reports 'ok' without re-sending, and still advances the schedule normally", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockImplementation(passthroughRunMcpTool);
+    sendScheduledNotificationCoreMock.mockResolvedValue({ delivered: 0, total: 0, alreadySent: true });
+    const { client, updateCalls } = makeServiceClient();
+
+    const outcome = await processOneScheduledAction(client, makeRow({ tool_name: "notify", args: { title: "t", body: "b" }, run_at: "2026-09-08T20:00:00.000Z" }), now);
+
+    expect(outcome).toBe("ok");
+    expect(updateCalls.find((c) => c.row.status !== undefined)?.row).toMatchObject({ status: "cancelled", last_outcome: "ok" });
   });
 });
