@@ -1,5 +1,5 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
-import { settleRoute } from "./helpers";
+import { test, expect, type Page } from "@playwright/test";
+import { settleRoute, fillReliably } from "./helpers";
 
 /**
  * Bring-your-own-key settings, verified against the deployed app.
@@ -35,20 +35,14 @@ import { settleRoute } from "./helpers";
  * instruction, and on the merits: switching only proves typing eventually
  * works, not that the race is understood or that a real fast interaction
  * (e.g. a password manager's own instant autofill) wouldn't hit it too.
- * `fillReliably` below instead ASSERTS the real precondition — a fill that
- * actually stuck — and re-fills if it didn't, the same "verify the effect,
- * don't guess a timing margin" discipline as this suite's clickAndSettle().
+ * `fillReliably` (e2e/helpers.ts) instead ASSERTS the real precondition —
+ * a fill that actually stuck — and re-fills if it didn't, the same
+ * "verify the effect, don't guess a timing margin" discipline as this
+ * suite's clickAndSettle(). Promoted to helpers.ts, not kept local here,
+ * after the identical race reproduced through a DIFFERENT spec written
+ * minutes later (e2e/settings-connector-overflow.spec.ts) that looked
+ * like it already covered interactivity — see fillReliably's own comment.
  */
-async function fillReliably(locator: Locator, value: string) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await locator.fill(value);
-    if ((await locator.inputValue()) === value) return;
-    await locator.page().waitForTimeout(150);
-  }
-  // Let the final attempt's real value drive a real assertion failure with
-  // a clear message, rather than silently giving up after 3 tries.
-  await expect(locator).toHaveValue(value);
-}
 
 async function openSettings(page: Page) {
   await page.goto("/settings");

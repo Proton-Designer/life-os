@@ -224,8 +224,11 @@ async function main() {
   assert(!!authorizationEndpoint && !!tokenEndpoint && !!registrationEndpoint, "authorization-server metadata names authorize/token/register endpoints", JSON.stringify(asMeta));
 
   if (!authorizationEndpoint || !tokenEndpoint || !registrationEndpoint) {
-    console.error("\nCannot continue without discovery endpoints.");
-    process.exit(1);
+    // Not process.exit() here -- that would terminate before cleanup() runs
+    // at the bottom of this file and leave any already-created rows behind.
+    // Thrown instead, caught by the top-level driver, which cleans up then
+    // exits with a real error code.
+    throw new Error("Cannot continue without discovery endpoints.");
   }
 
   // Confirm /api/mcp actually challenges with the SAME protected-resource
@@ -384,10 +387,75 @@ async function main() {
 
   // ── summary ────────────────────────────────────────────────────────────
   console.log(`\n${passCount} passed, ${failCount} failed\n`);
-  process.exit(failCount > 0 ? 1 : 0);
+  return failCount;
 }
 
-main().catch((err) => {
-  console.error("\nSCRIPT ERROR (not a check failure -- the run itself broke):", err);
-  process.exit(2);
-});
+/**
+ * Revokes/deletes every row THIS SCRIPT creates on the SEED account, run
+ * unconditionally (success, check failures, or a hard script error) via the
+ * driver's `finally` below.
+ *
+ * WHY THIS EXISTS (the Lead, 2026-09-09): three prior runs left real,
+ * un-revoked `mcp_access_tokens` rows on SEED with no teardown -- residue
+ * that shows up in Settings' connector list for anyone looking at the
+ * account, and is exactly the class of accumulating cross-run state
+ * AGENTS.md already names as what poisoned this suite once before.
+ *
+ * SAFE TO TARGET BROADLY, not just this run's own rows: every client this
+ * script registers uses the fixed, distinctive client_name "MCP Flow
+ * Check" (see registerClient's caller below), which (a) never collides
+ * with a real connector (Claude/ChatGPT/Gemini register their own real
+ * names) and (b) means this cleans up EVERY past run's leftovers too, not
+ * only the current one -- the same "clean up broadly by a stable marker,
+ * not just what I personally just created" idea as the e2e suite's own
+ * afterEach patterns, just scoped to this script's one recognizable label
+ * instead of a per-test title.
+ *
+ * Revokes access tokens (never deletes -- same "revoke, don't hard-delete
+ * a credential" posture as Settings' own Revoke button); DELETES the
+ * mcp_oauth_clients rows outright, which is safe here specifically because
+ * they are this script's own throwaway registrations, not user data, and
+ * cascades away their linked mcp_oauth_codes/mcp_oauth_refresh_tokens rows
+ * (FK ON DELETE CASCADE, migration 132) as a side effect.
+ */
+async function cleanupFlowCheckResidue(): Promise<void> {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!SUPABASE_URL || !serviceRoleKey) {
+    console.log("\n(cleanup skipped -- SUPABASE_SERVICE_ROLE_KEY not set in .env.local)");
+    return;
+  }
+  const { createClient } = await import("@supabase/supabase-js");
+  const svc = createClient(SUPABASE_URL, serviceRoleKey);
+
+  const FLOW_CHECK_LABEL = "OAuth: MCP Flow Check";
+  const { data: revoked, error: revokeError } = await svc
+    .from("mcp_access_tokens")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("label", FLOW_CHECK_LABEL)
+    .is("revoked_at", null)
+    .select("id");
+  if (revokeError) console.error("cleanup: revoking mcp_access_tokens failed:", revokeError.message);
+  else if (revoked && revoked.length > 0) console.log(`\ncleanup: revoked ${revoked.length} leftover mcp_access_tokens row(s) labeled "${FLOW_CHECK_LABEL}"`);
+
+  const { data: deletedClients, error: deleteError } = await svc
+    .from("mcp_oauth_clients")
+    .delete()
+    .eq("client_name", "MCP Flow Check")
+    .select("id");
+  if (deleteError) console.error("cleanup: deleting mcp_oauth_clients failed:", deleteError.message);
+  else if (deletedClients && deletedClients.length > 0) console.log(`cleanup: deleted ${deletedClients.length} leftover mcp_oauth_clients registration(s)`);
+}
+
+let exitCode = 0;
+main()
+  .then((failCount) => {
+    exitCode = failCount > 0 ? 1 : 0;
+  })
+  .catch((err) => {
+    console.error("\nSCRIPT ERROR (not a check failure -- the run itself broke):", err);
+    exitCode = 2;
+  })
+  .finally(async () => {
+    await cleanupFlowCheckResidue().catch((err) => console.error("cleanup itself failed:", err));
+    process.exit(exitCode);
+  });

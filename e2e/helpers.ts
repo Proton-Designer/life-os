@@ -1,4 +1,4 @@
-import { Page, expect } from "@playwright/test";
+import { Page, Locator, expect } from "@playwright/test";
 
 export async function login(page: Page) {
   const email = process.env.SEED_USER_EMAIL;
@@ -99,4 +99,60 @@ export async function settleRoute(page: Page) {
 export async function clickAndSettle(page: Page, target: import("@playwright/test").Locator) {
   await target.click();
   await page.waitForLoadState("networkidle");
+}
+
+/**
+ * Fills a controlled input, then VERIFIES the fill actually stuck — retrying
+ * a bounded number of times, and failing loudly (a real assertion, not a
+ * silent give-up) if it never does.
+ *
+ * WHY THIS EXISTS, not `.fill()` alone (found 2026-09-09, `e2e/
+ * api-key-settings.spec.ts`, confirmed live by the Lead): a HYDRATION RACE.
+ * `.fill()` dispatches its input event near-instantly. If it lands on a
+ * controlled input BEFORE React has hydrated and attached that input's
+ * `onChange` handler, the native DOM write is never seen by React at all —
+ * then hydration commits a moment later and React reconciles the
+ * controlled value against its own initial state (typically `""`),
+ * silently overwriting whatever was just typed. `settleRoute()` alone does
+ * NOT close this gap — it waits for the loading.tsx skeleton to be gone,
+ * which is a CONTENT signal, not a React-interactivity one, and this exact
+ * race reproduced through it (`e2e/settings-connector-overflow.spec.ts`,
+ * written minutes after the fix above, hit the identical failure through
+ * the identical gap).
+ *
+ * `pressSequentially()` also survives this race (its keystrokes are spaced
+ * out enough that hydration has usually finished by the time they land),
+ * but switching to it treats the SYMPTOM as the fix: it proves typing
+ * eventually works, not that the race is understood, and doesn't help a
+ * real fast interaction (a password manager's instant autofill) that hits
+ * the same window. This helper instead asserts the actual precondition —
+ * a fill that landed — which is the same "verify the effect, don't guess a
+ * timing margin" discipline as `clickAndSettle` above.
+ *
+ * Default, not a special case: any spec filling a controlled input on a
+ * page that might still be hydrating should reach for this rather than a
+ * bare `.fill()` — see this comment's own second data point for how easily
+ * the race gets reintroduced by a spec that looks like it already covers
+ * interactivity (`await expect(section).toBeVisible()` before filling —
+ * DOM presence, not React readiness).
+ */
+export async function fillReliably(locator: Locator, value: string, attempts = 3) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    await locator.fill(value);
+    if ((await locator.inputValue()) === value) return;
+    await locator.page().waitForTimeout(150);
+  }
+  // Let the final attempt's real value drive a real assertion failure with
+  // a clear message, rather than silently giving up after `attempts` tries.
+  await expect(locator).toHaveValue(value);
+}
+
+/** Same race, same fix, for a checkbox/radio: `.check()`, verify `.isChecked()`, retry. See fillReliably's own comment for the full mechanism. */
+export async function checkReliably(locator: Locator, attempts = 3) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    await locator.check();
+    if (await locator.isChecked()) return;
+    await locator.page().waitForTimeout(150);
+  }
+  await expect(locator).toBeChecked();
 }

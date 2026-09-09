@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { login, dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
+import { login, dismissCheckinDialogIfPresent, settleRoute, fillReliably, checkReliably } from "./helpers";
 
 /**
  * Regression spec for the /settings 320px overflow the Lead found live
@@ -30,6 +30,16 @@ import { login, dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
  * per this project's own rule on teardown surviving an assertion failure —
  * a token left behind by a failed run would itself become a long-lived
  * fixture that changes what the NEXT run's connector list actually is.
+ *
+ * USES fillReliably/checkReliably (e2e/helpers.ts), NOT bare .fill()/
+ * .check() — this file's own first version didn't, and hit the identical
+ * hydration race e2e/api-key-settings.spec.ts was just fixed for: the
+ * label never landed, no token was created, and the whole test failed at
+ * `expect(...getByText(longLabel)).toBeVisible()` before ever reaching the
+ * overflow measurement it exists to make. settleRoute() alone (a CONTENT
+ * signal — the loading skeleton is gone) is not the same guarantee as
+ * React having hydrated and attached this specific form's handlers — see
+ * fillReliably's own comment for the full mechanism.
  */
 
 let createdTokenLabel: string | null = null;
@@ -60,8 +70,8 @@ test("a long, unbroken PAT label does not overflow /settings at 320px", async ({
 
   const connectors = page.locator("#connectors");
   await connectors.scrollIntoViewIfNeeded();
-  await connectors.getByLabel(/label/i).fill(longLabel);
-  await connectors.getByRole("checkbox").first().check(); // Read permission, minimum to enable Create
+  await fillReliably(connectors.getByLabel(/label/i), longLabel);
+  await checkReliably(connectors.getByRole("checkbox").first()); // Read permission, minimum to enable Create
   await connectors.getByRole("button", { name: /create token/i }).click();
   await expect(connectors.getByText(longLabel)).toBeVisible();
 
