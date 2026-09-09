@@ -114,12 +114,9 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
     // Belt-and-suspenders .eq("user_id", userId) on top of RLS — same
     // convention as lib/mcp/tools/get-profile.ts, for the same reason
     // (this codebase's own RLS-sweep incident history).
-    const { data, error } = await supabase
-      .from(def.table)
-      .select(select)
-      .eq(def.idColumn, args.id)
-      .eq("user_id", userId)
-      .maybeSingle();
+    let idQuery = supabase.from(def.table).select(select).eq(def.idColumn, args.id).eq("user_id", userId);
+    for (const [col, value] of Object.entries(def.fixedFilter ?? {})) idQuery = idQuery.eq(col, value);
+    const { data, error } = await idQuery.maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error(`No ${def.entity} found with id "${args.id}".`);
 
@@ -131,6 +128,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   }
 
   let query = supabase.from(def.table).select(select, { count: "exact" }).eq("user_id", userId);
+  for (const [col, value] of Object.entries(def.fixedFilter ?? {})) query = query.eq(col, value);
   if (args.filter) {
     for (const [col, value] of Object.entries(args.filter)) {
       if (!def.filterableColumns.includes(col)) {

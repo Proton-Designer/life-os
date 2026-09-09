@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { REGISTRY, listDomains, getDomain, getEntity } from "../registry";
 
 describe("registry", () => {
-  it("lists exactly the domains actually wired for L3 — deen and self_mastery, nothing aspirational", () => {
-    expect(listDomains().map((d) => d.domain).sort()).toEqual(["deen", "self_mastery"]);
+  it("lists exactly the domains actually wired so far — deen, self_mastery, work, business", () => {
+    expect(listDomains().map((d) => d.domain).sort()).toEqual(["business", "deen", "self_mastery", "work"]);
   });
 
   it("self_mastery/source_chunks is registered but exposes ZERO columns — existence only, content deliberately unreachable", () => {

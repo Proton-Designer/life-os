@@ -1,6 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { markPrayerCore, toggleSunnahCore, toggleAdhkarCore } from "@/lib/deen/actions-core";
+import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
+import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
+import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
+import type { CoopTaskStatus } from "@/lib/coop/tasks";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 
@@ -32,6 +36,8 @@ export interface WriteContext {
   userId: string;
   timezone: string;
   now: Date;
+  /** `write(..., id?, ...)`'s top-level id — for actions that target an EXISTING row by id (edit/advance/reorder/...), as opposed to deen's date-keyed actions, which never use it. */
+  id?: string;
 }
 
 export type WritePatch = Record<string, unknown>;
@@ -76,11 +82,46 @@ function requireEnum<T extends string>(patch: WritePatch, field: string, allowed
   return value as T;
 }
 
+function requireNumberEnum<T extends number>(patch: WritePatch, field: string, allowed: readonly T[]): T {
+  const value = patch[field];
+  if (typeof value !== "number" || !(allowed as readonly number[]).includes(value)) {
+    throw new Error(`patch.${field} must be one of: ${allowed.join(", ")}. Got: ${JSON.stringify(value)}.`);
+  }
+  return value as T;
+}
+
 function requirePrayerName(patch: WritePatch): PrayerName {
   const value = patch.prayer_name;
   if (!isPrayerName(value)) {
     throw new Error(`patch.prayer_name must be one of: ${PRAYER_NAMES.join(", ")}. Got: ${JSON.stringify(value)}.`);
   }
+  return value;
+}
+
+/** The top-level `write(..., id, ...)` — required by every action here that targets an existing row (edit/advance/reorder/toggle/...), as opposed to deen's date-keyed actions. */
+function requireId(ctx: WriteContext): string {
+  if (!ctx.id) throw new Error("This action requires the top-level `id` of the row to act on.");
+  return ctx.id;
+}
+
+function optionalNumber(patch: WritePatch, field: string): number | undefined {
+  const value = patch[field];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number") throw new Error(`patch.${field} must be a number. Got: ${JSON.stringify(value)}.`);
+  return value;
+}
+
+function optionalString(patch: WritePatch, field: string): string | undefined {
+  const value = patch[field];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`patch.${field} must be a string. Got: ${JSON.stringify(value)}.`);
+  return value;
+}
+
+function optionalNullableString(patch: WritePatch, field: string): string | null | undefined {
+  const value = patch[field];
+  if (value === undefined) return undefined;
+  if (value !== null && typeof value !== "string") throw new Error(`patch.${field} must be a string or null. Got: ${JSON.stringify(value)}.`);
   return value;
 }
 
@@ -161,6 +202,236 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: ctx.now.toISOString(), ...result },
                 },
                 summary: `toggled ${period} adhkar on ${date} to ${result.completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+        },
+      },
+    },
+  },
+  work: {
+    domain: "work",
+    entities: {
+      target: {
+        entity: "target",
+        actions: {
+          create: {
+            action: "create",
+            description: "Create a target (requires patch.deadline) or a stretch goal (never requires one), per patch.kind.",
+            patchShape: "{ kind: 'target'|'stretch', title: string, deadline?: string }",
+            handler: async (ctx, patch) => {
+              const kind = requireEnum(patch, "kind", ["target", "stretch"] as const);
+              const title = requireString(patch, "title");
+              const id =
+                kind === "target"
+                  ? await addTargetCore(ctx.userClient, ctx.userId, title, optionalString(patch, "deadline") ?? "")
+                  : await addStretchGoalCore(ctx.userClient, ctx.userId, title);
+              if (!id) throw new Error("Title was blank after trimming — nothing was created.");
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `created ${kind} "${title}"`,
+              };
+            },
+          },
+          edit: {
+            action: "edit",
+            description: "Edit an existing target/stretch goal's title and/or deadline. Requires the top-level id.",
+            patchShape: "{ title?: string, deadline?: string|null }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await editTargetCore(ctx.userClient, ctx.userId, id, { title: optionalString(patch, "title"), deadline: optionalNullableString(patch, "deadline") });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited target ${id}`,
+              };
+            },
+          },
+          complete: {
+            action: "complete",
+            description: "Mark a target/stretch goal done. Requires the top-level id. Never a delete — the row's history is kept (ruling 5).",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const promotion = await completeTargetCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, ...promotion }) }], structuredContent: { id, updated_at: null, ...promotion } },
+                summary: `completed target ${id}${promotion.promotedTargetId ? `, promoted ${promotion.promotedTargetId}` : ""}`,
+              };
+            },
+          },
+          reorder: {
+            action: "reorder",
+            description: "Move a target/stretch goal to a new position — the 'in diff order optionally' mechanism. Requires the top-level id and patch.position.",
+            patchShape: "{ position: number }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const position = optionalNumber(patch, "position");
+              if (position === undefined) throw new Error("patch.position is required.");
+              await moveTargetCore(ctx.userClient, ctx.userId, id, position);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, position }) }], structuredContent: { id, updated_at: null, position } },
+                summary: `moved target ${id} to position ${position}`,
+              };
+            },
+          },
+          // "remove" deliberately absent -- delete_coop_target is a real
+          // DELETE (guarded against a completed target, migration 032, but
+          // not against an active one), and the MCP write path may never
+          // hard-delete a row (L6's guardrail). Same posture as deen's
+          // "unlog" -- an honest gap, not a workaround.
+        },
+      },
+      task: {
+        entity: "task",
+        actions: {
+          add: {
+            action: "add",
+            description: "Add a task to a target's backlog. Requires the top-level id (the target's id).",
+            patchShape: "{ title: string, deadline?: string }",
+            handler: async (ctx, patch) => {
+              const targetId = requireId(ctx);
+              const title = requireString(patch, "title");
+              const id = await addAgendaTaskCore(ctx.userClient, targetId, title, optionalString(patch, "deadline"));
+              if (!id) throw new Error("Title was blank after trimming — nothing was created.");
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `added task "${title}" to target ${targetId}`,
+              };
+            },
+          },
+          edit: {
+            action: "edit",
+            description: "Edit an existing task's title and/or deadline. Requires the top-level id.",
+            patchShape: "{ title?: string, deadline?: string|null }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await editTaskCore(ctx.userClient, ctx.userId, id, { title: optionalString(patch, "title"), deadline: optionalNullableString(patch, "deadline") });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited task ${id}`,
+              };
+            },
+          },
+          ...(["advance", "retreat", "block", "unblock"] as const).reduce(
+            (acc, action) => {
+              acc[action] = {
+                action,
+                description: `${action[0].toUpperCase()}${action.slice(1)} a task one pipeline stage. Requires the top-level id and patch.current_status${action === "unblock" ? " (the status to restore)" : ""}.`,
+                patchShape: "{ current_status: 'backlog'|'in_progress'|'review'|'complete'|'blocked' }",
+                handler: async (ctx: WriteContext, patch: WritePatch) => {
+                  const id = requireId(ctx);
+                  const currentStatus = requireEnum(patch, "current_status", ["backlog", "in_progress", "review", "blocked", "complete"] as const) as Exclude<
+                    CoopTaskStatus,
+                    "blocked"
+                  >;
+                  const coreFn = { advance: advanceTaskCore, retreat: retreatTaskCore, block: blockTaskCore, unblock: unblockTaskCore }[action];
+                  await coreFn(ctx.userClient, ctx.userId, id, currentStatus);
+                  return {
+                    result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                    summary: `${action}d task ${id}`,
+                  };
+                },
+              };
+              return acc;
+            },
+            {} as Record<string, WriteActionDef>,
+          ),
+          // "remove"/"bulk_remove" deliberately absent -- both are real
+          // DELETEs with no completion-history guard at all (ruling 5 is
+          // about targets, not tasks). Same posture as everywhere else in
+          // this registry: the MCP write path never hard-deletes.
+        },
+      },
+      work_session: {
+        entity: "work_session",
+        actions: {
+          start: {
+            action: "start",
+            description: "Start a deep-work/deep-study session. Fails if one is already active for this user (application-level invariant, not a DB constraint).",
+            patchShape: "{ kind: 'deep_work'|'deep_study' }",
+            handler: async (ctx, patch) => {
+              const kind = requireEnum(patch, "kind", ["deep_work", "deep_study"] as const);
+              const started = await startWorkSessionCore(ctx.userClient, ctx.userId, kind);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify(started) }], structuredContent: { id: started.id, updated_at: null, started_at: started.startedAt } },
+                summary: `started a ${kind} session`,
+              };
+            },
+          },
+          end: {
+            action: "end",
+            description: "End an active session, stamping ended_at. Requires the top-level id.",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await endWorkSessionCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: ctx.now.toISOString() } },
+                summary: `ended work session ${id}`,
+              };
+            },
+          },
+        },
+      },
+    },
+  },
+  business: {
+    domain: "business",
+    entities: {
+      kill_list_item: {
+        entity: "kill_list_item",
+        actions: {
+          set: {
+            action: "set",
+            description: "Set (create or overwrite) one of a day's 3 kill-list slots. position is the EXPLICIT slot (0/1/2), not an implicit append order.",
+            patchShape: "{ date: string, position: 0|1|2, text: string }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const position = requireNumberEnum(patch, "position", [0, 1, 2] as const);
+              const text = requireString(patch, "text");
+              await setKillListItemCore(ctx.userClient, ctx.userId, date, position, text);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date, position, text }) }], structuredContent: { id: `${date}:${position}`, updated_at: null, date, position, text } },
+                summary: `set kill-list slot ${position} on ${date}`,
+              };
+            },
+          },
+          toggle: {
+            action: "toggle",
+            description: "Toggle a kill-list item's completion. Requires the top-level id.",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const result = await toggleKillListItemCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, ...result }) }], structuredContent: { id, updated_at: null, ...result } },
+                summary: `toggled kill-list item ${id} to ${result.completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+        },
+      },
+      weekly_goal: {
+        entity: "weekly_goal",
+        actions: {
+          save: {
+            action: "save",
+            description: "Save (upsert) this week's business-domain goal. Plain upsert, no locking/carry-forward — see saveBusinessWeeklyGoalCore's own comment.",
+            patchShape: "{ week_start_date: string, headline: string, milestones: string[] }",
+            handler: async (ctx, patch) => {
+              const weekStartDate = requireString(patch, "week_start_date");
+              const headline = requireString(patch, "headline");
+              const milestonesRaw = patch.milestones;
+              if (!Array.isArray(milestonesRaw) || !milestonesRaw.every((m) => typeof m === "string")) {
+                throw new Error("patch.milestones must be an array of strings.");
+              }
+              await saveBusinessWeeklyGoalCore(ctx.userClient, ctx.userId, weekStartDate, headline, milestonesRaw);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ week_start_date: weekStartDate, headline }) }],
+                  structuredContent: { id: `${weekStartDate}:business`, updated_at: null, week_start_date: weekStartDate, headline },
+                },
+                summary: `saved business weekly goal for week of ${weekStartDate}`,
               };
             },
           },

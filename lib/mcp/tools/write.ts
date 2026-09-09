@@ -44,5 +44,5 @@ export async function writeTool(supabase: SupabaseClient, userId: string, args: 
 
   const timezone = await fetchTimezone(supabase, userId);
   const now = new Date();
-  return actionDef.handler({ userClient: supabase, userId, timezone, now }, args.patch ?? {});
+  return actionDef.handler({ userClient: supabase, userId, timezone, now, id: args.id }, args.patch ?? {});
 }

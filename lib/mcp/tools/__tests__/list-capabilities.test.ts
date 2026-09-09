@@ -11,7 +11,7 @@ describe("listCapabilitiesTool", () => {
   it("with no domain, lists only domains actually wired — honest, not the memo's full eventual matrix", async () => {
     const outcome = await listCapabilitiesTool();
     const payload = textPayload(outcome);
-    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual(["deen", "self_mastery"]);
+    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual(["business", "deen", "self_mastery", "work"]);
   });
 
   it("source_chunks is listed (existence is not secret) but advertises ZERO readable fields at any tier (content is)", async () => {
@@ -62,6 +62,19 @@ describe("listCapabilitiesTool", () => {
     const outcome = await listCapabilitiesTool("self_mastery");
     const payload = textPayload(outcome);
     expect(payload.entities[0].actions).toEqual(["read"]);
+  });
+
+  it("work/business entities report their real write actions from write-registry.ts, live", async () => {
+    const work = await listCapabilitiesTool("work");
+    const workByEntity = Object.fromEntries((await textPayload(work)).entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+    expect(workByEntity.target.sort()).toEqual(["read", "write:complete", "write:create", "write:edit", "write:reorder"]);
+    expect(workByEntity.task).not.toContain("write:remove");
+    expect(workByEntity.task).not.toContain("write:bulk_remove");
+
+    const business = await listCapabilitiesTool("business");
+    const businessByEntity = Object.fromEntries((await textPayload(business)).entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+    expect(businessByEntity.kill_list_item.sort()).toEqual(["read", "write:set", "write:toggle"]);
+    expect(businessByEntity.weekly_goal.sort()).toEqual(["read", "write:save"]);
   });
 });
 

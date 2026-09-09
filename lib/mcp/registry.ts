@@ -66,6 +66,18 @@ export interface EntityDef {
   filterableColumns: string[];
   /** Default sort, applied for deterministic pagination. Always includes the id column as a tiebreaker. */
   orderBy: { column: string; ascending: boolean }[];
+  /**
+   * Applied to EVERY query for this entity, in addition to `user_id` and
+   * any caller-supplied `filter` — never overridable by the caller. Exists
+   * for a table shared by more than one MCP entity: `weekly_goals` backs
+   * both a (future) `deen.weekly_goal` and `business.weekly_goal`, keyed
+   * apart by its own `domain` column. Without a fixed filter, exposing
+   * `domain` as a normal filterable field would let a caller read/write
+   * the OTHER entity's rows through this one's name — the same shape of
+   * mistake the visibility registry (memo §3) exists to prevent for
+   * columns, just applied to rows instead.
+   */
+  fixedFilter?: Record<string, string>;
 }
 
 export interface DomainDef {
@@ -197,6 +209,87 @@ export const REGISTRY: Record<string, DomainDef> = {
         fullColumns: ["week_start_date", "habit_id", "created_at", "user_id"],
         filterableColumns: ["week_start_date"],
         orderBy: [{ column: "week_start_date", ascending: false }],
+      },
+    },
+  },
+  work: {
+    domain: "work",
+    description: "The Work Targets strip and its task pipeline, plus deep-work/deep-study sessions.",
+    entities: {
+      target: {
+        entity: "target",
+        table: "coop_targets",
+        description: "One of the (at most 3) active targets or any number of stretch goals on the Work strip. position <= 3 means target, > 3 means stretch goal.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "editTarget/completeTarget/moveTarget (app/(app)/work/targets-actions.ts) all UPDATE an existing row (title/deadline, status+completed_at via RPC, position via RPC) with no timestamp column at all on coop_targets (migration 028) to reflect any of them -- completed_at only reflects completion, not edits or reordering. Honestly null; a migration is the real fix (flagged to the lead, not self-numbered).",
+        summaryColumns: ["title", "deadline", "status", "position"],
+        fullColumns: ["title", "deadline", "status", "position", "completed_at", "created_at", "user_id"],
+        filterableColumns: ["status"],
+        orderBy: [{ column: "position", ascending: true }],
+      },
+      task: {
+        entity: "task",
+        table: "coop_tasks",
+        description: "One task on a target's pipeline (backlog/in_progress/review/complete/blocked).",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "editTask/advanceTask/retreatTask/blockTask/unblockTask (app/(app)/work/tasks-actions.ts) all UPDATE an existing row; coop_tasks (migration 028) has no updated_at, and completed_at only reflects the complete/not-complete transition specifically, not every status change or a title/deadline edit. Honestly null; a migration is the real fix (flagged to the lead, not self-numbered).",
+        summaryColumns: ["target_id", "title", "deadline", "status", "blocked_from"],
+        fullColumns: ["target_id", "title", "deadline", "status", "blocked_from", "completed_at", "created_at", "user_id"],
+        filterableColumns: ["target_id", "status"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
+      work_session: {
+        entity: "work_session",
+        table: "work_sessions",
+        description: "One deep-work or deep-study session (Lock-In). At most one active (ended_at IS NULL) session per user, enforced at the write layer, not the schema.",
+        idColumn: "id",
+        updatedAtColumn: "ended_at",
+        updatedAtVerification:
+          "startWorkSession/endWorkSession (app/(app)/business/actions.ts -- work_sessions is filed under the /business route but is the work-domain entity per the owner's own table list) are the table's only writes: insert on start, one UPDATE on end setting ended_at, never re-set. ended_at is therefore a real, faithful last-modified signal -- null while active is honest (still in progress), not fabricated. created_at/started_at cover the create-time case for detail tiers that include them.",
+        summaryColumns: ["kind", "started_at", "ended_at"],
+        fullColumns: ["kind", "started_at", "ended_at", "created_at", "counts_toward_hours", "user_id"],
+        filterableColumns: ["kind"],
+        orderBy: [{ column: "started_at", ascending: false }],
+      },
+    },
+  },
+  business: {
+    domain: "business",
+    description: "The daily kill list and business-domain weekly goals.",
+    entities: {
+      kill_list_item: {
+        entity: "kill_list_item",
+        table: "kill_list_items",
+        description: "One of a day's (up to 3) kill-list items, by fixed slot 0/1/2 -- not a freely orderable list (see work.target for the entity with real reordering).",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "setKillListItem upserts text at a given (date,position) -- an edit to an item's text does not touch completed_at at all, and toggleKillListItem sets completed_at only for the completion toggle specifically (app/(app)/business/actions.ts). Neither is a faithful general-purpose last-modified signal. Honestly null; a migration is the real fix (flagged to the lead, not self-numbered).",
+        summaryColumns: ["date", "position", "text", "completed"],
+        fullColumns: ["date", "position", "text", "completed", "completed_at", "created_at", "user_id"],
+        filterableColumns: ["date", "position", "completed"],
+        orderBy: [
+          { column: "date", ascending: false },
+          { column: "position", ascending: true },
+        ],
+      },
+      weekly_goal: {
+        entity: "weekly_goal",
+        table: "weekly_goals",
+        description: "One week's business-domain goal (headline + milestones). weekly_goals is shared with `deen`'s own weekly goals via its `domain` column -- fixedFilter keeps this entity strictly to domain='business' rows, never exposing `domain` as a settable/filterable field a caller could widen.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "saveBusinessWeeklyGoal (app/(app)/business/actions.ts) upserts on (user_id,week_start_date,domain) conflict, which can overwrite headline/milestones on an existing row without touching created_at -- the table (migration baseline) has no other timestamp. Honestly null; a migration is the real fix (flagged to the lead, not self-numbered).",
+        summaryColumns: ["week_start_date", "headline", "milestones", "locked"],
+        fullColumns: ["week_start_date", "headline", "milestones", "locked", "quran_page_target", "created_at", "user_id"],
+        filterableColumns: ["week_start_date", "locked"],
+        orderBy: [{ column: "week_start_date", ascending: false }],
+        fixedFilter: { domain: "business" },
       },
     },
   },

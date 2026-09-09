@@ -218,3 +218,25 @@ describe("readTool — self_mastery/source_chunks, the registered-but-empty-allo
     ).rejects.toThrow(/not available.*embedding/i);
   });
 });
+
+describe("readTool — fixedFilter (business.weekly_goal, shared table scoped by a column the caller never controls)", () => {
+  it("applies the entity's fixedFilter on a list query, in addition to user_id", async () => {
+    const { client, eqCalls } = makeClient({ list: [] });
+    await readTool(client, "user-1", { domain: "business", entity: "weekly_goal" });
+    expect(eqCalls).toContainEqual(["domain", "business"]);
+    expect(eqCalls).toContainEqual(["user_id", "user-1"]);
+  });
+
+  it("applies the entity's fixedFilter on a single-id lookup too", async () => {
+    const { client, eqCalls } = makeClient({ single: { id: "g1", week_start_date: "2026-09-08", headline: "Ship it", milestones: [] } });
+    await readTool(client, "user-1", { domain: "business", entity: "weekly_goal", id: "g1" });
+    expect(eqCalls).toContainEqual(["domain", "business"]);
+  });
+
+  it("a caller cannot override the fixed domain via `filter` — 'domain' isn't in weekly_goal's filterableColumns at all", async () => {
+    const { client } = makeClient({ list: [] });
+    await expect(
+      readTool(client, "user-1", { domain: "business", entity: "weekly_goal", filter: { domain: "deen" } }),
+    ).rejects.toThrow(/not filterable/i);
+  });
+});
