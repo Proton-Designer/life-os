@@ -10,6 +10,8 @@ import type {
   GradeAnswerResult,
   EntailmentCheckInput,
   EntailmentCheckResult,
+  SummarizeSectionInput,
+  SummarizeSectionResult,
   LlmProvider,
 } from "./types";
 import { isGrounded } from "./grounding";
@@ -410,5 +412,16 @@ Respond with ONLY a JSON object: {"passage_point": "<one short sentence>", "verd
       return { verdict: "UNRELATED", reason: "entailment check failed to return a valid response" };
     }
     return { verdict: result.verdict, reason: result.reason ?? "" };
+  }
+
+  summarizeSection(_input: SummarizeSectionInput): Promise<SummarizeSectionResult> {
+    // Out of scope by ruling, not by oversight: R6 (PROGRAM-PLAN.md) assigns
+    // batch summarization to DeepSeek specifically -- "high-volume,
+    // low-value-per-token work that a subscription cannot serve," the
+    // opposite of what a local research model is for here. Same
+    // established pattern DevShimProvider already uses for methods
+    // genuinely out of its own scope (mergeLessons/gradeAnswer) --
+    // throwing with a clear pointer, not a silent wrong answer.
+    throw new Error("OllamaProvider.summarizeSection: not implemented -- R6 assigns batch summarization to DeepSeekProvider (lib/self-mastery/ingestion/llm/deepseek-provider.ts), not the lesson-extraction path.");
   }
 }

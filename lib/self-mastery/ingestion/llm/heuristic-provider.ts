@@ -10,6 +10,8 @@ import type {
   GradeAnswerResult,
   EntailmentCheckInput,
   EntailmentCheckResult,
+  SummarizeSectionInput,
+  SummarizeSectionResult,
   LlmProvider,
 } from "./types";
 import { isGrounded } from "./grounding";
@@ -252,5 +254,32 @@ export class HeuristicProvider implements LlmProvider {
     // and quote are the identical string here — there is nothing for a real
     // entailment check to find, and no model to call anyway.
     return { verdict: "SUPPORTS", reason: "heuristic provider: claim is the quote by construction" };
+  }
+
+  /**
+   * No model to summarize with on the keyless path — an honest extractive
+   * stand-in (the section's own opening sentences, capped), never a claim
+   * of real abstraction. Exists so summarize-sections.ts's orchestration
+   * (batching, provenance recording, section ordering) has a real,
+   * deterministic, keyless path to run and be tested against, the same
+   * role this class plays for the lesson-extraction pipeline (see
+   * gradeAnswer's own comment above). The caller records `summarized_by:
+   * 'heuristic'` alongside this — the disclaimer belongs in that
+   * provenance column, not baked into the summary text itself.
+   */
+  async summarizeSection(input: SummarizeSectionInput): Promise<SummarizeSectionResult> {
+    const combined = input.chunkTexts.join(" ").trim();
+    const sentences = splitIntoSentences(combined);
+    const CAP = 400;
+    let summary = "";
+    for (const s of sentences) {
+      const next = summary.length === 0 ? s : `${summary} ${s}`;
+      if (next.length > CAP) break;
+      summary = next;
+    }
+    // No sentence boundary found at all (e.g. a single run-on chunk) —
+    // fall back to a raw character cut rather than returning nothing.
+    if (!summary) summary = combined.slice(0, CAP);
+    return { summary };
   }
 }

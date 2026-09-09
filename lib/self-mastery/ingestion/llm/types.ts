@@ -102,6 +102,27 @@ export interface EntailmentCheckResult {
   reason: string;
 }
 
+/**
+ * L9/R6: "a summary of each section/chapter of the book/pdf... sent to the
+ * AI through MCP connection, not the full/entire book itself." DeepSeek is
+ * the batch-summarization ENGINE (R6's own ruling — metered, high-volume,
+ * not a chat-context call); this is the one method it implements for real.
+ * `triageChunk`/`extractLessons`/etc. stay Ollama/Heuristic/DevShim's job —
+ * DeepSeekProvider throws "not implemented" for all of those, same
+ * established pattern DevShimProvider already uses for methods genuinely
+ * out of its own scope (mergeLessons/gradeAnswer).
+ */
+export interface SummarizeSectionInput {
+  bookTitle: string;
+  sectionTitle: string;
+  /** Ordered by sort_order. Already trimmed to the caller's budget (lib/self-mastery/ingestion/summarize-sections.ts) -- this interface never re-derives what fits. */
+  chunkTexts: string[];
+}
+
+export interface SummarizeSectionResult {
+  summary: string;
+}
+
 export interface LlmProvider {
   triageChunk(input: ChunkTriageInput): Promise<ChunkTriageResult>;
   extractLessons(input: ExtractLessonsInput): Promise<CandidateLesson[]>;
@@ -109,4 +130,5 @@ export interface LlmProvider {
   generateCards(input: GenerateCardsInput): Promise<GeneratedCard[]>;
   gradeAnswer(input: GradeAnswerInput): Promise<GradeAnswerResult>;
   checkEntailment(input: EntailmentCheckInput): Promise<EntailmentCheckResult>;
+  summarizeSection(input: SummarizeSectionInput): Promise<SummarizeSectionResult>;
 }

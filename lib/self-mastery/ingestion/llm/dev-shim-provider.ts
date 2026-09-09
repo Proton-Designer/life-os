@@ -18,7 +18,7 @@
  * parsed here — the gateway-adapter scope doc is explicit that the gate is
  * a real parse of an object, never handing the string back raw).
  */
-import type { EntailmentCheckInput, EntailmentCheckResult, LlmProvider, ChunkTriageInput, ChunkTriageResult, ExtractLessonsInput, CandidateLesson, MergeLessonsInput, GenerateCardsInput, GeneratedCard, GradeAnswerInput, GradeAnswerResult } from "./types";
+import type { EntailmentCheckInput, EntailmentCheckResult, LlmProvider, ChunkTriageInput, ChunkTriageResult, ExtractLessonsInput, CandidateLesson, MergeLessonsInput, GenerateCardsInput, GeneratedCard, GradeAnswerInput, GradeAnswerResult, SummarizeSectionInput, SummarizeSectionResult } from "./types";
 import { getDevProviderBaseUrl } from "@/lib/ai/dev-provider";
 import { isGrounded } from "./grounding";
 import { classifyEvidenceStrength } from "../evidence-strength";
@@ -339,5 +339,8 @@ Write:
   }
   gradeAnswer(_input: GradeAnswerInput): Promise<GradeAnswerResult> {
     throw new Error("DevShimProvider.gradeAnswer: not implemented -- out of item 7's scope, delegates to the heuristic keyword-overlap grader elsewhere.");
+  }
+  summarizeSection(_input: SummarizeSectionInput): Promise<SummarizeSectionResult> {
+    throw new Error("DevShimProvider.summarizeSection: not implemented -- R6 assigns batch summarization to DeepSeekProvider (lib/self-mastery/ingestion/llm/deepseek-provider.ts), not the dev shim's tools-disabled path.");
   }
 }
