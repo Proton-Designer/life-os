@@ -69,6 +69,24 @@ function sha256Hex(value: string): string {
 }
 
 /**
+ * Every function below returns a generic, caller-safe message on a DB
+ * failure (never a raw Postgres/PostgREST error to whoever's on the other
+ * end of an HTTP response — some of these endpoints are unauthenticated by
+ * design, see registerOAuthClient). That genericness cost real investigation
+ * time once already: `mintAuthorizationCode`'s swallowed error was a
+ * `23502 null value in column "expires_at" violates not-null constraint` —
+ * the exact column and cause, sitting in a Supabase response this code
+ * never looked at. This logs the REAL error (code + message only — never
+ * the row payload, which can carry a raw token/code) server-side, so the
+ * next version of this mistake shows up in Vercel's function logs instead
+ * of costing another investigation from scratch.
+ */
+function logDbError(context: string, error: { code?: string; message?: string } | null | undefined): void {
+  if (!error) return;
+  console.error(`[mcp/oauth] ${context} failed: code=${error.code ?? "?"} message=${error.message ?? "?"}`);
+}
+
+/**
  * RFC 7636 S256: base64url(sha256(code_verifier)) compared to the
  * code_challenge recorded at /authorize time. Constant-time compare
  * (`timingSafeEqualStrings`, imported from lib/mcp/tokens.ts — not
@@ -200,9 +218,10 @@ export async function registerOAuthClient(
     return { ok: false, status: 400, error: "invalid_client_metadata", message: validated.message };
   }
 
-  const { count } = await supabase
+  const { count, error: countError } = await supabase
     .from("mcp_oauth_clients")
     .select("id", { count: "exact", head: true });
+  logDbError("registerOAuthClient count-check on mcp_oauth_clients", countError);
   if ((count ?? 0) >= MAX_REGISTERED_CLIENTS) {
     return {
       ok: false,
@@ -219,6 +238,7 @@ export async function registerOAuthClient(
     .select("client_id, client_name, redirect_uris, created_at")
     .single();
   if (error || !data) {
+    logDbError("registerOAuthClient insert into mcp_oauth_clients", error);
     return { ok: false, status: 500, error: "server_error", message: "Couldn't register the client. Try again." };
   }
 
@@ -244,7 +264,10 @@ export async function getOAuthClient(supabase: SupabaseClient, clientId: string)
     .select("client_id, client_name, redirect_uris, created_at")
     .eq("client_id", clientId)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error || !data) {
+    logDbError("getOAuthClient select from mcp_oauth_clients", error);
+    return null;
+  }
   return data as OAuthClientRow;
 }
 
@@ -294,8 +317,21 @@ export async function mintAuthorizationCode(
     code_challenge_method: params.codeChallengeMethod,
     resource: params.resource ?? null,
     scopes: params.scopes,
+    // THE BUG (found by the Lead running the live insert as the real user and
+    // reading the actual Postgres error, 23502 on this exact column):
+    // expiresAt was computed above and never passed here. mcp_oauth_codes
+    // declares `expires_at timestamptz not null` with no default (migration
+    // 132), so every single call failed this insert, and it read as
+    // 500/server_error from the outside. 168 mocked tests could not see it —
+    // see lib/mcp/__tests__/oauth-schema-coverage.test.ts, the regression
+    // test added alongside this fix, which reads the real migration text
+    // rather than mocking the constraint away.
+    expires_at: expiresAt,
   });
-  if (error) return { ok: false, message: "Couldn't issue an authorization code. Try again." };
+  if (error) {
+    logDbError("mintAuthorizationCode insert into mcp_oauth_codes", error);
+    return { ok: false, message: "Couldn't issue an authorization code. Try again." };
+  }
 
   return { ok: true, code: rawCode };
 }
@@ -352,6 +388,10 @@ export async function consumeAuthorizationCode(
     .maybeSingle();
 
   if (error || !data) {
+    // A genuine DB error (not "zero rows matched", which maybeSingle
+    // returns as data:null, error:null) is worth knowing about; a routine
+    // "no such code" is not, so this only fires on the former.
+    logDbError("consumeAuthorizationCode update on mcp_oauth_codes", error);
     return { ok: false, error: "invalid_grant", message: "Authorization code is invalid, already used, or expired." };
   }
 
@@ -414,7 +454,10 @@ export async function mintRefreshToken(
     client_id: params.clientId,
     user_id: params.userId,
   });
-  if (error) return { ok: false, message: "Couldn't issue a refresh token. Try again." };
+  if (error) {
+    logDbError("mintRefreshToken insert into mcp_oauth_refresh_tokens", error);
+    return { ok: false, message: "Couldn't issue a refresh token. Try again." };
+  }
   return { ok: true, refreshToken: rawRefreshToken };
 }
 
@@ -461,11 +504,12 @@ export async function rotateRefreshToken(
   // Look up first (read-only) to distinguish "never existed" from "already
   // rotated" — the atomic UPDATE below only fires the reuse-detection path
   // when we can tell these apart.
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from("mcp_oauth_refresh_tokens")
     .select("id, access_token_id, client_id, user_id, rotated_at")
     .eq("token_hash", hash)
     .maybeSingle();
+  logDbError("rotateRefreshToken lookup on mcp_oauth_refresh_tokens", lookupError);
 
   if (!existing) {
     return { ok: false, error: "invalid_grant", message: "Refresh token is invalid.", reuseDetected: false };
@@ -499,6 +543,7 @@ export async function rotateRefreshToken(
   if (error || !rotated) {
     // Lost the race against a concurrent redemption of the SAME token —
     // treat it the same as reuse, since that is exactly what it is.
+    logDbError("rotateRefreshToken rotating update on mcp_oauth_refresh_tokens", error);
     return {
       ok: false,
       error: "invalid_grant",
@@ -528,11 +573,12 @@ export async function findAccessTokenForRefreshToken(
   rawRefreshToken: string
 ): Promise<{ accessTokenId: string; userId: string; clientId: string } | null> {
   const hash = sha256Hex(rawRefreshToken);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("mcp_oauth_refresh_tokens")
     .select("access_token_id, user_id, client_id")
     .eq("token_hash", hash)
     .maybeSingle();
+  logDbError("findAccessTokenForRefreshToken select on mcp_oauth_refresh_tokens", error);
   if (!data) return null;
   const row = data as { access_token_id: string; user_id: string; client_id: string };
   return { accessTokenId: row.access_token_id, userId: row.user_id, clientId: row.client_id };
@@ -558,6 +604,9 @@ export async function findLiveAccessTokenIdsForClient(supabase: SupabaseClient, 
     .eq("user_id", userId)
     .eq("client_id", clientId)
     .is("rotated_at", null);
-  if (error || !data) return [];
+  if (error || !data) {
+    logDbError("findLiveAccessTokenIdsForClient select on mcp_oauth_refresh_tokens", error);
+    return [];
+  }
   return (data as { access_token_id: string }[]).map((r) => r.access_token_id);
 }

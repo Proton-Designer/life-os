@@ -263,6 +263,23 @@ describe("mintAuthorizationCode", () => {
       expect(JSON.stringify(insertArg)).not.toContain(result.code);
     }
   });
+
+  it("passes expires_at on the insert — regression test for the bug the Lead found (23502, column never sent)", async () => {
+    // This one mock CAN'T fail the way production did (a mock has no NOT
+    // NULL constraint), which is exactly why lib/mcp/__tests__/
+    // oauth-schema-coverage.test.ts exists alongside this — that file reads
+    // migration 132's real DDL rather than trusting this list to stay
+    // complete. Kept here too because it names the specific column the
+    // specific bug forgot, which the schema-coverage test's generic sweep
+    // does not surface as directly.
+    const chain = makeChain({ data: null, error: null });
+    const client = clientReturning(chain);
+    await mintAuthorizationCode(client, baseParams);
+    const insertArg = chain.insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(insertArg.expires_at).toBeDefined();
+    expect(typeof insertArg.expires_at).toBe("string");
+    expect(new Date(insertArg.expires_at as string).getTime()).toBeGreaterThan(Date.now());
+  });
 });
 
 describe("consumeAuthorizationCode — the negative cases are the point", () => {
