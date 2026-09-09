@@ -4,20 +4,15 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import type { TaskListItem } from "@/components/school/task-list-module";
 import type { TaskType } from "@/lib/tasks/task-type";
+import {
+  createClassCore,
+  updateClassCore,
+  addClassAssessmentCore,
+  updateClassAssessmentCore,
+  type AssessmentType,
+} from "@/lib/school/actions-core";
 
-export type AssessmentType = "quiz" | "exam" | "midterm_final";
-
-// This module's own naming ("midterm_final", matching the item 6 spec's
-// "Midterm/Final" assessment type) differs from tasks.task_type's
-// "final_midterm" (B's 050, matching item 5's "Final/Midterm" task type) —
-// same concept, independently named in two different check constraints
-// added by two different engineers the same night. Mapped explicitly here
-// rather than forced to share one literal string.
-const ASSESSMENT_TYPE_TO_TASK_TYPE: Record<AssessmentType, string> = {
-  quiz: "quiz",
-  exam: "exam",
-  midterm_final: "final_midterm",
-};
+export type { AssessmentType };
 
 const SYLLABUS_BUCKET = "syllabi";
 const SYLLABUS_SIGNED_URL_TTL_SECONDS = 300; // 5 minutes — short-lived, minted fresh per view, never cached.
@@ -30,38 +25,7 @@ const SYLLABUS_SIGNED_URL_TTL_SECONDS = 300; // 5 minutes — short-lived, minte
  */
 export async function addClassAssessment(classId: string, name: string, type: AssessmentType, date: string) {
   const { supabase, userId } = await requireUser();
-
-  const { data: task, error: taskError } = await supabase
-    .from("tasks")
-    .insert({
-      user_id: userId,
-      domain: "school",
-      title: name,
-      due_date: date,
-      task_type: ASSESSMENT_TYPE_TO_TASK_TYPE[type],
-      class_id: classId,
-    })
-    .select("id")
-    .single();
-  if (taskError) throw taskError;
-
-  const { error: assessmentError } = await supabase.from("class_assessments").insert({
-    user_id: userId,
-    class_id: classId,
-    name,
-    type,
-    date,
-    task_id: task.id,
-  });
-  if (assessmentError) {
-    // The task insert already committed (two separate statements, no
-    // shared transaction on the write side — Postgres/PostgREST each
-    // request is its own transaction). Clean up rather than leave an
-    // orphaned task with no assessment behind it.
-    await supabase.from("tasks").delete().eq("id", task.id).eq("user_id", userId);
-    throw assessmentError;
-  }
-
+  await addClassAssessmentCore(supabase, userId, classId, name, type, date);
   revalidatePath("/school");
 }
 
@@ -95,38 +59,7 @@ export async function updateClassAssessment(
   fields: { name: string; type: AssessmentType; date: string; weightPct?: number | null }
 ) {
   const { supabase, userId } = await requireUser();
-
-  const { data: existing, error: fetchError } = await supabase
-    .from("class_assessments")
-    .select("task_id")
-    .eq("id", assessmentId)
-    .eq("user_id", userId)
-    .single();
-  if (fetchError) throw fetchError;
-
-  const { error } = await supabase
-    .from("class_assessments")
-    .update({
-      name: fields.name,
-      type: fields.type,
-      date: fields.date,
-      // undefined (field omitted entirely) leaves the column untouched;
-      // null is a real, storable "unknown weight" — never coalesced away.
-      ...(fields.weightPct !== undefined ? { weight_pct: fields.weightPct } : {}),
-    })
-    .eq("id", assessmentId)
-    .eq("user_id", userId);
-  if (error) throw error;
-
-  if (existing.task_id) {
-    const { error: taskError } = await supabase
-      .from("tasks")
-      .update({ title: fields.name, due_date: fields.date, task_type: ASSESSMENT_TYPE_TO_TASK_TYPE[fields.type] })
-      .eq("id", existing.task_id)
-      .eq("user_id", userId);
-    if (taskError) throw taskError;
-  }
-
+  await updateClassAssessmentCore(supabase, userId, assessmentId, fields);
   revalidatePath("/school");
 }
 
@@ -191,33 +124,9 @@ export async function createClass(fields: {
   instructor?: string;
 }): Promise<{ id: string }> {
   const { supabase, userId } = await requireUser();
-
-  const { data: maxRow, error: maxError } = await supabase
-    .from("classes")
-    .select("position")
-    .eq("user_id", userId)
-    .order("position", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-  if (maxError) throw maxError;
-  const nextPosition = (maxRow?.position ?? -1) + 1;
-
-  const { data, error } = await supabase
-    .from("classes")
-    .insert({
-      user_id: userId,
-      short_name: fields.shortName,
-      code: fields.code,
-      room: fields.room ?? null,
-      instructor: fields.instructor ?? null,
-      position: nextPosition,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-
+  const id = await createClassCore(supabase, userId, fields);
   revalidatePath("/school");
-  return { id: data.id };
+  return { id };
 }
 
 /** short_name (Opus Lead: must be editable, never seed-only), room, instructor. */
@@ -226,12 +135,7 @@ export async function updateClass(
   fields: { shortName?: string | null; room?: string | null; instructor?: string | null }
 ) {
   const { supabase, userId } = await requireUser();
-  const { error } = await supabase
-    .from("classes")
-    .update({ short_name: fields.shortName, room: fields.room, instructor: fields.instructor })
-    .eq("id", classId)
-    .eq("user_id", userId);
-  if (error) throw error;
+  await updateClassCore(supabase, userId, classId, fields);
   revalidatePath("/school");
 }
 
