@@ -47,7 +47,7 @@ describe("resolveReadOperation", () => {
 describe("readTool — unknown domain/entity", () => {
   it("REJECTS an unknown domain, naming the valid set", async () => {
     const { client } = makeClient();
-    await expect(readTool(client, "user-1", { domain: "fitness", entity: "x" })).rejects.toThrow(/unknown domain.*fitness/i);
+    await expect(readTool(client, "user-1", { domain: "nonexistent_domain", entity: "x" })).rejects.toThrow(/unknown domain.*nonexistent_domain/i);
   });
 
   it("REJECTS an unknown entity for a known domain, naming the valid entities", async () => {

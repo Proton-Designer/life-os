@@ -6,6 +6,20 @@ import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, bloc
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
 import { addTaskCore, updateTaskCore, toggleTaskCore, updateScheduleEventCore, setScheduleEventOverrideCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
 import { createClassCore, updateClassCore, addClassAssessmentCore, updateClassAssessmentCore } from "@/lib/school/actions-core";
+import {
+  quickLogExerciseCore,
+  confirmWorkoutSessionCore,
+  confirmPlanSessionCore,
+  logWeightCore,
+  logWaistCore,
+  logBenchmarkRepsCore,
+  createExerciseCore,
+  archiveExerciseCore,
+  renameWorkoutCore,
+  archiveWorkoutCore,
+  type ConfirmSetInput,
+} from "@/lib/fitness/actions-core";
+import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/fitness/volume";
 import type { CoopTaskStatus } from "@/lib/coop/tasks";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
@@ -150,6 +164,40 @@ function optionalNullableNumber(patch: WritePatch, field: string): number | null
  * the cookie-authed Work/School Server Actions have never enforced this
  * either.
  */
+function isMuscleGroup(value: unknown): value is MuscleGroup {
+  return typeof value === "string" && (MUSCLE_GROUPS as readonly string[]).includes(value);
+}
+
+function optionalMuscleGroupArray(patch: WritePatch, field: string): MuscleGroup[] {
+  const value = patch[field];
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every(isMuscleGroup)) {
+    throw new Error(`patch.${field} must be an array of muscle groups (${MUSCLE_GROUPS.join(", ")}). Got: ${JSON.stringify(value)}.`);
+  }
+  return value;
+}
+
+/** Validates `patch.sets` for confirm/confirm_plan_session — the per-exercise logged-set array confirmWorkoutSessionCore/confirmPlanSessionCore both take. */
+function requireConfirmSets(patch: WritePatch): ConfirmSetInput[] {
+  const value = patch.sets;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("patch.sets must be a non-empty array of { exerciseId, exerciseName, position, sets, reps, load }.");
+  }
+  return value.map((raw, i) => {
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`patch.sets[${i}] must be an object.`);
+    }
+    const r = raw as Record<string, unknown>;
+    if (typeof r.exerciseId !== "string" || !r.exerciseId) throw new Error(`patch.sets[${i}].exerciseId is required.`);
+    if (typeof r.exerciseName !== "string" || !r.exerciseName) throw new Error(`patch.sets[${i}].exerciseName is required.`);
+    if (typeof r.position !== "number") throw new Error(`patch.sets[${i}].position must be a number.`);
+    if (typeof r.sets !== "number") throw new Error(`patch.sets[${i}].sets must be a number.`);
+    if (typeof r.reps !== "number") throw new Error(`patch.sets[${i}].reps must be a number.`);
+    if (r.load !== null && typeof r.load !== "number") throw new Error(`patch.sets[${i}].load must be a number or null.`);
+    return { exerciseId: r.exerciseId, exerciseName: r.exerciseName, position: r.position, sets: r.sets, reps: r.reps, load: (r.load as number | null) ?? null };
+  });
+}
+
 async function assertRowDomain(userClient: SupabaseClient, table: "tasks" | "schedule_events", id: string, userId: string, domain: "school" | "co_op"): Promise<void> {
   const { data, error } = await userClient.from(table).select("domain").eq("id", id).eq("user_id", userId).maybeSingle();
   if (error) throw error;
@@ -696,6 +744,219 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           // row. See docs/ai-connector/SCHOOL-WRITE-SCOPE-DECISIONS.md.
         },
       },
+    },
+  },
+  fitness: {
+    domain: "fitness",
+    entities: {
+      workout_session: {
+        entity: "workout_session",
+        actions: {
+          // The owner's "checking off logs" requirement in its heaviest
+          // form (team-lead's framing) -- three ways a session gets
+          // logged, matching the app's own three creation paths exactly.
+          // No edit/remove: workout_sessions/session_sets are IMMUTABLE by
+          // design (spec: "editing must never rewrite history") -- there is
+          // no update or delete path anywhere in the app to even consider
+          // excluding.
+          quick_log: {
+            action: "quick_log",
+            description: "Log a bare single-exercise session, no workout template ('quick-add'). Scattered same-day entries stay separate rows -- never merges into an existing session.",
+            patchShape: "{ date: string, exercise_id: string, exercise_name: string, sets: number, reps: number, load?: number|null }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const exerciseId = requireString(patch, "exercise_id");
+              const exerciseName = requireString(patch, "exercise_name");
+              const sets = optionalNumber(patch, "sets");
+              const reps = optionalNumber(patch, "reps");
+              if (sets === undefined) throw new Error("patch.sets is required.");
+              if (reps === undefined) throw new Error("patch.reps is required.");
+              const load = optionalNullableNumber(patch, "load") ?? null;
+              const id = await quickLogExerciseCore(ctx.userClient, ctx.userId, date, exerciseId, exerciseName, sets, reps, load);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: ctx.now.toISOString() } },
+                summary: `quick-logged ${exerciseName} (${sets}x${reps}) on ${date}`,
+              };
+            },
+          },
+          confirm: {
+            action: "confirm",
+            description: "Confirm a workout (from a standalone workout template) for a date, logging every set at once. Idempotent: a repeat confirm of the same workout/date is a no-op (029's unique index), not an error.",
+            patchShape: "{ date: string, workout_id: string, workout_name: string, sets: ConfirmSetInput[] }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const workoutId = requireString(patch, "workout_id");
+              const workoutName = requireString(patch, "workout_name");
+              const sets = requireConfirmSets(patch);
+              const id = await confirmWorkoutSessionCore(ctx.userClient, date, workoutId, workoutName, sets);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: ctx.now.toISOString() } },
+                summary: `confirmed workout "${workoutName}" on ${date}`,
+              };
+            },
+          },
+          confirm_plan_session: {
+            action: "confirm_plan_session",
+            description: "Confirm a routine plan's session for a date. Requires the top-level id (the plan_sessions row's id). Idempotent: a repeat confirm of the same plan session/date is a no-op, not an error.",
+            patchShape: "{ date: string, session_name: string, sets: ConfirmSetInput[] }",
+            handler: async (ctx, patch) => {
+              const sessionId = requireId(ctx);
+              const date = requireString(patch, "date");
+              const sessionName = requireString(patch, "session_name");
+              const sets = requireConfirmSets(patch);
+              const id = await confirmPlanSessionCore(ctx.userClient, ctx.userId, date, sessionId, sessionName, sets);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: ctx.now.toISOString() } },
+                summary: `confirmed plan session "${sessionName}" on ${date}`,
+              };
+            },
+          },
+        },
+      },
+      body_metric: {
+        entity: "body_metric",
+        actions: {
+          // Top priority per the lead, alongside workout_session's logging
+          // actions. Each preserves the sibling field (weight vs waist) by
+          // reading it first -- see logWeightCore/logWaistCore's own
+          // comments -- so these two calls never clobber each other.
+          log_weight: {
+            action: "log_weight",
+            description: "Log (or overwrite) a date's weight. Preserves that date's waist measurement if one already exists.",
+            patchShape: "{ date: string, weight_lb: number }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const weightLb = optionalNumber(patch, "weight_lb");
+              if (weightLb === undefined) throw new Error("patch.weight_lb is required.");
+              await logWeightCore(ctx.userClient, ctx.userId, date, weightLb);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date, weight_lb: weightLb }) }], structuredContent: { id: `${ctx.userId}:${date}`, updated_at: ctx.now.toISOString(), date, weight_lb: weightLb } },
+                summary: `logged weight ${weightLb} on ${date}`,
+              };
+            },
+          },
+          log_waist: {
+            action: "log_waist",
+            description: "Log (or overwrite) a date's waist measurement. Preserves that date's weight if one already exists.",
+            patchShape: "{ date: string, waist_in: number }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const waistIn = optionalNumber(patch, "waist_in");
+              if (waistIn === undefined) throw new Error("patch.waist_in is required.");
+              await logWaistCore(ctx.userClient, ctx.userId, date, waistIn);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date, waist_in: waistIn }) }], structuredContent: { id: `${ctx.userId}:${date}`, updated_at: ctx.now.toISOString(), date, waist_in: waistIn } },
+                summary: `logged waist ${waistIn} on ${date}`,
+              };
+            },
+          },
+        },
+      },
+      fitness_benchmark: {
+        entity: "fitness_benchmark",
+        actions: {
+          log: {
+            action: "log",
+            description: "Log (or overwrite) one exercise's max-reps benchmark for a date (Cycle Progress checks). One call per exercise -- call it again for a second exercise, never a batch.",
+            patchShape: "{ date: string, exercise_id: string, max_reps: number }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const exerciseId = requireString(patch, "exercise_id");
+              const maxReps = optionalNumber(patch, "max_reps");
+              if (maxReps === undefined) throw new Error("patch.max_reps is required.");
+              await logBenchmarkRepsCore(ctx.userClient, ctx.userId, date, exerciseId, maxReps);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ date, exercise_id: exerciseId, max_reps: maxReps }) }],
+                  structuredContent: { id: `${date}:${exerciseId}`, updated_at: ctx.now.toISOString(), date, exercise_id: exerciseId, max_reps: maxReps },
+                },
+                summary: `logged ${maxReps} max reps for exercise ${exerciseId} on ${date}`,
+              };
+            },
+          },
+        },
+      },
+      exercise: {
+        entity: "exercise",
+        actions: {
+          create: {
+            action: "create",
+            description: "Add an exercise to the library.",
+            patchShape: "{ name: string, primary_muscles?: MuscleGroup[], secondary_muscles?: MuscleGroup[] }",
+            handler: async (ctx, patch) => {
+              const name = requireString(patch, "name");
+              const primaryMuscles = optionalMuscleGroupArray(patch, "primary_muscles");
+              const secondaryMuscles = optionalMuscleGroupArray(patch, "secondary_muscles");
+              const id = await createExerciseCore(ctx.userClient, ctx.userId, name, primaryMuscles, secondaryMuscles);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `created exercise "${name}"`,
+              };
+            },
+          },
+          archive: {
+            action: "archive",
+            description: "Archive an exercise (never a hard delete -- workout_exercises/session_sets reference it with no cascade). Requires the top-level id.",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await archiveExerciseCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `archived exercise ${id}`,
+              };
+            },
+          },
+          // "remove" deliberately absent -- exercises are archived, never
+          // hard-deleted, anywhere in this codebase (same convention as
+          // every other domain's "archive, don't delete" entities).
+        },
+      },
+      workout: {
+        entity: "workout",
+        actions: {
+          rename: {
+            action: "rename",
+            description: "Rename a workout template. Requires the top-level id.",
+            patchShape: "{ name: string }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const name = requireString(patch, "name");
+              await renameWorkoutCore(ctx.userClient, ctx.userId, id, name);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `renamed workout ${id} to "${name}"`,
+              };
+            },
+          },
+          archive: {
+            action: "archive",
+            description: "Archive a workout template (never a hard delete). Requires the top-level id.",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await archiveWorkoutCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `archived workout ${id}`,
+              };
+            },
+          },
+          // "create"/"save" (with its exercise list) deliberately absent --
+          // createWorkoutWithExercises/saveWorkout/duplicateWorkout all
+          // touch workout_exercises via the save_workout RPC's
+          // delete-then-reinsert, part of the plan-editing machinery the
+          // lead asked to deprioritize. See
+          // docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.
+        },
+      },
+      // workout_plan, plan_session, plan_session_exercise,
+      // plan_micro_exercise, workout_exercise, workout_schedule, and
+      // active_workout_plan are READ-ONLY in this pass, deliberately --
+      // the plan-editing/scheduling machinery the lead asked to
+      // deprioritize, and in active_workout_plan/workout_schedule's case,
+      // the program's known scar tissue (migration 129, the sync shim).
+      // See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.
     },
   },
 };
