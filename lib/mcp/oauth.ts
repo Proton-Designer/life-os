@@ -433,13 +433,24 @@ export type RotateRefreshTokenResult =
  * is not "expired," it is the signature of a token that exists in two
  * places (a legitimate client that already rotated, AND whoever replayed
  * the old value) — which happens if and only if the refresh token was
- * copied by someone other than its rightful holder. The response to that
- * signal is not "reject this one request," it is "revoke the entire token
- * family" (the linked access token, so a legitimate client's *next* API
- * call also starts failing and the compromise can't be ridden out
- * silently) — implemented by the caller
- * (app/api/mcp/oauth/token/route.ts), which this function tells to do so
- * via `reuseDetected: true`.
+ * copied by someone other than its rightful holder.
+ *
+ * WHAT GETS REVOKED, STATED PRECISELY (corrected during the L4 flow
+ * verification — an earlier version of this comment overclaimed "revokes
+ * the entire token family"): this function only identifies THAT reuse
+ * happened; it does not, on its own, know which access token is currently
+ * live. The row being replayed already has its OWN `access_token_id`, but in
+ * the straightforward case (a client innocently replays a token it already
+ * rotated away from) that access token is already dead — revoking it again
+ * is a no-op, not new protection. The scenario that actually matters is an
+ * ATTACKER who redeems the stolen refresh token FIRST: that redemption looks
+ * like an ordinary, successful rotation at the time, and produces a live
+ * access token the attacker holds. The legitimate holder's LATER replay of
+ * the original token is what surfaces here as reuse — and closing that gap
+ * means also finding and revoking whatever access token is CURRENTLY live
+ * for this (user, client) pair, not just the stale row's own one. See
+ * `findLiveAccessTokenIdsForClient` below and its caller
+ * (app/api/mcp/oauth/token/route.ts) for that second half.
  */
 export async function rotateRefreshToken(
   supabase: SupabaseClient,
@@ -501,22 +512,52 @@ export async function rotateRefreshToken(
 }
 
 /**
- * Looks up the {access_token_id, user_id} for a refresh token (used or not),
- * so the caller can revoke the right row on reuse detection. Deliberately
- * separate from rotateRefreshToken's reuse branch (which does not return
- * this) so the "detect reuse" and "find what to revoke" concerns stay
- * independently readable — see app/api/mcp/oauth/token/route.ts for how
- * they're used together. Both fields come off `mcp_oauth_refresh_tokens`
- * itself, not a second join against `mcp_access_tokens`, since the FK IS the
- * binding — no separate cross-check needed.
+ * Looks up the {access_token_id, user_id, client_id} for a refresh token
+ * (used or not), so the caller can revoke the right row on reuse detection
+ * AND look up the client's current live descendant (see
+ * findLiveAccessTokenIdsForClient below). Deliberately separate from
+ * rotateRefreshToken's reuse branch (which does not return this) so the
+ * "detect reuse" and "find what to revoke" concerns stay independently
+ * readable — see app/api/mcp/oauth/token/route.ts for how they're used
+ * together. All fields come off `mcp_oauth_refresh_tokens` itself, not a
+ * second join against `mcp_access_tokens`, since the FK IS the binding — no
+ * separate cross-check needed.
  */
 export async function findAccessTokenForRefreshToken(
   supabase: SupabaseClient,
   rawRefreshToken: string
-): Promise<{ accessTokenId: string; userId: string } | null> {
+): Promise<{ accessTokenId: string; userId: string; clientId: string } | null> {
   const hash = sha256Hex(rawRefreshToken);
-  const { data } = await supabase.from("mcp_oauth_refresh_tokens").select("access_token_id, user_id").eq("token_hash", hash).maybeSingle();
+  const { data } = await supabase
+    .from("mcp_oauth_refresh_tokens")
+    .select("access_token_id, user_id, client_id")
+    .eq("token_hash", hash)
+    .maybeSingle();
   if (!data) return null;
-  const row = data as { access_token_id: string; user_id: string };
-  return { accessTokenId: row.access_token_id, userId: row.user_id };
+  const row = data as { access_token_id: string; user_id: string; client_id: string };
+  return { accessTokenId: row.access_token_id, userId: row.user_id, clientId: row.client_id };
+}
+
+/**
+ * Finds the access_token_id(s) linked to the CURRENT (not-yet-rotated)
+ * refresh token row(s) for a given (user, client) pair — the live
+ * descendant of a rotation chain, and the actual target reuse detection
+ * needs to revoke (see rotateRefreshToken's doc comment above for why the
+ * stale row's own access_token_id usually isn't enough on its own).
+ *
+ * Returns an ARRAY, not a single id: this schema has no explicit
+ * one-live-row-per-client invariant enforced at the database level, so if
+ * more than one happens to be live (a rare double-connect), the correct
+ * response to a suspected-theft signal is to revoke all of them —
+ * "when in doubt, revoke broadly," not "guess which one."
+ */
+export async function findLiveAccessTokenIdsForClient(supabase: SupabaseClient, userId: string, clientId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("mcp_oauth_refresh_tokens")
+    .select("access_token_id")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .is("rotated_at", null);
+  if (error || !data) return [];
+  return (data as { access_token_id: string }[]).map((r) => r.access_token_id);
 }

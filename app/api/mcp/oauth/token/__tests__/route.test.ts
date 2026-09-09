@@ -6,11 +6,13 @@ const consumeAuthorizationCode = vi.fn();
 const rotateRefreshToken = vi.fn();
 const mintRefreshToken = vi.fn();
 const findAccessTokenForRefreshToken = vi.fn();
+const findLiveAccessTokenIdsForClient = vi.fn();
 vi.mock("@/lib/mcp/oauth", () => ({
   consumeAuthorizationCode: (...args: unknown[]) => consumeAuthorizationCode(...args),
   rotateRefreshToken: (...args: unknown[]) => rotateRefreshToken(...args),
   mintRefreshToken: (...args: unknown[]) => mintRefreshToken(...args),
   findAccessTokenForRefreshToken: (...args: unknown[]) => findAccessTokenForRefreshToken(...args),
+  findLiveAccessTokenIdsForClient: (...args: unknown[]) => findLiveAccessTokenIdsForClient(...args),
 }));
 
 const createAccessToken = vi.fn();
@@ -37,6 +39,7 @@ beforeEach(() => {
   rotateRefreshToken.mockReset();
   mintRefreshToken.mockReset();
   findAccessTokenForRefreshToken.mockReset();
+  findLiveAccessTokenIdsForClient.mockReset();
   createAccessToken.mockReset();
   revokeAccessToken.mockReset();
   getTokenScopesById.mockReset();
@@ -101,11 +104,13 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(response.status).toBe(400);
       expect(revokeAccessToken).not.toHaveBeenCalled();
       expect(findAccessTokenForRefreshToken).not.toHaveBeenCalled();
+      expect(findLiveAccessTokenIdsForClient).not.toHaveBeenCalled();
     });
 
-    it("REUSE DETECTED: revokes the stale access token's whole family, then rejects", async () => {
+    it("REUSE DETECTED (simple case, no race): revokes the stale row's own (already-dead) access token, then rejects", async () => {
       rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
-      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1" });
+      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1", clientId: "cid" });
+      findLiveAccessTokenIdsForClient.mockResolvedValueOnce([]); // nothing else live
 
       const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
 
@@ -113,6 +118,19 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.error).toBe("invalid_grant");
+    });
+
+    it("REUSE DETECTED (the race that matters): ALSO revokes the currently-live access token, not just the stale row's own — this is the actual attacker-redeemed-first scenario", async () => {
+      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
+      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale-already-dead", userId: "user-1", clientId: "cid" });
+      // The attacker already redeemed this refresh token once and is holding a LIVE token from it.
+      findLiveAccessTokenIdsForClient.mockResolvedValueOnce(["tok-attackers-live-token"]);
+
+      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
+
+      expect(findLiveAccessTokenIdsForClient).toHaveBeenCalledWith("service-client-marker", "user-1", "cid");
+      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-stale-already-dead");
+      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-attackers-live-token");
     });
 
     it("refuses to mint a fresh token if the one being refreshed no longer has scopes on record", async () => {

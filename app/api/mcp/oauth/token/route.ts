@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { consumeAuthorizationCode, rotateRefreshToken, mintRefreshToken, findAccessTokenForRefreshToken } from "@/lib/mcp/oauth";
+import {
+  consumeAuthorizationCode,
+  rotateRefreshToken,
+  mintRefreshToken,
+  findAccessTokenForRefreshToken,
+  findLiveAccessTokenIdsForClient,
+} from "@/lib/mcp/oauth";
 import { createAccessToken, revokeAccessToken, getTokenScopesById } from "@/lib/mcp/tokens";
 
 /**
@@ -96,11 +102,27 @@ export async function POST(request: Request) {
     const rotated = await rotateRefreshToken(supabase, rawRefreshToken);
     if (!rotated.ok) {
       if (rotated.reuseDetected) {
-        // Theft signal: revoke the whole family so a legitimate holder's
-        // NEXT call also starts failing, rather than letting the
-        // compromise ride out silently on a token that never expires.
+        // Theft signal. Revoke BOTH: (1) the stale row's own access token —
+        // usually already dead from the normal rotation that superseded it,
+        // a harmless no-op, but cheap insurance if it somehow isn't — and
+        // (2) whatever access token is CURRENTLY live for this (user,
+        // client) pair, which is the one that actually matters: if an
+        // attacker redeemed this same refresh token before its legitimate
+        // holder did, THAT redemption looked like an ordinary rotation and
+        // produced the live token the attacker is now holding. Revoking
+        // only (1) would leave (2) — the attacker's working credential —
+        // completely untouched. See lib/mcp/oauth.ts's rotateRefreshToken
+        // and findLiveAccessTokenIdsForClient doc comments for the full
+        // reasoning (corrected during L4 flow verification — an earlier
+        // version of this code only did (1)).
         const stale = await findAccessTokenForRefreshToken(supabase, rawRefreshToken);
-        if (stale) await revokeAccessToken(supabase, stale.userId, stale.accessTokenId);
+        if (stale) {
+          const liveIds = await findLiveAccessTokenIdsForClient(supabase, stale.userId, stale.clientId);
+          const toRevoke = new Set([stale.accessTokenId, ...liveIds]);
+          for (const tokenId of toRevoke) {
+            await revokeAccessToken(supabase, stale.userId, tokenId);
+          }
+        }
       }
       return tokenError(rotated.error, rotated.message);
     }

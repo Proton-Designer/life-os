@@ -12,6 +12,7 @@ import {
   mintRefreshToken,
   rotateRefreshToken,
   findAccessTokenForRefreshToken,
+  findLiveAccessTokenIdsForClient,
   parseScopeParam,
   AUTH_CODE_TTL_SECONDS,
   MAX_REGISTERED_CLIENTS,
@@ -332,14 +333,30 @@ describe("mintRefreshToken / findAccessTokenForRefreshToken", () => {
     }
   });
 
-  it("finds the linked access_token_id and user_id", async () => {
-    const client = clientReturning(makeChain({ data: { access_token_id: "tok-1", user_id: "user-1" }, error: null }));
-    expect(await findAccessTokenForRefreshToken(client, "lifeos_oauthrefresh_whatever")).toEqual({ accessTokenId: "tok-1", userId: "user-1" });
+  it("finds the linked access_token_id, user_id, and client_id", async () => {
+    const client = clientReturning(makeChain({ data: { access_token_id: "tok-1", user_id: "user-1", client_id: "lifeos_client_abc" }, error: null }));
+    expect(await findAccessTokenForRefreshToken(client, "lifeos_oauthrefresh_whatever")).toEqual({
+      accessTokenId: "tok-1",
+      userId: "user-1",
+      clientId: "lifeos_client_abc",
+    });
   });
 
   it("returns null for an unknown refresh token", async () => {
     const client = clientReturning(makeChain({ data: null, error: null }));
     expect(await findAccessTokenForRefreshToken(client, "lifeos_oauthrefresh_unknown")).toBeNull();
+  });
+});
+
+describe("findLiveAccessTokenIdsForClient — the actual reuse-detection target", () => {
+  it("returns every access_token_id still linked to a not-yet-rotated refresh token row", async () => {
+    const client = clientReturning(makeChain({ data: [{ access_token_id: "tok-live-1" }, { access_token_id: "tok-live-2" }], error: null }));
+    expect(await findLiveAccessTokenIdsForClient(client, "user-1", "lifeos_client_abc")).toEqual(["tok-live-1", "tok-live-2"]);
+  });
+
+  it("returns an empty array when nothing is live (or on a DB error) rather than throwing", async () => {
+    const client = clientReturning(makeChain({ data: null, error: { message: "boom" } }));
+    expect(await findLiveAccessTokenIdsForClient(client, "user-1", "lifeos_client_abc")).toEqual([]);
   });
 });
 
