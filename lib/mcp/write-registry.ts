@@ -69,6 +69,28 @@ export interface WriteActionDef {
   /** Documented for list_capabilities' future use and for readers of this file — not yet enforced as a separate schema layer; each handler validates its own patch shape directly. */
   patchShape: string;
   handler: WriteHandler;
+  /**
+   * Whether calling this action's handler TWICE with the identical
+   * id/patch produces the SAME end state as calling it once — L7's gate
+   * (lib/scheduling/scheduler-core.ts's `createScheduledActionCore`)
+   * refuses to schedule ANY action where this isn't exactly `true`,
+   * because at-least-once delivery means a scheduled action can genuinely
+   * fire twice for the same intended firing (app/api/self-mastery/
+   * ingestion/step/route.ts's own header reasons through the identical
+   * concern for a different pipeline).
+   *
+   * ABSENT/`undefined` MEANS NOT VERIFIED, NOT "ASSUMED SAFE" — the
+   * scheduler treats it exactly like `false`. Most actions in this file
+   * carry no annotation at all; that is an honest "nobody has checked
+   * this yet," not a claim either way, and is deliberately NOT filled in
+   * here by guessing at code this file's other authors wrote. When you DO
+   * verify one (in either direction), set this AND
+   * `idempotencyVerification` together, same discipline as
+   * `EntityDef.updatedAtColumn`/`updatedAtVerification` in registry.ts.
+   */
+  idempotent?: boolean;
+  /** One sentence naming the REAL mechanism checked (a conflict/no-op path, a fixed-value overwrite, a pre-check that lands retries on a safe branch) — or, if `idempotent: false`, the concrete way a retry duplicates data. Required whenever `idempotent` is set at all; never a restatement of the action's name. */
+  idempotencyVerification?: string;
 }
 
 export interface WriteEntityDef {
@@ -980,8 +1002,26 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           save: {
             action: "save",
             description:
-              "Record an allocation check-in (\"log me as heads-down for the last hour\") -- domain-minutes for the CURRENT/most-recent open check-in window, or an ad-hoc 120-minute window ending now if nothing is open. Unaccounted time is derived automatically, never supplied. No top-level id -- always targets a window, never an existing row by id (idempotent same-window resubmission is handled by the underlying RPC, see saveAllocationCheckinCore's own comment).",
+              "Record an allocation check-in (\"log me as heads-down for the last hour\") -- domain-minutes for the CURRENT/most-recent open check-in window, or an ad-hoc 120-minute window ending now if nothing is open. Unaccounted time is derived automatically, never supplied. No top-level id -- always targets a window, never an existing row by id.",
             patchShape: "{ allocations: Record<'deen'|'business'|'school'|'fitness'|'co_op', number> }",
+            // CORRECTED FINDING (was claimed idempotent in an earlier
+            // report -- it isn't, for L7's purposes): the underlying RPC's
+            // own same-window no-op only protects a DIRECT retry with the
+            // identical window_start/window_end. This handler never
+            // accepts those as args -- resolveTargetWindow (actions-core.ts)
+            // resolves "the current open window" FRESH on every call, by
+            // design, so a caller retrying after an already-successful
+            // write finds that window now answered and silently advances
+            // to a DIFFERENT (ad-hoc) window instead of hitting the RPC's
+            // no-op -- a genuine double-count, not a safe retry. Correct
+            // for the live/manual use case this was built for (a human
+            // retrying really does want "whatever's open now"); wrong for
+            // unattended at-least-once redelivery, which is exactly what
+            // L7's scheduler gate exists to keep off this action until a
+            // caller-pinned-window variant (or an idempotency key) exists.
+            idempotent: false,
+            idempotencyVerification:
+              "resolveTargetWindow (lib/checkins/actions-core.ts) re-resolves the target window on every call rather than accepting one from the caller -- a retry after a successful first write finds that window already answered and moves to a new (ad-hoc) one, writing a SECOND real allocation instead of no-op'ing. Not schedulable until this handler accepts a caller-pinned window or the RPC path gains a real idempotency key.",
             handler: async (ctx, patch) => {
               const allocationsRaw = patch.allocations;
               if (typeof allocationsRaw !== "object" || allocationsRaw === null || Array.isArray(allocationsRaw)) {
@@ -1019,6 +1059,13 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             description:
               "\"I just got distracted by my phone\" -- find-or-create a trigger by name (idempotent: a double-submit of the same name reuses the existing one, never duplicates) and log one event against it in the same call. Optionally attaches a tiered self-reflection (writes a linked deen.reflection_entry row too, same as the app's own capture dialog).",
             patchShape: "{ domain: 'deen'|'business'|'school'|'fitness'|'co_op', name: string, description?: string|null, tier?: 1|2|3 }",
+            // The TRIGGER half is idempotent (23505 dedup-by-name); the
+            // EVENT half is not -- insertEventCore always INSERTs a new
+            // distraction_events row with no dedup key at all, so a retry
+            // logs the distraction a second time. Idempotent overall means
+            // BOTH halves have to hold.
+            idempotent: false,
+            idempotencyVerification: "insertEventCore (lib/distractions/actions-core.ts) always INSERTs a new distraction_events row -- no conflict target, no dedup key -- so a retry double-logs the distraction even though the trigger itself dedupes cleanly.",
             handler: async (ctx, patch) => {
               const result = await captureCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, patch.domain, patch.name, patch.description, patch.tier);
               return {
@@ -1039,6 +1086,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "log",
             description: "Log one more occurrence of an ALREADY-KNOWN trigger (found via a prior read or capture) -- no top-level id; the trigger is named in patch.trigger_id, matching this table's own read-side shape.",
             patchShape: "{ trigger_id: string, tier?: 1|2|3 }",
+            idempotent: false,
+            idempotencyVerification: "insertEventCore (lib/distractions/actions-core.ts) always INSERTs -- same mechanism (or lack of one) as trigger.capture's own event half.",
             handler: async (ctx, patch) => {
               const result = await logEventCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, patch.trigger_id, patch.tier);
               return {
@@ -1059,6 +1108,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "save",
             description: "Write or edit a trigger's action plan -- edits the current version's body in place if one exists, otherwise creates version 1. No top-level id -- the trigger is named in patch.trigger_id (a version is per-TRIGGER, not addressed by its own row id).",
             patchShape: "{ trigger_id: string, body: string }",
+            idempotent: true,
+            idempotencyVerification:
+              "saveActionPlanCore (lib/distractions/actions-core.ts) checks for a current plan FIRST: a retry after a successful first call always finds one now (the version the first call created or edited) and lands on the update-in-place branch, overwriting body with the IDENTICAL value -- a true no-op. The RPC-creating branch (save_trigger_plan, a new version) can only ever run once per retry sequence, because its own precondition ('no current plan exists') is exactly what the first successful call falsifies.",
             handler: async (ctx, patch) => {
               const result = await saveActionPlanCore(ctx.userClient, ctx.userId, patch.trigger_id, patch.body);
               return {
@@ -1079,6 +1131,19 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "record",
             description: "\"That plan didn't work\" -- record today's followed/skipped answer for a trigger's current plan. A same-day resubmission overwrites, it does not accumulate (matches the read-side entity's own at-most-one-per-day shape). patch.new_plan_body is required when patch.followed is true, and required if this is the plan's 3rd skip with zero follows -- both enforced by the underlying RPC's own transaction, surfaced here as a clear error, not pre-guessed.",
             patchShape: "{ trigger_id: string, followed: boolean, new_plan_body?: string }",
+            // The outcome ROW itself is idempotent (the RPC's own
+            // on-conflict-do-update on (user_id,trigger_id,date)) -- but
+            // `followed: true` is NOT overall idempotent: record_plan_outcome
+            // (migration 043) calls save_trigger_plan UNCONDITIONALLY
+            // whenever p_followed is true, even on the conflict-update path,
+            // so a retry supersedes the plan and creates a NEW version a
+            // second time -- two version bumps for one real outcome.
+            // `followed: false` alone (no forced-rewrite threshold hit) IS
+            // idempotent, but this action can't be split by patch VALUE at
+            // the registry level, so the whole action is marked unsafe.
+            idempotent: false,
+            idempotencyVerification:
+              "record_plan_outcome's own SQL (migration 043): `if p_followed then perform public.save_trigger_plan(...); return; end if;` runs on every call where followed=true, including a retry that hits the on-conflict-do-update branch first -- superseding the plan and creating a new version TWICE for one real outcome. followed:false alone would be idempotent (the conflict update is a true no-op) but the action can't be conditionally marked safe by patch value here.",
             handler: async (ctx, patch) => {
               const result = await recordPlanOutcomeCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, patch.trigger_id, patch.followed, patch.new_plan_body);
               return {
@@ -1115,6 +1180,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             description:
               "Change the account's theme preset and/or which nav features are hidden. No top-level id -- always the caller's own single profile row. `home`/`settings` can never appear in hidden_features (refused with a clear message, matching the DB's own CHECK -- see updateAppearanceCore's comment).",
             patchShape: "{ theme_preset?: 'oxblood'|'ocean'|'forest'|'sunset'|'mono', hidden_features?: ('deen'|'work'|'business'|'school'|'fitness'|'insights')[] }",
+            idempotent: true,
+            idempotencyVerification: "updateAppearanceCore upserts the exact given value(s) -- a retry with the identical patch writes the identical row, a true no-op.",
             handler: async (ctx, patch) => {
               const result = await updateAppearanceCore(ctx.userClient, ctx.userId, { theme_preset: patch.theme_preset, hidden_features: patch.hidden_features });
               return {
@@ -1145,6 +1212,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "set_weekday_baselines",
             description: "Set all 7 weekday hour baselines (R58) for the Day Won comparison. No top-level id.",
             patchShape: "{ values: number[7] }", // hours 0-12, Sunday first
+            idempotent: true,
+            idempotencyVerification: "setWeekdayBaselinesCore UPDATEs to the exact given array -- a retry with the identical values writes the identical row, a true no-op.",
             handler: async (ctx, patch) => {
               const result = await setWeekdayBaselinesCore(ctx.userClient, ctx.userId, patch.values);
               return {
@@ -1160,6 +1229,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "clear_weekday_baselines",
             description: "Reset weekday baselines to NEVER SET -- not the same as a week of zeros (see clearWeekdayBaselinesCore's own comment). No top-level id, no patch.",
             patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "clearWeekdayBaselinesCore UPDATEs to NULL unconditionally -- a retry writes the identical NULL, a true no-op.",
             handler: async (ctx) => {
               await clearWeekdayBaselinesCore(ctx.userClient, ctx.userId);
               return {

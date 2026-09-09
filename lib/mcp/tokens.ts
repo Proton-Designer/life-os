@@ -264,6 +264,35 @@ export async function getTokenScopesById(supabase: SupabaseClient, tokenId: stri
   return (data as { scopes: string[] }).scopes.filter(isMcpScope);
 }
 
+/**
+ * L7's fire-time scope check (the scheduler's own non-negotiable
+ * requirement #2 — team-lead: "the token's scope is checked at fire time,
+ * not at schedule time. If the owner revokes a token, everything it
+ * scheduled must stop working immediately"). Deliberately NOT
+ * `getTokenScopesById` above — that function selects scopes only and does
+ * NOT check `revoked_at`, which was fine for its own caller (OAuth refresh
+ * rotation, which only needs to preserve an already-live token's scope
+ * set) but would be a real security gap here: a revoked token's scheduled
+ * actions must be DENIED, not silently keep firing with stale scopes.
+ *
+ * Keyed by `tokenId`, not the raw token — a scheduled action only ever
+ * stores the id (migration 130's own design: there is no column anywhere
+ * that could recover a raw token's plaintext, by construction). This is
+ * NOT an authentication check (proving possession of a secret) the way
+ * `verifyAccessToken` is — it's a live-state lookup for a token that
+ * already authorized creating the schedule, which is exactly why a
+ * service-role, id-keyed lookup is the right shape here, same posture
+ * `verifyAccessToken`'s own header takes on using service-role because no
+ * userId is known yet.
+ */
+export async function getLiveTokenById(supabase: SupabaseClient, tokenId: string): Promise<{ userId: string; scopes: McpScope[] } | null> {
+  const { data, error } = await supabase.from("mcp_access_tokens").select("user_id, scopes, revoked_at").eq("id", tokenId).maybeSingle();
+  if (error || !data) return null;
+  const row = data as { user_id: string; scopes: string[]; revoked_at: string | null };
+  if (row.revoked_at) return null;
+  return { userId: row.user_id, scopes: row.scopes.filter(isMcpScope) };
+}
+
 /** Records that a verified token was actually used. Best-effort — a failure here must never fail the request it's recording. */
 export async function touchLastUsed(supabase: SupabaseClient, tokenId: string): Promise<void> {
   await supabase.from("mcp_access_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", tokenId);

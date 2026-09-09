@@ -12,6 +12,7 @@ import {
   revokeAccessToken,
   verifyAccessToken,
   touchLastUsed,
+  getLiveTokenById,
   type McpScope,
 } from "../tokens";
 
@@ -288,5 +289,42 @@ describe("touchLastUsed", () => {
 
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ last_used_at: expect.any(String) }));
     expect(chain.eq).toHaveBeenCalledWith("id", "tok-1");
+  });
+});
+
+describe("getLiveTokenById — L7's fire-time scope check", () => {
+  it("returns userId/scopes for a live (non-revoked) token", async () => {
+    const chain = makeChain({ data: { user_id: "user-1", scopes: ["read", "write"], revoked_at: null }, error: null });
+    const client = clientReturning(chain);
+
+    const result = await getLiveTokenById(client, "tok-1");
+
+    expect(result).toEqual({ userId: "user-1", scopes: ["read", "write"] });
+    expect(chain.eq).toHaveBeenCalledWith("id", "tok-1");
+  });
+
+  it("returns null for a revoked token, EVEN THOUGH the row still exists and getTokenScopesById would happily return its scopes -- this is the whole reason this function exists rather than reusing that one", async () => {
+    const chain = makeChain({ data: { user_id: "user-1", scopes: ["read", "write"], revoked_at: "2026-09-09T00:00:00Z" }, error: null });
+    const client = clientReturning(chain);
+
+    expect(await getLiveTokenById(client, "tok-1")).toBeNull();
+  });
+
+  it("returns null for an unknown token id", async () => {
+    const chain = makeChain({ data: null, error: null });
+    const client = clientReturning(chain);
+    expect(await getLiveTokenById(client, "nope")).toBeNull();
+  });
+
+  it("returns null on a DB error rather than throwing", async () => {
+    const chain = makeChain({ data: null, error: { message: "connection lost" } });
+    const client = clientReturning(chain);
+    expect(await getLiveTokenById(client, "tok-1")).toBeNull();
+  });
+
+  it("filters out any non-mcp-scope value stored on the row, same defensive posture as verifyAccessToken", async () => {
+    const chain = makeChain({ data: { user_id: "user-1", scopes: ["read", "admin"], revoked_at: null }, error: null });
+    const client = clientReturning(chain);
+    expect(await getLiveTokenById(client, "tok-1")).toEqual({ userId: "user-1", scopes: ["read"] });
   });
 });
