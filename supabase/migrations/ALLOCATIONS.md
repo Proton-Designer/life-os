@@ -79,6 +79,27 @@ misreading is how `089` was asserted applied when it wasn't.
 
 ## Operator actions on production
 
+### 2026-09-09 — `mcp-scheduled-actions-every-5min` registered (LifeOS lead)
+
+`cron.schedule('mcp-scheduled-actions-every-5min', '*/5 * * * *', ...)` — the poll driving
+`mcp_scheduled_actions` (migration 142). **Not migration-tracked**, same as
+`dispatch-notifications-every-15min`, which is why it is recorded here.
+
+Reads its URL and bearer secret from **`vault.decrypted_secrets`** (`app_url`,
+`mcp_cron_secret`), copying the proven job's pattern exactly — the secret is never in
+plaintext in `cron.job`. Both vault entries created in the same action; `mcp_cron_secret`
+was verified against the live route (HTTP 200) *before* being stored.
+
+**Deliberately gated until the connector actually worked.** A scheduled action fires
+through the identical path a live call uses, so registering it while session-minting was
+broken would have produced a failed attempt every five minutes indefinitely.
+
+Verified after registration: fired at :30 and :35, both `status=succeeded`, and **zero
+audit rows written** — an empty queue is silent, not noisy.
+
+To reverse: `select cron.unschedule('mcp-scheduled-actions-every-5min');`
+
+
 Actions taken by hand, outside a migration. Recorded here because they change
 production state and a migration file will never mention them.
 
