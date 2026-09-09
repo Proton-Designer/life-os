@@ -100,6 +100,26 @@ export function resolveReadOperation(args: ReadArgs): string {
   return `${args.domain}.${args.entity}.read`;
 }
 
+/**
+ * Verifies a `parentFilter`-bearing entity's named parent row actually
+ * belongs to this user and passes `parentFixedFilter` — see EntityDef's
+ * own comment on `parentFilter` for why (closing the gap `fixedFilter`
+ * leaves open for a child table with no domain/ownership column of its
+ * own). Throws "not found" rather than a distinguishable "wrong domain"
+ * error, same posture `fixedFilter` uses everywhere else.
+ */
+async function verifyParent(supabase: SupabaseClient, userId: string, def: EntityDef, parentId: string): Promise<void> {
+  const pf = def.parentFilter;
+  if (!pf) return;
+  let q = supabase.from(pf.parentTable).select(pf.parentIdColumn).eq(pf.parentIdColumn, parentId).eq("user_id", userId);
+  for (const [col, value] of Object.entries(pf.parentFixedFilter ?? {})) q = q.eq(col, value);
+  const { data, error } = await q.maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) {
+    throw new Error(`No parent ${pf.parentTable} row found for ${def.entity}.${pf.column} = "${parentId}" (or it doesn't belong to you).`);
+  }
+}
+
 /** Untyped `SupabaseClient` — see lib/mcp/tool-wrapper.ts's comment on its `fn` parameter for why a registry-driven dynamic table dispatcher can't be typed against the generated `Database` union. */
 export async function readTool(supabase: SupabaseClient, userId: string, args: ReadArgs): Promise<RunMcpToolOutcome> {
   const def = resolveEntity(args.domain, args.entity);
@@ -120,11 +140,37 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
     if (error) throw new Error(error.message);
     if (!data) throw new Error(`No ${def.entity} found with id "${args.id}".`);
 
+    // parentFilter, id-path: the row is already this user's own (checked
+    // above), but a child table with no domain column of its own (e.g.
+    // schedule_event_overrides) could still point at a PARENT belonging to
+    // the wrong MCP domain -- verify using the fetched row's own column,
+    // not a caller-supplied filter, so this can't be bypassed by omitting
+    // `filter` on an id-based call.
+    if (def.parentFilter) {
+      const parentId = (data as unknown as Record<string, unknown>)[def.parentFilter.column];
+      if (typeof parentId !== "string" || !parentId) {
+        throw new Error(`No ${def.entity} found with id "${args.id}".`);
+      }
+      await verifyParent(supabase, userId, def, parentId);
+    }
+
     const item = toItem(def, data as unknown as Record<string, unknown>, columns);
     return {
       result: { content: [{ type: "text", text: JSON.stringify(item) }], structuredContent: item },
       summary: `returned 1 ${def.entity} by id`,
     };
+  }
+
+  // parentFilter, list-path: required, not optional -- an unscoped "every
+  // row across every parent" list is refused outright, never silently
+  // returned. Verified BEFORE the list query runs, same reasoning as the
+  // id-path above.
+  if (def.parentFilter) {
+    const parentId = args.filter?.[def.parentFilter.column];
+    if (typeof parentId !== "string" || !parentId) {
+      throw new Error(`Entity "${def.entity}" requires filter.${def.parentFilter.column} — it is always read scoped to one parent, never as an unscoped list.`);
+    }
+    await verifyParent(supabase, userId, def, parentId);
   }
 
   let query = supabase.from(def.table).select(select, { count: "exact" }).eq("user_id", userId);

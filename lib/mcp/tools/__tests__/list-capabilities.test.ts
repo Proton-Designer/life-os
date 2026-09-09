@@ -11,7 +11,20 @@ describe("listCapabilitiesTool", () => {
   it("with no domain, lists only domains actually wired — honest, not the memo's full eventual matrix", async () => {
     const outcome = await listCapabilitiesTool();
     const payload = textPayload(outcome);
-    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual(["business", "deen", "school", "self_mastery", "work"]);
+    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual([
+      "business",
+      "calendar",
+      "checkins",
+      "deen",
+      "distractions",
+      "fitness",
+      "home",
+      "review",
+      "school",
+      "self_mastery",
+      "settings",
+      "work",
+    ]);
   });
 
   it("source_chunks is listed (existence is not secret) but advertises ZERO readable fields at any tier (content is)", async () => {
@@ -42,8 +55,8 @@ describe("listCapabilitiesTool", () => {
   });
 
   it("THROWS a clear error for an unknown domain, naming the valid set — never a silent empty result", async () => {
-    await expect(listCapabilitiesTool("fitness")).rejects.toThrow(/unknown domain.*fitness/i);
-    await expect(listCapabilitiesTool("fitness")).rejects.toThrow(/deen/);
+    await expect(listCapabilitiesTool("nonexistent_domain")).rejects.toThrow(/unknown domain.*nonexistent_domain/i);
+    await expect(listCapabilitiesTool("nonexistent_domain")).rejects.toThrow(/deen/);
   });
 
   it("reports write actions ONLY for the 3 entities write-registry.ts actually wires — habit/habit_log/weekly_focus/etc. stay read-only, honestly", async () => {
@@ -80,8 +93,13 @@ describe("listCapabilitiesTool", () => {
   it("school's entities report their real write actions, and never an excluded hard-delete/recurrence action", async () => {
     const outcome = await listCapabilitiesTool("school");
     const payload = textPayload(outcome);
-    expect(payload.entities).toHaveLength(4);
+    expect(payload.entities).toHaveLength(6);
     const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+
+    // Neither is wired for write at all (see SCHOOL-WRITE-SCOPE-DECISIONS.md
+    // — both writes stay expressed as schedule_event.set_override/cancel_occurrence).
+    expect(byEntity.schedule_event_override).toEqual(["read"]);
+    expect(byEntity.schedule_event_cancellation).toEqual(["read"]);
 
     expect(byEntity.task.sort()).toEqual(["read", "write:add", "write:edit", "write:toggle"]);
     expect(byEntity.task).not.toContain("write:remove");
@@ -96,6 +114,23 @@ describe("listCapabilitiesTool", () => {
     expect(byEntity.schedule_event).not.toContain("write:remove");
     expect(byEntity.schedule_event).not.toContain("write:remove_override");
     expect(byEntity.schedule_event).not.toContain("write:uncancel");
+  });
+
+  it("fitness's 15 entities are all listed; only the 5 logging/library ones carry write actions", async () => {
+    const outcome = await listCapabilitiesTool("fitness");
+    const payload = textPayload(outcome);
+    expect(payload.entities).toHaveLength(15);
+    const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+
+    expect(byEntity.workout_session.sort()).toEqual(["read", "write:confirm", "write:confirm_plan_session", "write:quick_log"]);
+    expect(byEntity.body_metric.sort()).toEqual(["read", "write:log_waist", "write:log_weight"]);
+    expect(byEntity.fitness_benchmark.sort()).toEqual(["read", "write:log"]);
+    expect(byEntity.exercise.sort()).toEqual(["read", "write:archive", "write:create"]);
+    expect(byEntity.workout.sort()).toEqual(["read", "write:archive", "write:rename"]);
+
+    for (const readOnly of ["session_set", "workout_plan", "plan_session", "plan_session_exercise", "plan_micro_exercise", "workout_exercise", "workout_schedule", "active_workout_plan", "fitness_cycle_anchor", "rep_goal"]) {
+      expect(byEntity[readOnly]).toEqual(["read"]);
+    }
   });
 });
 

@@ -2,8 +2,21 @@ import { describe, expect, it } from "vitest";
 import { REGISTRY, listDomains, getDomain, getEntity } from "../registry";
 
 describe("registry", () => {
-  it("lists exactly the domains actually wired so far — deen, self_mastery, work, business, school", () => {
-    expect(listDomains().map((d) => d.domain).sort()).toEqual(["business", "deen", "school", "self_mastery", "work"]);
+  it("lists exactly the domains actually wired so far", () => {
+    expect(listDomains().map((d) => d.domain).sort()).toEqual([
+      "business",
+      "calendar",
+      "checkins",
+      "deen",
+      "distractions",
+      "fitness",
+      "home",
+      "review",
+      "school",
+      "self_mastery",
+      "settings",
+      "work",
+    ]);
   });
 
   it("self_mastery/source_chunks is registered but exposes ZERO columns — existence only, content deliberately unreachable", () => {
@@ -15,7 +28,7 @@ describe("registry", () => {
   });
 
   it("getDomain returns null for an unregistered domain, never throws", () => {
-    expect(getDomain("fitness")).toBeNull();
+    expect(getDomain("nonexistent_domain")).toBeNull();
   });
 
   it("getEntity returns null for a known domain but a truly unknown entity", () => {
@@ -105,8 +118,31 @@ describe("registry", () => {
     expect(getEntity("work", "work_session")!.updatedAtColumn).toBe("ended_at");
   });
 
-  it("school has exactly the 4 read entities wired (task, class, class_assessment, schedule_event) — overrides/cancellations deliberately excluded, see schedule_event's own comment", () => {
-    expect(Object.keys(REGISTRY.school.entities).sort()).toEqual(["class", "class_assessment", "schedule_event", "task"]);
+  it("school has exactly the 6 read entities wired (task, class, class_assessment, schedule_event, schedule_event_override, schedule_event_cancellation)", () => {
+    expect(Object.keys(REGISTRY.school.entities).sort()).toEqual([
+      "class",
+      "class_assessment",
+      "schedule_event",
+      "schedule_event_cancellation",
+      "schedule_event_override",
+      "task",
+    ]);
+  });
+
+  it("school's override/cancellation entities are parentFilter-scoped to one schedule_events row, domain='school' — retrofitted once fitness needed the same mechanism", () => {
+    for (const entity of ["schedule_event_override", "schedule_event_cancellation"]) {
+      const def = getEntity("school", entity)!;
+      expect(def.parentFilter).toEqual({ column: "event_id", parentTable: "schedule_events", parentIdColumn: "id", parentFixedFilter: { domain: "school" } });
+      expect(def.filterableColumns).toContain("event_id");
+    }
+  });
+
+  it("schedule_event_cancellation stays created_at — migration 136 deliberately excluded it (ignoreDuplicates upsert never fires the trigger)", () => {
+    expect(getEntity("school", "schedule_event_cancellation")!.updatedAtColumn).toBe("created_at");
+  });
+
+  it("schedule_event_override uses the real trigger-backed updated_at from migration 136", () => {
+    expect(getEntity("school", "schedule_event_override")!.updatedAtColumn).toBe("updated_at");
   });
 
   it("school.task and school.schedule_event are fixedFilter-scoped to domain='school' — both tables are shared with co_op", () => {
@@ -129,5 +165,66 @@ describe("registry", () => {
 
   it("school.class never exposes syllabus_path — an internal storage path, not a fetchable value", () => {
     expect(getEntity("school", "class")!.fullColumns).not.toContain("syllabus_path");
+  });
+
+  it("fitness has exactly the 15 named tables' worth of read entities wired", () => {
+    expect(Object.keys(REGISTRY.fitness.entities).sort()).toEqual([
+      "active_workout_plan",
+      "body_metric",
+      "exercise",
+      "fitness_benchmark",
+      "fitness_cycle_anchor",
+      "plan_micro_exercise",
+      "plan_session",
+      "plan_session_exercise",
+      "rep_goal",
+      "session_set",
+      "workout",
+      "workout_exercise",
+      "workout_plan",
+      "workout_schedule",
+      "workout_session",
+    ]);
+  });
+
+  it("fitness's 5 parent-owned child tables are all parentFilter-scoped, never a flat cross-parent list", () => {
+    expect(getEntity("fitness", "workout_exercise")!.parentFilter).toEqual({ column: "workout_id", parentTable: "workouts", parentIdColumn: "id" });
+    expect(getEntity("fitness", "plan_session")!.parentFilter).toEqual({ column: "plan_id", parentTable: "workout_plans", parentIdColumn: "id" });
+    expect(getEntity("fitness", "plan_session_exercise")!.parentFilter).toEqual({ column: "session_id", parentTable: "plan_sessions", parentIdColumn: "id" });
+    expect(getEntity("fitness", "plan_micro_exercise")!.parentFilter).toEqual({ column: "plan_id", parentTable: "workout_plans", parentIdColumn: "id" });
+    expect(getEntity("fitness", "session_set")!.parentFilter).toEqual({ column: "session_id", parentTable: "workout_sessions", parentIdColumn: "id" });
+  });
+
+  it("fitness's top-level/flat entities have no parentFilter — exercise, workout_plan, workout, body_metric, fitness_benchmark, workout_schedule, active_workout_plan, fitness_cycle_anchor, rep_goal, workout_session are each legitimately browsed unscoped", () => {
+    for (const entity of ["exercise", "workout_plan", "workout", "body_metric", "fitness_benchmark", "workout_schedule", "active_workout_plan", "fitness_cycle_anchor", "rep_goal", "workout_session"]) {
+      expect(getEntity("fitness", entity)!.parentFilter).toBeUndefined();
+    }
+  });
+
+  it("append-only fitness entities (workout_session, session_set, fitness_cycle_anchor, rep_goal) use created_at, never a fabricated column", () => {
+    for (const entity of ["workout_session", "session_set", "fitness_cycle_anchor", "rep_goal"]) {
+      expect(getEntity("fitness", entity)!.updatedAtColumn).toBe("created_at");
+    }
+  });
+
+  it("active_workout_plan uses its real, app-set updated_at — already faithful, no migration needed", () => {
+    expect(getEntity("fitness", "active_workout_plan")!.updatedAtColumn).toBe("updated_at");
+  });
+
+  it("fitness entities genuinely mutable in place, with no faithful existing column, are honestly null pending docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md", () => {
+    for (const entity of ["body_metric", "fitness_benchmark", "exercise", "workout", "workout_plan"]) {
+      expect(getEntity("fitness", entity)!.updatedAtColumn).toBeNull();
+    }
+  });
+
+  it("fitness's delete-then-reinsert-shaped children (no timestamp column exists at all, and never will need one) are also null, but deliberately NOT proposed as a migration", () => {
+    for (const entity of ["workout_exercise", "plan_session", "plan_session_exercise", "plan_micro_exercise", "workout_schedule"]) {
+      expect(getEntity("fitness", entity)!.updatedAtColumn).toBeNull();
+    }
+  });
+
+  it("active_workout_plan and fitness_cycle_anchor use user_id as their idColumn — singleton-per-user tables, same pattern as settings.profile/settings.user_setting", () => {
+    expect(getEntity("fitness", "active_workout_plan")!.idColumn).toBe("user_id");
+    expect(getEntity("fitness", "fitness_cycle_anchor")!.idColumn).toBe("user_id");
   });
 });

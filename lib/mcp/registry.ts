@@ -78,6 +78,53 @@ export interface EntityDef {
    * columns, just applied to rows instead.
    */
   fixedFilter?: Record<string, string>;
+  /**
+   * Declares this entity as a child of a NAMED parent row — never reachable
+   * as a flat "every row the user has ever owned, across every parent"
+   * list. Built for the shape `schedule_event_overrides`/
+   * `schedule_event_cancellations` (school) and `plan_session_exercises`/
+   * `session_sets`/`plan_micro_exercises`/`workout_exercises` (fitness) all
+   * share: a child table that is only ever meaningfully read "for THIS
+   * session/event/plan," never unscoped. team-lead's ruling: "a narrow
+   * parentFilter -- a declared FK plus the parent column to constrain on --
+   * not a general join engine."
+   *
+   * `read.ts` enforces two things when this is set:
+   *  1. A LIST call (no `id`) MUST supply `filter[column]` — an unscoped
+   *     list across every parent is refused with a clear error, never
+   *     silently returned.
+   *  2. The named parent row (found by `filter[column]`, or — for an
+   *     `id`-based read — by the fetched child row's own `column` value)
+   *     is looked up and must itself belong to this user AND pass
+   *     `parentFixedFilter` (if set). This is what actually closes the
+   *     school gap: `schedule_event_overrides` has no `domain` column of
+   *     its own, but verifying its parent `schedule_events` row passes
+   *     `domain='school'` achieves the same scoping `fixedFilter` gives a
+   *     table that DOES carry the column directly — without denormalizing
+   *     anything onto the child (the lead's explicit ruling against that).
+   *     A parent that fails this check is reported as "not found," the
+   *     same posture `fixedFilter` uses elsewhere — never a distinguishable
+   *     "exists but wrong domain" leak.
+   *
+   * For an entity with no cross-domain sharing at all (every fitness table
+   * this applies to), the parent check is a harmless no-op beyond what
+   * `user_id` already guarantees — it's applied anyway, for the other half
+   * of the value: requiring a named parent keeps `read` from ever handing
+   * back an incoherent flat dump of every set/exercise a user has logged
+   * across every session/plan they've ever had, which matches how every
+   * other reader in this codebase actually queries these tables (always
+   * scoped to one parent).
+   */
+  parentFilter?: {
+    /** The FK column on THIS entity's own table. Must also be listed in `filterableColumns`. */
+    column: string;
+    /** The parent's real table name (not an MCP entity name — this is a same-table-family check, not a join). */
+    parentTable: string;
+    /** The parent table's id column, usually "id". */
+    parentIdColumn: string;
+    /** Applied to the parent lookup, same semantics as this entity's own `fixedFilter` — e.g. `{domain: "school"}` to verify a schedule_events row is actually school's. */
+    parentFixedFilter?: Record<string, string>;
+  };
 }
 
 export interface DomainDef {
@@ -296,9 +343,7 @@ export const REGISTRY: Record<string, DomainDef> = {
   school: {
     domain: "school",
     description:
-      "Classes, their assessments, the class schedule (and its per-occurrence overrides/cancellations), and school-owned tasks. " +
-      "`schedule_event_overrides`/`schedule_event_cancellations` are deliberately NOT registered as their own read entities here " +
-      "(see the long comment on `schedule_event` below) -- they remain reachable only through `write`'s schedule_event actions.",
+      "Classes, their assessments, the class schedule, its per-occurrence overrides/cancellations (each parentFilter-scoped to one event), and school-owned tasks.",
     entities: {
       task: {
         entity: "task",
@@ -347,43 +392,11 @@ export const REGISTRY: Record<string, DomainDef> = {
         filterableColumns: ["class_id", "type", "date"],
         orderBy: [{ column: "date", ascending: false }],
       },
-      /**
-       * `schedule_event_overrides` and `schedule_event_cancellations`
-       * (the lead's own named tables) are DELIBERATELY NOT their own read
-       * entities, found and flagged rather than silently worked around:
-       * neither table carries its own `domain` column -- domain lives on
-       * the `schedule_events` row the override/cancellation's `event_id`
-       * points at. `fixedFilter` (this file's own mechanism, see
-       * EntityDef's own comment above) only ever applies a same-table
-       * `.eq(col, value)` -- confirmed by reading lib/mcp/tools/read.ts's
-       * query builder directly, which never embeds/joins a foreign table.
-       * Registering either table as its own entity with no fixedFilter
-       * would read BOTH school's and co_op's overrides/cancellations
-       * through a "school"-named entity -- exactly the cross-domain leak
-       * fixedFilter exists to prevent, just for a table it cannot reach.
-       *
-       * RULING (team-lead, after school shipped): do NOT denormalize a
-       * `domain` column onto either table -- that creates a second source
-       * of truth for a fact that already exists on the parent row, and the
-       * two will drift the first time someone updates one and not the
-       * other. The real fix is a narrow `parentFilter` (a declared FK plus
-       * the parent column to constrain on) -- NOT a general join engine --
-       * but it is not built for one caller. It gets built when the second
-       * case appears: fitness's `plan_session_exercises`/`session_sets`
-       * have the same parent-owned shape. Until then, both tables stay
-       * unregistered. This is a KNOWN, CHOSEN gap in "read everything" (the
-       * owner's literal requirement), not one we missed -- their DATA
-       * remains reachable today through `write`'s
-       * `schedule_event.set_override`/`cancel_occurrence` actions, which
-       * scope correctly because they always act via a caller-supplied,
-       * domain-checked event id (see write-registry.ts's `assertRowDomain`)
-       * -- only LISTING/reading them back as their own entity is deferred.
-       */
       schedule_event: {
         entity: "schedule_event",
         table: "schedule_events",
         description:
-          "A class's recurring meeting pattern (or a one-off school event). `schedule_events` is shared with `co_op` -- fixedFilter keeps this entity strictly to domain='school' rows. Per-occurrence overrides/cancellations are NOT included here -- see this entity's own header comment above.",
+          "A class's recurring meeting pattern (or a one-off school event). `schedule_events` is shared with `co_op` -- fixedFilter keeps this entity strictly to domain='school' rows. Per-occurrence overrides/cancellations are separate entities below (schedule_event_override/schedule_event_cancellation), each scoped via parentFilter to THIS entity's own rows.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
@@ -396,6 +409,264 @@ export const REGISTRY: Record<string, DomainDef> = {
           { column: "event_time", ascending: true },
         ],
         fixedFilter: { domain: "school" },
+      },
+      /**
+       * RETROFITTED onto `parentFilter` once fitness needed the same
+       * mechanism for 2+ tables (team-lead's conditional ruling). Neither
+       * `schedule_event_overrides` nor `schedule_event_cancellations`
+       * carries its own `domain` column -- domain lives on the
+       * `schedule_events` row their `event_id` points at, and `fixedFilter`
+       * can only ever apply a same-table `.eq()`. `parentFilter` closes
+       * this WITHOUT denormalizing `domain` onto either table (the lead's
+       * explicit ruling against that, since it would create a second
+       * source of truth that drifts): every read looks up the named
+       * `event_id`'s OWN `schedule_events` row and verifies it passes
+       * `domain: "school"` before returning any override/cancellation rows
+       * for it. A co_op event's overrides are therefore unreachable through
+       * THIS entity -- not filtered out of a returned list, REFUSED before
+       * the list query ever runs.
+       */
+      schedule_event_override: {
+        entity: "schedule_event_override",
+        table: "schedule_event_overrides",
+        description: "A single occurrence's temporary time change ('move next Tuesday's class'), without touching the permanent pattern. Always read scoped to one event via filter.event_id (parentFilter) -- never as a flat list across every event.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to schedule_event_overrides, after setScheduleEventOverrideCore's upsert (onConflict: event_id,date) was found to MERGE event_time/end_time on an existing row -- a true update, not a no-op -- which created_at never reflected.",
+        summaryColumns: ["event_id", "date", "event_time", "end_time"],
+        fullColumns: ["event_id", "date", "event_time", "end_time", "created_at", "updated_at", "user_id"],
+        filterableColumns: ["event_id", "date"],
+        orderBy: [{ column: "date", ascending: true }],
+        parentFilter: { column: "event_id", parentTable: "schedule_events", parentIdColumn: "id", parentFixedFilter: { domain: "school" } },
+      },
+      schedule_event_cancellation: {
+        entity: "schedule_event_cancellation",
+        table: "schedule_event_cancellations",
+        description: "A single cancelled occurrence ('cancel this one instance'), without touching the permanent pattern. Always read scoped to one event via filter.event_id (parentFilter) -- never as a flat list across every event.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "cancelScheduleOccurrenceCore upserts with ignoreDuplicates:true -- a TRUE no-op on conflict (the row is never modified after insert; the table carries no other mutable column at all, existence/absence IS the entire fact). created_at is therefore a genuinely faithful last-modified proxy, same append-only reasoning as deen.quran_session. Migration 136 deliberately excluded this table for exactly this reason -- a trigger here would simply never fire.",
+        summaryColumns: ["event_id", "date"],
+        fullColumns: ["event_id", "date", "created_at", "user_id"],
+        filterableColumns: ["event_id", "date"],
+        orderBy: [{ column: "date", ascending: true }],
+        parentFilter: { column: "event_id", parentTable: "schedule_events", parentIdColumn: "id", parentFixedFilter: { domain: "school" } },
+      },
+    },
+  },
+  fitness: {
+    domain: "fitness",
+    description:
+      "The largest domain in the app (15 tables). Logging (workout_session/session_set) and body-metric/benchmark writes are " +
+      "fully wired -- the owner's 'checking off logs' requirement in its heaviest form (team-lead's framing). Plan-editing " +
+      "(workout_plan/plan_session/plan_session_exercise/plan_micro_exercise/workout_exercise/workout_schedule/active_workout_plan) " +
+      "is READ-ONLY here, deliberately -- see docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.",
+    entities: {
+      workout_session: {
+        entity: "workout_session",
+        table: "workout_sessions",
+        description: "One logged workout (confirmed from a workout/plan-session template, or quick-add/adhoc). Immutable by design (spec: 'editing must never rewrite history') -- no update or delete path exists anywhere in the app.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "INSERT-ONLY, all three write paths checked: quickLogExerciseCore, confirmWorkoutSessionCore (RPC confirm_workout_session, 029), confirmPlanSessionCore (all lib/fitness/actions-core.ts) each only ever INSERT. No UPDATE or DELETE on workout_sessions exists anywhere in app code or in any RPC. created_at IS the true last-modified time, same append-only reasoning as deen.quran_session.",
+        summaryColumns: ["date", "workout_id", "workout_name", "source"],
+        fullColumns: ["date", "workout_id", "workout_name", "source", "plan_session_id", "created_at", "user_id"],
+        filterableColumns: ["date", "workout_id", "source", "plan_session_id"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+      session_set: {
+        entity: "session_set",
+        table: "session_sets",
+        description: "One exercise's sets/reps/load within a logged session -- exercise_name is a snapshot (survives the exercise being later archived/renamed). Immutable by design, same as workout_session. Always read scoped to one session via filter.session_id (parentFilter) -- never as a flat list across every session ever logged.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "INSERT-ONLY: every write path (quickLogExerciseCore, confirmWorkoutSessionCore's RPC, confirmPlanSessionCore) only ever INSERTs session_sets rows as part of creating their parent session; no UPDATE/DELETE exists anywhere. created_at IS the true last-modified time.",
+        summaryColumns: ["session_id", "exercise_id", "exercise_name", "position", "sets", "reps", "load"],
+        fullColumns: ["session_id", "exercise_id", "exercise_name", "position", "sets", "reps", "load", "created_at", "user_id"],
+        filterableColumns: ["session_id", "exercise_id"],
+        orderBy: [{ column: "position", ascending: true }],
+        parentFilter: { column: "session_id", parentTable: "workout_sessions", parentIdColumn: "id" },
+      },
+      body_metric: {
+        entity: "body_metric",
+        table: "body_metrics",
+        description: "One date's weight and/or waist measurement. The CHECK (weight_lb IS NOT NULL OR waist_in IS NOT NULL) means at least one is always present; a null field is unmeasured that day, never zero.",
+        idColumn: "id",
+        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtVerification:
+          "logWeightCore/logWaistCore/logCycleBenchmark's combined call (app/(app)/fitness/actions.ts, lib/fitness/actions-core.ts) all upsert on (user_id,date) conflict, each preserving the sibling field by reading it first -- a genuine UPDATE-in-place on a re-logged date. created_at is set once at first insert and never reflects a later re-log. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+        summaryColumns: ["date", "weight_lb", "waist_in"],
+        fullColumns: ["date", "weight_lb", "waist_in", "created_at", "user_id"],
+        filterableColumns: ["date"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+      fitness_benchmark: {
+        entity: "fitness_benchmark",
+        table: "fitness_benchmarks",
+        description: "One exercise's max-reps benchmark for a date (Cycle Progress checks, every 4-week boundary). One row per (user, date, exercise).",
+        idColumn: "id",
+        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtVerification:
+          "logBenchmarkRepsCore (lib/fitness/actions-core.ts) and logCycleBenchmark's own reps loop (app/(app)/fitness/actions.ts) both upsert on (user_id,date,exercise_id) conflict -- re-logging the same exercise/date genuinely UPDATEs max_reps in place. created_at is set once at first insert and never reflects that. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+        summaryColumns: ["date", "exercise_id", "max_reps"],
+        fullColumns: ["date", "exercise_id", "max_reps", "created_at", "user_id"],
+        filterableColumns: ["date", "exercise_id"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+      fitness_cycle_anchor: {
+        entity: "fitness_cycle_anchor",
+        table: "fitness_cycle_anchor",
+        description:
+          "The one-time anchor date 4-week Cycle Progress windows are computed from (lib/fitness/cycle.ts's cycleForDate, a pure function over this stored value). FOUND DURING THIS BUILD: no write path for this table exists ANYWHERE in the current app -- grepped every .ts file outside supabase/migrations and the one test-only route (app/api/test/clear-fitness-cycle-anchor) that DELETEs it for e2e teardown. Migration 039's own comment describes the intended default ('first plan activation, spec's logic-gap resolution #6'), but nothing in activatePlan/setActiveSlot actually sets it -- the Cycle Progress feature is half-built. Flagged to the lead, not fixed here (building a missing feature is out of scope for an MCP fan-out pass). Registered read-only and honestly: a caller will get an empty list until this is wired, which is the truth, not a bug in this registration.",
+        idColumn: "user_id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "No write path exists at all today (see description) -- moot either way, but even the SPEC's own intent ('anchored once') describes a true single-insert-ever table, never updated in place, so created_at would remain faithful even once the missing write path is built.",
+        summaryColumns: ["anchor_date"],
+        fullColumns: ["anchor_date", "created_at"],
+        filterableColumns: [],
+        orderBy: [{ column: "user_id", ascending: true }],
+      },
+      active_workout_plan: {
+        entity: "active_workout_plan",
+        table: "active_workout_plans",
+        description:
+          "The two active-plan slots (micro, routine) -- at most one row per user. READ-ONLY: migration 129's own header is the reason (a composite tenancy FK whose unqualified ON DELETE SET NULL made deleting an active plan impossible in production for weeks, fixed there but still the program's clearest 'obvious operation, isn't' trap). Writing here directly would also bypass lib/fitness/sync-workout-schedule.ts's shim, desyncing workout_schedule for the nine legacy readers outside fitness. See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.",
+        idColumn: "user_id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "setActiveSlot (both app/(app)/fitness/workouts/plan-actions.ts and template-actions.ts, the table's only writers) explicitly sets `updated_at: new Date().toISOString()` on every upsert -- app-set, not trigger-maintained, but real and verified against the actual write, not inferred from the column existing. Same posture as settings.api_key's updated_at.",
+        summaryColumns: ["micro_plan_id", "routine_plan_id"],
+        fullColumns: ["micro_plan_id", "routine_plan_id", "updated_at"],
+        filterableColumns: [],
+        orderBy: [{ column: "user_id", ascending: true }],
+      },
+      exercise: {
+        entity: "exercise",
+        table: "exercises",
+        description: "One exercise in the library (name, primary/secondary muscle groups). Archived, never hard-deleted -- workout_exercises/session_sets reference it with no cascading delete.",
+        idColumn: "id",
+        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtVerification:
+          "archiveExerciseCore (lib/fitness/actions-core.ts) UPDATEs `archived` on an existing row post-creation -- created_at goes stale on the very first archive. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+        summaryColumns: ["name", "primary_muscles", "secondary_muscles", "archived"],
+        fullColumns: ["name", "primary_muscles", "secondary_muscles", "archived", "created_at", "user_id"],
+        filterableColumns: ["archived"],
+        orderBy: [{ column: "name", ascending: true }],
+      },
+      workout: {
+        entity: "workout",
+        table: "workouts",
+        description: "One named workout template -- either standalone or the backing row for a routine plan's session (plan_sessions.workout_id, migration 040's legacy-reader mirror). Archived, never hard-deleted.",
+        idColumn: "id",
+        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtVerification:
+          "renameWorkoutCore/archiveWorkoutCore (lib/fitness/actions-core.ts) and the save_workout RPC (031, its own `update public.workouts set name = ...`) each UPDATE an existing row post-creation. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+        summaryColumns: ["name", "archived"],
+        fullColumns: ["name", "archived", "created_at", "user_id"],
+        filterableColumns: ["archived"],
+        orderBy: [{ column: "name", ascending: true }],
+      },
+      workout_exercise: {
+        entity: "workout_exercise",
+        table: "workout_exercises",
+        description: "One exercise's target sets/reps/load within a workout template. Always read scoped to one workout via filter.workout_id (parentFilter) -- never as a flat list across every workout.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "The table has NO created_at/updated_at column at all (migration 025's schema, confirmed directly). Moot anyway: save_workout (031) is the ONLY write path and always does a full delete-then-reinsert of a workout's whole exercise list, never an in-place UPDATE of one row -- a changed row IS a different row (fresh id), so there is no 'went stale while the id stayed the same' failure mode a timestamp would even need to guard against. No migration requested for this shape -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md.",
+        summaryColumns: ["workout_id", "exercise_id", "position", "target_sets", "target_reps_low", "target_reps_high"],
+        fullColumns: ["workout_id", "exercise_id", "position", "target_sets", "target_reps_low", "target_reps_high", "target_load", "user_id"],
+        filterableColumns: ["workout_id", "exercise_id"],
+        orderBy: [{ column: "position", ascending: true }],
+        parentFilter: { column: "workout_id", parentTable: "workouts", parentIdColumn: "id" },
+      },
+      workout_plan: {
+        entity: "workout_plan",
+        table: "workout_plans",
+        description: "A 'micro' (loose exercises, no sessions) or 'routine' (named sessions) plan. Deleted (not archived) via deletePlan -- read-only here, so a deleted plan simply stops appearing; not itself reachable by id once gone.",
+        idColumn: "id",
+        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtVerification:
+          "savePlan (app/(app)/fitness/workouts/plan-actions.ts) UPDATEs `name` on an existing row when editing a plan that already has an id. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+        summaryColumns: ["name", "kind", "archived"],
+        fullColumns: ["name", "kind", "archived", "created_at", "user_id"],
+        filterableColumns: ["kind", "archived"],
+        orderBy: [{ column: "name", ascending: true }],
+      },
+      plan_session: {
+        entity: "plan_session",
+        table: "plan_sessions",
+        description: "A routine plan's named, individually-scheduled session. Always read scoped to one plan via filter.plan_id (parentFilter) -- never as a flat list across every plan.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "The table has NO created_at/updated_at column at all (migration 036's schema, confirmed directly). Moot anyway: savePlan always does a full delete-then-reinsert of a routine plan's whole session list (see its own comment: 'Cascades to plan_session_exercises via ON DELETE CASCADE'), never an in-place UPDATE -- same delete+reinsert shape as workout_exercises, same reasoning for why no migration is requested.",
+        summaryColumns: ["plan_id", "name", "position", "schedule_days", "start_time"],
+        fullColumns: ["plan_id", "name", "position", "schedule_days", "start_time", "workout_id", "user_id"],
+        filterableColumns: ["plan_id"],
+        orderBy: [{ column: "position", ascending: true }],
+        parentFilter: { column: "plan_id", parentTable: "workout_plans", parentIdColumn: "id" },
+      },
+      plan_session_exercise: {
+        entity: "plan_session_exercise",
+        table: "plan_session_exercises",
+        description: "One exercise's target duration/load/sets/reps within a plan session. Always read scoped to one session via filter.session_id (parentFilter) -- never as a flat list across every session.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "The table has NO created_at/updated_at column at all (migration 036's schema, confirmed directly). Moot anyway: savePlan deletes and reinserts a session's whole exercise list on every save, same delete+reinsert shape as workout_exercises/plan_sessions -- no migration requested.",
+        summaryColumns: ["session_id", "exercise_id", "position", "duration_minutes", "target_sets", "target_reps"],
+        fullColumns: ["session_id", "exercise_id", "position", "duration_minutes", "target_sets", "target_reps", "load_lb", "user_id"],
+        filterableColumns: ["session_id", "exercise_id"],
+        orderBy: [{ column: "position", ascending: true }],
+        parentFilter: { column: "session_id", parentTable: "plan_sessions", parentIdColumn: "id" },
+      },
+      plan_micro_exercise: {
+        entity: "plan_micro_exercise",
+        table: "plan_micro_exercises",
+        description: "A micro plan's independently-scheduled, independently-goaled (daily_total vs frequency) loose exercise. Always read scoped to one plan via filter.plan_id (parentFilter) -- never as a flat list across every plan.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "The table has NO created_at/updated_at column at all (migration 036's schema, confirmed directly). Moot anyway: savePlan deletes and reinserts a micro plan's whole exercise list on every save ('delete eq plan_id, then insert rows'), same delete+reinsert shape as workout_exercises -- no migration requested.",
+        summaryColumns: ["plan_id", "exercise_id", "position", "schedule_days", "goal_type", "goal_value"],
+        fullColumns: ["plan_id", "exercise_id", "position", "schedule_days", "goal_type", "goal_value", "notes", "user_id"],
+        filterableColumns: ["plan_id", "exercise_id"],
+        orderBy: [{ column: "position", ascending: true }],
+        parentFilter: { column: "plan_id", parentTable: "workout_plans", parentIdColumn: "id" },
+      },
+      workout_schedule: {
+        entity: "workout_schedule",
+        table: "workout_schedule",
+        description:
+          "The day-of-week -> workout pointer nine legacy readers outside fitness still key off. READ-ONLY, deliberately: while a routine plan is active, this table is entirely wiped-and-regenerated on every plan mutation by lib/fitness/sync-workout-schedule.ts's shim -- a write here would be silently undone by the next savePlan/activatePlan/deactivateSlot/deletePlan call, with no way for a caller to know whether a routine is currently active. See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.",
+        idColumn: "id",
+        updatedAtColumn: null,
+        updatedAtVerification:
+          "The table has NO created_at/updated_at column at all (baseline + migration 023's schema, confirmed directly). Not requested as a migration -- low value given this table is read-only via MCP and already churns via the sync shim's own delete-then-reinsert.",
+        summaryColumns: ["day_of_week", "workout_name", "time", "workout_id"],
+        fullColumns: ["day_of_week", "workout_name", "time", "duration_minutes", "workout_id", "user_id"],
+        filterableColumns: ["day_of_week", "workout_id"],
+        orderBy: [{ column: "day_of_week", ascending: true }],
+      },
+      rep_goal: {
+        entity: "rep_goal",
+        table: "rep_goals",
+        description:
+          "LEGACY/DEAD, kept readable for history: superseded by plan_micro_exercises (migration 036 materializes every active rep_goals row into a 'Starter Reps' micro plan). Confirmed zero writers anywhere in current app code via grep -- read only by app/(app)/settings/export/route.ts's data export.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "Zero writers confirmed (grepped the whole tree outside supabase/migrations for `from(\"rep_goals\")`/`from('rep_goals')` and found none) -- a frozen historical artifact, same append-only reasoning as deen.quran_session, just for a table nothing writes to anymore rather than one that only ever inserted.",
+        summaryColumns: ["exercise_id", "daily_target", "active_days", "archived"],
+        fullColumns: ["exercise_id", "daily_target", "active_days", "archived", "created_at", "user_id"],
+        filterableColumns: ["exercise_id", "archived"],
+        orderBy: [{ column: "created_at", ascending: false }],
       },
     },
   },
@@ -443,6 +714,283 @@ export const REGISTRY: Record<string, DomainDef> = {
         orderBy: [{ column: "id", ascending: true }],
       },
     },
+  },
+  settings: {
+    domain: "settings",
+    description: "Account-wide preferences: the profile row, ULM's per-user learning settings, and bring-your-own-key status (never the key itself).",
+    entities: {
+      profile: {
+        entity: "profile",
+        table: "profiles",
+        description: "The one-row-per-account settings object: display/timezone/location, prayer-calc settings, check-in window, PIN-lock status, theme preset, and hidden nav features.",
+        idColumn: "user_id",
+        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtVerification:
+          "MUTABLE, extremely widely: updateProfile (app/(app)/settings/actions.ts) upserts most of this row's columns (display_name/timezone/theme_preset/hidden_features/pin_hash/prayer settings/checkin window/etc.) on an EXISTING row for any settings change; skipCheckinsToday (app/(app)/checkin/actions.ts) updates paused_date directly. `created_at` is set once at account creation and goes stale the moment ANY setting is first changed -- no existing column is even a partial proxy. Flagged, not invented: draft migration staged, not self-numbered per ALLOCATIONS.md.",
+        // pin_hash is EXCLUDED, same reasoning as user_api_keys.encrypted_key
+        // below: it is credential material (a bcrypt hash of the user's
+        // PIN), and the visibility registry (memo §3) is where that
+        // exclusion is enforced by construction, not left to a `fields`
+        // caller remembering not to ask. `pin_lock_enabled` (whether a PIN
+        // is set at all) is exposed; the hash itself never is.
+        summaryColumns: ["display_name", "timezone", "theme_preset"],
+        fullColumns: [
+          "display_name",
+          "prayer_calc_method",
+          "asr_madhab",
+          "location_lat",
+          "location_lng",
+          "location_label",
+          "timezone",
+          "qada_owed",
+          "pin_lock_enabled",
+          "checkin_window_start",
+          "checkin_window_end",
+          "checkin_interval_minutes",
+          "traveling_mode",
+          "onboarding_completed",
+          "paused_date",
+          "tracking_started_on",
+          "evening_close_time",
+          "theme_preset",
+          "hidden_features",
+          "created_at",
+        ],
+        filterableColumns: [],
+        orderBy: [{ column: "user_id", ascending: true }],
+      },
+      user_setting: {
+        entity: "user_setting",
+        table: "user_settings",
+        description: "ULM's per-user learning settings: daily new-card limit, notification prefs, desired retention, AI grading opt-in, session length target, and weekday hour baselines (R58).",
+        idColumn: "user_id",
+        updatedAtColumn: null, // NEEDS a migration -- table has no created_at/updated_at at all today
+        updatedAtVerification:
+          "MUTABLE: saveWeekdayBaselines/clearWeekdayBaselines (app/(app)/settings/weekday-baseline-actions.ts) UPDATE an existing row; app/(app)/personal/self-mastery-session-actions.ts and lib/self-mastery/session/build-session.ts also touch this table. Confirmed directly against lib/supabase/database.types.ts's generated Row type: NO created_at or updated_at column exists at all -- nothing to even go stale, and nothing honest to declare here yet. Flagged, not invented: draft migration staged, not self-numbered.",
+        summaryColumns: ["daily_new_limit", "notification_enabled", "session_target_minutes"],
+        fullColumns: [
+          "daily_new_limit",
+          "notification_enabled",
+          "notification_time",
+          "desired_retention",
+          "ai_grading_enabled",
+          "session_target_minutes",
+          "weekday_baselines",
+        ],
+        filterableColumns: [],
+        orderBy: [{ column: "user_id", ascending: true }],
+      },
+      api_key: {
+        entity: "api_key",
+        table: "user_api_keys",
+        description: "Bring-your-own-key status per provider -- existence, last 4 characters, and label ONLY. The encrypted key itself is never reachable over MCP, the same way source_chunks' text/embedding and profiles.pin_hash are not.",
+        // user_api_keys has NO single-column primary key -- its PK is the
+        // COMPOSITE (user_id, provider) (migration 104). `provider` alone
+        // is used as idColumn here deliberately: read.ts's id-lookup path
+        // (readTool) always ANDs `.eq(def.idColumn, args.id)` with
+        // `.eq("user_id", userId)`, so within one caller's own rows
+        // `provider` IS the unique identifier -- it only fails to be
+        // globally unique across the whole table, which this entity never
+        // queries across (every query is user-scoped, by RLS and by the
+        // belt-and-suspenders .eq("user_id", ...) read.ts always adds).
+        //
+        // THIS IS A PER-ENTITY ASSUMPTION, NOT A GENERAL RULE FOR COMPOSITE
+        // PKS (team-lead's explicit flag on this entity) -- do not copy
+        // "just pick the other half of a composite PK" onto a future
+        // composite-PK table without re-checking it holds THERE. It works
+        // here specifically because `provider` happens to be unique *within
+        // one user's own rows* (the PK is literally (user_id, provider), so
+        // fixing user_id via RLS + the belt-and-suspenders .eq leaves
+        // provider alone doing all the remaining discrimination). A
+        // composite PK whose non-user_id column is NOT unique per-user --
+        // e.g. (user_id, week_start_date, domain) if that combination ever
+        // became a table's PK -- would need either a real surrogate `id`
+        // added, or idColumn left unable to express a single-row lookup at
+        // all; there is no shortcut that generalizes from this one.
+        idColumn: "provider",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "saveApiKey (app/(app)/settings/api-key-actions.ts) is the table's only UPDATE-shaped write path (an upsert on (user_id,provider) conflict) and explicitly sets `updated_at: new Date().toISOString()` on every call -- app-set, not trigger-maintained, but real and verified against the actual write, not inferred from the column existing. removeApiKey DELETEs the row outright rather than leaving a stale one, matching this registry's own unmarkPrayer precedent.",
+        summaryColumns: ["provider", "key_last4"],
+        // encrypted_key is not listed in fullColumns at all -- the same
+        // allowlist-not-denylist mechanism as source_chunks' empty columns:
+        // a `fields` request naming it is rejected by read.ts's
+        // resolveColumns, not silently trimmed.
+        fullColumns: ["provider", "key_last4", "label", "created_at", "updated_at"],
+        filterableColumns: ["provider"],
+        orderBy: [{ column: "provider", ascending: true }],
+      },
+    },
+  },
+  checkins: {
+    domain: "checkins",
+    description: "The per-window check-in prompt/answer log and the domain-minute allocations recorded against each answered allocation-style check-in.",
+    entities: {
+      checkin: {
+        entity: "checkin",
+        table: "checkins",
+        description: "One check-in prompt and its answer -- either a legacy point-sample (`kind:\"point\"`, a single tag) or a windowed allocation prompt (`kind:\"allocation\"`, paired with `allocation` rows below).",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "INSERT-ONLY, all three write paths checked: answerCheckin and recordMissedCheckin (app/(app)/checkin/actions.ts) each INSERT a new row; save_allocation_checkin (migrations 020/022/108's RPC) also only INSERTs, and its unique_violation exception branch SELECTs the pre-existing row rather than updating it. No UPDATE on this table exists anywhere. created_at IS the true last-modified time, same append-only reasoning as deen.quran_session.",
+        summaryColumns: ["checkin_time", "kind", "answered", "tag_type"],
+        fullColumns: [
+          "checkin_time",
+          "kind",
+          "answered",
+          "tag_type",
+          "tag_label",
+          "tag_ref_id",
+          "work_session_id",
+          "window_start",
+          "window_end",
+          "created_at",
+        ],
+        filterableColumns: ["kind", "answered", "tag_type"],
+        orderBy: [{ column: "checkin_time", ascending: false }],
+      },
+      allocation: {
+        entity: "allocation",
+        table: "checkin_allocations",
+        description:
+          "One domain's minutes for one allocation-style checkin. `domain` is nullable and `is_wasted` is a separate boolean (migration 108's sentinel split) -- an unaccounted-time row is `domain: null, is_wasted: true`, never a literal domain named \"wasted\". Not shared with any other MCP domain (its own `domain` column is a tag on ITS OWN rows, not a foreign table's ownership discriminator), so no fixedFilter is needed here the way weekly_goal/task/schedule_event need one.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "INSERT-ONLY: written exclusively inside save_allocation_checkin's per-domain insert loop plus its is_wasted row (migration 108) -- never updated after insert, and the RPC's own conflict branch returns the existing checkin_id without touching any checkin_allocations row a second time. created_at IS the true last-modified time.",
+        summaryColumns: ["checkin_id", "domain", "minutes", "is_wasted"],
+        fullColumns: ["checkin_id", "domain", "minutes", "is_wasted", "created_at"],
+        filterableColumns: ["checkin_id", "domain", "is_wasted"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
+    },
+  },
+  distractions: {
+    domain: "distractions",
+    description: "Named distraction triggers, the moments they fire, the action plan currently in force for each, and the daily followed/skipped outcome log that drives plan rewrites.",
+    entities: {
+      trigger: {
+        entity: "trigger",
+        table: "distraction_triggers",
+        description: "A named, domain-tagged distraction (e.g. \"phone during study block\"). `archived` soft-deletes it out of pickers without losing its history.",
+        idColumn: "id",
+        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtVerification:
+          "MUTABLE: updateTrigger (app/(app)/distractions/actions.ts) UPDATEs name/description on an existing row post-creation, so created_at goes stale on the first edit. (No write path currently sets archived:true -- grepped for `archived: true`/`archiveTrigger` and found neither -- but the name/description edit path alone is enough to need this.) Flagged, not invented: draft migration staged, not self-numbered.",
+        summaryColumns: ["domain", "name", "archived"],
+        fullColumns: ["domain", "name", "description", "archived", "created_at"],
+        filterableColumns: ["domain", "archived"],
+        orderBy: [{ column: "created_at", ascending: false }],
+      },
+      event: {
+        entity: "event",
+        table: "distraction_events",
+        description: "One firing of a trigger on one local date, optionally paired with a tiered self-reflection (see deen.reflection_entry for the linked row).",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "INSERT-ONLY: insertEvent (app/(app)/distractions/actions.ts, the only writer for this table) always INSERTs; no update or delete path for distraction_events exists anywhere in actions.ts. created_at IS the true last-modified time.",
+        summaryColumns: ["trigger_id", "date", "reflection_tier"],
+        fullColumns: ["trigger_id", "date", "reflection_tier", "reflection_entry_id", "created_at"],
+        filterableColumns: ["trigger_id", "date"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+      action_plan: {
+        entity: "action_plan",
+        table: "trigger_action_plans",
+        description: "One versioned action plan for a trigger. Exactly one row per trigger has `superseded_at: null` (the current plan, enforced by trigger_action_plans_one_current) -- prior versions stay readable for history.",
+        idColumn: "id",
+        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtVerification:
+          "MUTABLE two different ways: saveActionPlan's direct branch (app/(app)/distractions/actions.ts) UPDATEs an existing current plan's `body` in place with no version bump; separately, save_trigger_plan (migration 041's RPC) UPDATEs the OLD row's superseded_at/supersede_reason the moment a new version is authored -- a change to a row that already has its own created_at. No column reflects either kind of change today. Flagged, not invented: draft migration staged, not self-numbered.",
+        summaryColumns: ["trigger_id", "version", "superseded_at"],
+        fullColumns: ["trigger_id", "body", "version", "superseded_at", "supersede_reason", "created_at"],
+        filterableColumns: ["trigger_id", "version"],
+        orderBy: [
+          { column: "trigger_id", ascending: true },
+          { column: "version", ascending: false },
+        ],
+      },
+      plan_outcome: {
+        entity: "plan_outcome",
+        table: "trigger_plan_outcomes",
+        description: "One day's followed/skipped answer for a trigger's then-current plan. At most one row per (user, trigger, date) -- a same-day resubmission overwrites, it does not accumulate.",
+        idColumn: "id",
+        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtVerification:
+          "MUTABLE: record_plan_outcome (migration 043's RPC) does `insert ... on conflict (user_id, trigger_id, date) do update set followed = excluded.followed, plan_id = excluded.plan_id` -- a same-day resubmission genuinely overwrites an existing row, and created_at (the table's only timestamp) goes stale for that row. Flagged, not invented: draft migration staged, not self-numbered.",
+        summaryColumns: ["trigger_id", "date", "followed"],
+        fullColumns: ["trigger_id", "plan_id", "date", "followed", "created_at"],
+        filterableColumns: ["trigger_id", "date", "followed"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+    },
+  },
+  /**
+   * `calendar`, `review`, and `home` are REGISTERED WITH ZERO ENTITIES,
+   * deliberately, not left out of REGISTRY entirely -- `list_capabilities()`
+   * should report their existence (and this comment's reasoning, via their
+   * `description`) the same honest way source_chunks reports existing but
+   * unreadable, rather than a caller getting an "unknown domain" error for
+   * something the owner explicitly named as in scope.
+   *
+   * Read each surface's own Server Action before concluding this
+   * (app/(app)/calendar/actions.ts's getWeekCalendar, app/(app)/review/
+   * actions.ts's getReviewData, app/(app)/close/actions.ts's
+   * getEveningCloseData) rather than assuming from the route names:
+   *
+   * CALENDAR aggregates schedule_events, weekly_goals, tasks, quran_sessions,
+   * active_workout_plans/plan_sessions -- every row it renders is already
+   * owned by another domain's own table (deen/business/school -- fitness's
+   * own MCP domain is Eng1's separate in-progress work). It introduces NO
+   * table or row of its own. A caller who wants this data reads it through
+   * deen/business/school's own entities.
+   *
+   * REVIEW/CLOSE is almost the same story (distraction_triggers/
+   * trigger_action_plans/trigger_plan_outcomes -- now covered above by
+   * `distractions`; work_sessions -- covered by work.work_session;
+   * user_settings.weekday_baselines -- covered by settings.user_setting)
+   * WITH ONE GENUINE EXCEPTION, found and flagged rather than silently
+   * worked around: the Night Plan's own rows on `tasks` --
+   * `mit_rank`/`planned_date`/`dump_source` with `domain IS NULL`
+   * (migrations 113/119/120; see app/(app)/close/plan-actions.ts's
+   * dumpLine/savePlanRanks). These are NOT reachable through school.task
+   * above, which fixedFilters `domain: "school"` -- a fixedFilter is an
+   * `.eq()`, and `domain IS NULL` cannot be expressed as one, so a
+   * Night-Plan entity using the identical mechanism would need EITHER (a)
+   * read.ts's fixedFilter (or filterableColumns) extended to support an
+   * explicit IS-NULL sentinel, or (b) a denormalized boolean column on
+   * `tasks` (the same shape of fix migration 108 used to split
+   * checkin_allocations' is_wasted out of a shared `domain` column).
+   * Registering `domain` as a normal filterable column instead, without a
+   * fixedFilter, was considered and rejected: it would let a caller read
+   * school's AND co_op's own task rows through a "review"-named entity --
+   * exactly the cross-domain leak fixedFilter exists to prevent, the same
+   * reasoning school.schedule_event's own header comment already gives for
+   * schedule_event_overrides. Neither fix is attempted here: both are
+   * cross-cutting changes to read.ts, which is shared dispatch machinery,
+   * not something this read-only-domains pass should touch unilaterally.
+   *
+   * HOME is aggregation only, no tables of its own (the owner's own
+   * framing, quoted in the task that added these three domains).
+   */
+  calendar: {
+    domain: "calendar",
+    description:
+      "The week-view calendar surface. Aggregates deen/business/school's own scheduling data (schedule_events, weekly_goals, tasks, quran_sessions) plus fitness sessions -- it has no table of its own. Read the underlying rows through each owning domain's own entities.",
+    entities: {},
+  },
+  review: {
+    domain: "review",
+    description:
+      "The evening-close/night-plan ceremony and its Review popup. Almost entirely an aggregation of distractions' own entities (trigger/action_plan/plan_outcome above), work.work_session, and settings.user_setting -- see this file's own header comment for the one genuine gap (Night Plan `tasks` rows with domain IS NULL), flagged to the lead rather than worked around.",
+    entities: {},
+  },
+  home: {
+    domain: "home",
+    description: "The Home dashboard. Aggregation only, no tables of its own -- every number it shows is read through some other domain's own entity.",
+    entities: {},
   },
 };
 
