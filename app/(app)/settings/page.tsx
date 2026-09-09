@@ -6,6 +6,8 @@ import { NotificationSettings } from "@/components/settings/notification-setting
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
 import { ApiKeySettings } from "@/components/settings/api-key-settings";
 import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
+import { ConnectorSettings } from "@/components/settings/connector-settings";
+import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
 import { PROVIDERS, PROVIDER_IDS } from "@/lib/ai/providers";
 import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 import { PageContainer } from "@/components/shell/page-container";
@@ -19,6 +21,7 @@ const SECTIONS = [
   { id: "checkins", label: "Check-ins" },
   { id: "notifications", label: "Notifications" },
   { id: "ai", label: "AI features" },
+  { id: "connectors", label: "Connectors" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
 ];
@@ -55,6 +58,7 @@ export default async function SettingsPage() {
   }));
   const keyStatuses = await getApiKeyStatuses();
   const storageConfigured = isKeyStorageConfigured();
+  const mcpTokens = await getMcpTokenStatuses();
 
   return (
     <PageContainer>
@@ -115,6 +119,9 @@ export default async function SettingsPage() {
               initialStatuses={keyStatuses}
               storageConfigured={storageConfigured}
             />
+          </Panel>
+          <Panel id="connectors" className="scroll-mt-24" title="Connectors">
+            <ConnectorSettings initialTokens={mcpTokens} />
           </Panel>
         </div>
       </div>
