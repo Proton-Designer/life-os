@@ -265,6 +265,48 @@ relationship and an external outage surface to serve one person.
 **Status: provisional — to be red-teamed by Eng2 before L4 begins.** If it survives an
 honest attempt to break it, it stands; if not, it changes.
 
+**R2 RESOLVED (Eng2 red-team, 2026-09-08). R2 stands, but only on reason (c) — (a) does
+not survive the numbers, and (b) is true but doesn't favor either side.**
+
+- **Reason (a) is wrong on the arithmetic and is retracted, not just softened.** A
+  *correct* hand-rolled implementation is not ~150 lines — enumerating what OAuth 2.1 +
+  the MCP spec actually require (PKCE S256 verification, single-use codes with an atomic
+  consume, exact redirect_uri matching, DCR client validation/storage, refresh-token
+  rotation with reuse detection, the two `.well-known` documents) comes to roughly
+  400-600 lines of security-critical code, built and landed as L4. Meanwhile, for a
+  genuinely single-user app, "the identity-bridging problem" a delegated IdP would create
+  is NOT a general multi-tenant mapping system — it is a JWT-signature verify plus a
+  one-row (or literally an env-var) lookup, reusing R4's already-built local-JWT-mint
+  step unchanged. Honest accounting: ~500 lines hand-rolled vs. ~50-70 lines delegated.
+  The line-count comparison in the original ruling ran backwards.
+- **Reason (b) (no login/consent UI needed) is true and was fully consumed by both
+  options — it isn't a point in favor of hand-rolling specifically.** A hosted IdP also
+  needs no custom login UI from us (it brings its own); this reason lowers the cost of
+  *whichever* path is taken, it doesn't discriminate between them.
+- **Reason (c) — avoid a third-party billing relationship and outage surface for
+  infrastructure serving one person, forever — is not a security or line-count argument
+  and it survives untouched.** This is the reason R2 stands on.
+- **The real finding, independent of which way R2 went: the plan's "no consent screen"
+  simplification is a genuine vulnerability, not a UX shortcut, and had to be added back
+  regardless of the IdP question.** `/register` (DCR) is a public, unauthenticated
+  endpoint by design (RFC 7591) — anyone can register their OWN client with their OWN
+  redirect_uri and craft a link to `/authorize` naming it. If `/authorize` auto-approved
+  any registered client for an already-logged-in session (the original plan), that link
+  would complete a full authorization-code-interception attack against Ayman's account
+  the instant he clicked it, with nothing to notice — the classic "confused deputy" OAuth
+  attack class, and precisely the attack a hosted IdP's default consent screen would have
+  blocked for free. **"Which user" was never what a consent screen answers here — "does
+  this look like the app you meant to connect" is, and that question doesn't go away
+  just because there's only one user.** L4 (`app/api/mcp/oauth/authorize/route.ts`) ships
+  with a mandatory confirmation screen naming the requesting client and its exact
+  redirect host; see `lib/mcp/authorize-page.ts`'s header for the full reasoning.
+- A hosted IdP would also very plausibly get several of the subtler things right that a
+  hand-rolled implementation has to remember on its own: PKCE method/downgrade rejection,
+  redirect_uri exact-match edge cases, refresh-token reuse detection. None of these are
+  hypothetical in this build — all are implemented in L4, but they are exactly the kind
+  of detail a mature IdP has already hardened and this codebase has to get right once,
+  from scratch, under time pressure.
+
 **R3 — Dependencies verified against this repo, not assumed.** `mcp-handler` 2.1.1 needs
 Node 20+/zod ^4.2.0/Next 13+; this repo has Node 24.9.0, zod 4.4.3, Next 16.3.0. It also
 needs `@modelcontextprotocol/server` v2 — note the `@modelcontextprotocol/sdk` 1.30.0
