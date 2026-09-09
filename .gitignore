@@ -60,3 +60,6 @@ node_modules/
 .scratch-verify/
 .backups/
 .fresh-start-backup-*.sql
+
+# consolidated credentials reference — NEVER commit
+.credentials*
