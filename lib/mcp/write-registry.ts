@@ -22,6 +22,8 @@ import {
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/fitness/volume";
 import type { CoopTaskStatus } from "@/lib/coop/tasks";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
+import { saveAllocationCheckinCore } from "@/lib/checkins/actions-core";
+import { captureCore, logEventCore, saveActionPlanCore, recordPlanOutcomeCore } from "@/lib/distractions/actions-core";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 
 /**
@@ -957,6 +959,138 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
       // deprioritize, and in active_workout_plan/workout_schedule's case,
       // the program's known scar tissue (migration 129, the sync shim).
       // See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.
+    },
+  },
+  /**
+   * checkins/distractions: the first write actions on top of the read-only
+   * domains that landed earlier this pass -- prioritized ahead of settings
+   * writes and scheduling, per the argument accepted by the lead: "a
+   * connector that can describe your whole day but can only log a handful
+   * of things is a worse product than the read side alone promises," and
+   * these two are the domains where a write is the most natural thing a
+   * person would actually say to an assistant.
+   */
+  checkins: {
+    domain: "checkins",
+    entities: {
+      allocation: {
+        entity: "allocation",
+        actions: {
+          save: {
+            action: "save",
+            description:
+              "Record an allocation check-in (\"log me as heads-down for the last hour\") -- domain-minutes for the CURRENT/most-recent open check-in window, or an ad-hoc 120-minute window ending now if nothing is open. Unaccounted time is derived automatically, never supplied. No top-level id -- always targets a window, never an existing row by id (idempotent same-window resubmission is handled by the underlying RPC, see saveAllocationCheckinCore's own comment).",
+            patchShape: "{ allocations: Record<'deen'|'business'|'school'|'fitness'|'co_op', number> }",
+            handler: async (ctx, patch) => {
+              const allocationsRaw = patch.allocations;
+              if (typeof allocationsRaw !== "object" || allocationsRaw === null || Array.isArray(allocationsRaw)) {
+                throw new Error("patch.allocations is required and must be an object of domain -> minutes.");
+              }
+              const result = await saveAllocationCheckinCore(ctx.userClient, ctx.userId, ctx.now, allocationsRaw as Record<string, unknown>);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `recorded allocation checkin ${result.id} (${result.wastedMinutes}m unaccounted)${result.wasScheduledWindow ? "" : ", ad-hoc window"}`,
+              };
+            },
+          },
+        },
+      },
+      // `checkin` (the plain point-sample entity, checkins.checkin in the
+      // read-side registry) is deliberately NOT writable here -- the app's
+      // own point-sample answer/miss flow (answerCheckin/
+      // recordMissedCheckin) is tied to a specific fired scheduler slot's
+      // tag options (getCheckinOptionsForNow), which only make sense
+      // relative to the live scheduler state a chat turn doesn't have.
+      // "log time to a domain" is entirely served by allocation.save above.
+    },
+  },
+  distractions: {
+    domain: "distractions",
+    entities: {
+      trigger: {
+        entity: "trigger",
+        actions: {
+          capture: {
+            action: "capture",
+            description:
+              "\"I just got distracted by my phone\" -- find-or-create a trigger by name (idempotent: a double-submit of the same name reuses the existing one, never duplicates) and log one event against it in the same call. Optionally attaches a tiered self-reflection (writes a linked deen.reflection_entry row too, same as the app's own capture dialog).",
+            patchShape: "{ domain: 'deen'|'business'|'school'|'fitness'|'co_op', name: string, description?: string|null, tier?: 1|2|3 }",
+            handler: async (ctx, patch) => {
+              const result = await captureCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, patch.domain, patch.name, patch.description, patch.tier);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: result.triggerId, updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `captured distraction against trigger ${result.triggerId} (event ${result.eventId})`,
+              };
+            },
+          },
+        },
+      },
+      event: {
+        entity: "event",
+        actions: {
+          log: {
+            action: "log",
+            description: "Log one more occurrence of an ALREADY-KNOWN trigger (found via a prior read or capture) -- no top-level id; the trigger is named in patch.trigger_id, matching this table's own read-side shape.",
+            patchShape: "{ trigger_id: string, tier?: 1|2|3 }",
+            handler: async (ctx, patch) => {
+              const result = await logEventCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, patch.trigger_id, patch.tier);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: result.eventId, updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `logged event ${result.eventId} against trigger ${String(patch.trigger_id)}`,
+              };
+            },
+          },
+        },
+      },
+      action_plan: {
+        entity: "action_plan",
+        actions: {
+          save: {
+            action: "save",
+            description: "Write or edit a trigger's action plan -- edits the current version's body in place if one exists, otherwise creates version 1. No top-level id -- the trigger is named in patch.trigger_id (a version is per-TRIGGER, not addressed by its own row id).",
+            patchShape: "{ trigger_id: string, body: string }",
+            handler: async (ctx, patch) => {
+              const result = await saveActionPlanCore(ctx.userClient, ctx.userId, patch.trigger_id, patch.body);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: result.triggerId, updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `${result.createdNewVersion ? "created version 1 of" : "edited"} the action plan for trigger ${result.triggerId}`,
+              };
+            },
+          },
+        },
+      },
+      plan_outcome: {
+        entity: "plan_outcome",
+        actions: {
+          record: {
+            action: "record",
+            description: "\"That plan didn't work\" -- record today's followed/skipped answer for a trigger's current plan. A same-day resubmission overwrites, it does not accumulate (matches the read-side entity's own at-most-one-per-day shape). patch.new_plan_body is required when patch.followed is true, and required if this is the plan's 3rd skip with zero follows -- both enforced by the underlying RPC's own transaction, surfaced here as a clear error, not pre-guessed.",
+            patchShape: "{ trigger_id: string, followed: boolean, new_plan_body?: string }",
+            handler: async (ctx, patch) => {
+              const result = await recordPlanOutcomeCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, patch.trigger_id, patch.followed, patch.new_plan_body);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: result.triggerId, updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `recorded ${result.followed ? "followed" : "skipped"} for trigger ${result.triggerId} on ${result.date}`,
+              };
+            },
+          },
+        },
+      },
     },
   },
 };

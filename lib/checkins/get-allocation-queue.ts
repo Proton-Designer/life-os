@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { localDateString, dayOfWeekFromDateString, resolveLocalTime } from "@/lib/date-utils";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
@@ -171,6 +172,126 @@ function defaultDataSource(): AllocationQueueDataSource {
     },
     async getStoredSessionHours(userId, dateStr, timezone) {
       const supabase = await createClient();
+      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("checkins")
+        .select("window_start, work_session_id, checkin_allocations(domain)")
+        .eq("user_id", userId)
+        .eq("kind", "allocation")
+        .eq("answered", true)
+        .not("work_session_id", "is", null)
+        .gte("window_start", dayStart)
+        .lt("window_start", dayEnd);
+      return (data ?? [])
+        .filter(
+          (r): r is { window_start: string; work_session_id: string; checkin_allocations: { domain: string }[] } =>
+            r.window_start !== null && r.work_session_id !== null && r.checkin_allocations.length > 0
+        )
+        .map((r) => ({
+          sessionId: r.work_session_id,
+          hourStartIso: r.window_start,
+          domain: r.checkin_allocations[0].domain as "business" | "wasted",
+        }));
+    },
+  };
+}
+
+/**
+ * Same 8 queries as `defaultDataSource()` above, byte-for-byte, EXCEPT each
+ * one uses the given `supabase` client directly instead of calling
+ * `createClient()` (lib/supabase/server — cookie-based, request-scoped)
+ * internally. Added for `lib/checkins/actions-core.ts`'s MCP write path,
+ * which must NEVER touch cookies (the whole point of the `core(supabase,
+ * userId, ...)` extraction this program is built around — see lib/deen/
+ * actions-core.ts's own header) but still needs `getPendingAllocationQueue`'s
+ * real scheduling logic (prayer suppression, Lock-In overlap, trailing
+ * partial windows), not a second, reimplemented notion of it.
+ *
+ * `defaultDataSource()` itself is DELIBERATELY UNTOUCHED — every existing
+ * cookie-authed caller (allocation-actions.ts's `getAllocationQueueForNow`,
+ * the insights pages) keeps its exact current behavior. This is a sibling,
+ * not a replacement.
+ */
+export function supabaseDataSource(supabase: SupabaseClient): AllocationQueueDataSource {
+  return {
+    async getProfile(userId) {
+      const { data } = await supabase
+        .from("profiles")
+        .select(
+          "timezone, checkin_window_start, checkin_window_end, location_lat, location_lng, prayer_calc_method, asr_madhab"
+        )
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data ?? null;
+    },
+    async getWorkSessions(userId, dateStr, timezone) {
+      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("work_sessions")
+        .select("started_at, ended_at")
+        .eq("user_id", userId)
+        .eq("counts_toward_hours", true)
+        .gte("started_at", dayStart)
+        .lt("started_at", dayEnd);
+      return (data ?? []).map((s) => ({
+        start: new Date(s.started_at),
+        end: s.ended_at ? new Date(s.ended_at) : null,
+      }));
+    },
+    async getWorkoutSchedule(userId, dateStr, timezone) {
+      const { data } = await supabase
+        .from("workout_schedule")
+        .select("time, duration_minutes")
+        .eq("user_id", userId)
+        .eq("day_of_week", dayOfWeekFromDateString(dateStr))
+        .maybeSingle();
+      if (!data?.time) return null;
+      return { time: resolveLocalTime(dateStr, data.time, timezone), durationMinutes: data.duration_minutes };
+    },
+    async getAnsweredWindowStarts(userId, dateStr, timezone) {
+      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("checkins")
+        .select("window_start")
+        .eq("user_id", userId)
+        .eq("kind", "allocation")
+        .gte("window_start", dayStart)
+        .lt("window_start", dayEnd);
+      return (data ?? []).filter((r) => r.window_start).map((r) => new Date(r.window_start as string));
+    },
+    async getLoggedPrayerNames(userId, dateStr) {
+      const { data } = await supabase
+        .from("prayers")
+        .select("prayer_name")
+        .eq("user_id", userId)
+        .eq("date", dateStr)
+        .in("status", ["on_time", "qada"]);
+      return (data ?? []).map((r) => r.prayer_name);
+    },
+    async getWorkoutLoggedToday(userId, dateStr) {
+      const { data } = await supabase.from("workout_sessions").select("id").eq("user_id", userId).eq("date", dateStr).limit(1);
+      return (data ?? []).length > 0;
+    },
+    async getSessionsForHourResolution(userId, dateStr, timezone) {
+      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
+      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("work_sessions")
+        .select("id, started_at, ended_at")
+        .eq("user_id", userId)
+        .eq("counts_toward_hours", true)
+        .gte("started_at", dayStart)
+        .lt("started_at", dayEnd);
+      return (data ?? []).map((s) => ({
+        id: s.id,
+        startedAt: new Date(s.started_at),
+        endedAt: s.ended_at ? new Date(s.ended_at) : null,
+      }));
+    },
+    async getStoredSessionHours(userId, dateStr, timezone) {
       const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
       const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
