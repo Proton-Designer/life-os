@@ -250,6 +250,20 @@ export async function verifyAccessToken(
   return { userId: row.user_id, tokenId: row.id, scopes };
 }
 
+/**
+ * Reads back a token's own scopes by id, for a caller that already knows
+ * the id (never the raw value) and needs to preserve them elsewhere — L4's
+ * OAuth refresh-token rotation (app/api/mcp/oauth/token/route.ts) is the
+ * motivating case: a refreshed access token must keep the SAME scopes the
+ * one it replaces had, never silently widen to full access on every
+ * refresh. Returns null for an unknown id rather than throwing.
+ */
+export async function getTokenScopesById(supabase: SupabaseClient, tokenId: string): Promise<McpScope[] | null> {
+  const { data, error } = await supabase.from("mcp_access_tokens").select("scopes").eq("id", tokenId).maybeSingle();
+  if (error || !data) return null;
+  return (data as { scopes: string[] }).scopes.filter(isMcpScope);
+}
+
 /** Records that a verified token was actually used. Best-effort — a failure here must never fail the request it's recording. */
 export async function touchLastUsed(supabase: SupabaseClient, tokenId: string): Promise<void> {
   await supabase.from("mcp_access_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", tokenId);
