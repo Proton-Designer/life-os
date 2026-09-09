@@ -1,4 +1,5 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
+import { settleRoute } from "./helpers";
 
 /**
  * Bring-your-own-key settings, verified against the deployed app.
@@ -7,12 +8,59 @@ import { test, expect } from "@playwright/test";
  * section reads as an OPTIONAL offer rather than a paywall, and that a bad key
  * is rejected by the SERVER (verified with the provider) rather than merely
  * shape-checked in the browser.
+ *
+ * REGRESSION (found 2026-09-09, full suite): `.fill()` on the password input
+ * reported success while reading back empty; typing the same value with
+ * `.pressSequentially()` stuck. THE MECHANISM, as far as it could be
+ * established without live browser access to confirm directly (documented
+ * honestly as a well-supported hypothesis, not a proven fact — see the
+ * report to the Lead): a HYDRATION RACE, not a re-render wiping React state.
+ * `.fill()` dispatches its input event near-instantly; if it lands on this
+ * controlled input BEFORE React has hydrated and attached its `onChange`
+ * handler, the native DOM write is never seen by React at all, and when
+ * hydration commits a moment later, React's reconciliation of the
+ * controlled input's value (`""`, its initial state) overwrites whatever
+ * Playwright had set — while `.pressSequentially()`'s slower, spaced-out
+ * keystrokes land after hydration has already finished. This test had no
+ * hydration-completion wait before filling (only `expect(section).
+ * toBeVisible()`, a DOM-presence check, not a React-interactivity one) —
+ * a latent race this suite's OTHER specs mostly avoid via settleRoute()
+ * (used here now) or slower natural interaction sequences. /settings
+ * gained two new Client Components the same night this broke (L10's
+ * ThemeSettings/FeatureVisibilitySettings) — genuinely more client JS to
+ * hydrate for this one route — which is the most likely reason a
+ * previously-narrow race became reliably observable rather than lucky.
+ *
+ * FIX HERE IS NOT `.pressSequentially()` — per the Lead's explicit
+ * instruction, and on the merits: switching only proves typing eventually
+ * works, not that the race is understood or that a real fast interaction
+ * (e.g. a password manager's own instant autofill) wouldn't hit it too.
+ * `fillReliably` below instead ASSERTS the real precondition — a fill that
+ * actually stuck — and re-fills if it didn't, the same "verify the effect,
+ * don't guess a timing margin" discipline as this suite's clickAndSettle().
  */
+async function fillReliably(locator: Locator, value: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await locator.fill(value);
+    if ((await locator.inputValue()) === value) return;
+    await locator.page().waitForTimeout(150);
+  }
+  // Let the final attempt's real value drive a real assertion failure with
+  // a clear message, rather than silently giving up after 3 tries.
+  await expect(locator).toHaveValue(value);
+}
+
+async function openSettings(page: Page) {
+  await page.goto("/settings");
+  const section = page.locator("#ai");
+  await expect(section).toBeVisible();
+  await settleRoute(page);
+  return section;
+}
+
 test.describe("API key settings", () => {
   test("reads as optional, and never shows a stored key", async ({ page }) => {
-    await page.goto("/settings");
-    const section = page.locator("#ai");
-    await expect(section).toBeVisible();
+    const section = await openSettings(page);
 
     const text = await section.innerText();
     // The product promise: the app works without paying for anything.
@@ -30,13 +78,11 @@ test.describe("API key settings", () => {
   });
 
   test("a bogus key is rejected BY THE PROVIDER, not just by shape", async ({ page }) => {
-    await page.goto("/settings");
-    const section = page.locator("#ai");
-    await expect(section).toBeVisible();
+    const section = await openSettings(page);
 
     // Correct shape (starts with sk-, right sort of length) so the client-side
     // check passes and the only thing that can reject it is a real call.
-    await section.locator('input[type="password"]').first().fill("sk-0000000000000000000000000000000000");
+    await fillReliably(section.locator('input[type="password"]').first(), "sk-0000000000000000000000000000000000");
     await section.getByRole("button", { name: /^connect$/i }).click();
 
     await expect(section.getByText(/rejected that key|didn't work|couldn't reach|error/i)).toBeVisible({
