@@ -1,9 +1,17 @@
 # MCP Tool Architecture — design memo
 
 **Author:** Eng2. **Status:** design only, no code in this pass, per assignment.
-**Reads first:** `docs/ai-connector/PROGRAM-PLAN.md` (R4, R5), `docs/superpowers/specs/2026-09-09-ai-integration-handoff.md` §3,
-the owner's expanded-scope message (quoted in full at the bottom of PROGRAM-PLAN's originating
+**Reads first:** `docs/ai-connector/PROGRAM-PLAN.md` (R4, R5), `docs/ai-connector/DATA-INVENTORY.md`
+(the Lead's production pull — 68 tables, RLS on all of them — folded into §5 below rather than
+this memo's original rougher domain sketch), `docs/superpowers/specs/2026-09-09-ai-integration-handoff.md`
+§3, the owner's expanded-scope message (quoted in full at the bottom of PROGRAM-PLAN's originating
 thread, restated in the task that produced this memo).
+
+**Revision note:** this version supersedes the first pass's domain/table grounding with the
+Lead's real production inventory (68 tables, exact row/column counts), corrects the self-mastery
+read surface against what the database actually contains (source chunks and embeddings exist;
+book-section summaries do not), and adds §5 below as a **named** part of the design rather than a
+footnote, per the Lead's explicit request.
 
 ---
 
@@ -33,6 +41,13 @@ collapses functionality. What collapses is the number of **top-level tool schema
 every conversation, from "one per operation" (150+, an automatic disqualification by every
 source consulted below) down to 7, with the domain/entity/action vocabulary itself pushed behind
 `list_capabilities` rather than baked into 150 separate JSON Schemas.
+
+The Lead's production data pull (`docs/ai-connector/DATA-INVENTORY.md`) settles the read side of
+this by arithmetic before the token-cost argument even needs to run: **68 tables, RLS enabled on
+every one.** One read tool per table is 68 tools before a single write tool exists, which is
+already past every "too many tools" threshold in §2 on its own. The flat-tool design is dead on
+arrival independent of the token-cost evidence below — that evidence explains *why* it's dead,
+this number is *proof* it's dead.
 
 The rest of this memo answers the five questions in order, with the evidence, then gives the
 concrete taxonomy and the two things flagged rather than resolved.
@@ -145,7 +160,64 @@ Independent confirmation this is the right shape, not just our own reasoning:
 
 ---
 
-## 3. Field selection & response shaping — the uniform convention
+## 3. Field selection & response shaping — the uniform convention, and an explicit visibility registry
+
+**Two different questions get answered by two different mechanisms, and this design keeps them
+separate on purpose:** *whose row is this* (row-level tenancy) is answered by RLS, inherited,
+free, and out of this design's hands to get wrong. *Should this table or column ever reach a
+model at all* (is it internal/operational, or does it contain a secret even for its own owner) is
+a question RLS was never built to answer and does not answer — it has to be a decision this
+design makes explicitly, table by table and, in at least one confirmed case, column by column.
+
+**RLS is inherited protection for the first question, and the data inventory confirms it holds.**
+All 68 tables have `rowsecurity = true`. Two carry no policies at all
+(`migration_ledger`, `migration_115_orphaned_group_weight_log`) — RLS-on-with-no-policy is
+deny-all to a normal authenticated role, so those two are already invisible to any MCP tool built
+on the R4 minted-JWT bridge, with zero code from us. This is the right shape for R4 to lean on:
+we are not adding tenancy protection at the tool layer, we're inheriting protection the database
+already enforces, so a tool that forgets to filter by `user_id` still cannot cross accounts. This
+property must survive implementation unchanged — every `read`/`write` dispatch goes through the
+same RLS-respecting client every UI Server Action already uses (per R5's `core(supabase, userId,
+...)` shape), never a service-role client, no exceptions, for exactly this reason.
+
+**But RLS answers "whose row," not "should the model see this," and the inventory surfaces two
+real cases where those answers diverge — this is why the registry has to be explicit, not
+assumed:**
+
+1. **A third operational table, `pending_storage_deletions`, is not one of the two RLS-deny-all
+   tables** — meaning it may well have a normal user-scoped policy that would let a query through
+   RLS just fine, and it still must not be exposed (it's deletion-queue bookkeeping, not
+   something a conversation should ever surface). RLS passing a query is not the same fact as
+   "this belongs in `list_capabilities`." **Table-level exclusion is therefore an explicit
+   allowlist of domains/entities `list_capabilities` will name, not "everything RLS lets through,
+   minus a denylist"** — an allowlist fails closed on a table nobody remembered to exclude; a
+   denylist fails open on exactly that table. Given the owner's own accepted "write, no
+   confirmation" risk tradeoff, failing closed on new/forgotten tables is the correct default.
+2. **`user_api_keys` is user-scoped, so it legitimately qualifies for "read everything including
+   settings," and it still stores a secret** — an encrypted DeepSeek API key, not something that
+   should reach a model's context even for the account's own owner (a model that can read a key
+   is a model that can be manipulated into repeating it back, or into using it somewhere it
+   shouldn't). The app has already solved exactly this problem once:
+   `app/(app)/settings/api-key-actions.ts`'s `getApiKeyStatuses()` selects
+   `"provider, key_last4, label, created_at"` explicitly — never `encrypted_key` — off the same
+   table. **The MCP `settings`/`user_api_keys` entity copies that exact projection, not the whole
+   row.** This is the concrete, named instance of a **field-level** exclusion: the entity is
+   readable, most of its columns are not, and the cut is per-column, decided once, centrally, not
+   left to a `fields` parameter the model could otherwise widen to `["*"]`.
+
+**The mechanism, generalized:** every entity in the internal dispatch table (§5) carries its own
+column allowlist — the literal `.select("...")` projection its handler is permitted to run —
+independent of and narrower than "every column RLS would return." `detail`/`fields` (below)
+operate *within* that allowlist; they can narrow what's returned, never widen it past what the
+entity's registered projection permits. A `fields` request for `encrypted_key` is rejected the
+same way an unknown `action` string is rejected in §5 — a clear error, not a silent 200 with the
+value in it. This also gives `source_chunks` (self-mastery domain) its own worked case: the table
+holds the actual book text and embeddings the owner was explicit should stay on the DeepSeek path,
+never MCP (see §5's self-mastery entry) — its allowlist for the MCP `read` entity is empty; the
+table is registered as excluded the same way the two deny-all operational tables are, just
+decided by us instead of by Postgres.
+
+### Uniform response shaping
 
 Applied identically to every tool that returns data (`read`, `search`, `fetch`,
 `list_capabilities`), because per Workato's own explicit warning, inconsistency here is what
@@ -229,26 +301,46 @@ follow OpenAI's MCP requirements — single-string parameters that work with Cha
 research mode."*). Free to satisfy at near-zero marginal cost given `read` already exists; not
 adding logic, just a second name for it.
 
-**`domain` values**, one string enum, mirrored from the app's own stated architecture in
-`AGENTS.md`/`PURPOSE-AND-DOMAINS.md` rather than invented fresh — five life domains, the
-cross-cutting systems already named there, plus the categories the owner's expanded scope adds:
+**`domain` values**, one string enum, mirrored from the Lead's real production inventory
+(`docs/ai-connector/DATA-INVENTORY.md` — 68 tables, pulled from production, not from the schema
+files) rather than the handoff doc's five-domain sketch or this memo's own first-pass guess:
 
-| domain | grounds it (existing `"use server"` files, action-function count) |
-|---|---|
-| `home` | cross-cutting per PURPOSE-AND-DOMAINS.md; aggregation, not its own writes |
-| `deen` | `app/(app)/deen/{actions,salah-calendar-actions}.ts` — 20 functions |
-| `work` | `app/(app)/work/{actions,subdomain,targets,tasks}-actions.ts` — 27 |
-| `business` | `app/(app)/business/{actions,kill-list-history-actions}.ts` — 8 |
-| `school` | `app/(app)/school/{actions,class-actions}.ts` — 20 |
-| `fitness` | `app/(app)/fitness/{actions,workouts/*}.ts` — 23 |
-| `distractions` | `app/(app)/distractions/actions.ts`, `lib/capture/actions.ts` — 9 |
-| `calendar` | `app/(app)/calendar/actions.ts` — cross-cutting |
-| `checkins` | `app/(app)/checkin/{actions,allocation,session-hour}-actions.ts` — 8 |
-| `review` | `app/(app)/review/actions.ts`, `app/(app)/close/{actions,plan-actions}.ts` — 4 |
-| `self_mastery` | `app/(app)/personal/{self-mastery-actions,self-mastery-session-actions}.ts` — covers per §0's carve-out (summaries/reflections/covers, never source text) |
-| `settings` | `app/(app)/settings/{actions,location,weekday-baseline}-actions.ts` — 12; **also** the new theme-preset and feature-visibility asks (§6) fold in here as more entities, not new tools |
-| `scheduler` | new — `mcp_scheduled_actions`, owned by `scheduler_manage` only |
-| `widgets` | new — gated, §6 |
+| domain | tables (count) | grounds it |
+|---|---|---|
+| `home` | — | cross-cutting per PURPOSE-AND-DOMAINS.md; aggregation across other domains, no tables/writes of its own |
+| `deen` | `prayers`, `sunnah_logs`, `adhkar_logs`, `quran_sessions`, `deen_habits`, `deen_habit_logs`, `deen_weekly_focus`, `reflection_entries` (8) | matches `app/(app)/deen/{actions,salah-calendar-actions}.ts` — 20 action functions |
+| `work` / `business` | `tasks`, `work_sessions`, `weekly_goals`, `kill_list_items`, `coop_targets`, `coop_tasks` (6) | matches `app/(app)/work/*` (27 functions) + `app/(app)/business/*` (8) |
+| `school` | `classes`, `class_assessments`, `schedule_events`, `schedule_event_overrides`, `schedule_event_cancellations` (5) | matches `app/(app)/school/*` — 20 functions |
+| `fitness` | `workout_plans`, `workouts`, `workout_sessions`, `workout_schedule`, `workout_exercises`, `plan_sessions`, `plan_session_exercises`, `plan_micro_exercises`, `exercises`, `session_sets`, `body_metrics`, `fitness_benchmarks`, `fitness_cycle_anchor`, `active_workout_plans`, `rep_goals` (**15** — the single largest domain) | matches `app/(app)/fitness/{actions,workouts/*}.ts` — 23 functions |
+| `self_mastery` | `books`, `book_sections`, `sources`, `source_chunks`, `lessons`, `cards`, `card_states`, `reviews`, `questions`, `self_explanations`, `lesson_promotions`, `lesson_verdicts`, `ingestion_jobs`, `ingestion_job_stage_attempts` (**14** — second largest) | matches `app/(app)/personal/*` — 15 functions; **read entity is `book_sections.summary`, once L9 adds it, never `source_chunks.text`/`.embedding`** — see the correction below |
+| `distractions` | `distraction_triggers`, `distraction_events`, `trigger_action_plans`, `trigger_plan_outcomes` (4) | matches `app/(app)/distractions/actions.ts`, `lib/capture/actions.ts` |
+| `checkins` | `checkins`, `checkin_allocations` (2) | matches `app/(app)/checkin/*` — 8 functions |
+| `calendar` / `review` | `schedule_events` (shared with school, above) | matches `app/(app)/calendar/actions.ts`, `app/(app)/review/actions.ts`, `app/(app)/close/*` |
+| `settings` | `profiles`, `user_settings`, `user_stats`, `user_domains`, `user_subdomains`, `custom_habits`, `habit_logs`, `notification_log`, `notification_reads`, `push_subscriptions`, `user_api_keys` (11) | matches `app/(app)/settings/*` — 12 functions; the new theme-preset and feature-visibility asks (§6) fold in here as more entities, not new tools; **`user_api_keys` is field-restricted per §3**, never a bare table exposure |
+| `scheduler` | new — `mcp_scheduled_actions` | owned by `scheduler_manage` only |
+| `widgets` | new — gated, §6 | |
+| — excluded, no domain, not in `list_capabilities` at all — | `migration_ledger`, `migration_115_orphaned_group_weight_log` (RLS deny-all, inherited), `pending_storage_deletions` (RLS may permit it; excluded by this design's own allowlist regardless, per §3) | |
+
+Fitness (15 tables) and self-mastery (14 tables) are deliberately the two domains carried in
+detail here rather than abbreviated: they are where a flat, one-tool-per-table design would be
+worst (29 of the 68 tables between just these two) and consequently where the generic
+`domain`/`entity`/`action` matrix pays for itself the most — the top-level schema cost for
+`fitness`/`self_mastery` is identical to `checkins`' two tables, which is exactly the point.
+
+**Correction to this memo's original self-mastery description, per the Lead's production pull:**
+the first pass of this memo assumed a book pipeline that still needed building. It doesn't —
+`source_chunks` holds **286 real rows** with `text`, `page_start/end`, `token_count`, and
+`embedding`; PDF→chunks-with-embeddings already runs in production. What's genuinely missing is
+narrower: `book_sections` (the chapter/section structure table) has **0 rows and no summary
+column at all**. So R6 ("a summary of each section/chapter... sent over MCP, never the whole
+book") is a smaller, well-defined addition — populate section structure, add a summary column
+plus provenance, batch chunks→summaries through DeepSeek — not a pipeline built from scratch.
+This changes what `self_mastery`'s `read` entity targets: **`book_sections` (once L9 adds the
+summary column) is the exposed entity; `source_chunks` is registered with an empty column
+allowlist per §3**, the same mechanism that keeps `encrypted_key` out of the `settings` domain —
+the owner was explicit that the source text itself stays off MCP, and the visibility registry is
+where that's enforced, not left to a `detail` parameter the model could otherwise turn up to
+`"full"`.
 
 `entity` and `action` values are **not** enumerated in any top-level schema — they're strings,
 validated server-side against the real dispatch table, discoverable via
@@ -308,8 +400,10 @@ into a one-hop self-correction rather than a dead end.
 
 ---
 
-## 6. Flagged, not resolved — two items from the owner's expanded scope that are not "tool
-   architecture" questions and need an explicit decision before they're built
+## 6. Flagged, not resolved — two items that are not "tool architecture" questions
+
+Two items from the owner's expanded scope need an explicit decision before they're built, and
+are named here rather than silently resolved one way or the other.
 
 **Custom widgets — "the user's AI agent writes custom code... makes it work... with a deploy
 tool" is a different threat model from a parameterized query, and this memo does not resolve
@@ -344,6 +438,8 @@ this program's own stated discipline for open items.
 
 ## Sources consulted (2026-09-08/09)
 
+- Production data inventory (68 tables, RLS status, row counts, the book-pipeline correction):
+  `docs/ai-connector/DATA-INVENTORY.md` (Lead, commit dbbcc26)
 - ChatGPT Resources unsupported: https://community.openai.com/t/does-chatgpt-apps-support-reading-standard-mcp-resources/1384027
 - Claude connector supported/unsupported feature list: https://claude.com/docs/connectors/building
 - MCP resource interaction model ("application-driven", Claude Desktop explicit-selection note): https://modelcontextprotocol.info/docs/concepts/resources
