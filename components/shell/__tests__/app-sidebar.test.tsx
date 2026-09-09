@@ -52,4 +52,9 @@ describe("AppSidebar", () => {
       expect(link).toHaveAttribute("data-prefetch", "true");
     }
   });
+
+  it("renders an Ask AI trigger in both the icon-rail and expanded variants (System B)", () => {
+    render(<AppSidebar account={{ displayName: "Ayman", email: "ayman@example.com" }} />);
+    expect(screen.getAllByRole("button", { name: "Ask AI" }).length).toBeGreaterThanOrEqual(2);
+  });
 });

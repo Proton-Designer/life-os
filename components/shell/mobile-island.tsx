@@ -14,6 +14,7 @@ import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { SECTIONS } from "./sidebar-nav";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 import { usePinToVisualViewport } from "./use-pin-to-visual-viewport";
+import { AskAiLinks } from "./ask-ai-launcher";
 
 const PRIMARY_ITEMS: {
   href: string;
@@ -139,6 +140,14 @@ export function MobileIsland() {
                 <NavLinkPendingHint />
               </Link>
             ))}
+            {/* System B: quick AI access. Added to this already-extensible
+                popover rather than the fixed icon row above — that row's
+                width is at capacity (7 × size-10 touch targets calculated to
+                the 320px floor, see the comment on this component's
+                container) and has broken twice before when it grew. This
+                list has no such budget. */}
+            <div data-testid="mobile-island-more-divider" className="my-1 h-px bg-border/50" />
+            <AskAiLinks />
           </PopoverContent>
         </Popover>
       </div>

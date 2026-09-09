@@ -46,6 +46,22 @@ describe("MobileIsland", () => {
     expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
   });
 
+  it("also reveals the Ask AI platform links under More, without growing the fixed icon row", async () => {
+    const user = userEvent.setup();
+    render(<MobileIsland />);
+
+    // The row of 7 fixed touch targets (see the other test in this file) is
+    // calculated to the 320px floor — Ask AI must not add an 8th.
+    expect(screen.getAllByTestId(/^mobile-island-item-/)).toHaveLength(7);
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+
+    for (const name of ["Claude", "ChatGPT", "Gemini"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link).toHaveAttribute("target", "_blank");
+    }
+  });
+
   it("marks the active route with aria-current", () => {
     render(<MobileIsland />);
     expect(screen.getByTestId("mobile-island-item-deen")).toHaveAttribute(

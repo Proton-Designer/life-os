@@ -240,6 +240,32 @@ test.describe("Layout overflow — zero horizontal scroll at every breakpoint", 
     }
   });
 
+  // System B (2026-09): the Ask AI links were added into the existing
+  // MobileIsland "More" popover, deliberately NOT into the fixed 7-item icon
+  // row above it (that row is calculated to the 320px floor and has broken
+  // twice before when it grew — see mobile-island.tsx). The popover's own
+  // width (`w-40`, unchanged) shouldn't be affected by adding rows to it, but
+  // this is the one new interactive surface page-load overflow checks can't
+  // see on their own (same blind spot the class-detail-dialog test above
+  // exists to cover), so it gets explicit coverage rather than an assumption.
+  test("mobile island 'More' popover shows the Ask AI links without horizontal overflow at 320/390", async ({
+    page,
+  }) => {
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      await dismissCheckinDialogIfPresent(page);
+      await waitForSettled(page, "/");
+
+      await page.getByRole("button", { name: /more/i }).click();
+      await expect(page.getByRole("link", { name: "Claude" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "ChatGPT" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Gemini" })).toBeVisible();
+
+      await assertNoHorizontalOverflow(page, width);
+    }
+  });
+
   for (const route of PUBLIC_ROUTES) {
     test(`${route} has no horizontal overflow at any breakpoint`, async ({ page }) => {
       for (const width of BREAKPOINTS) {

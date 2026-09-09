@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SidebarNav } from "./sidebar-nav";
 import { AccountBlock } from "./account-block";
+import { AskAiLauncher } from "./ask-ai-launcher";
 
 // Very subtle oxblood vertical wash on the sidebar surface — echoes the
 // body's --glow-oxblood radial glow so the shell reads as this app's own,
@@ -43,6 +44,13 @@ export function AppSidebar({
         <div className="flex-1 overflow-y-auto px-2 py-4">
           <SidebarNav variant="icon-rail" />
         </div>
+        {/* System B: quick AI access, kept out of SidebarNav's SECTIONS on
+            purpose — those items are internal pathname-tracked routes
+            (isActive), these are external platform links. Its own bordered
+            strip, same idiom as AccountBlock below. */}
+        <div className="border-t border-border p-2">
+          <AskAiLauncher variant="icon-rail" />
+        </div>
         <div className="border-t border-border p-2">
           <AccountBlock displayName={account.displayName} email={account.email} variant="icon-rail" />
         </div>
@@ -56,6 +64,9 @@ export function AppSidebar({
         <Logo iconOnly={false} />
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <SidebarNav variant="expanded" />
+        </div>
+        <div className="border-t border-border p-2">
+          <AskAiLauncher variant="expanded" />
         </div>
         <div className="border-t border-border p-2">
           <AccountBlock displayName={account.displayName} email={account.email} variant="expanded" />
