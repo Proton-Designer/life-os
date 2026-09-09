@@ -2,6 +2,16 @@
 
 import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
+import {
+  quickLogExerciseCore,
+  confirmWorkoutSessionCore,
+  confirmPlanSessionCore,
+  logWeightCore,
+  logWaistCore,
+  type ConfirmSetInput,
+} from "@/lib/fitness/actions-core";
+
+export type { ConfirmSetInput };
 
 export async function addHabit(name: string): Promise<void> {
   const { supabase, userId } = await requireUser();
@@ -132,24 +142,7 @@ export async function quickLogExercise(
   load: number | null
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { data: session, error: sessionError } = await supabase
-    .from("workout_sessions")
-    .insert({ user_id: userId, date, workout_id: null, workout_name: null, source: "quick" })
-    .select("id")
-    .single();
-  if (sessionError) throw sessionError;
-
-  const { error: setError } = await supabase.from("session_sets").insert({
-    session_id: session.id,
-    user_id: userId,
-    exercise_id: exerciseId,
-    exercise_name: exerciseName,
-    position: 1,
-    sets,
-    reps,
-    load,
-  });
-  if (setError) throw setError;
+  await quickLogExerciseCore(supabase, userId, date, exerciseId, exerciseName, sets, reps, load);
   revalidatePath("/fitness");
   revalidatePath("/");
 }
@@ -162,50 +155,17 @@ export async function quickLogExercise(
  */
 export async function logWeight(date: string, weightLb: number): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { data: existing } = await supabase
-    .from("body_metrics")
-    .select("waist_in")
-    .eq("user_id", userId)
-    .eq("date", date)
-    .maybeSingle();
-  const { error } = await supabase
-    .from("body_metrics")
-    .upsert(
-      { user_id: userId, date, weight_lb: weightLb, waist_in: existing?.waist_in ?? null },
-      { onConflict: "user_id,date" }
-    );
-  if (error) throw error;
+  await logWeightCore(supabase, userId, date, weightLb);
   revalidatePath("/fitness");
   revalidatePath("/");
 }
 
 export async function logWaist(date: string, waistIn: number): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { data: existing } = await supabase
-    .from("body_metrics")
-    .select("weight_lb")
-    .eq("user_id", userId)
-    .eq("date", date)
-    .maybeSingle();
-  const { error } = await supabase
-    .from("body_metrics")
-    .upsert(
-      { user_id: userId, date, waist_in: waistIn, weight_lb: existing?.weight_lb ?? null },
-      { onConflict: "user_id,date" }
-    );
-  if (error) throw error;
+  await logWaistCore(supabase, userId, date, waistIn);
   revalidatePath("/fitness");
   revalidatePath("/");
 }
-
-export type ConfirmSetInput = {
-  exerciseId: string;
-  exerciseName: string;
-  position: number;
-  sets: number;
-  reps: number;
-  load: number | null;
-};
 
 /**
  * Thin wrapper over the confirm_workout_session RPC (029) — idempotency,
@@ -220,20 +180,7 @@ export async function confirmWorkoutSession(
   sets: ConfirmSetInput[]
 ): Promise<void> {
   const { supabase } = await requireUser();
-  const { error } = await supabase.rpc("confirm_workout_session", {
-    p_date: date,
-    p_workout_id: workoutId,
-    p_workout_name: workoutName,
-    p_sets: sets.map((s) => ({
-      exerciseId: s.exerciseId,
-      exerciseName: s.exerciseName,
-      position: s.position,
-      sets: s.sets,
-      reps: s.reps,
-      load: s.load,
-    })),
-  });
-  if (error) throw error;
+  await confirmWorkoutSessionCore(supabase, date, workoutId, workoutName, sets);
   revalidatePath("/fitness");
   revalidatePath("/");
 }
@@ -255,56 +202,7 @@ export async function confirmPlanSession(
   sets: ConfirmSetInput[]
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
-
-  // workout_id (040) — the legacy mirror two Home readers key completion
-  // off (get-domain-snapshots.ts's workoutDone, get-domain-pulse.ts's
-  // hasScheduledWorkout), matched against workout_schedule.workout_id
-  // (lib/fitness/sync-workout-schedule.ts writes the same plan_sessions
-  // value there). Read from the source of truth (plan_sessions.workout_id)
-  // rather than trusted client input.
-  const { data: planSession, error: planSessionError } = await supabase
-    .from("plan_sessions")
-    .select("workout_id")
-    .eq("id", sessionId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (planSessionError) throw planSessionError;
-
-  const { data: session, error: sessionError } = await supabase
-    .from("workout_sessions")
-    .insert({
-      user_id: userId,
-      date,
-      workout_id: planSession?.workout_id ?? null,
-      workout_name: sessionName,
-      source: "confirmed",
-      plan_session_id: sessionId,
-    })
-    .select("id")
-    .single();
-
-  if (sessionError) {
-    if (sessionError.code === "23505") {
-      revalidatePath("/fitness");
-      revalidatePath("/");
-      return;
-    }
-    throw sessionError;
-  }
-
-  const { error: setsError } = await supabase.from("session_sets").insert(
-    sets.map((s) => ({
-      session_id: session.id,
-      user_id: userId,
-      exercise_id: s.exerciseId,
-      exercise_name: s.exerciseName,
-      position: s.position,
-      sets: s.sets,
-      reps: s.reps,
-      load: s.load,
-    }))
-  );
-  if (setsError) throw setsError;
+  await confirmPlanSessionCore(supabase, userId, date, sessionId, sessionName, sets);
   revalidatePath("/fitness");
   revalidatePath("/");
 }

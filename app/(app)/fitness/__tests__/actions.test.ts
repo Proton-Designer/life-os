@@ -6,6 +6,7 @@ function makeChain(resolvedValue: { data: unknown; error: null } = { data: null,
     chain[method] = vi.fn(() => chain);
   }
   chain.maybeSingle = vi.fn(async () => resolvedValue);
+  chain.single = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
   return chain as {
     select: ReturnType<typeof vi.fn>;
@@ -15,16 +16,18 @@ function makeChain(resolvedValue: { data: unknown; error: null } = { data: null,
     insert: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
     maybeSingle: ReturnType<typeof vi.fn>;
+    single: ReturnType<typeof vi.fn>;
   };
 }
 
 const getClaimsMock = vi.fn(async () => ({ data: { claims: { sub: "user-1" } }, error: null }));
 let fromImpl: (table: string) => ReturnType<typeof makeChain>;
 const fromMock = vi.fn((table: string) => fromImpl(table));
+const rpcMock = vi.fn(async (..._args: unknown[]) => ({ data: null, error: null }));
 const revalidatePathMock = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ auth: { getClaims: getClaimsMock }, from: fromMock })),
+  createClient: vi.fn(async () => ({ auth: { getClaims: getClaimsMock }, from: fromMock, rpc: rpcMock })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathMock(path) }));
 
@@ -32,6 +35,7 @@ describe("Fitness actions", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();
     fromMock.mockClear();
+    rpcMock.mockClear();
     revalidatePathMock.mockClear();
   });
 
@@ -130,4 +134,75 @@ describe("Fitness actions", () => {
   // itself was dropped once genuinely zero readers/writers remained
   // (migration 033). This test asserted the old contract and is removed
   // alongside the function it tested.
+
+  // The tests below exercise the R5 core(supabase, userId, ...) extraction
+  // (lib/fitness/actions-core.ts) through its thin cookie-authed wrappers —
+  // same end-to-end shape the pre-existing tests above already use, not a
+  // mocked-core shortcut, so a regression in the core itself would still
+  // fail here.
+  it("quickLogExercise inserts the session then the set, scoped to this user", async () => {
+    const sessionsChain = makeChain({ data: { id: "session-new" }, error: null });
+    const setsChain = makeChain();
+    fromImpl = (table) => (table === "workout_sessions" ? sessionsChain : setsChain);
+    const { quickLogExercise } = await import("../actions");
+
+    await quickLogExercise("2026-09-08", "ex-1", "Push-ups", 3, 15, null);
+
+    expect(sessionsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1", source: "quick" }));
+    expect(setsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: "session-new", exercise_id: "ex-1" }));
+    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+  });
+
+  it("confirmWorkoutSession calls the confirm_workout_session RPC with the mapped set shape", async () => {
+    const { confirmWorkoutSession } = await import("../actions");
+
+    await confirmWorkoutSession("2026-09-08", "workout-1", "Push Day", [
+      { exerciseId: "ex-1", exerciseName: "Bench", position: 1, sets: 3, reps: 10, load: 135 },
+    ]);
+
+    expect(rpcMock).toHaveBeenCalledWith("confirm_workout_session", expect.objectContaining({ p_date: "2026-09-08", p_workout_id: "workout-1" }));
+    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+  });
+
+  it("confirmPlanSession reads the plan session's workout_id then inserts session+sets", async () => {
+    const planSessionsChain = makeChain({ data: { workout_id: "workout-mirror" }, error: null });
+    const sessionsChain = makeChain({ data: { id: "session-new" }, error: null });
+    const setsChain = makeChain();
+    fromImpl = (table) => {
+      if (table === "plan_sessions") return planSessionsChain;
+      if (table === "workout_sessions") return sessionsChain;
+      return setsChain;
+    };
+    const { confirmPlanSession } = await import("../actions");
+
+    await confirmPlanSession("2026-09-08", "plan-session-1", "Push Day", [
+      { exerciseId: "ex-1", exerciseName: "Bench", position: 1, sets: 3, reps: 10, load: 135 },
+    ]);
+
+    expect(sessionsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ plan_session_id: "plan-session-1", workout_id: "workout-mirror" }));
+    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+  });
+
+  it("logWeight preserves the existing waist_in", async () => {
+    const chain = makeChain({ data: { waist_in: 32 }, error: null });
+    fromImpl = () => chain;
+    const { logWeight } = await import("../actions");
+
+    await logWeight("2026-09-08", 180);
+
+    expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ weight_lb: 180, waist_in: 32 }), expect.anything());
+    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+  });
+
+  it("logWaist preserves the existing weight_lb", async () => {
+    const chain = makeChain({ data: { weight_lb: 180 }, error: null });
+    fromImpl = () => chain;
+    const { logWaist } = await import("../actions");
+
+    await logWaist("2026-09-08", 32);
+
+    expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ waist_in: 32, weight_lb: 180 }), expect.anything());
+    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+  });
 });

@@ -3,6 +3,7 @@
 import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import type { MuscleGroup } from "@/lib/fitness/volume";
+import { createExerciseCore, archiveExerciseCore, renameWorkoutCore, archiveWorkoutCore } from "@/lib/fitness/actions-core";
 
 export type ExerciseInput = {
   exerciseId: string;
@@ -18,20 +19,14 @@ export async function createExercise(
   secondaryMuscles: MuscleGroup[]
 ): Promise<{ id: string }> {
   const { supabase, userId } = await requireUser();
-  const { data, error } = await supabase
-    .from("exercises")
-    .insert({ user_id: userId, name, primary_muscles: primaryMuscles, secondary_muscles: secondaryMuscles })
-    .select("id")
-    .single();
-  if (error) throw error;
+  const id = await createExerciseCore(supabase, userId, name, primaryMuscles, secondaryMuscles);
   revalidatePath("/fitness/workouts");
-  return { id: data.id };
+  return { id };
 }
 
 export async function archiveExercise(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { error } = await supabase.from("exercises").update({ archived: true }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await archiveExerciseCore(supabase, userId, id);
   revalidatePath("/fitness/workouts");
 }
 
@@ -73,15 +68,13 @@ export async function saveWorkout(workoutId: string, name: string, exercises: Ex
 
 export async function renameWorkout(id: string, name: string): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { error } = await supabase.from("workouts").update({ name }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await renameWorkoutCore(supabase, userId, id, name);
   revalidatePath("/fitness/workouts");
 }
 
 export async function archiveWorkout(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { error } = await supabase.from("workouts").update({ archived: true }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await archiveWorkoutCore(supabase, userId, id);
   revalidatePath("/fitness/workouts");
   revalidatePath("/fitness");
 }
