@@ -40,8 +40,35 @@ create table if not exists public.mcp_access_tokens (
   token_hash text not null,
   token_last4 text not null check (length(token_last4) <= 8),
   label text,
+  -- cardinality(), NOT array_length(scopes, 1): array_length() on an empty
+  -- array returns NULL (not 0), and Postgres CHECK constraints PASS on a
+  -- NULL expression -- they only fail on an explicit FALSE. So
+  -- `array_length(scopes,1) > 0` evaluates to `NULL > 0` = NULL for `'{}'`,
+  -- the whole `and` short-circuits to NULL, and the row is silently
+  -- accepted with zero permissions -- an app-layer test (validateScopes([])
+  -- in lib/mcp/tokens.ts) passing is what let this ship looking covered;
+  -- nothing exercised the DB's OWN defense-in-depth copy of that rule.
+  --
+  -- Proven red, then green, against a scratch Postgres 16.13 (not this
+  -- table's literal DDL in isolation -- the actual CREATE TABLE below,
+  -- applied verbatim):
+  --
+  --   -- with `array_length(scopes,1) > 0` (the original, broken, version):
+  --   insert into mcp_access_tokens (..., scopes) values (..., '{}');
+  --   => INSERT 0 1                                     -- WRONG: accepted
+  --
+  --   select array_length('{}'::text[],1), cardinality('{}'::text[]);
+  --   =>           <NULL>          |          0
+  --
+  --   -- with `cardinality(scopes) > 0` (this version):
+  --   insert into mcp_access_tokens (..., scopes) values (..., '{}');
+  --   => ERROR: new row for relation "mcp_access_tokens" violates check
+  --      constraint "mcp_access_tokens_scopes_check"
+  --      DETAIL: Failing row contains (..., {}).               -- correct
+  --   insert into mcp_access_tokens (..., scopes) values (..., array['read']);
+  --   => INSERT 0 1                                    -- real scopes still work
   scopes text[] not null
-    check (scopes <@ array['read', 'write']::text[] and array_length(scopes, 1) > 0),
+    check (scopes <@ array['read', 'write']::text[] and cardinality(scopes) > 0),
   created_at timestamptz not null default now(),
   last_used_at timestamptz,
   revoked_at timestamptz
@@ -118,3 +145,10 @@ create policy mcp_audit_log_select_own on public.mcp_audit_log
 
 create index if not exists mcp_audit_log_user_id_created_at_idx
   on public.mcp_audit_log (user_id, created_at desc);
+
+-- L3's per-token rate limiter (PROGRAM-PLAN.md) counts recent rows BY TOKEN,
+-- not by user -- a user with several tokens must not have one noisy token
+-- exhaust the budget of another. Added now, while the table is still
+-- unapplied, rather than as a second migration touching the same table twice.
+create index if not exists mcp_audit_log_token_id_created_at_idx
+  on public.mcp_audit_log (token_id, created_at desc);

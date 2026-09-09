@@ -212,6 +212,18 @@ export interface VerifiedToken {
  * and active, since this lookup bypasses GoTrue entirely and GoTrue's own
  * banned/deleted checks never run on this path.
  */
+/**
+ * SERVICE-ROLE CLIENT REQUIRED — this is the one legitimate service-role use
+ * in this whole system, and it's legitimate for a specific reason: at this
+ * point we do not yet know which user the request is for, so there is no
+ * `userId` to build a cookie/RLS-scoped client around. RLS's own `auth.uid()
+ * = user_id` policies would make an RLS-scoped lookup unable to find ANY
+ * row, for ANY token, which is indistinguishable from "every token is
+ * invalid" — not a safe failure mode for an auth check. L3's route must pass
+ * a service-role client here and ONLY here; everything downstream of a
+ * successful verify (the minted per-user JWT, the RLS-scoped client built
+ * from it) goes back to being user-scoped immediately.
+ */
 export async function verifyAccessToken(
   supabase: SupabaseClient,
   rawToken: string,
