@@ -1407,6 +1407,38 @@ export type Database = {
           },
         ]
       }
+      mcp_notification_dispatch_log: {
+        Row: {
+          created_at: string
+          id: string
+          scheduled_action_id: string
+          sent_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          scheduled_action_id: string
+          sent_date: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          scheduled_action_id?: string
+          sent_date?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_notification_dispatch_log_scheduled_action_id_fkey"
+            columns: ["scheduled_action_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_scheduled_actions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mcp_oauth_clients: {
         Row: {
           client_id: string
