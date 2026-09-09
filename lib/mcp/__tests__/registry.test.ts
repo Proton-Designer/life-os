@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { REGISTRY, listDomains, getDomain, getEntity } from "../registry";
 
 describe("registry", () => {
-  it("lists exactly the domains actually wired so far — deen, self_mastery, work, business", () => {
-    expect(listDomains().map((d) => d.domain).sort()).toEqual(["business", "deen", "self_mastery", "work"]);
+  it("lists exactly the domains actually wired so far — deen, self_mastery, work, business, school", () => {
+    expect(listDomains().map((d) => d.domain).sort()).toEqual(["business", "deen", "school", "self_mastery", "work"]);
   });
 
   it("self_mastery/source_chunks is registered but exposes ZERO columns — existence only, content deliberately unreachable", () => {
@@ -103,5 +103,29 @@ describe("registry", () => {
 
   it("work.work_session keeps ended_at — migration 135 deliberately excluded it (already faithful)", () => {
     expect(getEntity("work", "work_session")!.updatedAtColumn).toBe("ended_at");
+  });
+
+  it("school has exactly the 4 read entities wired (task, class, class_assessment, schedule_event) — overrides/cancellations deliberately excluded, see schedule_event's own comment", () => {
+    expect(Object.keys(REGISTRY.school.entities).sort()).toEqual(["class", "class_assessment", "schedule_event", "task"]);
+  });
+
+  it("school.task and school.schedule_event are fixedFilter-scoped to domain='school' — both tables are shared with co_op", () => {
+    expect(getEntity("school", "task")!.fixedFilter).toEqual({ domain: "school" });
+    expect(getEntity("school", "schedule_event")!.fixedFilter).toEqual({ domain: "school" });
+  });
+
+  it("school.class and school.class_assessment have no fixedFilter — neither table is shared with another domain", () => {
+    expect(getEntity("school", "class")!.fixedFilter).toBeUndefined();
+    expect(getEntity("school", "class_assessment")!.fixedFilter).toBeUndefined();
+  });
+
+  it("all 4 school entities are honestly updatedAtColumn:null pending the proposed migration (docs/ai-connector/SCHOOL-UPDATED-AT-NEEDED.md) — none fabricated from completed_at/created_at", () => {
+    for (const entity of ["task", "class", "class_assessment", "schedule_event"]) {
+      expect(getEntity("school", entity)!.updatedAtColumn).toBeNull();
+    }
+  });
+
+  it("school.class never exposes syllabus_path — an internal storage path, not a fetchable value", () => {
+    expect(getEntity("school", "class")!.fullColumns).not.toContain("syllabus_path");
   });
 });

@@ -4,6 +4,8 @@ import { markPrayerCore, toggleSunnahCore, toggleAdhkarCore } from "@/lib/deen/a
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
+import { addTaskCore, updateTaskCore, toggleTaskCore, updateScheduleEventCore, setScheduleEventOverrideCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
+import { createClassCore, updateClassCore, addClassAssessmentCore, updateClassAssessmentCore } from "@/lib/school/actions-core";
 import type { CoopTaskStatus } from "@/lib/coop/tasks";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
@@ -124,6 +126,42 @@ function optionalNullableString(patch: WritePatch, field: string): string | null
   if (value !== null && typeof value !== "string") throw new Error(`patch.${field} must be a string or null. Got: ${JSON.stringify(value)}.`);
   return value;
 }
+
+function optionalNullableNumber(patch: WritePatch, field: string): number | null | undefined {
+  const value = patch[field];
+  if (value === undefined) return undefined;
+  if (value !== null && typeof value !== "number") throw new Error(`patch.${field} must be a number or null. Got: ${JSON.stringify(value)}.`);
+  return value;
+}
+
+/**
+ * school's `task`/`schedule_event` write actions target an EXISTING row by
+ * the top-level `id` — but `tasks.domain` and `schedule_events.domain` are
+ * both shared with `co_op` (and, for `tasks`, a third state: NULL for a
+ * Night Plan dump, migration 119). Unlike the read side's `fixedFilter`
+ * (lib/mcp/registry.ts), there is no generic table dispatcher on the write
+ * side to enforce this structurally — each handler here is bespoke code —
+ * so this is the write-side counterpart, checked explicitly before any
+ * mutation: a caller holding a `school`-scoped write must not be able to
+ * retitle/reschedule a `co_op` work-hours row (or a Night Plan dump item)
+ * just because it happens to belong to the same user. Found while wiring
+ * this domain, not assumed away — flagged to the lead in the handoff report
+ * alongside the (pre-existing, unrelated to this change) observation that
+ * the cookie-authed Work/School Server Actions have never enforced this
+ * either.
+ */
+async function assertRowDomain(userClient: SupabaseClient, table: "tasks" | "schedule_events", id: string, userId: string, domain: "school" | "co_op"): Promise<void> {
+  const { data, error } = await userClient.from(table).select("domain").eq("id", id).eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error(`No ${table} row found with id "${id}" for this user.`);
+  if (data.domain !== domain) {
+    throw new Error(`id "${id}" belongs to domain "${data.domain ?? "none"}", not "${domain}" — refusing to write across the domain boundary.`);
+  }
+}
+
+const TASK_TYPES = ["homework_assignment", "reading_review", "quiz", "exam", "final_midterm", "project_paper", "reminder", "other"] as const;
+const ASSESSMENT_TYPES = ["quiz", "exam", "midterm_final"] as const;
+const DAYS_OF_WEEK = [0, 1, 2, 3, 4, 5, 6] as const;
 
 export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
   deen: {
@@ -435,6 +473,227 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               };
             },
           },
+        },
+      },
+    },
+  },
+  school: {
+    domain: "school",
+    entities: {
+      task: {
+        entity: "task",
+        actions: {
+          add: {
+            action: "add",
+            description: "Add a school task/assignment/reminder. Always domain='school'.",
+            patchShape: "{ title: string, due_date?: string, due_time?: string, task_type?: TaskType, task_type_other_label?: string, class_id?: string|null }",
+            handler: async (ctx, patch) => {
+              const title = requireString(patch, "title");
+              const dueDate = optionalString(patch, "due_date");
+              const dueTime = optionalString(patch, "due_time");
+              const taskType = patch.task_type === undefined ? undefined : requireEnum(patch, "task_type", TASK_TYPES);
+              const taskTypeOtherLabel = optionalString(patch, "task_type_other_label");
+              const classId = optionalNullableString(patch, "class_id");
+              const id = await addTaskCore(ctx.userClient, ctx.userId, {
+                domain: "school",
+                title,
+                dueDate,
+                dueTime,
+                taskType,
+                taskTypeOtherLabel,
+                classId,
+              });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `added school task "${title}"`,
+              };
+            },
+          },
+          edit: {
+            action: "edit",
+            description: "Full-replace edit of a school task's contents. Requires the top-level id.",
+            patchShape: "{ title: string, due_date?: string, task_type?: TaskType, task_type_other_label?: string, class_id?: string|null }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await assertRowDomain(ctx.userClient, "tasks", id, ctx.userId, "school");
+              const title = requireString(patch, "title");
+              const dueDate = optionalString(patch, "due_date");
+              const taskType = patch.task_type === undefined ? undefined : requireEnum(patch, "task_type", TASK_TYPES);
+              const taskTypeOtherLabel = optionalString(patch, "task_type_other_label");
+              const classId = optionalNullableString(patch, "class_id");
+              await updateTaskCore(ctx.userClient, ctx.userId, id, { title, dueDate, taskType, taskTypeOtherLabel, classId });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited school task ${id}`,
+              };
+            },
+          },
+          toggle: {
+            action: "toggle",
+            description: "Flip a school task's completed state. Requires the top-level id.",
+            patchShape: "{}",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await assertRowDomain(ctx.userClient, "tasks", id, ctx.userId, "school");
+              const result = await toggleTaskCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, ...result }) }], structuredContent: { id, updated_at: null, ...result } },
+                summary: `toggled school task ${id} to ${result.completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+          // "remove" deliberately absent -- removeTaskCore (lib/tasks/
+          // actions-core.ts) is a real DELETE; the MCP write path never
+          // hard-deletes. Same posture as every other domain.
+        },
+      },
+      class: {
+        entity: "class",
+        actions: {
+          create: {
+            action: "create",
+            description: "Create a class.",
+            patchShape: "{ code: string, short_name?: string, room?: string, instructor?: string }",
+            handler: async (ctx, patch) => {
+              const code = requireString(patch, "code");
+              const shortName = optionalString(patch, "short_name");
+              const room = optionalString(patch, "room");
+              const instructor = optionalString(patch, "instructor");
+              const id = await createClassCore(ctx.userClient, ctx.userId, { code, shortName, room, instructor });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `created class "${code}"`,
+              };
+            },
+          },
+          edit: {
+            action: "edit",
+            description: "Edit a class's short_name/room/instructor. Requires the top-level id.",
+            patchShape: "{ short_name?: string|null, room?: string|null, instructor?: string|null }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await updateClassCore(ctx.userClient, ctx.userId, id, {
+                shortName: optionalNullableString(patch, "short_name"),
+                room: optionalNullableString(patch, "room"),
+                instructor: optionalNullableString(patch, "instructor"),
+              });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited class ${id}`,
+              };
+            },
+          },
+          // Syllabus upload/remove, and "remove" (no such function exists
+          // at all in class-actions.ts) deliberately absent -- see
+          // docs/ai-connector/SCHOOL-WRITE-SCOPE-DECISIONS.md.
+        },
+      },
+      class_assessment: {
+        entity: "class_assessment",
+        actions: {
+          add: {
+            action: "add",
+            description: "Add an assessment to a class. Also creates its linked task (ruling R5). Requires the top-level id (the class's id).",
+            patchShape: "{ name: string, type: 'quiz'|'exam'|'midterm_final', date: string }",
+            handler: async (ctx, patch) => {
+              const classId = requireId(ctx);
+              const name = requireString(patch, "name");
+              const type = requireEnum(patch, "type", ASSESSMENT_TYPES);
+              const date = requireString(patch, "date");
+              const { assessmentId, taskId } = await addClassAssessmentCore(ctx.userClient, ctx.userId, classId, name, type, date);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id: assessmentId, taskId }) }], structuredContent: { id: assessmentId, updated_at: null, taskId } },
+                summary: `added assessment "${name}" to class ${classId}`,
+              };
+            },
+          },
+          edit: {
+            action: "edit",
+            description: "Edit an assessment's name/type/date/weight, syncing its linked task's title/due_date. Requires the top-level id.",
+            patchShape: "{ name: string, type: 'quiz'|'exam'|'midterm_final', date: string, weight_pct?: number|null }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const name = requireString(patch, "name");
+              const type = requireEnum(patch, "type", ASSESSMENT_TYPES);
+              const date = requireString(patch, "date");
+              const weightPct = optionalNullableNumber(patch, "weight_pct");
+              await updateClassAssessmentCore(ctx.userClient, ctx.userId, id, { name, type, date, weightPct });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited assessment ${id}`,
+              };
+            },
+          },
+          // "remove" deliberately absent -- delete_class_assessment
+          // (migration 048) is a real DELETE; the MCP write path never
+          // hard-deletes.
+        },
+      },
+      schedule_event: {
+        entity: "schedule_event",
+        actions: {
+          // Three DISTINCT recurrence writes, named so a caller cannot
+          // confuse "change every future week" with "change/cancel just
+          // ONE occurrence" -- the lead's explicit requirement ("a model
+          // that can only edit the series will do real damage trying to
+          // skip one day"). See docs/ai-connector/SCHOOL-WRITE-SCOPE-
+          // DECISIONS.md for the deliberately-excluded counterparts
+          // (create/remove a series, undo an override, uncancel) and why.
+          edit_series: {
+            action: "edit_series",
+            description: "Permanently change a recurring class's own day/time -- affects every future occurrence, never just one ('change the class permanently'). Requires the top-level id (the schedule_events row's id).",
+            patchShape: "{ day_of_week: number, event_time: string, end_time?: string }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await assertRowDomain(ctx.userClient, "schedule_events", id, ctx.userId, "school");
+              const dayOfWeek = requireNumberEnum(patch, "day_of_week", DAYS_OF_WEEK);
+              const eventTime = requireString(patch, "event_time");
+              const endTime = optionalString(patch, "end_time");
+              await updateScheduleEventCore(ctx.userClient, ctx.userId, id, { dayOfWeek, eventTime, endTime });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `permanently changed class ${id} to day ${dayOfWeek} at ${eventTime}`,
+              };
+            },
+          },
+          set_override: {
+            action: "set_override",
+            description: "Move ONE occurrence of a recurring class to a different time, without touching the permanent pattern ('move next Tuesday's class'). Requires the top-level id (the schedule_events row's id) and patch.date.",
+            patchShape: "{ date: string, event_time: string, end_time?: string }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await assertRowDomain(ctx.userClient, "schedule_events", id, ctx.userId, "school");
+              const date = requireString(patch, "date");
+              const eventTime = requireString(patch, "event_time");
+              const endTime = optionalString(patch, "end_time");
+              await setScheduleEventOverrideCore(ctx.userClient, ctx.userId, id, date, eventTime, endTime);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, date }) }], structuredContent: { id, updated_at: null, date } },
+                summary: `moved class ${id}'s ${date} occurrence to ${eventTime}`,
+              };
+            },
+          },
+          cancel_occurrence: {
+            action: "cancel_occurrence",
+            description: "Cancel ONE occurrence of a recurring class, without touching the permanent pattern or any other occurrence ('cancel this one instance'). Requires the top-level id (the schedule_events row's id) and patch.date.",
+            patchShape: "{ date: string }",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              await assertRowDomain(ctx.userClient, "schedule_events", id, ctx.userId, "school");
+              const date = requireString(patch, "date");
+              await cancelScheduleOccurrenceCore(ctx.userClient, ctx.userId, id, date);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, date }) }], structuredContent: { id, updated_at: null, date } },
+                summary: `cancelled class ${id}'s ${date} occurrence`,
+              };
+            },
+          },
+          // create/remove (the series itself), remove_override, and
+          // uncancel deliberately absent -- "remove" is a hard delete on
+          // schedule_events, and remove_override/uncancel are hard deletes
+          // on their own exception tables. The MCP write path never
+          // hard-deletes, full stop, even for a narrowly-scoped exception
+          // row. See docs/ai-connector/SCHOOL-WRITE-SCOPE-DECISIONS.md.
         },
       },
     },

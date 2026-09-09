@@ -11,7 +11,7 @@ describe("listCapabilitiesTool", () => {
   it("with no domain, lists only domains actually wired — honest, not the memo's full eventual matrix", async () => {
     const outcome = await listCapabilitiesTool();
     const payload = textPayload(outcome);
-    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual(["business", "deen", "self_mastery", "work"]);
+    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual(["business", "deen", "school", "self_mastery", "work"]);
   });
 
   it("source_chunks is listed (existence is not secret) but advertises ZERO readable fields at any tier (content is)", async () => {
@@ -75,6 +75,27 @@ describe("listCapabilitiesTool", () => {
     const businessByEntity = Object.fromEntries((await textPayload(business)).entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
     expect(businessByEntity.kill_list_item.sort()).toEqual(["read", "write:set", "write:toggle"]);
     expect(businessByEntity.weekly_goal.sort()).toEqual(["read", "write:save"]);
+  });
+
+  it("school's entities report their real write actions, and never an excluded hard-delete/recurrence action", async () => {
+    const outcome = await listCapabilitiesTool("school");
+    const payload = textPayload(outcome);
+    expect(payload.entities).toHaveLength(4);
+    const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+
+    expect(byEntity.task.sort()).toEqual(["read", "write:add", "write:edit", "write:toggle"]);
+    expect(byEntity.task).not.toContain("write:remove");
+
+    expect(byEntity.class.sort()).toEqual(["read", "write:create", "write:edit"]);
+
+    expect(byEntity.class_assessment.sort()).toEqual(["read", "write:add", "write:edit"]);
+    expect(byEntity.class_assessment).not.toContain("write:remove");
+
+    expect(byEntity.schedule_event.sort()).toEqual(["read", "write:cancel_occurrence", "write:edit_series", "write:set_override"]);
+    expect(byEntity.schedule_event).not.toContain("write:create");
+    expect(byEntity.schedule_event).not.toContain("write:remove");
+    expect(byEntity.schedule_event).not.toContain("write:remove_override");
+    expect(byEntity.schedule_event).not.toContain("write:uncancel");
   });
 });
 
