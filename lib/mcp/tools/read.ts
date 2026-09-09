@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getDomain, getEntity, type EntityDef } from "../registry";
+import { getDomain, getEntity, type EntityDef, type FixedFilterValue } from "../registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 
 /**
@@ -89,6 +89,33 @@ function encodeCursor(offset: number): string {
   return Buffer.from(String(offset), "utf8").toString("base64url");
 }
 
+function isNullDiscriminant(value: FixedFilterValue): value is { is: null } {
+  return typeof value === "object" && value !== null && "is" in value && value.is === null;
+}
+
+/**
+ * Applies one entity's `fixedFilter` map to a query — `.eq(col, value)` for
+ * a plain equality target, `.is(col, null)` for an explicit `{ is: null }`
+ * discriminant (registry.ts's `FixedFilterValue`). Deliberately NEVER
+ * `.eq(col, null)`: PostgREST reads that as `col = NULL`, which SQL always
+ * evaluates false, not `col IS NULL` — the exact gotcha that made a plain
+ * equality-only fixedFilter unable to express `tasks.domain IS NULL`
+ * (review.night_plan_task) or migration 108's `checkin_allocations.domain
+ * IS NULL` sentinel before this existed. Shared by both the id-lookup and
+ * list paths below so the two can never drift on which operator a given
+ * discriminant shape uses.
+ */
+function applyFixedFilter<Q extends { eq(column: string, value: unknown): Q; is(column: string, value: null): Q }>(
+  query: Q,
+  fixedFilter: Record<string, FixedFilterValue> | undefined,
+): Q {
+  let q = query;
+  for (const [col, value] of Object.entries(fixedFilter ?? {})) {
+    q = isNullDiscriminant(value) ? q.is(col, null) : q.eq(col, value);
+  }
+  return q;
+}
+
 /**
  * The resolved operation (migration 131's `mcp_audit_log.operation`) for
  * this call — e.g. "deen.prayer.read" — computed from the raw args BEFORE
@@ -135,7 +162,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
     // convention as lib/mcp/tools/get-profile.ts, for the same reason
     // (this codebase's own RLS-sweep incident history).
     let idQuery = supabase.from(def.table).select(select).eq(def.idColumn, args.id).eq("user_id", userId);
-    for (const [col, value] of Object.entries(def.fixedFilter ?? {})) idQuery = idQuery.eq(col, value);
+    idQuery = applyFixedFilter(idQuery, def.fixedFilter);
     const { data, error } = await idQuery.maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error(`No ${def.entity} found with id "${args.id}".`);
@@ -174,7 +201,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   }
 
   let query = supabase.from(def.table).select(select, { count: "exact" }).eq("user_id", userId);
-  for (const [col, value] of Object.entries(def.fixedFilter ?? {})) query = query.eq(col, value);
+  query = applyFixedFilter(query, def.fixedFilter);
   if (args.filter) {
     for (const [col, value] of Object.entries(args.filter)) {
       if (!def.filterableColumns.includes(col)) {

@@ -13,6 +13,7 @@ const ROW = {
 
 function makeClient(opts: { single?: unknown; list?: unknown[]; count?: number; error?: unknown } = {}) {
   const eqCalls: [string, unknown][] = [];
+  const isCalls: [string, null][] = [];
   const orderCalls: [string, boolean][] = [];
   let lastRange: [number, number] | null = null;
 
@@ -21,6 +22,15 @@ function makeClient(opts: { single?: unknown; list?: unknown[]; count?: number; 
     chain.select = vi.fn(() => chain);
     chain.eq = vi.fn((col: string, val: unknown) => {
       eqCalls.push([col, val]);
+      return chain;
+    });
+    // .is(col, null) is the operator applyFixedFilter (read.ts) uses for an
+    // explicit `{ is: null }` FixedFilterValue -- tracked SEPARATELY from
+    // eqCalls so a test can assert the right operator was used, not just
+    // that SOME call happened. `.eq(col, null)` would be a real bug here
+    // (PostgREST reads it as `col = NULL`, always false, not IS NULL).
+    chain.is = vi.fn((col: string, val: null) => {
+      isCalls.push([col, val]);
       return chain;
     });
     chain.order = vi.fn((col: string, o: { ascending: boolean }) => {
@@ -35,7 +45,7 @@ function makeClient(opts: { single?: unknown; list?: unknown[]; count?: number; 
     return chain;
   });
 
-  return { client: { from } as unknown as SupabaseClient, eqCalls, orderCalls, getLastRange: () => lastRange };
+  return { client: { from } as unknown as SupabaseClient, eqCalls, isCalls, orderCalls, getLastRange: () => lastRange };
 }
 
 describe("resolveReadOperation", () => {
@@ -238,5 +248,39 @@ describe("readTool — fixedFilter (business.weekly_goal, shared table scoped by
     await expect(
       readTool(client, "user-1", { domain: "business", entity: "weekly_goal", filter: { domain: "deen" } }),
     ).rejects.toThrow(/not filterable/i);
+  });
+});
+
+describe("readTool — fixedFilter null discriminant (review.night_plan_task, tasks.domain IS NULL)", () => {
+  it("uses .is(col, null), NEVER .eq(col, null), on a list query", async () => {
+    const { client, eqCalls, isCalls } = makeClient({ list: [] });
+    await readTool(client, "user-1", { domain: "review", entity: "night_plan_task" });
+    expect(isCalls).toContainEqual(["domain", null]);
+    // The real bug this exists to avoid: PostgREST reads .eq(col, null) as
+    // `col = NULL`, which SQL always evaluates false -- it would silently
+    // return zero rows forever, not throw, so this has to be asserted
+    // directly rather than inferred from the call succeeding.
+    expect(eqCalls).not.toContainEqual(["domain", null]);
+    expect(eqCalls).toContainEqual(["user_id", "user-1"]);
+  });
+
+  it("uses .is(col, null) on a single-id lookup too", async () => {
+    const { client, isCalls } = makeClient({ single: { id: "t1", title: "Buy stamps", planned_date: "2026-09-10", mit_rank: null } });
+    await readTool(client, "user-1", { domain: "review", entity: "night_plan_task", id: "t1" });
+    expect(isCalls).toContainEqual(["domain", null]);
+  });
+
+  it("a caller cannot override the null discriminant via `filter` — 'domain' isn't in night_plan_task's filterableColumns at all", async () => {
+    const { client } = makeClient({ list: [] });
+    await expect(
+      readTool(client, "user-1", { domain: "review", entity: "night_plan_task", filter: { domain: "school" } }),
+    ).rejects.toThrow(/not filterable/i);
+  });
+
+  it("school.task (a plain string fixedFilter, unaffected by the null-discriminant change) still uses .eq, not .is", async () => {
+    const { client, eqCalls, isCalls } = makeClient({ list: [] });
+    await readTool(client, "user-1", { domain: "school", entity: "task" });
+    expect(eqCalls).toContainEqual(["domain", "school"]);
+    expect(isCalls).toEqual([]);
   });
 });

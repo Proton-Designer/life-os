@@ -20,6 +20,29 @@ import "server-only";
  * to ask nicely.
  */
 
+/**
+ * One `fixedFilter` target: either a plain equality value, or an explicit
+ * IS-NULL discriminant (`{ is: null }`). Two independent tables needed the
+ * null form before this existed — `tasks.domain IS NULL` for Night Plan
+ * items (review.night_plan_task below) and migration 108's
+ * `checkin_allocations.is_wasted`/`domain IS NULL` split — which is the
+ * bar this codebase uses for building a real mechanism instead of a
+ * one-off (see AGENTS.md-adjacent precedent: `parentFilter` itself was
+ * built the same way, generalized once school AND fitness needed it).
+ * `checkin_allocations` doesn't need to actually USE this today — its
+ * `domain`/`is_wasted` are both plain columns on `checkins.allocation`, not
+ * fixedFilter-scoped, because that entity isn't split per-domain the way
+ * `tasks` is split into school/co_op/night-plan. Noted here so the next
+ * person who DOES want a domain-scoped allocation entity doesn't have to
+ * rediscover that the mechanism already covers it.
+ *
+ * Never `{ is: "null" }` (a string) or a bare `null` value — both would be
+ * silently misread as "filter on the literal value `null`"/"no filter at
+ * all" respectively rather than IS NULL. The `{ is: null }` object shape is
+ * deliberately unambiguous with a plain string equality target.
+ */
+export type FixedFilterValue = string | { is: null };
+
 export interface EntityDef {
   /** The entity name as used in `read(domain, entity, ...)` — e.g. "prayer". */
   entity: string;
@@ -76,8 +99,13 @@ export interface EntityDef {
    * the OTHER entity's rows through this one's name — the same shape of
    * mistake the visibility registry (memo §3) exists to prevent for
    * columns, just applied to rows instead.
+   *
+   * Each value is a `FixedFilterValue` (see its own comment above) — a
+   * plain string for `.eq(col, value)`, or `{ is: null }` for `.is(col,
+   * null)` when the discriminant is IS NULL rather than an equality (e.g.
+   * review.night_plan_task's `domain: { is: null }`).
    */
-  fixedFilter?: Record<string, string>;
+  fixedFilter?: Record<string, FixedFilterValue>;
   /**
    * Declares this entity as a child of a NAMED parent row — never reachable
    * as a flat "every row the user has ever owned, across every parent"
@@ -928,12 +956,13 @@ export const REGISTRY: Record<string, DomainDef> = {
     },
   },
   /**
-   * `calendar`, `review`, and `home` are REGISTERED WITH ZERO ENTITIES,
-   * deliberately, not left out of REGISTRY entirely -- `list_capabilities()`
-   * should report their existence (and this comment's reasoning, via their
-   * `description`) the same honest way source_chunks reports existing but
-   * unreadable, rather than a caller getting an "unknown domain" error for
-   * something the owner explicitly named as in scope.
+   * `calendar`, `review`, and `home` are REGISTERED regardless of how few
+   * (or zero) entities each owns, deliberately, not left out of REGISTRY
+   * entirely -- `list_capabilities()` should report their existence (and
+   * this comment's reasoning, via their `description`) the same honest way
+   * source_chunks reports existing but unreadable, rather than a caller
+   * getting an "unknown domain" error for something the owner explicitly
+   * named as in scope.
    *
    * Read each surface's own Server Action before concluding this
    * (app/(app)/calendar/actions.ts's getWeekCalendar, app/(app)/review/
@@ -942,35 +971,29 @@ export const REGISTRY: Record<string, DomainDef> = {
    *
    * CALENDAR aggregates schedule_events, weekly_goals, tasks, quran_sessions,
    * active_workout_plans/plan_sessions -- every row it renders is already
-   * owned by another domain's own table (deen/business/school -- fitness's
-   * own MCP domain is Eng1's separate in-progress work). It introduces NO
-   * table or row of its own. A caller who wants this data reads it through
-   * deen/business/school's own entities.
+   * owned by another domain's own table (deen/business/school/fitness). It
+   * introduces NO table or row of its own. A caller who wants this data
+   * reads it through deen/business/school/fitness's own entities.
    *
    * REVIEW/CLOSE is almost the same story (distraction_triggers/
-   * trigger_action_plans/trigger_plan_outcomes -- now covered above by
+   * trigger_action_plans/trigger_plan_outcomes -- covered above by
    * `distractions`; work_sessions -- covered by work.work_session;
    * user_settings.weekday_baselines -- covered by settings.user_setting)
-   * WITH ONE GENUINE EXCEPTION, found and flagged rather than silently
-   * worked around: the Night Plan's own rows on `tasks` --
-   * `mit_rank`/`planned_date`/`dump_source` with `domain IS NULL`
-   * (migrations 113/119/120; see app/(app)/close/plan-actions.ts's
-   * dumpLine/savePlanRanks). These are NOT reachable through school.task
-   * above, which fixedFilters `domain: "school"` -- a fixedFilter is an
-   * `.eq()`, and `domain IS NULL` cannot be expressed as one, so a
-   * Night-Plan entity using the identical mechanism would need EITHER (a)
-   * read.ts's fixedFilter (or filterableColumns) extended to support an
-   * explicit IS-NULL sentinel, or (b) a denormalized boolean column on
-   * `tasks` (the same shape of fix migration 108 used to split
-   * checkin_allocations' is_wasted out of a shared `domain` column).
-   * Registering `domain` as a normal filterable column instead, without a
-   * fixedFilter, was considered and rejected: it would let a caller read
-   * school's AND co_op's own task rows through a "review"-named entity --
-   * exactly the cross-domain leak fixedFilter exists to prevent, the same
-   * reasoning school.schedule_event's own header comment already gives for
-   * schedule_event_overrides. Neither fix is attempted here: both are
-   * cross-cutting changes to read.ts, which is shared dispatch machinery,
-   * not something this read-only-domains pass should touch unilaterally.
+   * WITH ONE GENUINE EXCEPTION, now closed rather than left flagged: the
+   * Night Plan's own rows on `tasks` -- `mit_rank`/`planned_date`/
+   * `dump_source` with `domain IS NULL` (migrations 113/119/120; see
+   * app/(app)/close/plan-actions.ts's dumpLine/savePlanRanks). These were
+   * NOT reachable through school.task above, which fixedFilters
+   * `domain: "school"` -- a plain fixedFilter was an `.eq()`, and
+   * `domain IS NULL` cannot be expressed as one. Closed by widening
+   * `fixedFilter`'s value type to accept an explicit `{ is: null }`
+   * discriminant (see EntityDef's own `FixedFilterValue` comment) rather
+   * than a denormalized boolean column on `tasks` -- the mechanism-not-a-
+   * one-off bar was already met by two independent needs
+   * (`review.night_plan_task` below AND migration 108's own
+   * `checkin_allocations.domain IS NULL` sentinel, which could adopt the
+   * same shape later if it's ever split into its own fixedFilter-scoped
+   * entity). `review.night_plan_task` below is the first real user of it.
    *
    * HOME is aggregation only, no tables of its own (the owner's own
    * framing, quoted in the task that added these three domains).
@@ -978,14 +1001,39 @@ export const REGISTRY: Record<string, DomainDef> = {
   calendar: {
     domain: "calendar",
     description:
-      "The week-view calendar surface. Aggregates deen/business/school's own scheduling data (schedule_events, weekly_goals, tasks, quran_sessions) plus fitness sessions -- it has no table of its own. Read the underlying rows through each owning domain's own entities.",
+      "The week-view calendar surface. Aggregates deen/business/school/fitness's own scheduling data (schedule_events, weekly_goals, tasks, quran_sessions, plan_sessions) -- it has no table of its own. Read the underlying rows through each owning domain's own entities.",
     entities: {},
   },
   review: {
     domain: "review",
     description:
-      "The evening-close/night-plan ceremony and its Review popup. Almost entirely an aggregation of distractions' own entities (trigger/action_plan/plan_outcome above), work.work_session, and settings.user_setting -- see this file's own header comment for the one genuine gap (Night Plan `tasks` rows with domain IS NULL), flagged to the lead rather than worked around.",
-    entities: {},
+      "The evening-close/night-plan ceremony and its Review popup. Mostly an aggregation of distractions' own entities (trigger/action_plan/plan_outcome above), work.work_session, and settings.user_setting -- plus its own genuinely-owned slice of `tasks`, the Night Plan's dumped/ranked items (domain IS NULL), below.",
+    entities: {
+      night_plan_task: {
+        entity: "night_plan_task",
+        table: "tasks",
+        description:
+          "One Night Plan item: a line dumped during the evening-close ceremony (app/(app)/close/plan-actions.ts's dumpLine), optionally starred/crowned for the next day (mit_rank 1-3 via savePlanRanks). Scoped to `domain IS NULL` rows only -- school's and co_op's own tasks (domain='school'/'co_op') are NOT this entity, see school.task above.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "Same table, same migration as school.task above: migration 136 added a real trigger-backed updated_at to ALL of `tasks` (not scoped by domain), reusing 074's touch_updated_at(). dumpLine INSERTs; savePlanRanks UPDATEs mit_rank on existing rows (clear-then-set, see its own header) -- both write paths are covered by the same trigger school.task already relies on.",
+        summaryColumns: ["title", "planned_date", "mit_rank", "completed"],
+        fullColumns: ["title", "planned_date", "mit_rank", "dump_source", "completed", "completed_at", "created_at", "updated_at"],
+        filterableColumns: ["planned_date", "mit_rank", "completed", "dump_source"],
+        orderBy: [
+          { column: "planned_date", ascending: false },
+          { column: "created_at", ascending: false },
+        ],
+        // The null-discriminant this entity exists to prove out -- see
+        // FixedFilterValue's own comment and this file's header comment
+        // just above `calendar`. `domain` is NOT in filterableColumns: a
+        // caller widening it to a real value would just be school.task or
+        // a future co_op.task by another name, the exact cross-domain leak
+        // fixedFilter exists to prevent.
+        fixedFilter: { domain: { is: null } },
+      },
+    },
   },
   home: {
     domain: "home",
