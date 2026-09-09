@@ -306,11 +306,11 @@ export const REGISTRY: Record<string, DomainDef> = {
         description:
           "A school task/assignment/reminder. `tasks` is shared with `co_op` (and, for a Night Plan dump item, domain=NULL, migration 119) -- fixedFilter keeps this entity strictly to domain='school' rows.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/SCHOOL-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "Checked every write path: updateTaskCore updates title/due_date/task_type/class_id; toggleTaskCore updates completed/completed_at; updateClassAssessmentCore's task-sync step updates a linked task's title/due_date/task_type. completed_at only reflects the complete/not-complete transition (same gap migration 135 fixed for coop_tasks), and no other column is a faithful last-modified proxy -- honestly null until a real trigger-backed updated_at lands.",
+          "Migration 136 (applied, verified on production by the lead -- 5 columns, 5 triggers, trigger confirmed firing on tasks) added a real trigger-backed updated_at to tasks, reusing migration 074's touch_updated_at(), after updateTaskCore/toggleTaskCore/updateClassAssessmentCore's task-sync step were found to each UPDATE an existing row with completed_at reflecting only the complete/not-complete transition, never a title/due_date/class_id edit (same gap migration 135 fixed for coop_tasks).",
         summaryColumns: ["title", "due_date", "task_type", "completed", "class_id"],
-        fullColumns: ["title", "due_date", "due_time", "task_type", "task_type_other_label", "completed", "completed_at", "class_id", "created_at", "user_id"],
+        fullColumns: ["title", "due_date", "due_time", "task_type", "task_type_other_label", "completed", "completed_at", "class_id", "created_at", "updated_at", "user_id"],
         filterableColumns: ["due_date", "task_type", "completed", "class_id"],
         orderBy: [
           { column: "due_date", ascending: true },
@@ -323,11 +323,11 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "classes",
         description: "One class (course): abbreviation, code, room, instructor, risk-engine inputs. `syllabus_path` is deliberately never exposed here -- it's an internal storage path, not a fetchable value (see write-registry's header comment on why syllabus upload/remove stay off MCP entirely).",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/SCHOOL-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "updateClass (app/(app)/school/class-actions.ts, now updateClassCore) updates short_name/room/instructor on an existing row; uploadClassSyllabus/removeClassSyllabus update syllabus_path. created_at is set once at creation and never reflects any of these -- no faithful existing column, honestly null until a real trigger-backed updated_at lands.",
+          "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to classes, reusing migration 074's touch_updated_at(), after updateClassCore (short_name/room/instructor) and uploadClassSyllabus/removeClassSyllabus (syllabus_path) were found to each UPDATE an existing row with no faithful existing column to reflect it.",
         summaryColumns: ["short_name", "code", "room", "instructor", "position"],
-        fullColumns: ["short_name", "code", "room", "instructor", "position", "difficulty_rating", "confidence_rating", "target_grade_pct", "created_at", "user_id"],
+        fullColumns: ["short_name", "code", "room", "instructor", "position", "difficulty_rating", "confidence_rating", "target_grade_pct", "created_at", "updated_at", "user_id"],
         filterableColumns: ["code"],
         orderBy: [
           { column: "position", ascending: true },
@@ -339,11 +339,11 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "class_assessments",
         description: "One assessment (quiz/exam/midterm_final) for a class, with its grade-engine inputs. Adding one also creates a linked task (ruling R5) -- see write-registry's class_assessment.add.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/SCHOOL-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "updateClassAssessmentCore (lib/school/actions-core.ts, extracted from the original updateClassAssessment) updates name/type/date/weight_pct on an existing row. created_at is set once at creation and never reflects an edit -- no faithful existing column, honestly null until a real trigger-backed updated_at lands.",
+          "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to class_assessments, reusing migration 074's touch_updated_at(), after updateClassAssessmentCore (lib/school/actions-core.ts) was found to UPDATE name/type/date/weight_pct on an existing row with no faithful existing column to reflect it.",
         summaryColumns: ["class_id", "name", "type", "date"],
-        fullColumns: ["class_id", "name", "type", "date", "weight_pct", "points_earned", "points_possible", "is_excused", "task_id", "created_at", "user_id"],
+        fullColumns: ["class_id", "name", "type", "date", "weight_pct", "points_earned", "points_possible", "is_excused", "task_id", "created_at", "updated_at", "user_id"],
         filterableColumns: ["class_id", "type", "date"],
         orderBy: [{ column: "date", ascending: false }],
       },
@@ -362,18 +362,22 @@ export const REGISTRY: Record<string, DomainDef> = {
        * through a "school"-named entity -- exactly the cross-domain leak
        * fixedFilter exists to prevent, just for a table it cannot reach.
        *
-       * Not silently resolved: flagged to the lead. Two real fixes exist
-       * (either works, neither attempted here because both are
-       * cross-cutting, not school-specific): (1) extend `fixedFilter`/
-       * `read.ts` to support a filter through a named foreign-key join, or
-       * (2) denormalize a `domain` column onto both tables, copied from
-       * the parent event at write time (cheap, additive, no new join
-       * logic needed). Their DATA remains reachable today through
-       * `write`'s `schedule_event.set_override`/`cancel_occurrence`
-       * actions, which scope correctly because they always act via a
-       * caller-supplied, domain-checked event id (see write-registry.ts's
-       * `assertRowDomain`) -- only LISTING/reading them back as their own
-       * entity is the open gap.
+       * RULING (team-lead, after school shipped): do NOT denormalize a
+       * `domain` column onto either table -- that creates a second source
+       * of truth for a fact that already exists on the parent row, and the
+       * two will drift the first time someone updates one and not the
+       * other. The real fix is a narrow `parentFilter` (a declared FK plus
+       * the parent column to constrain on) -- NOT a general join engine --
+       * but it is not built for one caller. It gets built when the second
+       * case appears: fitness's `plan_session_exercises`/`session_sets`
+       * have the same parent-owned shape. Until then, both tables stay
+       * unregistered. This is a KNOWN, CHOSEN gap in "read everything" (the
+       * owner's literal requirement), not one we missed -- their DATA
+       * remains reachable today through `write`'s
+       * `schedule_event.set_override`/`cancel_occurrence` actions, which
+       * scope correctly because they always act via a caller-supplied,
+       * domain-checked event id (see write-registry.ts's `assertRowDomain`)
+       * -- only LISTING/reading them back as their own entity is deferred.
        */
       schedule_event: {
         entity: "schedule_event",
@@ -381,11 +385,11 @@ export const REGISTRY: Record<string, DomainDef> = {
         description:
           "A class's recurring meeting pattern (or a one-off school event). `schedule_events` is shared with `co_op` -- fixedFilter keeps this entity strictly to domain='school' rows. Per-occurrence overrides/cancellations are NOT included here -- see this entity's own header comment above.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/SCHOOL-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "updateScheduleEventCore updates day_of_week/event_time/end_time; updateClassEvent (app/(app)/school/actions.ts, multi-day class-group editing, not core-extracted this phase) updates title/event_time/end_time/location/instructor on existing rows. created_at is set once at creation and never reflects either -- no faithful existing column, honestly null until a real trigger-backed updated_at lands.",
+          "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to schedule_events, reusing migration 074's touch_updated_at(), after updateScheduleEventCore (day_of_week/event_time/end_time) and updateClassEvent (app/(app)/school/actions.ts, multi-day class-group editing, not core-extracted this phase; title/event_time/end_time/location/instructor) were found to each UPDATE an existing row with no faithful existing column to reflect it.",
         summaryColumns: ["title", "is_recurring", "day_of_week", "event_date", "event_time", "end_time"],
-        fullColumns: ["title", "is_recurring", "day_of_week", "event_date", "event_time", "end_time", "location", "instructor", "class_id", "created_at", "user_id"],
+        fullColumns: ["title", "is_recurring", "day_of_week", "event_date", "event_time", "end_time", "location", "instructor", "class_id", "created_at", "updated_at", "user_id"],
         filterableColumns: ["is_recurring", "day_of_week", "class_id"],
         orderBy: [
           { column: "day_of_week", ascending: true },

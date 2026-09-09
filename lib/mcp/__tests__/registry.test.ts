@@ -119,9 +119,11 @@ describe("registry", () => {
     expect(getEntity("school", "class_assessment")!.fixedFilter).toBeUndefined();
   });
 
-  it("all 4 school entities are honestly updatedAtColumn:null pending the proposed migration (docs/ai-connector/SCHOOL-UPDATED-AT-NEEDED.md) — none fabricated from completed_at/created_at", () => {
+  it("migration 136's 4 registered school entities now use the real trigger-backed updated_at — no longer honestly null", () => {
     for (const entity of ["task", "class", "class_assessment", "schedule_event"]) {
-      expect(getEntity("school", entity)!.updatedAtColumn).toBeNull();
+      const def = getEntity("school", entity)!;
+      expect(def.updatedAtColumn).toBe("updated_at");
+      expect(def.fullColumns).toContain("updated_at");
     }
   });
 
