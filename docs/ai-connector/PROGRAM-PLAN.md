@@ -243,6 +243,38 @@ model acting on content it was injected with** — the restriction is about the 
 the operation. Both paths converge on the same effective status, so nothing downstream can
 tell them apart.
 
+**R10 — Vercel bot protection can silently kill the connector. Found by accident; treat as a
+standing operational risk.**
+
+At ~05:55 the production alias began returning **403 "Vercel Security Checkpoint — We're
+verifying your browser"** to *every* path, `/api/mcp` included. The direct deployment URL
+returned 200 throughout, so the app was fine — the mitigation was applied to the alias,
+almost certainly triggered by our own volume (repeated 140-test suites, MCP probes, 8
+deploys in a few hours). It cleared on its own within minutes, and re-running the affected
+specs gave 10 passed / exit 0. **The 11 failures were infrastructure, not code.**
+
+The implication is not transient, and it matters more than the incident:
+
+**An MCP client is not a browser. It cannot solve a JavaScript challenge.** If Vercel's
+protection engages on the production domain while Claude/ChatGPT/Gemini is connected, the
+connector does not degrade — it dies, with a 403 the model will surface as an opaque
+failure. Nothing in our code can detect or work around it, because the request never
+reaches us.
+
+Actions:
+1. **`/api/mcp` and `/.well-known/*` must be excluded from bot protection / Attack Challenge
+   Mode** in the Vercel project's firewall config. This is a dashboard setting on Ayman's
+   account, so it is his to apply — added to the handover.
+2. **Moderate test volume against the production alias.** Prefer the direct deployment URL
+   for protocol probes; reserve full-suite runs for real checkpoints rather than after every
+   deploy.
+3. **A 403 on `/api/mcp` is now a known diagnosis**, not a mystery. Anyone seeing the
+   connector fail wholesale should check for the checkpoint page before debugging auth.
+
+Recorded because it cost real investigation time and looked exactly like an 11-test code
+regression. The tell was that every failure was Mobile-only — which was not a mobile bug at
+all, but simply the projects that happened to run after the mitigation engaged.
+
 ### Status board (updated as layers land)
 
 | L | state | evidence |
