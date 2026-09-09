@@ -68,7 +68,10 @@ asymmetry is the entire reason System A exists. So "replace DeepSeek with the co
 cannot be literal for that one feature.
 
 **Decision:** the *method* is replaced, the *capability* is not silently destroyed.
-- Settings' `#ai` DeepSeek panel is replaced by a `#connectors` PAT panel (L2).
+- Settings gains a `#connectors` PAT panel in **L2**. The `#ai` DeepSeek panel is left
+  untouched until **L8** — Eng1 flagged that an earlier draft of this line read as though
+  L2 removed it, which would have been a destructive change made on a doc's phrasing.
+  Add first, remove only once the replacement is proven.
 - The outbound path is **generalised** from `provider in ('deepseek')` to the three
   providers the owner actually named — Gemini, Claude, GPT — so answer-feedback keeps
   working for anyone who supplies a key, and nothing is lost (L8).
@@ -206,7 +209,7 @@ because it was built; it is done when a check that could have failed, didn't.
 |---|---|---|---|
 | **L0** | De-risk: auth bridge + platform-auth reality + transport choice | — | Eng1, Eng2 |
 | **L1** | System B — platform link/picker in the shell | — | Eng2 |
-| **L2** | Migration 130 + PAT create/revoke Settings UI (no server yet) | L0 | Eng1 |
+| **L2** | Migration 130 + PAT create/revoke Settings UI (added *alongside* `#ai`, which is untouched until L8) | L0 | Eng1 |
 | **L3** | MCP server, bearer auth, audit, rate limit, 2 read tools | L2 | Lead + Eng1 |
 | **L4** | OAuth 2.1 authorization server — **mandatory, all three platforms** | L3 | Eng2 |
 | **L5** | Read tools, all domains | L3 | both |
