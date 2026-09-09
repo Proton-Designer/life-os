@@ -8,6 +8,8 @@ import { listCapabilitiesTool, resolveListCapabilitiesOperation } from "@/lib/mc
 import { readTool, resolveReadOperation, type ReadArgs } from "@/lib/mcp/tools/read";
 import { writeTool, resolveWriteOperation, type WriteArgs } from "@/lib/mcp/tools/write";
 import { widgetManageTool, resolveWidgetManageOperation, resolveWidgetManageScope, type WidgetManageArgs } from "@/lib/mcp/tools/widget-manage";
+import { schedulerManageTool, resolveSchedulerManageOperation, resolveSchedulerManageScope, type SchedulerManageArgs } from "@/lib/mcp/tools/scheduler-manage";
+import { readMcpAuth } from "@/lib/mcp/auth-info";
 
 /**
  * L3+L6+L11 (docs/ai-connector/PROGRAM-PLAN.md), scope per the team-lead's
@@ -19,9 +21,12 @@ import { widgetManageTool, resolveWidgetManageOperation, resolveWidgetManageScop
  * `deen.prayer.unlog` is deliberately NOT wired — see write-registry.ts's
  * header. `widget_manage` is now wired too (L11/R7 Tier 1 declarative
  * widgets — lib/mcp/tools/widget-manage.ts, gated per TOOL-ARCHITECTURE.md
- * §6: config rows only, never agent-authored code). The remaining tools
- * (`search`, `fetch`, `scheduler_manage`) are explicitly out of scope for
- * this layer.
+ * §6: config rows only, never agent-authored code). `scheduler_manage` is
+ * now wired too (L7 — lib/mcp/tools/scheduler-manage.ts, deferred/
+ * recurring writes fired by app/api/cron/scheduled-actions/route.ts's
+ * pg_cron+pg_net poll, reusing this SAME `write` tool at fire time — never
+ * a parallel executor). `search`/`fetch` remain explicitly out of scope
+ * for this layer.
  *
  * Streamable HTTP only — no SSE, no Redis (settled in PROGRAM-PLAN.md's
  * findings: Claude is deprecating SSE, Gemini rejects it outright, and
@@ -89,6 +94,12 @@ const WriteInputSchema = z.object({
 
 const WidgetManageInputSchema = z.object({
   action: z.enum(["list", "create", "update", "delete"]),
+  id: z.string().optional(),
+  patch: z.record(z.string(), z.unknown()).optional(),
+});
+
+const SchedulerManageInputSchema = z.object({
+  action: z.enum(["list", "create", "cancel", "pause"]),
   id: z.string().optional(),
   patch: z.record(z.string(), z.unknown()).optional(),
 });
@@ -181,6 +192,34 @@ const handler = createMcpHandler(
           args,
           (userClient, userId) => widgetManageTool(userClient, userId, args as WidgetManageArgs),
         ),
+    );
+
+    server.registerTool(
+      "scheduler_manage",
+      {
+        title: "Manage scheduled actions",
+        description:
+          "Create, cancel, pause, or list deferred/recurring MCP writes (L7). Only VERIFIED IDEMPOTENT write actions can be scheduled -- create() is refused with a clear message otherwise, since at-least-once delivery means a scheduled action can fire twice for the same intended run. A one-off run needs patch.run_at (an ISO instant); a recurring one needs patch.cron_expression ('MM HH * * *' daily or 'MM HH * * D' weekly, D=0-6, all in the account's own local time) -- never both. 'create'/'cancel'/'pause' require a token with 'write' scope; 'list' only needs 'read'.",
+        inputSchema: SchedulerManageInputSchema,
+      },
+      async (args, ctx) => {
+        // The one tool that needs the CALLING token's own id (to record
+        // WHICH token authorizes a scheduled action, for L7's fire-time
+        // scope re-check) -- readMcpAuth is a pure function of the same
+        // authInfo runMcpTool itself reads, called a second time here
+        // rather than widening runMcpTool's own fn(userClient, userId)
+        // signature for one caller. See scheduler-manage.ts's own header.
+        const auth = readMcpAuth(ctx.http?.authInfo);
+        return runMcpTool(
+          serviceClient,
+          ctx.http?.authInfo,
+          "scheduler_manage",
+          resolveSchedulerManageOperation(args as SchedulerManageArgs),
+          resolveSchedulerManageScope((args as SchedulerManageArgs).action),
+          args,
+          (userClient, userId) => schedulerManageTool(userClient, userId, auth?.tokenId ?? null, args as SchedulerManageArgs),
+        );
+      },
     );
   },
   { serverInfo: { name: "lifeos-mcp", version: "0.1.0" } },
