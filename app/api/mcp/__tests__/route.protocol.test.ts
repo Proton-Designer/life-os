@@ -19,8 +19,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
  * `lib/mcp/tokens`'s `verifyAccessToken` (already proven in isolation in
  * tokens.test.ts). Everything BETWEEN those — `withMcpAuth`, tool
  * registration, `ctx.http.authInfo` threading, `runMcpTool`'s scope/rate-
- * limit/audit composition, the two tools' own query shapes against a fake
- * user client — runs for real.
+ * limit/audit composition, `read`'s registry dispatch against a fake user
+ * client — runs for real.
  */
 
 vi.mock("@/lib/mcp/tokens", async () => {
@@ -31,6 +31,11 @@ vi.mock("@/lib/mcp/tokens", async () => {
   };
 });
 vi.mock("@/lib/mcp/active-user", () => ({ isUserActive: vi.fn(async () => true) }));
+
+const PRAYER_ROWS = [
+  { id: "p1", date: "2026-09-08", prayer_name: "fajr", status: "on_time", logged_at: "2026-09-08T11:00:00Z", user_id: "user-1" },
+  { id: "p2", date: "2026-09-08", prayer_name: "dhuhr", status: "qada", logged_at: "2026-09-08T18:00:00Z", user_id: "user-1" },
+];
 
 const mintSessionJwtMock = vi.fn(async () => "fake.session.jwt");
 const buildUserScopedClientMock = vi.fn(() => fakeUserClient());
@@ -63,11 +68,13 @@ function fakeServiceClient() {
   return { client: { from }, auditInserts };
 }
 
-function fakeUserClient(profile: Record<string, unknown> | null = { display_name: "Ayman", timezone: "America/Chicago" }) {
+/** Stands in for the RLS-scoped client `read`'s registry dispatch queries — `prayers` is the only table L3 wires (lib/mcp/registry.ts). */
+function fakeUserClient() {
   const from = vi.fn((_table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "eq"]) chain[m] = vi.fn(() => chain);
-    chain.maybeSingle = vi.fn(async () => ({ data: profile, error: null }));
+    for (const m of ["select", "eq", "order"]) chain[m] = vi.fn(() => chain);
+    chain.range = vi.fn(async () => ({ data: PRAYER_ROWS, error: null, count: PRAYER_ROWS.length }));
+    chain.maybeSingle = vi.fn(async () => ({ data: PRAYER_ROWS[0], error: null }));
     return chain;
   });
   return { from };
@@ -77,7 +84,7 @@ const { createServiceRoleClient } = vi.hoisted(() => ({ createServiceRoleClient:
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient }));
 
 describe("app/api/mcp/route — real MCP protocol round trip", () => {
-  it("lists both registered tools and successfully calls get_profile through the full chain", async () => {
+  it("lists the two registered tools, discovers the deen/prayer entity, and reads real data through the full chain", async () => {
     const { client: serviceClient, auditInserts } = fakeServiceClient();
     createServiceRoleClient.mockReturnValue(serviceClient);
 
@@ -98,19 +105,30 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     await client.connect(transport);
 
     const { tools } = await client.listTools();
-    const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["get_profile", "list_tasks_due_today"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read"]);
 
-    const result = await client.callTool({ name: "get_profile", arguments: {} });
+    // Discovery first — the actual intended usage pattern (memo §5: "call
+    // whenever unsure"), and it should cost nothing against a real DB.
+    const caps = await client.callTool({ name: "list_capabilities", arguments: { domain: "deen" } });
+    expect(caps.isError).toBeFalsy();
+    const capsBlock = (caps.content as { type: string; text?: string }[])[0];
+    const capsPayload = JSON.parse(capsBlock.text ?? "{}");
+    expect(capsPayload.entities.map((e: { entity: string }) => e.entity)).toEqual(["prayer"]);
+
+    // Then the actual read, using exactly the entity discovery just named.
+    const result = await client.callTool({ name: "read", arguments: { domain: "deen", entity: "prayer" } });
     expect(result.isError).toBeFalsy();
     const block = (result.content as { type: string; text?: string }[])[0];
-    expect(block.type).toBe("text");
-    expect(JSON.parse(block.text ?? "{}")).toEqual({ display_name: "Ayman", timezone: "America/Chicago" });
+    const payload = JSON.parse(block.text ?? "{}");
+    expect(payload.items).toHaveLength(2);
+    expect(payload.items[0]).toMatchObject({ id: "p1", updated_at: "2026-09-08T11:00:00Z", date: "2026-09-08", prayer_name: "fajr", status: "on_time" });
 
-    // The wrapper's own guarantee, proven at the real protocol boundary too:
-    // a successful tools/call left exactly one 'ok'-outcome audit row.
-    expect(auditInserts).toHaveLength(1);
-    expect(auditInserts[0]).toMatchObject({ tool_name: "get_profile", outcome: "ok", user_id: "user-1", token_id: "tok-1" });
+    // The wrapper's own guarantee, proven at the real protocol boundary:
+    // two tool calls left exactly two audit rows, each carrying the
+    // RESOLVED operation (migration 131), not just the generic tool name.
+    expect(auditInserts).toHaveLength(2);
+    expect(auditInserts[0]).toMatchObject({ tool_name: "list_capabilities", operation: "discovery.deen.list_capabilities", outcome: "ok" });
+    expect(auditInserts[1]).toMatchObject({ tool_name: "read", operation: "deen.prayer.read", outcome: "ok", user_id: "user-1", token_id: "tok-1" });
 
     await client.close();
   });
