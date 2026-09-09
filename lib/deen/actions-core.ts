@@ -69,6 +69,56 @@ export async function markPrayerCore(
   return { id: data.id, date, prayerName, status, loggedAt: data.logged_at };
 }
 
+export interface UnlogPrayerResult {
+  id: string;
+  date: string;
+  prayerName: PrayerName;
+  status: "unlogged";
+  loggedAt: string;
+}
+
+/**
+ * R9's non-hard-delete "unlog" — the MCP write path's ONLY way to undo a
+ * logged prayer. Stores `status: 'unlogged'` instead of deleting the row;
+ * `effectivePrayerStatus`/`resolvePrayerStatuses` (lib/deen/prayer-status.ts)
+ * are taught to treat an `'unlogged'` row EXACTLY like an absent one, so
+ * it falls through to the same window-based re-derivation, never frozen.
+ *
+ * The app's own `unmarkPrayer` (app/(app)/deen/actions.ts) keeps its real
+ * `DELETE` and does NOT call this — deliberately. The no-hard-delete rule
+ * is about the ACTOR, not the operation: a person deleting their own row
+ * in their own UI is acting on their own data with intent; an MCP call may
+ * originate from a model acting on content it was injected with. Both
+ * paths converge on the same effective status, so nothing downstream can
+ * tell them apart.
+ *
+ * Same upsert shape and future-date guard as `markPrayerCore` — this is
+ * an "unlog", not a "log", but the same "can't unlog a day that hasn't
+ * happened yet" reasoning applies (there's nothing to have logged there).
+ */
+export async function unlogPrayerCore(
+  supabase: SupabaseClient,
+  userId: string,
+  timezone: string,
+  now: Date,
+  date: string,
+  prayerName: PrayerName,
+): Promise<UnlogPrayerResult> {
+  const today = localDateString(now, timezone);
+  if (date > today) throw new Error("date cannot be after today");
+
+  const { data, error } = await supabase
+    .from("prayers")
+    .upsert(
+      { user_id: userId, date, prayer_name: prayerName, status: "unlogged", logged_at: now.toISOString() },
+      { onConflict: "user_id,date,prayer_name" },
+    )
+    .select("id, logged_at")
+    .single();
+  if (error) throw error;
+  return { id: data.id, date, prayerName, status: "unlogged", loggedAt: data.logged_at };
+}
+
 export interface ToggleSunnahResult {
   id: string;
   date: string;

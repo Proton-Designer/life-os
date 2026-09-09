@@ -2,7 +2,17 @@ import { computePrayerWindows, PRAYER_NAMES, type PrayerName, type PrayerWindow 
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { localDateString, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 
-export type StoredPrayerStatus = "on_time" | "qada" | "missed";
+/**
+ * `"unlogged"` (R9, PROGRAM-PLAN.md) is the MCP-originated "undo a log"
+ * value — never written by the app's own UI, which keeps `unmarkPrayer`'s
+ * real `DELETE` (a person deleting their own row is acting with intent on
+ * their own data; an MCP call may originate from a model acting on
+ * injected content, so it only ever flips a status). It must behave
+ * EXACTLY like an absent row everywhere `StoredPrayerStatus` is consumed —
+ * see `effectivePrayerStatus` and `resolvePrayerStatuses`'s own
+ * `definitelyClosed` fast path below, both of which special-case it.
+ */
+export type StoredPrayerStatus = "on_time" | "qada" | "missed" | "unlogged";
 export type EffectivePrayerStatus = "upcoming" | "pending" | "on_time" | "qada" | "missed";
 
 /**
@@ -43,13 +53,18 @@ export function computeTrackingFloorDateStr(
  * wins — the user's own record is the truth and derivation only fills
  * silence. `window === null` (no location set, or a high-latitude date
  * where the prayer's angle is unreachable) must never derive `missed`.
+ *
+ * `"unlogged"` (R9) is the one exception to "a stored status always wins":
+ * it means "explicitly cleared," not "a real logged state," so it falls
+ * through to the exact same window-based derivation an absent row gets —
+ * `stored && stored !== "unlogged"` is deliberately not just `stored`.
  */
 export function effectivePrayerStatus(
   stored: StoredPrayerStatus | null,
   window: PrayerWindow | null,
   now: Date
 ): EffectivePrayerStatus {
-  if (stored) return stored;
+  if (stored && stored !== "unlogged") return stored;
   if (window === null) return "pending";
   if (now.getTime() >= window.end.getTime()) return "missed";
   if (now.getTime() >= window.start.getTime()) return "pending";
@@ -105,7 +120,14 @@ export function resolvePrayerStatuses(opts: {
       for (const name of PRAYER_NAMES) {
         const row = rows.find((r) => r.date === date && r.prayer_name === name);
         const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
-        dayResult[name] = stored ?? "missed";
+        // Same "unlogged" exception as effectivePrayerStatus above — this
+        // fast path bypasses that function entirely for a window already
+        // known closed, so it has to re-derive the exception itself. A
+        // bare `stored ?? "missed"` would return the literal string
+        // "unlogged" here (it's a non-null value), which is exactly the
+        // "frozen at a status forever" bug R9 exists to fix, just hit
+        // through the OTHER branch than the one originally reported.
+        dayResult[name] = stored && stored !== "unlogged" ? stored : "missed";
       }
     } else {
       // computePrayerWindows now derives its own local calendar day from a

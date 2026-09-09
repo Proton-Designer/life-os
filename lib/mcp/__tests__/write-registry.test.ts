@@ -22,8 +22,8 @@ describe("write-registry dispatch shape", () => {
     expect(getWriteAction("deen", "prayer", "log")).not.toBeNull();
   });
 
-  it("getWriteAction returns null for deen.prayer.unlog — deliberately unimplemented, not a typo", () => {
-    expect(getWriteAction("deen", "prayer", "unlog")).toBeNull();
+  it("getWriteAction finds deen.prayer.unlog — R9, wired for real (a status change, never a DELETE)", () => {
+    expect(getWriteAction("deen", "prayer", "unlog")).not.toBeNull();
   });
 
   it("getWriteAction returns null for an unknown domain/entity/action at every level", () => {
@@ -34,7 +34,7 @@ describe("write-registry dispatch shape", () => {
 
   it("listWriteEntities/listWriteActions reflect exactly what's registered", () => {
     expect(listWriteEntities("deen").sort()).toEqual(["adhkar", "prayer", "sunnah_log"]);
-    expect(listWriteActions("deen", "prayer")).toEqual(["log"]);
+    expect(listWriteActions("deen", "prayer")).toEqual(["log", "unlog"]); // R9
     expect(listWriteActions("deen", "sunnah_log")).toEqual(["toggle"]);
     expect(listWriteActions("deen", "adhkar")).toEqual(["toggle"]);
   });

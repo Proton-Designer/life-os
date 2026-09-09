@@ -42,6 +42,43 @@ describe("effectivePrayerStatus", () => {
     expect(effectivePrayerStatus(null, WINDOW, WINDOW.end)).toBe("missed");
     expect(effectivePrayerStatus(null, WINDOW, new Date("2026-08-10T23:00:00Z"))).toBe("missed");
   });
+
+  /**
+   * R9's whole reason for existing: 'unlogged' must re-derive AS TIME
+   * PASSES exactly like an absent row, not freeze at a stored value the
+   * way 'on_time'/'qada'/'missed' correctly do above. The bug this design
+   * exists to avoid ("frozen forever") is specifically about the SAME row
+   * read at two different instants either side of a boundary -- a test
+   * that only checked one instant, or only checked that unlog WROTE a
+   * row, would miss it entirely. Pinned at every stage of the window's
+   * lifecycle, not just "closed".
+   */
+  describe("'unlogged' — re-derives exactly like an absent row, at every stage of the window's lifecycle", () => {
+    it("before the window opens: upcoming, same as null", () => {
+      const now = new Date("2026-08-10T09:59:59Z");
+      expect(effectivePrayerStatus("unlogged", WINDOW, now)).toBe(effectivePrayerStatus(null, WINDOW, now));
+      expect(effectivePrayerStatus("unlogged", WINDOW, now)).toBe("upcoming");
+    });
+
+    it("while the window is open: pending, same as null — the exact instant a stored status would have frozen at", () => {
+      const now = new Date("2026-08-10T11:30:00Z");
+      expect(effectivePrayerStatus("unlogged", WINDOW, now)).toBe(effectivePrayerStatus(null, WINDOW, now));
+      expect(effectivePrayerStatus("unlogged", WINDOW, now)).toBe("pending");
+    });
+
+    it("after the window closes: missed, same as null — the SAME row, now that time has passed, must have changed answer from the previous case", () => {
+      const whileOpen = effectivePrayerStatus("unlogged", WINDOW, new Date("2026-08-10T11:30:00Z"));
+      const afterClose = effectivePrayerStatus("unlogged", WINDOW, new Date("2026-08-10T14:00:00Z"));
+      expect(whileOpen).toBe("pending");
+      expect(afterClose).toBe("missed");
+      expect(afterClose).not.toBe(whileOpen); // the freeze bug would make these equal
+      expect(afterClose).toBe(effectivePrayerStatus(null, WINDOW, new Date("2026-08-10T14:00:00Z")));
+    });
+
+    it("a null window: pending, same as null (never derives missed for either)", () => {
+      expect(effectivePrayerStatus("unlogged", null, new Date("2026-08-10T23:59:00Z"))).toBe("pending");
+    });
+  });
 });
 
 const CHICAGO = {
@@ -63,6 +100,52 @@ describe("resolvePrayerStatuses", () => {
     });
 
     expect(result["2026-08-10"].fajr).toBe("on_time");
+  });
+
+  /**
+   * End-to-end (through the REAL window resolve, not the fast path — see
+   * the "date-window skip optimization" describe below for that branch's
+   * own dedicated 'unlogged' test): an actual `status: 'unlogged'` row on
+   * a recent date must re-derive through computePrayerWindows exactly as
+   * an absent row would, at both an open-window instant and a
+   * closed-window instant for the SAME row.
+   */
+  it("resolves an actual 'unlogged' row exactly like an absent one, through the real window, at two different instants", () => {
+    const rows = [{ date: "2026-08-10", prayer_name: "fajr", status: "unlogged" }];
+    const whileOpen = resolvePrayerStatuses({
+      rows,
+      dates: ["2026-08-10"],
+      now: new Date("2026-08-10T10:30:00Z"), // fajr's window is open around this instant in Chicago on this date
+      accountCreatedDateStr: "2020-01-01",
+      ...CHICAGO,
+    });
+    const stillOpenAbsent = resolvePrayerStatuses({
+      rows: [],
+      dates: ["2026-08-10"],
+      now: new Date("2026-08-10T10:30:00Z"),
+      accountCreatedDateStr: "2020-01-01",
+      ...CHICAGO,
+    });
+    expect(whileOpen["2026-08-10"].fajr).toBe(stillOpenAbsent["2026-08-10"].fajr);
+
+    const afterClose = resolvePrayerStatuses({
+      rows,
+      dates: ["2026-08-10"],
+      now: new Date("2026-08-10T23:00:00Z"), // well past every prayer's window that same day
+      accountCreatedDateStr: "2020-01-01",
+      ...CHICAGO,
+    });
+    const afterCloseAbsent = resolvePrayerStatuses({
+      rows: [],
+      dates: ["2026-08-10"],
+      now: new Date("2026-08-10T23:00:00Z"),
+      accountCreatedDateStr: "2020-01-01",
+      ...CHICAGO,
+    });
+    expect(afterClose["2026-08-10"].fajr).toBe(afterCloseAbsent["2026-08-10"].fajr);
+    // The freeze bug this exists to catch: the SAME row must answer
+    // differently once real time has passed, not repeat its earlier answer.
+    expect(afterClose["2026-08-10"].fajr).not.toBe(whileOpen["2026-08-10"].fajr);
   });
 
   it("derives missed for an unlogged prayer whose window has clearly closed", () => {
@@ -187,6 +270,29 @@ describe("resolvePrayerStatuses", () => {
         ...CHICAGO,
       });
       expect(result[T_MINUS_2].fajr).toBe("qada");
+    });
+
+    /**
+     * R9's second bug, found auditing this file rather than only fixing
+     * what was reported: this fast path bypasses effectivePrayerStatus
+     * entirely (it's the whole point of the optimization — no window
+     * needed once a date is provably closed), so it has its OWN copy of
+     * the "unlogged wins literally forever" hazard. A row genuinely
+     * carrying `status: 'unlogged'` on an old date must resolve to
+     * `missed` here too — a bare `stored ?? "missed"` would instead
+     * return the literal string "unlogged", which is the exact "frozen at
+     * a stored value" bug this whole feature exists to prevent, just hit
+     * through this branch instead of effectivePrayerStatus.
+     */
+    it("resolves an actual 'unlogged' row on an old (fast-pathed) date as missed, not literally 'unlogged'", () => {
+      const result = resolvePrayerStatuses({
+        rows: [{ date: T_MINUS_2, prayer_name: "fajr", status: "unlogged" }],
+        dates: [T_MINUS_2],
+        now: NOW,
+        accountCreatedDateStr: "2020-01-01",
+        ...CHICAGO,
+      });
+      expect(result[T_MINUS_2].fajr).toBe("missed");
     });
 
     it("still respects the account-creation floor on an old (fast-pathed) date", () => {

@@ -30,6 +30,30 @@ describe("getDomainPulse", () => {
     expect(pulse.deen).toBeCloseTo(2 / 5);
   });
 
+  /**
+   * R9 regression: `prayersDone` used to be a DENYLIST
+   * (`status !== "pending" && status !== "missed"`), which silently counted
+   * ANY future status value as done — including 'unlogged' (R9's own new
+   * non-destructive "unlog" value), the opposite of what unlogging a
+   * prayer should do to this fraction. Fixed to an allowlist
+   * (`status === "on_time" || status === "qada"`), matching
+   * lib/home/home-kpis.ts's already-correct pattern for the same table.
+   */
+  it("does NOT count an 'unlogged' prayer as done — R9's non-destructive unlog must not read as completion", async () => {
+    const dataSource = emptyDataSource({
+      getPrayers: async () => [
+        { prayer_name: "fajr", status: "on_time" },
+        { prayer_name: "dhuhr", status: "unlogged" },
+      ],
+    });
+
+    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource);
+
+    // Only fajr counts — dhuhr's 'unlogged' must read the same as absent,
+    // not as done. Before the fix this asserted 2/5 (the exact bug).
+    expect(pulse.deen).toBeCloseTo(1 / 5);
+  });
+
   it("returns null for a domain with zero trackables set today rather than dividing by zero", async () => {
     const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource());
 

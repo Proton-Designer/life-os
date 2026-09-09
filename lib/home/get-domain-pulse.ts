@@ -146,7 +146,14 @@ export async function getDomainPulse(
     dataSource.getWorkoutSessions(userId, date),
   ]);
 
-  const prayersDone = prayers.filter((p) => p.status !== "pending" && p.status !== "missed").length;
+  // ALLOWLIST, not a denylist (R9 fix) — a denylist ("anything but pending/
+  // missed counts as done") silently counted a future status this codebase
+  // adds as "done": `"unlogged"` (R9's non-destructive MCP "unlog") is
+  // neither "pending" nor "missed", so the old `!==`/`!==` form would have
+  // read an explicitly-cleared prayer as completed. Matches the already-
+  // correct pattern lib/home/home-kpis.ts's `computeTodayCompletion` uses
+  // for the exact same table.
+  const prayersDone = prayers.filter((p) => p.status === "on_time" || p.status === "qada").length;
   const deen = safeFraction(prayersDone, 5);
 
   const business = safeFraction(

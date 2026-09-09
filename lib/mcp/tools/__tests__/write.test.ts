@@ -37,9 +37,12 @@ describe("writeTool — dispatch + error shape", () => {
   });
 
   it("REJECTS an unknown action for a known entity, naming the available actions", async () => {
+    // "unlog" USED to be the example here -- R9 wired it for real (see
+    // write.test.ts's own dedicated describe block below), so it's no
+    // longer an unknown action. A genuinely nonexistent one instead.
     const client = makeClient();
-    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "unlog" })).rejects.toThrow(/unknown action.*unlog/i);
-    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "unlog" })).rejects.toThrow(/log/);
+    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "snooze" })).rejects.toThrow(/unknown action.*snooze/i);
+    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "snooze" })).rejects.toThrow(/log/);
   });
 
   it("fetches the timezone ONCE and passes it into the handler — dispatches deen.prayer.log through to a real result", async () => {
@@ -67,5 +70,27 @@ describe("writeTool — dispatch + error shape", () => {
   it("defaults patch to {} when omitted, so the handler's own validation (not a crash here) reports the missing fields", async () => {
     const client = makeClient();
     await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "log" })).rejects.toThrow(/patch\.date/i);
+  });
+});
+
+describe("writeTool — deen.prayer.unlog (R9)", () => {
+  it("dispatches through to a real result -- status 'unlogged', never a DELETE", async () => {
+    const client = makeClient({ timezone: "America/Chicago", id: "p-9" });
+
+    const outcome = await writeTool(client, "user-1", {
+      domain: "deen",
+      entity: "prayer",
+      action: "unlog",
+      patch: { date: "2026-09-08", prayer_name: "fajr" },
+    });
+
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toMatchObject({ id: "p-9", date: "2026-09-08", status: "unlogged" });
+  });
+
+  it("requires patch.date and patch.prayer_name, same as log", async () => {
+    const client = makeClient();
+    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "unlog" })).rejects.toThrow(/patch\.date/i);
   });
 });

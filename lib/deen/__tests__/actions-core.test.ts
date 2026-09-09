@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { markPrayerCore, toggleSunnahCore, toggleAdhkarCore, fetchTimezone } from "../actions-core";
+import { markPrayerCore, unlogPrayerCore, toggleSunnahCore, toggleAdhkarCore, fetchTimezone } from "../actions-core";
 
 function makeClient(opts: { existing?: { completed: boolean } | null; upsertError?: unknown; id?: string } = {}) {
   const upsertCalls: Record<string, unknown>[] = [];
@@ -91,6 +91,47 @@ describe("markPrayerCore — AGENTS.md's timezone rule, pinned at the exact UTC-
     await expect(
       markPrayerCore(client, "user-1", "UTC", new Date("2026-09-08T12:00:00Z"), "2026-09-08", "fajr", "on_time"),
     ).rejects.toThrow(/boom/);
+  });
+});
+
+describe("unlogPrayerCore (R9) — same shape and same date-boundary discipline as markPrayerCore", () => {
+  it("upserts status: 'unlogged' -- never a DELETE", async () => {
+    const now = new Date("2026-09-08T12:00:00.000Z");
+    const { client, upsertCalls } = makeClient();
+
+    const result = await unlogPrayerCore(client, "user-1", "UTC", now, "2026-09-08", "fajr");
+
+    expect(upsertCalls[0]).toMatchObject({ date: "2026-09-08", prayer_name: "fajr", status: "unlogged" });
+    expect(result).toMatchObject({ date: "2026-09-08", prayerName: "fajr", status: "unlogged" });
+  });
+
+  it("rejects a date strictly after today, in the given timezone -- same guard as markPrayerCore", async () => {
+    const now = new Date("2026-09-08T12:00:00.000Z");
+    const { client, upsertCalls } = makeClient();
+
+    await expect(unlogPrayerCore(client, "user-1", "America/Chicago", now, "2026-09-09", "fajr")).rejects.toThrow(/after today/i);
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  it("19:01 Chicago local, 00:01 UTC the next day: unlogging 'today' in Chicago still succeeds, same UTC-rollover boundary markPrayerCore is pinned against", async () => {
+    const now = new Date("2026-09-09T00:01:00.000Z");
+    const { client, upsertCalls } = makeClient();
+
+    await unlogPrayerCore(client, "user-1", "America/Chicago", now, "2026-09-08", "isha");
+    expect(upsertCalls[0]).toMatchObject({ date: "2026-09-08" });
+  });
+
+  it("sets logged_at to the given `now`, not a fresh Date() call", async () => {
+    const now = new Date("2026-09-08T12:00:00.000Z");
+    const { client, upsertCalls } = makeClient();
+
+    await unlogPrayerCore(client, "user-1", "UTC", now, "2026-09-08", "fajr");
+    expect(upsertCalls[0]).toMatchObject({ logged_at: now.toISOString() });
+  });
+
+  it("surfaces a DB error as a real throw", async () => {
+    const { client } = makeClient({ upsertError: { message: "boom" } });
+    await expect(unlogPrayerCore(client, "user-1", "UTC", new Date("2026-09-08T12:00:00Z"), "2026-09-08", "fajr")).rejects.toThrow(/boom/);
   });
 });
 

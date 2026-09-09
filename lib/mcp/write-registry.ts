@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { markPrayerCore, toggleSunnahCore, toggleAdhkarCore } from "@/lib/deen/actions-core";
+import { markPrayerCore, unlogPrayerCore, toggleSunnahCore, toggleAdhkarCore } from "@/lib/deen/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
@@ -30,13 +30,14 @@ import type { RunMcpToolOutcome } from "./tool-wrapper";
 /**
  * `write(domain, entity, action, id?, patch?)` — L6's dispatch table,
  * the mirror of `read`'s (lib/mcp/registry.ts). Same posture: the SHAPE is
- * the deliverable, not the coverage — `deen` holds exactly the 3 actions
- * built this layer (team-lead: "start with toggleSunnah / toggleAdhkar /
+ * the deliverable, not the coverage — `deen` started with the 3 actions
+ * built that layer (team-lead: "start with toggleSunnah / toggleAdhkar /
  * markPrayer... they are the owner's 'checking off logs' in the most
- * literal form"). `unmarkPrayer`'s "unlog" is DELIBERATELY NOT HERE — see
- * the header on `deen.prayer`'s action map below for why, and
- * docs/ai-connector/WRITE-DELETE-DECISION.md for the full reasoning handed
- * back to the lead rather than silently resolved.
+ * literal form"). `deen.prayer.unlog` (R9) is now a fourth — see the
+ * header on `deen.prayer`'s action map below and
+ * docs/ai-connector/WRITE-DELETE-DECISION.md for why it was held back
+ * initially and what changed (a real, non-destructive `'unlogged'` status
+ * value, not a workaround).
  *
  * Every handler here calls a `core()` from lib/deen/actions-core.ts that
  * NEVER calls `requireUser()`/`getProfile()`/`getAuthedUser()` — this file
@@ -261,16 +262,33 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               };
             },
           },
-          // "unlog" deliberately absent -- see this file's header comment
-          // and docs/ai-connector/WRITE-DELETE-DECISION.md. The existing
-          // cookie-authed unmarkPrayer DELETEs the row, which the MCP path
-          // may never do (team-lead's guardrail); expressing "go back to
-          // never-logged" without a DELETE needs either a schema change
-          // (a real NULL/"cleared" state the status column doesn't have
-          // today) or accepting a materially different behavior (freezing
-          // at a literal "pending" status rather than the dynamic
-          // upcoming/pending/missed re-derivation effectivePrayerStatus
-          // gives an absent row). Neither is a call to make silently.
+          // "unlog" -- R9, approved and now wired. Previously deliberately
+          // absent (see docs/ai-connector/WRITE-DELETE-DECISION.md for the
+          // full history of why status:'pending' is NOT a safe substitute
+          // for a DELETE): a real 'unlogged' status value now exists,
+          // taught to `effectivePrayerStatus`/`resolvePrayerStatuses`
+          // (lib/deen/prayer-status.ts) to behave EXACTLY like an absent
+          // row. The cookie-authed `unmarkPrayer` still DELETEs -- that
+          // asymmetry is deliberate, not a leftover: see
+          // unlogPrayerCore's own header (lib/deen/actions-core.ts) for
+          // the actor-based reasoning.
+          unlog: {
+            action: "unlog",
+            description: "Clear a prayer's logged status for a date, without deleting history -- it re-derives exactly as an absent row would (upcoming/pending/missed by the clock).",
+            patchShape: "{ date: string, prayer_name: PrayerName }",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const prayerName = requirePrayerName(patch);
+              const result = await unlogPrayerCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, date, prayerName);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `unlogged ${prayerName} on ${date}`,
+              };
+            },
+          },
         },
       },
       sunnah_log: {
