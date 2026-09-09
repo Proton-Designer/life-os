@@ -113,7 +113,7 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     expect(caps.isError).toBeFalsy();
     const capsBlock = (caps.content as { type: string; text?: string }[])[0];
     const capsPayload = JSON.parse(capsBlock.text ?? "{}");
-    expect(capsPayload.entities.map((e: { entity: string }) => e.entity)).toEqual(["prayer"]);
+    expect(capsPayload.entities.map((e: { entity: string }) => e.entity)).toContain("prayer");
 
     // Then the actual read, using exactly the entity discovery just named.
     const result = await client.callTool({ name: "read", arguments: { domain: "deen", entity: "prayer" } });

@@ -52,8 +52,8 @@ describe("readTool — unknown domain/entity", () => {
 
   it("REJECTS an unknown entity for a known domain, naming the valid entities", async () => {
     const { client } = makeClient();
-    await expect(readTool(client, "user-1", { domain: "deen", entity: "habit" })).rejects.toThrow(/unknown entity.*habit/i);
-    await expect(readTool(client, "user-1", { domain: "deen", entity: "habit" })).rejects.toThrow(/prayer/);
+    await expect(readTool(client, "user-1", { domain: "deen", entity: "fasting" })).rejects.toThrow(/unknown entity.*fasting/i);
+    await expect(readTool(client, "user-1", { domain: "deen", entity: "fasting" })).rejects.toThrow(/prayer/);
   });
 });
 

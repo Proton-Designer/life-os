@@ -18,8 +18,40 @@ describe("registry", () => {
     expect(getDomain("fitness")).toBeNull();
   });
 
-  it("getEntity returns null for a known domain but unknown entity", () => {
-    expect(getEntity("deen", "habit")).toBeNull();
+  it("getEntity returns null for a known domain but a truly unknown entity", () => {
+    expect(getEntity("deen", "fasting")).toBeNull();
+  });
+
+  it("deen has exactly the 8 entities wired (prayer + the 7 added once 131/133 landed)", () => {
+    expect(Object.keys(REGISTRY.deen.entities).sort()).toEqual([
+      "adhkar",
+      "habit",
+      "habit_log",
+      "prayer",
+      "quran_session",
+      "reflection_entry",
+      "sunnah_log",
+      "weekly_focus",
+    ]);
+  });
+
+  it("every entity records a non-empty updatedAtVerification — the one-line 'how was this checked' note, never skipped", () => {
+    for (const domain of Object.values(REGISTRY)) {
+      for (const entity of Object.values(domain.entities)) {
+        expect(entity.updatedAtVerification.length).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it("append-only entities (quran_session, reflection_entry) use created_at, not a fabricated column", () => {
+    expect(getEntity("deen", "quran_session")!.updatedAtColumn).toBe("created_at");
+    expect(getEntity("deen", "reflection_entry")!.updatedAtColumn).toBe("created_at");
+  });
+
+  it("genuinely mutable entities use the real trigger-backed updated_at migration 133 adds — never created_at", () => {
+    for (const entity of ["sunnah_log", "adhkar", "habit", "habit_log", "weekly_focus"]) {
+      expect(getEntity("deen", entity)!.updatedAtColumn).toBe("updated_at");
+    }
   });
 
   it("getEntity returns null for an unknown domain regardless of entity name", () => {

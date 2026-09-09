@@ -27,14 +27,15 @@ describe("listCapabilitiesTool", () => {
     const outcome = await listCapabilitiesTool("deen");
     const payload = textPayload(outcome);
     expect(payload.domain).toBe("deen");
-    expect(payload.entities).toHaveLength(1);
-    expect(payload.entities[0]).toMatchObject({
+    expect(payload.entities).toHaveLength(8);
+    const prayer = payload.entities.find((e: { entity: string }) => e.entity === "prayer");
+    expect(prayer).toMatchObject({
       entity: "prayer",
       detail_levels: ["ids", "summary", "full"],
       actions: ["read"],
     });
-    expect(payload.entities[0].fields.summary).toEqual(["date", "prayer_name", "status"]);
-    expect(payload.entities[0].fields.full).toContain("logged_at");
+    expect(prayer.fields.summary).toEqual(["date", "prayer_name", "status"]);
+    expect(prayer.fields.full).toContain("logged_at");
   });
 
   it("THROWS a clear error for an unknown domain, naming the valid set — never a silent empty result", async () => {

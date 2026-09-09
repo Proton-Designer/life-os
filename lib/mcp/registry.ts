@@ -48,6 +48,16 @@ export interface EntityDef {
    * a worse failure than admitting the column doesn't exist.
    */
   updatedAtColumn: string | null;
+  /**
+   * team-lead's ruling on the finding above: "the registry declares an
+   * explicit `updatedAtColumn` per entity, and it must be verified against
+   * that table's real write paths — never inferred from a name... put a
+   * one-line note in the registry entry recording HOW it was verified, so
+   * the next person doesn't have to redo it." This is that note — one
+   * sentence, naming the actual write path(s) checked, not a restatement
+   * of the column name.
+   */
+  updatedAtVerification: string;
   /** Returned at `detail:"summary"` (plus id/updated_at, always forced — see readTool). */
   summaryColumns: string[];
   /** Returned at `detail:"full"` — the maximal projection this entity will EVER return, including to `fields`. Must be a superset of summaryColumns. */
@@ -75,6 +85,8 @@ export const REGISTRY: Record<string, DomainDef> = {
         description: "One prayer's logged status for one date (fajr/dhuhr/asr/maghrib/isha; on_time/qada/missed/pending).",
         idColumn: "id",
         updatedAtColumn: "logged_at",
+        updatedAtVerification:
+          "markPrayer (app/(app)/deen/actions.ts) is the table's ONLY write path and sets logged_at on every upsert; unmarkPrayer deletes the row outright rather than leaving a stale one.",
         summaryColumns: ["date", "prayer_name", "status"],
         fullColumns: ["date", "prayer_name", "status", "logged_at", "user_id"],
         filterableColumns: ["date", "prayer_name", "status"],
@@ -82,6 +94,109 @@ export const REGISTRY: Record<string, DomainDef> = {
           { column: "date", ascending: false },
           { column: "prayer_name", ascending: true },
         ],
+      },
+      sunnah_log: {
+        entity: "sunnah_log",
+        table: "sunnah_logs",
+        description: "One rawatib (voluntary prayer) slot's completion for one date/prayer.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "toggleSunnah (app/(app)/deen/actions.ts) upserts `completed` on an existing row without touching created_at, which would go stale on a second toggle -- migration 133 adds a real trigger-backed updated_at for exactly this reason; verified NOT faithfully served by created_at before adding it.",
+        summaryColumns: ["date", "prayer_name", "slot", "completed"],
+        fullColumns: ["date", "prayer_name", "slot", "completed", "created_at", "user_id"],
+        filterableColumns: ["date", "prayer_name", "slot", "completed"],
+        orderBy: [
+          { column: "date", ascending: false },
+          { column: "prayer_name", ascending: true },
+        ],
+      },
+      adhkar: {
+        entity: "adhkar",
+        table: "adhkar_logs",
+        description: "Morning/evening dhikr completion for one date.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "toggleAdhkar (app/(app)/deen/actions.ts) upserts `completed` on an existing row; the table had NO created_at or any timestamp at all before migration 133 added a real trigger-backed updated_at.",
+        summaryColumns: ["date", "period", "completed"],
+        fullColumns: ["date", "period", "completed", "user_id"],
+        filterableColumns: ["date", "period", "completed"],
+        orderBy: [
+          { column: "date", ascending: false },
+          { column: "period", ascending: true },
+        ],
+      },
+      quran_session: {
+        entity: "quran_session",
+        table: "quran_sessions",
+        description: "One logged Qur'an reading session.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "logQuranSession (app/(app)/deen/actions.ts) only ever INSERTs -- no update or delete path for this table exists anywhere in actions.ts -- so created_at IS the true last-modified time; deliberately no new column added (team-lead's ruling: append-only tables are legitimately served by created_at).",
+        summaryColumns: ["date", "pages_read", "surah", "juz"],
+        fullColumns: ["date", "pages_read", "surah", "juz", "created_at", "user_id"],
+        filterableColumns: ["date"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+      reflection_entry: {
+        entity: "reflection_entry",
+        table: "reflection_entries",
+        description: "One tally of a logged self-reflection, tier 1-3.",
+        idColumn: "id",
+        updatedAtColumn: "created_at",
+        updatedAtVerification:
+          "logReflectionEntry inserts; decrementReflectionEntry (both app/(app)/deen/actions.ts) deletes the single most recent row of a tier -- no row is ever UPDATEd in place, so created_at IS the true last-modified time; no new column added, same append-only reasoning as quran_session.",
+        summaryColumns: ["date", "tier"],
+        fullColumns: ["date", "tier", "created_at", "user_id"],
+        filterableColumns: ["date", "tier"],
+        orderBy: [
+          { column: "date", ascending: false },
+          { column: "created_at", ascending: false },
+        ],
+      },
+      habit: {
+        entity: "habit",
+        table: "deen_habits",
+        description: "A committed worship habit being built (name, cue, stage).",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "updateDeenHabit, archiveDeenHabit, setDeenHabitStageOverride, and setDeenHabitCommittedDate (all app/(app)/deen/actions.ts) each UPDATE an existing row post-creation -- created_at would go stale on the very first edit; migration 133 adds a real trigger-backed updated_at.",
+        summaryColumns: ["name", "committed_date", "archived"],
+        fullColumns: ["name", "committed_date", "archived", "anchor_cue", "commitment_note", "stage_override", "created_at", "user_id"],
+        filterableColumns: ["archived"],
+        orderBy: [
+          { column: "committed_date", ascending: false },
+          { column: "name", ascending: true },
+        ],
+      },
+      habit_log: {
+        entity: "habit_log",
+        table: "deen_habit_logs",
+        description: "One day's completion record for one habit.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "toggleDeenHabitLog and setDeenHabitLogStatus (both app/(app)/deen/actions.ts) upsert `completed` on an existing (habit_id,date) row; the table had no created_at at all before migration 133 added a real trigger-backed updated_at.",
+        summaryColumns: ["habit_id", "date", "completed"],
+        fullColumns: ["habit_id", "date", "completed", "user_id"],
+        filterableColumns: ["habit_id", "date", "completed"],
+        orderBy: [{ column: "date", ascending: false }],
+      },
+      weekly_focus: {
+        entity: "weekly_focus",
+        table: "deen_weekly_focus",
+        description: "Which habit is this week's focus.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "setWeeklyFocus (app/(app)/deen/actions.ts) upserts `habit_id` on (user_id,week_start_date) conflict, which can genuinely replace a week's focus habit without touching created_at; migration 133 adds a real trigger-backed updated_at.",
+        summaryColumns: ["week_start_date", "habit_id"],
+        fullColumns: ["week_start_date", "habit_id", "created_at", "user_id"],
+        filterableColumns: ["week_start_date"],
+        orderBy: [{ column: "week_start_date", ascending: false }],
       },
     },
   },
@@ -121,6 +236,8 @@ export const REGISTRY: Record<string, DomainDef> = {
         description: "Raw ingested book text and its embedding — existence only; content is deliberately never exposed over MCP.",
         idColumn: "id",
         updatedAtColumn: null, // no created_at/updated_at on this table either (migration 063) — honestly null, not invented
+        updatedAtVerification:
+          "Checked migration 063 directly: source_chunks has no created_at/updated_at column at all. Moot anyway -- summaryColumns/fullColumns are both empty, so no row-level field including a timestamp is ever exposed for this entity.",
         summaryColumns: [],
         fullColumns: [],
         filterableColumns: [],
