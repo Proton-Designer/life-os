@@ -153,6 +153,21 @@ export interface EntityDef {
     /** Applied to the parent lookup, same semantics as this entity's own `fixedFilter` — e.g. `{domain: "school"}` to verify a schedule_events row is actually school's. */
     parentFixedFilter?: Record<string, string>;
   };
+  /**
+   * Per-column max length, enforced in `read.ts`'s own response mapping
+   * (`toItem`) — never left to trust in whatever a write path happens to
+   * store. Built for `self_mastery.lesson.provenance_quote` (team-lead's
+   * ruling): the extraction prompt asks for "one sentence," and that holds
+   * on average (276 lessons, avg 138 chars) but NOT always (max 477 chars
+   * measured on production, ~75 words) — prompt discipline is not an
+   * enforcement mechanism, and a future provider swap could ignore the
+   * prompt entirely. A column can be exposed as "a citation, not the book"
+   * only if something at OUR layer guarantees it stays citation-sized,
+   * regardless of what any provider ever writes. A truncated value is
+   * still marked truncated in the returned string (a trailing "…"), never
+   * silently cut with no sign anything was removed.
+   */
+  truncateColumns?: Record<string, number>;
 }
 
 export interface DomainDef {
@@ -707,30 +722,29 @@ export const REGISTRY: Record<string, DomainDef> = {
       "The raw book text itself (source_chunks.text/.embedding) is structurally excluded -- see that entity below.",
     entities: {
       /**
-       * FLAGGED TO THE LEAD, NOT DECIDED HERE (per the explicit instruction
-       * that this specific judgement call is theirs): `provenance_quote`
+       * RULED ON BY THE LEAD (measured, not judged): `provenance_quote`
        * below is genuinely verbatim book text, not a paraphrase -- the
        * extraction prompt (lib/self-mastery/ingestion/llm/ollama-provider.ts
        * ~line 161) instructs the model to copy "the ONE sentence (or short
        * span)... that exact span, copied verbatim (same words, same order,
        * same punctuation)", and `isGrounded()` (llm/grounding.ts) enforces
        * that it verbatim-matches a substring of the source chunk for every
-       * provider, not just as documentation. So by DESIGN this is a short
-       * (~1 sentence) quote, not a paragraph -- but the DB constraint is
-       * only `length(btrim(...)) > 0` (064_ulm_lessons.sql), so nothing
-       * technically caps it at one sentence if a provider misbehaves. This
-       * is the "a card containing a 400-word extract is arguably the book"
-       * case named in the brief. I'm including it in fullColumns below
-       * (recommendation: the field's entire purpose is grounding/citation --
-       * proving the claim isn't hallucinated -- and core_claim/mechanism/
-       * action_template, the fields that actually carry the book's IDEAS,
-       * are independently required to be substantially reworded away from
-       * it by passesClaimNotQuote), but this is exactly the call the lead
-       * asked to make themselves, not have made for them. If the ruling
-       * goes the other way, exclude `provenance_quote` from `lesson`'s
-       * fullColumns the same way `source_chunks.text` is excluded below --
-       * no other change needed, `validateDisplay`/`resolveColumns` already
-       * enforce whatever the allowlist says.
+       * provider, not just as documentation. Measured against production
+       * (276 lessons): avg 138 chars -- one sentence, as intended -- but
+       * MAX 477 chars (~75 words). The "400-word extract is arguably the
+       * book" scenario named in the brief is not hypothetical; prompt
+       * discipline alone has already been exceeded at least once.
+       *
+       * RULING: keep it (its purpose is grounding/citation -- proving the
+       * claim isn't hallucinated -- and core_claim/mechanism/action_template,
+       * the fields that actually carry the book's IDEAS, are independently
+       * required to be substantially reworded away from it by
+       * `passesClaimNotQuote`), but enforce "citation-sized" at the layer WE
+       * control rather than inherit it from a prompt: `truncateColumns:
+       * {provenance_quote: 240}` below caps it in `read.ts`'s own response
+       * mapping, regardless of what any provider (including a future one
+       * that ignores the prompt entirely) ever stores. See EntityDef.
+       * truncateColumns's own comment for the mechanism.
        *
        * Checked and ruled OUT as separate concerns, for the record:
        * `cards.prompt`/`.answer` are AI-generated Q&A pairs, never a direct
@@ -785,6 +799,8 @@ export const REGISTRY: Record<string, DomainDef> = {
         // below, not a security concern for this one.
         filterableColumns: ["book_id", "status", "section_id"],
         orderBy: [{ column: "created_at", ascending: false }],
+        // See this entity's header comment (above) for the full ruling.
+        truncateColumns: { provenance_quote: 240 },
       },
       book: {
         entity: "book",
@@ -1009,29 +1025,31 @@ export const REGISTRY: Record<string, DomainDef> = {
        * part of the retrieval-practice engine this domain is about, even
        * though its content comes from a class.
        *
-       * VERIFICATION GAP, FLAGGED RATHER THAN GLOSSED OVER: grepped this
-       * entire repository for any '.from("questions")' call, in either
-       * direction, and found NONE -- no Server Action, RPC caller, or
-       * ingestion path anywhere in tracking-app creates, edits, or retires
-       * a question. The table (and its real, NOT NULL `updated_at` column)
-       * exists in production because migration 111 created it, but nothing
-       * in THIS codebase writes to it -- it is presumably written by
-       * CollegeOS's own application code, which is not in this repository
-       * and which I have no visibility into. I'm registering `updated_at`
-       * as the real column rather than fabricating a null (per the schema
-       * it IS a genuine trigger-free but NOT NULL, app-maintained-by-design
-       * column, not an absent one), but I cannot personally verify it's
-       * kept honest on every write the way the standing rule asks --
-       * that verification has to happen in whichever codebase actually
-       * writes this table.
+       * VERIFICATION GAP, RESOLVED BY THE LEAD (measured, not judged):
+       * grepped this entire repository for any '.from("questions")' call,
+       * in either direction, and found NONE -- no Server Action, RPC
+       * caller, or ingestion path anywhere in tracking-app creates, edits,
+       * or retires a question. The table (and its real, NOT NULL
+       * `updated_at` column) exists in production because migration 111
+       * created it. The lead queried production directly rather than
+       * leaving it at "presumably CollegeOS": zero triggers on `questions`,
+       * zero rows in the table, zero rows where `updated_at >
+       * created_at`. No evidence this column is EVER maintained by
+       * anything. Ruling: `updatedAtColumn: null` -- a marker we cannot
+       * verify is worse than an absent one (the lead's own words:
+       * "absence is visible and a lie is not," the exact
+       * active_workout_plans failure mode). Registering the real column
+       * anyway would have been asserting a guarantee with zero evidence
+       * behind it; if CollegeOS's own code starts maintaining it, that's a
+       * one-line change made WITH evidence, not assumed now.
        */
       question: {
         entity: "question",
         table: "questions",
         description: "One retrieval-practice question from a class's question bank (CollegeOS). Scheduler state is NOT stored here -- it's replayed from `review`/`card_state`, same engine as book cards.",
         idColumn: "id",
-        updatedAtColumn: "updated_at",
-        updatedAtVerification: "See this entity's own header comment above -- the column is real (111_ulm_reviews_card_states_unify.sql) but this repository contains no writer of any kind for this table to verify against.",
+        updatedAtColumn: null,
+        updatedAtVerification: "See this entity's own header comment above -- the column is real (111_ulm_reviews_card_states_unify.sql) but production shows zero triggers, zero rows, and zero evidence it is ever maintained. Registering null rather than a marker nobody can verify.",
         summaryColumns: ["prompt", "topic", "active", "class_id"],
         fullColumns: ["prompt", "answer", "topic", "origin", "source_anchor", "source_skipped", "active", "class_id", "created_at", "updated_at"],
         filterableColumns: ["class_id", "active", "origin"],

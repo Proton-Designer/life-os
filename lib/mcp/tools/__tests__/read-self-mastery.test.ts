@@ -116,6 +116,15 @@ describe("questions.encrypted-style exclusions don't apply here, but the entity 
     if (block.type !== "text") throw new Error("expected text");
     expect(JSON.parse(block.text).items[0]).toMatchObject({ id: "q1", prompt: "What is X?" });
   });
+
+  it("reports updated_at as null despite the row carrying a real updated_at value -- the lead's ruling: zero verified writers means a marker we can't trust, not one we assert anyway", async () => {
+    const row = { id: "q1", prompt: "What is X?", answer: "X is Y.", topic: null, origin: "self", source_anchor: "p.42", source_skipped: false, active: true, class_id: "class-1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-05T00:00:00Z" };
+    const { client } = makeClient({ list: [row] });
+    const outcome = await readTool(client, "user-1", { domain: "self_mastery", entity: "question", detail: "ids" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text).items[0]).toMatchObject({ id: "q1", updated_at: null });
+  });
 });
 
 describe("sources — fixedFilter keeps CollegeOS's course-linked rows out of this entity", () => {
@@ -166,6 +175,30 @@ describe("lesson — flat (not parent-scoped), per the owner's own ask to browse
     const { client, eqCalls } = makeClient({ list: [] });
     await readTool(client, "user-1", { domain: "self_mastery", entity: "lesson", filter: { book_id: "book-1" } });
     expect(eqCalls).toEqual(expect.arrayContaining([["book_id", "book-1"]]));
+  });
+
+  it("truncates provenance_quote to 240 chars + an ellipsis -- the lead's ruling: a citation must be citation-sized regardless of what any provider ever stores", async () => {
+    const longQuote = "Q".repeat(500); // production measured a real 477-char outlier; 500 exercises the cap with room to spare
+    const row = { id: "l2", title: "t", core_claim: null, provenance_quote: longQuote, book_id: "book-1", created_at: "2026-09-01T00:00:00Z" };
+    const { client } = makeClient({ list: [row] });
+    const outcome = await readTool(client, "user-1", { domain: "self_mastery", entity: "lesson", detail: "full" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    const item = JSON.parse(block.text).items[0];
+    expect(item.provenance_quote).toHaveLength(241); // 240 chars + the "…" marker
+    expect(item.provenance_quote.endsWith("…")).toBe(true);
+    expect(item.provenance_quote.slice(0, 240)).toBe("Q".repeat(240));
+  });
+
+  it("leaves a short (real-world-typical) provenance_quote untouched -- avg on production is 138 chars, well under the cap", async () => {
+    const shortQuote = "Habit stacking is a strategy for building new habits by chaining them to existing ones.";
+    const row = { id: "l3", title: "t", core_claim: null, provenance_quote: shortQuote, book_id: "book-1", created_at: "2026-09-01T00:00:00Z" };
+    const { client } = makeClient({ list: [row] });
+    const outcome = await readTool(client, "user-1", { domain: "self_mastery", entity: "lesson", detail: "full" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    const item = JSON.parse(block.text).items[0];
+    expect(item.provenance_quote).toBe(shortQuote);
   });
 });
 

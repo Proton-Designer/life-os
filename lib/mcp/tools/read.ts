@@ -67,6 +67,21 @@ function selectClause(def: EntityDef, columns: string[]): string {
   return Array.from(set).join(", ");
 }
 
+/**
+ * `def.truncateColumns`, enforced HERE — the one place every response for
+ * this entity passes through, regardless of `detail`/`fields` or which
+ * write path (or provider, or future provider) put the value there. A
+ * string longer than the configured max is cut to that length and marked
+ * with a trailing "…" so a caller can tell the value was shortened, never
+ * silently. Non-string values (shouldn't occur for a text column, but this
+ * is defense-in-depth, not a type assertion) pass through unchanged.
+ */
+function applyTruncation(def: EntityDef, col: string, value: unknown): unknown {
+  const max = def.truncateColumns?.[col];
+  if (!max || typeof value !== "string" || value.length <= max) return value;
+  return `${value.slice(0, max)}…`;
+}
+
 /** Maps one raw row to the uniform `{id, updated_at, ...columns}` output shape — the id/updated_at keys are always THESE names in the response, regardless of the underlying column names (e.g. `logged_at` -> `updated_at`). */
 function toItem(def: EntityDef, row: Record<string, unknown>, columns: string[]): Record<string, unknown> {
   const item: Record<string, unknown> = {
@@ -74,7 +89,7 @@ function toItem(def: EntityDef, row: Record<string, unknown>, columns: string[])
     updated_at: def.updatedAtColumn ? row[def.updatedAtColumn] ?? null : null,
   };
   for (const col of columns) {
-    if (col !== def.idColumn && col !== def.updatedAtColumn) item[col] = row[col];
+    if (col !== def.idColumn && col !== def.updatedAtColumn) item[col] = applyTruncation(def, col, row[col]);
   }
   return item;
 }
