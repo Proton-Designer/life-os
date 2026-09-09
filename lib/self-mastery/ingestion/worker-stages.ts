@@ -37,6 +37,7 @@ import { loadPdf, extractPages, extractOutline } from "./pdf";
 import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
 import { computeTargetLessonCount } from "./merge";
+import { buildSectionInsertPlan } from "./persist-sections";
 
 type IngestStage = Database["public"]["Enums"]["ingest_stage"];
 type IngestionJobRow = Database["public"]["Tables"]["ingestion_jobs"]["Row"];
@@ -82,6 +83,37 @@ export type StageHandler = (ctx: StageContext) => Promise<StageWorkResult>;
  * IDEMPOTENT: delete-then-insert of this book's `source_chunks`, keyed by
  * `book_id` -- a retried attempt overwrites its own prior output rather
  * than duplicating it, per migration 109's own stated worker obligation.
+ *
+ * L9/R6: ALSO persists `book_sections` from `sections` and links
+ * `source_chunks.section_id`, both new as of this pass. Not new work --
+ * `parseStructure` (structure.ts) already ran on every ingest, already
+ * decided chunk boundaries from it (`chunkBook` below), and until now
+ * simply discarded the `DetectedSection[]` array afterward. This is
+ * "persist what already exists," never a second extraction pass, and it
+ * costs zero model calls (approved by the lead: no new job, no new
+ * failure mode). Each chunk's own `sectionIndex` (chunk.ts) is the join
+ * key back into `sections`, already carried through — no re-derivation.
+ *
+ * Section ids are generated CLIENT-SIDE (persist-sections.ts's
+ * `buildSectionInsertPlan`), before either insert, so this function owns
+ * the index -> id mapping outright rather than depending on PostgREST
+ * returning inserted rows in insertion order, which is not a contract.
+ * That mapping is a PURE function, deliberately factored out of this I/O
+ * — tested directly (persist-sections.test.ts) without mocking Supabase,
+ * PDF parsing, or Storage. Same idempotent delete-then-insert discipline
+ * as `source_chunks`, and deliberately run FIRST: a re-chunk's fresh
+ * `source_chunks` rows need real section ids to reference; the reverse
+ * order would insert chunks with dangling references, if only for the
+ * width of one function call.
+ *
+ * SCOPED TO FUTURE INGESTS ONLY, NOT A BACKFILL FOR EXISTING BOOKS --
+ * measured, not assumed: the lead checked production directly. 13 books
+ * have chunks; exactly 1 has a `file_path` (a real PDF ingest). The other
+ * 12 are seeded starter-deck rows with no source file to re-download and
+ * no outline to re-parse. A backfill would serve a population of one real
+ * row, handleable by hand if it ever matters -- not worth the
+ * re-download/page-range-matching machinery this file's own author
+ * couldn't verify anyway (no Storage access from here).
  */
 async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   const { data: book, error: bookError } = await ctx.supabase
@@ -103,6 +135,37 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   const sections = parseStructure(pages, outline);
   const chunks = chunkBook(pages, sections);
 
+  // The index->id mapping and per-chunk section assignment are computed by
+  // a pure function (persist-sections.ts), tested directly without any DB
+  // mocking -- this is only the I/O around its output.
+  const { sectionRows, chunkSectionIds } = buildSectionInsertPlan(sections, chunks);
+
+  // book_sections, idempotent (delete-then-insert), run BEFORE
+  // source_chunks below so this book's chunks can reference real section
+  // ids. Deleting first is harmless even though old source_chunks rows
+  // (not yet deleted) briefly lose their section_id to the FK's ON DELETE
+  // SET NULL -- those rows are deleted in the very next step regardless.
+  const { error: deleteSectionsError } = await ctx.supabase.from("book_sections").delete().eq("book_id", ctx.job.book_id);
+  if (deleteSectionsError) throw deleteSectionsError;
+
+  if (sectionRows.length > 0) {
+    const { error: insertSectionsError } = await ctx.supabase.from("book_sections").insert(
+      sectionRows.map((s) => ({
+        id: s.id,
+        book_id: ctx.job.book_id,
+        // Trigger-derived (set_user_id_from_book, 062) -- overwritten
+        // unconditionally before the row is stored; never read from here.
+        user_id: "00000000-0000-0000-0000-000000000000",
+        title: s.title,
+        sort_order: s.sort_order,
+        page_start: s.page_start,
+        page_end: s.page_end,
+        level: s.level,
+      })),
+    );
+    if (insertSectionsError) throw insertSectionsError;
+  }
+
   // Idempotent retry: clear this book's prior chunk rows before writing the
   // fresh set, rather than appending -- a redone attempt must produce the
   // same result, not a duplicated one.
@@ -111,7 +174,7 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
 
   if (chunks.length > 0) {
     const { error: insertError } = await ctx.supabase.from("source_chunks").insert(
-      chunks.map((c) => ({
+      chunks.map((c, i) => ({
         book_id: ctx.job.book_id,
         // Trigger-derived (set_user_id_from_book, 063) -- overwritten
         // unconditionally before the row is stored; never read from here.
@@ -121,6 +184,7 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
         page_end: c.pageEnd,
         token_count: c.tokenCount,
         sort_order: c.sortOrder,
+        section_id: chunkSectionIds[i],
       })),
     );
     if (insertError) throw insertError;
