@@ -7,17 +7,21 @@ import { runMcpTool } from "@/lib/mcp/tool-wrapper";
 import { listCapabilitiesTool, resolveListCapabilitiesOperation } from "@/lib/mcp/tools/list-capabilities";
 import { readTool, resolveReadOperation, type ReadArgs } from "@/lib/mcp/tools/read";
 import { writeTool, resolveWriteOperation, type WriteArgs } from "@/lib/mcp/tools/write";
+import { widgetManageTool, resolveWidgetManageOperation, resolveWidgetManageScope, type WidgetManageArgs } from "@/lib/mcp/tools/widget-manage";
 
 /**
- * L3+L6 (docs/ai-connector/PROGRAM-PLAN.md), scope per the team-lead's
- * adoption of Eng2's TOOL-ARCHITECTURE.md (commit 2855e96): three of the
+ * L3+L6+L11 (docs/ai-connector/PROGRAM-PLAN.md), scope per the team-lead's
+ * adoption of Eng2's TOOL-ARCHITECTURE.md (commit 2855e96): four of the
  * seven generic tools — `list_capabilities` (discovery), `read` (every
  * domain read, wired to `deen`'s 8 entities — lib/mcp/registry.ts), and
  * `write` (every domain write, wired to `deen.prayer.log`,
  * `deen.sunnah_log.toggle`, `deen.adhkar.toggle` — lib/mcp/write-registry.ts).
  * `deen.prayer.unlog` is deliberately NOT wired — see write-registry.ts's
- * header. The remaining tools (`search`, `fetch`, `scheduler_manage`,
- * `widget_manage`) are explicitly out of scope for this layer.
+ * header. `widget_manage` is now wired too (L11/R7 Tier 1 declarative
+ * widgets — lib/mcp/tools/widget-manage.ts, gated per TOOL-ARCHITECTURE.md
+ * §6: config rows only, never agent-authored code). The remaining tools
+ * (`search`, `fetch`, `scheduler_manage`) are explicitly out of scope for
+ * this layer.
  *
  * Streamable HTTP only — no SSE, no Redis (settled in PROGRAM-PLAN.md's
  * findings: Claude is deprecating SSE, Gemini rejects it outright, and
@@ -79,6 +83,12 @@ const WriteInputSchema = z.object({
   domain: z.string(),
   entity: z.string(),
   action: z.string(),
+  id: z.string().optional(),
+  patch: z.record(z.string(), z.unknown()).optional(),
+});
+
+const WidgetManageInputSchema = z.object({
+  action: z.enum(["list", "create", "update", "delete"]),
   id: z.string().optional(),
   patch: z.record(z.string(), z.unknown()).optional(),
 });
@@ -150,6 +160,26 @@ const handler = createMcpHandler(
           "write",
           args,
           (userClient, userId) => writeTool(userClient, userId, args as WriteArgs),
+        ),
+    );
+
+    server.registerTool(
+      "widget_manage",
+      {
+        title: "Manage widgets",
+        description:
+          "Create, update, delete, or list declarative dashboard widgets (L11/R7 Tier 1 — a config row rendered by a fixed, audited renderer, never agent-authored code). A widget's data source can only reference a domain/entity this connector's read() already exposes. 'create'/'update'/'delete' require a token with 'write' scope; 'list' only needs 'read'.",
+        inputSchema: WidgetManageInputSchema,
+      },
+      async (args, ctx) =>
+        runMcpTool(
+          serviceClient,
+          ctx.http?.authInfo,
+          "widget_manage",
+          resolveWidgetManageOperation(args as WidgetManageArgs),
+          resolveWidgetManageScope((args as WidgetManageArgs).action),
+          args,
+          (userClient, userId) => widgetManageTool(userClient, userId, args as WidgetManageArgs),
         ),
     );
   },

@@ -122,7 +122,7 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     await client.connect(transport);
 
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read", "write"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read", "widget_manage", "write"]);
 
     // Discovery first — the actual intended usage pattern (memo §5: "call
     // whenever unsure"), and it should cost nothing against a real DB.

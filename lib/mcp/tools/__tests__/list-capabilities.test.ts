@@ -23,6 +23,7 @@ describe("listCapabilitiesTool", () => {
       "school",
       "self_mastery",
       "settings",
+      "widgets",
       "work",
     ]);
   });

@@ -812,6 +812,19 @@ export const REGISTRY: Record<string, DomainDef> = {
         entity: "api_key",
         table: "user_api_keys",
         description: "Bring-your-own-key status per provider -- existence, last 4 characters, and label ONLY. The encrypted key itself is never reachable over MCP, the same way source_chunks' text/embedding and profiles.pin_hash are not.",
+        // READ-ONLY HERE, AND PERMANENTLY -- not a "not yet". Confirmed in
+        // lib/mcp/write-registry.ts: `settings.api_key` has NO entity/
+        // actions at all, unlike every other settings.* entity's deliberate
+        // narrow-but-present write scope. team-lead's explicit ruling: a
+        // model that could WRITE a provider key could exfiltrate one by
+        // writing a key it controls -- the entire point of storing these
+        // AES-256-GCM-encrypted (migration 104) is that nothing short of
+        // the app's own verified provider round trip (saveApiKey's
+        // verifyKey-before-store) should ever be trusted to accept one.
+        // Same posture as user_api_keys.encrypted_key never being a
+        // readable field: enforced by construction, not by a caller
+        // remembering not to ask.
+
         // user_api_keys has NO single-column primary key -- its PK is the
         // COMPOSITE (user_id, provider) (migration 104). `provider` alone
         // is used as idColumn here deliberately: read.ts's id-lookup path
@@ -1039,6 +1052,32 @@ export const REGISTRY: Record<string, DomainDef> = {
     domain: "home",
     description: "The Home dashboard. Aggregation only, no tables of its own -- every number it shows is read through some other domain's own entity.",
     entities: {},
+  },
+  widgets: {
+    domain: "widgets",
+    description:
+      "L11/R7 Tier 1 declarative widgets -- a config row rendered by one audited renderer, never agent-authored code. " +
+      "Created/edited/deleted through the dedicated widget_manage tool, not write() -- this entity exists so a caller can " +
+      "list/inspect its own widgets through the same read() dispatch as everything else. REQUIRES the proposed " +
+      "mcp_widgets table (docs/ai-connector/WIDGETS-MIGRATION-NEEDED.md) -- inert until that migration is applied.",
+    entities: {
+      widget: {
+        entity: "widget",
+        table: "mcp_widgets",
+        description: "One dashboard widget: kind, title, its data source (a reference into another entity this registry already exposes), display options, slot, and position.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "Built with a real trigger-backed updated_at from day one (touch_updated_at(), migration 074) in the table's own proposal doc -- not retrofitted later the way 133/135/136/137/138 each had to be. createWidgetCore/updateWidgetCore/archiveWidgetCore (lib/widgets/actions-core.ts) are the ONLY write paths -- all three go through a plain INSERT/UPDATE the trigger covers. Checked for non-code writers per the team-lead's standing rule: the table's one FK (user_id -> auth.users, ON DELETE CASCADE) only ever DELETEs this row on account deletion, never UPDATEs it, so there is no cascade path that could touch updated_at without going through the trigger.",
+        summaryColumns: ["kind", "title", "slot", "position", "status"],
+        fullColumns: ["kind", "title", "data_source", "display", "slot", "position", "status", "created_at", "updated_at", "user_id"],
+        filterableColumns: ["kind", "slot", "status"],
+        orderBy: [
+          { column: "slot", ascending: true },
+          { column: "position", ascending: true },
+        ],
+      },
+    },
   },
 };
 

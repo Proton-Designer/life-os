@@ -15,6 +15,7 @@ describe("registry", () => {
       "school",
       "self_mastery",
       "settings",
+      "widgets",
       "work",
     ]);
   });
