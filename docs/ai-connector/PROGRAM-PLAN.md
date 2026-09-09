@@ -221,6 +221,20 @@ because it was built; it is done when a check that could have failed, didn't.
 | **L11** | Custom widgets — Tier 1 declarative, then Tier 2 sandboxed | L10 | both |
 | **L12** | Deploy tool + Tier 3 gated code path (`tsc` + build must pass first) | L11 | Lead |
 
+### Status board (updated as layers land)
+
+| L | state | evidence |
+|---|---|---|
+| **L0** | **done** | auth bridge = local ES256, zero round trips; platform auth reality established |
+| **L1** | **SHIPPED + LIVE** | `layout-overflow.spec.ts` exit 0, 320/390px both browsers; live browser check, 0 console errors |
+| **L2** | **SHIPPED + LIVE** | migration 130 applied (hash verified == applied); `'{}'`/`['admin']` rejected on prod; connectors panel renders live; **0 RSC function-prop errors** |
+| **L3** | **DEPLOYED, 2 open** | `/api/mcp` 404→**401** with RFC 9728 header; real `initialize` + `tools/list` against prod. Open: `session.ts` key_ops bug (diagnosed); tools need reshaping to the generic design |
+| **L4** | **DEPLOYED, unproven** | migration 132 applied; PKCE `plain` rejected by CHECK; both discovery docs 200. **The flow has never been run end-to-end** — assigned |
+| **L5-L12** | not started | — |
+
+**Blocked on Ayman (R4b):** the ES256 public-key import. Everything else in L3 is live;
+tool calls return an audited error until the key is in the JWKS.
+
 ### Exit criteria (the part that matters)
 
 Carried over from the 2026-09-02 incident review, because they were paid for:
