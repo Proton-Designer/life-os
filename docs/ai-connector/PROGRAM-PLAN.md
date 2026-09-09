@@ -307,6 +307,42 @@ not survive the numbers, and (b) is true but doesn't favor either side.**
   of detail a mature IdP has already hardened and this codebase has to get right once,
   from scratch, under time pressure.
 
+**R2a — I was wrong, and the red-team found a real vulnerability in MY design.**
+I ruled that `/authorize` should auto-approve: "no consent screen with buttons for a second
+user who doesn't exist." That reasoning was about *identity* — and identity was never the
+question a consent screen answers here.
+
+`/register` is a **public endpoint by design** (RFC 7591 DCR, and Claude requires it). So
+anyone on the internet can register a client with **their own redirect_uri**. Combine that
+with an auto-approving `/authorize` and you have a complete authorization-code-interception
+attack: register a client, craft an `/authorize` link naming it, get Ayman to click it while
+he is logged in, and silently receive a valid code **at the attacker's own server**. No
+prompt, no trace, full access to every domain of his data.
+
+That is my bug. It was live in the plan and would have shipped. Eng2 found it by taking the
+red-team assignment seriously instead of confirming my ruling.
+
+**The fix, now mandatory and non-negotiable:** `/authorize` renders a real confirmation
+screen naming the client and its exact redirect host, with explicit Allow/Deny. The question
+it asks is not "who are you" but **"is this the app you meant to connect?"** — and DCR being
+public is precisely why a stranger can now cause that question to be asked.
+
+**R2b — R2 stands, but only on its third leg. Two of my three reasons were wrong.**
+Eng2 red-teamed honestly and reported numbers that favoured the position they had originally
+argued for, rather than converging on my view:
+- **(a) "~150 lines" — retracted.** A correct implementation is ~400-600 lines: PKCE S256,
+  atomic single-use code consumption, exact redirect_uri matching, DCR client storage,
+  refresh rotation with reuse detection, two metadata documents. Delegated would be ~50-70.
+  My estimate was off by 4x and it was the reason I leaned hardest on.
+- **(b) "no login/consent UI needed" — symmetric, favours neither.** A hosted IdP needs no
+  custom login UI from us either.
+- **(c) "no third-party billing relationship or external outage surface for infrastructure
+  serving exactly one person, forever" — survives untouched.** R2 now rests on (c) alone,
+  plus the fact that the code is written, tested (144 tests), and its one real flaw was
+  caught by adversarial review rather than by delegation.
+Recorded this way deliberately: a ruling that survives for one of the three reasons it was
+made is not the same ruling, and pretending otherwise would make the next estimate worse.
+
 **R3 — Dependencies verified against this repo, not assumed.** `mcp-handler` 2.1.1 needs
 Node 20+/zod ^4.2.0/Next 13+; this repo has Node 24.9.0, zod 4.4.3, Next 16.3.0. It also
 needs `@modelcontextprotocol/server` v2 — note the `@modelcontextprotocol/sdk` 1.30.0
