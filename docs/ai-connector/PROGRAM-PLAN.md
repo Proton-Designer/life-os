@@ -226,14 +226,30 @@ because it was built; it is done when a check that could have failed, didn't.
 | L | state | evidence |
 |---|---|---|
 | **L0** | **done** | auth bridge = local ES256, zero round trips; platform auth reality established |
-| **L1** | **SHIPPED + LIVE** | `layout-overflow.spec.ts` exit 0, 320/390px both browsers; live browser check, 0 console errors |
-| **L2** | **SHIPPED + LIVE** | migration 130 applied (hash verified == applied); `'{}'`/`['admin']` rejected on prod; connectors panel renders live; **0 RSC function-prop errors** |
-| **L3** | **DEPLOYED, 2 open** | `/api/mcp` 404→**401** with RFC 9728 header; real `initialize` + `tools/list` against prod. Open: `session.ts` key_ops bug (diagnosed); tools need reshaping to the generic design |
-| **L4** | **DEPLOYED, unproven** | migration 132 applied; PKCE `plain` rejected by CHECK; both discovery docs 200. **The flow has never been run end-to-end** — assigned |
-| **L5-L12** | not started | — |
+| **L1** | **LIVE** | layout suite exit 0 at 320/390px both browsers; live browser check, 0 console errors |
+| **L2** | **LIVE** | migration 130 applied; `'{}'`/`['admin']` rejected on prod; connectors panel renders; 0 RSC errors |
+| **L3** | **LIVE** | 130/131/133 applied. Real MCP client vs production: `initialize`, `tools/list`, `list_capabilities` all OK. All 8 Deen entities wired. `source_chunks` raw text **provably** unreachable at any detail level |
+| **L4** | **LIVE + PROVEN** | migration 132 applied. Flow check **30/30** against production: register → authorize → consent → code → token → refresh, plus the reuse-detection race firing for real. Consent spec **14/14** |
+| **L6** | in progress | `write` tool for Deen — Eng1 |
+| **L10** | in progress | themes + feature visibility — Eng2 |
+| **L5, L7-L9, L11-L12** | not started | — |
 
-**Blocked on Ayman (R4b):** the ES256 public-key import. Everything else in L3 is live;
-tool calls return an audited error until the key is in the JWKS.
+**Blocked on Ayman (R4b):** the ES256 public-key import. It is the *only* thing between
+here and `read` returning real data — every layer beneath it is proven on production.
+
+**Bugs found and fixed, all by checks that could actually fail:**
+1. `scopes` CHECK used `array_length()`, which is NULL for `'{}'` — and a CHECK passes on NULL.
+2. Migration 131 `SET NOT NULL` with no backfill — proven against an *empty* table, where it
+   cannot fail.
+3. `key_ops: ["sign","verify"]` — WebCrypto permits only `["sign"]` on an EC private key.
+4. Refresh reuse-detection revoked the already-dead token, not the live one — i.e. it did
+   nothing in the exact race it existed for.
+5. `expires_at` computed and never inserted — every OAuth code mint failed. 168 mocked tests
+   could not see it, because **a test that mocks the database cannot test the database.**
+
+**Lead's own errors, recorded to the same standard:** deployed code ahead of its migration;
+`git mv` that left the old path in HEAD's tree; an RLS check that counted indexes as tables;
+a trigger test defeated by `now()` freezing inside a transaction.
 
 ### Exit criteria (the part that matters)
 
