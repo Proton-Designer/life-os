@@ -221,6 +221,28 @@ because it was built; it is done when a check that could have failed, didn't.
 | **L11** | Custom widgets — Tier 1 declarative, then Tier 2 sandboxed | L10 | both |
 | **L12** | Deploy tool + Tier 3 gated code path (`tsc` + build must pass first) | L11 | Lead |
 
+**R9 — "unlog" gets a real `'unlogged'` status. The app keeps its DELETE. Approved.**
+Eng1 found that the obvious way to express "uncheck a prayer" without a hard delete —
+storing `status:'pending'` — is *actively wrong*. `effectivePrayerStatus`
+(`lib/deen/prayer-status.ts`) does `if (stored) return stored`, so any stored value is
+returned literally and forever, and the prayer would never fall through to the
+window-based re-derivation an **absent** row gets as the clock moves. It would freeze at
+"pending" permanently, and that value feeds streaks, the qada backlog, the consistency grid
+and Home's priority feed. They left the action unwired with an honest "unknown action"
+error rather than shipping a plausible wrong answer.
+
+**Ruling: build the `'unlogged'` status** — a new allowed value plus
+`if (stored && stored !== "unlogged") return stored`, so an `'unlogged'` row behaves
+*exactly* like an absent one while preserving history. Small, scoped, and arguably better
+than today's DELETE.
+
+**And the asymmetry is deliberate, not an oversight:** the app's own `unmarkPrayer` keeps
+its DELETE. A person deleting their own row in their own UI is acting on their own data
+with intent. The no-hard-delete rule exists because **an MCP tool call may originate from a
+model acting on content it was injected with** — the restriction is about the actor, not
+the operation. Both paths converge on the same effective status, so nothing downstream can
+tell them apart.
+
 ### Status board (updated as layers land)
 
 | L | state | evidence |
