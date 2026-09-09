@@ -2,98 +2,77 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
-import { nextStage, previousStage, type CoopTaskStatus } from "@/lib/coop/tasks";
+import type { CoopTaskStatus } from "@/lib/coop/tasks";
+import {
+  addAgendaTaskCore,
+  editTaskCore,
+  returnTaskToReviewCore,
+  advanceTaskCore,
+  retreatTaskCore,
+  blockTaskCore,
+  unblockTaskCore,
+} from "@/lib/coop/tasks-core";
 
 function revalidateCoop(): void {
   revalidatePath("/work");
   revalidatePath("/");
 }
 
-/** Every new task is automatically placed in Backlog (spec) — the status column simply defaults there, no separate write path. */
+/** THIN WRAPPER over addAgendaTaskCore (lib/coop/tasks-core.ts, L6/R5) — same core the MCP write tool calls. Every new task is automatically placed in Backlog (spec) — the status column simply defaults there, no separate write path. */
 export async function addAgendaTask(targetId: string, title: string, deadline?: string): Promise<void> {
-  const trimmed = title.trim();
-  if (!trimmed) return;
   const { supabase } = await requireUser();
-  const { error } = await supabase
-    .from("coop_tasks")
-    .insert({ target_id: targetId, title: trimmed, deadline: deadline ?? null, status: "backlog" });
-  if (error) throw error;
+  await addAgendaTaskCore(supabase, targetId, title, deadline);
   revalidateCoop();
 }
 
+/** THIN WRAPPER over editTaskCore. */
 export async function editTask(id: string, fields: { title?: string; deadline?: string | null }): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const patch: { title?: string; deadline?: string | null } = {};
-  if (fields.title !== undefined) {
-    const trimmed = fields.title.trim();
-    if (!trimmed) return;
-    patch.title = trimmed;
-  }
-  if (fields.deadline !== undefined) patch.deadline = fields.deadline;
-  if (Object.keys(patch).length === 0) return;
-  const { error } = await supabase.from("coop_tasks").update(patch).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await editTaskCore(supabase, userId, id, fields);
   revalidateCoop();
 }
 
-/** completed_at (migration 055) tracks the Past section's 7-day clock — it is set
- * the instant a task lands on "complete" and cleared the instant it leaves, from
- * every path that changes status (this function, blockTask, unblockTask). */
-async function setStatus(id: string, status: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
-  const { supabase, userId } = await requireUser();
-  const { error } = await supabase
-    .from("coop_tasks")
-    .update({ status, completed_at: status === "complete" ? new Date().toISOString() : null })
-    .eq("id", id)
-    .eq("user_id", userId);
-  if (error) throw error;
-  revalidateCoop();
-}
-
-/** Past-dialog action: pulls a completed task back into the active pipeline without deleting it. */
+/** THIN WRAPPER over returnTaskToReviewCore. Past-dialog action: pulls a completed task back into the active pipeline without deleting it. */
 export async function returnTaskToReview(id: string): Promise<void> {
-  await setStatus(id, "review");
+  const { supabase, userId } = await requireUser();
+  await returnTaskToReviewCore(supabase, userId, id);
+  revalidateCoop();
 }
 
-/** Buttons, not drag (standing app convention — see the Targets strip's move buttons). Advances one stage forward; a no-op past Complete since there's nothing further. */
+/** THIN WRAPPER over advanceTaskCore. Buttons, not drag (standing app convention — see the Targets strip's move buttons). Advances one stage forward; a no-op past Complete since there's nothing further. */
 export async function advanceTask(id: string, currentStatus: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
-  const next = nextStage(currentStatus);
-  if (!next) return;
-  await setStatus(id, next);
+  const { supabase, userId } = await requireUser();
+  await advanceTaskCore(supabase, userId, id, currentStatus);
+  revalidateCoop();
 }
 
-/** Moves one stage back; a no-op before Backlog. */
+/** THIN WRAPPER over retreatTaskCore. Moves one stage back; a no-op before Backlog. */
 export async function retreatTask(id: string, currentStatus: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
-  const prev = previousStage(currentStatus);
-  if (!prev) return;
-  await setStatus(id, prev);
+  const { supabase, userId } = await requireUser();
+  await retreatTaskCore(supabase, userId, id, currentStatus);
+  revalidateCoop();
 }
 
-/** Ruling 2: blocked is a detached pause, not a stage. Captures the current status as blockedFrom so unblocking never has to guess. Clears completed_at — a task paused mid-flight isn't "complete" for Past-section purposes even if it was blocked away from that column. */
+/** THIN WRAPPER over blockTaskCore. Ruling 2: blocked is a detached pause, not a stage. Captures the current status as blockedFrom so unblocking never has to guess. */
 export async function blockTask(id: string, currentStatus: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { error } = await supabase
-    .from("coop_tasks")
-    .update({ status: "blocked", blocked_from: currentStatus, completed_at: null })
-    .eq("id", id)
-    .eq("user_id", userId);
-  if (error) throw error;
+  await blockTaskCore(supabase, userId, id, currentStatus);
   revalidateCoop();
 }
 
-/** Restores the task to whatever it was doing before it was blocked, then clears blocked_from — 028's CHECK constraint requires blocked_from to be null whenever status isn't 'blocked', so both must change together in one update. Restarts the completed_at clock if it's landing back on "complete" (it wasn't complete while blocked, so the 7-day window fairly starts now). */
+/** THIN WRAPPER over unblockTaskCore. Restores the task to whatever it was doing before it was blocked, then clears blocked_from. */
 export async function unblockTask(id: string, blockedFrom: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
   const { supabase, userId } = await requireUser();
-  const { error } = await supabase
-    .from("coop_tasks")
-    .update({ status: blockedFrom, blocked_from: null, completed_at: blockedFrom === "complete" ? new Date().toISOString() : null })
-    .eq("id", id)
-    .eq("user_id", userId);
-  if (error) throw error;
+  await unblockTaskCore(supabase, userId, id, blockedFrom);
   revalidateCoop();
 }
 
-/** Plain delete — unlike a target, a task carries no completion-history requirement (ruling 5 is about targets), so there's no refuse-on-complete guard here. */
+/**
+ * NOT extracted to a shared core — a plain DELETE (unlike a target, a task
+ * carries no completion-history requirement, ruling 5 is about targets, so
+ * there's no refuse-on-complete guard here). The MCP write path may never
+ * hard-delete a row (L6's guardrail); no second caller to share logic with.
+ */
 export async function removeTask(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("coop_tasks").delete().eq("id", id).eq("user_id", userId);
@@ -101,7 +80,7 @@ export async function removeTask(id: string): Promise<void> {
   revalidateCoop();
 }
 
-/** Past dialog's bulk-delete — one round trip for the whole selection, scoped to this user like every other mutation here. */
+/** Same as removeTask — a real DELETE, deliberately not extracted for MCP use. */
 export async function bulkRemoveTasks(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const { supabase, userId } = await requireUser();

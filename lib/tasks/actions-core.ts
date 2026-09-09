@@ -1,3 +1,34 @@
+/**
+ * ⚠️ NOT R5-CORE-SHAPED, DESPITE THE FILENAME. Every function below still
+ * calls `requireUser()` internally — it is a shared module for THREE
+ * cookie-authed callers (app/(app)/work/actions.ts [schedule-event
+ * functions only], app/(app)/school/actions.ts, lib/capture/actions.ts),
+ * not a bearer-auth-reachable core. Calling anything here from an MCP tool
+ * would reproduce the exact "Not authenticated" failure R4's whole spike
+ * exists to prevent.
+ *
+ * Found and flagged during L7 (docs/ai-connector/PROGRAM-PLAN.md, fanning
+ * out `work`) while deciding what "work.task" should mean for MCP — this
+ * file's `addTaskCore`/`updateTaskCore`/`toggleTaskCore`/`removeTaskCore`
+ * operate on the GENERIC `tasks` table (domain='co_op' for Work), which is
+ * a DIFFERENT, separate table from `coop_tasks` (the Work Targets-strip
+ * pipeline, which IS wired for MCP — see lib/coop/tasks-core.ts,
+ * lib/mcp/registry.ts's `work.task` entity). The owner's explicit example
+ * ("advanceTask/retreatTask/blockTask/unblockTask") names the coop_tasks
+ * functions specifically, so MCP's `work.task` was scoped to that table;
+ * this file's generic-tasks surface was deliberately left out of L7,
+ * rather than rushing a 3-caller refactor (touching school's domain too,
+ * which is out of scope) under the same pass that stood up two new
+ * domains. That deferral is why this file is untouched rather than fixed.
+ *
+ * The fix, when someone needs it (i.e. wiring an MCP entity on the generic
+ * `tasks` table): strip every `requireUser()` call, make `supabase`/
+ * `userId` explicit parameters on every exported function (same shape as
+ * lib/deen/actions-core.ts, lib/coop/targets-core.ts, lib/coop/tasks-core.ts),
+ * and update the 3 call sites to pass them through from their own
+ * `requireUser()`. Mechanical, not risky — just a real piece of work, not
+ * a rename.
+ */
 import { requireUser } from "@/lib/supabase/auth";
 import type { TaskType } from "./task-type";
 
