@@ -3090,12 +3090,78 @@ export type Database = {
         }
         Relationships: []
       }
+      work_session_objectives: {
+        Row: {
+          completed: boolean
+          completed_at: string | null
+          created_at: string
+          custom_text: string | null
+          id: string
+          kill_list_item_id: string | null
+          kind: string
+          position: number
+          session_id: string
+          task_id: string | null
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          custom_text?: string | null
+          id?: string
+          kill_list_item_id?: string | null
+          kind: string
+          position: number
+          session_id: string
+          task_id?: string | null
+          user_id?: string
+        }
+        Update: {
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          custom_text?: string | null
+          id?: string
+          kill_list_item_id?: string | null
+          kind?: string
+          position?: number
+          session_id?: string
+          task_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_session_objectives_kill_list_item_same_user"
+            columns: ["user_id", "kill_list_item_id"]
+            isOneToOne: false
+            referencedRelation: "kill_list_items"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "work_session_objectives_session_same_user"
+            columns: ["user_id", "session_id"]
+            isOneToOne: false
+            referencedRelation: "work_sessions"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "work_session_objectives_task_same_user"
+            columns: ["user_id", "task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       work_sessions: {
         Row: {
           cards_reviewed: number | null
+          class_id: string | null
           counts_toward_hours: boolean | null
           created_at: string
           ended_at: string | null
+          goal_minutes: number | null
           id: string
           kill_list_item_id: string | null
           kind: string
@@ -3104,13 +3170,16 @@ export type Database = {
           promotion_id: string | null
           rep_goal_id: string | null
           started_at: string
+          updated_at: string
           user_id: string
         }
         Insert: {
           cards_reviewed?: number | null
+          class_id?: string | null
           counts_toward_hours?: boolean | null
           created_at?: string
           ended_at?: string | null
+          goal_minutes?: number | null
           id?: string
           kill_list_item_id?: string | null
           kind?: string
@@ -3119,13 +3188,16 @@ export type Database = {
           promotion_id?: string | null
           rep_goal_id?: string | null
           started_at?: string
+          updated_at?: string
           user_id?: string
         }
         Update: {
           cards_reviewed?: number | null
+          class_id?: string | null
           counts_toward_hours?: boolean | null
           created_at?: string
           ended_at?: string | null
+          goal_minutes?: number | null
           id?: string
           kill_list_item_id?: string | null
           kind?: string
@@ -3134,9 +3206,17 @@ export type Database = {
           promotion_id?: string | null
           rep_goal_id?: string | null
           started_at?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "work_sessions_class_same_user"
+            columns: ["user_id", "class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
           {
             foreignKeyName: "work_sessions_kill_list_item_fkey"
             columns: ["user_id", "kill_list_item_id"]
@@ -3554,9 +3634,11 @@ export type Database = {
         Args: { p_local_date: string }
         Returns: {
           cards_reviewed: number | null
+          class_id: string | null
           counts_toward_hours: boolean | null
           created_at: string
           ended_at: string | null
+          goal_minutes: number | null
           id: string
           kill_list_item_id: string | null
           kind: string
@@ -3565,6 +3647,7 @@ export type Database = {
           promotion_id: string | null
           rep_goal_id: string | null
           started_at: string
+          updated_at: string
           user_id: string
         }
         SetofOptions: {
