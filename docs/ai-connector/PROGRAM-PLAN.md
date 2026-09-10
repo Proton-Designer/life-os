@@ -203,8 +203,9 @@ and — more importantly — the evidence needed to decide arrived on 2026-09-10
 way.
 
 **What changed: Tier 1's isolation is now a proven structural property, not a policy.**
-The widget security audit (Eng1, evidence in `docs/ai-connector/`, independently
-re-verified by the lead with a positive control in front of the scan) established that a
+The widget security audit (`docs/ai-connector/WIDGETS-SECURITY-AUDIT.md`, Eng1, committed
+as `c7ea86f`; independently re-verified by the lead with a positive control in front of the
+scan — both passes recorded under its Provenance section) established that a
 widget cannot read anything `read()` would refuse — *because* `lib/widgets/render.ts` calls
 the real `readTool()`. Registry allowlists, `fixedFilter`, `parentFilter`, `filterableColumns`
 and `truncateColumns` are re-derived from the live registry on every render. Nothing about
