@@ -29,8 +29,11 @@ import { TOTAL_MINUTES, emptyAllocation, type Allocation } from "@/lib/checkins/
  *
  * Deliberately calls saveAllocationCheckin directly (imported and invoked
  * from client code, not received as a prop from a Server Component) — that
- * side-steps the function-prop RSC boundary entirely (AGENTS.md), same
- * pattern CheckinScheduler already uses for getCheckinOptionsForNow.
+ * side-steps the function-prop RSC boundary entirely (AGENTS.md).
+ * components/business/lock-in-checkin.tsx's LockInCheckin follows the
+ * identical pattern for the same reason (it renders the same queue from the
+ * Lock-In overlay), calling saveAllocationCheckin directly rather than
+ * threading it through as a prop.
  */
 export function AllocationCheckinGate() {
   const { queue, timezone, total, open, setOpen, completeCurrent, mostRecentUnanswered } = useAllocationQueue();

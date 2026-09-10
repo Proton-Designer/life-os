@@ -62,7 +62,7 @@ export async function recordMissedCheckin(
   if (error) throw error;
 }
 
-/** Client-callable wrapper — CheckinScheduler (Task 10.3) can't call the server-only getCheckinOptions directly. */
+/** Client-callable wrapper — getCheckinOptions (lib/checkins/get-checkin-options.ts) calls createClient() from lib/supabase/server, so it can only run on the server; a `"use server"` action like this one is the callable boundary a client component uses instead of importing it directly. */
 export async function getCheckinOptionsForNow(nowIso: string): Promise<CheckinOption[]> {
   const { userId } = await requireUser();
   return getCheckinOptions(userId, new Date(nowIso));
