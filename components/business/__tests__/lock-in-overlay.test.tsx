@@ -8,11 +8,21 @@ vi.mock("@/app/(app)/business/actions", () => ({
   toggleSessionObjective: vi.fn(async () => {}),
   getActiveSessionDetail: vi.fn(async () => null),
 }));
+// LockInOverlay now renders LockInCheckin (Phase 5), which reads
+// useAllocationQueue() — needs a real provider ancestor and this module
+// mocked, same as every direct test of that context already does.
+const getAllocationQueueForNowMock = vi.fn();
+const saveAllocationCheckinMock = vi.fn();
+vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
+  getAllocationQueueForNow: (...args: unknown[]) => getAllocationQueueForNowMock(...args),
+  saveAllocationCheckin: (...args: unknown[]) => saveAllocationCheckinMock(...args),
+}));
 
 import { LockInOverlay } from "../lock-in-overlay";
 import { LockInOverlayProvider, type ActiveWorkSession } from "../lock-in-overlay-context";
 import { toggleSessionObjective } from "@/app/(app)/business/actions";
 import { writeLockInMinimized } from "@/lib/business/lock-in-storage";
+import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
 
 const EMPTY_KILL_LIST: [{ id: string | null; text: string; completed: boolean }, { id: string | null; text: string; completed: boolean }, { id: string | null; text: string; completed: boolean }] = [
   { id: null, text: "", completed: false },
@@ -37,7 +47,9 @@ function renderOverlay(session: ActiveWorkSession, killListSlots = EMPTY_KILL_LI
   writeLockInMinimized(session.id, false);
   return render(
     <LockInOverlayProvider initialSession={session}>
-      <LockInOverlay timezone="America/Chicago" killListSlots={killListSlots} />
+      <AllocationQueueProvider>
+        <LockInOverlay timezone="America/Chicago" killListSlots={killListSlots} />
+      </AllocationQueueProvider>
     </LockInOverlayProvider>
   );
 }
@@ -49,6 +61,9 @@ function objective(overrides: Partial<{ id: string; kind: "kill_list_item" | "ta
 describe("LockInOverlay", () => {
   beforeEach(() => {
     vi.mocked(toggleSessionObjective).mockClear();
+    getAllocationQueueForNowMock.mockClear();
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    saveAllocationCheckinMock.mockClear();
     localStorage.clear();
   });
 
@@ -184,9 +199,58 @@ describe("LockInOverlay", () => {
   it("renders nothing when there is no active session", () => {
     const { container } = render(
       <LockInOverlayProvider initialSession={null}>
-        <LockInOverlay timezone="UTC" killListSlots={EMPTY_KILL_LIST} />
+        <AllocationQueueProvider>
+          <LockInOverlay timezone="UTC" killListSlots={EMPTY_KILL_LIST} />
+        </AllocationQueueProvider>
       </LockInOverlayProvider>
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe("pending allocation check-in", () => {
+    const SESSION: ActiveWorkSession = {
+      id: "s1",
+      startedAtIso: new Date().toISOString(),
+      kind: "deep_work",
+      goalMinutes: null,
+      objectives: [],
+    };
+    const WINDOW_A = {
+      windowStartIso: "2026-09-10T13:00:00.000Z",
+      windowEndIso: "2026-09-10T15:00:00.000Z",
+      prefill: { deen: 15, business: 0, school: 0, fitness: 0, co_op: 0 },
+    };
+
+    it("shows the check-in form inside the expanded overlay when one is pending — visible in the expanded view, per Ayman's report", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
+      renderOverlay(SESSION);
+      expect(await screen.findByTestId("allocation-bar")).toBeInTheDocument();
+    });
+
+    it("shows nothing check-in-related when the queue is empty", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+      renderOverlay(SESSION);
+      await screen.findByText("Deep Work"); // wait for the overlay itself to settle
+      expect(screen.queryByTestId("allocation-bar")).not.toBeInTheDocument();
+    });
+
+    it("answering it from inside the overlay goes through the same saveAllocationCheckin action the sheet uses", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
+      renderOverlay(SESSION);
+      await screen.findByTestId("allocation-bar");
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Done" }));
+
+      expect(saveAllocationCheckinMock).toHaveBeenCalledWith(WINDOW_A.windowStartIso, WINDOW_A.windowEndIso, expect.any(Object));
+    });
+
+    it("does not fight the timer/objectives block — both remain present with a check-in showing", async () => {
+      getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
+      renderOverlay({ ...SESSION, goalMinutes: 30 });
+      await screen.findByTestId("allocation-bar");
+      expect(screen.getByText("/ 30")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "End Session" })).toBeInTheDocument();
+    });
   });
 });

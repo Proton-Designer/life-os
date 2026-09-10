@@ -6,8 +6,17 @@ import type { Allocation, DomainKey } from "./allocation";
 
 const POLL_MS = 60 * 1000;
 
-/** How long the in-app toast stays up before auto-dismissing itself. */
-const TOAST_MS = 8_000;
+/**
+ * How long the in-app toast stays up before auto-dismissing itself.
+ * 5 minutes, not the original 8 seconds (Ayman, Phase 5: check-ins fire
+ * mid-focus-session, and 8s was written for "you'll see it or you won't" —
+ * wrong once the toast can legitimately fire while he's heads-down and only
+ * looks up a minute or two later. 5 minutes is "you're mid-session and may
+ * glance over shortly," not "glued to the screen." Named for what it now
+ * means (not TOAST_MS) so a future reader doesn't "fix" it back to a
+ * plausible-looking small number without knowing why it's 5 minutes.
+ */
+const TOAST_AUTO_DISMISS_MS = 5 * 60_000;
 
 export type AllocationQueueItem = {
   windowStart: string;
@@ -133,7 +142,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
       notifyDesktop(newlyFired.length);
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       setToast({ item: newlyFired[newlyFired.length - 1], newCount: newlyFired.length });
-      toastTimeoutRef.current = setTimeout(() => setToast(null), TOAST_MS);
+      toastTimeoutRef.current = setTimeout(() => setToast(null), TOAST_AUTO_DISMISS_MS);
     }
 
     setQueue(items);

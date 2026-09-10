@@ -10,6 +10,7 @@ import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
 import { LockInKillList } from "./lock-in-kill-list";
 import { LockInObjectives } from "./lock-in-objectives";
+import { LockInCheckin } from "./lock-in-checkin";
 import type { KillListSlotData } from "./kill-list";
 import type { SessionObjective } from "@/lib/business/session-objectives";
 import { Button } from "@/components/ui/button";
@@ -258,6 +259,16 @@ export function LockInOverlay({
               />
             )}
           </div>
+
+          {/* A pending allocation check-in, if any — its own slot, below
+              the timer/objectives block and above the End Session row, so
+              it never fights either (Ayman: "visible in the expanded view
+              as well"). max-h-* + overflow-y-auto rather than letting it
+              grow unbounded: the overlay is a fixed-height full-screen
+              surface, and the allocation form (5 domain rows + a drag bar)
+              is tall enough to push End Session off a short 390px viewport
+              if it isn't capped. */}
+          <LockInCheckin className="w-full max-w-sm shrink-0 overflow-y-auto max-h-[40vh]" />
 
           <div className="flex w-full flex-col items-center gap-4 pb-2">
             <DistractionCaptureDialog />
