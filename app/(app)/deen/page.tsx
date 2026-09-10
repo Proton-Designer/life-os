@@ -340,7 +340,7 @@ export default async function DeenPage() {
           </div>
         ) : (
           <div className="w-[78vw] shrink-0 snap-start md:w-auto">
-            <div className="flex min-h-[168px] flex-col justify-center rounded-2xl border border-border/40">
+            <div className="flex h-full min-h-[168px] flex-col justify-center rounded-2xl border border-border/40">
               <EmptyState
                 icon={History}
                 message={

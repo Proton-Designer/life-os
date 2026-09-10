@@ -53,7 +53,7 @@ export function KpiCard({
     <div
       data-testid="kpi-card"
       className={cn(
-        "flex flex-col gap-3 rounded-2xl border",
+        "flex h-full flex-col gap-3 rounded-2xl border",
         isSm ? "min-h-[120px] p-3" : "min-h-[168px] p-4",
         className
       )}

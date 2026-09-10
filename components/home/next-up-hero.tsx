@@ -41,7 +41,7 @@ export function NextUpHero({
   const colorVar = ACCENT_VAR[accent];
 
   return (
-    <div className="flex min-h-[168px] flex-col justify-between rounded-2xl border p-4" style={featuredCardStyle(colorVar)} {...props}>
+    <div className="flex h-full min-h-[168px] flex-col justify-between rounded-2xl border p-4" style={featuredCardStyle(colorVar)} {...props}>
       <div className="flex items-center gap-3">
         <IconChip icon={DOMAIN_ICON[item.domain]} accent={accent} />
         <div className="min-w-0">
