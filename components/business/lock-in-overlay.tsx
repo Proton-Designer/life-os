@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Minimize2 } from "lucide-react";
+import { Minimize2, Check } from "lucide-react";
 import { useLockInOverlay } from "./lock-in-overlay-context";
 import { elapsedMinutesSince } from "@/lib/business/format-elapsed";
+import { goalProgress } from "@/lib/business/session-goal";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
 import { LockInKillList } from "./lock-in-kill-list";
+import { LockInObjectives } from "./lock-in-objectives";
 import type { KillListSlotData } from "./kill-list";
+import type { SessionObjective } from "@/lib/business/session-objectives";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +27,59 @@ function useTickingClock(enabled: boolean): Date {
     return () => clearInterval(interval);
   }, [enabled]);
   return now;
+}
+
+/** Directly under the elapsed time, above the clock (Ayman, exact
+ * placement). Ticks off the same `now` as the elapsed counter, not its own
+ * clock — one instant driving every time-derived number on this screen, so
+ * they can never visibly disagree by a frame. Only ever rendered when
+ * `session.goalMinutes !== null` (see the caller), so there's no "0-goal"
+ * div-width edge case to guard here. */
+function GoalProgressBar({ fraction }: { fraction: number }) {
+  return (
+    <div
+      role="progressbar"
+      aria-valuenow={Math.round(fraction * 100)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-foreground/15"
+    >
+      <div className="h-full rounded-full bg-foreground transition-[width] duration-1000 ease-linear" style={{ width: `${fraction * 100}%` }} />
+    </div>
+  );
+}
+
+/** The single custom objective (at most one, DB-enforced), rendered as the
+ * headline ABOVE the DEEP WORK/DEEP STUDY title — Ayman's own phrasing: "it
+ * is the headline, not a list item" (carried over from the setup dialog's
+ * own header comment on why it's never folded into LockInObjectives).
+ * Still a real, toggleable objective — "every objective... gets a
+ * checkmark" applies here too, just styled for its position rather than as
+ * a pill like the checklist below it. */
+function CustomObjectiveHeadline({ objective, onToggle }: { objective: SessionObjective; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={objective.completed}
+      aria-label={objective.completed ? `Mark "${objective.label}" incomplete` : `Mark "${objective.label}" complete`}
+      className={cn(
+        "flex max-w-md items-center gap-3 text-center text-2xl font-semibold text-foreground transition-colors sm:text-3xl",
+        objective.completed && "text-foreground/50 line-through"
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "flex size-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+          objective.completed ? "border-foreground bg-foreground" : "border-foreground/50"
+        )}
+      >
+        {objective.completed && <Check className="size-4 text-background" strokeWidth={3} />}
+      </span>
+      {objective.label}
+    </button>
+  );
 }
 
 // The provider-level session survives navigation; this overlay is the
@@ -48,7 +104,7 @@ export function LockInOverlay({
   timezone: string;
   killListSlots: [KillListSlotData, KillListSlotData, KillListSlotData];
 }) {
-  const { session, minimized, isPending, minimize, endSession } = useLockInOverlay();
+  const { session, minimized, isPending, minimize, endSession, toggleObjective } = useLockInOverlay();
   const visible = !!session && !minimized;
   const now = useTickingClock(visible);
 
@@ -69,6 +125,23 @@ export function LockInOverlay({
     timeZone: timezone,
   }).format(now);
   const kindLabel = KIND_LABEL[session.kind];
+
+  // The switch between "legacy" (render exactly as before 146) and
+  // "goal-based" presentation is session.goalMinutes, NOT
+  // session.objectives.length — a goal-based session with zero objectives
+  // picked at setup still gets the goal display/progress bar and the
+  // (correctly empty) LockInObjectives, never the old full-kill-list view.
+  // Backward compatibility (Opus Lead's explicit requirement): a legacy
+  // in-flight session already running when this deployed has goalMinutes
+  // null and must render pixel-for-pixel as it did before this feature —
+  // bare elapsed counter, no `/ goal`, no progress bar, the old
+  // LockInKillList. isGoalBased is that one boolean gate for all of it.
+  const isGoalBased = session.goalMinutes !== null;
+  const progress = isGoalBased ? goalProgress(session.startedAtIso, session.goalMinutes as number, now) : null;
+  // At most one custom objective (DB-enforced) — pulled out to render as
+  // the headline above kindLabel; LockInObjectives never receives it.
+  const customObjective = session.objectives.find((o) => o.kind === "custom") ?? null;
+  const checklistObjectives = session.objectives.filter((o) => o.kind !== "custom");
 
   return (
     <DialogPrimitive.Root
@@ -126,29 +199,61 @@ export function LockInOverlay({
 
           {/* Kill list is Business-domain (kill_list_items has no
               deep_study equivalent), so it only ever shows for a Deep Work
-              session — Ayman, 2026-08-28. Two separate renders, not one
-              reflowed with CSS flex-direction: the desktop row sits above
-              the header/timer block, the mobile column sits below it —
-              genuinely different positions in the layout, not just a
-              different axis on the same one. */}
-          {session.kind === "deep_work" && (
+              session — Ayman, 2026-08-28. Only for a LEGACY session
+              (isGoalBased false) — a goal-based session shows its own
+              chosen objectives instead (LockInObjectives, below), which
+              replaces this component entirely rather than sitting beside
+              it. Two separate renders, not one reflowed with CSS
+              flex-direction: the desktop row sits above the header/timer
+              block, the mobile column sits below it — genuinely different
+              positions in the layout, not just a different axis on the
+              same one. Same split repeated for LockInObjectives immediately
+              below each. */}
+          {session.kind === "deep_work" && !isGoalBased && (
             <LockInKillList
               slots={killListSlots}
               className="hidden w-full flex-row flex-wrap items-center justify-center gap-3 sm:flex"
             />
           )}
+          {isGoalBased && (
+            <LockInObjectives
+              objectives={checklistObjectives}
+              className="hidden w-full flex-row flex-wrap items-center justify-center gap-3 sm:flex"
+            />
+          )}
 
           <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+            {isGoalBased && customObjective && (
+              <CustomObjectiveHeadline objective={customObjective} onToggle={() => toggleObjective(customObjective.id)} />
+            )}
             <p className="text-lg font-medium uppercase tracking-[0.2em] text-foreground/80">{kindLabel}</p>
             <div className="flex items-baseline gap-2">
               <span className="font-mono text-8xl font-semibold tabular-nums sm:text-9xl">{minutes}</span>
               <span className="text-xl text-foreground/70">min</span>
+              {/* Ayman: "/ 30" in noticeably smaller text than the elapsed
+                  counter — text-xl beside the counter's text-8xl/9xl, and
+                  dimmer (foreground/50 vs the counter's full-opacity
+                  foreground), so it reads as a subordinate annotation, not
+                  a second number competing with the first. */}
+              {isGoalBased && (
+                <span className="font-mono text-xl tabular-nums text-foreground/50">/ {session.goalMinutes}</span>
+              )}
             </div>
+            {/* Directly under elapsed, above the clock — exact placement
+                Ayman specified. Only for a goal-based session; nothing
+                renders here for a legacy one. */}
+            {isGoalBased && progress && <GoalProgressBar fraction={progress.fraction} />}
             <p className="font-mono text-lg tabular-nums text-foreground/70">{clockLabel}</p>
 
-            {session.kind === "deep_work" && (
+            {session.kind === "deep_work" && !isGoalBased && (
               <LockInKillList
                 slots={killListSlots}
+                className="flex w-full max-w-sm flex-col gap-2 sm:hidden"
+              />
+            )}
+            {isGoalBased && (
+              <LockInObjectives
+                objectives={checklistObjectives}
                 className="flex w-full max-w-sm flex-col gap-2 sm:hidden"
               />
             )}
