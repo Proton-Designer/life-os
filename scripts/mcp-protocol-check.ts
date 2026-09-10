@@ -24,7 +24,14 @@
  *   1. connect() completes — the initialize handshake + bearer auth succeeded.
  *      (Auth failing here throws before step 2 ever runs — see the catch
  *      block's explicit note on what a failure at THIS step means.)
- *   2. listTools() returns exactly ["list_capabilities", "read"].
+ *   2. listTools() includes every tool in REQUIRED_TOOLS below — a SUBSET
+ *      check, not an exact-match one. This used to assert the list equalled
+ *      exactly ["list_capabilities","read"], which broke the moment `write`
+ *      shipped and stayed broken through `widget_manage`/`scheduler_manage` —
+ *      an exact-match assertion on a growing surface is a check that fails
+ *      every time the surface succeeds. Pinning the ones this script itself
+ *      calls (below) while tolerating more is the actual invariant worth
+ *      proving here.
  *   3. list_capabilities() (no domain) names "deen" as a known domain.
  *   4. list_capabilities({domain:"deen"}) names "prayer" as a known entity.
  *   5. read({domain:"deen", entity:"prayer"}) returns a real {items,
@@ -40,6 +47,16 @@ loadEnv({ path: ".env.local" });
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+/**
+ * The tools THIS SCRIPT actually calls below (`list_capabilities`, `read`)
+ * — not the full registered set, which grows independently of this file
+ * and would make an exact-match assertion here a check that breaks every
+ * time the connector gains a capability. Widen this list only when this
+ * script itself starts calling something new, not to "keep it in sync"
+ * with app/api/mcp/route.ts's own registrations.
+ */
+const REQUIRED_TOOLS = ["list_capabilities", "read"] as const;
 
 /**
  * `callTool`'s return type is a union with the multi-round-trip
@@ -76,13 +93,14 @@ async function main() {
     await client.connect(transport);
     console.log(`OK  1. ${step}`);
 
-    step = "listTools() — exactly [list_capabilities, read]";
+    step = `listTools() — includes ${JSON.stringify(REQUIRED_TOOLS)}`;
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    if (JSON.stringify(names) !== JSON.stringify(["list_capabilities", "read"])) {
-      throw new Error(`expected ["list_capabilities","read"], got ${JSON.stringify(names)}`);
+    const missing = REQUIRED_TOOLS.filter((required) => !names.includes(required));
+    if (missing.length > 0) {
+      throw new Error(`missing required tool(s) ${JSON.stringify(missing)} — server returned ${JSON.stringify(names)}`);
     }
-    console.log(`OK  2. ${step} -> ${JSON.stringify(names)}`);
+    console.log(`OK  2. ${step} -> server offers ${JSON.stringify(names)}`);
 
     step = "list_capabilities() — names 'deen' as a known domain";
     const capsResult = await client.callTool({ name: "list_capabilities", arguments: {} });
