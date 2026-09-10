@@ -30,7 +30,7 @@ import {
 
 type OptimisticAction =
   | { type: "setStatus"; id: string; status: Exclude<CoopTaskStatus, "blocked"> }
-  | { type: "block"; id: string; blockedFrom: Exclude<CoopTaskStatus, "blocked"> }
+  | { type: "block"; id: string; blockedFrom: Exclude<CoopTaskStatus, "blocked">; reason: string | null; since: string }
   | { type: "edit"; id: string; title: string }
   | { type: "remove"; id: string }
   | { type: "add"; task: CoopTaskRow };
@@ -38,9 +38,14 @@ type OptimisticAction =
 function reduce(tasks: CoopTaskRow[], action: OptimisticAction): CoopTaskRow[] {
   switch (action.type) {
     case "setStatus":
-      return tasks.map((t) => (t.id === action.id ? { ...t, status: action.status, blockedFrom: null } : t));
+      // Also reached by unblock (status set back to blockedFrom) — clearing
+      // blockedReason/blockedSince here, not just blockedFrom, is what
+      // makes unblock-then-reblock never show the previous block's reason.
+      return tasks.map((t) => (t.id === action.id ? { ...t, status: action.status, blockedFrom: null, blockedReason: null, blockedSince: null } : t));
     case "block":
-      return tasks.map((t) => (t.id === action.id ? { ...t, status: "blocked", blockedFrom: action.blockedFrom } : t));
+      return tasks.map((t) =>
+        t.id === action.id ? { ...t, status: "blocked", blockedFrom: action.blockedFrom, blockedReason: action.reason, blockedSince: action.since } : t
+      );
     case "edit":
       return tasks.map((t) => (t.id === action.id ? { ...t, title: action.title } : t));
     case "remove":
@@ -54,11 +59,13 @@ type PipelineContextValue = {
   tasks: CoopTaskRow[];
   isPending: boolean;
   error: string | null;
+  /** IANA zone, threaded down to TaskCard so it can format blockedSince itself — the optimistic block dispatch below renders before any server round trip, so there's no server-precomputed label to hand it instead. */
+  timezone: string;
   addTask: (title: string, deadline?: string) => void;
   taskActions: (task: CoopTaskRow) => {
     onAdvance: () => void;
     onRetreat: () => void;
-    onBlock: () => void;
+    onBlock: (reason?: string) => void;
     onUnblock: () => void;
     onEdit: (title: string) => void;
     onRemove: () => void;
@@ -76,10 +83,12 @@ export function usePipeline(): PipelineContextValue {
 export function PipelineProvider({
   targetId,
   initialTasks,
+  timezone,
   children,
 }: {
   targetId: string;
   initialTasks: CoopTaskRow[];
+  timezone: string;
   children: ReactNode;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -106,6 +115,8 @@ export function PipelineProvider({
           deadline: deadline ?? null,
           status: "backlog",
           blockedFrom: null,
+          blockedReason: null,
+          blockedSince: null,
           createdAt: new Date().toISOString(),
           completedAt: null,
         },
@@ -148,12 +159,13 @@ export function PipelineProvider({
           }
         });
       },
-      onBlock: () => {
+      onBlock: (reason?: string) => {
+        const trimmedReason = reason?.trim() || null;
         setError(null);
         startTransition(async () => {
-          dispatch({ type: "block", id: task.id, blockedFrom: status });
+          dispatch({ type: "block", id: task.id, blockedFrom: status, reason: trimmedReason, since: new Date().toISOString() });
           try {
-            await blockTask(task.id, status);
+            await blockTask(task.id, status, reason);
           } catch {
             setError(`Couldn't block "${task.title}" — it's back where it was.`);
           }
@@ -197,7 +209,7 @@ export function PipelineProvider({
   }
 
   return (
-    <PipelineContext.Provider value={{ tasks, isPending, error, addTask, taskActions }}>
+    <PipelineContext.Provider value={{ tasks, isPending, error, timezone, addTask, taskActions }}>
       {children}
     </PipelineContext.Provider>
   );

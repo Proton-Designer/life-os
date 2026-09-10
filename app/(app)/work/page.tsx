@@ -89,9 +89,27 @@ export default async function CoOpPage() {
     currentTarget
       ? supabase
           .from("coop_tasks")
-          .select("id, title, deadline, status, blocked_from, created_at, completed_at")
+          // .returns<>() override: migration 148 (blocked_reason,
+          // blocked_since) is written but deliberately not yet applied —
+          // the Opus Lead applies it. Drop this override the moment
+          // lib/supabase/database.types.ts is regenerated against the
+          // migrated schema; same discipline as lib/self-mastery/untyped-from.ts.
+          .select("id, title, deadline, status, blocked_from, blocked_reason, blocked_since, created_at, completed_at")
           .eq("user_id", userId)
           .eq("target_id", currentTarget.id)
+          .returns<
+            {
+              id: string;
+              title: string;
+              deadline: string | null;
+              status: string;
+              blocked_from: string | null;
+              blocked_reason: string | null;
+              blocked_since: string | null;
+              created_at: string;
+              completed_at: string | null;
+            }[]
+          >()
       : Promise.resolve({ data: [] as never[] }),
     getCancelledDatesByEvent(supabase, userId, eventIds),
     getScheduleExceptions(supabase, userId, eventIds),
@@ -103,6 +121,8 @@ export default async function CoOpPage() {
     deadline: t.deadline,
     status: t.status as CoopTaskRow["status"],
     blockedFrom: t.blocked_from as CoopTaskRow["blockedFrom"],
+    blockedReason: t.blocked_reason,
+    blockedSince: t.blocked_since,
     createdAt: t.created_at,
     completedAt: t.completed_at,
   }));
@@ -173,7 +193,7 @@ export default async function CoOpPage() {
       <TargetsStrip rows={targets} completedGoals={completedTargets} todayStr={dateStr} />
 
       {currentTarget && (
-        <PipelineProvider targetId={currentTarget.id} initialTasks={pipelineTasks}>
+        <PipelineProvider targetId={currentTarget.id} initialTasks={pipelineTasks} timezone={timezone}>
           <Panel
             id="work-pipeline"
             className="scroll-mt-20"

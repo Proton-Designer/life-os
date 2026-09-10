@@ -20,6 +20,10 @@ export type CoopTaskRow = {
   status: CoopTaskStatus;
   /** Only meaningful while status === "blocked" — where to restore on unblock (ruling 2). */
   blockedFrom: Exclude<CoopTaskStatus, "blocked"> | null;
+  /** Optional free text captured when the task was blocked (migration 148). Null whenever status !== "blocked", and also null when blocked with no reason given — never ''. */
+  blockedReason: string | null;
+  /** The instant the task most recently entered "blocked" (migration 148). Null whenever status !== "blocked". Also null for a task that WAS blocked before this column existed and hasn't been re-blocked since — migration 148 deliberately does not backfill this from a proxy timestamp; render that case as "not recorded," never a guess. */
+  blockedSince: string | null;
   createdAt: string;
   /** When the task most recently entered `complete` (migration 055) — null
    * whenever status !== "complete". Drives the Past section boundary

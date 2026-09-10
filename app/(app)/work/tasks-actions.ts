@@ -53,10 +53,10 @@ export async function retreatTask(id: string, currentStatus: Exclude<CoopTaskSta
   revalidateCoop();
 }
 
-/** THIN WRAPPER over blockTaskCore. Ruling 2: blocked is a detached pause, not a stage. Captures the current status as blockedFrom so unblocking never has to guess. */
-export async function blockTask(id: string, currentStatus: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
+/** THIN WRAPPER over blockTaskCore. Ruling 2: blocked is a detached pause, not a stage. Captures the current status as blockedFrom so unblocking never has to guess. `reason` is optional per the Block dialog — trimming/null-vs-empty-string is blockTaskCore's job, not this wrapper's. */
+export async function blockTask(id: string, currentStatus: Exclude<CoopTaskStatus, "blocked">, reason?: string): Promise<void> {
   const { supabase, userId } = await requireUser();
-  await blockTaskCore(supabase, userId, id, currentStatus);
+  await blockTaskCore(supabase, userId, id, currentStatus, reason);
   revalidateCoop();
 }
 

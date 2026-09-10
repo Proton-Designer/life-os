@@ -4,9 +4,11 @@ import { useState } from "react";
 import { ArrowLeft, ArrowRight, Pencil, Trash2, Lock, LockOpen, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { nextStage, previousStage, type CoopTaskRow } from "@/lib/coop/tasks";
+import { localDateString, formatDurationMagnitude, formatShortDate } from "@/lib/date-utils";
 
 /**
  * One task card — shared by the Agenda's add-task flow and the pipeline
@@ -35,21 +37,35 @@ export function TaskCard({
   onUnblock,
   onEdit,
   onRemove,
+  timezone,
+  now = new Date(),
 }: {
   task: CoopTaskRow;
   onAdvance: () => void;
   onRetreat: () => void;
-  onBlock: () => void;
+  onBlock: (reason?: string) => void;
   onUnblock: () => void;
   onEdit: (title: string) => void;
   onRemove: () => void;
+  timezone: string;
+  /** Injectable for deterministic tests; defaults to the real current instant. */
+  now?: Date;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [blockReason, setBlockReason] = useState("");
+  const [showingBlockedDetail, setShowingBlockedDetail] = useState(false);
   const isBlocked = task.status === "blocked";
   const canAdvance = !isBlocked && nextStage(task.status as Exclude<typeof task.status, "blocked">) !== null;
   const canRetreat = !isBlocked && previousStage(task.status as Exclude<typeof task.status, "blocked">) !== null;
+
+  function handleConfirmBlock() {
+    onBlock(blockReason);
+    setBlocking(false);
+    setBlockReason("");
+  }
 
   function handleSave() {
     const trimmed = title.trim();
@@ -82,7 +98,17 @@ export function TaskCard({
 
       <div className="flex flex-wrap items-center gap-1.5">
         {task.deadline && <Badge variant="neutral">Due {task.deadline}</Badge>}
-        {isBlocked && <Badge variant="warning">Blocked</Badge>}
+        {isBlocked && (
+          // A real <button>, not a static Badge — the board is keyboard-
+          // reachable and this is the one thing on a blocked card that
+          // says "there's more here." Pressing it discloses what it's
+          // blocked on rather than expanding the card in place, which
+          // would shift card height inside the horizontally-scrolling
+          // pipeline columns.
+          <button type="button" onClick={() => setShowingBlockedDetail(true)} aria-label="Blocked — view what it's blocked on and since when">
+            <Badge variant="warning">Blocked</Badge>
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-1">
@@ -106,7 +132,13 @@ export function TaskCard({
                 <ArrowRight /> Next
               </Button>
             )}
-            <Button type="button" variant="ghost" size="sm" onClick={onBlock} aria-label="Mark blocked — waiting on something outside your control">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setBlocking(true)}
+              aria-label="Mark blocked — waiting on something outside your control"
+            >
               <Lock /> Block
             </Button>
           </>
@@ -157,6 +189,55 @@ export function TaskCard({
               Delete
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={blocking}
+        onOpenChange={(open) => {
+          setBlocking(open);
+          if (!open) setBlockReason("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark this task blocked</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`block-reason-${task.id}`}>What&apos;s it blocked on? (optional)</Label>
+            <Input
+              id={`block-reason-${task.id}`}
+              value={blockReason}
+              onChange={(e) => setBlockReason(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleConfirmBlock()}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setBlocking(false)}>
+              Cancel
+            </Button>
+            <Button type="button" variant="outline" onClick={handleConfirmBlock}>
+              Block
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showingBlockedDetail} onOpenChange={setShowingBlockedDetail}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Blocked</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm">{task.blockedReason ?? "No reason given"}</p>
+          <p className="text-xs text-muted-foreground">
+            {task.blockedSince
+              ? `${formatDurationMagnitude((now.getTime() - new Date(task.blockedSince).getTime()) / 60_000)} ago · ${formatShortDate(
+                  localDateString(new Date(task.blockedSince), timezone),
+                  localDateString(now, timezone)
+                )}`
+              : "blocked, start date not recorded"}
+          </p>
         </DialogContent>
       </Dialog>
     </div>

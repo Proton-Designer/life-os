@@ -84,22 +84,39 @@ describe("status transitions — advance/retreat/block/unblock, all sharing the 
     expect(updateCalls).toHaveLength(0);
   });
 
-  it("blockTaskCore captures blocked_from and clears completed_at", async () => {
+  it("blockTaskCore captures blocked_from, clears completed_at, and stamps blocked_since", async () => {
     const { client, updateCalls } = makeClient();
     await blockTaskCore(client, "user-1", "task-1", "in_progress");
-    expect(updateCalls[0]).toEqual({ status: "blocked", blocked_from: "in_progress", completed_at: null });
+    expect(updateCalls[0]).toMatchObject({ status: "blocked", blocked_from: "in_progress", completed_at: null, blocked_reason: null });
+    expect(updateCalls[0].blocked_since).toEqual(expect.any(String));
   });
 
-  it("unblockTaskCore restores the prior status and clears blocked_from", async () => {
+  it("blockTaskCore stores a trimmed reason", async () => {
+    const { client, updateCalls } = makeClient();
+    await blockTaskCore(client, "user-1", "task-1", "in_progress", "  waiting on legal  ");
+    expect(updateCalls[0]).toMatchObject({ blocked_reason: "waiting on legal" });
+  });
+
+  it("blockTaskCore stores null (not an empty string) when the reason is blank or omitted", async () => {
+    const { client, updateCalls } = makeClient();
+    await blockTaskCore(client, "user-1", "task-1", "in_progress", "   ");
+    expect(updateCalls[0]).toMatchObject({ blocked_reason: null });
+
+    const { client: client2, updateCalls: updateCalls2 } = makeClient();
+    await blockTaskCore(client2, "user-1", "task-1", "in_progress");
+    expect(updateCalls2[0]).toMatchObject({ blocked_reason: null });
+  });
+
+  it("unblockTaskCore restores the prior status and clears blocked_from, blocked_reason, and blocked_since", async () => {
     const { client, updateCalls } = makeClient();
     await unblockTaskCore(client, "user-1", "task-1", "review");
-    expect(updateCalls[0]).toEqual({ status: "review", blocked_from: null, completed_at: null });
+    expect(updateCalls[0]).toEqual({ status: "review", blocked_from: null, blocked_reason: null, blocked_since: null, completed_at: null });
   });
 
   it("unblockTaskCore landing back on complete restarts the completed_at clock", async () => {
     const { client, updateCalls } = makeClient();
     await unblockTaskCore(client, "user-1", "task-1", "complete");
-    expect(updateCalls[0]).toMatchObject({ status: "complete", blocked_from: null });
+    expect(updateCalls[0]).toMatchObject({ status: "complete", blocked_from: null, blocked_reason: null, blocked_since: null });
     expect(updateCalls[0].completed_at).toEqual(expect.any(String));
   });
 

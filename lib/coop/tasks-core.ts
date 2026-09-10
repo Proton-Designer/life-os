@@ -69,15 +69,39 @@ export async function retreatTaskCore(supabase: SupabaseClient, userId: string, 
   await setStatusCore(supabase, userId, id, prev);
 }
 
-export async function blockTaskCore(supabase: SupabaseClient, userId: string, id: string, currentStatus: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
-  const { error } = await supabase.from("coop_tasks").update({ status: "blocked", blocked_from: currentStatus, completed_at: null }).eq("id", id).eq("user_id", userId);
+/** `reason` is optional and trimmed; a blank or omitted reason is stored as NULL, never `''` — "absent read as a value" is the bug class this repo pays most for. */
+export async function blockTaskCore(
+  supabase: SupabaseClient,
+  userId: string,
+  id: string,
+  currentStatus: Exclude<CoopTaskStatus, "blocked">,
+  reason?: string,
+): Promise<void> {
+  const trimmedReason = reason?.trim();
+  const { error } = await supabase
+    .from("coop_tasks")
+    .update({
+      status: "blocked",
+      blocked_from: currentStatus,
+      blocked_reason: trimmedReason ? trimmedReason : null,
+      blocked_since: new Date().toISOString(),
+      completed_at: null,
+    })
+    .eq("id", id)
+    .eq("user_id", userId);
   if (error) throw error;
 }
 
 export async function unblockTaskCore(supabase: SupabaseClient, userId: string, id: string, blockedFrom: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
   const { error } = await supabase
     .from("coop_tasks")
-    .update({ status: blockedFrom, blocked_from: null, completed_at: blockedFrom === "complete" ? new Date().toISOString() : null })
+    .update({
+      status: blockedFrom,
+      blocked_from: null,
+      blocked_reason: null,
+      blocked_since: null,
+      completed_at: blockedFrom === "complete" ? new Date().toISOString() : null,
+    })
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;

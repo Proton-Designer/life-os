@@ -17,6 +17,8 @@ function task(overrides: Partial<CoopTaskRow> = {}): CoopTaskRow {
     deadline: null,
     status: "backlog",
     blockedFrom: null,
+    blockedReason: null,
+    blockedSince: null,
     createdAt: "2026-08-20T00:00:00Z",
     completedAt: null,
     ...overrides,

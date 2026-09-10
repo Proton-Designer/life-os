@@ -142,18 +142,19 @@ describe("work.task — add/edit/advance/retreat/block/unblock", () => {
     expect(updateCalls[0]).toEqual({ status: "in_progress", completed_at: null });
   });
 
-  it("block captures blocked_from", async () => {
+  it("block captures blocked_from — the MCP write tool has no reason input, so blocked_reason stays null", async () => {
     const action = getWriteAction("work", "task", "block")!;
     const { client, updateCalls } = makeClient();
     await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "task-1" }, { current_status: "review" });
-    expect(updateCalls[0]).toEqual({ status: "blocked", blocked_from: "review", completed_at: null });
+    expect(updateCalls[0]).toMatchObject({ status: "blocked", blocked_from: "review", blocked_reason: null, completed_at: null });
+    expect(updateCalls[0].blocked_since).toEqual(expect.any(String));
   });
 
   it("unblock restores the given status", async () => {
     const action = getWriteAction("work", "task", "unblock")!;
     const { client, updateCalls } = makeClient();
     await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "task-1" }, { current_status: "in_progress" });
-    expect(updateCalls[0]).toEqual({ status: "in_progress", blocked_from: null, completed_at: null });
+    expect(updateCalls[0]).toEqual({ status: "in_progress", blocked_from: null, blocked_reason: null, blocked_since: null, completed_at: null });
   });
 
   it("REJECTS an invalid current_status", async () => {

@@ -33,7 +33,7 @@ const COLUMN_LABELS: Record<Exclude<CoopTaskStatus, "blocked">, string> = {
  * optimistic there.
  */
 export function PipelineBoard({ pastTasks }: { pastTasks: CoopTaskRow[] }) {
-  const { tasks, error, taskActions } = usePipeline();
+  const { tasks, error, taskActions, timezone } = usePipeline();
   const [blockedExpanded, setBlockedExpanded] = useState(true);
   const [pastOpen, setPastOpen] = useState(false);
   const columns = groupByStage(tasks);
@@ -65,7 +65,7 @@ export function PipelineBoard({ pastTasks }: { pastTasks: CoopTaskRow[] }) {
               <div className="flex flex-col gap-2">
                 {columns[stage].length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">Empty</p>}
                 {columns[stage].map((task) => (
-                  <TaskCard key={task.id} task={task} {...taskActions(task)} />
+                  <TaskCard key={task.id} task={task} {...taskActions(task)} timezone={timezone} />
                 ))}
               </div>
             </div>
@@ -86,7 +86,7 @@ export function PipelineBoard({ pastTasks }: { pastTasks: CoopTaskRow[] }) {
           <div className="flex flex-col gap-2 pl-2">
             {blocked.length === 0 && <p className="text-sm text-muted-foreground">Nothing blocked</p>}
             {blocked.map((task) => (
-              <TaskCard key={task.id} task={task} {...taskActions(task)} />
+              <TaskCard key={task.id} task={task} {...taskActions(task)} timezone={timezone} />
             ))}
           </div>
         )}
