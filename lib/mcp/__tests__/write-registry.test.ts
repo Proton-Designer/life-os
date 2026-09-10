@@ -40,7 +40,21 @@ describe("write-registry dispatch shape", () => {
   });
 
   it("listWriteEntities returns [] for a domain with no write surface at all", () => {
-    expect(listWriteEntities("self_mastery")).toEqual([]);
+    // self_mastery USED to be this example -- it now writes review/
+    // lesson_promotion/self_explanation. calendar is a genuine zero-entity
+    // aggregation domain (lib/mcp/registry.ts: "it has no table of its
+    // own"), never registered for write at all.
+    expect(listWriteEntities("calendar")).toEqual([]);
+  });
+
+  it("self_mastery's write surface is exactly grade/record_verdict/log -- never lessons/cards/source_chunks", () => {
+    expect(listWriteEntities("self_mastery").sort()).toEqual(["lesson_promotion", "review", "self_explanation"]);
+    expect(listWriteActions("self_mastery", "review")).toEqual(["grade"]);
+    expect(listWriteActions("self_mastery", "lesson_promotion")).toEqual(["record_verdict"]);
+    expect(listWriteActions("self_mastery", "self_explanation")).toEqual(["log"]);
+    for (const neverWritable of ["lesson", "card", "card_state", "source_chunks", "book", "book_section", "lesson_verdict"]) {
+      expect(listWriteEntities("self_mastery")).not.toContain(neverWritable);
+    }
   });
 });
 

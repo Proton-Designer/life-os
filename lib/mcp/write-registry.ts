@@ -25,6 +25,8 @@ import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
 import { saveAllocationCheckinCore } from "@/lib/checkins/actions-core";
 import { captureCore, logEventCore, saveActionPlanCore, recordPlanOutcomeCore } from "@/lib/distractions/actions-core";
 import { updateAppearanceCore, setWeekdayBaselinesCore, clearWeekdayBaselinesCore } from "@/lib/settings/actions-core";
+import { gradeReviewCore, logSelfExplanationCore } from "@/lib/self-mastery/actions-core";
+import { recordVerdictCore } from "@/lib/promotions/actions-core";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 
 /**
@@ -1438,6 +1440,117 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
       },
       // `api_key` has NO entity here -- see this domain's own header
       // comment. Permanent, not a "not yet."
+    },
+  },
+  /**
+   * Grading a review, adopting/abandoning a promoted lesson, logging a
+   * self-explanation -- the owner's own scope, and nothing wider. NEVER a
+   * path to `lessons`, `cards`, or `source_chunks` content: `source_chunks`
+   * carries an EMPTY column allowlist in the read registry (lib/mcp/
+   * registry.ts) specifically so raw book text is structurally
+   * unreachable over MCP, and nothing here writes to any of those three
+   * tables at all -- a model editing its own source material is a loop
+   * with no ground truth. Every handler composes an already-built
+   * core() (lib/self-mastery/actions-core.ts, lib/promotions/
+   * actions-core.ts) -- no business logic lives in this file.
+   */
+  self_mastery: {
+    domain: "self_mastery",
+    entities: {
+      review: {
+        entity: "review",
+        actions: {
+          grade: {
+            action: "grade",
+            description:
+              "Grade a spaced-repetition review for one card (1=Again, 2=Hard, 3=Good, 4=Easy) -- the SAME submit_review RPC every other grading path in the app (the session overlay, the legacy gradeCard action) already uses. No top-level id -- the card being graded is patch.card_id.",
+            patchShape: "{ card_id: string, rating: 1|2|3|4, elapsed_ms?: number, answered_text?: string, confidence?: 'sure'|'think_so'|'guessing'|null }",
+            idempotent: false,
+            idempotencyVerification:
+              "gradeReviewCore (lib/self-mastery/actions-core.ts) calls submit_review, which advances FSRS scheduling state FROM the row's CURRENT state -- reps/due_at/stability are all derived from what card_states already holds, not from a fixed target. Replaying the identical grade twice moves the card TWICE: reps increments twice, due_at advances twice past what one real review earns, and a second Again past state:'review' would even double-count a lapse. There is no conflict-key or no-op path here the way an upsert-by-natural-key write elsewhere in this program has -- a retry is a second, real, distinct grading event from the scheduler's own point of view. Never schedule this action.",
+            handler: async (ctx, patch) => {
+              const cardId = requireString(patch, "card_id");
+              const rating = requireNumberEnum(patch, "rating", [1, 2, 3, 4] as const);
+              const elapsedMs = optionalNumber(patch, "elapsed_ms");
+              const answeredText = optionalString(patch, "answered_text");
+              const confidenceRaw = optionalNullableString(patch, "confidence");
+              if (confidenceRaw != null && !["sure", "think_so", "guessing"].includes(confidenceRaw)) {
+                throw new Error(`patch.confidence must be one of: sure, think_so, guessing, or null/omitted. Got: ${JSON.stringify(confidenceRaw)}.`);
+              }
+              const confidence = (confidenceRaw ?? null) as "sure" | "think_so" | "guessing" | null;
+              const result = await gradeReviewCore(ctx.userClient, ctx.userId, {
+                cardId,
+                rating,
+                elapsedMs,
+                answeredText,
+                confidence,
+                now: ctx.now,
+              });
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: result.updatedAt, ...result },
+                },
+                summary: `graded card ${cardId} as ${rating}/4 -- next review in ${result.scheduledDays} day(s)`,
+              };
+            },
+          },
+        },
+      },
+      lesson_promotion: {
+        entity: "lesson_promotion",
+        actions: {
+          record_verdict: {
+            action: "record_verdict",
+            description:
+              "Record adopted/abandoned/still_testing against an EXISTING lesson_promotion (the top-level id) -- append-only, reuses migration 128's own reject_verdict_on_retired_promotion guard rather than reimplementing it. Never CREATES a promotion (that stays app-only, out of this pass's scope) and never touches lessons/cards/source_chunks content.",
+            patchShape: "{ verdict: 'adopted'|'abandoned'|'still_testing', reason?: string }",
+            idempotent: false,
+            idempotencyVerification:
+              "recordVerdictCore (lib/promotions/actions-core.ts) is a plain INSERT into the append-only lesson_verdicts log -- no conflict key. A retry with a TERMINAL verdict (adopted/abandoned) fails loudly on the second call (migration 128's trigger, since the first call already retired the promotion) rather than duplicating -- but 'still_testing' is non-terminal, has no such guard, and a retry inserts a genuine SECOND log row for what was meant to be one observation. Not idempotent for every value this action accepts, so the action as a whole is false -- the flag describes the action's whole accepted input domain, not its happy path.",
+            handler: async (ctx, patch) => {
+              const promotionId = requireId(ctx);
+              const verdict = requireEnum(patch, "verdict", ["adopted", "abandoned", "still_testing"] as const);
+              const reason = optionalNullableString(patch, "reason");
+              const result = await recordVerdictCore(ctx.userClient, ctx.userId, { promotionId, verdict, reason });
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: result.verdictAt, ...result },
+                },
+                summary: `recorded verdict '${verdict}' on promotion ${promotionId}`,
+              };
+            },
+          },
+        },
+      },
+      self_explanation: {
+        entity: "self_explanation",
+        actions: {
+          log: {
+            action: "log",
+            description:
+              "Log a self-explanation reflection against a lesson -- ungraded by design, insert-only. A null/omitted response records a deliberate skip, never penalised, exactly as valid a row as an answered one. No top-level id -- a new row every call.",
+            patchShape: "{ lesson_id: string, prompt: string, response?: string|null }",
+            idempotent: false,
+            idempotencyVerification:
+              "logSelfExplanationCore (lib/self-mastery/actions-core.ts) is a plain INSERT into self_explanations, no conflict key at all -- any retry (identical or different content) creates a genuinely separate row every time; there is nothing here for a repeated call to collide with or overwrite.",
+            handler: async (ctx, patch) => {
+              const lessonId = requireString(patch, "lesson_id");
+              const prompt = requireString(patch, "prompt");
+              const response = optionalNullableString(patch, "response");
+              const result = await logSelfExplanationCore(ctx.userClient, ctx.userId, { lessonId, prompt, response: response ?? null });
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: result.updatedAt, ...result },
+                },
+                summary: `logged a self-explanation for lesson ${lessonId}`,
+              };
+            },
+          },
+        },
+      },
     },
   },
 };

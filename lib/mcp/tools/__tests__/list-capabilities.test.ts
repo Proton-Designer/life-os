@@ -77,12 +77,23 @@ describe("listCapabilitiesTool", () => {
     }
   });
 
-  it("self_mastery is registered read-only throughout, including source_chunks", async () => {
+  it("self_mastery: source_chunks/book/book_section/lesson/card/card_state stay read-only -- only review/lesson_promotion/self_explanation gained a write action", async () => {
     const outcome = await listCapabilitiesTool("self_mastery");
     const payload = textPayload(outcome);
-    for (const entity of payload.entities) {
-      expect(entity.actions).toEqual(["read"]);
+    const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
+    for (const stillReadOnly of ["source_chunks", "book", "book_section", "lesson", "card", "card_state", "source", "question"]) {
+      expect(byEntity[stillReadOnly]).toEqual(["read"]);
     }
+    // The three the owner actually asked for -- grading a review,
+    // adopting/abandoning a promotion, logging a reflection -- and nothing
+    // wider (lessons/cards/source_chunks content stays out of reach above).
+    expect(byEntity.review).toEqual(["read", "write:grade"]);
+    expect(byEntity.lesson_promotion).toEqual(["read", "write:record_verdict"]);
+    expect(byEntity.self_explanation).toEqual(["read", "write:log"]);
+    // lesson_verdict itself is still read-only -- the write action targets
+    // lesson_promotion (record a verdict AGAINST a promotion), it doesn't
+    // register as a lesson_verdict-entity write.
+    expect(byEntity.lesson_verdict).toEqual(["read"]);
   });
 
   it("work/business entities report their real write actions from write-registry.ts, live", async () => {

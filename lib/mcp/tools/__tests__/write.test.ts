@@ -24,9 +24,14 @@ describe("resolveWriteOperation", () => {
 
 describe("writeTool — dispatch + error shape", () => {
   it("REJECTS an unknown domain with no writable entities, naming how to discover what's readable", async () => {
+    // self_mastery USED to be the example here -- it now has a real write
+    // surface (grade a review, record a verdict, log a self-explanation).
+    // calendar is a genuine zero-entity aggregation domain (lib/mcp/
+    // registry.ts: "it has no table of its own"), never registered for
+    // write at all.
     const client = makeClient();
-    await expect(writeTool(client, "user-1", { domain: "self_mastery", entity: "source_chunks", action: "write" })).rejects.toThrow(
-      /no writable entities.*self_mastery/i,
+    await expect(writeTool(client, "user-1", { domain: "calendar", entity: "event", action: "write" })).rejects.toThrow(
+      /no writable entities.*calendar/i,
     );
   });
 
