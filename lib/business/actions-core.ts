@@ -88,19 +88,36 @@ export type StartWorkSessionInput = {
 export async function startWorkSessionCore(
   supabase: SupabaseClient,
   userId: string,
-  input: StartWorkSessionInput
+  input: StartWorkSessionInput | StartWorkSessionInput["kind"]
 ): Promise<StartWorkSessionResult> {
+  // Accepts the bare kind as well as the full input object. This is a
+  // CROSS-TRACK COMPATIBILITY SHIM, not a convenience: `core()` functions in
+  // this repo are called from files owned by different tracks, and 146's
+  // Phase 3 widened this third parameter while `lib/mcp/write-registry.ts`
+  // (the AI Integration program's `work_session.start` tool, a third call
+  // site neither track had enumerated) still passed a bare string. That
+  // broke `main` for BOTH tracks -- the fix belonged in a file this track
+  // must not commit, because it also carried another track's unfinished
+  // work. Widening here unblocks it without either track touching the
+  // other's file, and stays correct after they land `{ kind }`.
+  //
+  // The real lesson, and the reason this comment is long: a shared core()
+  // signature is a cross-track interface. `git grep` the function name
+  // across the WHOLE repo before changing one, not just the tree you own --
+  // the file boundary that keeps tracks out of each other's work is exactly
+  // what hides the call sites you don't expect.
+  const normalized: StartWorkSessionInput = typeof input === "string" ? { kind: input } : input;
   const { data: active } = await supabase.from("work_sessions").select("id").eq("user_id", userId).is("ended_at", null).eq("counts_toward_hours", true).maybeSingle();
   if (active) throw new Error("A work session is already active");
 
   const { data: session, error: sessionError } = await supabase
     .from("work_sessions")
-    .insert({ user_id: userId, kind: input.kind, goal_minutes: input.goalMinutes ?? null, class_id: input.classId ?? null })
+    .insert({ user_id: userId, kind: normalized.kind, goal_minutes: normalized.goalMinutes ?? null, class_id: normalized.classId ?? null })
     .select("id, started_at")
     .single();
   if (sessionError) throw sessionError;
 
-  const objectives = input.objectives ?? [];
+  const objectives = normalized.objectives ?? [];
   if (objectives.length > 0) {
     const rows = objectives.map((objective, position) => ({
       user_id: userId,
