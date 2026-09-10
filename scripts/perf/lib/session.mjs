@@ -47,10 +47,13 @@ export async function loginSession({ headless = true } = {}) {
   return { browser, context, page };
 }
 
-// Same defensive dismiss e2e/helpers.ts uses: the real CheckinScheduler
-// mounts on every authenticated page and can pop its Dialog independent of
-// what a script is doing, intercepting clicks underneath it. Escape triggers
-// a snooze (persists nothing), so this is safe to call unconditionally.
+// Same defensive dismiss e2e/helpers.ts uses -- see that file's own comment
+// for the full story. Short version: this guards against check-in Dialog
+// state LEAKED from an earlier interaction in the same session, not against
+// an autonomous mount-triggered pop (the component that used to do that,
+// CheckinScheduler, was retired and its dead files removed). Escape closes
+// the sheet via onOpenChange(false) and persists nothing, so this stays safe
+// to call unconditionally.
 export async function dismissCheckinDialogIfPresent(page) {
   const dialog = page.getByRole("dialog");
   if (await dialog.isVisible().catch(() => false)) {

@@ -21,13 +21,26 @@ export async function login(page: Page) {
   await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
 }
 
-// The real CheckinScheduler (lib/checkins/compute-checkin-slots.ts) mounts on
-// every authenticated page and can pop its Dialog the moment a check-in slot
-// is genuinely due for this real account — independent of anything a given
-// spec is testing, and it covers the page and intercepts clicks when it does.
-// Escape triggers the Dialog's onOpenChange(false) → snoozeCheckin(), which
-// deliberately persists nothing (a snooze isn't an answer, per Task 10.2), so
-// this is safe to call defensively without altering real account data.
+// AllocationCheckinGate (components/checkin/allocation-checkin-gate.tsx) is
+// what actually renders the check-in Dialog today. This comment used to name
+// CheckinScheduler, which was retired (see supabase/functions/
+// dispatch-notifications/index.ts's "dropped CheckinSchedulerLoader, replaced
+// by Business-scoped Lock-In") but left mounted nowhere and un-deleted long
+// enough to mislead a real investigation — its files are gone as of the same
+// commit that corrected this comment.
+//
+// Unlike the retired component, AllocationCheckinGate never auto-opens — its
+// own header comment documents why: two rejected 2026-08-19 designs (v1: an
+// inescapable overlay with no close control or Escape handler; v2: kept the
+// escape hatch but still auto-opened, still wrong, because a large queue
+// forced completing everything before reaching Home). The shipped version
+// opens only via explicit user action (the queue badge's setOpen(true)), so a
+// spec should never see it pop unprompted mid-test. This stays a defensive
+// dismissal against state LEAKED from an earlier interaction in the same test
+// session (a prior spec/step that opened it and didn't close it) — not a
+// guard against an autonomous mount-triggered pop, which no longer exists.
+// Escape triggers onOpenChange(false) → setOpen(false), which only closes the
+// sheet and persists nothing, so this remains safe to call unconditionally.
 export async function dismissCheckinDialogIfPresent(page: Page) {
   const dialog = page.getByRole("dialog");
   if (await dialog.isVisible().catch(() => false)) {
