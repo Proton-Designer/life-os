@@ -130,15 +130,67 @@ test.describe("Work — Weekly Agenda Pipeline", () => {
     await panel.getByRole("button", { name: "Advance a stage" }).click();
     await expect(panel.getByText("In Progress (1)", { exact: true })).toBeVisible();
 
-    // Block: detaches from the column sequence into the Blocked section.
+    // Block: opens a dialog for an optional reason before the card detaches
+    // into the Blocked section — it does not move on the first click. The
+    // dialog renders through a Radix portal, so it is NOT inside `panel`;
+    // scope to `page.getByRole("dialog")`, not `panel`.
     await panel.getByRole("button", { name: /Mark blocked/ }).click();
+    const blockDialog = page.getByRole("dialog");
+    await expect(blockDialog).toBeVisible();
+    await expect(panel.getByText("In Progress (1)", { exact: true })).toBeVisible();
+
+    // A loose /Block/ match would also hit "Mark blocked…" and re-open
+    // rather than confirm — exact match on the dialog's own Block button.
+    const reason = "waiting on IT to provision the account";
+    await blockDialog.getByLabel(/what.*blocked on/i).fill(reason);
+    await blockDialog.getByRole("button", { name: "Block", exact: true }).click();
+    await expect(blockDialog).toBeHidden();
     await expect(panel.getByText("In Progress (0)", { exact: true })).toBeVisible();
     await expect(panel.getByText("Blocked (1)", { exact: true })).toBeVisible();
+
+    // The reason actually persisted, not just that the card moved columns —
+    // a spec that only counts columns passes identically whether the reason
+    // saved or vanished. Tapping the card's own Blocked badge (not the
+    // section header, which reads "Blocked (1)") discloses it.
+    await panel.getByRole("button", { name: /Blocked — view/ }).click();
+    const detailDialog = page.getByRole("dialog");
+    await expect(detailDialog).toBeVisible();
+    await expect(detailDialog.getByText(reason)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(detailDialog).toBeHidden();
 
     // Unblock: restores to blockedFrom (In Progress), not to Backlog.
     await panel.getByRole("button", { name: "Unblock", exact: true }).click();
     await expect(panel.getByText("In Progress (1)", { exact: true })).toBeVisible();
     await expect(panel.getByText("Blocked (0)", { exact: true })).toBeVisible();
+  });
+
+  // Ayman explicitly asked for the reason to be optional — an empty submit
+  // must block the task, not become a validation error. This is the one
+  // path the movement test above doesn't cover (it types a reason).
+  test("blocking with the reason left empty still blocks the task", async ({ page }) => {
+    await openWork(page);
+    const panel = pipelinePanel(page);
+    await expect(panel).toBeVisible();
+
+    const title = `Playwright pipeline block-empty-reason ${Date.now()}`;
+    await addTaskFromPanel(page, panel, title);
+    await expect(panel.getByText("Backlog (1)", { exact: true })).toBeVisible();
+
+    await panel.getByRole("button", { name: /Mark blocked/ }).click();
+    const blockDialog = page.getByRole("dialog");
+    await expect(blockDialog).toBeVisible();
+    // No text typed into the reason field — submitting blank must still work.
+    await blockDialog.getByRole("button", { name: "Block", exact: true }).click();
+    await expect(blockDialog).toBeHidden();
+
+    await expect(panel.getByText("Backlog (0)", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Blocked (1)", { exact: true })).toBeVisible();
+
+    await panel.getByRole("button", { name: /Blocked — view/ }).click();
+    const detailDialog = page.getByRole("dialog");
+    await expect(detailDialog).toBeVisible();
+    await expect(detailDialog.getByText("No reason given")).toBeVisible();
   });
 
   test("a freshly-completed task lands in Complete, not Past", async ({ page }) => {
