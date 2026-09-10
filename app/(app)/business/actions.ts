@@ -1,8 +1,10 @@
 "use server";
 
-import { requireUser } from "@/lib/supabase/auth";
+import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
+import { getClassTasksDueSoonCore, type ObjectiveTaskOption } from "@/lib/business/session-setup-data";
+import { localDateString } from "@/lib/date-utils";
 
 /** THIN WRAPPER over setKillListItemCore (lib/business/actions-core.ts, L6/R5) — same core the MCP write tool calls. */
 export async function setKillListItem(date: string, position: 0 | 1 | 2, text: string): Promise<void> {
@@ -61,4 +63,21 @@ export async function endWorkSession(sessionId: string): Promise<void> {
   await endWorkSessionCore(supabase, userId, sessionId);
   revalidatePath("/business");
   revalidatePath("/");
+}
+
+/**
+ * THIN WRAPPER over getClassTasksDueSoonCore — the Deep Study setup
+ * dialog's on-demand fetch once a class is picked (146/
+ * session-setup-dialog.tsx). Imported directly into that "use client" file
+ * rather than threaded down as a prop from a Server Component — same
+ * pattern as app/(app)/close/plan-actions.ts's dumpLine (AGENTS.md: a
+ * Server Action reference survives the RSC boundary; importing removes the
+ * hazard rather than testing for it).
+ */
+export async function getClassTasksDueSoon(classId: string): Promise<ObjectiveTaskOption[]> {
+  const { supabase, userId } = await requireUser();
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const todayStr = localDateString(new Date(), timezone);
+  return getClassTasksDueSoonCore(supabase, userId, classId, todayStr);
 }
