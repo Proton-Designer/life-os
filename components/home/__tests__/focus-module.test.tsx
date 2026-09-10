@@ -100,68 +100,63 @@ describe("FocusModule", () => {
     expect(screen.getByRole("button", { name: "Lock In — Deep Study" })).toHaveTextContent("Lock In");
   });
 
-  it("swaps to the active view after Deep Work Lock In resolves, without a page reload", async () => {
-    vi.mocked(startWorkSession).mockResolvedValue({
-      id: "s1",
-      startedAt: "2026-08-17T22:00:00Z",
-    });
+  // 146/Phase 3: Lock In no longer starts a session on tap — it opens the
+  // setup dialog (mounted centrally, SessionSetupDialogHost, not by
+  // FocusModule itself), and startWorkSession only fires once that dialog's
+  // Start is pressed. The full start-and-swap-to-active-view flow is
+  // exercised at the provider level instead
+  // (lock-in-overlay-context.test.tsx's confirmSessionStart tests), which is
+  // the layer that actually owns it now.
+  it("opens the setup dialog on tap rather than starting a Deep Work session immediately", async () => {
     const user = userEvent.setup();
     renderFocus();
 
     await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
 
-    expect(startWorkSession).toHaveBeenCalledWith("deep_work");
-    await waitFor(() => {
-      expect(screen.getByText(/Deep Work — locked in/)).toBeInTheDocument();
-    });
-    expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
+    expect(startWorkSession).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Deep Work — locked in/)).not.toBeInTheDocument();
   });
 
-  it("swaps to the active view after Deep Study Lock In resolves", async () => {
-    vi.mocked(startWorkSession).mockResolvedValue({
-      id: "s1",
-      startedAt: "2026-08-17T22:00:00Z",
-    });
+  it("opens the setup dialog on tap rather than starting a Deep Study session immediately", async () => {
     const user = userEvent.setup();
     renderFocus();
 
     await user.click(screen.getByRole("button", { name: "Lock In — Deep Study" }));
 
-    expect(startWorkSession).toHaveBeenCalledWith("deep_study");
-    await waitFor(() => {
-      expect(screen.getByText(/Deep Study — locked in/)).toBeInTheDocument();
-    });
-    // Deep Study has no domain page of its own — no "Open session" link.
-    expect(screen.queryByRole("link", { name: "Open session →" })).not.toBeInTheDocument();
+    expect(startWorkSession).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Deep Study — locked in/)).not.toBeInTheDocument();
   });
 
   it("renders the active view directly when an active deep_work session is passed in, with an Open session link", () => {
-    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work", goalMinutes: null, objectives: [] });
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("href", "/business");
     expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
   });
 
   it("renders the active view directly when an active deep_study session is passed in, with no Open session link", () => {
-    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study" });
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study", goalMinutes: null, objectives: [] });
     expect(screen.queryByRole("link", { name: "Open session →" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
   });
 
   it("prefetches the Open session link (navigation-prefetch-fix, Part A)", () => {
-    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work", goalMinutes: null, objectives: [] });
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("data-prefetch", "true");
   });
 
   it("ends the active session via an End session button, right in the Home module — no navigation required", async () => {
     vi.mocked(endWorkSession).mockResolvedValue(undefined);
     const user = userEvent.setup();
-    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study" });
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study", goalMinutes: null, objectives: [] });
 
     await user.click(screen.getByRole("button", { name: "End session" }));
 
-    expect(endWorkSession).toHaveBeenCalledWith("s1");
+    // A manual End Session tap passes no endedAtIso override (that's only
+    // for the two auto-end paths) — endSessionAt still forwards it
+    // positionally as `undefined`, so the real call carries two arguments.
+    expect(endWorkSession).toHaveBeenCalledWith("s1", undefined);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Lock In — Deep Work" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Lock In — Deep Study" })).toBeInTheDocument();
@@ -169,21 +164,14 @@ describe("FocusModule", () => {
   });
 
   it("has an Expand button in the active view (returns to the full-screen overlay)", () => {
-    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
+    renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work", goalMinutes: null, objectives: [] });
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
   });
 
-  it("shows a legible message instead of crashing when startWorkSession still throws (a race the guard lost)", async () => {
-    vi.mocked(startWorkSession).mockRejectedValue(new Error("A work session is already active"));
-    const user = userEvent.setup();
-    renderFocus();
-
-    await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/already running/)).toBeInTheDocument();
-    });
-  });
+  // Same reasoning as the two "opens the setup dialog" tests above: this
+  // race can no longer be triggered by a bare click on this button now that
+  // startWorkSession only fires from inside the setup dialog's Start
+  // handler. Covered at the provider level instead.
 
   it("shows today's distraction count beneath the Focus content", () => {
     renderFocus({ distractionsToday: 3 });
@@ -192,7 +180,7 @@ describe("FocusModule", () => {
   });
 
   it("shows the distraction count beneath the Focus content even in the active-session view", () => {
-    renderFocus({ distractionsToday: 2 }, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work" });
+    renderFocus({ distractionsToday: 2 }, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work", goalMinutes: null, objectives: [] });
     expect(screen.getByText("Distractions")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
   });

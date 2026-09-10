@@ -1,6 +1,6 @@
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { formatTopbarDate, localDateString } from "@/lib/date-utils";
-import { getActiveWorkSession } from "@/lib/business/active-session";
+import { getActiveWorkSessionDetail } from "@/lib/business/active-session";
 import { getKillListSlots } from "@/lib/business/kill-list-slots";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { computeNavDomainState, type NavDomainState } from "@/lib/shell/nav-domain-state";
@@ -53,16 +53,20 @@ export async function AppShell({
   const now = new Date();
   const dateStr = localDateString(now, timezone);
 
-  // getActiveWorkSession is ALSO a warm memo (the layout's own Promise.all
-  // already resolved it) — awaiting it alone here is free. getKillListSlots
-  // is not: it's a live query, gated behind it deliberately (Opus Lead
-  // correction, 2026-08-28) so it only runs on the one navigation shape
-  // that actually needs it — the Deep Work overlay showing a running
-  // session. Everything else (every other route, an idle Business page, a
-  // Deep Study session) pays zero extra round trips; /business itself is
-  // unaffected since it reads getKillListSlots directly, independent of
-  // this gate.
-  const activeWorkSession = user ? await getActiveWorkSession(user.id) : null;
+  // getActiveWorkSessionDetail is ALSO a warm memo (the layout's own
+  // Promise.all already resolved it, 146) — awaiting it alone here is free.
+  // getKillListSlots is not: it's a live query, gated behind it
+  // deliberately (Opus Lead correction, 2026-08-28) so it only runs on the
+  // one navigation shape that actually needs it — the Deep Work overlay
+  // showing a running session. Everything else (every other route, an idle
+  // Business page, a Deep Study session) pays zero extra round trips;
+  // /business itself is unaffected since it reads getKillListSlots
+  // directly, independent of this gate. The setup dialog's OWN kill-list
+  // and classes fetches (before a session exists) are separately on-demand
+  // — see getSessionKillListObjectives/getSessionClasses's own comments
+  // (app/(app)/business/actions.ts) for why those aren't threaded down from
+  // here either.
+  const activeWorkSession = user ? await getActiveWorkSessionDetail(user.id) : null;
   const killListSlots =
     user && activeWorkSession?.kind === "deep_work"
       ? await getKillListSlots(user.id, dateStr)
@@ -97,9 +101,9 @@ export async function AppShell({
           ? {
               id: activeWorkSession.id,
               startedAtIso: activeWorkSession.startedAt,
-              // getActiveWorkSession() stays WorkSessionKind (wide) at the type
-              // level by design — its own comment explains why: the query is
-              // runtime-scoped to deep-work-class sessions only
+              // getActiveWorkSessionDetail() stays WorkSessionKind (wide) at
+              // the type level by design — its own comment explains why: the
+              // query is runtime-scoped to deep-work-class sessions only
               // (.eq("counts_toward_hours", true)), and 'learn' rows are
               // "deliberately concurrent-safe... do not participate in the
               // single-active-session model at all". The Lock-In overlay only
@@ -107,6 +111,8 @@ export async function AppShell({
               // so this narrowing is safe — same shape as active-session.ts's
               // own `data.kind as WorkSessionKind` cast one layer down.
               kind: activeWorkSession.kind as LockInSessionKind,
+              goalMinutes: activeWorkSession.goalMinutes,
+              objectives: activeWorkSession.objectives,
             }
           : null
       }

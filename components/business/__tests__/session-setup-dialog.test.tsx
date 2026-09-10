@@ -4,22 +4,19 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { SessionSetupDialog, type SessionStartPayload } from "../session-setup-dialog";
 
 const getClassTasksDueSoonMock = vi.fn(async (_classId: string) => [] as { id: string; title: string; dueDate: string }[]);
+const getSessionKillListObjectivesMock = vi.fn(async () => [] as { id: string; text: string }[]);
+const getSessionClassesMock = vi.fn(async () => [] as { id: string; label: string }[]);
 vi.mock("@/app/(app)/business/actions", () => ({
   getClassTasksDueSoon: (classId: string) => getClassTasksDueSoonMock(classId),
+  getSessionKillListObjectives: () => getSessionKillListObjectivesMock(),
+  getSessionClasses: () => getSessionClassesMock(),
 }));
 
 function renderDialog(overrides: Partial<Parameters<typeof SessionSetupDialog>[0]> = {}) {
   const onStart = overrides.onStart ?? vi.fn(async () => {});
   const onOpenChange = overrides.onOpenChange ?? vi.fn();
   render(
-    <SessionSetupDialog
-      open
-      onOpenChange={onOpenChange}
-      kind={overrides.kind ?? "deep_work"}
-      killListItems={overrides.killListItems ?? []}
-      classes={overrides.classes ?? []}
-      onStart={onStart}
-    />
+    <SessionSetupDialog open onOpenChange={onOpenChange} kind={overrides.kind ?? "deep_work"} onStart={onStart} />
   );
   return { onStart, onOpenChange };
 }
@@ -28,6 +25,10 @@ describe("SessionSetupDialog", () => {
   beforeEach(() => {
     getClassTasksDueSoonMock.mockClear();
     getClassTasksDueSoonMock.mockResolvedValue([]);
+    getSessionKillListObjectivesMock.mockClear();
+    getSessionKillListObjectivesMock.mockResolvedValue([]);
+    getSessionClassesMock.mockClear();
+    getSessionClassesMock.mockResolvedValue([]);
   });
 
   describe("duration", () => {
@@ -69,24 +70,25 @@ describe("SessionSetupDialog", () => {
   });
 
   describe("Deep Work objectives", () => {
-    it("offers only incomplete kill list items", () => {
-      renderDialog({
-        killListItems: [
-          { id: "k1", text: "Ship the thing", completed: false },
-          { id: "k2", text: "Already done", completed: true },
-        ],
-      });
-      expect(screen.getByText("Ship the thing")).toBeInTheDocument();
-      expect(screen.queryByText("Already done")).not.toBeInTheDocument();
+    it("fetches today's kill list on open, and renders it", async () => {
+      getSessionKillListObjectivesMock.mockResolvedValue([{ id: "k1", text: "Ship the thing" }]);
+      renderDialog();
+      expect(await screen.findByText("Ship the thing")).toBeInTheDocument();
+      expect(getSessionKillListObjectivesMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not fetch the kill list for a Deep Study dialog", () => {
+      renderDialog({ kind: "deep_study" });
+      expect(getSessionKillListObjectivesMock).not.toHaveBeenCalled();
     });
 
     it("numbers items in the order they're selected, not list order", async () => {
-      renderDialog({
-        killListItems: [
-          { id: "k1", text: "First in list", completed: false },
-          { id: "k2", text: "Second in list", completed: false },
-        ],
-      });
+      getSessionKillListObjectivesMock.mockResolvedValue([
+        { id: "k1", text: "First in list" },
+        { id: "k2", text: "Second in list" },
+      ]);
+      renderDialog();
+      await screen.findByText("First in list");
       const user = userEvent.setup();
       // Select the second-listed item first.
       await user.click(screen.getByText("Second in list"));
@@ -99,12 +101,12 @@ describe("SessionSetupDialog", () => {
     });
 
     it("deselecting an item removes its badge and renumbers nothing else incorrectly", async () => {
-      renderDialog({
-        killListItems: [
-          { id: "k1", text: "A", completed: false },
-          { id: "k2", text: "B", completed: false },
-        ],
-      });
+      getSessionKillListObjectivesMock.mockResolvedValue([
+        { id: "k1", text: "A" },
+        { id: "k2", text: "B" },
+      ]);
+      renderDialog();
+      await screen.findByText("A");
       const user = userEvent.setup();
       await user.click(screen.getByText("A"));
       await user.click(screen.getByText("B"));
@@ -114,11 +116,10 @@ describe("SessionSetupDialog", () => {
     });
 
     it("includes a selected kill list item and a custom objective in the Start payload", async () => {
+      getSessionKillListObjectivesMock.mockResolvedValue([{ id: "k1", text: "Ship it" }]);
       const onStart = vi.fn(async (_payload: SessionStartPayload) => {});
-      const { } = renderDialog({
-        killListItems: [{ id: "k1", text: "Ship it", completed: false }],
-        onStart,
-      });
+      renderDialog({ onStart });
+      await screen.findByText("Ship it");
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "30");
       await user.click(screen.getByText("Ship it"));
@@ -157,16 +158,28 @@ describe("SessionSetupDialog", () => {
   describe("Deep Study", () => {
     const CLASSES = [{ id: "c1", label: "PHYS-2326" }];
 
+    it("fetches classes on open, and does not fetch the kill list", async () => {
+      getSessionClassesMock.mockResolvedValue(CLASSES);
+      renderDialog({ kind: "deep_study" });
+      expect(await screen.findByText("PHYS-2326")).toBeInTheDocument();
+      expect(getSessionClassesMock).toHaveBeenCalledTimes(1);
+      expect(getSessionKillListObjectivesMock).not.toHaveBeenCalled();
+    });
+
     it("requires a class before Start is enabled, even with a duration set", async () => {
-      renderDialog({ kind: "deep_study", classes: CLASSES });
+      getSessionClassesMock.mockResolvedValue(CLASSES);
+      renderDialog({ kind: "deep_study" });
+      await screen.findByText("PHYS-2326");
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "60");
       expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
     });
 
     it("loads that class's due-soon tasks once picked", async () => {
+      getSessionClassesMock.mockResolvedValue(CLASSES);
       getClassTasksDueSoonMock.mockResolvedValue([{ id: "t1", title: "Lab report", dueDate: "2026-09-15" }]);
-      renderDialog({ kind: "deep_study", classes: CLASSES });
+      renderDialog({ kind: "deep_study" });
+      await screen.findByText("PHYS-2326");
       const user = userEvent.setup();
       await user.click(screen.getByText("PHYS-2326"));
 
@@ -175,7 +188,9 @@ describe("SessionSetupDialog", () => {
     });
 
     it("enables Start once both a duration and a class are set", async () => {
-      renderDialog({ kind: "deep_study", classes: CLASSES });
+      getSessionClassesMock.mockResolvedValue(CLASSES);
+      renderDialog({ kind: "deep_study" });
+      await screen.findByText("PHYS-2326");
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "60");
       await user.click(screen.getByText("PHYS-2326"));
@@ -183,7 +198,7 @@ describe("SessionSetupDialog", () => {
     });
 
     it("hides the Study Material input until the toggle is pressed, and clears it when toggled off", async () => {
-      renderDialog({ kind: "deep_study", classes: CLASSES });
+      renderDialog({ kind: "deep_study" });
       expect(screen.queryByLabelText("Study material")).not.toBeInTheDocument();
       const user = userEvent.setup();
       await user.click(screen.getByRole("button", { name: "Study Material" }));
@@ -199,10 +214,12 @@ describe("SessionSetupDialog", () => {
         { id: "c1", label: "PHYS-2326" },
         { id: "c2", label: "CHEM-1105" },
       ];
+      getSessionClassesMock.mockResolvedValue(CLASSES_2);
       getClassTasksDueSoonMock.mockImplementation(async (classId: string) =>
         classId === "c1" ? [{ id: "t1", title: "Lab report", dueDate: "2026-09-15" }] : [{ id: "t2", title: "Problem set", dueDate: "2026-09-16" }]
       );
-      renderDialog({ kind: "deep_study", classes: CLASSES_2 });
+      renderDialog({ kind: "deep_study" });
+      await screen.findByText("PHYS-2326");
       const user = userEvent.setup();
       await user.click(screen.getByText("PHYS-2326"));
       await screen.findByText("Lab report");
@@ -222,22 +239,25 @@ describe("SessionSetupDialog", () => {
   // shape a parent's `onOpenChange` handler produces, never going through
   // this component's Start/cancel paths at all.
   it("resets all state on the transition to open, even when the caller closed it directly", async () => {
+    getSessionKillListObjectivesMock.mockResolvedValue([{ id: "k1", text: "A" }]);
     const onOpenChange = vi.fn();
     const props = {
       onOpenChange,
       kind: "deep_work" as const,
-      killListItems: [{ id: "k1", text: "A", completed: false }],
-      classes: [],
       onStart: vi.fn(async () => {}),
     };
     const { rerender } = render(<SessionSetupDialog open {...props} />);
+    await screen.findByText("A");
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Duration in minutes"), "30");
     await user.click(screen.getByText("A"));
     expect(screen.getByLabelText("Duration in minutes")).toHaveValue("30");
 
     rerender(<SessionSetupDialog open={false} {...props} />);
+    await waitFor(() => expect(screen.queryByLabelText("Duration in minutes")).not.toBeInTheDocument());
     rerender(<SessionSetupDialog open {...props} />);
+    await waitFor(() => expect(getSessionKillListObjectivesMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("Loading kill list…")).not.toBeInTheDocument());
 
     expect(screen.getByLabelText("Duration in minutes")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();

@@ -11,32 +11,19 @@ import { MAX_GOAL_MINUTES, parseGoalMinutes, parseGoalMinutesText } from "@/lib/
 // Server Action reference survives the RSC boundary; importing removes the
 // hazard rather than testing for it, and this dialog is exactly the shape
 // that trips the alternative).
-import { getClassTasksDueSoon } from "@/app/(app)/business/actions";
-import type { ObjectiveTaskOption } from "@/lib/business/session-setup-data";
+import { getClassTasksDueSoon, getSessionKillListObjectives, getSessionClasses } from "@/app/(app)/business/actions";
+import type {
+  ObjectiveTaskOption,
+  KillListObjectiveOption,
+  SessionClassOption,
+  ObjectiveSelection,
+  SessionStartPayload,
+} from "@/lib/business/session-setup-data";
 import type { LockInSessionKind } from "./lock-in-overlay-context";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { cn } from "@/lib/utils";
 
-/** A kill-list slot with real text, offered as a Deep Work objective
- * candidate. `completed` travels with it so this dialog can filter to
- * incomplete-only itself (defence in depth alongside the caller already
- * filtering at the source, per the Opus Lead's 2026-09-10 ruling) — an
- * already-done item offered here would let a session start already
- * satisfied and auto-end on its first render. */
-export type KillListObjectiveOption = { id: string; text: string; completed: boolean };
-
-export type SessionClassOption = { id: string; label: string };
-
-export type ObjectiveSelection =
-  | { kind: "kill_list_item"; id: string }
-  | { kind: "task"; id: string }
-  | { kind: "custom"; text: string };
-
-export type SessionStartPayload = {
-  goalMinutes: number;
-  classId: string | null;
-  objectives: ObjectiveSelection[];
-};
+export type { SessionClassOption, ObjectiveSelection, SessionStartPayload };
 
 const MAX_HOURS = Math.floor(MAX_GOAL_MINUTES / 60);
 
@@ -223,32 +210,29 @@ export function SessionSetupDialog({
   open,
   onOpenChange,
   kind,
-  killListItems,
-  classes,
   onStart,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   kind: LockInSessionKind;
-  /** Deep Work only — ignored for Deep Study. */
-  killListItems: KillListObjectiveOption[];
-  /** Deep Study only — ignored for Deep Work. */
-  classes: SessionClassOption[];
   onStart: (payload: SessionStartPayload) => Promise<void>;
 }) {
   const [goalMinutes, setGoalMinutes] = useState<number | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
+  const [classes, setClasses] = useState<SessionClassOption[]>([]);
   const [classTasks, setClassTasks] = useState<ObjectiveTaskOption[]>([]);
+  const [killListItems, setKillListItems] = useState<KillListObjectiveOption[]>([]);
   const [customText, setCustomText] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
   const killList = useOrderedSelection();
   const tasks = useOrderedSelection();
   const [isLoadingTasks, startLoadingTasks] = useTransition();
+  const [isLoadingKillList, setIsLoadingKillList] = useState(false);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false);
   const [isStarting, startStarting] = useTransition();
   const [startError, setStartError] = useState<string | null>(null);
 
   const isDeepStudy = kind === "deep_study";
-  const incompleteKillList = killListItems.filter((item) => !item.completed);
 
   // Resets on the transition TO open, not on close. This component never
   // unmounts across a close/reopen cycle (the caller toggles `open`, it
@@ -260,23 +244,62 @@ export function SessionSetupDialog({
   // is what closed the dialog — it would miss a parent that sets `open`
   // false for its own reason without going through here. Resetting on the
   // `open` transition instead covers every path a reopen can take.
+  //
+  // ALSO where Deep Work's kill-list objectives and Deep Study's classes
+  // are fetched — on-demand, the moment the dialog opens, never threaded
+  // down as a prop (see getSessionKillListObjectives's and
+  // getSessionClasses's own comments for why: app-shell.tsx deliberately
+  // does NOT fetch either on every navigation).
   useEffect(() => {
     if (open) {
       setGoalMinutes(null);
       setClassId(null);
+      setClasses([]);
       setClassTasks([]);
+      setKillListItems([]);
       setCustomText("");
       setShowCustomInput(false);
       killList.reset();
       tasks.reset();
       setStartError(null);
+      // Plain async state, not useTransition, for both fetches below: this
+      // runs on dialog OPEN (an effect), not from a click handler — the
+      // case useTransition is designed around (marking a user-initiated
+      // update as interruptible low priority). A loading flag that must
+      // flip back to false the moment a fetch started on mount/open
+      // resolves is a better fit for an ordinary state update than for a
+      // transition (also: a `useTransition` started from inside an effect
+      // was observed NOT to reliably clear its own `isPending` across a
+      // close/reopen cycle in this component's own tests — plain state
+      // sidesteps that entirely, whatever its cause).
+      let cancelled = false;
+      if (kind === "deep_work") {
+        setIsLoadingKillList(true);
+        getSessionKillListObjectives().then((items) => {
+          if (!cancelled) {
+            setKillListItems(items);
+            setIsLoadingKillList(false);
+          }
+        });
+      } else {
+        setIsLoadingClasses(true);
+        getSessionClasses().then((items) => {
+          if (!cancelled) {
+            setClasses(items);
+            setIsLoadingClasses(false);
+          }
+        });
+      }
+      return () => {
+        cancelled = true;
+      };
     }
-    // Deliberately keyed on `open` alone — the setters and .reset()
+    // Deliberately keyed on `open`/`kind` only — the setters and .reset()
     // functions are stable enough for this component's lifetime and
     // including them would only make this effect's intent less legible,
     // same posture as lock-in-overlay-context.tsx's mount-only effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, kind]);
 
   function handlePickClass(id: string) {
     setClassId(id);
@@ -292,7 +315,12 @@ export function SessionSetupDialog({
   }
 
   const canStart =
-    goalMinutes !== null && (!isDeepStudy || classId !== null) && !isStarting && !isLoadingTasks;
+    goalMinutes !== null &&
+    (!isDeepStudy || classId !== null) &&
+    !isStarting &&
+    !isLoadingTasks &&
+    !isLoadingKillList &&
+    !isLoadingClasses;
 
   function handleStart() {
     if (goalMinutes === null) return;
@@ -330,7 +358,9 @@ export function SessionSetupDialog({
             <>
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Class</p>
-                {classes.length === 0 ? (
+                {isLoadingClasses ? (
+                  <p className="text-sm text-muted-foreground">Loading classes…</p>
+                ) : classes.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No classes yet — add one on School first.</p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
@@ -399,11 +429,13 @@ export function SessionSetupDialog({
             <>
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Objectives</p>
-                {incompleteKillList.length === 0 ? (
+                {isLoadingKillList ? (
+                  <p className="text-sm text-muted-foreground">Loading kill list…</p>
+                ) : killListItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Nothing on today's kill list yet.</p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
-                    {incompleteKillList.map((item) => (
+                    {killListItems.map((item) => (
                       <ObjectiveRow
                         key={item.id}
                         label={item.text}

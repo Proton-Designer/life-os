@@ -27,6 +27,10 @@ vi.mock("@/lib/supabase/auth", () => ({
 
 vi.mock("@/lib/business/active-session", () => ({
   getActiveWorkSession: vi.fn(async () => null),
+  // 146: AuthedShell warms getActiveWorkSessionDetail now (a separate
+  // cache() entry from the lean getActiveWorkSession above — see the
+  // layout's own comment on why), so this mock needs it too.
+  getActiveWorkSessionDetail: vi.fn(async () => null),
 }));
 
 vi.mock("@/components/shell/app-shell", () => ({

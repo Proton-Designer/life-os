@@ -9,6 +9,7 @@ import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context
 import { RealtimeSyncProvider } from "@/components/realtime/realtime-sync-provider";
 import { LockInOverlayProvider, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
 import { LockInOverlay } from "@/components/business/lock-in-overlay";
+import { SessionSetupDialogHost } from "@/components/business/session-setup-dialog-host";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
@@ -141,6 +142,13 @@ export function AppShellChrome({
           <CheckinToast />
         </div>
         <LockInOverlay timezone={timezone} killListSlots={killListSlots} />
+        {/* The pre-session goal/objectives prompt (146) — mounted once here,
+            same reasoning as LockInOverlay above it: FocusModule's and
+            LockInPanel's "Lock In" buttons call the context's
+            startSession(kind), which now opens this rather than starting a
+            session immediately, and both surfaces needed zero code changes
+            for it. */}
+        <SessionSetupDialogHost />
       </LockInOverlayProvider>
     </AllocationQueueProvider>
     </div>

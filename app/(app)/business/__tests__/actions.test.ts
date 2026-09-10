@@ -112,7 +112,7 @@ describe("Business actions", () => {
     fromImpl = () => chain;
     const { startWorkSession } = await import("../actions");
 
-    await expect(startWorkSession("deep_study")).rejects.toThrow();
+    await expect(startWorkSession({ kind: "deep_study" })).rejects.toThrow();
     expect(chain.insert).not.toHaveBeenCalled();
   });
 
@@ -129,7 +129,7 @@ describe("Business actions", () => {
     fromImpl = () => chain;
     const { startWorkSession } = await import("../actions");
 
-    const result = await startWorkSession("deep_study");
+    const result = await startWorkSession({ kind: "deep_study" });
 
     expect(fromMock).toHaveBeenCalledWith("work_sessions");
     expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1", kind: "deep_study" }));

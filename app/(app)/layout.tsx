@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { getActiveWorkSession } from "@/lib/business/active-session";
+import { getActiveWorkSessionDetail } from "@/lib/business/active-session";
 import { AppShell } from "@/components/shell/app-shell";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
 import { getWeekCalendar } from "@/app/(app)/calendar/actions";
@@ -48,8 +48,8 @@ export async function AuthedShell({ children }: { children: React.ReactNode }) {
   }
 
   const pathname = (await headers()).get("x-pathname") ?? "";
-  // getProfile and getActiveWorkSession are each a real Supabase round trip
-  // and neither depends on the other — issue them together rather than
+  // getProfile and getActiveWorkSessionDetail are each a real Supabase round
+  // trip and neither depends on the other — issue them together rather than
   // serially (Opus Lead, batch 5: this is the layer AppShell's own
   // Promise.all couldn't reach, since getProfile already resolved here by
   // the time AppShell runs; the round trip this actually saves is the one
@@ -57,7 +57,12 @@ export async function AuthedShell({ children }: { children: React.ReactNode }) {
   // later calls to either hit the warm memo. Both awaited unconditionally
   // (not just on the non-onboarding branch) so neither is left as an
   // unawaited promise across the redirect("/onboarding") branch below.
-  const [profile] = await Promise.all([getProfile(), getActiveWorkSession(user.id)]);
+  //
+  // Warms getActiveWorkSessionDetail specifically (146), not the leaner
+  // getActiveWorkSession — a different cache() entry, so warming the lean
+  // one here would leave AppShell's later call to the rich one a genuine
+  // unwarmed round trip. Nothing else in this file needs the lean version.
+  const [profile] = await Promise.all([getProfile(), getActiveWorkSessionDetail(user.id)]);
 
   if (!pathname.startsWith("/onboarding")) {
     // No profile row yet is equivalent to "onboarding not done" — a brand
