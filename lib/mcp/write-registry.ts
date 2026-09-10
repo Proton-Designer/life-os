@@ -1229,12 +1229,16 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         },
       },
       // `checkin` (the plain point-sample entity, checkins.checkin in the
-      // read-side registry) is deliberately NOT writable here -- the app's
-      // own point-sample answer/miss flow (answerCheckin/
-      // recordMissedCheckin) is tied to a specific fired scheduler slot's
-      // tag options (getCheckinOptionsForNow), which only make sense
-      // relative to the live scheduler state a chat turn doesn't have.
-      // "log time to a domain" is entirely served by allocation.save above.
+      // read-side registry) is deliberately NOT writable here -- not
+      // because a chat turn lacks live scheduler state, but because there
+      // IS no live scheduler anymore to lack. CheckinScheduler was deleted
+      // (2026-09-10); the whole point-sample flow it drove -- CheckinPrompt,
+      // answerCheckin, recordMissedCheckin, getCheckinOptionsForNow -- has
+      // been dead code since 05e6ecd (2026-08-19), when the allocation-
+      // window model replaced it (e2e/checkin.spec.ts documents the
+      // replacement explicitly). There is nothing left to wire an MCP
+      // action onto. "Log time to a domain" is fully served by
+      // allocation.save above, which is the only checkin model left.
     },
   },
   distractions: {

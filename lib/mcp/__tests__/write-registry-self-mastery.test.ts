@@ -147,8 +147,22 @@ describe("self_mastery.self_explanation.log — dispatch", () => {
 });
 
 describe("self_mastery write actions never reach lessons/cards/source_chunks", () => {
-  it("no handler in this domain ever calls .from with one of the excluded tables", async () => {
+  /**
+   * The lead's finding: the previous version of this test only asserted
+   * `touchedTables.not.toContain(excluded)` — a check that passes just as
+   * cleanly if the recorder never recorded anything at all (a broken mock,
+   * a handler that silently no-oped) as it does if the constraint genuinely
+   * holds. Absence-only assertions can't tell "proven safe" from "measured
+   * nothing" apart; they look identical in the output. Fixed with a
+   * POSITIVE CONTROL: assert the exact, complete set of tables AND rpc
+   * calls these three handlers are expected to make, not just that three
+   * named ones are missing from an unconstrained set. A handler that
+   * quietly starts reaching for a fourth table (excluded or not) now fails
+   * this test too, which "not.toContain" could never catch.
+   */
+  it("touches exactly card_states/user_settings/lesson_promotions/lesson_verdicts/self_explanations and rpc submit_review -- nothing else, and never lessons/cards/source_chunks", async () => {
     const touchedTables = new Set<string>();
+    const rpcCalls: string[] = [];
     const client = {
       from: vi.fn((table: string) => {
         touchedTables.add(table);
@@ -161,7 +175,10 @@ describe("self_mastery write actions never reach lessons/cards/source_chunks", (
         };
         return chain;
       }),
-      rpc: vi.fn(async () => ({ data: { id: "review-1" }, error: null })),
+      rpc: vi.fn(async (name: string) => {
+        rpcCalls.push(name);
+        return { data: { id: "review-1" }, error: null };
+      }),
     } as unknown as SupabaseClient;
 
     await getWriteAction("self_mastery", "review", "grade")!.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { card_id: "c1", rating: 3 });
@@ -171,6 +188,15 @@ describe("self_mastery write actions never reach lessons/cards/source_chunks", (
     );
     await getWriteAction("self_mastery", "self_explanation", "log")!.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { lesson_id: "l1", prompt: "p" });
 
+    // Positive control FIRST -- if this fails, the exclusion assertion
+    // below is meaningless (either the recorder is broken, or a handler
+    // reached for something unanticipated).
+    expect(touchedTables.size).toBeGreaterThan(0);
+    expect([...touchedTables].sort()).toEqual(["card_states", "lesson_promotions", "lesson_verdicts", "self_explanations", "user_settings"]);
+    expect(rpcCalls).toEqual(["submit_review"]);
+
+    // Now the exclusion is a real claim: this is the WHOLE set, and none
+    // of the three excluded tables is in it.
     for (const excluded of ["lessons", "cards", "source_chunks"]) {
       expect(touchedTables).not.toContain(excluded);
     }
