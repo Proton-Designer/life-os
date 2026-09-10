@@ -96,7 +96,7 @@ describe("HabitEditorDialog", () => {
       habit({ id: "a", name: "First habit", committedDate: "2026-08-01" }),
       habit({ id: "b", name: "Second habit", committedDate: "2026-08-10" }),
     ]);
-    await user.click(screen.getAllByRole("button", { name: "Edit history" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
 
     // Opens pre-selected on the first habit's row.
     expect(await screen.findByLabelText("Started on")).toHaveValue("2026-08-01");
@@ -144,35 +144,55 @@ describe("HabitEditorDialog", () => {
     expect(setDeenHabitStageOverrideMock).toHaveBeenCalledWith("a", null);
   });
 
-  it("edits a habit's name and cue", async () => {
+  it("Edit opens the same screen as history editing, and saving the name/cue there persists and updates the caller's list", async () => {
     const onHabitsChange = vi.fn();
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })], onHabitsChange);
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    const nameInput = screen.getByPlaceholderText("Habit name");
+    expect(screen.getByRole("heading", { name: /edit habit/i })).toBeInTheDocument();
+
+    const nameInput = await screen.findByLabelText("Name");
     await user.clear(nameInput);
     await user.type(nameInput, "Fajr in congregation");
-    // Scoped to the row's own inline edit form — the main screen also has a
-    // "Save" button (the dialog-level close), same label, different button.
-    const row = nameInput.closest("li")!;
-    await user.click(within(row).getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+
     expect(updateDeenHabitMock).toHaveBeenCalledWith("a", "Fajr in congregation", null);
+    expect(onHabitsChange).toHaveBeenCalled();
   });
 
-  it("removes a habit only after an explicit confirm step, not on the first click", async () => {
+  it("removes a habit only after an explicit confirm step naming the real consequence, not on the first click", async () => {
     const onHabitsChange = vi.fn();
     const user = userEvent.setup();
-    renderDialog([habit({ id: "a" })], onHabitsChange);
+    renderDialog(
+      [habit({ id: "a", name: "Fajr on time", streak: 3, rollingRate: { done: 10, total: 15 } })],
+      onHabitsChange
+    );
     await user.click(screen.getByRole("button", { name: "Remove" }));
     expect(archiveDeenHabitMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Confirm remove" }));
+
+    const dialog = screen.getByRole("dialog", { name: /remove this habit/i });
+    expect(
+      within(dialog).getByText(/deletes its logged history \(3-day streak, 10\/15 last 30 days\)/i)
+    ).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
     expect(archiveDeenHabitMock).toHaveBeenCalledWith("a");
+  });
+
+  it("removes a habit with no logged history using a plain confirmation, not a fabricated stat", async () => {
+    const user = userEvent.setup();
+    renderDialog([habit({ id: "a", streak: 0, rollingRate: { done: 0, total: 0 } })]);
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    const dialog = screen.getByRole("dialog", { name: /remove this habit/i });
+    expect(within(dialog).getByText(/can.t be undone/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/last 30 days/)).not.toBeInTheDocument();
   });
 
   it("Advanced screen: never offers a future date for committed_date", async () => {
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Edit history" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     const dateInput = screen.getByLabelText("Started on");
     expect(dateInput).toHaveAttribute("max", TODAY);
   });
@@ -181,17 +201,17 @@ describe("HabitEditorDialog", () => {
     getDeenHabitLogRangeMock.mockResolvedValueOnce([{ date: TODAY, completed: false }]);
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Edit history" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     const todayRow = (await screen.findByText(TODAY)).closest("li")!;
     await user.click(within(todayRow).getByRole("button", { name: "Not done" }));
     expect(setDeenHabitLogStatusMock).toHaveBeenCalledWith("a", TODAY, true);
   });
 
-  it("back arrow returns from Advanced to the main screen", async () => {
+  it("back arrow returns from Edit to the main screen", async () => {
     const user = userEvent.setup();
     renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Edit history" }));
-    expect(screen.getByRole("heading", { name: /advanced habit settings/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("heading", { name: /edit habit/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("heading", { name: /edit habits/i })).toBeInTheDocument();
   });
@@ -206,7 +226,7 @@ describe("HabitEditorDialog", () => {
   it("Save on the Advanced screen also closes the dialog", async () => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog([habit({ id: "a" })]);
-    await user.click(screen.getByRole("button", { name: "Edit history" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });

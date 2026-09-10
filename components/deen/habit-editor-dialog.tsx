@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -194,6 +195,23 @@ function StageGroup({
   );
 }
 
+// Names the actual consequence of a hard delete (deen_habit_logs and
+// deen_weekly_focus both CASCADE from deen_habits — there is no undo, and no
+// soft-delete/archive here) using only data already on the habit object, so
+// the confirm dialog never needs its own query. Precedent shape:
+// task-card.tsx's delete-confirm dialog.
+function removeConsequence(habit: DeenHabitData): string {
+  const hasHistory = habit.streak > 0 || habit.rollingRate.total > 0;
+  if (!hasHistory) {
+    return `Removing “${habit.name}” can’t be undone.`;
+  }
+  const stats =
+    habit.streak > 0
+      ? `${habit.streak}-day streak, ${habit.rollingRate.done}/${habit.rollingRate.total} last 30 days`
+      : `${habit.rollingRate.done}/${habit.rollingRate.total} last 30 days`;
+  return `Removing “${habit.name}” also deletes its logged history (${stats}). This can’t be undone.`;
+}
+
 function HabitEditRow({
   habit,
   todayStr,
@@ -206,10 +224,7 @@ function HabitEditRow({
   onAdvancedFor: (habitId: string) => void;
 }) {
   const [isPending, startTransition] = useTransition();
-  const [editing, setEditing] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [name, setName] = useState(habit.name);
-  const [anchorCue, setAnchorCue] = useState(habit.anchorCue ?? "");
 
   const currentStage = habitStage(habit.committedDate, todayStr, habit.stageOverride);
   const currentIndex = STAGE_ORDER.indexOf(currentStage);
@@ -219,19 +234,8 @@ function HabitEditRow({
     onHabitsChange((prev) => prev.map((h) => (h.id === habit.id ? { ...h, ...patch } : h)));
   }
 
-  function saveNameCue(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) return;
-    const trimmedCue = anchorCue.trim() || null;
-    startTransition(async () => {
-      await updateDeenHabit(habit.id, trimmedName, trimmedCue);
-      patchHabit({ name: trimmedName, anchorCue: trimmedCue });
-      setEditing(false);
-    });
-  }
-
   function remove() {
+    setConfirmingRemove(false);
     startTransition(async () => {
       await archiveDeenHabit(habit.id);
       onHabitsChange((prev) => prev.filter((h) => h.id !== habit.id));
@@ -245,29 +249,6 @@ function HabitEditRow({
     });
   }
 
-  if (editing) {
-    return (
-      <li className="rounded-lg border border-border/40 p-3">
-        <form onSubmit={saveNameCue} className="flex flex-col gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Habit name" />
-          <Input
-            value={anchorCue}
-            onChange={(e) => setAnchorCue(e.target.value)}
-            placeholder="Cue (optional) — e.g. After Fajr"
-          />
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={isPending}>
-              Save
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </li>
-    );
-  }
-
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -276,31 +257,15 @@ function HabitEditRow({
           {habit.anchorCue && <span className="text-xs text-muted-foreground">{habit.anchorCue}</span>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setEditing(true)}>
+          {/* Single entry point for everything about this habit — name/cue,
+              start date, and day-by-day history — all now live on the
+              Advanced screen this jumps to. */}
+          <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => onAdvancedFor(habit.id)}>
             Edit
           </Button>
-          {/* Jumps straight to the Advanced screen pre-selecting this habit
-              — deliberately NOT labeled "Advanced" too: two same-labeled
-              buttons (this one and the dialog's corner button) would be
-              genuinely ambiguous to a screen reader user, not just to a
-              test's role query. */}
-          <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => onAdvancedFor(habit.id)}>
-            Edit history
+          <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(true)}>
+            Remove
           </Button>
-          {confirmingRemove ? (
-            <>
-              <Button type="button" variant="destructive" size="sm" disabled={isPending} onClick={remove}>
-                Confirm remove
-              </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(false)}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => setConfirmingRemove(true)}>
-              Remove
-            </Button>
-          )}
         </div>
       </div>
 
@@ -338,6 +303,20 @@ function HabitEditRow({
           </Button>
         )}
       </div>
+
+      <Dialog open={confirmingRemove} onOpenChange={setConfirmingRemove}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove this habit?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{removeConsequence(habit)}</p>
+          <DialogFooter>
+            <Button type="button" variant="destructive" disabled={isPending} onClick={remove}>
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </li>
   );
 }
@@ -362,6 +341,8 @@ function AdvancedScreen({
   const selectedHabit = habits.find((h) => h.id === selectedHabitId) ?? habits[0] ?? null;
   const [isPending, startTransition] = useTransition();
   const [committedDate, setCommittedDate] = useState(selectedHabit?.committedDate ?? todayStr);
+  const [name, setName] = useState(selectedHabit?.name ?? "");
+  const [anchorCue, setAnchorCue] = useState(selectedHabit?.anchorCue ?? "");
   const [logsByDate, setLogsByDate] = useState<Record<string, boolean>>({});
   const [loadingLogs, setLoadingLogs] = useState(false);
 
@@ -374,6 +355,8 @@ function AdvancedScreen({
   useEffect(() => {
     if (!selectedHabit) return;
     setCommittedDate(selectedHabit.committedDate);
+    setName(selectedHabit.name);
+    setAnchorCue(selectedHabit.anchorCue ?? "");
     setLoadingLogs(true);
     getDeenHabitLogRange(selectedHabit.id, startDate, todayStr)
       .then((rows) => {
@@ -389,7 +372,7 @@ function AdvancedScreen({
     return (
       <>
         <DialogHeader>
-          <DialogTitle>Advanced habit settings</DialogTitle>
+          <DialogTitle>Edit habit</DialogTitle>
         </DialogHeader>
         <p className="py-8 text-center text-sm text-muted-foreground">No habits yet — nothing to configure.</p>
         <div className="flex items-center justify-between pt-2">
@@ -413,6 +396,18 @@ function AdvancedScreen({
     });
   }
 
+  function saveNameCue() {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    const trimmedCue = anchorCue.trim() || null;
+    startTransition(async () => {
+      await updateDeenHabit(selectedHabit!.id, trimmedName, trimmedCue);
+      onHabitsChange((prev) =>
+        prev.map((h) => (h.id === selectedHabit!.id ? { ...h, name: trimmedName, anchorCue: trimmedCue } : h))
+      );
+    });
+  }
+
   function toggleDay(date: string) {
     if (date > todayStr) return; // never allow marking a future date
     const nextCompleted = !(logsByDate[date] ?? false);
@@ -425,7 +420,7 @@ function AdvancedScreen({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Advanced habit settings</DialogTitle>
+        <DialogTitle>Edit habit</DialogTitle>
       </DialogHeader>
 
       {habits.length > 1 && (
@@ -442,6 +437,35 @@ function AdvancedScreen({
           </SelectContent>
         </Select>
       )}
+
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="habit-name" className="text-xs font-medium text-muted-foreground">
+            Name
+          </label>
+          <Input id="habit-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Habit name" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="habit-cue" className="text-xs font-medium text-muted-foreground">
+            Cue (optional)
+          </label>
+          <Input
+            id="habit-cue"
+            value={anchorCue}
+            onChange={(e) => setAnchorCue(e.target.value)}
+            placeholder="e.g. After Fajr"
+          />
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          className="self-start"
+          disabled={isPending || !name.trim()}
+          onClick={saveNameCue}
+        >
+          Save name
+        </Button>
+      </div>
 
       <div className="flex flex-col gap-1">
         <label htmlFor="habit-committed-date" className="text-xs font-medium text-muted-foreground">
