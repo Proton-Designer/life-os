@@ -43,11 +43,29 @@ export async function editTaskCore(
   if (error) throw error;
 }
 
-/** completed_at (migration 055) tracks the Past section's 7-day clock — set the instant a task lands on "complete", cleared the instant it leaves, from every path that changes status. */
+/**
+ * completed_at (migration 055) tracks the Past section's 7-day clock — set
+ * the instant a task lands on "complete", cleared the instant it leaves,
+ * from every path that changes status.
+ *
+ * IDEMPOTENCY (AI Integration program, MCP `work.task.advance`/`.unblock` —
+ * see lib/mcp/write-registry.ts): `completed_at` answers "when was this
+ * completed", not "when did something last call advance/unblock". A retry
+ * that lands on the SAME already-current status must not re-stamp it —
+ * that's not merely non-idempotent, it corrupts completion history (a task
+ * genuinely completed at 9am reads as completed at the retry's time
+ * instead). Reads the row's current state first: only stamps a fresh
+ * `completed_at` when actually transitioning INTO "complete" from something
+ * else; a call that finds the row already at the target status preserves
+ * whatever `completed_at` is already there.
+ */
 async function setStatusCore(supabase: SupabaseClient, userId: string, id: string, status: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
+  const { data: current } = await supabase.from("coop_tasks").select("status, completed_at").eq("id", id).eq("user_id", userId).maybeSingle();
+  const completedAt =
+    status === "complete" ? (current?.status === "complete" ? current.completed_at : new Date().toISOString()) : null;
   const { error } = await supabase
     .from("coop_tasks")
-    .update({ status, completed_at: status === "complete" ? new Date().toISOString() : null })
+    .update({ status, completed_at: completedAt })
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;
@@ -69,7 +87,18 @@ export async function retreatTaskCore(supabase: SupabaseClient, userId: string, 
   await setStatusCore(supabase, userId, id, prev);
 }
 
-/** `reason` is optional and trimmed; a blank or omitted reason is stored as NULL, never `''` — "absent read as a value" is the bug class this repo pays most for. */
+/**
+ * `reason` is optional and trimmed; a blank or omitted reason is stored as NULL, never `''` — "absent read as a value" is the bug class this repo pays most for.
+ *
+ * IDEMPOTENCY (AI Integration program, MCP `work.task.block` — see
+ * lib/mcp/write-registry.ts): `blocked_since` answers "when did this become
+ * blocked", not "when was block last called". A retry against an
+ * already-blocked row must preserve the original instant, or any "blocked
+ * for N days" reading quietly resets on every retry. Reads the row's
+ * current state first: only stamps a fresh `blocked_since` when actually
+ * transitioning INTO "blocked"; a retry that finds the row already blocked
+ * preserves the existing `blocked_since`.
+ */
 export async function blockTaskCore(
   supabase: SupabaseClient,
   userId: string,
@@ -78,13 +107,15 @@ export async function blockTaskCore(
   reason?: string,
 ): Promise<void> {
   const trimmedReason = reason?.trim();
+  const { data: current } = await supabase.from("coop_tasks").select("status, blocked_since").eq("id", id).eq("user_id", userId).maybeSingle();
+  const blockedSince = current?.status === "blocked" && current.blocked_since ? current.blocked_since : new Date().toISOString();
   const { error } = await supabase
     .from("coop_tasks")
     .update({
       status: "blocked",
       blocked_from: currentStatus,
       blocked_reason: trimmedReason ? trimmedReason : null,
-      blocked_since: new Date().toISOString(),
+      blocked_since: blockedSince,
       completed_at: null,
     })
     .eq("id", id)
@@ -92,7 +123,18 @@ export async function blockTaskCore(
   if (error) throw error;
 }
 
+/**
+ * IDEMPOTENCY (AI Integration program, MCP `work.task.unblock` — see
+ * lib/mcp/write-registry.ts): same reasoning as `setStatusCore` above —
+ * `completed_at` must not be re-stamped on a retry that finds the row
+ * already restored to `blockedFrom`. Only stamps a fresh `completed_at`
+ * when actually transitioning INTO "complete"; a retry that finds the row
+ * already at `blockedFrom` (already unblocked) preserves the existing value.
+ */
 export async function unblockTaskCore(supabase: SupabaseClient, userId: string, id: string, blockedFrom: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
+  const { data: current } = await supabase.from("coop_tasks").select("status, completed_at").eq("id", id).eq("user_id", userId).maybeSingle();
+  const completedAt =
+    blockedFrom === "complete" ? (current?.status === "complete" ? current.completed_at : new Date().toISOString()) : null;
   const { error } = await supabase
     .from("coop_tasks")
     .update({
@@ -100,7 +142,7 @@ export async function unblockTaskCore(supabase: SupabaseClient, userId: string, 
       blocked_from: null,
       blocked_reason: null,
       blocked_since: null,
-      completed_at: blockedFrom === "complete" ? new Date().toISOString() : null,
+      completed_at: completedAt,
     })
     .eq("id", id)
     .eq("user_id", userId);

@@ -149,12 +149,30 @@ export async function startWorkSessionCore(
  * `work_sessions_touch_updated_at` trigger owns that column exclusively as
  * of this UPDATE; a manual write would be a second source of truth for the
  * exact value the trigger exists to guarantee.
+ *
+ * IDEMPOTENCY (AI Integration program, MCP `work.work_session.end` — see
+ * lib/mcp/write-registry.ts): `ended_at` is what focus-time totals and
+ * Signal:Noise are computed from, so a retry that silently re-stamps it is
+ * not a harmless no-op, it's a corrupted total. A no-op guard, mirroring
+ * `confirm_workout_session`'s "already done -> return, don't re-do" shape:
+ * if the session is already ended, this is a retry of a call that already
+ * succeeded — return without writing. The `.is("ended_at", null)` on the
+ * UPDATE itself (not just the earlier SELECT) closes the read-then-write
+ * race a plain existence check would leave open: two truly concurrent
+ * retries can both pass the SELECT, but at most one WHERE `ended_at is
+ * null` UPDATE can match a row whose `ended_at` the other just set.
  */
 export async function endWorkSessionCore(supabase: SupabaseClient, userId: string, sessionId: string, endedAtIso?: string): Promise<void> {
-  const { data: existing } = await supabase.from("work_sessions").select("id").eq("id", sessionId).eq("user_id", userId).maybeSingle();
+  const { data: existing } = await supabase.from("work_sessions").select("id, ended_at").eq("id", sessionId).eq("user_id", userId).maybeSingle();
   if (!existing) throw new Error("Work session not found");
+  if (existing.ended_at !== null) return; // already ended -- idempotent no-op, never re-stamp forward
 
-  const { error } = await supabase.from("work_sessions").update({ ended_at: endedAtIso ?? new Date().toISOString() }).eq("id", sessionId).eq("user_id", userId);
+  const { error } = await supabase
+    .from("work_sessions")
+    .update({ ended_at: endedAtIso ?? new Date().toISOString() })
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .is("ended_at", null);
   if (error) throw error;
 }
 

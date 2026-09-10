@@ -147,7 +147,7 @@ describe("Business actions", () => {
   });
 
   it("endWorkSession sets ended_at, scoped to the session id and the authenticated user", async () => {
-    const chain = makeChain({ data: { id: "session-1" }, error: null });
+    const chain = makeChain({ data: { id: "session-1", ended_at: null }, error: null });
     fromImpl = () => chain;
     const { endWorkSession } = await import("../actions");
 

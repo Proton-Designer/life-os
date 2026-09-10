@@ -425,6 +425,19 @@ through. **This needs the owner's explicit sign-off, the same way PROGRAM-PLAN a
 schema migration itself as needing it** — recommend surfacing this as its own open item to the
 Lead before `widget_manage` moves past the config-DSL version proposed here.
 
+**Widgets cannot currently be scheduled (found during the L7-follow-up idempotency audit,
+2026-09-10).** `scheduler_manage`'s gate only ever calls into `WRITE_REGISTRY`
+(`lib/mcp/write-registry.ts`) — it has no knowledge of `widget_manage` at all, because
+`widget_manage` is a separate top-level MCP tool with its own dispatch, not a domain registered
+in `WRITE_REGISTRY`. Concretely: `lib/widgets/actions-core.ts`'s `createWidgetCore` (false — plain
+INSERT), `updateWidgetCore` (true — fixed-value UPDATE), and `archiveWidgetCore` (true —
+unconditional status='archived') were audited alongside the other 39 actions for completeness,
+but none of the three is reachable from `scheduler_manage("create")` today, regardless of their
+individual idempotency. That means a request like *"rebuild my dashboard every Monday"* cannot be
+scheduled unattended, full stop — not a narrow-gate problem, a missing-wire-up problem. Not fixed
+tonight (the Lead's call, not a small fix), but written down here rather than left living only in
+an audit report so the next person scoping widget scheduling starts from this, not from scratch.
+
 **"Add features they don't have yet" is ambiguous, and this memo assumes the narrower reading.**
 Read literally, this could mean (a) toggling on an already-built-but-currently-hidden feature for
 this account (config-driven, fits neatly into `write(domain:"settings", entity:"feature_flags",

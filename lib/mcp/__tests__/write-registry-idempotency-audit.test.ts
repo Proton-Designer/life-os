@@ -21,8 +21,8 @@ const EXPECTED: Record<string, Record<string, Record<string, boolean>>> = {
   },
   work: {
     target: { create: false, edit: true, complete: true, reorder: true },
-    task: { add: false, edit: true, advance: false, retreat: true, block: false, unblock: false },
-    work_session: { start: true, end: false },
+    task: { add: false, edit: true, advance: true, retreat: true, block: true, unblock: true },
+    work_session: { start: true, end: true },
   },
   business: {
     kill_list_item: { set: true, toggle: false },
@@ -69,7 +69,7 @@ describe("idempotency audit — every verdict, pinned", () => {
     }
   }
 
-  it("counts: 24 true, 15 false among the actions newly audited this pass (not counting the 8 already annotated by L7) -- the pipeline-status refinement (advance/block/unblock's hidden completed_at/blocked_since drift) moved 3 from true to false relative to a first, less careful pass", () => {
+  it("counts: 28 true, 11 false among the actions newly audited this pass (not counting the 8 already annotated by L7) -- the pipeline-status refinement first moved advance/block/unblock (3 actions) from true to false on a more careful read, then a follow-up fix (check-before-write on the timestamp columns, plus the matching work_session.end fix) moved all 4 of advance/block/unblock/work_session.end back to true on their NEW, corrected mechanism -- a verdict flip is only trustworthy when the mechanism named alongside it actually changed too, which it did both times", () => {
     const newlyAudited = { ...EXPECTED };
     delete newlyAudited.checkins;
     delete newlyAudited.distractions;
@@ -84,7 +84,7 @@ describe("idempotency audit — every verdict, pinned", () => {
         }
       }
     }
-    expect({ trueCount, falseCount, total: trueCount + falseCount }).toEqual({ trueCount: 24, falseCount: 15, total: 39 });
+    expect({ trueCount, falseCount, total: trueCount + falseCount }).toEqual({ trueCount: 28, falseCount: 11, total: 39 });
   });
 });
 
@@ -134,10 +134,14 @@ describe("idempotency audit — the gate actually responds to these verdicts (sp
     expect(getWriteAction("fitness", "exercise", "create")!.idempotent).toBe(false);
   });
 
-  it("work.task's four pipeline actions split exactly as the hidden-time-dependency finding predicts: advance/block/unblock false, retreat true", () => {
-    expect(getWriteAction("work", "task", "advance")!.idempotent).toBe(false);
+  it("work.task's four pipeline actions are all idempotent now that advance/block/unblock check-before-write instead of unconditionally stamping a fresh timestamp", () => {
+    expect(getWriteAction("work", "task", "advance")!.idempotent).toBe(true);
     expect(getWriteAction("work", "task", "retreat")!.idempotent).toBe(true);
-    expect(getWriteAction("work", "task", "block")!.idempotent).toBe(false);
-    expect(getWriteAction("work", "task", "unblock")!.idempotent).toBe(false);
+    expect(getWriteAction("work", "task", "block")!.idempotent).toBe(true);
+    expect(getWriteAction("work", "task", "unblock")!.idempotent).toBe(true);
+  });
+
+  it("work.work_session.end is idempotent now that it no-ops on an already-ended session instead of always re-stamping", () => {
+    expect(getWriteAction("work", "work_session", "end")!.idempotent).toBe(true);
   });
 });

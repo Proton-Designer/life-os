@@ -180,13 +180,21 @@ describe("work.work_session — start/end", () => {
 
   it("end requires the top-level id and stamps ended_at", async () => {
     const action = getWriteAction("work", "work_session", "end")!;
-    const { client, updateCalls } = makeClient({ maybeSingle: { id: "session-1" } });
+    const { client, updateCalls } = makeClient({ maybeSingle: { id: "session-1", ended_at: null } });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "session-1" }, {});
     // endWorkSessionCore stamps ended_at with a fresh new Date() at call
     // time (a plain instant, not a derived calendar date -- AGENTS.md's
     // rule is about the latter), so this checks the shape, not an exact
     // value pinned to the test's own `now`.
     expect(updateCalls[0]).toEqual({ ended_at: expect.any(String) });
+    expect(textOf(outcome)).toEqual({ id: "session-1" });
+  });
+
+  it("end is idempotent -- an already-ended session no-ops instead of re-stamping ended_at (the scheduler retry case)", async () => {
+    const action = getWriteAction("work", "work_session", "end")!;
+    const { client, updateCalls } = makeClient({ maybeSingle: { id: "session-1", ended_at: "2026-09-08T19:00:00.000Z" } });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "session-1" }, {});
+    expect(updateCalls).toHaveLength(0);
     expect(textOf(outcome)).toEqual({ id: "session-1" });
   });
 });

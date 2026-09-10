@@ -477,41 +477,46 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           // via setStatusCore-shaped calls that set `completed_at`/
           // `blocked_since` to a FRESH `new Date()` whenever the target
           // status lands on "complete" (or, for block, unconditionally) --
+          // Originally, advance/block/unblock were marked false: each
+          // stamped a FRESH new Date() onto completed_at/blocked_since
+          // whenever the transition landed on the risky state (complete /
+          // blocked), with no check of whether the row was already there --
           // the exact "derives now on every call" trap the lead named
           // checkins.allocation.save's window-resolution bug as the
-          // template for. `status`/`blocked_from` themselves are always
-          // deterministic (computed from the caller-asserted, fixed
-          // current_status, never read-then-inverted), so ONLY the
-          // timestamp columns are at risk, and only conditionally for
-          // advance/unblock (retreat never lands on "complete" at all --
-          // PIPELINE_STAGES' order makes that structurally unreachable, see
-          // lib/coop/tasks.ts's own nextStage/previousStage). A registry
-          // entry can't be conditionally idempotent by patch value, so the
-          // WHOLE action is marked false wherever the risky case is
-          // reachable at all, same posture distractions.plan_outcome.record
-          // already takes for its own followed:true-only risk.
+          // template for. FIXED (see lib/coop/tasks-core.ts's own inline
+          // comments on setStatusCore/blockTaskCore/unblockTaskCore): each
+          // now reads the row's current state FIRST and only stamps a fresh
+          // timestamp when genuinely transitioning into that state; a call
+          // that finds the row already there (a retry) preserves the
+          // existing value byte-for-byte. Proved red-then-green with a
+          // stateful fake (seed a row, call twice with real time between
+          // the calls, assert the timestamp is identical) --
+          // lib/coop/__tests__/tasks-core.test.ts's "idempotency --
+          // retrying block/advance/unblock..." describe block. `retreat`
+          // needed no change: previousStage() can never land on 'complete'
+          // at all, so it was already stable.
           ...(["advance", "retreat", "block", "unblock"] as const).reduce(
             (acc, action) => {
               const idempotencyByAction: Record<"advance" | "retreat" | "block" | "unblock", Pick<WriteActionDef, "idempotent" | "idempotencyVerification">> = {
                 advance: {
-                  idempotent: false,
+                  idempotent: true,
                   idempotencyVerification:
-                    "advanceTaskCore -> setStatusCore (lib/coop/tasks-core.ts) sets completed_at to a FRESH new Date() whenever the computed next stage is 'complete' -- reachable via current_status:'review' (nextStage('review') === 'complete'). A retry of that specific advance overwrites completed_at with a later instant, understating how long ago the task actually finished. Every OTHER current_status target sets completed_at to null both times (stable), but the risky case is reachable, so the action as a whole is not safe to schedule.",
+                    "advanceTaskCore -> setStatusCore (lib/coop/tasks-core.ts) reads the row's current status/completed_at BEFORE writing. When the computed next stage is 'complete', it only stamps a FRESH new Date() if the row isn't already 'complete'; a retry that finds it already there preserves the existing completed_at unchanged. Every other target sets completed_at to null. Red-then-green proved with a stateful fake calling twice with real time between the calls (lib/coop/__tests__/tasks-core.test.ts).",
                 },
                 retreat: {
                   idempotent: true,
                   idempotencyVerification:
-                    "retreatTaskCore -> setStatusCore (lib/coop/tasks-core.ts) can never land on 'complete' -- previousStage() only ever moves BACKWARD through PIPELINE_STAGES (lib/coop/tasks.ts), and 'complete' is the last stage, never a retreat target. completed_at is therefore always set to null on every call, a stable value -- no hidden time dependency, unlike its sibling `advance`.",
+                    "retreatTaskCore -> setStatusCore (lib/coop/tasks-core.ts) can never land on 'complete' -- previousStage() only ever moves BACKWARD through PIPELINE_STAGES (lib/coop/tasks.ts), and 'complete' is the last stage, never a retreat target. completed_at is therefore always set to null on every call, a stable value -- no hidden time dependency, unlike its siblings (needed no fix).",
                 },
                 block: {
-                  idempotent: false,
+                  idempotent: true,
                   idempotencyVerification:
-                    "blockTaskCore (lib/coop/tasks-core.ts) sets blocked_since to a FRESH new Date() on EVERY call, unconditionally (not gated on any patch value the way advance/unblock's completed_at is) -- a retry of an already-blocked task silently moves blocked_since forward, understating how long it's actually been blocked.",
+                    "blockTaskCore (lib/coop/tasks-core.ts) reads the row's current status/blocked_since BEFORE writing. It only stamps a FRESH new Date() onto blocked_since when the row isn't already 'blocked'; a retry against an already-blocked row preserves the original blocked_since unchanged. Red-then-green proved with a stateful fake calling twice with real time between the calls (lib/coop/__tests__/tasks-core.test.ts).",
                 },
                 unblock: {
-                  idempotent: false,
+                  idempotent: true,
                   idempotencyVerification:
-                    "unblockTaskCore (lib/coop/tasks-core.ts) sets completed_at to a FRESH new Date() whenever the status being restored (patch.current_status, i.e. blocked_from) is 'complete' -- a real, reachable value in the CoopTaskStatus type. A retry restoring to 'complete' overwrites completed_at with a later instant. Every other restore target sets completed_at to null both times (stable), but the risky case is reachable.",
+                    "unblockTaskCore (lib/coop/tasks-core.ts) reads the row's current status/completed_at BEFORE writing. When restoring to 'complete', it only stamps a FRESH new Date() if the row isn't already 'complete'; a retry that finds it already restored preserves the existing completed_at unchanged. Every other restore target sets completed_at to null. Red-then-green proved with a stateful fake calling twice with real time between the calls (lib/coop/__tests__/tasks-core.test.ts).",
                 },
               };
               acc[action] = {
@@ -584,22 +589,22 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "end",
             description: "End an active session, stamping ended_at. Requires the top-level id.",
             patchShape: "{}",
-            // A NEW FINDING from this audit, the same shape as
-            // checkins.allocation.save's window-resolution bug: this
-            // handler never passes `endedAtIso`, so endWorkSessionCore
-            // ALWAYS falls back to a FRESH `new Date()`. Its own existence
-            // check only confirms the row exists by id -- it does NOT check
-            // whether `ended_at` is already set. A retry of an
-            // already-ended session (first call succeeded, crash before
-            // finalize) does not error, does not no-op -- it silently
-            // OVERWRITES ended_at with a later instant, shortening/shifting
-            // the recorded session duration. A fix exists (guard on
-            // `.is("ended_at", null)`, or skip the update entirely if
-            // already ended) but is not built here -- flagged, not fixed,
-            // per instruction.
-            idempotent: false,
+            // FIXED (originally a NEW FINDING from this audit, the same
+            // shape as checkins.allocation.save's window-resolution bug):
+            // this handler still never passes `endedAtIso`, so
+            // endWorkSessionCore falls back to `new Date()` -- but
+            // endWorkSessionCore itself now guards: its existence check
+            // reads `ended_at` too, and if the session is already ended it
+            // returns without writing (a retry is a no-op, not a silent
+            // overwrite). The UPDATE also carries its own `.is("ended_at",
+            // null)` filter, closing the read-then-write race a plain
+            // existence check would leave open between two truly concurrent
+            // retries. Proved red-then-green with a stateful fake (seed a
+            // row, call twice with real time between the calls, assert
+            // ended_at is identical) -- lib/business/__tests__/actions-core.test.ts.
+            idempotent: true,
             idempotencyVerification:
-              "endWorkSessionCore (lib/business/actions-core.ts), called here with no endedAtIso, always sets ended_at to a fresh new Date().toISOString() and never checks whether the session is already ended -- a retry silently moves ended_at forward instead of no-op'ing or erroring.",
+              "endWorkSessionCore (lib/business/actions-core.ts) now selects `ended_at` alongside `id` and returns early (no-op) if the session is already ended, instead of always re-stamping via new Date(). The UPDATE itself also filters on `.is('ended_at', null)`, so even a genuine race between two concurrent retries can produce at most one write. Red-then-green proved with a stateful fake calling twice with real time between the calls.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               await endWorkSessionCore(ctx.userClient, ctx.userId, id);

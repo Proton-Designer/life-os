@@ -103,7 +103,7 @@ describe("endWorkSessionCore", () => {
   });
 
   it("uses the given endedAtIso when provided (the auto-end timestamp rule), not the wall clock", async () => {
-    const chain = makeChain({ data: { id: "s1" }, error: null });
+    const chain = makeChain({ data: { id: "s1", ended_at: null }, error: null });
     const from = vi.fn(() => chain);
     const client = { from } as unknown as SupabaseClient;
 
@@ -113,7 +113,7 @@ describe("endWorkSessionCore", () => {
   });
 
   it("falls back to the wall clock when endedAtIso is omitted (a manual End Session tap)", async () => {
-    const chain = makeChain({ data: { id: "s1" }, error: null });
+    const chain = makeChain({ data: { id: "s1", ended_at: null }, error: null });
     const from = vi.fn(() => chain);
     const client = { from } as unknown as SupabaseClient;
 
@@ -121,6 +121,60 @@ describe("endWorkSessionCore", () => {
     await endWorkSessionCore(client, "user-1", "s1");
     const call = chain.update.mock.calls[0]![0] as { ended_at: string };
     expect(new Date(call.ended_at).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("idempotency: an already-ended session is a no-op — never touches update at all", async () => {
+    const chain = makeChain({ data: { id: "s1", ended_at: "2026-09-10T18:00:00.000Z" }, error: null });
+    const from = vi.fn(() => chain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await endWorkSessionCore(client, "user-1", "s1");
+
+    expect(chain.update).not.toHaveBeenCalled();
+  });
+
+  it("idempotency: a genuine retry (seed a row, call twice, real time between calls) preserves the original ended_at byte-for-byte — team-lead's brief", async () => {
+    // Stateful fake: unlike makeChain (fixed resolvedValue regardless of
+    // prior writes), this actually applies the UPDATE so the second call's
+    // SELECT sees what the first call wrote -- the only way to prove a
+    // retry doesn't drift the timestamp forward instead of just reporting
+    // whatever the test told it to.
+    let row: { id: string; ended_at: string | null } | null = { id: "s1", ended_at: null };
+    const from = vi.fn(() => {
+      let patch: Record<string, unknown> | null = null;
+      let guardCol: string | null = null;
+      const chain: Record<string, unknown> = {};
+      chain.select = vi.fn(() => chain);
+      chain.eq = vi.fn(() => chain);
+      chain.is = vi.fn((col: string) => {
+        guardCol = col; // endWorkSessionCore only ever guards on "ended_at" -- if the guarded column isn't currently null, the write below must not apply
+        return chain;
+      });
+      chain.maybeSingle = vi.fn(async () => ({ data: row ? { ...row } : null, error: null }));
+      chain.update = vi.fn((p: Record<string, unknown>) => {
+        patch = { ...p };
+        return chain;
+      });
+      chain.then = (resolve: (v: { error: null }) => void) => {
+        if (patch && row && (!guardCol || (row as Record<string, unknown>)[guardCol] === null)) {
+          row = { ...row, ...patch } as typeof row;
+        }
+        return resolve({ error: null });
+      };
+      return chain;
+    });
+    const client = { from } as unknown as SupabaseClient;
+
+    await endWorkSessionCore(client, "user-1", "s1");
+    const firstEndedAt = row!.ended_at;
+    expect(firstEndedAt).toEqual(expect.any(String));
+
+    await new Promise((resolve) => setTimeout(resolve, 15)); // genuinely separate instants, not a transaction-frozen now()
+
+    await endWorkSessionCore(client, "user-1", "s1"); // retry -- same call again
+    const secondEndedAt = row!.ended_at;
+
+    expect(secondEndedAt).toBe(firstEndedAt);
   });
 });
 
