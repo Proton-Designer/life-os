@@ -2,7 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { ChevronDown, Check, Pencil, Trash2 } from "lucide-react";
-import { TASK_GROUP_ORDER, TASK_GROUP_LABEL, groupTasksByBucket, type TaskGroupKey } from "@/lib/tasks/task-groups";
+import {
+  TASK_GROUP_ORDER,
+  TASK_GROUP_LABEL,
+  NEXT_MONTH_WINDOW_DAYS,
+  groupTasksByBucket,
+  splitDueSoon,
+  type TaskGroupKey,
+} from "@/lib/tasks/task-groups";
+import { addDaysToDateString } from "@/lib/date-utils";
 import { TASK_TYPE_LABEL, TASK_TYPE_COLOR, TASK_TYPE_OPTIONS, type TaskType } from "@/lib/tasks/task-type";
 import type { TaskWizardClassOption } from "./task-wizard-dialog";
 import { formatShortDate } from "@/lib/date-utils";
@@ -129,8 +137,7 @@ function TaskRow({
   );
 }
 
-function GroupSection({
-  groupKey,
+function TaskRows({
   tasks,
   todayStr,
   onComplete,
@@ -138,7 +145,6 @@ function GroupSection({
   onEditTask,
   onRemoveTask,
 }: {
-  groupKey: TaskGroupKey;
   tasks: TaskListItem[];
   todayStr: string;
   onComplete: (id: string) => Promise<void>;
@@ -146,13 +152,115 @@ function GroupSection({
   onEditTask?: (id: string) => void;
   onRemoveTask?: (id: string) => void;
 }) {
-  // Only "Today" starts expanded (Ayman: "by default, all groups except
-  // 'Today' group should be collapsed") — every group, Today included,
-  // stays independently toggleable, and filtering never touches this
-  // state (Ayman: "filters are present doesn't mean the groups besides
-  // 'Today' automatically get auto expanded, they still filter but still
-  // stay collapsed").
-  const [expanded, setExpanded] = useState(groupKey === "today");
+  return (
+    <ul className="flex flex-col gap-1">
+      {tasks.map((t) => (
+        <TaskRow
+          key={t.id}
+          task={t}
+          todayStr={todayStr}
+          onComplete={() => onComplete(t.id)}
+          editing={editing}
+          onEditTask={onEditTask}
+          onRemoveTask={onRemoveTask}
+        />
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * "Due Soon" — anything due today or tomorrow, rendered at the top of This
+ * Week and expanded by default (Ayman, 2026-09-10). Collapsible like every
+ * other section, but it opens on its own because it is the one list that
+ * should never need a tap to be seen. Hidden entirely when empty rather
+ * than rendering an empty header: a permanently-visible "Due Soon · 0"
+ * trains you to stop reading it, which is the opposite of the point.
+ */
+function DueSoonSection({
+  tasks,
+  todayStr,
+  onComplete,
+  editing,
+  onEditTask,
+  onRemoveTask,
+}: {
+  tasks: TaskListItem[];
+  todayStr: string;
+  onComplete: (id: string) => Promise<void>;
+  editing: boolean;
+  onEditTask?: (id: string) => void;
+  onRemoveTask?: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  if (tasks.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((e) => !e)}
+        className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-accent/50"
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Due Soon{" "}
+          <span className="font-mono text-xs font-normal normal-case tracking-normal">· {tasks.length}</span>
+        </span>
+        <ChevronDown
+          className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {expanded && (
+        <TaskRows
+          tasks={tasks}
+          todayStr={todayStr}
+          onComplete={onComplete}
+          editing={editing}
+          onEditTask={onEditTask}
+          onRemoveTask={onRemoveTask}
+        />
+      )}
+    </div>
+  );
+}
+
+function GroupSection({
+  groupKey,
+  tasks,
+  dueSoonTasks,
+  todayStr,
+  onComplete,
+  editing,
+  onEditTask,
+  onRemoveTask,
+}: {
+  groupKey: TaskGroupKey;
+  /** For "week" this is the remainder AFTER Due Soon is split off; for every other group it is the whole bucket. */
+  tasks: TaskListItem[];
+  /** Only ever passed for "week" — the today/tomorrow head of that bucket. */
+  dueSoonTasks?: TaskListItem[];
+  todayStr: string;
+  onComplete: (id: string) => Promise<void>;
+  editing: boolean;
+  onEditTask?: (id: string) => void;
+  onRemoveTask?: (id: string) => void;
+}) {
+  // "This Week" is the default view (Ayman, 2026-09-10) — it starts
+  // expanded and the rest start collapsed. Same rule as the old "Today"
+  // default, moved up one level now that Today is a subsection of This
+  // Week rather than a group of its own. Every group stays independently
+  // toggleable, and filtering never touches this state (Ayman: "filters
+  // are present doesn't mean the groups besides ... automatically get auto
+  // expanded, they still filter but still stay collapsed").
+  const [expanded, setExpanded] = useState(groupKey === "week");
+
+  const dueSoon = dueSoonTasks ?? [];
+  // The header counts the whole bucket, Due Soon included — collapsed,
+  // this is the only number shown, and it must not under-report the week
+  // by hiding its most urgent half.
+  const totalCount = tasks.length + dueSoon.length;
 
   return (
     <div className="flex flex-col gap-1">
@@ -164,27 +272,34 @@ function GroupSection({
       >
         <span className="text-sm font-medium">
           {TASK_GROUP_LABEL[groupKey]}{" "}
-          <span className="font-mono text-xs font-normal text-muted-foreground">· {tasks.length}</span>
+          <span className="font-mono text-xs font-normal text-muted-foreground">· {totalCount}</span>
         </span>
         <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} aria-hidden />
       </button>
       {expanded &&
-        (tasks.length === 0 ? (
+        (totalCount === 0 ? (
           <p className="px-3 pb-1 text-xs text-muted-foreground">Nothing here</p>
         ) : (
-          <ul className="flex flex-col gap-1">
-            {tasks.map((t) => (
-              <TaskRow
-                key={t.id}
-                task={t}
+          <div className="flex flex-col gap-1">
+            <DueSoonSection
+              tasks={dueSoon}
+              todayStr={todayStr}
+              onComplete={onComplete}
+              editing={editing}
+              onEditTask={onEditTask}
+              onRemoveTask={onRemoveTask}
+            />
+            {tasks.length > 0 && (
+              <TaskRows
+                tasks={tasks}
                 todayStr={todayStr}
-                onComplete={() => onComplete(t.id)}
+                onComplete={onComplete}
                 editing={editing}
                 onEditTask={onEditTask}
                 onRemoveTask={onRemoveTask}
               />
-            ))}
-          </ul>
+            )}
+          </div>
         ))}
     </div>
   );
@@ -192,11 +307,13 @@ function GroupSection({
 
 /**
  * The unified Task list (2026-08-26 night batch 2, item 5) — merges the
- * old Deadlines panel and Task list panel into four collapsible groups
- * (Today/This Week/This Month/Future) with class/type/date filters. Add
+ * old Deadlines panel and Task list panel into collapsible groups.
+ * Revised 2026-09-10 (Ayman): This Week / Next Month / Future, with a
+ * Due Soon head inside This Week — Today stopped being a group of its own
+ * and Next Month is a rolling 30 days. Class/type/date filters. Add
  * (TaskWizardDialog) and Edit (TaskEditDialog) live in the caller's Panel
  * `controls` slot, not here — this component only renders the filter row
- * and the four groups.
+ * and the groups.
  */
 export function TaskListModule({
   tasks,
@@ -250,7 +367,14 @@ export function TaskListModule({
     return true;
   });
 
-  const groups = groupTasksByBucket(filtered, todayStr, weekDates);
+  // Both derived from todayStr with pure string arithmetic — never from a
+  // fresh `new Date()`, which would re-derive "today" in the server's zone
+  // rather than his (AGENTS.md).
+  const tomorrowStr = addDaysToDateString(todayStr, 1);
+  const horizonStr = addDaysToDateString(todayStr, NEXT_MONTH_WINDOW_DAYS);
+
+  const groups = groupTasksByBucket(filtered, todayStr, tomorrowStr, weekDates, horizonStr);
+  const { dueSoon, rest: weekRest } = splitDueSoon(groups.week, todayStr, tomorrowStr);
 
   return (
     <div className="flex flex-col gap-4">
@@ -306,7 +430,8 @@ export function TaskListModule({
           <GroupSection
             key={key}
             groupKey={key}
-            tasks={groups[key]}
+            tasks={key === "week" ? weekRest : groups[key]}
+            dueSoonTasks={key === "week" ? dueSoon : undefined}
             todayStr={todayStr}
             onComplete={toggleTask}
             editing={editing}

@@ -12,7 +12,7 @@ function task(overrides: Partial<TaskListItem> & Pick<TaskListItem, "id" | "titl
 }
 
 describe("TaskListModule", () => {
-  it("expands Today by default and keeps the other three groups collapsed", () => {
+  it("expands This Week by default and keeps the other groups collapsed", () => {
     render(
       <TaskListModule
         tasks={[task({ id: "t1", title: "Due today", dueDate: TODAY })]}
@@ -22,23 +22,101 @@ describe("TaskListModule", () => {
         toggleTask={vi.fn()}
       />
     );
-    expect(screen.getByRole("button", { name: /Today/ })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: /This Week/ })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: /This Month/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: /This Week/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Next Month/ })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /Future/ })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("Due today")).toBeInTheDocument();
   });
 
-  it("lets Today be collapsed and re-expanded like any other group", async () => {
+  it("no longer renders a top-level Today group, nor a This Month one", () => {
+    render(
+      <TaskListModule tasks={[]} classes={CLASSES} todayStr={TODAY} weekDates={WEEK_DATES} toggleTask={vi.fn()} />
+    );
+    expect(screen.queryByRole("button", { name: /^Today/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /This Month/ })).not.toBeInTheDocument();
+  });
+
+  it("lets This Week be collapsed and re-expanded like any other group", async () => {
     render(
       <TaskListModule tasks={[]} classes={CLASSES} todayStr={TODAY} weekDates={WEEK_DATES} toggleTask={vi.fn()} />
     );
     const user = userEvent.setup();
-    const todayButton = screen.getByRole("button", { name: /Today/ });
-    await user.click(todayButton);
-    expect(todayButton).toHaveAttribute("aria-expanded", "false");
-    await user.click(todayButton);
-    expect(todayButton).toHaveAttribute("aria-expanded", "true");
+    const weekButton = screen.getByRole("button", { name: /This Week/ });
+    await user.click(weekButton);
+    expect(weekButton).toHaveAttribute("aria-expanded", "false");
+    await user.click(weekButton);
+    expect(weekButton).toHaveAttribute("aria-expanded", "true");
+  });
+
+  describe("Due Soon", () => {
+    const TOMORROW = "2026-08-26";
+
+    it("shows today's and tomorrow's work under Due Soon, expanded, without a tap", () => {
+      render(
+        <TaskListModule
+          tasks={[
+            task({ id: "t1", title: "Due today", dueDate: TODAY }),
+            task({ id: "t2", title: "Due tomorrow", dueDate: TOMORROW }),
+            task({ id: "t3", title: "Due Saturday", dueDate: "2026-08-29" }),
+          ]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={vi.fn()}
+        />
+      );
+      expect(screen.getByRole("button", { name: /Due Soon/ })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByText("Due today")).toBeInTheDocument();
+      expect(screen.getByText("Due tomorrow")).toBeInTheDocument();
+      // Still inside This Week, just below the Due Soon head.
+      expect(screen.getByText("Due Saturday")).toBeInTheDocument();
+    });
+
+    it("counts the whole week in the This Week header, Due Soon included", () => {
+      render(
+        <TaskListModule
+          tasks={[
+            task({ id: "t1", title: "Due today", dueDate: TODAY }),
+            task({ id: "t2", title: "Due Saturday", dueDate: "2026-08-29" }),
+          ]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={vi.fn()}
+        />
+      );
+      expect(screen.getByRole("button", { name: /This Week.*2/ })).toBeInTheDocument();
+    });
+
+    it("renders no Due Soon header when nothing is due today or tomorrow", () => {
+      render(
+        <TaskListModule
+          tasks={[task({ id: "t1", title: "Due Saturday", dueDate: "2026-08-29" })]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /Due Soon/ })).not.toBeInTheDocument();
+      expect(screen.getByText("Due Saturday")).toBeInTheDocument();
+    });
+
+    it("can be collapsed independently of This Week", async () => {
+      render(
+        <TaskListModule
+          tasks={[task({ id: "t1", title: "Due today", dueDate: TODAY })]}
+          classes={CLASSES}
+          todayStr={TODAY}
+          weekDates={WEEK_DATES}
+          toggleTask={vi.fn()}
+        />
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Due Soon/ }));
+      expect(screen.queryByText("Due today")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /This Week/ })).toHaveAttribute("aria-expanded", "true");
+    });
   });
 
   it("filtering narrows results without auto-expanding collapsed groups", async () => {
@@ -104,7 +182,7 @@ describe("TaskListModule", () => {
         toggleTask={vi.fn()}
       />
     );
-    // "Today" starts expanded — dueDate === todayStr lands it there.
+    // This Week starts expanded, and today's task sits in its Due Soon head.
     expect(screen.getByText("Aug. 25th")).toBeInTheDocument();
     expect(screen.queryByText(TODAY)).not.toBeInTheDocument();
   });

@@ -287,19 +287,10 @@ export default async function SchoolPage() {
         </div>
       </div>
 
-      {/* Item 6b (Ayman, verbatim): "a module card for every single class
-          im taking," below the top mini modules. Cards are visibly
-          non-uniform by design — Lin Alg (MATH 2418) has no room/instructor/
-          syllabus/tasks/assessment yet, so `items-start` keeps a short card
-          short instead of CSS Grid stretching it to match its row. */}
-      {classCards.length > 0 && (
-        <div data-testid="class-cards-grid" className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {classCards.map((c) => (
-            <ClassCard key={c.id} data={c} timezone={timezone} todayStr={dateStr} />
-          ))}
-        </div>
-      )}
-
+      {/* Task list sits directly under the three KPI modules and ABOVE the
+          per-class cards (Ayman, 2026-09-10): the cross-class view of what
+          is actually due is the reason to open this screen, and the class
+          cards are the drill-down from it, not the other way round. */}
       <Panel
         id="tasks"
         className="scroll-mt-20"
@@ -321,6 +312,19 @@ export default async function SchoolPage() {
       >
         <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
       </Panel>
+
+      {/* Item 6b (Ayman, verbatim): "a module card for every single class
+          im taking," below the top mini modules. Cards are visibly
+          non-uniform by design — Lin Alg (MATH 2418) has no room/instructor/
+          syllabus/tasks/assessment yet, so `items-start` keeps a short card
+          short instead of CSS Grid stretching it to match its row. */}
+      {classCards.length > 0 && (
+        <div data-testid="class-cards-grid" className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {classCards.map((c) => (
+            <ClassCard key={c.id} data={c} timezone={timezone} todayStr={dateStr} />
+          ))}
+        </div>
+      )}
 
       <Panel
         title="This week's classes"
