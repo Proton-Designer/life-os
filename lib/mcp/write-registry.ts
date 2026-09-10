@@ -248,6 +248,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "log",
             description: "Set a prayer's status for a date (on_time/qada/missed). Strictly not-after-today, server-side.",
             patchShape: "{ date: string, prayer_name: PrayerName, status: 'on_time'|'qada'|'missed' }",
+            idempotent: true,
+            idempotencyVerification:
+              "markPrayerCore upserts on (user_id,date,prayer_name) with status taken verbatim from the caller-supplied patch (date is REQUIRED, never defaulted to 'today') -- a retry upserts the identical status. logged_at advances to the retry's own `now` each call, which is benign (a real, honest last-touched time, not a double-count) and never read as this entity's real-world state.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const prayerName = requirePrayerName(patch);
@@ -276,6 +279,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "unlog",
             description: "Clear a prayer's logged status for a date, without deleting history -- it re-derives exactly as an absent row would (upcoming/pending/missed by the clock).",
             patchShape: "{ date: string, prayer_name: PrayerName }",
+            idempotent: true,
+            idempotencyVerification: "unlogPrayerCore upserts on (user_id,date,prayer_name) with status hardcoded to 'unlogged' -- a retry upserts the identical value. Same mechanism as prayer.log.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const prayerName = requirePrayerName(patch);
@@ -298,6 +303,15 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "toggle",
             description: "Flip a rawatib slot's completion for a date. Strictly not-after-today, server-side.",
             patchShape: "{ date: string, prayer_name: PrayerName, slot: 'before'|'after'|'witr' }",
+            // THE TOGGLE TRAP: toggleSunnahCore READS the existing `completed`
+            // value and writes its NEGATION -- a set-a-value it is not. A
+            // retry (crash-recovery, or the runner's own bounded retry after
+            // a reported failure that actually succeeded) reads the row the
+            // FIRST call already flipped and flips it AGAIN, landing back on
+            // the original value -- the opposite of the intended change, not
+            // a no-op.
+            idempotent: false,
+            idempotencyVerification: "toggleSunnahCore (lib/deen/actions-core.ts) reads `completed` then upserts `!existing?.completed` -- a second call inverts what the first call already set.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const prayerName = requirePrayerName(patch);
@@ -321,6 +335,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "toggle",
             description: "Flip morning/evening dhikr completion for a date. No future-date guard, matching the app's own behavior.",
             patchShape: "{ date: string, period: 'morning'|'evening' }",
+            // Same toggle trap as deen.sunnah_log.toggle -- see its own comment.
+            idempotent: false,
+            idempotencyVerification: "toggleAdhkarCore (lib/deen/actions-core.ts) reads `completed` then upserts `!existing?.completed` -- a second call inverts what the first call already set.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const period = requireEnum(patch, "period", ["morning", "evening"] as const);
@@ -348,6 +365,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "create",
             description: "Create a target (requires patch.deadline) or a stretch goal (never requires one), per patch.kind.",
             patchShape: "{ kind: 'target'|'stretch', title: string, deadline?: string }",
+            idempotent: false,
+            idempotencyVerification: "addTargetCore/addStretchGoalCore (lib/coop/targets-core.ts) plain INSERT with a freshly-computed position -- a retry creates a second, duplicate row (and at a different position, since the first insert already advanced the queue).",
             handler: async (ctx, patch) => {
               const kind = requireEnum(patch, "kind", ["target", "stretch"] as const);
               const title = requireString(patch, "title");
@@ -366,6 +385,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "edit",
             description: "Edit an existing target/stretch goal's title and/or deadline. Requires the top-level id.",
             patchShape: "{ title?: string, deadline?: string|null }",
+            idempotent: true,
+            idempotencyVerification: "editTargetCore UPDATEs title/deadline to the exact given values (never reads-then-inverts, never derives from now) -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await editTargetCore(ctx.userClient, ctx.userId, id, { title: optionalString(patch, "title"), deadline: optionalNullableString(patch, "deadline") });
@@ -379,6 +400,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "complete",
             description: "Mark a target/stretch goal done. Requires the top-level id. Never a delete — the row's history is kept (ruling 5).",
             patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification:
+              "The complete_target RPC (migration 028) is explicitly idempotent by its own author's comment and guard: `select position ... if v_position is null then return; -- already completed ... idempotent no-op`. A retry after a successful complete finds position already NULL and no-ops before any UPDATE runs. completeTargetCore's own pre-RPC read of `vacatedPosition` also comes back NULL on a retry, so the 'what got promoted' lookup is skipped and it reports promotedTargetId:null -- a different RETURN VALUE than the original call, but the underlying DB state is unchanged either way.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               const promotion = await completeTargetCore(ctx.userClient, ctx.userId, id);
@@ -392,6 +416,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "reorder",
             description: "Move a target/stretch goal to a new position — the 'in diff order optionally' mechanism. Requires the top-level id and patch.position.",
             patchShape: "{ position: number }",
+            idempotent: true,
+            idempotencyVerification:
+              "The reorder_coop_target RPC (migration 028) is explicitly idempotent by its own author's comment and guard: `if p_new_position = v_old_position then return; -- no-op, idempotent`. A retry re-reads the NOW-current position (already equal to p_new_position from the first call) and no-ops before any shift UPDATE runs.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               const position = optionalNumber(patch, "position");
@@ -417,6 +444,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "add",
             description: "Add a task to a target's backlog. Requires the top-level id (the target's id).",
             patchShape: "{ title: string, deadline?: string }",
+            idempotent: false,
+            idempotencyVerification: "addAgendaTaskCore (lib/coop/tasks-core.ts) plain INSERT, no natural-key conflict handling -- a retry creates a second, duplicate task.",
             handler: async (ctx, patch) => {
               const targetId = requireId(ctx);
               const title = requireString(patch, "title");
@@ -432,6 +461,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "edit",
             description: "Edit an existing task's title and/or deadline. Requires the top-level id.",
             patchShape: "{ title?: string, deadline?: string|null }",
+            idempotent: true,
+            idempotencyVerification: "editTaskCore (lib/coop/tasks-core.ts) UPDATEs title/deadline to the exact given values -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await editTaskCore(ctx.userClient, ctx.userId, id, { title: optionalString(patch, "title"), deadline: optionalNullableString(patch, "deadline") });
@@ -441,12 +472,53 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               };
             },
           },
+          // Idempotency verdicts differ PER ACTION, unlike the shared
+          // handler shape below -- all four end up UPDATEing `coop_tasks`
+          // via setStatusCore-shaped calls that set `completed_at`/
+          // `blocked_since` to a FRESH `new Date()` whenever the target
+          // status lands on "complete" (or, for block, unconditionally) --
+          // the exact "derives now on every call" trap the lead named
+          // checkins.allocation.save's window-resolution bug as the
+          // template for. `status`/`blocked_from` themselves are always
+          // deterministic (computed from the caller-asserted, fixed
+          // current_status, never read-then-inverted), so ONLY the
+          // timestamp columns are at risk, and only conditionally for
+          // advance/unblock (retreat never lands on "complete" at all --
+          // PIPELINE_STAGES' order makes that structurally unreachable, see
+          // lib/coop/tasks.ts's own nextStage/previousStage). A registry
+          // entry can't be conditionally idempotent by patch value, so the
+          // WHOLE action is marked false wherever the risky case is
+          // reachable at all, same posture distractions.plan_outcome.record
+          // already takes for its own followed:true-only risk.
           ...(["advance", "retreat", "block", "unblock"] as const).reduce(
             (acc, action) => {
+              const idempotencyByAction: Record<"advance" | "retreat" | "block" | "unblock", Pick<WriteActionDef, "idempotent" | "idempotencyVerification">> = {
+                advance: {
+                  idempotent: false,
+                  idempotencyVerification:
+                    "advanceTaskCore -> setStatusCore (lib/coop/tasks-core.ts) sets completed_at to a FRESH new Date() whenever the computed next stage is 'complete' -- reachable via current_status:'review' (nextStage('review') === 'complete'). A retry of that specific advance overwrites completed_at with a later instant, understating how long ago the task actually finished. Every OTHER current_status target sets completed_at to null both times (stable), but the risky case is reachable, so the action as a whole is not safe to schedule.",
+                },
+                retreat: {
+                  idempotent: true,
+                  idempotencyVerification:
+                    "retreatTaskCore -> setStatusCore (lib/coop/tasks-core.ts) can never land on 'complete' -- previousStage() only ever moves BACKWARD through PIPELINE_STAGES (lib/coop/tasks.ts), and 'complete' is the last stage, never a retreat target. completed_at is therefore always set to null on every call, a stable value -- no hidden time dependency, unlike its sibling `advance`.",
+                },
+                block: {
+                  idempotent: false,
+                  idempotencyVerification:
+                    "blockTaskCore (lib/coop/tasks-core.ts) sets blocked_since to a FRESH new Date() on EVERY call, unconditionally (not gated on any patch value the way advance/unblock's completed_at is) -- a retry of an already-blocked task silently moves blocked_since forward, understating how long it's actually been blocked.",
+                },
+                unblock: {
+                  idempotent: false,
+                  idempotencyVerification:
+                    "unblockTaskCore (lib/coop/tasks-core.ts) sets completed_at to a FRESH new Date() whenever the status being restored (patch.current_status, i.e. blocked_from) is 'complete' -- a real, reachable value in the CoopTaskStatus type. A retry restoring to 'complete' overwrites completed_at with a later instant. Every other restore target sets completed_at to null both times (stable), but the risky case is reachable.",
+                },
+              };
               acc[action] = {
                 action,
                 description: `${action[0].toUpperCase()}${action.slice(1)} a task one pipeline stage. Requires the top-level id and patch.current_status${action === "unblock" ? " (the status to restore)" : ""}.`,
                 patchShape: "{ current_status: 'backlog'|'in_progress'|'review'|'complete'|'blocked' }",
+                ...idempotencyByAction[action],
                 handler: async (ctx: WriteContext, patch: WritePatch) => {
                   const id = requireId(ctx);
                   const currentStatus = requireEnum(patch, "current_status", ["backlog", "in_progress", "review", "blocked", "complete"] as const) as Exclude<
@@ -478,9 +550,30 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "start",
             description: "Start a deep-work/deep-study session. Fails if one is already active for this user (application-level invariant, not a DB constraint).",
             patchShape: "{ kind: 'deep_work'|'deep_study' }",
+            // BORDERLINE, marked true on the strength of a GUARD, not a
+            // no-op upsert -- worth naming the mechanism precisely rather
+            // than rounding to "looks safe." startWorkSessionCore always
+            // INSERTs a new row (no natural-key conflict handling at all),
+            // which would normally mean "false, appends a duplicate." But
+            // it read-checks "is a session already active" FIRST and THROWS
+            // rather than inserting if one is -- so a retry after a
+            // successful first call (which left a session active) hits that
+            // guard and is REJECTED, not silently duplicated. The DB STATE
+            // never corrupts on a retry, which is the bar that matters; the
+            // retry's own call is reported as an error (not a no-op), which
+            // will cost it retry budget/eventually pause the schedule even
+            // though nothing is actually wrong -- a real, if survivable,
+            // cost of this specific shape of safety.
+            idempotent: true,
+            idempotencyVerification:
+              "startWorkSessionCore (lib/business/actions-core.ts) plain-INSERTs, but reads `.is('ended_at', null)` FIRST and throws 'A work session is already active' if one exists -- a retry after a successful start hits this guard and is rejected rather than creating a second active session. State-safe, though the retry itself surfaces as an error, not a silent no-op.",
             handler: async (ctx, patch) => {
               const kind = requireEnum(patch, "kind", ["deep_work", "deep_study"] as const);
-              const started = await startWorkSessionCore(ctx.userClient, ctx.userId, kind);
+              // No goal/objectives concept on this tool — 146 made both
+              // optional on StartWorkSessionInput specifically so a
+              // goal-less start (no setup dialog exists here) still works,
+              // rendering in the overlay exactly as a pre-146 session did.
+              const started = await startWorkSessionCore(ctx.userClient, ctx.userId, { kind });
               return {
                 result: { content: [{ type: "text", text: JSON.stringify(started) }], structuredContent: { id: started.id, updated_at: null, started_at: started.startedAt } },
                 summary: `started a ${kind} session`,
@@ -491,6 +584,22 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "end",
             description: "End an active session, stamping ended_at. Requires the top-level id.",
             patchShape: "{}",
+            // A NEW FINDING from this audit, the same shape as
+            // checkins.allocation.save's window-resolution bug: this
+            // handler never passes `endedAtIso`, so endWorkSessionCore
+            // ALWAYS falls back to a FRESH `new Date()`. Its own existence
+            // check only confirms the row exists by id -- it does NOT check
+            // whether `ended_at` is already set. A retry of an
+            // already-ended session (first call succeeded, crash before
+            // finalize) does not error, does not no-op -- it silently
+            // OVERWRITES ended_at with a later instant, shortening/shifting
+            // the recorded session duration. A fix exists (guard on
+            // `.is("ended_at", null)`, or skip the update entirely if
+            // already ended) but is not built here -- flagged, not fixed,
+            // per instruction.
+            idempotent: false,
+            idempotencyVerification:
+              "endWorkSessionCore (lib/business/actions-core.ts), called here with no endedAtIso, always sets ended_at to a fresh new Date().toISOString() and never checks whether the session is already ended -- a retry silently moves ended_at forward instead of no-op'ing or erroring.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               await endWorkSessionCore(ctx.userClient, ctx.userId, id);
@@ -514,6 +623,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "set",
             description: "Set (create or overwrite) one of a day's 3 kill-list slots. position is the EXPLICIT slot (0/1/2), not an implicit append order.",
             patchShape: "{ date: string, position: 0|1|2, text: string }",
+            idempotent: true,
+            idempotencyVerification: "setKillListItemCore upserts on (user_id,date,position) with text taken verbatim from the patch -- a retry upserts the identical row.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const position = requireNumberEnum(patch, "position", [0, 1, 2] as const);
@@ -529,6 +640,13 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "toggle",
             description: "Toggle a kill-list item's completion. Requires the top-level id.",
             patchShape: "{}",
+            // Same toggle trap as deen.sunnah_log.toggle, COMPOUNDED by the
+            // same fresh-now() drift as work.task.block: toggleKillListItemCore
+            // both reads-then-inverts `completed` AND sets `completed_at` to
+            // a new Date() whenever the toggle lands on true. Two independent
+            // reasons a retry corrupts state, not just one.
+            idempotent: false,
+            idempotencyVerification: "toggleKillListItemCore (lib/business/actions-core.ts) reads `completed` then writes `!existing.completed` plus a fresh completed_at when landing on true -- a retry inverts what the first call already set.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               const result = await toggleKillListItemCore(ctx.userClient, ctx.userId, id);
@@ -547,6 +665,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "save",
             description: "Save (upsert) this week's business-domain goal. Plain upsert, no locking/carry-forward — see saveBusinessWeeklyGoalCore's own comment.",
             patchShape: "{ week_start_date: string, headline: string, milestones: string[] }",
+            idempotent: true,
+            idempotencyVerification: "saveBusinessWeeklyGoalCore upserts on (user_id,week_start_date,domain) with headline/milestones taken verbatim from the patch -- a retry upserts the identical row.",
             handler: async (ctx, patch) => {
               const weekStartDate = requireString(patch, "week_start_date");
               const headline = requireString(patch, "headline");
@@ -578,6 +698,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "add",
             description: "Add a school task/assignment/reminder. Always domain='school'.",
             patchShape: "{ title: string, due_date?: string, due_time?: string, task_type?: TaskType, task_type_other_label?: string, class_id?: string|null }",
+            idempotent: false,
+            idempotencyVerification: "addTaskCore (lib/tasks/actions-core.ts) plain INSERT, no natural-key conflict handling -- a retry creates a second, duplicate task.",
             handler: async (ctx, patch) => {
               const title = requireString(patch, "title");
               const dueDate = optionalString(patch, "due_date");
@@ -604,6 +726,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "edit",
             description: "Full-replace edit of a school task's contents. Requires the top-level id.",
             patchShape: "{ title: string, due_date?: string, task_type?: TaskType, task_type_other_label?: string, class_id?: string|null }",
+            idempotent: true,
+            idempotencyVerification: "updateTaskCore (lib/tasks/actions-core.ts) UPDATEs to the exact given values -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await assertRowDomain(ctx.userClient, "tasks", id, ctx.userId, "school");
@@ -623,6 +747,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "toggle",
             description: "Flip a school task's completed state. Requires the top-level id.",
             patchShape: "{}",
+            // Same toggle trap as deen.sunnah_log.toggle.
+            idempotent: false,
+            idempotencyVerification: "toggleTaskCore (lib/tasks/actions-core.ts) reads `completed` then writes `!existing.completed` -- a retry inverts what the first call already set.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               await assertRowDomain(ctx.userClient, "tasks", id, ctx.userId, "school");
@@ -645,6 +772,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "create",
             description: "Create a class.",
             patchShape: "{ code: string, short_name?: string, room?: string, instructor?: string }",
+            idempotent: false,
+            idempotencyVerification: "createClassCore (lib/school/actions-core.ts) plain INSERT with a freshly-computed position (max+1) -- a retry creates a second, duplicate class, at a different position since the first insert already advanced the max.",
             handler: async (ctx, patch) => {
               const code = requireString(patch, "code");
               const shortName = optionalString(patch, "short_name");
@@ -661,6 +790,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "edit",
             description: "Edit a class's short_name/room/instructor. Requires the top-level id.",
             patchShape: "{ short_name?: string|null, room?: string|null, instructor?: string|null }",
+            idempotent: true,
+            idempotencyVerification: "updateClassCore (lib/school/actions-core.ts) UPDATEs to the exact given values -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await updateClassCore(ctx.userClient, ctx.userId, id, {
@@ -686,6 +817,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "add",
             description: "Add an assessment to a class. Also creates its linked task (ruling R5). Requires the top-level id (the class's id).",
             patchShape: "{ name: string, type: 'quiz'|'exam'|'midterm_final', date: string }",
+            idempotent: false,
+            idempotencyVerification: "addClassAssessmentCore (lib/school/actions-core.ts) plain-INSERTs a task AND a class_assessments row, no conflict handling on either -- a retry creates a second, duplicate task+assessment pair.",
             handler: async (ctx, patch) => {
               const classId = requireId(ctx);
               const name = requireString(patch, "name");
@@ -702,6 +835,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "edit",
             description: "Edit an assessment's name/type/date/weight, syncing its linked task's title/due_date. Requires the top-level id.",
             patchShape: "{ name: string, type: 'quiz'|'exam'|'midterm_final', date: string, weight_pct?: number|null }",
+            idempotent: true,
+            idempotencyVerification: "updateClassAssessmentCore (lib/school/actions-core.ts) UPDATEs the assessment and its linked task to the exact given values -- a retry writes the identical rows.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               const name = requireString(patch, "name");
@@ -734,6 +869,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "edit_series",
             description: "Permanently change a recurring class's own day/time -- affects every future occurrence, never just one ('change the class permanently'). Requires the top-level id (the schedule_events row's id).",
             patchShape: "{ day_of_week: number, event_time: string, end_time?: string }",
+            idempotent: true,
+            idempotencyVerification: "updateScheduleEventCore (lib/tasks/actions-core.ts) UPDATEs to the exact given values -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await assertRowDomain(ctx.userClient, "schedule_events", id, ctx.userId, "school");
@@ -751,6 +888,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "set_override",
             description: "Move ONE occurrence of a recurring class to a different time, without touching the permanent pattern ('move next Tuesday's class'). Requires the top-level id (the schedule_events row's id) and patch.date.",
             patchShape: "{ date: string, event_time: string, end_time?: string }",
+            idempotent: true,
+            idempotencyVerification:
+              "setScheduleEventOverrideCore (lib/tasks/actions-core.ts) upserts on (event_id,date) with event_time/end_time taken verbatim from the patch, then DELETEs any cancellation for the same (event_id,date) -- a retry upserts the identical override and deletes an already-absent cancellation row (a no-op DELETE, not an error).",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await assertRowDomain(ctx.userClient, "schedule_events", id, ctx.userId, "school");
@@ -768,6 +908,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "cancel_occurrence",
             description: "Cancel ONE occurrence of a recurring class, without touching the permanent pattern or any other occurrence ('cancel this one instance'). Requires the top-level id (the schedule_events row's id) and patch.date.",
             patchShape: "{ date: string }",
+            idempotent: true,
+            idempotencyVerification: "cancelScheduleOccurrenceCore (lib/tasks/actions-core.ts) upserts on (event_id,date) with `ignoreDuplicates: true` -- explicitly a no-op on a repeat cancel, by its own header comment and the upsert option, not just inferred.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await assertRowDomain(ctx.userClient, "schedule_events", id, ctx.userId, "school");
@@ -806,6 +948,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "quick_log",
             description: "Log a bare single-exercise session, no workout template ('quick-add'). Scattered same-day entries stay separate rows -- never merges into an existing session.",
             patchShape: "{ date: string, exercise_id: string, exercise_name: string, sets: number, reps: number, load?: number|null }",
+            idempotent: false,
+            idempotencyVerification: "quickLogExerciseCore (lib/fitness/actions-core.ts) plain-INSERTs a session+set, no conflict handling -- deliberately: scattered same-day entries stay separate rows by design, so a retry creates a second, duplicate session exactly like a real second quick-add would.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const exerciseId = requireString(patch, "exercise_id");
@@ -826,6 +970,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "confirm",
             description: "Confirm a workout (from a standalone workout template) for a date, logging every set at once. Idempotent: a repeat confirm of the same workout/date is a no-op (029's unique index), not an error.",
             patchShape: "{ date: string, workout_id: string, workout_name: string, sets: ConfirmSetInput[] }",
+            idempotent: true,
+            idempotencyVerification:
+              "confirm_workout_session RPC (migration 029): inserts the session first (guarded by workout_sessions_confirmed_unique on (user_id,date,workout_id) where source='confirmed'), and its own exception handler catches unique_violation and SELECTs the existing session id back rather than erroring or re-inserting sets -- verified directly in the RPC's SQL, matching save_allocation_checkin's established idiom.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const workoutId = requireString(patch, "workout_id");
@@ -842,6 +989,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "confirm_plan_session",
             description: "Confirm a routine plan's session for a date. Requires the top-level id (the plan_sessions row's id). Idempotent: a repeat confirm of the same plan session/date is a no-op, not an error.",
             patchShape: "{ date: string, session_name: string, sets: ConfirmSetInput[] }",
+            idempotent: true,
+            idempotencyVerification:
+              "confirmPlanSessionCore (lib/fitness/actions-core.ts) inserts the session first, guarded by workout_sessions_plan_session_unique on (user_id,date,plan_session_id) where source='confirmed' (verified this index exists in the baseline schema) -- its own 23505 catch looks up and returns the already-confirmed row's id rather than erroring or re-inserting sets.",
             handler: async (ctx, patch) => {
               const sessionId = requireId(ctx);
               const date = requireString(patch, "date");
@@ -867,6 +1017,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "log_weight",
             description: "Log (or overwrite) a date's weight. Preserves that date's waist measurement if one already exists.",
             patchShape: "{ date: string, weight_lb: number }",
+            idempotent: true,
+            idempotencyVerification: "logWeightCore upserts on (user_id,date) with weight_lb from the patch and waist_in re-read fresh from the current row each call -- a retry writes the identical weight, and preserves whatever waist_in is CURRENTLY live (never a stale cached value), so it can't drift.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const weightLb = optionalNumber(patch, "weight_lb");
@@ -882,6 +1034,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "log_waist",
             description: "Log (or overwrite) a date's waist measurement. Preserves that date's weight if one already exists.",
             patchShape: "{ date: string, waist_in: number }",
+            idempotent: true,
+            idempotencyVerification: "logWaistCore upserts on (user_id,date) with waist_in from the patch and weight_lb re-read fresh each call -- same mechanism as log_weight.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const waistIn = optionalNumber(patch, "waist_in");
@@ -902,6 +1056,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "log",
             description: "Log (or overwrite) one exercise's max-reps benchmark for a date (Cycle Progress checks). One call per exercise -- call it again for a second exercise, never a batch.",
             patchShape: "{ date: string, exercise_id: string, max_reps: number }",
+            idempotent: true,
+            idempotencyVerification: "logBenchmarkRepsCore upserts on (user_id,date,exercise_id) with max_reps taken verbatim from the patch -- a retry upserts the identical row.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const exerciseId = requireString(patch, "exercise_id");
@@ -926,6 +1082,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "create",
             description: "Add an exercise to the library.",
             patchShape: "{ name: string, primary_muscles?: MuscleGroup[], secondary_muscles?: MuscleGroup[] }",
+            idempotent: false,
+            idempotencyVerification: "createExerciseCore (lib/fitness/actions-core.ts) plain INSERT, no natural-key conflict handling -- a retry creates a second, duplicate exercise.",
             handler: async (ctx, patch) => {
               const name = requireString(patch, "name");
               const primaryMuscles = optionalMuscleGroupArray(patch, "primary_muscles");
@@ -941,6 +1099,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "archive",
             description: "Archive an exercise (never a hard delete -- workout_exercises/session_sets reference it with no cascade). Requires the top-level id.",
             patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "archiveExerciseCore sets archived=true unconditionally (never reads-then-inverts) -- a retry sets the identical value.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               await archiveExerciseCore(ctx.userClient, ctx.userId, id);
@@ -962,6 +1122,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "rename",
             description: "Rename a workout template. Requires the top-level id.",
             patchShape: "{ name: string }",
+            idempotent: true,
+            idempotencyVerification: "renameWorkoutCore sets name to the exact given value -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               const name = requireString(patch, "name");
@@ -976,6 +1138,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             action: "archive",
             description: "Archive a workout template (never a hard delete). Requires the top-level id.",
             patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "archiveWorkoutCore sets archived=true unconditionally -- a retry sets the identical value.",
             handler: async (ctx) => {
               const id = requireId(ctx);
               await archiveWorkoutCore(ctx.userClient, ctx.userId, id);
