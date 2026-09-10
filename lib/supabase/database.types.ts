@@ -617,6 +617,8 @@ export type Database = {
       coop_tasks: {
         Row: {
           blocked_from: string | null
+          blocked_reason: string | null
+          blocked_since: string | null
           completed_at: string | null
           created_at: string
           deadline: string | null
@@ -629,6 +631,8 @@ export type Database = {
         }
         Insert: {
           blocked_from?: string | null
+          blocked_reason?: string | null
+          blocked_since?: string | null
           completed_at?: string | null
           created_at?: string
           deadline?: string | null
@@ -641,6 +645,8 @@ export type Database = {
         }
         Update: {
           blocked_from?: string | null
+          blocked_reason?: string | null
+          blocked_since?: string | null
           completed_at?: string | null
           created_at?: string
           deadline?: string | null
