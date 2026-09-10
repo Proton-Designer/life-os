@@ -327,8 +327,25 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtColumn: "updated_at",
         updatedAtVerification:
           "Migration 135 (applied, verified on production by the lead) added a real trigger-backed updated_at to coop_tasks, reusing migration 074's touch_updated_at(), after editTask/advanceTask/retreatTask/blockTask/unblockTask (app/(app)/work/tasks-actions.ts) were found to all UPDATE an existing row with completed_at reflecting only the complete/not-complete transition, never every status change or a title/deadline edit.",
-        summaryColumns: ["target_id", "title", "deadline", "status", "blocked_from"],
-        fullColumns: ["target_id", "title", "deadline", "status", "blocked_from", "completed_at", "created_at", "updated_at", "user_id"],
+        // blocked_reason is in summaryColumns DELIBERATELY, not just
+        // fullColumns (migration 148, the legacy-account program's own
+        // track -- coop_tasks, not ours to migrate). `status: "blocked"`
+        // with no reason reads as complete information: a caller sees a
+        // status and has no signal anything is missing, so it either
+        // reports "blocked" as the finished answer or burns a second
+        // round trip discovering the field that should have arrived with
+        // it. A summary that omits the one field its own status exists to
+        // qualify isn't a summary -- it's a truncation that looks whole.
+        // Same family as this registry's own denylist-vs-allowlist
+        // discipline: the failure mode is invisible, not loud.
+        //
+        // HOLD: 148 must be APPLIED to production before this lands --
+        // these names are the literal select list. Landing early means
+        // every coop_tasks read 500s on a nonexistent column: a missing
+        // field is invisible-but-recoverable, a broken read takes the
+        // whole entity down. Confirmed with the lead before committing.
+        summaryColumns: ["target_id", "title", "deadline", "status", "blocked_from", "blocked_reason"],
+        fullColumns: ["target_id", "title", "deadline", "status", "blocked_from", "blocked_reason", "blocked_since", "completed_at", "created_at", "updated_at", "user_id"],
         filterableColumns: ["target_id", "status"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
