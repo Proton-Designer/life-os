@@ -338,7 +338,8 @@ export interface SubmitCardReviewInput {
   desiredRetention?: number;
   currentState: DbCardState | null;
   cardId: string;
-  sessionId: string;
+  /** Nullable — `submit_review`'s own SQL param accepts null (081_ulm_soft_delete_and_purge.sql: `if p_session_id is not null then update work_sessions...`), for a caller with no work_sessions row to attribute the review to (e.g. an MCP-graded review, which has no app-tracked study session). The generated RPC Args type marks this required regardless — same generator limitation already noted below for p_ai_feedback/p_ai_suggested_rating/p_next_state — so null is passed with the same `as unknown as string` cast, not by making this field genuinely optional at the call site. */
+  sessionId: string | null;
   rating: 1 | 2 | 3 | 4;
   elapsedMs: number;
   /** An empty string is a legitimate, honest "I don't know" attempt — never blocked. */
@@ -376,7 +377,7 @@ export async function submitCardReview(client: TypedClient, input: SubmitCardRev
 
   const { data, error } = await client.rpc("submit_review", {
     p_card_id: input.cardId,
-    p_session_id: input.sessionId,
+    p_session_id: input.sessionId as unknown as string,
     p_rating: input.rating,
     p_elapsed_ms: input.elapsedMs,
     p_answered_text: input.answeredText,
@@ -428,20 +429,45 @@ export async function fetchSessionCardsReviewed(client: TypedClient, sessionId: 
   return data.cards_reviewed ?? 0;
 }
 
-/** Self-explanation interstitials: ungraded by design, insert-only. `response: null` records a skip, which carries no penalty and is exactly as valid a row as an answered one. */
+export interface SubmittedSelfExplanation {
+  id: string;
+  createdAt: string;
+}
+
+/**
+ * Self-explanation interstitials: ungraded by design, insert-only.
+ * `response: null` records a skip, which carries no penalty and is exactly
+ * as valid a row as an answered one.
+ *
+ * `sessionId` is nullable — `self_explanations.session_id` has always
+ * accepted null (073_ulm_self_explanations.sql: `references
+ * work_sessions(id) on delete set null`) for a caller with no app-tracked
+ * study session to attribute it to (e.g. an MCP-logged reflection).
+ *
+ * Returns the inserted row's real id/created_at — the MCP write contract
+ * (`write(...) -> {id, updated_at}`) needs a real row id, never a
+ * synthesized one; the app's own `logSelfExplanation` (self-mastery-
+ * session-actions.ts) already ignored the old `void` return, so widening
+ * this is not a breaking change for it.
+ */
 export async function submitSelfExplanation(
   client: TypedClient,
-  input: { userId: string; lessonId: string; sessionId: string; prompt: string; response: string | null }
-): Promise<void> {
-  const { error } = await client.from("self_explanations").insert({
-    // Required by the generated Insert type; overwritten unconditionally by
-    // the self_explanations_set_user_id trigger (073) regardless of what's
-    // passed, so a caller-supplied value here is never trusted.
-    user_id: input.userId,
-    lesson_id: input.lessonId,
-    session_id: input.sessionId,
-    prompt: input.prompt,
-    response: input.response,
-  });
+  input: { userId: string; lessonId: string; sessionId: string | null; prompt: string; response: string | null }
+): Promise<SubmittedSelfExplanation> {
+  const { data, error } = await client
+    .from("self_explanations")
+    .insert({
+      // Required by the generated Insert type; overwritten unconditionally by
+      // the self_explanations_set_user_id trigger (073) regardless of what's
+      // passed, so a caller-supplied value here is never trusted.
+      user_id: input.userId,
+      lesson_id: input.lessonId,
+      session_id: input.sessionId,
+      prompt: input.prompt,
+      response: input.response,
+    })
+    .select("id, created_at")
+    .single();
   if (error) throw error;
+  return { id: data.id, createdAt: data.created_at };
 }

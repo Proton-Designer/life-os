@@ -36,6 +36,9 @@ function makeSupabase(script: Record<string, { data: unknown; error: unknown }>)
       maybeSingle() {
         return chain;
       },
+      single() {
+        return Promise.resolve(result);
+      },
       returns() {
         return Promise.resolve(result);
       },
@@ -146,7 +149,7 @@ describe("recordVerdict", () => {
   it("writes a still_testing verdict with no reason and leaves the promotion active", async () => {
     const { client, calls } = makeSupabase({
       lesson_promotions: { data: { id: "p1", retired_at: null }, error: null },
-      lesson_verdicts: { data: [{ id: "v1" }], error: null },
+      lesson_verdicts: { data: { id: "v1", verdict_at: "2026-09-08T12:00:00Z" }, error: null },
     });
     requireUserMock.mockResolvedValue({ supabase: client, userId: "u1" });
     const { recordVerdict } = await loadActions();
@@ -154,7 +157,14 @@ describe("recordVerdict", () => {
     const result = await recordVerdict({ promotionId: "p1", verdict: "still_testing" });
 
     expect(result).toEqual({ ok: true });
+    // user_id IS in the payload here (unlike promoteLesson's insert above) —
+    // recordVerdictCore (lib/promotions/actions-core.ts) uses the real typed
+    // Supabase client rather than untypedFrom's escape hatch, and the
+    // generated lesson_verdicts Insert type requires it. Still never trusted
+    // as the source of truth: lesson_verdicts_set_user_id (124) overwrites
+    // it unconditionally from the caller before the row is stored.
     expect(calls.find((c) => c.table === "lesson_verdicts")?.payload).toEqual({
+      user_id: "u1",
       promotion_id: "p1",
       verdict: "still_testing",
       reason: null,
@@ -179,9 +189,14 @@ describe("recordVerdict", () => {
   });
 
   it("reports a FAILURE when the verdict insert returns no row and no error", async () => {
+    // recordVerdictCore uses .single() (not the old .select().returns<T[]>()
+    // array shape) -- the realistic "PostgREST returned nothing" case for
+    // .single() is data: null, not an empty array, but the defensive
+    // `if (!data) throw` check exists regardless of how unlikely a real
+    // .single() call is to hit it with no error attached.
     const { client } = makeSupabase({
       lesson_promotions: { data: { id: "p1", retired_at: null }, error: null },
-      lesson_verdicts: { data: [], error: null },
+      lesson_verdicts: { data: null, error: null },
     });
     requireUserMock.mockResolvedValue({ supabase: client, userId: "u1" });
     const { recordVerdict } = await loadActions();

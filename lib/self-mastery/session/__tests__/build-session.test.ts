@@ -278,7 +278,7 @@ describe("countDueCards vs countNewCards -- the day-one distinction", () => {
 
 describe("submitSelfExplanation", () => {
   it("always supplies user_id explicitly, even though the DB trigger overwrites it -- required by the generated Insert type", async () => {
-    const chain = makeChain({ data: null, error: null });
+    const chain = makeChain({ data: { id: "se-1", created_at: "2026-09-08T12:00:00Z" }, error: null });
     const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
 
     await submitSelfExplanation(client, {
@@ -294,8 +294,8 @@ describe("submitSelfExplanation", () => {
     );
   });
 
-  it("a skip (response: null) is a legitimate row, never penalised, never blocked", async () => {
-    const chain = makeChain({ data: null, error: null });
+  it("a skip (response: null) is a legitimate row, never penalised, never blocked -- and returns the real inserted id/created_at, never void", async () => {
+    const chain = makeChain({ data: { id: "se-1", created_at: "2026-09-08T12:00:00Z" }, error: null });
     const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
 
     await expect(
@@ -306,7 +306,23 @@ describe("submitSelfExplanation", () => {
         prompt: "Put this in your own words",
         response: null,
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ id: "se-1", createdAt: "2026-09-08T12:00:00Z" });
+  });
+
+  it("sessionId is nullable -- an MCP-logged reflection has no app-tracked work_sessions row to attribute it to", async () => {
+    const chain = makeChain({ data: { id: "se-2", created_at: "2026-09-08T12:00:00Z" }, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    const result = await submitSelfExplanation(client, {
+      userId: "user-1",
+      lessonId: "lesson-1",
+      sessionId: null,
+      prompt: "Reflect",
+      response: "My own words",
+    });
+
+    expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
+    expect(result).toEqual({ id: "se-2", createdAt: "2026-09-08T12:00:00Z" });
   });
 });
 
