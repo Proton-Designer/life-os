@@ -28,6 +28,37 @@ describe("TaskListModule", () => {
     expect(screen.getByText("Due today")).toBeInTheDocument();
   });
 
+  // Ayman, 2026-09-10: "overdue items still remain present in the task
+  // list, make sure that they are auto removed and just show in the
+  // overdue section" (the School screen's Overdue KPI card, not this
+  // module — see lib/tasks/task-groups.ts's TASK_GROUP_ORDER comment).
+  it("auto-removes an overdue task from the list entirely — it renders in no group", async () => {
+    render(
+      <TaskListModule
+        tasks={[
+          task({ id: "t1", title: "Overdue paper", dueDate: "2026-08-20" }),
+          task({ id: "t2", title: "Due today", dueDate: TODAY }),
+        ]}
+        classes={CLASSES}
+        todayStr={TODAY}
+        weekDates={WEEK_DATES}
+        toggleTask={vi.fn()}
+      />
+    );
+    // This Week is expanded by default, so if the overdue task were still
+    // in `week` (the pre-2026-09-10 behaviour) it would be visible here.
+    expect(screen.getByRole("button", { name: /This Week/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("Overdue paper")).not.toBeInTheDocument();
+    expect(screen.getByText("Due today")).toBeInTheDocument();
+
+    // Expand every other group too — an overdue task hiding in Next Month
+    // or Future (rather than genuinely nowhere) would be just as wrong.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Next Month/ }));
+    await user.click(screen.getByRole("button", { name: /Future/ }));
+    expect(screen.queryByText("Overdue paper")).not.toBeInTheDocument();
+  });
+
   it("no longer renders a top-level Today group, nor a This Month one", () => {
     render(
       <TaskListModule tasks={[]} classes={CLASSES} todayStr={TODAY} weekDates={WEEK_DATES} toggleTask={vi.fn()} />

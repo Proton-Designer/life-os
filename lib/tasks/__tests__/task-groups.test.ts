@@ -22,8 +22,17 @@ describe("bucketTaskGroup", () => {
     expect(bucket("2026-08-29")).toBe("week");
   });
 
-  it("buckets an earlier day of this week (already overdue) into This Week, not Next Month", () => {
-    expect(bucket("2026-08-23")).toBe("week");
+  it("buckets an earlier day of this week (already overdue) into Overdue, not This Week (reversed 2026-09-10: overdue now auto-removes from the list)", () => {
+    expect(bucket("2026-08-23")).toBe("overdue");
+  });
+
+  it("buckets yesterday into Overdue", () => {
+    expect(bucket("2026-08-24")).toBe("overdue");
+  });
+
+  it("does not treat today itself as overdue", () => {
+    expect(bucket(TODAY)).not.toBe("overdue");
+    expect(bucket(TODAY)).toBe("week");
   });
 
   it("buckets a date beyond this week but inside 30 days into Next Month", () => {
@@ -53,15 +62,16 @@ describe("bucketTaskGroup", () => {
     });
   });
 
-  describe("overdue work never falls through to Future", () => {
-    it("puts a task overdue from before this week into Next Month, where it stays visible", () => {
-      expect(bucket("2026-08-10")).toBe("next30");
+  describe("overdue work always lands in Overdue, not Next Month or Future (reversed 2026-09-10: overdue now has its own bucket, extracted before next30's window is ever consulted)", () => {
+    it("puts a task overdue from before this week into Overdue, not Next Month", () => {
+      // Until 2026-09-10 this landed in "next30" specifically so it stayed
+      // visible instead of falling through to "Future". Now it has a real
+      // home: the Overdue KPI card, via this same bucket.
+      expect(bucket("2026-08-10")).toBe("overdue");
     });
 
-    it("puts a task overdue from a previous calendar month there too", () => {
-      // Under the old calendar-prefix rule this landed in "Future"; the
-      // windowed rule has no lower bound precisely so it doesn't.
-      expect(bucket("2026-07-30")).toBe("next30");
+    it("puts a task overdue from a previous calendar month there too, no matter how old", () => {
+      expect(bucket("2026-07-30")).toBe("overdue");
     });
   });
 
@@ -96,9 +106,47 @@ describe("groupTasksByBucket", () => {
     expect(groups.future.map((t) => t.id)).toEqual(["far", "no-date"]);
   });
 
-  it("returns every group key even when empty", () => {
+  it("sorts the overdue bucket oldest-first too, even though nothing renders it today", () => {
+    const tasks = [
+      { id: "week-and-half-ago", dueDate: "2026-08-16" },
+      { id: "yesterday", dueDate: "2026-08-24" },
+      { id: "three-weeks-ago", dueDate: "2026-08-04" },
+    ];
+    const groups = groupTasksByBucket(tasks, TODAY, TOMORROW, WEEK_DATES, HORIZON);
+    expect(groups.overdue.map((t) => t.id)).toEqual(["three-weeks-ago", "week-and-half-ago", "yesterday"]);
+  });
+
+  // Reversed 2026-09-10: this used to assert the returned keys equal
+  // TASK_GROUP_ORDER, back when they were the same list. They are now
+  // deliberately different — `groupTasksByBucket` returns all four real
+  // buckets; `TASK_GROUP_ORDER` names only the three `TaskListModule`
+  // renders. Split into the two claims that actually matter now.
+  it("returns all four bucket keys even when empty, not just the rendered three", () => {
     const groups = groupTasksByBucket([], TODAY, TOMORROW, WEEK_DATES, HORIZON);
-    expect(Object.keys(groups).sort()).toEqual([...TASK_GROUP_ORDER].sort());
+    expect(Object.keys(groups).sort()).toEqual(["future", "next30", "overdue", "week"]);
+  });
+
+  it("TASK_GROUP_ORDER is every bucket key except overdue", () => {
+    const groups = groupTasksByBucket([], TODAY, TOMORROW, WEEK_DATES, HORIZON);
+    const allKeys = Object.keys(groups).sort();
+    const missing = allKeys.filter((k) => !TASK_GROUP_ORDER.includes(k as never));
+    expect(missing).toEqual(["overdue"]);
+  });
+
+  it("loses no task — every input task appears in exactly one of the four buckets", () => {
+    const tasks = [
+      { id: "overdue-old", dueDate: "2026-07-01" },
+      { id: "overdue-this-week", dueDate: "2026-08-23" },
+      { id: "today", dueDate: TODAY },
+      { id: "tomorrow", dueDate: TOMORROW },
+      { id: "later-week", dueDate: "2026-08-28" },
+      { id: "next-month", dueDate: "2026-09-15" },
+      { id: "far-future", dueDate: "2027-01-01" },
+      { id: "no-date", dueDate: null },
+    ];
+    const groups = groupTasksByBucket(tasks, TODAY, TOMORROW, WEEK_DATES, HORIZON);
+    const union = [...groups.overdue, ...groups.week, ...groups.next30, ...groups.future].map((t) => t.id).sort();
+    expect(union).toEqual(tasks.map((t) => t.id).sort());
   });
 });
 
@@ -147,5 +195,9 @@ describe("group order and labels", () => {
 
   it("no longer exposes a top-level Today group", () => {
     expect(TASK_GROUP_ORDER).not.toContain("today" as never);
+  });
+
+  it("does not render Overdue as a group — it only shows in the School screen's Overdue KPI card", () => {
+    expect(TASK_GROUP_ORDER).not.toContain("overdue");
   });
 });

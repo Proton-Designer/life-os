@@ -206,8 +206,21 @@ export default async function SchoolPage() {
     .filter((t) => t.dueDate !== null && t.dueDate < dateStr)
     .sort(byCreatedAtAsc)
     .map(toKpiItem);
+  // Excludes overdue (2026-09-10, Ayman: "overdue items still remain present
+  // in the task list, make sure that they are auto removed and just show in
+  // the overdue section"). Before this, `weekDates.includes(t.dueDate)` alone
+  // admitted days earlier THIS week that had already passed — e.g. Sunday's
+  // task was still "due this week" on Tuesday — double-counting it against
+  // the Overdue card immediately to the left. `t.dueDate >= dateStr` is the
+  // exact logical complement of `overdueItems`'s own `dueDate < dateStr`
+  // above, over the non-null dates both filters share, so a task lands in
+  // exactly one of the two, never both, never neither. `bucketTaskGroup`
+  // (lib/tasks/task-groups.ts) draws its own overdue line at the same
+  // `dueDate < todayStr` boundary — pinned by the today/yesterday boundary
+  // tests in lib/tasks/__tests__/task-groups.test.ts, so the KPI card, this
+  // panel, and the Task list module's own exclusion cannot drift apart.
   const dueThisWeekItems = openTasks
-    .filter((t) => t.dueDate !== null && weekDates.includes(t.dueDate))
+    .filter((t) => t.dueDate !== null && t.dueDate >= dateStr && weekDates.includes(t.dueDate))
     .sort(byCreatedAtAsc)
     .map(toKpiItem);
 
@@ -298,9 +311,11 @@ export default async function SchoolPage() {
         // This week's open tasks, not every open task ever (Ayman,
         // 2026-08-27). Reuses dueThisWeekCount rather than recomputing, so
         // this and the "Due this week" KPI can never disagree. Undated and
-        // previous-week-overdue tasks fall outside it by design — overdue has
-        // its own KPI — and the caption carries that scope, since a bare
-        // number under "Task list" would otherwise read as the total.
+        // overdue tasks (this week's already-passed days included, since
+        // 2026-09-10) fall outside it by design — overdue has its own KPI,
+        // and TaskListModule auto-excludes it the same way (task-groups.ts)
+        // — and the caption carries that scope, since a bare number under
+        // "Task list" would otherwise read as the total.
         heroValue={`${dueThisWeekCount}`}
         caption="due this week"
         controls={
