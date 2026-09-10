@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Plus, Search } from "lucide-react";
 import { createTriggerAndLog, listTriggersForDomain, logDistraction } from "@/app/(app)/distractions/actions";
 import { rankTriggersForCapture } from "@/lib/distractions/plan-rules";
 import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconChip } from "@/components/ui/icon-chip";
 import { cn } from "@/lib/utils";
+import { useLockInOverlay, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
+import { KIND_LABEL } from "@/lib/business/work-session-kind";
 
 // Spec order (§4): Deen, Business, School, Fitness, Work — deliberately not
 // DOMAIN_ACCENT's own key order.
@@ -33,7 +35,20 @@ const TEXTAREA_CLASS =
 
 type Step = "domain" | "triggers";
 
+/** Which domain a Lock-In session implies, so capture never re-asks a
+ * question the session already answered (Ayman, 2026-09-10: "if im doing
+ * deep work the domain is automatically Business, and if im doing Deep
+ * Study the domain is automatically school"). Null with no active session
+ * — the domain picker renders exactly as it always has. */
+function inferDomainFromSession(session: ActiveWorkSession | null): DistractionDomain | null {
+  if (!session) return null;
+  return session.kind === "deep_work" ? "business" : "school";
+}
+
 export function DistractionCaptureDialog() {
+  const { session } = useLockInOverlay();
+  const inferredDomain = inferDomainFromSession(session);
+
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("domain");
   const [domain, setDomain] = useState<DistractionDomain | null>(null);
@@ -61,6 +76,20 @@ export function DistractionCaptureDialog() {
     setOpen(next);
     if (!next) reset();
   }
+
+  // Keyed to `open` becoming true, not folded into reset()/the close
+  // handler above — the mirror of a bug the Opus Lead's other engineer
+  // already caught on the session-setup dialog. reset() always returns to
+  // the plain domain picker on close; this effect re-applies the
+  // active-session skip on every fresh open, so it can never go stale
+  // between one open and the next.
+  useEffect(() => {
+    if (!open || !inferredDomain) return;
+    selectDomain(inferredDomain);
+    // selectDomain is a stable function declaration re-created each render,
+    // not a dependency that should re-trigger this — only open/inferredDomain should.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, inferredDomain]);
 
   async function selectDomain(d: DistractionDomain) {
     setDomain(d);
@@ -138,6 +167,12 @@ export function DistractionCaptureDialog() {
                 <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
                 {DOMAIN_LABEL[domain]}
               </DialogTitle>
+              {/* Unobtrusive, not a control (Ayman/Opus Lead, 2026-09-10):
+                  inferring the domain silently is right, hiding what was
+                  inferred is not — if it's ever wrong he needs to see it. */}
+              {session && inferredDomain === domain && (
+                <DialogDescription>Inferred from your {KIND_LABEL[session.kind]} session</DialogDescription>
+              )}
             </DialogHeader>
             <div className={cn("grid grid-cols-1 gap-4", domain === "deen" && "sm:grid-cols-[1fr_9rem]")}>
               <div className="flex min-w-0 flex-col gap-3">

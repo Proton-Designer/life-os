@@ -34,6 +34,19 @@ vi.mock("@/app/(app)/review/actions", () => ({
   getReviewData: (...args: unknown[]) => getReviewDataMock(...args),
 }));
 
+// DistractionCaptureDialog (rendered by Topbar) now reads useLockInOverlay()
+// to infer its domain from an active session (2026-09-10), so Topbar needs
+// a real LockInOverlayProvider ancestor — same pattern as
+// checkin-toast.test.tsx and distraction-capture-dialog.test.tsx. That
+// provider itself imports these actions directly; mocked for the same
+// no-real-Supabase reason as everything else in this file.
+vi.mock("@/app/(app)/business/actions", () => ({
+  startWorkSession: vi.fn(),
+  endWorkSession: vi.fn(),
+  toggleSessionObjective: vi.fn(),
+  getActiveSessionDetail: vi.fn(async () => null),
+}));
+
 // Real next/link never forwards `prefetch` to the DOM (destructured out,
 // consumed internally), so intercept it before Link eats it. Mirrors real
 // rendering for every other prop this file's other assertions rely on.
@@ -56,23 +69,26 @@ vi.mock("next/link", async () => {
 
 import { Topbar } from "../topbar";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
+import { LockInOverlayProvider } from "@/components/business/lock-in-overlay-context";
 
 const ACCOUNT = { displayName: "Ayman", email: "ayman@example.com" };
 
 function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) {
   return render(
-    <AllocationQueueProvider>
-      <Topbar
-        account={ACCOUNT}
-        dateLabel="Fri, Aug 15"
-        nowIso="2026-08-15T18:00:00.000-05:00"
-        timezone="America/Chicago"
-        getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
-        onSaveDeen={async () => {}}
-        onSaveBusiness={async () => {}}
-        {...props}
-      />
-    </AllocationQueueProvider>
+    <LockInOverlayProvider initialSession={null}>
+      <AllocationQueueProvider>
+        <Topbar
+          account={ACCOUNT}
+          dateLabel="Fri, Aug 15"
+          nowIso="2026-08-15T18:00:00.000-05:00"
+          timezone="America/Chicago"
+          getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
+          onSaveDeen={async () => {}}
+          onSaveBusiness={async () => {}}
+          {...props}
+        />
+      </AllocationQueueProvider>
+    </LockInOverlayProvider>
   );
 }
 
