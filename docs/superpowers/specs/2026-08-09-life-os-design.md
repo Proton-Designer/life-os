@@ -1,3 +1,26 @@
+> ## ⚠️ SUPERSEDED PREMISE — historical spec, kept for its design reasoning
+>
+> **This is the founding spec (2026-08-09) and its single-user premise no longer holds.**
+> Lines below state "It is single-user — no multi-tenant auth, no accounts beyond the
+> owner," list "no multi-user support" as a non-goal, and conclude "no multi-tenant auth
+> system needed." All of that was a real decision, correctly recorded. **It was reversed
+> by the 2026-09-01 convergence build.** The app is now multi-tenant with open signup:
+> RLS on all 77 public tables plus 67 composite tenancy foreign keys are the isolation
+> mechanism, and production carries multiple real accounts.
+>
+> This document is the origin of the single-user belief that fresh agents kept forming
+> about this repo. Read it for **why the domains are shaped the way they are** — that
+> reasoning is still good and still governs. Do not read it as a description of the
+> architecture, the auth model, or the screen inventory.
+>
+> The "five areas" here (Deen, Business, Fitness, School, Co-op) are also superseded:
+> areas are now rows a user picks at onboarding, from a seven-value vocabulary, and
+> Self-Mastery (spaced repetition) has since become a major area that does not appear
+> here at all.
+>
+> Current picture: `CLAUDE.md`, then `context/PURPOSE-AND-DOMAINS.md`.
+> — added 2026-09-10
+
 # Life OS — Personal Productivity App Design Spec
 
 **Date:** 2026-08-09

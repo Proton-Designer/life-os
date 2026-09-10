@@ -2,6 +2,10 @@
 
 This is a technical map of the repo for an engineer-agent who has never seen it. It describes what's actually here — verified against the current code, not against what a directory listing or an older doc implies. Where a convention is inconsistently followed, that's called out rather than smoothed over.
 
+**Originally written 2026-08-31; inventory sections re-verified and corrected 2026-09-10.** The conventions and incident-derived rules below held up on re-check. The *counts and listings* had all drifted — the migration count had tripled, `lib/` had grown fourteen directories, and the claim that `app/api/` held "exactly one real route" predated an entire MCP server. Treat any bare number in this file as a claim with a date on it.
+
+**Read `CLAUDE.md` first.** It carries the one structural fact this document assumes but does not explain: there are two navigation modes (legacy and domains), they are separately-maintained code paths, and which one an account gets is decided by `getUserDomains()` in `lib/domains/get-user-domains.ts`.
+
 ## Read this first: this Next.js is not the one you trained on
 
 `AGENTS.md` (repo root) opens with a warning that is not boilerplate:
@@ -32,13 +36,17 @@ Top-level: `app/`, `lib/`, `components/`, `supabase/`, `e2e/`, `scripts/`, `docs
 
 ### `lib/` — domain-split business logic, no framework code
 
-Confirmed domain subdirectories: `business/`, `charts/`, `checkins/`, `coop/`, `deen/`, `distractions/`, `fitness/`, `home/`, `notifications/`, `prayer-times/`, `pwa/`, `school/`, `settings/`, `supabase/`, `tasks/`, `weekly-planning/`. Each domain directory holds pure calculation/derivation modules (no React, no Next APIs) plus its own colocated `__tests__/`.
+Confirmed domain subdirectories (verified 2026-09-10 — 30 of them): `ai/`, `business/`, `capture/`, `charts/`, `checkins/`, `commitments/`, `coop/`, `deen/`, `distractions/`, `domains/`, `evening-close/`, `fitness/`, `home/`, `insights/`, `mcp/`, `night-plan/`, `notifications/`, `prayer-times/`, `promotions/`, `pwa/`, `scheduling/`, `school/`, `self-mastery/`, `settings/`, `shell/`, `supabase/`, `tasks/`, `weekly-planning/`, `widgets/`. Each domain directory holds pure calculation/derivation modules (no React, no Next APIs) plus its own colocated `__tests__/`. `docs/REPO-MAP.md` has a one-line responsibility for each.
 
-Cross-cutting code that does *not* belong to any one domain sits at `lib/`'s top level: `lib/utils.ts` (one export, `cn` — a `clsx` + `tailwind-merge` composer), `lib/date-utils.ts` (the timezone-aware date helpers, see below), `lib/accent-tokens.ts`, `lib/domain-icons.ts`, `lib/featured-card-style.ts`, `lib/kpi-value-accent.ts` (small cross-domain styling helpers). `lib/supabase/` is also here — it's infrastructure (client/auth setup), not a feature domain; don't confuse it with a "supabase" business domain.
+Three of these are newer than the rest of this document and worth naming: **`lib/mcp/`** is the AI connector (registry, tools, OAuth, tokens, audit, scheduler) and is the largest single subsystem in the repo; **`lib/self-mastery/`** is the spaced-repetition system (FSRS, books, ingestion, sessions); **`lib/domains/` and `lib/shell/`** are the small pure modules that decide which areas and which navigation an account gets — `lib/shell/` is framework-free specifically so the nav rules are unit-testable.
+
+Cross-cutting code that does *not* belong to any one domain sits at `lib/`'s top level: `lib/utils.ts` (one export, `cn` — a `clsx` + `tailwind-merge` composer), `lib/date-utils.ts` (the timezone-aware date helpers, see below), `lib/theme-presets.ts`, `lib/features.ts` (hidden-feature sanitization), `lib/accent-tokens.ts`, `lib/domain-icons.ts`, `lib/featured-card-style.ts`, `lib/kpi-value-accent.ts` (small cross-domain styling helpers). `lib/supabase/` is also here — it's infrastructure (client/auth setup), not a feature domain; don't confuse it with a "supabase" business domain.
 
 ### `components/` — domain-split UI, mirrors `lib/`'s split
 
-Confirmed subdirectories: `business/`, `calendar/`, `charts/`, `checkin/`, `co-op/`, `deen/`, `distractions/`, `fitness/`, `home/`, `onboarding/`, `pwa/`, `realtime/`, `school/`, `settings/`, `shared/`, `shell/`, `ui/`, `work/`.
+Confirmed subdirectories (verified 2026-09-10 — 22): `business/`, `calendar/`, `capture/`, `charts/`, `checkin/`, `co-op/`, `deen/`, `distractions/`, `evening-close/`, `fitness/`, `home/`, `onboarding/`, `promotions/`, `pwa/`, `realtime/`, `school/`, `self-mastery/`, `settings/`, `shared/`, `shell/`, `ui/`, `work/`.
+
+**`components/co-op/` backs `/work`, not a `/co-op` route** — the one naming mismatch in the tree. `components/work/` holds the work-hours schedule; `components/co-op/` holds the targets strip and the task pipeline. Both render on `/work`.
 
 Three specific shared locations, all confirmed and each with a distinct role:
 
@@ -50,7 +58,14 @@ Three specific shared locations, all confirmed and each with a distinct role:
 
 ### `supabase/`
 
-`migrations/` (40 files, numbered 016 through the current highest, `055_coop_tasks_completed_at.sql` — verify with `ls supabase/migrations | sort -V | tail`, as this number moves) and `functions/` (contains `dispatch-notifications`, a Supabase Edge Function). Migrations 001–015 aren't present in this checkout — consolidated at some earlier point.
+`migrations/` (**121 files as of 2026-09-10**, numbered 016 through `146_session_goals_and_objectives.sql` — verify with `ls supabase/migrations | sort -V | tail`, as this number moves fast) and `functions/` (contains `dispatch-notifications`, a Supabase Edge Function). Migrations 001–015 aren't present in this checkout — consolidated at some earlier point. Several numbers in the 090s and 120s are absent by design: some withdrawn, some allocated but not yet landed.
+
+Two files here are authoritative and must not be restructured:
+
+- **`supabase/migrations/ALLOCATIONS.md`** — the append-only register of migration-number allocations. **Numbers are allocated by the LifeOS lead only; nobody self-assigns.** It also carries the reasoning behind individual schema decisions, and the hard rules: never put `begin;`/`commit;` in a migration file (the runner owns the transaction and refuses files above `110` that carry their own), never apply with bare `psql`, and a file under verification is frozen.
+- **`supabase/migrations/_withdrawn/README.md`** — three migrations deliberately parked *outside* the migrations directory so no glob can pick them up, with the reasoning for each. Nothing in that folder should ever be applied.
+
+**What is actually on a database is `migration_ledger`, not the directory listing.** `scripts/apply-migration.sh` applies *and* records, compares an md5 on every run, and refuses a file that changed after it was applied. Two migrations once arrived invisible to the ledger by bare `psql`. Check with `scripts/check-migrations-applied.sh`.
 
 ### `e2e/`, `scripts/`, `docs/`
 
@@ -61,25 +76,45 @@ Covered in Testing and Build/Deploy below. `docs/` also holds `docs/audits/` (st
 App Router, with one route group: `app/(app)/`. Every `page.tsx`:
 
 ```
-/                          app/(app)/page.tsx            (Home)
-/business                  app/(app)/business/page.tsx
-/calendar                  app/(app)/calendar/page.tsx
-/deen                      app/(app)/deen/page.tsx
-/fitness                   app/(app)/fitness/page.tsx
-/fitness/workouts          app/(app)/fitness/workouts/page.tsx
-/insights                  app/(app)/insights/page.tsx
-/onboarding                app/(app)/onboarding/page.tsx
-/review                    app/(app)/review/page.tsx
-/school                    app/(app)/school/page.tsx
-/settings                  app/(app)/settings/page.tsx
-/work                      app/(app)/work/page.tsx
-/login                     app/login/page.tsx            (outside the group)
-/signup                    app/signup/page.tsx           (outside the group)
+/                             app/(app)/page.tsx            (Home)
+/business                     app/(app)/business/page.tsx
+/calendar                     app/(app)/calendar/page.tsx
+/close                        app/(app)/close/page.tsx      (evening close ceremony)
+/deen                         app/(app)/deen/page.tsx
+/fitness                      app/(app)/fitness/page.tsx
+/fitness/workouts             app/(app)/fitness/workouts/page.tsx
+/insights                     app/(app)/insights/page.tsx
+/onboarding                   app/(app)/onboarding/page.tsx
+/open                         app/(app)/open/page.tsx       (morning open, read-only)
+/personal                     app/(app)/personal/page.tsx   (redirect only)
+/personal/[subdomain]         app/(app)/personal/[subdomain]/page.tsx
+/personal/[subdomain]/[bookId] app/(app)/personal/[subdomain]/[bookId]/page.tsx
+/review                       app/(app)/review/page.tsx     (pure redirect to /close)
+/school                       app/(app)/school/page.tsx
+/settings                     app/(app)/settings/page.tsx
+/work                         app/(app)/work/page.tsx
+/work/[subdomain]             app/(app)/work/[subdomain]/page.tsx
+/login                        app/login/page.tsx            (outside the group)
+/signup                       app/signup/page.tsx           (outside the group)
 ```
 
-`app/(app)/checkin/` and `app/(app)/distractions/` have no `page.tsx` — they're Server-Action-only modules (`actions.ts`, `allocation-actions.ts`, `session-hour-actions.ts`) consumed by components rendered on other pages (mainly Home), not standalone routes. Don't go looking for a `/checkin` or `/distractions` page — there isn't one.
+**A route existing is not evidence a user can reach it.** Only `/`, `/personal`, `/work/<sub>`, `/school` and `/settings` come from the primary nav builder (`lib/shell/build-primary-nav-items.ts`) in domains mode; the legacy nav offers a different fixed six. Everything else is reached from an in-page `<Link>` — except `/open`, which has **no static `href` anywhere** in `app/` or `components/` and is direct-URL only.
 
-`app/api/` has exactly one real route, `app/api/push/subscribe/route.ts` (web push subscription), and a large set of `app/api/test/*` endpoints that exist only so Playwright specs can manipulate or read backend state directly (e.g. `clear-task`, `end-work-session`, `save-allocation-checkin`) — not part of the product surface.
+`/personal/[subdomain]` composes rather than duplicates: it renders `DeenPage`, `FitnessPage`, or `SelfMasteryLibrary` depending on the segment. `/work/[subdomain]` renders `WorkPage` unchanged — a URL alias. Only `/personal/*` and `/work/*` are gated on domain mode; `/deen`, `/business`, `/fitness` and `/school` render for anyone who types the URL, because none of those `page.tsx` files reads `getUserDomains`.
+
+`app/(app)/checkin/`, `app/(app)/distractions/` and `app/(app)/widgets/` have no `page.tsx` — they're Server-Action-only modules (`actions.ts`, `allocation-actions.ts`, `session-hour-actions.ts`) consumed by components rendered on other pages (mainly Home), not standalone routes. Don't go looking for a `/checkin` or `/distractions` page — there isn't one.
+
+`app/api/` is no longer one route. As of 2026-09-10 it carries a full MCP server and OAuth 2.1 authorization server, plus cron and worker endpoints:
+
+- `/api/mcp` — the MCP server (`list_capabilities`, `read`, `write`, `widget_manage`, `scheduler_manage`).
+- `/api/mcp/oauth/{authorize,token,register}` and `app/.well-known/oauth-{authorization-server,protected-resource}` — the OAuth 2.1 AS and its RFC 8414 / 9728 metadata.
+- `/api/cron/scheduled-actions` and `/api/cron/ping` — polled by pg_cron + pg_net, bearer `CRON_SECRET`, **503 if the secret is unset (fails closed)**.
+- `/api/push/subscribe` — web push subscription.
+- `/api/self-mastery/ingestion/step` — runs one book-ingestion stage, service-role.
+- `/settings/export` (a `route.ts` under `app/(app)/`) — JSON export of ~21 user-scoped tables.
+- `app/api/test/*` — E2E only; require a valid session **and** `E2E_TEST_SECRET`. Not product surface.
+
+These API routes do **not** use the cookie-session pattern the pages use. MCP verifies bearer tokens via `lib/mcp/tokens.ts`; cron uses a constant-time `CRON_SECRET` compare. See the auth section below.
 
 ### `app/(app)/layout.tsx` — the auth gate
 
@@ -109,13 +144,17 @@ The fade timing is not instant: `.route-skeleton-fade-in` (`app/globals.css`) ap
 
 ## Data layer — Supabase
 
-Three client constructors under `lib/supabase/`, each for a distinct execution context:
+Four client constructors under `lib/supabase/`, each for a distinct execution context:
 
 - **`server.ts`** (`createClient`, async) — Server Components and Server Actions. Wraps `createServerClient` from `@supabase/ssr`; cookie writes are wrapped in try/catch because a Server Component can't set cookies (middleware refreshes the session instead).
 - **`client.ts`** (`createClient`, sync) — Client Components. Thin wrapper over `createBrowserClient`.
 - **`middleware.ts`** (`updateSession`) — called from root `proxy.ts`. Refreshes the session via `supabase.auth.getClaims()` and injects the `x-pathname` header the layout above relies on.
 
-All three build the same typed client (`Database` from the generated `database.types.ts`) and throw explicitly if `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` are missing.
+- **`service-role.ts`** (`createServiceRoleClient`) — `import "server-only"`, uses `SUPABASE_SERVICE_ROLE_KEY`, `autoRefreshToken: false` / `persistSession: false`. **It bypasses RLS.** Restricted to paths that have no user session to read: MCP token/audit/OAuth bookkeeping, `/api/cron/scheduled-actions`, and `/api/self-mastery/ingestion/step`. Note that even inside `/api/mcp`, *domain data* is not read with this client — each tool call gets an RLS-scoped user client minted by `lib/mcp/session.ts`. A connector cannot obtain a privileged client for user data, and that is the design, not an accident (`docs/ai-connector/SECURITY-account-isolation.md`). **Do not reach for this client to make a query "just work."**
+
+The first three build the same typed client (`Database` from the generated `database.types.ts`) and throw explicitly if `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` are missing.
+
+**`database.types.ts` is a claim about ONE specific database.** It was once committed after being generated against *scratch*, asserting a column production did not have — so code reading that column type-checked and shipped, and the feature could never have worked live. `apply-migration.sh` regenerates it during an apply; that diff belongs in the migration's commit.
 
 **Auth reads**, both in `lib/supabase/auth.ts`:
 
@@ -123,7 +162,9 @@ All three build the same typed client (`Database` from the generated `database.t
 - `getProfile` — also `cache()`-wrapped, derives the user id from `getAuthedUser()` internally rather than accepting a `userId` param, so every call site is guaranteed to be asking about the current request's own user.
 - `requireUser` — not cached; throws `"Not authenticated"` if unauthenticated, otherwise returns `{ supabase, userId }`. This is the pattern nearly every Server Action uses to get both a client and a verified user id in one call.
 
-**RLS is the universal pattern, confirmed across the migrations directory**, e.g. (`supabase/migrations/048_classes_entity_and_syllabus_storage.sql:35-40`):
+**RLS is the tenancy mechanism, not defence in depth.** This app is multi-tenant with open signup (see `CLAUDE.md`), so nothing below is optional. Verified against production 2026-09-10: **all 77 public tables have `rowsecurity = true`, zero exceptions**, and there are **67 composite tenancy foreign keys** of the form `(user_id, child_id) → parent(user_id, id)`, which make a row pointing at another account's data *unrepresentable* rather than merely forbidden. Two of the gaps that closed were proven exploitable by running the attack: a squatted row on another user's parent permanently locks them out of their own data, invisibly, because RLS hides the offending row. `scripts/check-rls.sh` and `scripts/check-fk-tenancy.sh` enforce both invariants so they don't depend on anyone remembering.
+
+**The pattern, confirmed across the migrations directory**, e.g. (`supabase/migrations/048_classes_entity_and_syllabus_storage.sql:35-40`):
 
 ```sql
 alter table public.classes enable row level security;
@@ -224,7 +265,9 @@ Tests for anything date-related must pin the boundary, not just the happy path: 
 
 **What vitest structurally cannot see**, per `AGENTS.md`: the RSC serialization boundary (see above — both incidents passed the full suite clean) and, more broadly, most of what breaks this app in production. On one batch, "1577/1577 green" unit tests shipped alongside a Playwright suite that was already red — eight specs describing UI a same-night redesign had replaced, and a real horizontal-scroll defect on `/school` at 390px that had been live in production the entire time.
 
-**`e2e/` (Playwright)**: 18 spec files plus `auth.setup.ts` and a shared `helpers.ts`. `playwright.config.ts` defines three projects — `setup` (runs `auth.setup.ts`, matched via `testMatch: /.*\.setup\.ts/`), `Desktop Chrome`, and `Mobile Chrome` (Pixel 7) — the latter two both depend on `setup` and both read `storageState: "playwright/.auth/user.json"`. `auth.setup.ts` does one real password login and writes the session to disk so the ~18 specs don't each log in independently (which previously tripped Supabase Auth's sign-in rate limit).
+**`e2e/` (Playwright)**: **23 spec files** as of 2026-09-10, plus **two** setup files (`auth.setup.ts` and `auth-domains.setup.ts`) and a shared `helpers.ts`. `playwright.config.ts` defines a `setup` project (matched via `testMatch: /.*\.setup\.ts/`) plus `Desktop Chrome` and `Mobile Chrome` (Pixel 7), the latter two depending on `setup` and reading `storageState: "playwright/.auth/user.json"`. `auth.setup.ts` does one real password login and writes the session to disk so the specs don't each log in independently (which previously tripped Supabase Auth's sign-in rate limit).
+
+**The suite is partly blind to domains mode.** SEED (`SEED_USER_EMAIL`) is a **legacy-mode** account — zero `user_domains` rows — so most specs exercise the legacy nav and Home. `seed-domains@lifeos.test` (`SEED_DOMAINS_USER_EMAIL`, via `auth-domains.setup.ts`) exists for the domains path, but only a few specs use it (`school-class-dialog.domains.spec.ts`, and `stranger-journey.spec.ts` which creates its own fresh account). A green suite is therefore weaker evidence about domains-mode behaviour than it looks.
 
 **Why `-g` filtering is dangerous**, quoted because it's a real trap: `-g` also filters out the `setup` project, so a filtered run silently reuses a stale `storageState` and reports a pass against a session that was never actually established that run. Always run `npx playwright test` unfiltered, both projects, before a deploy — never a `-g`-scoped subset.
 
@@ -240,7 +283,9 @@ Full detail lives in `docs/DEPLOYING.md`; the critical fact worth internalizing 
 
 Also documented in `DEPLOYING.md`: deploy code before schema (code should tolerate both the pre- and post-migration shape briefly, since a code deploy running hours behind a migration has already been caught mid-flight against a dropped table), and check `git merge-base --is-ancestor <live-sha> <your-sha>` before deploying to avoid silently rolling back someone else's already-shipped work.
 
-`scripts/` has no dedicated deploy script — deploy is done by hand-following `DEPLOYING.md`'s CLI commands with a `VERCEL_TOKEN` from `.env.local` (the CLI's logged-in identity doesn't have visibility into this project's team scope, so token auth is required, not just `vercel login`).
+**`scripts/deploy-prod.sh` now automates this** (added 2026-09-01, after a failed production deploy) — it checks HEAD out into a throwaway worktree and deploys *that*, so what ships is exactly what is in git. It exists because three green checks — `tsc`, `next build`, and a local run — all read the same dirty working tree and none of them described what would actually ship: the deploy failed on a file that was untracked, belonged to another agent, and was never in the commit. Use the script rather than hand-following the CLI commands. `VERCEL_TOKEN` comes from `.env.local` (the CLI's logged-in identity doesn't have visibility into this project's team scope, so token auth is required, not just `vercel login`).
+
+**`scripts/preflight.sh` runs every durable check in one command** — `tsc --noEmit`, `vitest run`, `next build`, and the self-testing schema instruments (`check-rls.sh`, `check-enum-drift.sh`). Its own header states honestly what it does *not* cover, which is the part worth reading: a proof that cannot re-run is a demonstration, not a regression signal.
 
 ## Multi-agent working conventions
 
@@ -271,4 +316,8 @@ Flagged here, not presented above as live architecture — confirmed via absence
 
 If you're extending Home or the goals system, treat the above as historical artifacts, not as an existing extension point.
 
-This list covers only what turned up while mapping the architecture. **`RECENT-CHANGES.md` carries the full audited inventory** — roughly a dozen more files across `components/fitness/`, `components/deen/`, and `lib/fitness/` — and, importantly, separates genuinely-dead code from *built-but-unwired* features whose Server Actions still work and which are product gaps rather than deletion candidates. Check there before deleting anything.
+This list covers only what turned up while mapping the architecture on 2026-08-31, and it has not been re-verified since — treat it as a starting point, not an inventory. **Grep for a real importer before deleting anything.**
+
+Correction (2026-09-10): this paragraph used to say `RECENT-CHANGES.md` carried "the full audited inventory" of dead code. It no longer does — that file was rewritten on 2026-09-01 for the convergence build and the inventory was not carried forward. `docs/superpowers/notes/2026-08-18-orphaned-code.md` is the nearest surviving audit, and it is older still.
+
+Distinguish two different things before deleting either: **genuinely dead code** (zero importers, superseded design) and **built-but-unwired features** whose Server Actions still work and which are product gaps rather than deletion candidates. `lib/deen/faith-depth.ts` is a current example of the second kind — a tested pure function with zero callers, waiting for the `depth` column to be wired up. Deleting it would be deleting a feature, not tidying.

@@ -1,3 +1,25 @@
+> ## ⚠️ FROZEN HISTORICAL LOG — read the warning before the content
+>
+> **This file is the append-only build log for 2026-08-10 → 2026-08-20 only.** Its last
+> entry is from 2026-08-20; nothing after that date is recorded here. It is kept because
+> it is the most detailed surviving record of how the app was built and why several
+> early decisions were made — including a number of incident write-ups that are still
+> load-bearing.
+>
+> **It is not a description of the app as it exists today, and parts of it are now
+> false.** Most importantly, the "Tech stack decisions" section below states that
+> Supabase Auth is for a *"single real user, not multi-tenant"* and that RLS is enabled
+> *"even though it's single-user."* That was true when written. It is **false now**: the
+> app is multi-tenant with open signup, all 77 public tables have RLS, and 67 composite
+> tenancy foreign keys enforce isolation structurally. RLS here is the tenancy
+> mechanism, not a defence-in-depth flourish over one tenant.
+>
+> The 2026-09-01 convergence build also replaced the navigation, added onboarding, and
+> added the Self-Mastery and AI-connector subsystems — none of which exist in this file.
+>
+> **For the current picture, read `CLAUDE.md`, then `docs/REPO-MAP.md`.**
+> — added 2026-09-10
+
 # Life OS — Build Status & Context
 
 **Read this first if context was compacted or this is a fresh session.** No secrets live in this file — see `.env.local` (gitignored) for those.
