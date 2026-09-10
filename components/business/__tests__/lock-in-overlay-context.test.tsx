@@ -305,5 +305,47 @@ describe("LockInOverlayProvider", () => {
 
       await vi.waitFor(() => expect(endWorkSessionMock).toHaveBeenCalledTimes(1));
     });
+
+    // Found in review (Opus Lead, 2026-09-10): endSessionAt used to take
+    // `[session]` as its useCallback dep, so it got a new identity on every
+    // objective toggle (toggleObjective replaces the whole `session`
+    // object) — which this effect depends on, so the interval was silently
+    // torn down and recreated on every toggle despite a comment claiming it
+    // wasn't. Runtime-harmless (checkGoal is idempotent and reruns
+    // immediately on the new effect instance), but the comment was lying —
+    // fixed via a stable sessionRef rather than by rewriting the comment to
+    // describe the bug. This test pins the property directly rather than
+    // trusting the comment again.
+    it("does not tear down and recreate the interval when an objective is toggled — the interval survives session-object churn", async () => {
+      vi.setSystemTime(new Date("2026-09-10T18:00:00.000Z"));
+      const setIntervalSpy = vi.spyOn(global, "setInterval");
+      const clearIntervalSpy = vi.spyOn(global, "clearInterval");
+
+      renderHarness({
+        id: "s1",
+        startedAtIso: "2026-09-10T18:00:00.000Z",
+        kind: "deep_work",
+        goalMinutes: 30,
+        // Two objectives, toggling one: stays short of all-complete, so
+        // this session update is isolated to exercising the goal-check
+        // effect's dependency array, not also triggering the OTHER
+        // auto-end path.
+        objectives: [objective({ id: "obj-1", completed: false }), objective({ id: "obj-2", completed: false })],
+      });
+      await vi.waitFor(() => expect(setIntervalSpy).toHaveBeenCalledTimes(1));
+
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await user.click(screen.getByText("toggle-obj-1"));
+
+      // The interval created on mount must still be the only one — a
+      // second setInterval call (with a matching clearInterval for the
+      // first) would mean the effect tore down and rebuilt on the toggle,
+      // exactly what the fix prevents.
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+      expect(clearIntervalSpy).not.toHaveBeenCalled();
+
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+    });
   });
 });

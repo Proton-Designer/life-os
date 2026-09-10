@@ -124,22 +124,41 @@ export function LockInOverlayProvider({
     setSetupOpenState(true);
   }, []);
 
+  // A ref, not a plain closure over `session`, specifically so endSessionAt
+  // below can have a PERMANENTLY STABLE identity (empty deps) — found in
+  // review (Opus Lead, 2026-09-10): with `[session]` as its dep, toggling
+  // any single objective gives `endSessionAt` a new identity every time
+  // (toggleObjective's optimistic update replaces the whole `session`
+  // object), which the goal-check effect below depends on — silently
+  // defeating that effect's own "keyed on primitives, not the whole session
+  // object" comment. The runtime consequence was harmless (the interval
+  // just restarted, and checkGoal() is idempotent and reruns on mount
+  // regardless), but the comment claimed a guarantee the code didn't
+  // provide — the exact failure shape (a stale comment nobody re-checked)
+  // AGENTS.md already names twice. Fixed at the cause, not the symptom: a
+  // stable callback is worth having on its own merits, not just to make the
+  // comment true.
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   /** `endedAtIso` omitted = a manual "End Session" tap, where the wall
    * clock IS the honest moment. Given explicitly for the two auto-end
-   * paths — see the two effects below. */
-  const endSessionAt = useCallback(
-    async (endedAtIso?: string) => {
-      if (!session) return;
-      setIsPending(true);
-      try {
-        await endWorkSession(session.id, endedAtIso);
-        setSession(null);
-      } finally {
-        setIsPending(false);
-      }
-    },
-    [session]
-  );
+   * paths — see the two effects below. Permanently stable identity (see
+   * sessionRef above) — never itself a reason for a dependent effect to
+   * re-run. */
+  const endSessionAt = useCallback(async (endedAtIso?: string) => {
+    const current = sessionRef.current;
+    if (!current) return;
+    setIsPending(true);
+    try {
+      await endWorkSession(current.id, endedAtIso);
+      setSession(null);
+    } finally {
+      setIsPending(false);
+    }
+  }, []);
 
   const endSession = useCallback(() => endSessionAt(), [endSessionAt]);
 
