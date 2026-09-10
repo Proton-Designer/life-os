@@ -166,7 +166,7 @@ correctly to the shell, and had lost a six-minute run to another agent's
 half-finished topbar edit. The clean-worktree rule below is not just about
 `tsc`.
 
-### Two mechanical traps that cost real time
+### Three mechanical traps that cost real time
 
 - **`playwright test | tail` returns `tail`'s exit code.** A run with 12
   failures reported `exit 0`. Never read a test result through a pipe — run
@@ -176,6 +176,42 @@ half-finished topbar edit. The clean-worktree rule below is not just about
   its baseline and then deleted, failing a residue comparison that had
   nothing to do with the code. If you kill a suite, check SEED before
   believing the next run's failure.
+- **`vitest` in a hand-rolled `git worktree` reports garbage.** A worktree with
+  `node_modules` symlinked from the main checkout breaks vitest's resolution:
+  on 2026-09-10 the full suite reported **113 files / 670 tests failing** in a
+  worktree and **3362 passing, zero failures, in-tree — on the same commit.**
+  Nothing was broken. `tsc` in a worktree is fine (that is what `deploy-prod.sh`
+  gates on, with `.next/types` copied in); vitest is not. If a suite goes
+  catastrophically red, re-run it in-tree before believing a single line of it.
+
+#### A red you did not earn is as dangerous as a green you did not earn
+
+The section above is about unearned **greens** — a check that examined nothing,
+a hit test measuring pointer-events instead of paint order, a regex blind to
+the one construct it existed to catch. The vitest-worktree trap is the mirror
+image, and it fails differently.
+
+An unearned green gets **trusted**, and ships a bug. An unearned red gets
+**chased** — a night lost to a phantom — or, worse, gets *fixed*: someone
+patches healthy code until the artifact stops appearing, and now there is a
+real defect where there was none. Both come from the instrument rather than the
+system, and neither is visible in the output. 670 failures looks exactly like a
+catastrophe and exactly like a symlink.
+
+**So the rule is symmetrical.** Before believing a green, ask what would have
+had to be true for it to be red. Before believing a red — especially a
+spectacular one — ask whether you are measuring the system or the way you
+invoked it. The tell is usually magnitude without a mechanism: a change that
+plausibly breaks three tests does not plausibly break six hundred.
+
+**And a cleanup check must assert the state it claims, not a UI string.** Same
+night: an e2e harness reported `SEED left clean: PASS` on the strength of
+`/Lock In/.test(body)` while an orphaned `deep_study` session sat unended in
+the database. Any unrelated Lock In button satisfies that regex — and Deep
+Study's End Session control lives on Home, not `/business`, so the cleanup loop
+never found the button it needed. The property is *does an unended row exist*,
+and only the database answers it. The next run would have read that orphan as
+baseline and failed somewhere unrelated.
 
 ### Production verification is worth the two minutes
 

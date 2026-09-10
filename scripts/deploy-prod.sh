@@ -127,7 +127,36 @@ if ! npx tsc --noEmit; then
   echo "  Every error above is on the commit you are shipping, not your working tree." >&2
   exit 1
 fi
-echo "--- HEAD typechecks; uploading ---"
+echo "--- HEAD typechecks ---"
+
+# RSC FUNCTION-PROP GATE. Runs AFTER tsc deliberately: tsc is structurally
+# blind to this class, so a green typecheck is exactly the state in which this
+# bug ships. AGENTS.md records it shipping twice with `tsc` AND the full vitest
+# suite green both times -- jsdom does not enforce the RSC serialization
+# boundary, so no unit test can see it either. This scanner and a live browser
+# are the only two instruments that can, and only one of them is cheap.
+#
+# NOTHING IS FILTERED, INCLUDING `REVIEW`. REVIEW is the tier for a prop whose
+# value is an identifier the scanner cannot resolve statically -- which is
+# precisely the shape Phase E's `onSave` closure took. Hiding that tier would
+# reproduce the greped-away-tsc-error mistake documented above, one class down.
+#
+# The scanner itself was verified against both documented incidents as fixtures
+# before being trusted, and its FIRST version reported the repo clean while
+# blind to inline arrows: it found a tag's end with `[^>]*?`, and an arrow
+# function contains `>`, so `(n) => ...` terminated the match early. It would
+# have printed "clean" forever on a file containing the bug. Do not "simplify"
+# the matching here without re-running its fixtures red first.
+echo "--- HEAD gate: Server->Client function props ---"
+if ! python3 "$REPO/scripts/check-rsc-function-props.py"; then
+  echo "" >&2
+  echo "RSC FUNCTION-PROP CHECK FAILED — not uploading. Nothing was deployed." >&2
+  echo "  A function passed Server->Client crashes at RENDER, not at build," >&2
+  echo "  so neither tsc nor vitest can see it. Fix: pass a Server Action" >&2
+  echo "  reference via .bind(null, arg), or a plain serializable value." >&2
+  exit 1
+fi
+echo "--- HEAD passes both gates; uploading ---"
 
 OUT="$(mktemp)"
 npx vercel --prod --yes --token "$TOKEN" 2>&1 | tee "$OUT"
