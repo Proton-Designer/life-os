@@ -193,6 +193,60 @@ Worth stating plainly: for tiers 1 and 2 **no deploy is needed at all**, which i
 better than what was asked for — changes appear immediately instead of after a build. A
 deploy tool still ships, for the Tier-3 path and for ordinary code changes.
 
+**R11 — Tiers 2 and 3 are CANCELLED. The declarative vocabulary is extended instead.
+This closes R7, which deferred the decision rather than making it.**
+
+R7 tiered the widget capability and defaulted to the safe tier, but left 2 and 3 as
+"available if needed." I held them open for hours as "pending the owner's decision." That was
+wrong twice: the owner's standing instruction for this program is to decide rather than ask,
+and — more importantly — the evidence needed to decide arrived on 2026-09-10 and pointed one
+way.
+
+**What changed: Tier 1's isolation is now a proven structural property, not a policy.**
+The widget security audit (Eng1, evidence in `docs/ai-connector/`, independently
+re-verified by the lead with a positive control in front of the scan) established that a
+widget cannot read anything `read()` would refuse — *because* `lib/widgets/render.ts` calls
+the real `readTool()`. Registry allowlists, `fixedFilter`, `parentFilter`, `filterableColumns`
+and `truncateColumns` are re-derived from the live registry on every render. Nothing about
+what was permitted at widget-creation time is cached anywhere, so there is no stale-capability
+state to exploit. Verified invariants: zero entities where a `fixedFilter` column is also
+filterable; `source_chunks` exposes no columns at all; no secret-shaped column anywhere in
+the registry.
+
+**Tier 2 would destroy exactly that property.** Generated component code does not go through
+`readTool()`. The moment a widget executes code rather than declaring a data source, the
+isolation argument stops being *"the data path cannot widen"* and becomes *"the sandbox
+holds"*. Those are not comparable claims. The first is structural and re-proved on every
+render; the second is a perimeter that must resist an adversary — and R7 itself already
+records prompt injection as an **accepted** exposure of this program. Accepted injection
+exposure combined with code execution is the dangerous product, and the owner's own hardest
+requirement was that a connection may only ever reach its own account's data.
+
+**Tier 3 additionally violates a constraint the owner set explicitly** — that this must work
+"without changing the app's existing architecture." Repo code plus build plus deploy means a
+model can change the application for every account, not just its own row. No `tsc`-and-build
+gate makes that per-account, because the artifact is shared by construction.
+
+**Ruling:** Tiers 2 and 3 are not built. The capability the owner actually asked for —
+"full autonomy over their domains" — is delivered by widening what a *declarative* widget can
+express, which keeps every widget on the one audited render path:
+
+- more kinds (chart/sparkline, progress-against-goal, streak, small table)
+- derived values over allowlisted columns (ratios, deltas against a prior period)
+- more than one data source per widget
+- conditional formatting and thresholds
+- explicit ordering, grouping, and slot placement
+
+Each of these is a row shape plus renderer support. None of them can widen data access,
+because none of them changes who does the reading. If a future request genuinely cannot be
+expressed this way, that is the moment to revisit — with the specific unmet request in hand,
+not in the abstract.
+
+**The invariant this ruling depends on, and which must be defended:** `readTool()` has
+exactly two callers — the MCP route and `render.ts`. A third caller is the event that
+weakens everything above, and should be treated as a design change requiring a ruling, not
+a refactor.
+
 **R8 — Token efficiency is a first-class design constraint, not a polish item.**
 The owner named it himself. ~153 exported action functions is the realistic upper bound of
 the surface and one-tool-per-action is unusable: every tool's schema is re-sent on every
