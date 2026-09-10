@@ -33,6 +33,18 @@ describe("McpWidgetsPanel", () => {
     expect(screen.getByText("Nothing here yet.")).toBeInTheDocument();
   });
 
+  it("renders a progress_against_goal widget's current/goal/percent, honestly suffixed with '+' when hasMore", () => {
+    const widgets: RenderedWidget[] = [
+      { id: "w1", kind: "progress_against_goal", title: "Pages read", current: 25, hasMore: false, goal: 50, percent: 50 },
+      { id: "w2", kind: "progress_against_goal", title: "Tasks done", current: 20, hasMore: true, goal: 100, percent: 20 },
+    ];
+    render(<McpWidgetsPanel widgets={widgets} />);
+    expect(screen.getByText("Pages read")).toBeInTheDocument();
+    expect(screen.getByText("25 / 50 (50%)")).toBeInTheDocument();
+    expect(screen.getByText("Tasks done")).toBeInTheDocument();
+    expect(screen.getByText("20+ / 100 (20%+)")).toBeInTheDocument();
+  });
+
   it("renders a widget's OWN error message rather than crashing the panel", () => {
     const widgets: RenderedWidget[] = [{ id: "w-broken", kind: "metric_card", title: "Broken", error: "Unknown entity \"task\"" }];
     render(<McpWidgetsPanel widgets={widgets} />);

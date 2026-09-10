@@ -14,7 +14,7 @@ import { getDomain, getEntity } from "@/lib/mcp/registry";
  * Two layers, not one, on purpose.
  */
 
-export const WIDGET_KINDS = ["metric_card", "list"] as const;
+export const WIDGET_KINDS = ["metric_card", "list", "progress_against_goal"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 export const WIDGET_SLOTS = ["home"] as const;
@@ -44,7 +44,30 @@ export interface ListDisplay {
   subtitleField?: string;
   limit?: number;
 }
-export type WidgetDisplay = MetricCardDisplay | ListDisplay;
+
+/**
+ * R11's first extended-vocabulary kind (PROGRAM-PLAN.md) — "derived values
+ * over allowlisted columns," scoped deliberately to ONE data source per the
+ * lead's "land one kind end-to-end before starting the next" instruction.
+ * `goal` is a static number set on the widget itself, not pulled from a
+ * second entity (e.g. `business.weekly_goal.quran_page_target`) — that's
+ * the natural next increment once multi-source widgets land, not this one.
+ *
+ * `aggregate: { type: "sum", field }` is computed CLIENT-SIDE in render.ts
+ * over the rows `readTool()` already returned — never a second query, same
+ * "derived, not re-fetched" rule every other aggregate in this layer
+ * follows. Because `readTool` pages at 20 rows, a sum over more than 20
+ * matching rows is a FLOOR, not an exact total — render.ts reports this
+ * honestly (a "+" suffix) the same way metric_card's `count` aggregate
+ * already does for `has_more`, never silently wrong.
+ */
+export type ProgressAggregate = { type: "count" } | { type: "sum"; field: string };
+export interface ProgressAgainstGoalDisplay {
+  aggregate: ProgressAggregate;
+  goal: number;
+}
+
+export type WidgetDisplay = MetricCardDisplay | ListDisplay | ProgressAgainstGoalDisplay;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -91,6 +114,18 @@ export function validateDataSource(raw: unknown): { dataSource: DataSource; full
   return { dataSource: { domain, entity, filter }, fullColumns: entityDef.fullColumns };
 }
 
+function validateProgressAggregate(raw: unknown, fullColumns: string[]): ProgressAggregate {
+  if (!isPlainObject(raw)) throw new Error("display.aggregate must be an object: { type: 'count' } or { type: 'sum', field }.");
+  if (raw.type === "count") return { type: "count" };
+  if (raw.type === "sum") {
+    const field = raw.field;
+    if (typeof field !== "string" || !field) throw new Error("display.aggregate.field is required when display.aggregate.type is 'sum'.");
+    if (!fullColumns.includes(field)) throw new Error(`display.aggregate.field "${field}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+    return { type: "sum", field };
+  }
+  throw new Error("display.aggregate.type must be 'count' or 'sum' for a progress_against_goal widget.");
+}
+
 /** Validates `display` against `kind` and the data source entity's own `fullColumns` (so a field a widget wants to show is guaranteed selectable at render time). */
 export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: string[]): WidgetDisplay {
   if (!isPlainObject(raw)) throw new Error("display must be an object.");
@@ -105,6 +140,15 @@ export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: str
       return { aggregate: "field", field };
     }
     throw new Error("display.aggregate must be 'count' or 'field' for a metric_card widget.");
+  }
+
+  if (kind === "progress_against_goal") {
+    const aggregate = validateProgressAggregate(raw.aggregate, fullColumns);
+    const goal = raw.goal;
+    if (typeof goal !== "number" || !Number.isFinite(goal) || goal <= 0) {
+      throw new Error("display.goal is required and must be a positive number for a progress_against_goal widget.");
+    }
+    return { aggregate, goal };
   }
 
   // kind === "list"

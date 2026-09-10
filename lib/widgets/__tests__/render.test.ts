@@ -150,4 +150,54 @@ describe("renderWidgets", () => {
     await renderWidgets(client, "user-1", "home");
     expect(readToolMock).toHaveBeenCalledWith(client, "user-1", { domain: "school", entity: "schedule_event_override", filter: { event_id: "event-1" }, detail: "full" });
   });
+
+  // R11's first extended-vocabulary kind.
+  describe("progress_against_goal", () => {
+    it("a count aggregate reports current/goal/percent, clamped at 100", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ id: "1" }, { id: "2" }, { id: "3" }], false));
+      const client = makeListWidgetsClient([
+        { id: "w1", kind: "progress_against_goal", title: "Tasks done", data_source: { domain: "school", entity: "task" }, display: { aggregate: { type: "count" }, goal: 2 }, slot: "home", position: 0, status: "active", updated_at: "x" },
+      ]);
+      const [rendered] = await renderWidgets(client, "user-1", "home");
+      // goal 2, current 3 -- over-goal clamps the PERCENT to 100, but current
+      // itself still reports the real count, never clamped.
+      expect(rendered).toEqual({ id: "w1", kind: "progress_against_goal", title: "Tasks done", current: 3, hasMore: false, goal: 2, percent: 100 });
+    });
+
+    it("a sum aggregate derives the total from the rows readTool already returned -- never a second query", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ pages_read: 10 }, { pages_read: 15 }], false));
+      const client = makeListWidgetsClient([
+        { id: "w1", kind: "progress_against_goal", title: "Pages read", data_source: { domain: "deen", entity: "quran_session" }, display: { aggregate: { type: "sum", field: "pages_read" }, goal: 50 }, slot: "home", position: 0, status: "active", updated_at: "x" },
+      ]);
+      const [rendered] = await renderWidgets(client, "user-1", "home");
+      expect(rendered).toEqual({ id: "w1", kind: "progress_against_goal", title: "Pages read", current: 25, hasMore: false, goal: 50, percent: 50 });
+    });
+
+    it("a sum aggregate skips non-numeric/missing values rather than letting one bad row zero out the rest", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ pages_read: 10 }, { pages_read: null }, { pages_read: "not a number" }, {}], false));
+      const client = makeListWidgetsClient([
+        { id: "w1", kind: "progress_against_goal", title: "Pages read", data_source: { domain: "deen", entity: "quran_session" }, display: { aggregate: { type: "sum", field: "pages_read" }, goal: 50 }, slot: "home", position: 0, status: "active", updated_at: "x" },
+      ]);
+      const [rendered] = await renderWidgets(client, "user-1", "home");
+      expect(rendered).toMatchObject({ current: 10 });
+    });
+
+    it("reports hasMore honestly when readTool's own page cap means the sum/count is a floor, not exact -- the same honesty convention as metric_card's count", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ id: "1" }, { id: "2" }], true));
+      const client = makeListWidgetsClient([
+        { id: "w1", kind: "progress_against_goal", title: "Tasks done", data_source: { domain: "school", entity: "task" }, display: { aggregate: { type: "count" }, goal: 100 }, slot: "home", position: 0, status: "active", updated_at: "x" },
+      ]);
+      const [rendered] = await renderWidgets(client, "user-1", "home");
+      expect(rendered).toMatchObject({ current: 2, hasMore: true });
+    });
+
+    it("a widget whose data source has gone stale renders its OWN error, same isolation as the other kinds", async () => {
+      readToolMock.mockRejectedValueOnce(new Error("Unknown entity \"task\" for domain \"school\""));
+      const client = makeListWidgetsClient([
+        { id: "w1", kind: "progress_against_goal", title: "Broken", data_source: { domain: "school", entity: "task" }, display: { aggregate: { type: "count" }, goal: 10 }, slot: "home", position: 0, status: "active", updated_at: "x" },
+      ]);
+      const [rendered] = await renderWidgets(client, "user-1", "home");
+      expect(rendered).toEqual({ id: "w1", kind: "progress_against_goal", title: "Broken", error: 'Unknown entity "task" for domain "school"' });
+    });
+  });
 });

@@ -27,13 +27,15 @@ anyone's mental model. `mcp_` also matches this program's other new tables
 create table public.mcp_widgets (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  -- Narrow on purpose: only the 2 kinds this pass actually builds a
-  -- renderer for. R7 names metric card/list/small chart/progress ring/
-  -- calendar strip as the EVENTUAL set; widening this CHECK later for a
-  -- 3rd kind is an ordinary additive ALTER (same "a CHECK, not an enum"
-  -- reasoning as migration 120's dump_source) -- deliberately not
-  -- pre-admitting a kind with no renderer behind it yet.
-  kind text not null check (kind in ('metric_card', 'list')),
+  -- Narrow on purpose: only the kinds this pass actually builds a renderer
+  -- for. R11 (PROGRAM-PLAN.md) extends the declarative vocabulary instead
+  -- of building Tiers 2/3 -- more kinds land incrementally, one at a time,
+  -- each with its own validation+render+test+Home-wiring pass, never
+  -- pre-admitted ahead of a real renderer. progress_against_goal is the
+  -- first (R11's own suggested starting point: goal data already exists).
+  -- Widening this CHECK for the next kind is an ordinary additive ALTER
+  -- (same "a CHECK, not an enum" reasoning as migration 120's dump_source).
+  kind text not null check (kind in ('metric_card', 'list', 'progress_against_goal')),
   title text not null,
   -- { domain: string, entity: string, filter?: Record<string, string|number|boolean> }
   -- Validated at write time (lib/widgets/validate.ts) against the SAME
@@ -46,7 +48,11 @@ create table public.mcp_widgets (
   -- construction, not by the widget layer re-deriving the same rules.
   data_source jsonb not null,
   -- kind-specific: metric_card -> { aggregate: "count" } | { aggregate: "field", field: string };
-  -- list -> { titleField: string, subtitleField?: string, limit?: number }
+  -- list -> { titleField: string, subtitleField?: string, limit?: number };
+  -- progress_against_goal -> { aggregate: { type: "count" } | { type: "sum", field: string }, goal: number }
+  -- (goal is a static number set on the widget itself, not pulled from a
+  -- second entity -- that's the natural next increment once multi-source
+  -- widgets land, not this one)
   display jsonb not null default '{}'::jsonb,
   -- Only "home" is renderable this pass -- the Home page's own Panel stack
   -- (app/(app)/page.tsx, rendered by components/home/mcp-widgets-panel.tsx)

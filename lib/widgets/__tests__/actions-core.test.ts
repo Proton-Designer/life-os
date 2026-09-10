@@ -37,14 +37,26 @@ const LIST_ROW = {
   updated_at: "2026-09-08T12:00:00Z",
 };
 
+const PROGRESS_ROW = {
+  id: "w3",
+  kind: "progress_against_goal",
+  title: "Pages read this week",
+  data_source: { domain: "deen", entity: "quran_session" },
+  display: { aggregate: { type: "sum", field: "pages_read" }, goal: 50 },
+  slot: "home",
+  position: 2,
+  status: "active",
+  updated_at: "2026-09-08T12:00:00Z",
+};
+
 describe("listWidgetsCore", () => {
   it("returns rows narrowed to a real discriminated union keyed by kind", async () => {
-    const chain = makeChain({ data: [METRIC_ROW, LIST_ROW], error: null });
+    const chain = makeChain({ data: [METRIC_ROW, LIST_ROW, PROGRESS_ROW], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
 
     const rows = await listWidgetsCore(client, "user-1");
 
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0].kind).toBe("metric_card");
     if (rows[0].kind === "metric_card") {
       // Compiles (and passes) only because WidgetRow is a real discriminated
@@ -56,6 +68,13 @@ describe("listWidgetsCore", () => {
     expect(rows[1].kind).toBe("list");
     if (rows[1].kind === "list") {
       expect(rows[1].display.titleField).toBe("name");
+    }
+    expect(rows[2].kind).toBe("progress_against_goal");
+    if (rows[2].kind === "progress_against_goal") {
+      // Same compile-time proof as above -- `goal` doesn't exist on
+      // MetricCardDisplay/ListDisplay.
+      expect(rows[2].display.goal).toBe(50);
+      expect(rows[2].display.aggregate).toEqual({ type: "sum", field: "pages_read" });
     }
   });
 
@@ -94,6 +113,16 @@ describe("listWidgetsCore", () => {
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
 
     await expect(listWidgetsCore(client, "user-1")).rejects.toThrow(/kind must be one of/);
+  });
+
+  it("falls back to a safe progress_against_goal display (count against goal 1) for a tampered row", async () => {
+    const corrupt = { ...PROGRESS_ROW, display: { titleField: "not-a-progress-shape" } };
+    const chain = makeChain({ data: [corrupt], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const rows = await listWidgetsCore(client, "user-1");
+    expect(rows[0].kind).toBe("progress_against_goal");
+    if (rows[0].kind === "progress_against_goal") expect(rows[0].display).toEqual({ aggregate: { type: "count" }, goal: 1 });
   });
 });
 

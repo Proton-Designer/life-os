@@ -59,6 +59,27 @@ describe("widgetManageTool — create", () => {
     expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ kind: "metric_card", title: "Prayers today" }));
   });
 
+  it("creates a progress_against_goal widget (R11's first extended-vocabulary kind) end-to-end", async () => {
+    const chain = makeChain({ data: null, error: null });
+    chain.insert = vi.fn(() => makeChain({ data: { id: "new-id" }, error: null }));
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const outcome = await widgetManageTool(client, "user-1", {
+      action: "create",
+      patch: {
+        kind: "progress_against_goal",
+        title: "Pages read this week",
+        data_source: { domain: "deen", entity: "quran_session" },
+        display: { aggregate: { type: "sum", field: "pages_read" }, goal: 50 },
+      },
+    });
+
+    expect(JSON.parse(textOf(outcome))).toEqual({ id: "new-id" });
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "progress_against_goal", display: { aggregate: { type: "sum", field: "pages_read" }, goal: 50 } }),
+    );
+  });
+
   // The structural guarantee the lead asked to be proven at the tool
   // level, not just inside validate.ts's own unit tests: a widget cannot
   // be created against a column the visibility registry excludes.

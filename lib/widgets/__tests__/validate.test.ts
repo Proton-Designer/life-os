@@ -91,12 +91,58 @@ describe("validateDisplay — refuses any field outside the data source's fullCo
     expect(() => validateDisplay("list", { titleField, limit: 0 }, fullColumns)).toThrow(/between 1 and 10/);
     expect(() => validateDisplay("list", { titleField, limit: 11 }, fullColumns)).toThrow(/between 1 and 10/);
   });
+
+  // R11's first extended-vocabulary kind -- same discipline as metric_card/list:
+  // a "count" aggregate needs no field (nothing to check), a "sum" aggregate
+  // MUST name a column inside fullColumns, and the excluded-column proof
+  // (source_chunks/encrypted_key/pin_hash) applies here too, not just to the
+  // two original kinds.
+  describe("progress_against_goal", () => {
+    it("accepts a count aggregate with a positive goal", () => {
+      expect(validateDisplay("progress_against_goal", { aggregate: { type: "count" }, goal: 20 }, [])).toEqual({
+        aggregate: { type: "count" },
+        goal: 20,
+      });
+    });
+
+    it("accepts a sum aggregate when the field IS in fullColumns", () => {
+      const { fullColumns } = validateDataSource({ domain: "deen", entity: "prayer" });
+      const field = fullColumns[0];
+      expect(validateDisplay("progress_against_goal", { aggregate: { type: "sum", field }, goal: 50 }, fullColumns)).toEqual({
+        aggregate: { type: "sum", field },
+        goal: 50,
+      });
+    });
+
+    it("refuses a sum aggregate's field on source_chunks (raw book text) — the same excluded-column proof as metric_card/list", () => {
+      const { fullColumns } = validateDataSource({ domain: "self_mastery", entity: "source_chunks" });
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "sum", field: "text" }, goal: 10 }, fullColumns)).toThrow(
+        /not a column on this widget's data source/i,
+      );
+    });
+
+    it("rejects a missing/non-positive/non-finite goal", () => {
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "count" } }, [])).toThrow(/goal is required/i);
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "count" }, goal: 0 }, [])).toThrow(/goal is required/i);
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "count" }, goal: -5 }, [])).toThrow(/goal is required/i);
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "count" }, goal: Infinity }, [])).toThrow(/goal is required/i);
+    });
+
+    it("rejects an aggregate.type outside 'count'/'sum'", () => {
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "average" }, goal: 10 }, [])).toThrow(/must be 'count' or 'sum'/);
+    });
+
+    it("rejects a sum aggregate with no field", () => {
+      expect(() => validateDisplay("progress_against_goal", { aggregate: { type: "sum" }, goal: 10 }, [])).toThrow(/aggregate\.field is required/i);
+    });
+  });
 });
 
 describe("validateKind / validateSlot", () => {
-  it("accepts the two real kinds and rejects anything else", () => {
+  it("accepts the three real kinds and rejects anything else", () => {
     expect(validateKind("metric_card")).toBe("metric_card");
     expect(validateKind("list")).toBe("list");
+    expect(validateKind("progress_against_goal")).toBe("progress_against_goal");
     expect(() => validateKind("chart")).toThrow(/kind must be one of/);
   });
 

@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DataSource, ListDisplay, MetricCardDisplay, WidgetKind, WidgetSlot, WidgetStatus } from "./validate";
+import type { DataSource, ListDisplay, MetricCardDisplay, ProgressAgainstGoalDisplay, WidgetDisplay, WidgetKind, WidgetSlot, WidgetStatus } from "./validate";
 import { validateKind } from "./validate";
 
 /**
@@ -51,6 +51,17 @@ export type WidgetRow =
       position: number;
       status: WidgetStatus;
       updated_at: string;
+    }
+  | {
+      id: string;
+      kind: "progress_against_goal";
+      title: string;
+      data_source: DataSource;
+      display: ProgressAgainstGoalDisplay;
+      slot: WidgetSlot;
+      position: number;
+      status: WidgetStatus;
+      updated_at: string;
     };
 
 interface RawWidgetRow {
@@ -88,6 +99,18 @@ function listDisplayFrom(display: unknown): ListDisplay {
   return { titleField: "id" };
 }
 
+/** Same defense-in-depth fallback posture as metricCardDisplayFrom/listDisplayFrom above — a tampered row degrades to a harmless, honest default (count against a goal of 1) rather than throwing. */
+function progressAgainstGoalDisplayFrom(display: unknown): ProgressAgainstGoalDisplay {
+  if (isPlainObject(display) && typeof display.goal === "number" && Number.isFinite(display.goal) && display.goal > 0) {
+    const aggregate = display.aggregate;
+    if (isPlainObject(aggregate) && aggregate.type === "sum" && typeof aggregate.field === "string" && aggregate.field) {
+      return { aggregate: { type: "sum", field: aggregate.field }, goal: display.goal };
+    }
+    return { aggregate: { type: "count" }, goal: display.goal };
+  }
+  return { aggregate: { type: "count" }, goal: 1 };
+}
+
 /**
  * The single place a raw DB row becomes a real `WidgetRow` discriminated
  * union — `kind` is validated once here (via the same `validateKind` used
@@ -113,6 +136,9 @@ function toWidgetRow(raw: RawWidgetRow): WidgetRow {
   };
   if (kind === "metric_card") {
     return { ...common, kind, display: metricCardDisplayFrom(raw.display) };
+  }
+  if (kind === "progress_against_goal") {
+    return { ...common, kind, display: progressAgainstGoalDisplayFrom(raw.display) };
   }
   return { ...common, kind, display: listDisplayFrom(raw.display) };
 }
@@ -144,7 +170,7 @@ export interface CreateWidgetInput {
   kind: WidgetKind;
   title: string;
   dataSource: DataSource;
-  display: MetricCardDisplay | ListDisplay;
+  display: WidgetDisplay;
   slot: WidgetSlot;
   /** Server-computed (max(existing for this slot)+1) when omitted — a widget just deliberately added belongs at the end of the user's intentional order, same reasoning as lib/school/actions-core.ts's createClassCore. */
   position?: number;
@@ -185,7 +211,7 @@ export async function createWidgetCore(supabase: SupabaseClient, userId: string,
 export interface UpdateWidgetInput {
   title?: string;
   dataSource?: DataSource;
-  display?: MetricCardDisplay | ListDisplay;
+  display?: WidgetDisplay;
   position?: number;
 }
 

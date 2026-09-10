@@ -34,6 +34,16 @@ export function McpWidgetsPanel({ widgets }: { widgets: RenderedWidget[] }) {
                 <p className="truncate text-sm text-destructive">{widget.error}</p>
               ) : widget.kind === "metric_card" ? (
                 <p className="font-mono text-xl font-semibold tabular-nums">{widget.value}</p>
+              ) : widget.kind === "progress_against_goal" ? (
+                <div className="mt-1 flex flex-col gap-1">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${widget.percent}%` }} />
+                  </div>
+                  <p className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {widget.current}
+                    {widget.hasMore && "+"} / {widget.goal} ({widget.percent}%{widget.hasMore && "+"})
+                  </p>
+                </div>
               ) : (
                 <div className="mt-1 flex flex-col gap-1">
                   {widget.items.length === 0 ? (

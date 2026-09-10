@@ -41,6 +41,18 @@ export interface RenderedList {
   items: RenderedListItem[];
 }
 
+export interface RenderedProgressAgainstGoal {
+  id: string;
+  kind: "progress_against_goal";
+  title: string;
+  /** The raw current value -- possibly a floor, not exact, when `hasMore` is true (see this file's header comment on `ProgressAggregate`'s "sum" case: readTool pages at 20 rows, so a sum over more matching rows than that is honestly a floor). */
+  current: number;
+  hasMore: boolean;
+  goal: number;
+  /** 0-100, clamped -- computed from `current` (which may itself be a floor), never re-derived from a second query. */
+  percent: number;
+}
+
 export interface RenderedWidgetError {
   id: string;
   kind: WidgetRow["kind"];
@@ -48,7 +60,7 @@ export interface RenderedWidgetError {
   error: string;
 }
 
-export type RenderedWidget = RenderedMetricCard | RenderedList | RenderedWidgetError;
+export type RenderedWidget = RenderedMetricCard | RenderedList | RenderedProgressAgainstGoal | RenderedWidgetError;
 
 async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRow): Promise<RenderedWidget> {
   try {
@@ -73,6 +85,26 @@ async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRo
       }
       const raw = items[0]?.[display.field];
       return { id: row.id, kind: "metric_card", title: row.title, value: raw === undefined || raw === null ? "—" : String(raw) };
+    }
+
+    if (row.kind === "progress_against_goal") {
+      // `row.display` is narrowed to `ProgressAgainstGoalDisplay` here, same mechanism as the metric_card branch above.
+      const display = row.display;
+      let current: number;
+      if (display.aggregate.type === "count") {
+        current = items.length;
+      } else {
+        // "sum" -- derived over the rows readTool ALREADY returned, never a
+        // second query. Non-numeric/missing values are skipped, not coerced
+        // to 0-contributing NaN, so one malformed row can't zero out the rest.
+        const field = display.aggregate.field;
+        current = items.reduce((sum, item) => {
+          const value = item[field];
+          return typeof value === "number" && Number.isFinite(value) ? sum + value : sum;
+        }, 0);
+      }
+      const percent = Math.min(100, Math.round((current / display.goal) * 100));
+      return { id: row.id, kind: "progress_against_goal", title: row.title, current, hasMore: payload.has_more, goal: display.goal, percent };
     }
 
     // kind === "list" — `row.display` is narrowed to `ListDisplay`, same mechanism as above.
