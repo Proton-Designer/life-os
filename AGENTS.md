@@ -204,6 +204,19 @@ spectacular one — ask whether you are measuring the system or the way you
 invoked it. The tell is usually magnitude without a mechanism: a change that
 plausibly breaks three tests does not plausibly break six hundred.
 
+**A test file can keep dead code looking alive.** `CheckinSchedulerLoader` was
+retired months ago — `supabase/functions/dispatch-notifications/index.ts:8` says
+so outright — and survived because its own test file still passed. Green tests
+on a component that is mounted nowhere read as health and mean nothing: the
+check is fine, the *subject* isn't real. It cost an engineer a wrong bug report
+on 2026-09-10, because they reverse-engineered the behaviour of a component that
+never runs and concluded a live feature was broken. Worse, `e2e/helpers.ts`
+asserted in prose that the scheduler "mounts on every authenticated page" — the
+stated rationale for a helper every spec calls — and that was the sentence they
+reasoned from. **When you retire a component, delete its test in the same
+commit, and grep the prose for claims about it.** A stale comment outlives dead
+code and is read more often.
+
 **And a cleanup check must assert the state it claims, not a UI string.** Same
 night: an e2e harness reported `SEED left clean: PASS` on the strength of
 `/Lock In/.test(body)` while an orphaned `deep_study` session sat unended in
