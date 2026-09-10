@@ -1,4 +1,4 @@
-export type TaskGroupKey = "overdue" | "week" | "next30" | "future";
+export type TaskGroupKey = "overdue" | "dueSoon" | "next30" | "future";
 
 /** RENDER order — deliberately does NOT include "overdue" (2026-09-10, Ayman:
  * overdue tasks must auto-remove from the Task list and surface only in the
@@ -7,91 +7,66 @@ export type TaskGroupKey = "overdue" | "week" | "next30" | "future";
  * `TaskListModule` never iterates — so the omission from the list is a
  * visible, testable decision rather than a task silently vanishing between a
  * filter and a render loop. */
-export const TASK_GROUP_ORDER: TaskGroupKey[] = ["week", "next30", "future"];
+export const TASK_GROUP_ORDER: TaskGroupKey[] = ["dueSoon", "next30", "future"];
 
 export const TASK_GROUP_LABEL: Record<TaskGroupKey, string> = {
   overdue: "Overdue",
-  week: "This Week",
-  next30: "Next Month",
+  dueSoon: "Due Soon",
+  next30: "Upcoming",
   future: "Future",
 };
 
-/** How far ahead "Next Month" reaches — rolling days from today, deliberately not a calendar month. */
-export const NEXT_MONTH_WINDOW_DAYS = 30;
+/** How far ahead "Upcoming" reaches — rolling days from today, beyond the two-week Due Soon range, deliberately not a calendar month. */
+export const UPCOMING_WINDOW_DAYS = 30;
 
 /**
- * Which group a due date falls into (revised 2026-09-10, twice in one day:
- * first for This Week/Due Soon/Next Month, then again on Ayman's instruction
- * — "overdue items still remain present in the task list, make sure that
- * they are auto removed and just show in the overdue section" — to carve
- * `overdue` out as its own bucket). `todayStr`/`tomorrowStr`/`weekDates`/
- * `horizonStr` are already-resolved local calendar strings from the caller
- * (page.tsx's own `localDateString(now, timezone)` + `weekDatesFrom` +
- * `addDaysToDateString`), so this stays a pure string-comparison function
- * with no `Date`/timezone logic of its own to get wrong — see AGENTS.md on
- * deriving a calendar date from an instant.
- *
- * WHAT CHANGED AND WHY:
+ * Which group a due date falls into (revised 2026-09-10 batch 2, Ayman:
+ * "change This Week default time range to Due Soon and this should display
+ * the tasks for the next 2 weeks instead of 1 week" — the group that used to
+ * be "This Week" now spans this calendar week AND next calendar week).
+ * `todayStr`/`weekDates`/`nextWeekDates`/`horizonStr` are already-resolved
+ * local calendar strings from the caller (page.tsx's own
+ * `localDateString(now, timezone)` + `weekDatesFrom` + `addDaysToDateString`),
+ * so this stays a pure string-comparison function with no `Date`/timezone
+ * logic of its own to get wrong — see AGENTS.md on deriving a calendar date
+ * from an instant.
  *
  * OVERDUE IS EXTRACTED FIRST, before every other branch, and is never
  * rendered by `TaskListModule` (see `TASK_GROUP_ORDER`'s own comment) — it
  * surfaces only through the School screen's Overdue KPI card, whose
  * `overdueItems` filter (`dueDate !== null && dueDate < dateStr`,
- * app/(app)/school/page.tsx) this branch is written to match exactly. Tested
- * directly: `bucketTaskGroup`'s overdue branch and `overdueItems`'s filter
- * must never disagree about which tasks are overdue.
+ * app/(app)/school/page.tsx) this branch is written to match exactly.
  *
- * "Today" is gone as a top-level group. It is now the "Due Soon" subsection
- * INSIDE This Week (`splitDueSoon` below), so the default view is one list
- * of the whole week with the urgent end of it called out at the top, rather
- * than today and the rest of the week reading as unrelated buckets.
+ * NO SEPARATE "TOMORROW" RULE ANYMORE. The old `week` bucket special-cased
+ * tomorrow so it was never pushed out by a Sun-Sat boundary crossing (a
+ * Saturday's "tomorrow" is next week's Sunday). That special case is now
+ * structurally unnecessary: `dueSoon` spans BOTH `weekDates` and
+ * `nextWeekDates`, and next week's Sunday is, by definition, `nextWeekDates`'
+ * own first day. Removing dead special-casing here isn't cosmetic — a
+ * `tomorrowStr` rule nobody needs anymore is exactly the kind of comment that
+ * outlives the reasoning behind it (see the `removeClassEvent` incident,
+ * AGENTS.md).
  *
- * TOMORROW IS ALWAYS IN `week`, even when tomorrow belongs to next week.
- * Ayman's rule for Due Soon is "anything due today or tomorrow", full stop —
- * so on a Saturday, Sunday's task is pulled up into This Week rather than
- * being correct-by-the-calendar and useless. The bucket exists to answer
- * "what is about to hit me", and a week boundary does not change that answer.
- * Tomorrow is never overdue (it is always strictly after today), so this
- * rule is untouched by the overdue extraction above it.
- *
- * `week` NOW MEANS "TODAY THROUGH SATURDAY" IN PRACTICE, NOT "SUN-SAT".
- * `weekDates` is still the full Sun-Sat range handed down by the caller, and
- * `weekDates.includes(dueDate)` below is unchanged — but any day in that
- * range earlier than today is now caught by the overdue branch first and
- * never reaches this check. Before this revision, an earlier-this-week task
- * (Sunday or Monday, say, when today is Tuesday) landed in `week`; now it
- * leaves before `week` is even consulted.
- *
- * "This Month" became "Next Month" and is a ROLLING 30-day window, not a
- * calendar month — the old YYYY-MM prefix match made the group shrink to
- * nothing by month's end, which is exactly when the next month's work
- * matters most.
- *
- * THE WINDOW'S LOWER BOUND IS NOW IMPLICIT, NOT ABSENT. This paragraph used
- * to say `next30` has no lower bound "specifically so overdue work surfaces
- * there instead of falling through to Future" — that reasoning is dead as of
- * this revision: overdue work leaves at the top of this function now, before
- * `next30`'s own `dueDate <= horizonStr` check is ever reached, so nothing
- * overdue can land in `next30` by construction, not by an unbounded
- * comparison. `next30` means strictly "beyond this week, within 30 days" —
- * every date it admits is already known to be `> todayStr` by the time it's
- * checked. Leaving the old paragraph in place would have made it a claim
- * about why the code is shaped the way it is that the code no longer
- * supports — the exact failure mode `removeClassEvent`'s stale comment
- * produced (AGENTS.md, R80/`19975b2`-era note): a comment nobody re-read
- * once the code beneath it changed.
+ * "Upcoming" (was "Next Month") is a ROLLING 30-day window starting after the
+ * two-week Due Soon range, not a calendar month — the old YYYY-MM prefix
+ * match made the group shrink to nothing by month's end, which is exactly
+ * when the next month's work matters most. Its lower bound is implicit, not
+ * absent: overdue work leaves at the top of this function, and everything in
+ * `weekDates`/`nextWeekDates` leaves before this branch is reached, so
+ * `next30` only ever admits a date already known to be `> todayStr` and
+ * outside both weeks — by construction, not by an unbounded comparison.
  */
 export function bucketTaskGroup(
   dueDate: string | null,
   todayStr: string,
-  tomorrowStr: string,
   weekDates: string[],
+  nextWeekDates: string[],
   horizonStr: string
 ): TaskGroupKey {
   if (dueDate === null) return "future";
   if (dueDate < todayStr) return "overdue";
-  if (dueDate === todayStr || dueDate === tomorrowStr) return "week";
-  if (weekDates.includes(dueDate)) return "week";
+  if (weekDates.includes(dueDate)) return "dueSoon";
+  if (nextWeekDates.includes(dueDate)) return "dueSoon";
   if (dueDate <= horizonStr) return "next30";
   return "future";
 }
@@ -117,13 +92,13 @@ export function bucketTaskGroup(
 export function groupTasksByBucket<T extends { dueDate: string | null }>(
   tasks: T[],
   todayStr: string,
-  tomorrowStr: string,
   weekDates: string[],
+  nextWeekDates: string[],
   horizonStr: string
 ): Record<TaskGroupKey, T[]> {
-  const groups: Record<TaskGroupKey, T[]> = { overdue: [], week: [], next30: [], future: [] };
+  const groups: Record<TaskGroupKey, T[]> = { overdue: [], dueSoon: [], next30: [], future: [] };
   for (const task of tasks) {
-    groups[bucketTaskGroup(task.dueDate, todayStr, tomorrowStr, weekDates, horizonStr)].push(task);
+    groups[bucketTaskGroup(task.dueDate, todayStr, weekDates, nextWeekDates, horizonStr)].push(task);
   }
   for (const key of Object.keys(groups) as TaskGroupKey[]) {
     groups[key].sort(compareByDueDate);
@@ -132,25 +107,27 @@ export function groupTasksByBucket<T extends { dueDate: string | null }>(
 }
 
 /**
- * Splits This Week into its "Due Soon" head (due today or tomorrow) and the
- * rest of the week. Both halves keep the soonest-first order they arrived
- * in. Overdue work inside this week stays in `rest` rather than being
- * promoted — Due Soon means "about to be due", and quietly widening it to
- * "and also everything you already missed" would make the one auto-expanded
- * section the biggest one on the screen.
+ * Splits the Due Soon bucket into its "This week" head and "Next week" tail
+ * (2026-09-10 batch 2, Ayman: replaces the old today/tomorrow "Due Soon"
+ * subsection with a clean this-week/next-week split, in that order, top to
+ * bottom). `weekDates` is enough to draw the line: `groupTasksByBucket`
+ * already guarantees every task handed to this function is in `weekDates` OR
+ * `nextWeekDates` (that's the only way into the `dueSoon` bucket), so
+ * "not in weekDates" and "in nextWeekDates" are the same set here — this
+ * function only needs the one array, not both. Both halves keep the
+ * soonest-first order they arrived in.
  */
-export function splitDueSoon<T extends { dueDate: string | null }>(
-  weekTasks: T[],
-  todayStr: string,
-  tomorrowStr: string
-): { dueSoon: T[]; rest: T[] } {
-  const dueSoon: T[] = [];
-  const rest: T[] = [];
-  for (const task of weekTasks) {
-    if (task.dueDate === todayStr || task.dueDate === tomorrowStr) dueSoon.push(task);
-    else rest.push(task);
+export function splitByWeek<T extends { dueDate: string | null }>(
+  dueSoonTasks: T[],
+  weekDates: string[]
+): { thisWeek: T[]; nextWeek: T[] } {
+  const thisWeek: T[] = [];
+  const nextWeek: T[] = [];
+  for (const task of dueSoonTasks) {
+    if (task.dueDate !== null && weekDates.includes(task.dueDate)) thisWeek.push(task);
+    else nextWeek.push(task);
   }
-  return { dueSoon, rest };
+  return { thisWeek, nextWeek };
 }
 
 function compareByDueDate<T extends { dueDate: string | null }>(a: T, b: T): number {

@@ -5,12 +5,12 @@ import { ChevronDown, Check, Pencil, Trash2 } from "lucide-react";
 import {
   TASK_GROUP_ORDER,
   TASK_GROUP_LABEL,
-  NEXT_MONTH_WINDOW_DAYS,
+  UPCOMING_WINDOW_DAYS,
   groupTasksByBucket,
-  splitDueSoon,
+  splitByWeek,
   type TaskGroupKey,
 } from "@/lib/tasks/task-groups";
-import { addDaysToDateString } from "@/lib/date-utils";
+import { addDaysToDateString, weekDatesFrom } from "@/lib/date-utils";
 import { TASK_TYPE_LABEL, TASK_TYPE_COLOR, TASK_TYPE_OPTIONS, type TaskType } from "@/lib/tasks/task-type";
 import type { TaskWizardClassOption } from "./task-wizard-dialog";
 import { formatShortDate } from "@/lib/date-utils";
@@ -170,29 +170,37 @@ function TaskRows({
 }
 
 /**
- * "Due Soon" — anything due today or tomorrow, rendered at the top of This
- * Week and expanded by default (Ayman, 2026-09-10). Collapsible like every
- * other section, but it opens on its own because it is the one list that
- * should never need a tap to be seen. Hidden entirely when empty rather
- * than rendering an empty header: a permanently-visible "Due Soon · 0"
- * trains you to stop reading it, which is the opposite of the point.
+ * A This week / Next week head inside Due Soon (2026-09-10 batch 2, Ayman:
+ * replaces the old today/tomorrow "Due Soon" subsection — This week on top,
+ * Next week below it, each independently collapsible). This week starts
+ * expanded, the same way the old Due Soon head always did — it's the list
+ * that should never need a tap to be seen. Next week starts collapsed,
+ * matching the urgency gradient every other level of this file already
+ * uses (the most urgent thing opens on its own, everything else is a tap
+ * away). Hidden entirely when empty rather than rendering an empty header:
+ * a permanently-visible "Next week · 0" trains you to stop reading it,
+ * which is the opposite of the point.
  */
-function DueSoonSection({
+function WeekSubsection({
+  label,
   tasks,
+  defaultExpanded,
   todayStr,
   onComplete,
   editing,
   onEditTask,
   onRemoveTask,
 }: {
+  label: string;
   tasks: TaskListItem[];
+  defaultExpanded: boolean;
   todayStr: string;
   onComplete: (id: string) => Promise<void>;
   editing: boolean;
   onEditTask?: (id: string) => void;
   onRemoveTask?: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   if (tasks.length === 0) return null;
 
   return (
@@ -204,8 +212,7 @@ function DueSoonSection({
         className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-accent/50"
       >
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Due Soon{" "}
-          <span className="font-mono text-xs font-normal normal-case tracking-normal">· {tasks.length}</span>
+          {label} <span className="font-mono text-xs font-normal normal-case tracking-normal">· {tasks.length}</span>
         </span>
         <ChevronDown
           className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
@@ -229,7 +236,8 @@ function DueSoonSection({
 function GroupSection({
   groupKey,
   tasks,
-  dueSoonTasks,
+  thisWeekTasks,
+  nextWeekTasks,
   todayStr,
   onComplete,
   editing,
@@ -237,30 +245,31 @@ function GroupSection({
   onRemoveTask,
 }: {
   groupKey: TaskGroupKey;
-  /** For "week" this is the remainder AFTER Due Soon is split off; for every other group it is the whole bucket. */
+  /** The whole bucket, for every group EXCEPT "dueSoon" — that one renders thisWeekTasks/nextWeekTasks instead and ignores this. */
   tasks: TaskListItem[];
-  /** Only ever passed for "week" — the today/tomorrow head of that bucket. */
-  dueSoonTasks?: TaskListItem[];
+  /** Only ever passed for "dueSoon" — that bucket split into its This week / Next week heads. */
+  thisWeekTasks?: TaskListItem[];
+  nextWeekTasks?: TaskListItem[];
   todayStr: string;
   onComplete: (id: string) => Promise<void>;
   editing: boolean;
   onEditTask?: (id: string) => void;
   onRemoveTask?: (id: string) => void;
 }) {
-  // "This Week" is the default view (Ayman, 2026-09-10) — it starts
-  // expanded and the rest start collapsed. Same rule as the old "Today"
-  // default, moved up one level now that Today is a subsection of This
-  // Week rather than a group of its own. Every group stays independently
+  const isDueSoon = groupKey === "dueSoon";
+  // "Due Soon" is the default view (Ayman, 2026-09-10) — it starts expanded
+  // and the rest start collapsed. Every group stays independently
   // toggleable, and filtering never touches this state (Ayman: "filters
   // are present doesn't mean the groups besides ... automatically get auto
   // expanded, they still filter but still stay collapsed").
-  const [expanded, setExpanded] = useState(groupKey === "week");
+  const [expanded, setExpanded] = useState(isDueSoon);
 
-  const dueSoon = dueSoonTasks ?? [];
-  // The header counts the whole bucket, Due Soon included — collapsed,
-  // this is the only number shown, and it must not under-report the week
-  // by hiding its most urgent half.
-  const totalCount = tasks.length + dueSoon.length;
+  const thisWeek = thisWeekTasks ?? [];
+  const nextWeek = nextWeekTasks ?? [];
+  // For Due Soon, the header counts both weeks combined — collapsed, this is
+  // the only number shown, and it must not under-report the range by hiding
+  // either half. For every other group it's just the bucket's own size.
+  const totalCount = isDueSoon ? thisWeek.length + nextWeek.length : tasks.length;
 
   return (
     <div className="flex flex-col gap-1">
@@ -279,27 +288,38 @@ function GroupSection({
       {expanded &&
         (totalCount === 0 ? (
           <p className="px-3 pb-1 text-xs text-muted-foreground">Nothing here</p>
-        ) : (
+        ) : isDueSoon ? (
           <div className="flex flex-col gap-1">
-            <DueSoonSection
-              tasks={dueSoon}
+            <WeekSubsection
+              label="This week"
+              tasks={thisWeek}
+              defaultExpanded
               todayStr={todayStr}
               onComplete={onComplete}
               editing={editing}
               onEditTask={onEditTask}
               onRemoveTask={onRemoveTask}
             />
-            {tasks.length > 0 && (
-              <TaskRows
-                tasks={tasks}
-                todayStr={todayStr}
-                onComplete={onComplete}
-                editing={editing}
-                onEditTask={onEditTask}
-                onRemoveTask={onRemoveTask}
-              />
-            )}
+            <WeekSubsection
+              label="Next week"
+              tasks={nextWeek}
+              defaultExpanded={false}
+              todayStr={todayStr}
+              onComplete={onComplete}
+              editing={editing}
+              onEditTask={onEditTask}
+              onRemoveTask={onRemoveTask}
+            />
           </div>
+        ) : (
+          <TaskRows
+            tasks={tasks}
+            todayStr={todayStr}
+            onComplete={onComplete}
+            editing={editing}
+            onEditTask={onEditTask}
+            onRemoveTask={onRemoveTask}
+          />
         ))}
     </div>
   );
@@ -308,9 +328,12 @@ function GroupSection({
 /**
  * The unified Task list (2026-08-26 night batch 2, item 5) — merges the
  * old Deadlines panel and Task list panel into collapsible groups.
- * Revised 2026-09-10 (Ayman): This Week / Next Month / Future, with a
- * Due Soon head inside This Week — Today stopped being a group of its own
- * and Next Month is a rolling 30 days. Class/type/date filters. Add
+ * Revised 2026-09-10 batch 2 (Ayman): Due Soon / Upcoming / Future — Due
+ * Soon now spans two calendar weeks (was one, labeled "This Week"), split
+ * into a This week head and a Next week tail (replacing the old
+ * today/tomorrow "Due Soon" subsection), and Upcoming (was "Next Month") is
+ * still a rolling 30 days, now starting after the two-week Due Soon range
+ * instead of after one week. Class/type/date filters. Add
  * (TaskWizardDialog) and Edit (TaskEditDialog) live in the caller's Panel
  * `controls` slot, not here — this component only renders the filter row
  * and the groups.
@@ -367,14 +390,16 @@ export function TaskListModule({
     return true;
   });
 
-  // Both derived from todayStr with pure string arithmetic — never from a
-  // fresh `new Date()`, which would re-derive "today" in the server's zone
-  // rather than his (AGENTS.md).
-  const tomorrowStr = addDaysToDateString(todayStr, 1);
-  const horizonStr = addDaysToDateString(todayStr, NEXT_MONTH_WINDOW_DAYS);
+  // All derived from todayStr/weekDates with pure string arithmetic — never
+  // from a fresh `new Date()`, which would re-derive "today" in the
+  // server's zone rather than his (AGENTS.md). `weekDates[0]` is this
+  // week's Sunday (weekDatesFrom's own contract), so next week's Sunday is
+  // exactly 7 days after it.
+  const nextWeekDates = weekDatesFrom(addDaysToDateString(weekDates[0], 7));
+  const horizonStr = addDaysToDateString(todayStr, UPCOMING_WINDOW_DAYS);
 
-  const groups = groupTasksByBucket(filtered, todayStr, tomorrowStr, weekDates, horizonStr);
-  const { dueSoon, rest: weekRest } = splitDueSoon(groups.week, todayStr, tomorrowStr);
+  const groups = groupTasksByBucket(filtered, todayStr, weekDates, nextWeekDates, horizonStr);
+  const { thisWeek, nextWeek } = splitByWeek(groups.dueSoon, weekDates);
 
   return (
     <div className="flex flex-col gap-4">
@@ -430,8 +455,9 @@ export function TaskListModule({
           <GroupSection
             key={key}
             groupKey={key}
-            tasks={key === "week" ? weekRest : groups[key]}
-            dueSoonTasks={key === "week" ? dueSoon : undefined}
+            tasks={groups[key]}
+            thisWeekTasks={key === "dueSoon" ? thisWeek : undefined}
+            nextWeekTasks={key === "dueSoon" ? nextWeek : undefined}
             todayStr={todayStr}
             onComplete={toggleTask}
             editing={editing}
