@@ -13,6 +13,19 @@ commit this file lands in. The structural reason this holds, and the one
 invariant that must keep holding, are both stated explicitly at the end —
 read that section even if you skip the rest.
 
+**This document is now load-bearing, not just informational.** It is the
+evidence `docs/ai-connector/PROGRAM-PLAN.md`'s **R11** rests on: Tier 2
+(sandboxed agent-authored widget code) and Tier 3 (repo code + deploy) are
+CANCELLED, specifically *because* this audit established Tier 1's isolation
+as a structural property rather than a policy — a property code execution
+would destroy outright (generated component code does not go through
+`readTool()`, so the whole "the data path cannot widen" argument stops
+applying the moment a widget can execute code instead of declaring a data
+source). R11 itself names the two-caller invariant below as the thing that
+must keep holding, and treats a third `readTool()` caller as a design
+change requiring a new ruling, not a refactor — read that as binding on
+every future change to the widget layer, not just a note.
+
 ## The three questions, each answered with file:line evidence
 
 ### 1. Can `data_source` name a domain/entity/column outside the allowlists, or reach `source_chunks` content?
