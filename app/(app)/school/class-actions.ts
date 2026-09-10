@@ -258,3 +258,80 @@ export async function getClassSyllabusUrl(
   if (signError) throw signError;
   return { url: data.signedUrl, kind: syllabusFileKind(row.syllabus_path) };
 }
+
+/**
+ * Deletes a class and everything that belongs to it.
+ *
+ * THE GAP THIS CLOSES: there was no class delete at all. `createClass` and
+ * `updateClass` existed; nothing removed one. The only class-shaped removal
+ * in the app was `removeClassEvent` (actions.ts), whose own doc comment
+ * claims it "removes every row belonging to the class" — it deletes
+ * `schedule_events` rows and nothing else. So dropping a class emptied its
+ * calendar and left the class, its assessments and all of its coursework
+ * behind, visible in the task list with no way to reach them. Found on
+ * 2026-09-10 against a real account: an AMS class deleted from the schedule
+ * still held 29 tasks and 2 assessments.
+ *
+ * WHY APPLICATION-LEVEL AND NOT THE FKs. The constraints are already
+ * inconsistent — class_assessments/questions/sources CASCADE, while
+ * schedule_events and tasks SET NULL. Relying on them would leave the two
+ * SET NULL tables as orphans: a nulled schedule_event is a class meeting
+ * that still renders on the schedule attached to no class, which is the
+ * same "present but unreachable" defect in a new place. Fixing that in the
+ * FKs means a migration against a shared schema another team is actively
+ * changing; doing it here is smaller, needs no migration, and is one hunk
+ * to revert.
+ *
+ * DELETE ORDER IS LOAD-BEARING. Dependents first, the class row last.
+ * PostgREST gives these calls no shared transaction, so a failure partway
+ * has to leave a retryable state: with the class row still present the user
+ * can simply delete again. Reversed, a mid-failure would cascade the
+ * assessments and null out the tasks/events, stranding rows with nothing
+ * left to find them by. Storage is touched only after the database is
+ * settled — the worst case there is an orphaned object, never lost data
+ * (same reasoning as `removeClassSyllabus`).
+ *
+ * Tasks are DELETED, not unlinked, matching the app's own precedent:
+ * `delete_class_assessment` (migration 048) removes an assessment together
+ * with its linked task rather than leaving it dangling.
+ */
+export async function deleteClass(classId: string) {
+  const { supabase, userId } = await requireUser();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("classes")
+    .select("syllabus_path")
+    .eq("id", classId)
+    .eq("user_id", userId)
+    .single();
+  if (fetchError) throw fetchError;
+
+  const { error: eventsError } = await supabase
+    .from("schedule_events")
+    .delete()
+    .eq("user_id", userId)
+    .eq("class_id", classId);
+  if (eventsError) throw eventsError;
+
+  const { error: tasksError } = await supabase
+    .from("tasks")
+    .delete()
+    .eq("user_id", userId)
+    .eq("class_id", classId);
+  if (tasksError) throw tasksError;
+
+  // class_assessments (and questions/sources, for a domains-mode account)
+  // go with the class row itself — those FKs already cascade correctly.
+  const { error: classError } = await supabase
+    .from("classes")
+    .delete()
+    .eq("id", classId)
+    .eq("user_id", userId);
+  if (classError) throw classError;
+
+  if (existing.syllabus_path) {
+    await supabase.storage.from(SYLLABUS_BUCKET).remove([existing.syllabus_path]);
+  }
+
+  revalidatePath("/school");
+}
