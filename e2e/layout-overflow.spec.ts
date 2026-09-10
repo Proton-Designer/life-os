@@ -44,6 +44,16 @@ const PUBLIC_ROUTES = ["/login", "/signup"];
 // here; the test waits for it before ever measuring. Not every route needs
 // one — most content is layout-stable structural chrome, not variable-width
 // data render — so this stays an opt-in map, not a blanket wait.
+//
+// WHAT EACH SELECTOR STANDS IN FOR, not just what it waits on: the entry is
+// the route's WIDEST late-mounting element, because that is the one whose
+// absence produces a false pass. /school's grid was chosen on those grounds.
+// On 2026-09-10 the Task list panel moved ABOVE that grid (school/page.tsx);
+// the grid is still the widest thing that mounts late, so the gate still
+// covers the right element — but if the Task list ever becomes wider AND
+// mounts after the grid, this entry stops covering the thing most likely to
+// overflow and would go green over a real regression. Re-pick the selector
+// then rather than trusting the position.
 const READY_SELECTOR: Partial<Record<string, string>> = {
   "/school": '[data-testid="class-cards-grid"]',
 };

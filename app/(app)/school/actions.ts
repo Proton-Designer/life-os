@@ -205,7 +205,25 @@ export async function updateClassEvent(key: string, input: ClassEventInput): Pro
   revalidatePath("/school");
 }
 
-/** Removes every row belonging to the class identified by `key` (see updateClassEvent's header comment for what `key` is). */
+/**
+ * Removes the SCHEDULE EVENTS of the class identified by `key` (see
+ * updateClassEvent's header comment for what `key` is) — its meetings come
+ * off the timetable and nothing else changes.
+ *
+ * IT DOES NOT DELETE THE CLASS. This comment used to claim it "removes every
+ * row belonging to the class," which is false, and the overstatement cost
+ * real data confusion: with no class-delete anywhere in the app, this was the
+ * closest thing to one, so removing a class from the schedule left the class
+ * row, its assessments and all of its coursework in place with nothing
+ * pointing at them. Found 2026-09-10 on a real account — an AMS class whose
+ * events were gone while 29 tasks and 2 assessments were still attached to a
+ * live class row.
+ *
+ * To delete a class and everything under it, use `deleteClass`
+ * (class-actions.ts). A comment that overstates what a function does is worse
+ * than no comment: it stops the next person looking for the function that
+ * actually exists.
+ */
 export async function removeClassEvent(key: string): Promise<void> {
   assertUuid(key, "key");
   const { supabase, userId } = await requireUser();
