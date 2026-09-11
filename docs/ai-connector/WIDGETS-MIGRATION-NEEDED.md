@@ -7,14 +7,25 @@ that quietly outlives its own request is exactly the kind of stale artifact this
 program has spent effort removing elsewhere; this banner exists so it doesn't
 happen here too.
 
-**One divergence from the DDL below, found verifying this banner (2026-09-10):**
+**RESOLVED 2026-09-11 by migration `149`.** The divergence noted below (found
+2026-09-10) — the applied migration's `kind` CHECK still `in ('metric_card', 'list')`
+while `WIDGET_KINDS` had grown to five — is fixed: `149_mcp_widgets_kind_widen.sql`
+widened `mcp_widgets_kind_check` to admit all five, verified in two ways neither of
+which is a mocked unit test: (1) the migration's own `do $$...$$` block re-reads
+`pg_get_constraintdef` from the live catalog and asserts all five are present; (2)
+`scripts/verify-mcp-widgets-kind-check.ts` called the real `widgetManageTool` create
+path with a real service-role client against production and got `accepted` for all
+five kinds, then cleaned up with a real DELETE and re-checked zero rows remained.
+Left below as the record of what actually happened, not to re-litigate it.
+
+~~**One divergence from the DDL below, found verifying this banner (2026-09-10):**
 the applied migration's `kind` CHECK is still `in ('metric_card', 'list')` — the
 two kinds this doc originally scoped to. `lib/widgets/validate.ts`'s `WIDGET_KINDS`
 has since grown to five (`progress_against_goal`, `sparkline`, `streak` added), and
 `render.ts`/`actions-core.ts` both have real code for at least the first two of
 those three — but nothing has widened this CHECK to match. Creating a widget with
 any of those three kinds passes every application-level check and then fails at
-the database `INSERT` with a constraint violation. Reported, not fixed here.
+the database `INSERT` with a constraint violation. Reported, not fixed here.~~
 
 **Not a numbered migration** *(historical note, describing the state at the time
 this was written — it since became migration 141, above)*. Per the standing
