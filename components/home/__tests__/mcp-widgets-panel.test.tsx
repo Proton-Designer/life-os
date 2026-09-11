@@ -45,6 +45,18 @@ describe("McpWidgetsPanel", () => {
     expect(screen.getByText("20+ / 100 (20%+)")).toBeInTheDocument();
   });
 
+  it("renders a sparkline's latest value, honestly flagging hasMore, and a non-crashing SVG for an empty/flat series", () => {
+    const widgets: RenderedWidget[] = [
+      { id: "w1", kind: "sparkline", title: "Pages read trend", points: [{ date: "2026-09-08", value: 5 }, { date: "2026-09-09", value: 12 }], hasMore: false },
+      { id: "w2", kind: "sparkline", title: "Empty trend", points: [{ date: "2026-09-09", value: 0 }], hasMore: true },
+    ];
+    render(<McpWidgetsPanel widgets={widgets} />);
+    expect(screen.getByText("Pages read trend")).toBeInTheDocument();
+    expect(screen.getByText("12 today")).toBeInTheDocument();
+    expect(screen.getByText("Empty trend")).toBeInTheDocument();
+    expect(screen.getByText("0 today · earlier days may be a floor")).toBeInTheDocument();
+  });
+
   it("renders a widget's OWN error message rather than crashing the panel", () => {
     const widgets: RenderedWidget[] = [{ id: "w-broken", kind: "metric_card", title: "Broken", error: "Unknown entity \"task\"" }];
     render(<McpWidgetsPanel widgets={widgets} />);

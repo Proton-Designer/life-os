@@ -86,7 +86,9 @@ export default async function HomePage() {
       getDueSummary(),
       // L11/R7 Tier 1 declarative widgets — degrades to [] the same way
       // getInProgressBooks() does until WIDGETS-MIGRATION-NEEDED.md lands.
-      renderWidgets(supabase, userId, "home"),
+      // now/timezone threaded through for the sparkline kind's local-day
+      // bucketing (R12/AGENTS.md) — never a raw Date or a UTC slice.
+      renderWidgets(supabase, userId, "home", now, timezone),
     ]);
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly

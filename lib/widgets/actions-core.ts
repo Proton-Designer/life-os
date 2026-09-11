@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DataSource, ListDisplay, MetricCardDisplay, ProgressAgainstGoalDisplay, WidgetDisplay, WidgetKind, WidgetSlot, WidgetStatus } from "./validate";
+import type { DataSource, ListDisplay, MetricCardDisplay, ProgressAgainstGoalDisplay, SparklineDisplay, WidgetDisplay, WidgetKind, WidgetSlot, WidgetStatus } from "./validate";
 import { validateKind } from "./validate";
 
 /**
@@ -62,6 +62,17 @@ export type WidgetRow =
       position: number;
       status: WidgetStatus;
       updated_at: string;
+    }
+  | {
+      id: string;
+      kind: "sparkline";
+      title: string;
+      data_source: DataSource;
+      display: SparklineDisplay;
+      slot: WidgetSlot;
+      position: number;
+      status: WidgetStatus;
+      updated_at: string;
     };
 
 interface RawWidgetRow {
@@ -112,6 +123,26 @@ function progressAgainstGoalDisplayFrom(display: unknown): ProgressAgainstGoalDi
 }
 
 /**
+ * Same defense-in-depth fallback posture as the three functions above, with
+ * one difference worth stating: there is no universally-safe `dateField`
+ * guess (unlike `{aggregate:"count"}`, which needs no column at all). The
+ * fallback names `"id"` -- present on every entity -- which at render time
+ * fails `bucketDateKey`'s date-parse for every row (a uuid isn't a date),
+ * so a tampered row degrades to an honestly EMPTY sparkline, never a crash
+ * and never data that could be mistaken for a real trend.
+ */
+function sparklineDisplayFrom(display: unknown): SparklineDisplay {
+  if (isPlainObject(display) && typeof display.dateField === "string" && display.dateField) {
+    return {
+      dateField: display.dateField,
+      valueField: typeof display.valueField === "string" && display.valueField ? display.valueField : undefined,
+      days: typeof display.days === "number" && Number.isInteger(display.days) && display.days >= 7 && display.days <= 60 ? display.days : 14,
+    };
+  }
+  return { dateField: "id", days: 14 };
+}
+
+/**
  * The single place a raw DB row becomes a real `WidgetRow` discriminated
  * union — `kind` is validated once here (via the same `validateKind` used
  * at write time; the DB `CHECK` constraint means this should never fire,
@@ -139,6 +170,9 @@ function toWidgetRow(raw: RawWidgetRow): WidgetRow {
   }
   if (kind === "progress_against_goal") {
     return { ...common, kind, display: progressAgainstGoalDisplayFrom(raw.display) };
+  }
+  if (kind === "sparkline") {
+    return { ...common, kind, display: sparklineDisplayFrom(raw.display) };
   }
   return { ...common, kind, display: listDisplayFrom(raw.display) };
 }

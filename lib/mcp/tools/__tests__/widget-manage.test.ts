@@ -80,6 +80,37 @@ describe("widgetManageTool — create", () => {
     );
   });
 
+  it("creates a sparkline widget (R12's first kind) end-to-end, dateField validated against the entity's own descending orderBy", async () => {
+    const chain = makeChain({ data: null, error: null });
+    chain.insert = vi.fn(() => makeChain({ data: { id: "new-id" }, error: null }));
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const outcome = await widgetManageTool(client, "user-1", {
+      action: "create",
+      patch: {
+        kind: "sparkline",
+        title: "Pages read trend",
+        data_source: { domain: "deen", entity: "quran_session" },
+        display: { dateField: "date", valueField: "pages_read", days: 30 },
+      },
+    });
+
+    expect(JSON.parse(textOf(outcome))).toEqual({ id: "new-id" });
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "sparkline", display: { dateField: "date", valueField: "pages_read", days: 30 } }),
+    );
+  });
+
+  it("REFUSES a sparkline whose dateField isn't the data source's own primary descending sort column", async () => {
+    const client = { from: vi.fn(() => makeChain()) } as unknown as SupabaseClient;
+    await expect(
+      widgetManageTool(client, "user-1", {
+        action: "create",
+        patch: { kind: "sparkline", title: "Tasks trend", data_source: { domain: "school", entity: "task" }, display: { dateField: "due_date" } },
+      }),
+    ).rejects.toThrow(/primary sort column, descending/i);
+  });
+
   // The structural guarantee the lead asked to be proven at the tool
   // level, not just inside validate.ts's own unit tests: a widget cannot
   // be created against a column the visibility registry excludes.

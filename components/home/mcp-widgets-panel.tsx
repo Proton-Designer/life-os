@@ -1,7 +1,20 @@
 import { Panel } from "@/components/ui/panel";
 import { McpWidgetRemoveButton } from "./mcp-widget-remove-button";
 import { removeWidget } from "@/app/(app)/widgets/actions";
-import type { RenderedWidget } from "@/lib/widgets/render";
+import type { RenderedWidget, SparklinePoint } from "@/lib/widgets/render";
+
+const SPARKLINE_VIEWBOX_WIDTH = 100;
+const SPARKLINE_VIEWBOX_HEIGHT = 28;
+
+/** A minimal hand-rolled polyline -- no charting dependency for a single trend line, consistent with "a fixed, human-built set of widget kinds... rendered by one audited renderer." Flat data (all-zero, or a single point) degrades to a flat/empty line, never a crash. */
+function sparklinePoints(points: SparklinePoint[]): string {
+  const values = points.map((p) => p.value);
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const stepX = points.length > 1 ? SPARKLINE_VIEWBOX_WIDTH / (points.length - 1) : 0;
+  return points.map((p, i) => `${(i * stepX).toFixed(2)},${(SPARKLINE_VIEWBOX_HEIGHT - ((p.value - min) / range) * SPARKLINE_VIEWBOX_HEIGHT).toFixed(2)}`).join(" ");
+}
 
 /**
  * L11/R7 Tier 1 — the one audited renderer for declarative widgets
@@ -42,6 +55,15 @@ export function McpWidgetsPanel({ widgets }: { widgets: RenderedWidget[] }) {
                   <p className="font-mono text-xs tabular-nums text-muted-foreground">
                     {widget.current}
                     {widget.hasMore && "+"} / {widget.goal} ({widget.percent}%{widget.hasMore && "+"})
+                  </p>
+                </div>
+              ) : widget.kind === "sparkline" ? (
+                <div className="mt-1 flex flex-col gap-1">
+                  <svg viewBox={`0 0 ${SPARKLINE_VIEWBOX_WIDTH} ${SPARKLINE_VIEWBOX_HEIGHT}`} className="h-7 w-full text-primary" preserveAspectRatio="none" aria-hidden>
+                    <polyline points={sparklinePoints(widget.points)} fill="none" stroke="currentColor" strokeWidth={1.5} />
+                  </svg>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {widget.points.at(-1)?.value ?? 0} today{widget.hasMore && " · earlier days may be a floor"}
                   </p>
                 </div>
               ) : (

@@ -1,5 +1,5 @@
 import "server-only";
-import { getDomain, getEntity } from "@/lib/mcp/registry";
+import { getDomain, getEntity, type EntityDef } from "@/lib/mcp/registry";
 
 /**
  * Validates a widget's `data_source`/`display` BEFORE it's ever stored —
@@ -14,7 +14,7 @@ import { getDomain, getEntity } from "@/lib/mcp/registry";
  * Two layers, not one, on purpose.
  */
 
-export const WIDGET_KINDS = ["metric_card", "list", "progress_against_goal"] as const;
+export const WIDGET_KINDS = ["metric_card", "list", "progress_against_goal", "sparkline"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 export const WIDGET_SLOTS = ["home"] as const;
@@ -67,14 +67,43 @@ export interface ProgressAgainstGoalDisplay {
   goal: number;
 }
 
-export type WidgetDisplay = MetricCardDisplay | ListDisplay | ProgressAgainstGoalDisplay;
+/**
+ * R12's kind (PROGRAM-PLAN.md) — the first of the two time-series kinds R12
+ * exists to unblock. `dateField` is the column to bucket rows into local
+ * calendar days by; `valueField` (omitted -> count rows per day, present ->
+ * sum that numeric column per day) is derived CLIENT-SIDE in render.ts over
+ * the rows `readTool()` returned, same "never a second query" rule as
+ * progress_against_goal's `sum` aggregate.
+ *
+ * `dateField` MUST be the data source entity's own PRIMARY sort column, in
+ * DESCENDING order — enforced in `validateDataSource`'s `orderBy` check
+ * below, not left as a documented assumption. Why: `render.ts` fetches up
+ * to `WIDGET_RENDER_MAX_ROWS` rows, ordered by whatever the entity's own
+ * registered `orderBy` says (unchanged by R12 — "nothing else moves").
+ * If that order were ascending, the fetched page would be the OLDEST rows,
+ * not the most recent, and a "trailing N days" sparkline would silently
+ * show a stale or empty window — precisely the "looks plausible, is wrong"
+ * failure the lead flagged, just one layer earlier than the chart itself.
+ * Every entity in the registry with a date-shaped `orderBy` already sorts
+ * descending (verified at audit time, not assumed), so this check costs
+ * nothing for any entity sparkline is actually useful against — it only
+ * ever fires for a genuinely wrong `dateField` choice.
+ */
+export interface SparklineDisplay {
+  dateField: string;
+  valueField?: string;
+  /** Trailing days to show, inclusive of today. Default 14; clamped 7-60 so WIDGET_RENDER_MAX_ROWS (100) stays comfortably ahead of daily granularity even on a busy entity. */
+  days?: number;
+}
+
+export type WidgetDisplay = MetricCardDisplay | ListDisplay | ProgressAgainstGoalDisplay | SparklineDisplay;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Validates `data_source` against the registry's own allowlists. Returns the registry's EntityDef-shaped info the caller needs (nothing sensitive — just enough to cross-check `display` against `fullColumns`). */
-export function validateDataSource(raw: unknown): { dataSource: DataSource; fullColumns: string[] } {
+/** Validates `data_source` against the registry's own allowlists. Returns the registry's EntityDef-shaped info the caller needs (nothing sensitive — just enough to cross-check `display` against `fullColumns`/`orderBy`). */
+export function validateDataSource(raw: unknown): { dataSource: DataSource; fullColumns: string[]; orderBy: EntityDef["orderBy"] } {
   if (!isPlainObject(raw)) throw new Error("data_source must be an object: { domain, entity, filter? }.");
   const domain = raw.domain;
   const entity = raw.entity;
@@ -111,7 +140,7 @@ export function validateDataSource(raw: unknown): { dataSource: DataSource; full
     throw new Error(`Entity "${entity}" requires data_source.filter.${entityDef.parentFilter.column} — it is always read scoped to one parent, never as an unscoped list.`);
   }
 
-  return { dataSource: { domain, entity, filter }, fullColumns: entityDef.fullColumns };
+  return { dataSource: { domain, entity, filter }, fullColumns: entityDef.fullColumns, orderBy: entityDef.orderBy };
 }
 
 function validateProgressAggregate(raw: unknown, fullColumns: string[]): ProgressAggregate {
@@ -126,8 +155,64 @@ function validateProgressAggregate(raw: unknown, fullColumns: string[]): Progres
   throw new Error("display.aggregate.type must be 'count' or 'sum' for a progress_against_goal widget.");
 }
 
-/** Validates `display` against `kind` and the data source entity's own `fullColumns` (so a field a widget wants to show is guaranteed selectable at render time). */
-export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: string[]): WidgetDisplay {
+function validateListDisplay(raw: Record<string, unknown>, fullColumns: string[]): ListDisplay {
+  const titleField = raw.titleField;
+  if (typeof titleField !== "string" || !titleField) throw new Error("display.titleField is required for a list widget.");
+  if (!fullColumns.includes(titleField)) throw new Error(`display.titleField "${titleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+
+  let subtitleField: string | undefined;
+  if (raw.subtitleField !== undefined) {
+    if (typeof raw.subtitleField !== "string" || !raw.subtitleField) throw new Error("display.subtitleField must be a non-empty string.");
+    if (!fullColumns.includes(raw.subtitleField)) throw new Error(`display.subtitleField "${raw.subtitleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+    subtitleField = raw.subtitleField;
+  }
+
+  let limit = 5;
+  if (raw.limit !== undefined) {
+    if (typeof raw.limit !== "number" || !Number.isInteger(raw.limit) || raw.limit < 1 || raw.limit > 10) {
+      throw new Error("display.limit must be an integer between 1 and 10.");
+    }
+    limit = raw.limit;
+  }
+
+  return { titleField, subtitleField, limit };
+}
+
+function validateSparklineDisplay(raw: Record<string, unknown>, fullColumns: string[], orderBy: EntityDef["orderBy"]): SparklineDisplay {
+  const dateField = raw.dateField;
+  if (typeof dateField !== "string" || !dateField) throw new Error("display.dateField is required for a sparkline widget.");
+  if (!fullColumns.includes(dateField)) throw new Error(`display.dateField "${dateField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+
+  // The correctness guard this file's own SparklineDisplay comment
+  // explains: fetching up to WIDGET_RENDER_MAX_ROWS only gets the most
+  // RECENT window if the entity's own orderBy sorts dateField descending.
+  const primarySort = orderBy[0];
+  if (!primarySort || primarySort.column !== dateField || primarySort.ascending !== false) {
+    throw new Error(
+      `A sparkline's dateField must be this entity's own primary sort column, descending (so the most recent rows are the ones fetched) -- "${dateField}" isn't. This entity's own order is: ${orderBy.map((o) => `${o.column} ${o.ascending ? "asc" : "desc"}`).join(", ") || "(none)"}.`,
+    );
+  }
+
+  let valueField: string | undefined;
+  if (raw.valueField !== undefined) {
+    if (typeof raw.valueField !== "string" || !raw.valueField) throw new Error("display.valueField must be a non-empty string.");
+    if (!fullColumns.includes(raw.valueField)) throw new Error(`display.valueField "${raw.valueField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+    valueField = raw.valueField;
+  }
+
+  let days = 14;
+  if (raw.days !== undefined) {
+    if (typeof raw.days !== "number" || !Number.isInteger(raw.days) || raw.days < 7 || raw.days > 60) {
+      throw new Error("display.days must be an integer between 7 and 60.");
+    }
+    days = raw.days;
+  }
+
+  return { dateField, valueField, days };
+}
+
+/** Validates `display` against `kind` and the data source entity's own `fullColumns`/`orderBy` (so a field a widget wants to show is guaranteed selectable, and a sparkline's date bucketing is guaranteed to cover the right window, at render time). */
+export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: string[], orderBy: EntityDef["orderBy"]): WidgetDisplay {
   if (!isPlainObject(raw)) throw new Error("display must be an object.");
 
   if (kind === "metric_card") {
@@ -151,27 +236,12 @@ export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: str
     return { aggregate, goal };
   }
 
+  if (kind === "sparkline") {
+    return validateSparklineDisplay(raw, fullColumns, orderBy);
+  }
+
   // kind === "list"
-  const titleField = raw.titleField;
-  if (typeof titleField !== "string" || !titleField) throw new Error("display.titleField is required for a list widget.");
-  if (!fullColumns.includes(titleField)) throw new Error(`display.titleField "${titleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
-
-  let subtitleField: string | undefined;
-  if (raw.subtitleField !== undefined) {
-    if (typeof raw.subtitleField !== "string" || !raw.subtitleField) throw new Error("display.subtitleField must be a non-empty string.");
-    if (!fullColumns.includes(raw.subtitleField)) throw new Error(`display.subtitleField "${raw.subtitleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
-    subtitleField = raw.subtitleField;
-  }
-
-  let limit = 5;
-  if (raw.limit !== undefined) {
-    if (typeof raw.limit !== "number" || !Number.isInteger(raw.limit) || raw.limit < 1 || raw.limit > 10) {
-      throw new Error("display.limit must be an integer between 1 and 10.");
-    }
-    limit = raw.limit;
-  }
-
-  return { titleField, subtitleField, limit };
+  return validateListDisplay(raw, fullColumns);
 }
 
 export function validateKind(raw: unknown): WidgetKind {

@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listWidgetsCore, type WidgetRow } from "./actions-core";
 import { readTool } from "@/lib/mcp/tools/read";
+import { localDateString, addDaysToDateString } from "@/lib/date-utils";
 import type { WidgetSlot } from "./validate";
 
 /**
@@ -20,6 +21,19 @@ import type { WidgetSlot } from "./validate";
  * instead, same "never let one bad row break the page" posture as
  * InProgressBanner/getInProgressBooks already use elsewhere on Home.
  */
+
+/**
+ * R12 (PROGRAM-PLAN.md): the ONLY place in the widget layer allowed to
+ * raise `readTool`'s page size above the MCP route's unconditional
+ * PAGE_SIZE=20 — and it is a plain module constant, never read from a
+ * widget's `data_source`/`display`. A model authoring a widget has no way
+ * to reach this number: it is not part of `DataSource`'s type, not part of
+ * any `WidgetDisplay` shape, and `validate.ts` never accepts it as input.
+ * 100 is generous headroom over a 60-day sparkline (the kind's own `days`
+ * max) at daily granularity, while staying a named, auditable bound rather
+ * than "however many the widget asks for."
+ */
+const WIDGET_RENDER_MAX_ROWS = 100;
 
 export interface RenderedMetricCard {
   id: string;
@@ -53,6 +67,21 @@ export interface RenderedProgressAgainstGoal {
   percent: number;
 }
 
+export interface SparklinePoint {
+  /** YYYY-MM-DD, the viewer's own local calendar day -- never a raw Date or a UTC slice (AGENTS.md's rule, made operational by `bucketDateKey` below). */
+  date: string;
+  value: number;
+}
+
+export interface RenderedSparkline {
+  id: string;
+  kind: "sparkline";
+  title: string;
+  points: SparklinePoint[];
+  /** True when readTool's own WIDGET_RENDER_MAX_ROWS cap means the window may be missing rows -- the chart still renders (never an error for this alone), but the caller should treat the oldest point(s) as a possible floor, same honesty posture as every other kind's `hasMore`. */
+  hasMore: boolean;
+}
+
 export interface RenderedWidgetError {
   id: string;
   kind: WidgetRow["kind"];
@@ -60,16 +89,46 @@ export interface RenderedWidgetError {
   error: string;
 }
 
-export type RenderedWidget = RenderedMetricCard | RenderedList | RenderedProgressAgainstGoal | RenderedWidgetError;
+export type RenderedWidget = RenderedMetricCard | RenderedList | RenderedProgressAgainstGoal | RenderedSparkline | RenderedWidgetError;
 
-async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRow): Promise<RenderedWidget> {
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Buckets one row's date/timestamp field into a local calendar day —
+ * AGENTS.md's rule, made operational. A DATE-ONLY stored value (e.g.
+ * "2026-09-08") is how this app's own write paths already compute a
+ * calendar date (via `localDateString`/the user's own local day, never
+ * `current_date`/UTC) — it is ALREADY the right day and is used AS-IS,
+ * never re-parsed through `new Date()`. Doing that would reinterpret an
+ * already-local date as a UTC instant and could shift it a day in either
+ * direction depending on the viewer's timezone — the exact "inverse bug"
+ * AGENTS.md warns a normalizing function can reintroduce. A full
+ * timestamp (has a time component, e.g. a `checkin_time`) genuinely needs
+ * the viewer's own timezone to resolve to a calendar day, via
+ * `localDateString` — never `toISOString().slice(0, 10)`, which is always
+ * UTC regardless of the viewer.
+ */
+function bucketDateKey(rawValue: unknown, timezone: string): string | null {
+  if (typeof rawValue !== "string" || !rawValue) return null;
+  if (DATE_ONLY_RE.test(rawValue)) return rawValue;
+  const parsed = new Date(rawValue);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return localDateString(parsed, timezone);
+}
+
+async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRow, now: Date, timezone: string): Promise<RenderedWidget> {
   try {
-    const outcome = await readTool(supabase, userId, {
+    const readArgs = {
       domain: row.data_source.domain,
       entity: row.data_source.entity,
       filter: row.data_source.filter,
-      detail: "full",
-    });
+      detail: "full" as const,
+    };
+    // Only the sparkline kind passes a 4th argument at all -- every other
+    // kind calls readTool exactly as the MCP route itself would (3
+    // arguments), so existing call-shape assertions for those kinds stay
+    // meaningful rather than needing to know about a parameter they don't use.
+    const outcome = row.kind === "sparkline" ? await readTool(supabase, userId, readArgs, { maxRows: WIDGET_RENDER_MAX_ROWS }) : await readTool(supabase, userId, readArgs);
     const payload = outcome.result.structuredContent as { items: Record<string, unknown>[]; has_more: boolean };
     const items = payload.items ?? [];
 
@@ -107,6 +166,33 @@ async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRo
       return { id: row.id, kind: "progress_against_goal", title: row.title, current, hasMore: payload.has_more, goal: display.goal, percent };
     }
 
+    if (row.kind === "sparkline") {
+      // `row.display` is narrowed to `SparklineDisplay` here, same mechanism as above.
+      const display = row.display;
+      const days = display.days ?? 14;
+      const today = localDateString(now, timezone);
+      // Oldest -> newest, inclusive of today -- the x-axis of the chart,
+      // built independently of which rows actually came back, so a day
+      // with zero matching rows renders as a real 0, not a gap.
+      const dayKeys: string[] = [];
+      for (let i = days - 1; i >= 0; i--) dayKeys.push(addDaysToDateString(today, -i));
+      const valueByDay = new Map<string, number>(dayKeys.map((d) => [d, 0]));
+
+      for (const item of items) {
+        const dayKey = bucketDateKey(item[display.dateField], timezone);
+        if (dayKey === null || !valueByDay.has(dayKey)) continue; // outside the requested window, or unparseable -- never guessed
+        if (display.valueField) {
+          const raw = item[display.valueField];
+          if (typeof raw === "number" && Number.isFinite(raw)) valueByDay.set(dayKey, (valueByDay.get(dayKey) ?? 0) + raw);
+        } else {
+          valueByDay.set(dayKey, (valueByDay.get(dayKey) ?? 0) + 1);
+        }
+      }
+
+      const points: SparklinePoint[] = dayKeys.map((date) => ({ date, value: valueByDay.get(date) ?? 0 }));
+      return { id: row.id, kind: "sparkline", title: row.title, points, hasMore: payload.has_more };
+    }
+
     // kind === "list" — `row.display` is narrowed to `ListDisplay`, same mechanism as above.
     const display = row.display;
     const limit = display.limit ?? 5;
@@ -120,7 +206,7 @@ async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRo
   }
 }
 
-export async function renderWidgets(supabase: SupabaseClient, userId: string, slot: WidgetSlot): Promise<RenderedWidget[]> {
+export async function renderWidgets(supabase: SupabaseClient, userId: string, slot: WidgetSlot, now: Date, timezone: string): Promise<RenderedWidget[]> {
   let rows;
   try {
     rows = await listWidgetsCore(supabase, userId, slot);
@@ -134,5 +220,5 @@ export async function renderWidgets(supabase: SupabaseClient, userId: string, sl
     // failure here would mean something real again.
     return [];
   }
-  return Promise.all(rows.map((row) => renderOne(supabase, userId, row)));
+  return Promise.all(rows.map((row) => renderOne(supabase, userId, row, now, timezone)));
 }

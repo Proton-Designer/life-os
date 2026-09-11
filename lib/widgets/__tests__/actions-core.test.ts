@@ -49,14 +49,26 @@ const PROGRESS_ROW = {
   updated_at: "2026-09-08T12:00:00Z",
 };
 
+const SPARKLINE_ROW = {
+  id: "w4",
+  kind: "sparkline",
+  title: "Pages read trend",
+  data_source: { domain: "deen", entity: "quran_session" },
+  display: { dateField: "date", valueField: "pages_read", days: 30 },
+  slot: "home",
+  position: 3,
+  status: "active",
+  updated_at: "2026-09-08T12:00:00Z",
+};
+
 describe("listWidgetsCore", () => {
   it("returns rows narrowed to a real discriminated union keyed by kind", async () => {
-    const chain = makeChain({ data: [METRIC_ROW, LIST_ROW, PROGRESS_ROW], error: null });
+    const chain = makeChain({ data: [METRIC_ROW, LIST_ROW, PROGRESS_ROW, SPARKLINE_ROW], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
 
     const rows = await listWidgetsCore(client, "user-1");
 
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows[0].kind).toBe("metric_card");
     if (rows[0].kind === "metric_card") {
       // Compiles (and passes) only because WidgetRow is a real discriminated
@@ -75,6 +87,14 @@ describe("listWidgetsCore", () => {
       // MetricCardDisplay/ListDisplay.
       expect(rows[2].display.goal).toBe(50);
       expect(rows[2].display.aggregate).toEqual({ type: "sum", field: "pages_read" });
+    }
+    expect(rows[3].kind).toBe("sparkline");
+    if (rows[3].kind === "sparkline") {
+      // Same compile-time proof again -- `dateField` doesn't exist on any
+      // other display shape.
+      expect(rows[3].display.dateField).toBe("date");
+      expect(rows[3].display.valueField).toBe("pages_read");
+      expect(rows[3].display.days).toBe(30);
     }
   });
 
@@ -123,6 +143,16 @@ describe("listWidgetsCore", () => {
     const rows = await listWidgetsCore(client, "user-1");
     expect(rows[0].kind).toBe("progress_against_goal");
     if (rows[0].kind === "progress_against_goal") expect(rows[0].display).toEqual({ aggregate: { type: "count" }, goal: 1 });
+  });
+
+  it("falls back to a safe sparkline display (dateField:'id', which bucketDateKey can never parse as a date -- an honestly EMPTY chart, never a crash) for a tampered row", async () => {
+    const corrupt = { ...SPARKLINE_ROW, display: { titleField: "not-a-sparkline-shape" } };
+    const chain = makeChain({ data: [corrupt], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const rows = await listWidgetsCore(client, "user-1");
+    expect(rows[0].kind).toBe("sparkline");
+    if (rows[0].kind === "sparkline") expect(rows[0].display).toEqual({ dateField: "id", days: 14 });
   });
 });
 

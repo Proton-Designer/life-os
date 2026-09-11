@@ -65,8 +65,8 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
     case "create": {
       const kind = validateKind(patch.kind);
       const title = typeof patch.title === "string" && patch.title ? patch.title : (() => { throw new Error("patch.title is required."); })();
-      const { dataSource, fullColumns } = validateDataSource(patch.data_source);
-      const display = validateDisplay(kind, patch.display, fullColumns);
+      const { dataSource, fullColumns, orderBy } = validateDataSource(patch.data_source);
+      const display = validateDisplay(kind, patch.display, fullColumns, orderBy);
       const slot = validateSlot(patch.slot);
       const id = await createWidgetCore(supabase, userId, { kind, title, dataSource, display, slot });
       return {
@@ -95,18 +95,24 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
       }
 
       let fullColumns: string[] | undefined;
+      let orderBy: ReturnType<typeof validateDataSource>["orderBy"] | undefined;
       if (patch.data_source !== undefined) {
         const validated = validateDataSource(patch.data_source);
         update.dataSource = validated.dataSource;
         fullColumns = validated.fullColumns;
+        orderBy = validated.orderBy;
       }
 
       if (patch.display !== undefined) {
         // No fresh data_source in this update -- re-validate the widget's
-        // EXISTING (unchanged) data_source to get its fullColumns, rather
-        // than requiring the caller to resend it just to change display.
-        if (!fullColumns) fullColumns = validateDataSource(existing.data_source).fullColumns;
-        update.display = validateDisplay(existing.kind, patch.display, fullColumns);
+        // EXISTING (unchanged) data_source to get its fullColumns/orderBy,
+        // rather than requiring the caller to resend it just to change display.
+        if (!fullColumns || !orderBy) {
+          const existingValidated = validateDataSource(existing.data_source);
+          fullColumns = existingValidated.fullColumns;
+          orderBy = existingValidated.orderBy;
+        }
+        update.display = validateDisplay(existing.kind, patch.display, fullColumns, orderBy);
       }
 
       if (patch.position !== undefined) {
