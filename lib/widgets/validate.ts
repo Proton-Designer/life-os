@@ -14,7 +14,7 @@ import { getDomain, getEntity, type EntityDef } from "@/lib/mcp/registry";
  * Two layers, not one, on purpose.
  */
 
-export const WIDGET_KINDS = ["metric_card", "list", "progress_against_goal", "sparkline"] as const;
+export const WIDGET_KINDS = ["metric_card", "list", "progress_against_goal", "sparkline", "streak"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 export const WIDGET_SLOTS = ["home"] as const;
@@ -88,6 +88,28 @@ export interface ProgressAgainstGoalDisplay {
  * descending (verified at audit time, not assumed), so this check costs
  * nothing for any entity sparkline is actually useful against — it only
  * ever fires for a genuinely wrong `dateField` choice.
+ *
+ * MEASURED, not guessed, once the lead asked what this guard actually
+ * blocks (positive-controlled scan over all 57 registered entities): 30
+ * eligible (primary sort is a date column, descending — exactly the "how
+ * am I doing over time" surfaces: prayer, quran_session, habit_log,
+ * work_session, kill_list_item, class_assessment, workout_session,
+ * body_metric, self_mastery.review...), 4 blocked (`school.task.due_date`,
+ * `school.schedule_event_override.date`,
+ * `school.schedule_event_cancellation.date`,
+ * `self_mastery.card_state.due_at`), 23 with no usable date primary at all.
+ * The 4 blocked ones sort ASCENDING because they are forward-looking —
+ * due dates, upcoming events, cards due next — and a "trailing N days"
+ * chart of a due-date column isn't a trend, it's a forecast wearing a
+ * trend's costume. The guard isn't an arbitrary restriction that happens
+ * to be safe; the ascending sort IS the signal that a column means "about
+ * the future," and blocking on it blocks exactly the right set.
+ *
+ * If a forward-looking chart is ever wanted (a forecast/upcoming-load
+ * bar for due dates or upcoming events), that is a DIFFERENT kind to
+ * build — never this one with the guard relaxed. Relaxing it here would
+ * let a sparkline draw a confident-looking line through data it
+ * fundamentally cannot represent correctly.
  */
 export interface SparklineDisplay {
   dateField: string;
@@ -96,7 +118,26 @@ export interface SparklineDisplay {
   days?: number;
 }
 
-export type WidgetDisplay = MetricCardDisplay | ListDisplay | ProgressAgainstGoalDisplay | SparklineDisplay;
+/**
+ * R12's second kind — the other time-series surface the raised row limit
+ * exists to unblock. Consecutive DAYS (not rows) with at least one
+ * matching row, walking backward from today. "Matching" is whatever
+ * `data_source.filter` already narrows to (e.g. `{completed: true}` for a
+ * habit's own completion streak) — streak itself adds no second filtering
+ * concept, it only asks "was there a hit on day X," reusing the exact
+ * mechanism every other kind already uses to narrow rows.
+ *
+ * Same `dateField`-must-be-primary-descending-sort guard as sparkline, and
+ * for the identical reason: `render.ts` fetches up to
+ * `WIDGET_RENDER_MAX_ROWS` rows ordered by the entity's own `orderBy`, and
+ * a streak walk needs those to be the MOST RECENT rows to be counting the
+ * right end of history.
+ */
+export interface StreakDisplay {
+  dateField: string;
+}
+
+export type WidgetDisplay = MetricCardDisplay | ListDisplay | ProgressAgainstGoalDisplay | SparklineDisplay | StreakDisplay;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -178,20 +219,33 @@ function validateListDisplay(raw: Record<string, unknown>, fullColumns: string[]
   return { titleField, subtitleField, limit };
 }
 
-function validateSparklineDisplay(raw: Record<string, unknown>, fullColumns: string[], orderBy: EntityDef["orderBy"]): SparklineDisplay {
-  const dateField = raw.dateField;
-  if (typeof dateField !== "string" || !dateField) throw new Error("display.dateField is required for a sparkline widget.");
+/**
+ * Shared by sparkline and streak — both fetch up to `WIDGET_RENDER_MAX_ROWS`
+ * rows ordered by the entity's own registered `orderBy`, so both need that
+ * order to actually be "most recent first" along the column they bucket by.
+ * `kindLabel` only changes the error message's wording, not the check.
+ */
+function validateDateFieldIsPrimaryDescendingSort(dateField: string, fullColumns: string[], orderBy: EntityDef["orderBy"], kindLabel: string): void {
   if (!fullColumns.includes(dateField)) throw new Error(`display.dateField "${dateField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
-
-  // The correctness guard this file's own SparklineDisplay comment
-  // explains: fetching up to WIDGET_RENDER_MAX_ROWS only gets the most
-  // RECENT window if the entity's own orderBy sorts dateField descending.
   const primarySort = orderBy[0];
   if (!primarySort || primarySort.column !== dateField || primarySort.ascending !== false) {
     throw new Error(
-      `A sparkline's dateField must be this entity's own primary sort column, descending (so the most recent rows are the ones fetched) -- "${dateField}" isn't. This entity's own order is: ${orderBy.map((o) => `${o.column} ${o.ascending ? "asc" : "desc"}`).join(", ") || "(none)"}.`,
+      `A ${kindLabel}'s dateField must be this entity's own primary sort column, descending (so the most recent rows are the ones fetched) -- "${dateField}" isn't. This entity's own order is: ${orderBy.map((o) => `${o.column} ${o.ascending ? "asc" : "desc"}`).join(", ") || "(none)"}.`,
     );
   }
+}
+
+function validateStreakDisplay(raw: Record<string, unknown>, fullColumns: string[], orderBy: EntityDef["orderBy"]): StreakDisplay {
+  const dateField = raw.dateField;
+  if (typeof dateField !== "string" || !dateField) throw new Error("display.dateField is required for a streak widget.");
+  validateDateFieldIsPrimaryDescendingSort(dateField, fullColumns, orderBy, "streak");
+  return { dateField };
+}
+
+function validateSparklineDisplay(raw: Record<string, unknown>, fullColumns: string[], orderBy: EntityDef["orderBy"]): SparklineDisplay {
+  const dateField = raw.dateField;
+  if (typeof dateField !== "string" || !dateField) throw new Error("display.dateField is required for a sparkline widget.");
+  validateDateFieldIsPrimaryDescendingSort(dateField, fullColumns, orderBy, "sparkline");
 
   let valueField: string | undefined;
   if (raw.valueField !== undefined) {
@@ -238,6 +292,10 @@ export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: str
 
   if (kind === "sparkline") {
     return validateSparklineDisplay(raw, fullColumns, orderBy);
+  }
+
+  if (kind === "streak") {
+    return validateStreakDisplay(raw, fullColumns, orderBy);
   }
 
   // kind === "list"

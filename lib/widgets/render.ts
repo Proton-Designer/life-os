@@ -82,6 +82,42 @@ export interface RenderedSparkline {
   hasMore: boolean;
 }
 
+export interface RenderedStreak {
+  id: string;
+  kind: "streak";
+  title: string;
+  /**
+   * Consecutive local calendar days with a hit, counting backward from the
+   * most recent day that HAS one -- which is "today" unless `todayPending`
+   * is true, in which case the count runs through yesterday instead (see
+   * below). This is never a raw row count -- multiple hits on the same
+   * local day collapse to one, via the same `bucketDateKey` day-bucketing
+   * every other date-based kind uses.
+   */
+  streak: number;
+  /**
+   * True when the viewer's own "today" (`localDateString(now, timezone)`)
+   * has no hit yet. Reported separately rather than folded into `streak`
+   * as a de-facto 0 -- the day isn't over, so "no streak" would be a lie
+   * the same way reporting tomorrow's date would be; the UI can render
+   * "4-day streak, today not yet logged" instead of a misleading "0".
+   */
+  todayPending: boolean;
+  /**
+   * True only when the backward walk consumed every row `readTool` fetched
+   * (up to WIDGET_RENDER_MAX_ROWS) without ever finding a day that breaks
+   * the streak, AND the read itself reports `has_more` (more rows exist,
+   * further back, that were never fetched). In that case the true streak
+   * may be longer than `streak` -- reported as a floor, same honesty
+   * convention as every other kind's `hasMore`, never silently rounded up
+   * or down. A CONFIRMED miss (a day inside the fetched window with no
+   * hit) always stops the count exactly and sets this false, regardless of
+   * what `has_more` says -- rows further back than a confirmed break don't
+   * matter; the streak already ended.
+   */
+  hasMore: boolean;
+}
+
 export interface RenderedWidgetError {
   id: string;
   kind: WidgetRow["kind"];
@@ -89,7 +125,7 @@ export interface RenderedWidgetError {
   error: string;
 }
 
-export type RenderedWidget = RenderedMetricCard | RenderedList | RenderedProgressAgainstGoal | RenderedSparkline | RenderedWidgetError;
+export type RenderedWidget = RenderedMetricCard | RenderedList | RenderedProgressAgainstGoal | RenderedSparkline | RenderedStreak | RenderedWidgetError;
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -124,11 +160,14 @@ async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRo
       filter: row.data_source.filter,
       detail: "full" as const,
     };
-    // Only the sparkline kind passes a 4th argument at all -- every other
+    // Only kinds that need to look BACKWARD across many rows to find a
+    // trailing window pass a 4th argument at all (sparkline's fixed N-day
+    // chart, streak's "how far back does this run" walk) -- every other
     // kind calls readTool exactly as the MCP route itself would (3
     // arguments), so existing call-shape assertions for those kinds stay
     // meaningful rather than needing to know about a parameter they don't use.
-    const outcome = row.kind === "sparkline" ? await readTool(supabase, userId, readArgs, { maxRows: WIDGET_RENDER_MAX_ROWS }) : await readTool(supabase, userId, readArgs);
+    const needsRaisedLimit = row.kind === "sparkline" || row.kind === "streak";
+    const outcome = needsRaisedLimit ? await readTool(supabase, userId, readArgs, { maxRows: WIDGET_RENDER_MAX_ROWS }) : await readTool(supabase, userId, readArgs);
     const payload = outcome.result.structuredContent as { items: Record<string, unknown>[]; has_more: boolean };
     const items = payload.items ?? [];
 
@@ -191,6 +230,45 @@ async function renderOne(supabase: SupabaseClient, userId: string, row: WidgetRo
 
       const points: SparklinePoint[] = dayKeys.map((date) => ({ date, value: valueByDay.get(date) ?? 0 }));
       return { id: row.id, kind: "sparkline", title: row.title, points, hasMore: payload.has_more };
+    }
+
+    if (row.kind === "streak") {
+      // `row.display` is narrowed to `StreakDisplay` here, same mechanism as above.
+      const display = row.display;
+      const hitDays = new Set<string>();
+      let oldestFetched: string | null = null;
+      for (const item of items) {
+        const dayKey = bucketDateKey(item[display.dateField], timezone);
+        if (dayKey === null) continue;
+        hitDays.add(dayKey);
+        if (oldestFetched === null || dayKey < oldestFetched) oldestFetched = dayKey;
+      }
+
+      const today = localDateString(now, timezone);
+      const todayPending = !hitDays.has(today);
+      // The count always runs through the most recent day that HAS a hit --
+      // today itself, unless todayPending (today just hasn't happened yet).
+      let cursor = todayPending ? addDaysToDateString(today, -1) : today;
+      let streak = 0;
+      let hasMore = false;
+      while (hitDays.has(cursor)) {
+        streak++;
+        if (oldestFetched !== null && cursor === oldestFetched) {
+          // Walked all the way back to the oldest row the fetch actually
+          // saw, without ever finding a confirmed miss. Whether the streak
+          // truly stops here or continues further back depends entirely on
+          // rows this fetch never saw -- which is exactly what readTool's
+          // own `has_more` already tells us, so defer to it rather than
+          // guessing. A CONFIRMED miss (the while condition going false
+          // above, on its own, before reaching this line) always wins
+          // instead: rows further back than an actual break don't matter.
+          hasMore = payload.has_more;
+          break;
+        }
+        cursor = addDaysToDateString(cursor, -1);
+      }
+
+      return { id: row.id, kind: "streak", title: row.title, streak, todayPending, hasMore };
     }
 
     // kind === "list" — `row.display` is narrowed to `ListDisplay`, same mechanism as above.

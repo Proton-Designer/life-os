@@ -66,6 +66,14 @@ export function McpWidgetsPanel({ widgets }: { widgets: RenderedWidget[] }) {
                     {widget.points.at(-1)?.value ?? 0} today{widget.hasMore && " · earlier days may be a floor"}
                   </p>
                 </div>
+              ) : widget.kind === "streak" ? (
+                <div className="mt-1 flex flex-col gap-1">
+                  <p className="font-mono text-xl font-semibold tabular-nums">
+                    {widget.streak}
+                    {widget.hasMore && "+"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{widget.todayPending ? "Today not yet logged" : "Up to date today"}</p>
+                </div>
               ) : (
                 <div className="mt-1 flex flex-col gap-1">
                   {widget.items.length === 0 ? (

@@ -208,12 +208,56 @@ describe("validateDisplay — refuses any field outside the data source's fullCo
   });
 });
 
+// R12's second kind — same raised-limit unblock as sparkline, same
+// dateField-must-be-primary-descending-sort guard (reusing the exact shared
+// helper sparkline's own guard tests above exercise), but a simpler display
+// shape: just `dateField`, no valueField/days.
+describe("validateDisplay — streak", () => {
+  it("accepts a dateField that IS the entity's own primary descending sort", () => {
+    const { fullColumns, orderBy } = validateDataSource({ domain: "deen", entity: "quran_session" });
+    expect(validateDisplay("streak", { dateField: "date" }, fullColumns, orderBy)).toEqual({ dateField: "date" });
+  });
+
+  it("rejects a missing dateField", () => {
+    const { fullColumns, orderBy } = validateDataSource({ domain: "deen", entity: "quran_session" });
+    expect(() => validateDisplay("streak", {}, fullColumns, orderBy)).toThrow(/dateField is required/i);
+  });
+
+  it("rejects a dateField outside fullColumns (the excluded-column proof, same as every other kind)", () => {
+    const { fullColumns, orderBy } = validateDataSource({ domain: "self_mastery", entity: "source_chunks" });
+    expect(() => validateDisplay("streak", { dateField: "text" }, fullColumns, orderBy)).toThrow(/not a column on this widget's data source/i);
+  });
+
+  // Same guard, same reason as sparkline's: render.ts's raised-limit fetch
+  // relies entirely on the entity's own registered orderBy to determine
+  // which rows come back, so a streak walking backward through an
+  // ascending-sorted dateField would be counting the wrong end of history.
+  it("rejects a dateField whose entity sorts it ascending (school.task.due_date) — the same forward-looking columns sparkline's guard blocks", () => {
+    const { fullColumns, orderBy } = validateDataSource({ domain: "school", entity: "task" });
+    expect(() => validateDisplay("streak", { dateField: "due_date" }, fullColumns, orderBy)).toThrow(/primary sort column, descending/i);
+  });
+
+  it("rejects a dateField that isn't the PRIMARY sort column at all, even sorted descending as a secondary key", () => {
+    const { fullColumns, orderBy } = validateDataSource({ domain: "school", entity: "task" });
+    expect(() => validateDisplay("streak", { dateField: "created_at" }, fullColumns, orderBy)).toThrow(/primary sort column, descending/i);
+  });
+
+  it("accepts the real production counter-example: deen.habit_log, whose dateField is its own primary descending sort", () => {
+    const { fullColumns, orderBy } = validateDataSource({ domain: "deen", entity: "habit_log" });
+    expect(orderBy[0]?.ascending).toBe(false);
+    const dateField = orderBy[0]!.column;
+    expect(fullColumns).toContain(dateField);
+    expect(() => validateDisplay("streak", { dateField }, fullColumns, orderBy)).not.toThrow();
+  });
+});
+
 describe("validateKind / validateSlot", () => {
-  it("accepts the four real kinds and rejects anything else", () => {
+  it("accepts the five real kinds and rejects anything else", () => {
     expect(validateKind("metric_card")).toBe("metric_card");
     expect(validateKind("list")).toBe("list");
     expect(validateKind("progress_against_goal")).toBe("progress_against_goal");
     expect(validateKind("sparkline")).toBe("sparkline");
+    expect(validateKind("streak")).toBe("streak");
     expect(() => validateKind("chart")).toThrow(/kind must be one of/);
   });
 

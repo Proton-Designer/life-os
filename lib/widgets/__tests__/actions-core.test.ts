@@ -61,14 +61,26 @@ const SPARKLINE_ROW = {
   updated_at: "2026-09-08T12:00:00Z",
 };
 
+const STREAK_ROW = {
+  id: "w5",
+  kind: "streak",
+  title: "Quran reading streak",
+  data_source: { domain: "deen", entity: "quran_session" },
+  display: { dateField: "date" },
+  slot: "home",
+  position: 4,
+  status: "active",
+  updated_at: "2026-09-08T12:00:00Z",
+};
+
 describe("listWidgetsCore", () => {
   it("returns rows narrowed to a real discriminated union keyed by kind", async () => {
-    const chain = makeChain({ data: [METRIC_ROW, LIST_ROW, PROGRESS_ROW, SPARKLINE_ROW], error: null });
+    const chain = makeChain({ data: [METRIC_ROW, LIST_ROW, PROGRESS_ROW, SPARKLINE_ROW, STREAK_ROW], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
 
     const rows = await listWidgetsCore(client, "user-1");
 
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     expect(rows[0].kind).toBe("metric_card");
     if (rows[0].kind === "metric_card") {
       // Compiles (and passes) only because WidgetRow is a real discriminated
@@ -95,6 +107,13 @@ describe("listWidgetsCore", () => {
       expect(rows[3].display.dateField).toBe("date");
       expect(rows[3].display.valueField).toBe("pages_read");
       expect(rows[3].display.days).toBe(30);
+    }
+    expect(rows[4].kind).toBe("streak");
+    if (rows[4].kind === "streak") {
+      // Same compile-time proof again -- a streak's display has ONLY
+      // `dateField` (no valueField/days), and this still compiles because
+      // `rows[4].display` is narrowed to exactly `StreakDisplay` here.
+      expect(rows[4].display.dateField).toBe("date");
     }
   });
 
@@ -153,6 +172,16 @@ describe("listWidgetsCore", () => {
     const rows = await listWidgetsCore(client, "user-1");
     expect(rows[0].kind).toBe("sparkline");
     if (rows[0].kind === "sparkline") expect(rows[0].display).toEqual({ dateField: "id", days: 14 });
+  });
+
+  it("falls back to a safe streak display (dateField:'id', same 'a uuid is never a date' reasoning as sparkline's fallback -- degrades to an honest streak of 0, never a crash or a fabricated count) for a tampered row", async () => {
+    const corrupt = { ...STREAK_ROW, display: { titleField: "not-a-streak-shape" } };
+    const chain = makeChain({ data: [corrupt], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const rows = await listWidgetsCore(client, "user-1");
+    expect(rows[0].kind).toBe("streak");
+    if (rows[0].kind === "streak") expect(rows[0].display).toEqual({ dateField: "id" });
   });
 });
 

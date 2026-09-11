@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DataSource, ListDisplay, MetricCardDisplay, ProgressAgainstGoalDisplay, SparklineDisplay, WidgetDisplay, WidgetKind, WidgetSlot, WidgetStatus } from "./validate";
+import type { DataSource, ListDisplay, MetricCardDisplay, ProgressAgainstGoalDisplay, SparklineDisplay, StreakDisplay, WidgetDisplay, WidgetKind, WidgetSlot, WidgetStatus } from "./validate";
 import { validateKind } from "./validate";
 
 /**
@@ -69,6 +69,17 @@ export type WidgetRow =
       title: string;
       data_source: DataSource;
       display: SparklineDisplay;
+      slot: WidgetSlot;
+      position: number;
+      status: WidgetStatus;
+      updated_at: string;
+    }
+  | {
+      id: string;
+      kind: "streak";
+      title: string;
+      data_source: DataSource;
+      display: StreakDisplay;
       slot: WidgetSlot;
       position: number;
       status: WidgetStatus;
@@ -142,6 +153,14 @@ function sparklineDisplayFrom(display: unknown): SparklineDisplay {
   return { dateField: "id", days: 14 };
 }
 
+/** Same fallback reasoning as sparklineDisplayFrom above -- `dateField:"id"` degrades a tampered row to a streak that can never find a hit (a uuid is never a date), i.e. an honest 0, never a crash or a fabricated number. */
+function streakDisplayFrom(display: unknown): StreakDisplay {
+  if (isPlainObject(display) && typeof display.dateField === "string" && display.dateField) {
+    return { dateField: display.dateField };
+  }
+  return { dateField: "id" };
+}
+
 /**
  * The single place a raw DB row becomes a real `WidgetRow` discriminated
  * union — `kind` is validated once here (via the same `validateKind` used
@@ -173,6 +192,9 @@ function toWidgetRow(raw: RawWidgetRow): WidgetRow {
   }
   if (kind === "sparkline") {
     return { ...common, kind, display: sparklineDisplayFrom(raw.display) };
+  }
+  if (kind === "streak") {
+    return { ...common, kind, display: streakDisplayFrom(raw.display) };
   }
   return { ...common, kind, display: listDisplayFrom(raw.display) };
 }

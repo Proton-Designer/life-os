@@ -371,4 +371,189 @@ describe("renderWidgets", () => {
       });
     });
   });
+
+  // R12's second kind -- the streak walk, same raised-limit unblock as
+  // sparkline. The lead's explicit design question this kind answers: what
+  // happens when the fetched window runs out before a real miss is found?
+  // "100+" is honest, "100" is a lie -- same floor discipline as has_more
+  // elsewhere, carried explicitly rather than left implicit.
+  describe("streak", () => {
+    beforeEach(() => {
+      // Same accumulation hazard as the sparkline block above -- this
+      // block's own tests assert on call COUNT, which is not
+      // accumulation-safe against the file-level readToolMock.
+      readToolMock.mockClear();
+    });
+
+    function streakWidget(overrides: Record<string, unknown> = {}) {
+      return [
+        {
+          id: "w1",
+          kind: "streak",
+          title: "Quran reading streak",
+          data_source: { domain: "deen", entity: "quran_session" },
+          display: { dateField: "date" },
+          slot: "home",
+          position: 0,
+          status: "active",
+          updated_at: "x",
+          ...overrides,
+        },
+      ];
+    }
+
+    it("POSITIVE CONTROL: toHaveBeenCalledTimes(1) actually fails when readTool is called twice -- proven before trusting it to report once below", async () => {
+      readToolMock();
+      readToolMock();
+      expect(() => expect(readToolMock).toHaveBeenCalledTimes(1)).toThrow();
+      readToolMock.mockClear();
+    });
+
+    it("calls readTool exactly once per widget, with options.maxRows -- same raised-limit mechanism as sparkline", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([]));
+      const client = makeListWidgetsClient(streakWidget());
+
+      await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+
+      expect(readToolMock).toHaveBeenCalledTimes(1);
+      expect(readToolMock).toHaveBeenCalledWith(
+        client,
+        "user-1",
+        { domain: "deen", entity: "quran_session", filter: undefined, detail: "full" },
+        { maxRows: 100 },
+      );
+    });
+
+    it("an EMPTY fetch is an honest 0 -- today pending, no streak, no floor claimed", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([], false));
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+      if (rendered.kind !== "streak") throw new Error("expected streak");
+      expect(rendered).toEqual({ id: "w1", kind: "streak", title: "Quran reading streak", streak: 0, todayPending: true, hasMore: false });
+    });
+
+    // The subtle correctness case the lead's design question was really
+    // about: a CONFIRMED miss (a day inside the fetched window with no hit)
+    // must stop the count exactly and win over `has_more`, regardless of
+    // what has_more says -- rows further back than an actual break don't
+    // matter, the streak already ended. `has_more:true` is deliberately set
+    // here so a bug that let has_more override a real break would flip this
+    // test red.
+    it("a CONFIRMED miss stops the count exactly, and wins over has_more even when has_more is true", async () => {
+      readToolMock.mockResolvedValueOnce(
+        outcomeFor(
+          [{ date: "2026-09-09" }, { date: "2026-09-08" }, { date: "2026-09-07" }, { date: "2026-09-05" }], // gap at 2026-09-06
+          true,
+        ),
+      );
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+      if (rendered.kind !== "streak") throw new Error("expected streak");
+      expect(rendered).toEqual({ id: "w1", kind: "streak", title: "Quran reading streak", streak: 3, todayPending: false, hasMore: false });
+    });
+
+    it("todayPending:true when today has no hit yet -- the count runs through yesterday instead of reporting a misleading 0", async () => {
+      readToolMock.mockResolvedValueOnce(
+        outcomeFor(
+          [{ date: "2026-09-08" }, { date: "2026-09-07" }, { date: "2026-09-04" }], // gap at 2026-09-06/05, no hit on 2026-09-09 (today)
+          false,
+        ),
+      );
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+      if (rendered.kind !== "streak") throw new Error("expected streak");
+      expect(rendered).toEqual({ id: "w1", kind: "streak", title: "Quran reading streak", streak: 2, todayPending: true, hasMore: false });
+    });
+
+    // The exhausted-window case, both sides: the walk consumes every row the
+    // fetch actually returned without ever finding a miss. Whether that's an
+    // exact count or a floor depends ENTIRELY on readTool's own has_more --
+    // never on a guess about what lies beyond the fetch.
+    it("EXHAUSTED window + has_more:true -- the true streak may run longer than the fetch could see, reported as an honest floor", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ date: "2026-09-09" }, { date: "2026-09-08" }, { date: "2026-09-07" }], true));
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+      if (rendered.kind !== "streak") throw new Error("expected streak");
+      expect(rendered).toEqual({ id: "w1", kind: "streak", title: "Quran reading streak", streak: 3, todayPending: false, hasMore: true });
+    });
+
+    it("EXHAUSTED window + has_more:false -- the fetch saw the entire data source, so the same count is exact, not a floor", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ date: "2026-09-09" }, { date: "2026-09-08" }, { date: "2026-09-07" }], false));
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+      if (rendered.kind !== "streak") throw new Error("expected streak");
+      expect(rendered).toEqual({ id: "w1", kind: "streak", title: "Quran reading streak", streak: 3, todayPending: false, hasMore: false });
+    });
+
+    it("multiple rows on the same local day collapse to one hit, not a longer streak", async () => {
+      readToolMock.mockResolvedValueOnce(outcomeFor([{ date: "2026-09-09" }, { date: "2026-09-09" }, { date: "2026-09-09" }], false));
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+      if (rendered.kind !== "streak") throw new Error("expected streak");
+      expect(rendered.streak).toBe(1);
+    });
+
+    it("a streak whose data source has gone stale renders its OWN error, same isolation as every other kind", async () => {
+      readToolMock.mockRejectedValueOnce(new Error("Unknown entity \"quran_session\" for domain \"deen\""));
+      const client = makeListWidgetsClient(streakWidget());
+      const [rendered] = await renderWidgets(client, "user-1", "home", NOW, TIMEZONE);
+      expect(rendered).toEqual({ id: "w1", kind: "streak", title: "Quran reading streak", error: 'Unknown entity "quran_session" for domain "deen"' });
+    });
+
+    // AGENTS.md's rule, pinned at the boundary -- same discipline as
+    // sparkline's boundary tests, applied to streak's "is today/yesterday a
+    // hit" determination rather than a chart's bucketing.
+    describe("UTC rollover boundary — a TIMESTAMP dateField value, never a date-only string", () => {
+      it("18:59 and 19:01 America/Chicago (either side of the UTC day-rollover) both bucket into the SAME local day (yesterday, not today)", async () => {
+        // 18:59 CDT on 2026-09-08 == 2026-09-08T23:59:00Z -- still Sept 8 in both UTC and local.
+        readToolMock.mockResolvedValueOnce(outcomeFor([{ ts: "2026-09-08T23:59:00.000Z" }], false));
+        const client1 = makeListWidgetsClient(streakWidget({ display: { dateField: "ts" } }));
+        const [before] = await renderWidgets(client1, "user-1", "home", new Date("2026-09-09T12:00:00.000Z"), "America/Chicago");
+        if ("error" in before) throw new Error(`unexpected error: ${before.error}`);
+        if (before.kind !== "streak") throw new Error("expected streak");
+        expect(before).toMatchObject({ streak: 1, todayPending: true });
+
+        // 19:01 CDT on 2026-09-08 == 2026-09-09T00:01:00Z -- already "tomorrow" in UTC,
+        // but still the evening of Sept 8 locally. A `.toISOString().slice(0,10)`-style
+        // bug would read this as "2026-09-09" -- i.e. today, wrongly clearing todayPending.
+        readToolMock.mockResolvedValueOnce(outcomeFor([{ ts: "2026-09-09T00:01:00.000Z" }], false));
+        const client2 = makeListWidgetsClient(streakWidget({ display: { dateField: "ts" } }));
+        const [after] = await renderWidgets(client2, "user-1", "home", new Date("2026-09-09T12:00:00.000Z"), "America/Chicago");
+        if ("error" in after) throw new Error(`unexpected error: ${after.error}`);
+        if (after.kind !== "streak") throw new Error("expected streak");
+        expect(after).toMatchObject({ streak: 1, todayPending: true });
+      });
+
+      it("a timezone EAST of UTC (Asia/Tokyo) buckets the SAME instant into the NEXT calendar day -- here, that next day IS today, so todayPending flips to false", async () => {
+        // 2026-09-08T16:00:00Z is 2026-09-09 01:00 in Asia/Tokyo (UTC+9) --
+        // already tomorrow locally, even though it's still "today" in UTC.
+        // "today" (localDateString(NOW, Asia/Tokyo)) is also 2026-09-09, so
+        // this instant IS a hit on today, not yesterday.
+        readToolMock.mockResolvedValueOnce(outcomeFor([{ ts: "2026-09-08T16:00:00.000Z" }], false));
+        const client = makeListWidgetsClient(streakWidget({ display: { dateField: "ts" } }));
+        const [rendered] = await renderWidgets(client, "user-1", "home", new Date("2026-09-09T12:00:00.000Z"), "Asia/Tokyo");
+        if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+        if (rendered.kind !== "streak") throw new Error("expected streak");
+        expect(rendered).toMatchObject({ streak: 1, todayPending: false });
+      });
+
+      it("a date-only value ('2026-09-08', no time component) is used AS-IS regardless of timezone -- never re-parsed through new Date()", async () => {
+        readToolMock.mockResolvedValueOnce(outcomeFor([{ ts: "2026-09-08" }], false));
+        const client = makeListWidgetsClient(streakWidget({ display: { dateField: "ts" } }));
+        const [rendered] = await renderWidgets(client, "user-1", "home", new Date("2026-09-09T12:00:00.000Z"), "Asia/Tokyo");
+        if ("error" in rendered) throw new Error(`unexpected error: ${rendered.error}`);
+        if (rendered.kind !== "streak") throw new Error("expected streak");
+        // "today" in Asia/Tokyo for this NOW is 2026-09-09 (see the test
+        // above) -- a date-only "2026-09-08" is yesterday, full stop,
+        // regardless of timezone, since it's already a calendar date.
+        expect(rendered).toMatchObject({ streak: 1, todayPending: true });
+      });
+    });
+  });
 });

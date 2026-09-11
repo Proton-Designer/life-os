@@ -57,6 +57,20 @@ describe("McpWidgetsPanel", () => {
     expect(screen.getByText("0 today · earlier days may be a floor")).toBeInTheDocument();
   });
 
+  it("renders a streak widget's count, honestly suffixed with '+' when hasMore, and a todayPending note", () => {
+    const widgets: RenderedWidget[] = [
+      { id: "w1", kind: "streak", title: "Quran reading streak", streak: 4, todayPending: false, hasMore: false },
+      { id: "w2", kind: "streak", title: "Long streak", streak: 100, todayPending: true, hasMore: true },
+    ];
+    render(<McpWidgetsPanel widgets={widgets} />);
+    expect(screen.getByText("Quran reading streak")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.getByText("Up to date today")).toBeInTheDocument();
+    expect(screen.getByText("Long streak")).toBeInTheDocument();
+    expect(screen.getByText("100+")).toBeInTheDocument();
+    expect(screen.getByText("Today not yet logged")).toBeInTheDocument();
+  });
+
   it("renders a widget's OWN error message rather than crashing the panel", () => {
     const widgets: RenderedWidget[] = [{ id: "w-broken", kind: "metric_card", title: "Broken", error: "Unknown entity \"task\"" }];
     render(<McpWidgetsPanel widgets={widgets} />);

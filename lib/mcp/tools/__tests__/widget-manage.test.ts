@@ -101,6 +101,35 @@ describe("widgetManageTool — create", () => {
     );
   });
 
+  it("creates a streak widget (R12's second kind) end-to-end, dateField validated against the same descending-orderBy guard as sparkline", async () => {
+    const chain = makeChain({ data: null, error: null });
+    chain.insert = vi.fn(() => makeChain({ data: { id: "new-id" }, error: null }));
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const outcome = await widgetManageTool(client, "user-1", {
+      action: "create",
+      patch: {
+        kind: "streak",
+        title: "Quran reading streak",
+        data_source: { domain: "deen", entity: "quran_session" },
+        display: { dateField: "date" },
+      },
+    });
+
+    expect(JSON.parse(textOf(outcome))).toEqual({ id: "new-id" });
+    expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ kind: "streak", display: { dateField: "date" } }));
+  });
+
+  it("REFUSES a streak whose dateField isn't the data source's own primary descending sort column", async () => {
+    const client = { from: vi.fn(() => makeChain()) } as unknown as SupabaseClient;
+    await expect(
+      widgetManageTool(client, "user-1", {
+        action: "create",
+        patch: { kind: "streak", title: "Tasks streak", data_source: { domain: "school", entity: "task" }, display: { dateField: "due_date" } },
+      }),
+    ).rejects.toThrow(/primary sort column, descending/i);
+  });
+
   it("REFUSES a sparkline whose dateField isn't the data source's own primary descending sort column", async () => {
     const client = { from: vi.fn(() => makeChain()) } as unknown as SupabaseClient;
     await expect(
