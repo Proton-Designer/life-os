@@ -188,7 +188,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         idColumn: "id",
         updatedAtColumn: "logged_at",
         updatedAtVerification:
-          "markPrayer (app/(app)/deen/actions.ts) is the table's ONLY write path and sets logged_at on every upsert; unmarkPrayer deletes the row outright rather than leaving a stale one.",
+          "Three write paths, all checked, since R9 added the second one: markPrayerCore and unlogPrayerCore (lib/deen/actions-core.ts) both upsert and BOTH explicitly set `logged_at: now.toISOString()` -- logging and unlogging are equally real writes and equally stamped, not just the on_time/qada/missed case. unmarkPrayer (app/(app)/deen/actions.ts) DELETEs the row outright rather than leaving a stale one, same posture as settings.api_key.removeApiKey. No UPDATE exists on this table anywhere.",
         summaryColumns: ["date", "prayer_name", "status"],
         fullColumns: ["date", "prayer_name", "status", "logged_at", "user_id"],
         filterableColumns: ["date", "prayer_name", "status"],
@@ -354,9 +354,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "work_sessions",
         description: "One deep-work or deep-study session (Lock-In). At most one active (ended_at IS NULL) session per user, enforced at the write layer, not the schema.",
         idColumn: "id",
-        updatedAtColumn: "ended_at",
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "startWorkSession/endWorkSession (app/(app)/business/actions.ts -- work_sessions is filed under the /business route but is the work-domain entity per the owner's own table list) are the table's only writes: insert on start, one UPDATE on end setting ended_at, never re-set. ended_at is therefore a real, faithful last-modified signal -- null while active is honest (still in progress), not fabricated. created_at/started_at cover the create-time case for detail tiers that include them.",
+          "Trigger-backed invariant: migration 146 added a real `updated_at` + work_sessions_touch_updated_at (touch_updated_at(), 074), replacing the prior ended_at-based claim after that claim went false -- 146 added goal_minutes/class_id (set on start, never touching ended_at), so a session whose goal changed post-start would have reported as unchanged under the old marker. The trigger fires on every UPDATE regardless of which columns change, so it cannot be silently bypassed by a future write path the way the app-write-path claim was.",
         summaryColumns: ["kind", "started_at", "ended_at"],
         fullColumns: ["kind", "started_at", "ended_at", "created_at", "counts_toward_hours", "user_id"],
         filterableColumns: ["kind"],
@@ -556,9 +556,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "body_metrics",
         description: "One date's weight and/or waist measurement. The CHECK (weight_lb IS NOT NULL OR waist_in IS NOT NULL) means at least one is always present; a null field is unmeasured that day, never zero.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "logWeightCore/logWaistCore/logCycleBenchmark's combined call (app/(app)/fitness/actions.ts, lib/fitness/actions-core.ts) all upsert on (user_id,date) conflict, each preserving the sibling field by reading it first -- a genuine UPDATE-in-place on a re-logged date. created_at is set once at first insert and never reflects a later re-log. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+          "Trigger-backed invariant: migration 138 added a real `updated_at` + body_metrics_touch_updated_at (touch_updated_at(), 074) after logWeightCore/logWaistCore/logCycleBenchmark's combined call (app/(app)/fitness/actions.ts, lib/fitness/actions-core.ts) were found to upsert on (user_id,date) conflict -- a genuine UPDATE-in-place on a re-logged date that created_at never reflected. The trigger fires on every UPDATE to this row regardless of which write path performs it.",
         summaryColumns: ["date", "weight_lb", "waist_in"],
         fullColumns: ["date", "weight_lb", "waist_in", "created_at", "user_id"],
         filterableColumns: ["date"],
@@ -569,9 +569,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "fitness_benchmarks",
         description: "One exercise's max-reps benchmark for a date (Cycle Progress checks, every 4-week boundary). One row per (user, date, exercise).",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "logBenchmarkRepsCore (lib/fitness/actions-core.ts) and logCycleBenchmark's own reps loop (app/(app)/fitness/actions.ts) both upsert on (user_id,date,exercise_id) conflict -- re-logging the same exercise/date genuinely UPDATEs max_reps in place. created_at is set once at first insert and never reflects that. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+          "Trigger-backed invariant: migration 138 added a real `updated_at` + fitness_benchmarks_touch_updated_at (touch_updated_at(), 074) after logBenchmarkRepsCore (lib/fitness/actions-core.ts) and logCycleBenchmark's own reps loop (app/(app)/fitness/actions.ts) were found to both upsert on (user_id,date,exercise_id) conflict -- re-logging the same exercise/date genuinely UPDATEs max_reps in place, which created_at never reflected. The trigger fires on every UPDATE regardless of which write path performs it.",
         summaryColumns: ["date", "exercise_id", "max_reps"],
         fullColumns: ["date", "exercise_id", "max_reps", "created_at", "user_id"],
         filterableColumns: ["date", "exercise_id"],
@@ -599,7 +599,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         idColumn: "user_id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "setActiveSlot (both app/(app)/fitness/workouts/plan-actions.ts and template-actions.ts, the table's only writers) explicitly sets `updated_at: new Date().toISOString()` on every upsert -- app-set, not trigger-maintained, but real and verified against the actual write, not inferred from the column existing. Same posture as settings.api_key's updated_at.",
+          "Trigger-backed invariant as of migration 139, NOT app-set -- that was the prior claim here and it was proven false in production: migration 129's scoped ON DELETE SET NULL (deleting an active plan) mutates this row entirely inside Postgres, no app code runs, so setActiveSlot's own `updated_at: new Date().toISOString()` stamp (still present, still correct for the writes it covers) could never see that write. Proven stale on production in a rolled-back transaction before 139: micro_plan_id flipped null, updated_at stayed 2000-01-01. Migration 139 added active_workout_plans_touch_updated_at (touch_updated_at(), 074), which fires on ANY UPDATE including one driven by an FK action -- the general lesson (139's own header): 'verified against the app's write paths' is necessary and NOT sufficient, because FK cascades and RPCs are writers no application grep will ever show.",
         summaryColumns: ["micro_plan_id", "routine_plan_id"],
         fullColumns: ["micro_plan_id", "routine_plan_id", "updated_at"],
         filterableColumns: [],
@@ -610,9 +610,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "exercises",
         description: "One exercise in the library (name, primary/secondary muscle groups). Archived, never hard-deleted -- workout_exercises/session_sets reference it with no cascading delete.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "archiveExerciseCore (lib/fitness/actions-core.ts) UPDATEs `archived` on an existing row post-creation -- created_at goes stale on the very first archive. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+          "Trigger-backed invariant: migration 138 added a real `updated_at` + exercises_touch_updated_at (touch_updated_at(), 074) after archiveExerciseCore (lib/fitness/actions-core.ts) was found to UPDATE `archived` on an existing row post-creation -- created_at went stale on the very first archive. The trigger fires on every UPDATE to this row regardless of which write path performs it.",
         summaryColumns: ["name", "primary_muscles", "secondary_muscles", "archived"],
         fullColumns: ["name", "primary_muscles", "secondary_muscles", "archived", "created_at", "user_id"],
         filterableColumns: ["archived"],
@@ -623,9 +623,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "workouts",
         description: "One named workout template -- either standalone or the backing row for a routine plan's session (plan_sessions.workout_id, migration 040's legacy-reader mirror). Archived, never hard-deleted.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "renameWorkoutCore/archiveWorkoutCore (lib/fitness/actions-core.ts) and the save_workout RPC (031, its own `update public.workouts set name = ...`) each UPDATE an existing row post-creation. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+          "Trigger-backed invariant: migration 138 added a real `updated_at` + workouts_touch_updated_at (touch_updated_at(), 074) after renameWorkoutCore/archiveWorkoutCore (lib/fitness/actions-core.ts) and the save_workout RPC (031, its own `update public.workouts set name = ...`) were found to each UPDATE an existing row post-creation with no faithful existing column to reflect it. The trigger fires on every UPDATE regardless of which write path performs it.",
         summaryColumns: ["name", "archived"],
         fullColumns: ["name", "archived", "created_at", "user_id"],
         filterableColumns: ["archived"],
@@ -650,9 +650,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "workout_plans",
         description: "A 'micro' (loose exercises, no sessions) or 'routine' (named sessions) plan. Deleted (not archived) via deletePlan -- read-only here, so a deleted plan simply stops appearing; not itself reachable by id once gone.",
         idColumn: "id",
-        updatedAtColumn: null, // needs migration -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "savePlan (app/(app)/fitness/workouts/plan-actions.ts) UPDATEs `name` on an existing row when editing a plan that already has an id. No faithful existing column -- honestly null until a real trigger-backed updated_at lands.",
+          "Trigger-backed invariant: migration 138 added a real `updated_at` + workout_plans_touch_updated_at (touch_updated_at(), 074) after savePlan (app/(app)/fitness/workouts/plan-actions.ts) was found to UPDATE `name` on an existing row when editing a plan that already has an id, with no faithful existing column to reflect it. The trigger fires on every UPDATE regardless of which write path performs it.",
         summaryColumns: ["name", "kind", "archived"],
         fullColumns: ["name", "kind", "archived", "created_at", "user_id"],
         filterableColumns: ["kind", "archived"],
@@ -869,8 +869,8 @@ export const REGISTRY: Record<string, DomainDef> = {
           "summary this connector is supposed to expose would live on. Parent-scoped: always read for one named " +
           "book via filter.book_id, never as a flat cross-book list (a section has no meaning outside its book).",
         idColumn: "id",
-        updatedAtColumn: null,
-        updatedAtVerification: "No created_at/updated_at column at all (062_ulm_book_sections.sql) -- honestly null, not invented. Currently 0 rows in production, so there is nothing to go stale yet either way.",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification: "Trigger-backed invariant: migration 144 (R6's book_sections summary/provenance storage) added a real `updated_at` + book_sections_touch_updated_at (touch_updated_at(), 074) from day one, not retrofitted -- the table's original 0-created_at-column state (062_ulm_book_sections.sql) is now historical, and L9's persistence work (chunkingStage) has begun writing real rows.",
         summaryColumns: ["title", "sort_order", "page_start", "page_end"],
         fullColumns: ["title", "sort_order", "page_start", "page_end", "level", "book_id"],
         filterableColumns: ["book_id"],
@@ -1122,9 +1122,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "profiles",
         description: "The one-row-per-account settings object: display/timezone/location, prayer-calc settings, check-in window, PIN-lock status, theme preset, and hidden nav features.",
         idColumn: "user_id",
-        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "MUTABLE, extremely widely: updateProfile (app/(app)/settings/actions.ts) upserts most of this row's columns (display_name/timezone/theme_preset/hidden_features/pin_hash/prayer settings/checkin window/etc.) on an EXISTING row for any settings change. `created_at` is set once at account creation and goes stale the moment ANY setting is first changed -- no existing column is even a partial proxy. Flagged, not invented: draft migration staged, not self-numbered per ALLOCATIONS.md. (Separately noted, not folded into this claim since it already holds on updateProfile alone: paused_date's own write path was skipCheckinsToday, app/(app)/checkin/actions.ts, deleted as dead code in the same pass that removed CheckinScheduler's other orphaned callers -- paused_date currently has no write path anywhere in the app.)",
+          "Trigger-backed invariant: migration 137 added a real `updated_at` + profiles_touch_updated_at (touch_updated_at(), 074) after updateProfile (app/(app)/settings/actions.ts) was found to upsert most of this row's columns (display_name/timezone/theme_preset/hidden_features/pin_hash/prayer settings/checkin window/etc.) on an EXISTING row for any settings change, which created_at never reflected. The trigger fires on any UPDATE regardless of which column changes. (Separately noted, unrelated to this column: paused_date's own write path was skipCheckinsToday, app/(app)/checkin/actions.ts, deleted as dead code in the same pass that removed CheckinScheduler's other orphaned callers -- paused_date currently has no write path anywhere in the app, hence its exclusion from fullColumns below.)",
         // pin_hash is EXCLUDED, same reasoning as user_api_keys.encrypted_key
         // below: it is credential material (a bcrypt hash of the user's
         // PIN), and the visibility registry (memo §3) is where that
@@ -1177,9 +1177,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "user_settings",
         description: "ULM's per-user learning settings: daily new-card limit, notification prefs, desired retention, AI grading opt-in, session length target, and weekday hour baselines (R58).",
         idColumn: "user_id",
-        updatedAtColumn: null, // NEEDS a migration -- table has no created_at/updated_at at all today
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "MUTABLE: saveWeekdayBaselines/clearWeekdayBaselines (app/(app)/settings/weekday-baseline-actions.ts) UPDATE an existing row; app/(app)/personal/self-mastery-session-actions.ts and lib/self-mastery/session/build-session.ts also touch this table. Confirmed directly against lib/supabase/database.types.ts's generated Row type: NO created_at or updated_at column exists at all -- nothing to even go stale, and nothing honest to declare here yet. Flagged, not invented: draft migration staged, not self-numbered.",
+          "Trigger-backed invariant: migration 137 added a real `updated_at` + user_settings_touch_updated_at (touch_updated_at(), 074) -- the table previously had no created_at/updated_at column at all, so saveWeekdayBaselines/clearWeekdayBaselines (app/(app)/settings/weekday-baseline-actions.ts) and the self-mastery session writers (app/(app)/personal/self-mastery-session-actions.ts, lib/self-mastery/session/build-session.ts) had no faithful column to reflect their UPDATEs. The trigger fires on any UPDATE from any of them.",
         summaryColumns: ["daily_new_limit", "notification_enabled", "session_target_minutes"],
         fullColumns: [
           "daily_new_limit",
@@ -1301,9 +1301,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "distraction_triggers",
         description: "A named, domain-tagged distraction (e.g. \"phone during study block\"). `archived` soft-deletes it out of pickers without losing its history.",
         idColumn: "id",
-        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "MUTABLE: updateTrigger (app/(app)/distractions/actions.ts) UPDATEs name/description on an existing row post-creation, so created_at goes stale on the first edit. (No write path currently sets archived:true -- grepped for `archived: true`/`archiveTrigger` and found neither -- but the name/description edit path alone is enough to need this.) Flagged, not invented: draft migration staged, not self-numbered.",
+          "Trigger-backed invariant: migration 137 added a real `updated_at` + distraction_triggers_touch_updated_at (touch_updated_at(), 074) after updateTrigger (app/(app)/distractions/actions.ts) was found to UPDATE name/description on an existing row post-creation, which created_at never reflected. The trigger fires on any UPDATE to this row -- including archived:true, if a write path for that is ever added -- not just the specific edits found at the time.",
         summaryColumns: ["domain", "name", "archived"],
         fullColumns: ["domain", "name", "description", "archived", "created_at"],
         filterableColumns: ["domain", "archived"],
@@ -1316,7 +1316,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         idColumn: "id",
         updatedAtColumn: "created_at",
         updatedAtVerification:
-          "INSERT-ONLY: insertEvent (app/(app)/distractions/actions.ts, the only writer for this table) always INSERTs; no update or delete path for distraction_events exists anywhere in actions.ts. created_at IS the true last-modified time.",
+          "INSERT-ONLY: insertEventCore (lib/distractions/actions-core.ts, both of this table's live call sites route through it) always INSERTs; no UPDATE or DELETE path for distraction_events exists anywhere in the app. created_at IS the true last-modified time.",
         summaryColumns: ["trigger_id", "date", "reflection_tier"],
         fullColumns: ["trigger_id", "date", "reflection_tier", "reflection_entry_id", "created_at"],
         filterableColumns: ["trigger_id", "date"],
@@ -1327,9 +1327,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "trigger_action_plans",
         description: "One versioned action plan for a trigger. Exactly one row per trigger has `superseded_at: null` (the current plan, enforced by trigger_action_plans_one_current) -- prior versions stay readable for history.",
         idColumn: "id",
-        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "MUTABLE two different ways: saveActionPlan's direct branch (app/(app)/distractions/actions.ts) UPDATEs an existing current plan's `body` in place with no version bump; separately, save_trigger_plan (migration 041's RPC) UPDATEs the OLD row's superseded_at/supersede_reason the moment a new version is authored -- a change to a row that already has its own created_at. No column reflects either kind of change today. Flagged, not invented: draft migration staged, not self-numbered.",
+          "Trigger-backed invariant: migration 137 added a real `updated_at` + trigger_action_plans_touch_updated_at (touch_updated_at(), 074) after two distinct UPDATE paths were found with no faithful column to reflect either: saveActionPlan's direct branch (app/(app)/distractions/actions.ts) UPDATEs an existing current plan's `body` in place with no version bump, and save_trigger_plan (migration 041's RPC) UPDATEs the OLD row's superseded_at/supersede_reason the moment a new version is authored. The trigger fires on any UPDATE from either path.",
         summaryColumns: ["trigger_id", "version", "superseded_at"],
         fullColumns: ["trigger_id", "body", "version", "superseded_at", "supersede_reason", "created_at"],
         filterableColumns: ["trigger_id", "version"],
@@ -1343,9 +1343,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         table: "trigger_plan_outcomes",
         description: "One day's followed/skipped answer for a trigger's then-current plan. At most one row per (user, trigger, date) -- a same-day resubmission overwrites, it does not accumulate.",
         idColumn: "id",
-        updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
+        updatedAtColumn: "updated_at",
         updatedAtVerification:
-          "MUTABLE: record_plan_outcome (migration 043's RPC) does `insert ... on conflict (user_id, trigger_id, date) do update set followed = excluded.followed, plan_id = excluded.plan_id` -- a same-day resubmission genuinely overwrites an existing row, and created_at (the table's only timestamp) goes stale for that row. Flagged, not invented: draft migration staged, not self-numbered.",
+          "Trigger-backed invariant: migration 137 added a real `updated_at` + trigger_plan_outcomes_touch_updated_at (touch_updated_at(), 074) after record_plan_outcome (migration 043's RPC, `insert ... on conflict (user_id, trigger_id, date) do update set followed = excluded.followed, plan_id = excluded.plan_id`) was found to genuinely overwrite an existing row on a same-day resubmission, which created_at (the table's only timestamp before this) never reflected. The trigger fires on any UPDATE, including this RPC's ON CONFLICT branch.",
         summaryColumns: ["trigger_id", "date", "followed"],
         fullColumns: ["trigger_id", "plan_id", "date", "followed", "created_at"],
         filterableColumns: ["trigger_id", "date", "followed"],
@@ -1443,8 +1443,11 @@ export const REGISTRY: Record<string, DomainDef> = {
     description:
       "L11/R7 Tier 1 declarative widgets -- a config row rendered by one audited renderer, never agent-authored code. " +
       "Created/edited/deleted through the dedicated widget_manage tool, not write() -- this entity exists so a caller can " +
-      "list/inspect its own widgets through the same read() dispatch as everything else. REQUIRES the proposed " +
-      "mcp_widgets table (docs/ai-connector/WIDGETS-MIGRATION-NEEDED.md) -- inert until that migration is applied.",
+      "list/inspect its own widgets through the same read() dispatch as everything else. Backed by the mcp_widgets table, " +
+      "migration 141 (applied; docs/ai-connector/WIDGETS-MIGRATION-NEEDED.md carries the historical design rationale, " +
+      "marked APPLIED, not an open request). Migration 149 widened `kind`'s CHECK to admit all five of R11's extended " +
+      "vocabulary (metric_card/list/progress_against_goal/sparkline/streak) -- all five are creatable at the database " +
+      "level as of that migration, independent of which ones render.ts has real rendering logic for.",
     entities: {
       widget: {
         entity: "widget",
