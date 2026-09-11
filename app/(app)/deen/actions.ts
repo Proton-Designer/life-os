@@ -253,7 +253,8 @@ export async function toggleSunnah(
 /**
  * week_start_date is computed server-side (never trusts a client-passed
  * date) since it drives the (user_id, week_start_date) uniqueness — same
- * discipline as skipCheckinsToday/logQuranSession's self-computed dates.
+ * discipline as this file's own logQuranSession, which self-computes its
+ * date rather than trusting one from the caller.
  */
 export async function setWeeklyFocus(habitId: string): Promise<void> {
   const { supabase, userId } = await requireUser();

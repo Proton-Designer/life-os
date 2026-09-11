@@ -10,7 +10,7 @@ import { checkSecret } from "../check-secret";
 // own comment, so a returning user's cycle history isn't silently reset).
 // A test that activates a throwaway plan against a previously-anchor-less
 // account has no way to revert that side effect through the app itself.
-// Same secret-gated shape as clear-prayer/answer-checkin.
+// Same secret-gated shape as clear-prayer.
 export async function DELETE(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

@@ -8,10 +8,10 @@ import { checkSecret } from "../check-secret";
 // writing on_time/qada/missed — there is no UI affordance to return a prayer
 // to "pending" (unlogged), so a test that marks a genuinely-unlogged prayer
 // has no way to revert through the app itself. Same gating shape as
-// app/api/test/answer-checkin/route.ts: requires both a valid session and
-// this secret, so it grants nothing beyond what an authenticated user could
-// already do to their own prayers row via the real UI, just without going
-// through markPrayer's write-only status values.
+// app/api/test/save-allocation-checkin/route.ts: requires both a valid
+// session and this secret, so it grants nothing beyond what an authenticated
+// user could already do to their own prayers row via the real UI, just
+// without going through markPrayer's write-only status values.
 export async function DELETE(request: NextRequest) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });

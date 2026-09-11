@@ -1124,7 +1124,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         idColumn: "user_id",
         updatedAtColumn: null, // NEEDS a migration -- see docs/ai-connector/L11-migration-draft-cross-cutting-updated-at.sql
         updatedAtVerification:
-          "MUTABLE, extremely widely: updateProfile (app/(app)/settings/actions.ts) upserts most of this row's columns (display_name/timezone/theme_preset/hidden_features/pin_hash/prayer settings/checkin window/etc.) on an EXISTING row for any settings change; skipCheckinsToday (app/(app)/checkin/actions.ts) updates paused_date directly. `created_at` is set once at account creation and goes stale the moment ANY setting is first changed -- no existing column is even a partial proxy. Flagged, not invented: draft migration staged, not self-numbered per ALLOCATIONS.md.",
+          "MUTABLE, extremely widely: updateProfile (app/(app)/settings/actions.ts) upserts most of this row's columns (display_name/timezone/theme_preset/hidden_features/pin_hash/prayer settings/checkin window/etc.) on an EXISTING row for any settings change. `created_at` is set once at account creation and goes stale the moment ANY setting is first changed -- no existing column is even a partial proxy. Flagged, not invented: draft migration staged, not self-numbered per ALLOCATIONS.md. (Separately noted, not folded into this claim since it already holds on updateProfile alone: paused_date's own write path was skipCheckinsToday, app/(app)/checkin/actions.ts, deleted as dead code in the same pass that removed CheckinScheduler's other orphaned callers -- paused_date currently has no write path anywhere in the app.)",
         // pin_hash is EXCLUDED, same reasoning as user_api_keys.encrypted_key
         // below: it is credential material (a bcrypt hash of the user's
         // PIN), and the visibility registry (memo §3) is where that
@@ -1244,7 +1244,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         idColumn: "id",
         updatedAtColumn: "created_at",
         updatedAtVerification:
-          "INSERT-ONLY, all three write paths checked: answerCheckin and recordMissedCheckin (app/(app)/checkin/actions.ts) each INSERT a new row; save_allocation_checkin (migrations 020/022/108's RPC) also only INSERTs, and its unique_violation exception branch SELECTs the pre-existing row rather than updating it. No UPDATE on this table exists anywhere. created_at IS the true last-modified time, same append-only reasoning as deen.quran_session.",
+          "INSERT-ONLY. The old point-sample write path (answerCheckin/recordMissedCheckin, app/(app)/checkin/actions.ts) was confirmed dead (unmounted since CheckinScheduler's removal, zero live callers) and deleted outright rather than left as a second write path to re-verify every time this comment is read. The one remaining write path, save_allocation_checkin (migrations 020/022/108's RPC), only INSERTs, and its unique_violation exception branch SELECTs the pre-existing row rather than updating it. No UPDATE on this table exists anywhere. created_at IS the true last-modified time, same append-only reasoning as deen.quran_session.",
         summaryColumns: ["checkin_time", "kind", "answered", "tag_type"],
         fullColumns: [
           "checkin_time",

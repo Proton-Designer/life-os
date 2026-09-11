@@ -8,9 +8,14 @@ import { checkSecret } from "../check-secret";
 
 // Test-only endpoint (e2e/checkin.spec.ts, 2026-08-25 rewrite): the current
 // check-in model is per-window allocation (checkins.kind = 'allocation' +
-// checkin_allocations), not the old tag_type point-sample this route's
-// sibling (answer-checkin) still drives — that path never populates
-// allocation-minutes, so it can't seed data /insights actually reads.
+// checkin_allocations), not the old tag_type point-sample model this route
+// replaced. That older flow (answerCheckin/recordMissedCheckin and this
+// route's former sibling, app/api/test/answer-checkin) never populated
+// allocation-minutes, so it couldn't seed data /insights actually reads —
+// and has since been removed outright as dead code (it had been unreachable
+// from any live UI for weeks; see the commit that deleted
+// app/(app)/checkin/actions.ts's answerCheckin/recordMissedCheckin/
+// snoozeCheckin/skipCheckinsToday/getCheckinOptionsForNow).
 // Drives the real saveAllocationCheckin Server Action (same one the
 // allocation-checkin UI calls), not a hand-rolled insert.
 //

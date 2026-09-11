@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
  * Dialog/Sheet: this fires during declared deep work, so it has to be
  * cheaper than a modal to answer — an inline bar in the already-open
  * session card, no overlay, no focus trap, no dismissal ceremony. Compare
- * components/checkin/checkin-prompt.tsx (the 2h allocation flow's full
+ * components/checkin/allocation-checkin.tsx (the 2h allocation flow's full
  * domain/minutes picker) — that one is a real decision; this one is a
  * single honest yes/no.
  */
