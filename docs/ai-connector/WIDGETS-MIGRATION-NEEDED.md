@@ -1,7 +1,25 @@
 # `mcp_widgets` — new table needed for L11 (Tier 1 declarative widgets)
 
-**Not a numbered migration.** Per the standing instruction, this is a
-request + a reviewable SQL sketch, not a file in `supabase/migrations/`.
+**STATUS: APPLIED.** This proposal shipped as `supabase/migrations/141_mcp_widgets.sql`
+(confirmed present in `lib/supabase/database.types.ts`). Kept below as the historical
+design rationale for the table shape, not as an open request — a request document
+that quietly outlives its own request is exactly the kind of stale artifact this
+program has spent effort removing elsewhere; this banner exists so it doesn't
+happen here too.
+
+**One divergence from the DDL below, found verifying this banner (2026-09-10):**
+the applied migration's `kind` CHECK is still `in ('metric_card', 'list')` — the
+two kinds this doc originally scoped to. `lib/widgets/validate.ts`'s `WIDGET_KINDS`
+has since grown to five (`progress_against_goal`, `sparkline`, `streak` added), and
+`render.ts`/`actions-core.ts` both have real code for at least the first two of
+those three — but nothing has widened this CHECK to match. Creating a widget with
+any of those three kinds passes every application-level check and then fails at
+the database `INSERT` with a constraint violation. Reported, not fixed here.
+
+**Not a numbered migration** *(historical note, describing the state at the time
+this was written — it since became migration 141, above)*. Per the standing
+instruction, this was a request + a reviewable SQL sketch, not a file in
+`supabase/migrations/`.
 
 ## What this is, per R7/TOOL-ARCHITECTURE.md §6
 
@@ -35,7 +53,7 @@ create table public.mcp_widgets (
   -- first (R11's own suggested starting point: goal data already exists).
   -- Widening this CHECK for the next kind is an ordinary additive ALTER
   -- (same "a CHECK, not an enum" reasoning as migration 120's dump_source).
-  kind text not null check (kind in ('metric_card', 'list', 'progress_against_goal', 'sparkline')),
+  kind text not null check (kind in ('metric_card', 'list', 'progress_against_goal', 'sparkline', 'streak')),
   title text not null,
   -- { domain: string, entity: string, filter?: Record<string, string|number|boolean> }
   -- Validated at write time (lib/widgets/validate.ts) against the SAME
@@ -59,7 +77,15 @@ create table public.mcp_widgets (
   -- -- see lib/widgets/validate.ts's own comment on why. Rendered via a
   -- RAISED row limit, lib/widgets/render.ts's WIDGET_RENDER_MAX_ROWS=100,
   -- never reachable through this column or any other widget-authored
-  -- input -- R12/PROGRAM-PLAN.md)
+  -- input -- R12/PROGRAM-PLAN.md);
+  -- streak -> { dateField: string }
+  -- (same orderBy guard as sparkline's dateField, reusing the same shared
+  -- validator -- a streak counts consecutive LOCAL CALENDAR DAYS with a
+  -- hit, not rows; "what counts as a hit" is narrowed via data_source's
+  -- own `filter`, so no separate predicate concept was needed. Also
+  -- rendered via the raised WIDGET_RENDER_MAX_ROWS fetch, same reasoning
+  -- as sparkline -- a streak needs to look back further than 20 rows to
+  -- find where it actually breaks.)
   display jsonb not null default '{}'::jsonb,
   -- Only "home" is renderable this pass -- the Home page's own Panel stack
   -- (app/(app)/page.tsx, rendered by components/home/mcp-widgets-panel.tsx)

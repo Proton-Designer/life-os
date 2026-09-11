@@ -322,8 +322,8 @@ because it was built; it is done when a check that could have failed, didn't.
 | **L8** | Settings consolidation; DeepSeek repositioned as the ingestion engine | L2 | Eng2 |
 | **L9** | Book ingestion worker: PDF → batches → per-chapter summaries (DeepSeek) | L6 | Eng1 |
 | **L10** | Themes (5 presets) + feature show/hide toggles | L6 | Eng2 |
-| **L11** | Custom widgets — Tier 1 declarative, then Tier 2 sandboxed | L10 | both |
-| **L12** | Deploy tool + Tier 3 gated code path (`tsc` + build must pass first) | L11 | Lead |
+| **L11** | Custom widgets — Tier 1 declarative only, per R11 below (Tiers 2/3 cancelled; capability delivered by extending the declarative vocabulary instead) | L10 | both |
+| **L12** | ~~Deploy tool + Tier 3 gated code path~~ — **CANCELLED by R11** (below), same ruling that cancelled Tier 2 | L11 | Lead |
 
 **R9 — "unlog" gets a real `'unlogged'` status. The app keeps its DELETE. Approved.**
 Eng1 found that the obvious way to express "uncheck a prayer" without a hard delete —
@@ -384,10 +384,13 @@ all, but simply the projects that happened to run after the mitigation engaged.
 | L | state | evidence |
 |---|---|---|
 | **L0-L4** | **LIVE + PROVEN** | connector live; OAuth 30/30 + consent 14/14 vs production; `initialize`/`tools/list`/`list_capabilities` all working with a real MCP client |
-| **L5** read fan-out | 8 of ~14 domains | deen(8 entities), work(3), business(2), school(4), self_mastery(1), settings(3), checkins(2), distractions(4). calendar/review/home registered as honest zero-entity aggregation domains. **fitness in flight** |
-| **L6** write | deen, work, business, school | scope-enforced, audited with resolved operation, no hard deletes |
+| **L5** read fan-out | **LIVE, all domains** | 13 domains, 57 entities, re-counted directly against `REGISTRY` (not carried over from an earlier pass): deen(8), work(3), business(2), school(6), fitness(15), self_mastery(12), settings(3), checkins(2), distractions(4), review(1). calendar/home remain honest zero-entity aggregation domains; widgets(1) added for L11 |
+| **L6** write | **LIVE, 9 domains** | deen, work, business, school, fitness, checkins, distractions, settings, self_mastery — 50 registered write actions total, re-counted directly against `WRITE_REGISTRY` |
+| **L7** scheduling | **LIVE** | `mcp_scheduled_actions` + pg_cron poll registered (`OPERATOR-ACTIONS-PENDING.md` #2); every write action carries an explicit `idempotent` verdict (32 true / 18 false / 0 unannotated) and the scheduler gate (`lib/scheduling/scheduler-core.ts`) refuses anything not explicitly `idempotent: true` |
+| **L9** book ingestion | code present, **not independently re-verified this pass** | `app/api/self-mastery/ingestion`, `lib/self-mastery/ingestion*`, migrations 074/107/109 exist — don't cite this row as proof of end-to-end correctness without checking it directly |
 | **L10** themes/features | **LIVE** | 5 presets, feature show/hide, `home`+`settings` structurally un-hideable |
-| **L7, L9, L11, L12** | not started | scheduling, book summaries, widgets, deploy tool |
+| **L11** widgets | **LIVE, Tier 1 only, per R11** | `metric_card`/`list` fully live (DB CHECK + validate.ts + render.ts all agree). `progress_against_goal`/`sparkline`/`streak` are built at the validation/action-core layer, but migration 141's own `kind` CHECK (`in ('metric_card','list')`) was never widened to admit them — **verify against the live schema before claiming any of the three is actually creatable.** `streak` additionally has no render.ts branch at all yet (falls through to the `list` rendering code, which reads the wrong display shape) even setting the CHECK aside. Not schedulable via `scheduler_manage` regardless (widget_manage sits outside `WRITE_REGISTRY`, `TOOL-ARCHITECTURE.md` §6) |
+| **L12** | **CANCELLED by R11** | Tier 3 (deploy tool + gated repo-code path) cancelled alongside Tier 2, same ruling |
 
 **Migrations applied tonight: 130-137**, every one hash-verified and proven red-then-green
 on production. Four of them (133, 135, 136, 137) exist for the same reason: the

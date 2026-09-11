@@ -26,6 +26,16 @@ verified below, not assumed.
 plus one discovery tool that lets the model learn the matrix's shape on demand instead of us
 shipping it as upfront schema:
 
+**Currency note, added after implementation, not part of the original design
+argument above:** only 5 of the 7 tools this section recommends were ultimately
+built. `search`/`fetch` were never registered — verified directly against
+`app/api/mcp/route.ts`'s `server.registerTool` calls, which today are exactly
+`list_capabilities`, `read`, `write`, `widget_manage`, `scheduler_manage`. The
+design argument for adding them (near-zero marginal cost, ChatGPT deep-research
+convention) still holds if the need arises; it just hasn't been built. Don't
+read the table below as a list of what ships — it's the recommendation this
+memo made, table rows 3-4 included.
+
 | # | Tool | Purpose |
 |---|---|---|
 | 1 | `list_capabilities` | Discovery: what domains/entities/actions/fields exist, fetched on demand, not preloaded |
