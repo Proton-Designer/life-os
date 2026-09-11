@@ -19,6 +19,28 @@ import type { RunMcpToolOutcome } from "../tool-wrapper";
 export type ReadDetail = "ids" | "summary" | "full";
 const PAGE_SIZE = 20;
 
+/**
+ * R12 (PROGRAM-PLAN.md): the 20-row page cap is a MODEL-CONTEXT constraint
+ * (R8) — it exists because every row a TOOL returns is spent in a model's
+ * context window. `renderWidgets` (lib/widgets/render.ts) has exactly one
+ * caller, the server-rendered Home page, so its output never reaches a
+ * model's context at all; R8's reasoning doesn't transfer to it.
+ *
+ * `options` is DELIBERATELY a separate parameter from `args` — `args` is
+ * the MCP-facing shape (`ReadArgs`), built from whatever a model/widget
+ * definition supplies, and `maxRows` must never be reachable through it.
+ * `app/api/mcp/route.ts` calls `readTool(client, userId, args)` — three
+ * arguments, no fourth — so the MCP route's page size is PAGE_SIZE=20,
+ * unconditionally, with no code path by which a caller-supplied value
+ * could reach it. Only `lib/widgets/render.ts` passes `options.maxRows`,
+ * and only as its own named constant (`WIDGET_RENDER_MAX_ROWS`) — never a
+ * value read from a widget's `data_source`/`display`.
+ */
+export interface ReadToolOptions {
+  /** Overrides PAGE_SIZE for this call only. See this file's own note above — never derived from `args`. */
+  maxRows?: number;
+}
+
 export interface ReadArgs {
   domain: string;
   entity: string;
@@ -163,7 +185,8 @@ async function verifyParent(supabase: SupabaseClient, userId: string, def: Entit
 }
 
 /** Untyped `SupabaseClient` — see lib/mcp/tool-wrapper.ts's comment on its `fn` parameter for why a registry-driven dynamic table dispatcher can't be typed against the generated `Database` union. */
-export async function readTool(supabase: SupabaseClient, userId: string, args: ReadArgs): Promise<RunMcpToolOutcome> {
+export async function readTool(supabase: SupabaseClient, userId: string, args: ReadArgs, options?: ReadToolOptions): Promise<RunMcpToolOutcome> {
+  const pageSize = options?.maxRows ?? PAGE_SIZE;
   const def = resolveEntity(args.domain, args.entity);
   const detail: ReadDetail = args.detail ?? "summary";
   if (detail !== "ids" && detail !== "summary" && detail !== "full") {
@@ -228,13 +251,13 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   for (const { column, ascending } of def.orderBy) query = query.order(column, { ascending });
 
   const offset = decodeCursor(args.cursor);
-  const { data, error, count } = await query.range(offset, offset + PAGE_SIZE - 1);
+  const { data, error, count } = await query.range(offset, offset + pageSize - 1);
   if (error) throw new Error(error.message);
 
   const rows = data ?? [];
   const items = rows.map((row) => toItem(def, row as unknown as Record<string, unknown>, columns));
   const nextOffset = offset + rows.length;
-  const hasMore = count !== null ? nextOffset < count : rows.length === PAGE_SIZE;
+  const hasMore = count !== null ? nextOffset < count : rows.length === pageSize;
   const payload = { items, has_more: hasMore, cursor: hasMore ? encodeCursor(nextOffset) : null };
 
   return {

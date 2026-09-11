@@ -284,3 +284,59 @@ describe("readTool — fixedFilter null discriminant (review.night_plan_task, ta
     expect(isCalls).toEqual([]);
   });
 });
+
+// R12 (PROGRAM-PLAN.md): the 20-row page cap is a model-context constraint
+// and does not transfer to the widget render path. readTool gains an
+// optional, explicitly-bounded row limit -- never reachable through `args`,
+// never the MCP route's own behavior.
+describe("readTool — ReadToolOptions.maxRows (R12)", () => {
+  it("POSITIVE CONTROL: getLastRange() actually reflects the range a call makes -- proven by varying it BEFORE trusting it to report an unchanged default below", async () => {
+    const { client, getLastRange } = makeClient({ list: [], count: 0 });
+    await readTool(client, "user-1", { domain: "deen", entity: "prayer" }, { maxRows: 5 });
+    // If getLastRange() here read back [0, 19] (the default), it would mean
+    // the recorder can't actually see maxRows taking effect, and the "no
+    // fourth argument -> still 20" test below would be proving nothing.
+    expect(getLastRange()).toEqual([0, 4]);
+  });
+
+  it("with no options (the MCP route's own call shape), pages at the unconditional default of 20", async () => {
+    const { client, getLastRange } = makeClient({ list: [], count: 0 });
+    await readTool(client, "user-1", { domain: "deen", entity: "prayer" });
+    expect(getLastRange()).toEqual([0, 19]);
+  });
+
+  it("options.maxRows raises the page size for this call only, and fetches the full range in one call", async () => {
+    const rows = Array.from({ length: 30 }, (_, i) => ({ id: `r${i}`, date: "2026-09-08" }));
+    const { client, getLastRange } = makeClient({ list: rows, count: 30 });
+    const outcome = await readTool(client, "user-1", { domain: "deen", entity: "prayer" }, { maxRows: 30 });
+    expect(getLastRange()).toEqual([0, 29]);
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    const payload = JSON.parse(block.text);
+    expect(payload.items).toHaveLength(30); // all 30 in one page -- this is the point of raising the limit
+    expect(payload.has_more).toBe(false); // exactly 30 of 30 fetched in one page of size 30
+  });
+
+  it("when count is unknown (null), has_more is computed against the OVERRIDDEN page size, not the hardcoded 20 -- a page of exactly 20 rows under maxRows:30 must read as NOT full", async () => {
+    // This is the scenario a hardcoded `rows.length === PAGE_SIZE` (rather
+    // than the local, possibly-overridden `pageSize`) would get wrong: 20
+    // rows happens to equal the OLD constant, so a bug here would silently
+    // report has_more:true (a phantom next page) even though the real page
+    // size was 30 and 20 < 30 means this page just wasn't full. Built
+    // directly (not via makeClient) because `count: null` specifically --
+    // distinct from "count omitted" -- can't pass through makeClient's own
+    // `opts.count ?? rows.length` fallback (`??` treats null like undefined).
+    const rows = Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, date: "2026-09-08" }));
+    const chain: Record<string, unknown> = {};
+    chain.select = vi.fn(() => chain);
+    chain.eq = vi.fn(() => chain);
+    chain.order = vi.fn(() => chain);
+    chain.range = vi.fn(async () => ({ data: rows, error: null, count: null }));
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    const outcome = await readTool(client, "user-1", { domain: "deen", entity: "prayer" }, { maxRows: 30 });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text).has_more).toBe(false);
+  });
+});

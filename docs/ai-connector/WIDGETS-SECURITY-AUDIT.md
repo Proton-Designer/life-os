@@ -208,6 +208,29 @@ the NEW `fullColumns` entries are themselves safe to expose via
 `aggregate: "field"`/`list` widgets, which is a question about that future
 change, not about the mechanism audited here.
 
+## Addendum (R12): the raised row limit does not weaken this audit
+
+R12 (PROGRAM-PLAN.md) gives `readTool` an optional `options.maxRows`,
+raised only by `lib/widgets/render.ts` for the `sparkline` kind, via a
+named module constant (`WIDGET_RENDER_MAX_ROWS`) — never reachable through
+`args`, `data_source`, or `display`. This changes ROW VOLUME only, on an
+otherwise identical query: same columns, same `filterableColumns`, same
+`fixedFilter`/`parentFilter`, same `truncateColumns`, same RLS. Every
+finding above (§1-3) is about WHICH rows/columns a widget can reach, not
+how MANY — R12 does not touch that axis at all, and this audit's
+conclusions hold unchanged.
+
+**The two-caller invariant, re-verified, not assumed, after R12 landed:**
+`readTool` still has exactly two callers (`app/api/mcp/route.ts`,
+`lib/widgets/render.ts`) — `app/api/mcp/route.ts` calls it with three
+arguments, never four, so the MCP route's page size is PAGE_SIZE=20,
+unconditionally, exactly as before R12. The invariant this file's own
+"structural argument" section names as load-bearing is therefore
+unchanged in kind, and R12 states explicitly that a third caller "could
+inherit a limit chosen for a surface it isn't" — i.e. the invariant now
+carries more weight than before, not less, and this file's framing of it
+("the thing that must stay true") was written to anticipate exactly this.
+
 ## Provenance
 
 - Eng1's audit, reported 2026-09-10, verified by reading
