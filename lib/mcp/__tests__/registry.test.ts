@@ -115,8 +115,8 @@ describe("registry", () => {
     }
   });
 
-  it("work.work_session keeps ended_at — migration 135 deliberately excluded it (already faithful)", () => {
-    expect(getEntity("work", "work_session")!.updatedAtColumn).toBe("ended_at");
+  it("work.work_session is trigger-backed via migration 146 — ended_at stopped being faithful once goal_minutes/class_id could change without it", () => {
+    expect(getEntity("work", "work_session")!.updatedAtColumn).toBe("updated_at");
   });
 
   it("school has exactly the 6 read entities wired (task, class, class_assessment, schedule_event, schedule_event_override, schedule_event_cancellation)", () => {
@@ -212,9 +212,9 @@ describe("registry", () => {
     expect(getEntity("fitness", "active_workout_plan")!.updatedAtColumn).toBe("updated_at");
   });
 
-  it("fitness entities genuinely mutable in place, with no faithful existing column, are honestly null pending docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md", () => {
+  it("fitness's genuinely-mutated-in-place entities are trigger-backed via migration 138 (docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md, applied)", () => {
     for (const entity of ["body_metric", "fitness_benchmark", "exercise", "workout", "workout_plan"]) {
-      expect(getEntity("fitness", entity)!.updatedAtColumn).toBeNull();
+      expect(getEntity("fitness", entity)!.updatedAtColumn).toBe("updated_at");
     }
   });
 

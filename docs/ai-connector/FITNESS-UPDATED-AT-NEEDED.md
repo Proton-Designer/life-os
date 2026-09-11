@@ -1,9 +1,23 @@
 # `updated_at` needed for 5 fitness tables
 
-**Not a numbered migration.** Per the standing instruction ("if a domain
+**STATUS: APPLIED.** This proposal shipped as
+`supabase/migrations/138_fitness_updated_at.sql` (confirmed live: all five
+columns and all five `*_touch_updated_at` triggers present in the catalog,
+not just in `lib/supabase/database.types.ts`). `lib/mcp/registry.ts`'s five
+corresponding entries were flipped to `updatedAtColumn: "updated_at"` on
+2026-09-11 — later than this migration itself, which is exactly the gap this
+banner exists to prevent from recurring: for a stretch between 138 landing
+and that flip, this doc, `registry.ts`, and `registry.test.ts` all
+independently said "not yet" and cited each other, and none of the three
+had asked the database. Kept below as the historical design rationale for
+why these five tables (and no others) needed the column — not as an open
+request.
+
+~~**Not a numbered migration.** Per the standing instruction ("if a domain
 needs updated_at columns, that's another migration — tell me and I'll
 allocate, don't self-number"), this is a request + a reviewable SQL sketch,
-not a file in `supabase/migrations/`.
+not a file in `supabase/migrations/`.~~ *(historical — it became migration
+138, above.)*
 
 ## Which tables, and why (verified against real write paths, not inferred)
 
@@ -15,12 +29,12 @@ not a file in `supabase/migrations/`.
 | `body_metrics` | `fitness.body_metric` | `logWeightCore`/`logWaistCore`/`logCycleBenchmark`'s combined call (all upsert on `(user_id,date)` conflict, preserving the sibling field) | `created_at` | No — a re-logged date genuinely UPDATEs in place |
 | `fitness_benchmarks` | `fitness.fitness_benchmark` | `logBenchmarkRepsCore`/`logCycleBenchmark`'s reps loop (upsert on `(user_id,date,exercise_id)` conflict) | `created_at` | No — re-logging the same exercise/date UPDATEs `max_reps` in place |
 
-All five currently ship in `lib/mcp/registry.ts` with `updatedAtColumn: null`
-— honest, not fabricated, same posture every domain has used before its own
-equivalent migration landed (133 for deen, 135 for work/business, 136 for
+All five now ship in `lib/mcp/registry.ts` with `updatedAtColumn: "updated_at"`,
+trigger-backed via the DDL below — same posture every domain now has after its
+own equivalent migration landed (133 for deen, 135 for work/business, 136 for
 school).
 
-## Proposed DDL (reuses migration 074's `touch_updated_at()`, same as 133/135/136)
+## DDL that shipped (reuses migration 074's `touch_updated_at()`, same as 133/135/136)
 
 ```sql
 alter table public.exercises         add column updated_at timestamptz not null default now();
@@ -36,10 +50,11 @@ create trigger body_metrics_touch_updated_at       before update on public.body_
 create trigger fitness_benchmarks_touch_updated_at before update on public.fitness_benchmarks   for each row execute function public.touch_updated_at();
 ```
 
-Once applied, the 5 corresponding registry entries' `updatedAtColumn: null`
-become `"updated_at"`, with an `updatedAtVerification` note pointing at the
-trigger — same mechanical follow-up as every prior domain's equivalent
-migration.
+Applied as migration 138. The 5 corresponding registry entries now read
+`updatedAtColumn: "updated_at"`, with an `updatedAtVerification` note naming
+the trigger by name — same mechanical follow-up as every prior domain's
+equivalent migration, just later than it should have been (see the STATUS
+banner above).
 
 ## Tables checked and found NOT to need this, with reasons that are NEW shapes for this program
 
