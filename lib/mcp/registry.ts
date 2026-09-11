@@ -1147,7 +1147,22 @@ export const REGISTRY: Record<string, DomainDef> = {
           "checkin_interval_minutes",
           "traveling_mode",
           "onboarding_completed",
-          "paused_date",
+          // paused_date is EXCLUDED: it is a DEAD column, not a private one.
+          // Its only writer was skipCheckinsToday and its only reader was
+          // CheckinSchedulerLoader -> computeCheckinSlots; both belonged to
+          // the point-sample check-in model that the allocation-window model
+          // replaced in 05e6ecd (2026-08-19), and both were deleted as dead
+          // code in f6f4b9a. The live path (lib/checkins/get-allocation-queue.ts,
+          // schedule.ts) has no concept of pausing at all -- suppressionRanges
+          // is Lock-In sessions plus prayer times, nothing else.
+          //
+          // Excluded rather than left exposed because the consumer here is a
+          // MODEL, and it will reason from what it reads. A stale comment
+          // misleads whoever happens to read it; an advertised column whose
+          // value can never change and drives nothing is a false fact handed
+          // to something that will act on it -- and it costs tokens on every
+          // profile read to say nothing (R8). If pausing is ever rebuilt,
+          // re-expose it in the same commit that gives it a real writer.
           "tracking_started_on",
           "evening_close_time",
           "theme_preset",
