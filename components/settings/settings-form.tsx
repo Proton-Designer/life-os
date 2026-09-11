@@ -19,7 +19,6 @@ export type SettingsFormData = {
   location: { lat: number | null; lng: number | null; label: string | null; timezone: string | null };
   checkinWindowStart: string;
   checkinWindowEnd: string;
-  checkinIntervalMinutes: number;
   pinLockEnabled: boolean;
 };
 
@@ -37,7 +36,6 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
         asr_madhab: form.asrMadhab,
         checkin_window_start: form.checkinWindowStart,
         checkin_window_end: form.checkinWindowEnd,
-        checkin_interval_minutes: form.checkinIntervalMinutes,
       })
     );
   }
@@ -118,12 +116,28 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
       </Panel>
 
       <Panel id="checkins" className="scroll-mt-24" title="Check-ins">
-        {/* flex-col below sm: 3 side-by-side inputs (2 native time pickers +
-            a number field) genuinely don't fit in 390px — native time
-            inputs have a browser-enforced minimum width flex can't shrink
-            below. A real overflow bug, caught by the layout-overflow
-            spec's determinism fix (2026-08-16), not by eyeballing. Kept
-            unchanged through the Phase G restructure — re-verified live. */}
+        {/* These two bounds are the ONLY check-in settings, and that is
+            deliberate. An "Interval (min)" field used to sit beside them,
+            writing profiles.checkin_interval_minutes -- a column nothing
+            has read since the point-sample check-in model was replaced
+            (2026-08-19). The live model steps fixed windows of
+            ALLOCATION_WINDOW_MINUTES (lib/checkins/schedule.ts), and the
+            allocation bar's TOTAL_MINUTES (lib/checkins/allocation.ts) is
+            hardcoded to the same 120 in every surface that renders it.
+            The control persisted, round-tripped, and changed nothing --
+            worse than a silent dead column, because it was labelled and
+            interactive. Removed 2026-09-10 rather than wired: making the
+            interval real means decoupling those two constants, which is a
+            feature to be chosen on its merits, not smuggled in as a fix.
+            The bounds themselves ARE live -- schedule.ts reuses them as
+            the wake/sleep range, as its own comment says.
+
+            flex-col below sm: side-by-side native time pickers genuinely
+            don't fit in 390px -- they have a browser-enforced minimum
+            width flex can't shrink below. A real overflow bug, caught by
+            the layout-overflow spec's determinism fix (2026-08-16), not by
+            eyeballing. Kept unchanged through the Phase G restructure --
+            re-verified live. */}
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>
@@ -141,20 +155,6 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
               type="time"
               value={form.checkinWindowEnd}
               onChange={(e) => setForm((f) => ({ ...f, checkinWindowEnd: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="interval">Interval (min)</Label>
-            <Input
-              id="interval"
-              type="number"
-              min={15}
-              step={15}
-              value={form.checkinIntervalMinutes}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, checkinIntervalMinutes: Number(e.target.value) }))
-              }
-              className="w-24"
             />
           </div>
         </div>

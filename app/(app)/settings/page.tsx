@@ -110,7 +110,6 @@ export default async function SettingsPage() {
               },
               checkinWindowStart: profile?.checkin_window_start?.slice(0, 5) ?? "08:00",
               checkinWindowEnd: profile?.checkin_window_end?.slice(0, 5) ?? "22:00",
-              checkinIntervalMinutes: profile?.checkin_interval_minutes ?? 120,
               pinLockEnabled: profile?.pin_lock_enabled ?? false,
             }}
           />

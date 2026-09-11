@@ -30,7 +30,12 @@ export type ProfileUpdatable = Partial<{
   pin_hash: string | null;
   checkin_window_start: string;
   checkin_window_end: string;
-  checkin_interval_minutes: number;
+  // checkin_interval_minutes is deliberately NOT writable: the column has had
+  // no reader since the point-sample check-in model was replaced (2026-08-19),
+  // and its Settings control was removed 2026-09-10. Leaving it writable would
+  // let a future caller re-create a value that silently does nothing. If the
+  // interval is ever made real, re-add it here in the same commit that gives
+  // it a reader -- see components/settings/settings-form.tsx's Check-ins panel.
   traveling_mode: boolean;
   onboarding_completed: boolean;
   theme_preset: ThemePresetId;
