@@ -248,6 +248,55 @@ exactly two callers — the MCP route and `render.ts`. A third caller is the eve
 weakens everything above, and should be treated as a design change requiring a ruling, not
 a refactor.
 
+**R12 — The 20-row page cap is a MODEL-CONTEXT constraint. It does not apply to the widget
+render path, and holding it there blocks two R11 kinds for no benefit.**
+
+`readTool`'s `PAGE_SIZE = 20` (`lib/mcp/tools/read.ts:20`) exists because of R8: every row a
+tool returns is spent in a model's context window, and an unbounded read is how a connector
+becomes unusable. That reasoning is sound and stays, unchanged, for the MCP route.
+
+**It does not transfer to widgets, and the reason is structural, not a judgement call.**
+Verified before ruling:
+
+- `renderWidgets` has exactly **one** caller — `app/(app)/page.tsx:89`, the server-rendered
+  Home page. Its output goes into HTML for a human's browser.
+- `widget_manage` contains **no render call at all**. Its `list` action returns widget
+  *definitions* (`widgetToItem`) — the JSON the model itself authored — never rendered rows.
+
+So there is no path by which a widget's data rows reach a model's context. Raising the row
+limit on the render path cannot increase what any AI client can read; it changes page weight
+and query cost, which are the human's concerns, not the context window's.
+
+**Why this is blocking rather than cosmetic.** Two of R11's five kinds are time-series by
+nature: a sparkline needs ~30 daily points, a streak needs enough history to find a break.
+At 20 rows both are not merely truncated, they are *wrong* — a 30-day trend drawn from 20
+rows silently misrepresents the period it claims to cover, and a streak computed from a
+truncated window reports a break that did not happen. `progress_against_goal` escaped this
+only because it degrades honestly (`"20+ / 100"`); a chart has no equivalent honest floor.
+
+**Ruling:** `readTool` gains an optional, explicitly-bounded row limit. Conditions, all of
+which are the point:
+
+- **The MCP route's behaviour is unchanged.** It continues to use `PAGE_SIZE = 20`, and does
+  not gain the ability to request more. R8 is untouched.
+- **Only `render.ts` may pass the higher limit**, and it is bounded by a named constant — not
+  caller-supplied, not derived from the widget definition. A model authoring a widget must
+  not be able to influence how many rows are fetched.
+- **Nothing else changes.** Same columns, same `filterableColumns`, same `fixedFilter` and
+  `parentFilter`, same `truncateColumns`, same RLS. This is strictly a volume parameter on an
+  otherwise identical query — if the diff touches what is selected or what is filtered, it has
+  left the scope of this ruling.
+- **The two-caller invariant from `WIDGETS-SECURITY-AUDIT.md` now carries more weight, not
+  less.** It was previously "a third caller means the audit no longer covers it"; it is now
+  also "a third caller could inherit a limit chosen for a surface it isn't." Enforce it in
+  the signature: the raised limit should be impossible to request accidentally.
+
+Worth stating because it is the reusable half: **R8 was applied to the widget path by analogy
+rather than by argument.** Both paths call `readTool`, so the cap came along. But a constraint
+justified by a consumer only binds where that consumer is downstream — and the widget path's
+consumer is a browser. A rule inherited by proximity rather than by reasoning is how a correct
+constraint ends up enforced in a place it was never about.
+
 **R8 — Token efficiency is a first-class design constraint, not a polish item.**
 The owner named it himself. ~153 exported action functions is the realistic upper bound of
 the surface and one-tool-per-action is unusable: every tool's schema is re-sent on every
