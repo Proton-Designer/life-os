@@ -226,6 +226,74 @@ never found the button it needed. The property is *does an unended row exist*,
 and only the database answers it. The next run would have read that orphan as
 baseline and failed somewhere unrelated.
 
+#### A strong proxy is more dangerous than a weak one
+
+Found 2026-09-10. Three Home widget kinds shipped with schema validation,
+rendering, Home wiring, positive controls, and timezone-boundary tests —
+`tsc` clean, 3464 vitest green — and **none of them could ever be created.**
+Migration 141's `mcp_widgets.kind` CHECK constraint was never widened as
+kinds were added, so every insert failed at the database. The engineer had
+verified the mechanism, measured the guard's reach across all 57 entities,
+and confirmed a two-caller invariant. Rigour at every layer above the broken
+one.
+
+The tests were not bad. Each was worth writing and each will catch its own
+class of defect tomorrow. They were simply positioned **above** the layer
+that was broken, and every one of them mocks the database — so the whole
+suite was structurally incapable of seeing a CHECK constraint, exactly as
+`tsc` is.
+
+**Rigour at layer N tells you nothing about layer N−1.** The transferable
+rule is not "test more," it is: name the layer each check actually reaches,
+and notice which layers nothing reaches. "All the tests pass" was the proxy
+accepted here, and it is a *strong* proxy — which is what makes it worse
+than a weak one. A weak check invites the sanity check that would have
+caught this. A strong one earns the confidence it then misplaces.
+
+The enum/CHECK pair is the specific instance worth grepping for: a TS union
+and a Postgres CHECK that must agree, with nothing in CI comparing them.
+`scripts/check-enum-drift.sh` exists for this now and enumerates from the
+database rather than a hand-maintained list — a hand-maintained list of
+things-to-compare has the same failure mode as the thing it is checking.
+
+#### Mutual citation is not corroboration when none of the citers consulted the source
+
+The sharpest shape of the same night, and the hardest to see. A registry
+entry claimed a column had no freshness timestamp, citing a design doc. Its
+test pinned that same null and **named the doc in the test's own title**.
+The doc presented the column as an open request. Three artifacts in
+agreement, each pointing at the next — and **not one of them had asked the
+database**, which had carried a trigger-backed `updated_at` for weeks. Twelve
+entities were affected, a quarter of the read surface reporting no freshness
+at all.
+
+The citation trail is not incidental to the illusion, it **is** the illusion.
+A bare unsourced claim invites a check; a claim with a footnote reads as
+already checked, so nobody re-runs it. This is the stale-comment problem one
+order up — there, one artifact described something that no longer existed;
+here, three describe *each other* and none describes the system.
+
+**A citation is a pointer, not evidence.** Before repeating a sourced claim,
+follow the chain to something that is not another document — the database,
+the running code, a real response. If every link in the chain is prose, the
+chain has no anchor, however many links it has.
+
+#### "The committed state" is a moving target in a shared tree
+
+`deploy-prod.sh` ships the committed state, not the dirty tree, which is
+correct and is the whole reason the shared tree is survivable. But with four
+agents committing to one tree, **HEAD can move between the moment you verify
+and the moment the deploy script reads it.** It happened on 2026-09-10: a
+lead verified `3a52a32` and the deploy shipped `03da0d6`, one commit later.
+Harmless that time — the delta was a shell script outside the Next build —
+and disclosed rather than discovered, which is the behaviour to copy.
+
+**Record the sha you verified, and compare it to the sha the deploy reports.**
+`deploy-prod.sh` prints what it shipped; if it does not match what you
+checked, say so in the same breath as the word "green." A verified sha and a
+deployed sha that differ is not automatically a problem, but it is always a
+fact, and it is only cheap to state before someone else has to find it.
+
 ### Production verification is worth the two minutes
 
 `PLAYWRIGHT_BASE_URL=https://tracking-app-sand.vercel.app npx playwright test …`
