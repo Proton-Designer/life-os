@@ -124,7 +124,40 @@ test.describe("School — expanded class view", () => {
       // means he clicked View and did not get to see his syllabus.
       await expect(viewer.getByText(/can't be previewed/i)).toHaveCount(0);
 
-      // Give any errant download a moment to fire before concluding none did.
+      // SETTLE ON A POSITIVE CONDITION BEFORE JUDGING AN ABSENCE.
+      //
+      // What this test asserted for months was `downloads === []` after a
+      // flat 1500ms wait -- an absence measured against a fixed timeout,
+      // with nothing establishing that the viewer had committed to a
+      // rendering path yet. It passed roughly 2 runs in 5 on Mobile Chrome
+      // while the bug it existed to catch was live and reproducible on 4
+      // of 4 controlled probes (downloads firing at 468-1017ms). Every
+      // green it ever produced was luck, not evidence.
+      //
+      // So: wait for the viewer to actually BE in one of its two legitimate
+      // states, and only then ask whether anything was saved. The states
+      // are branched on the same capability the component branches on
+      // (navigator.pdfViewerEnabled), not on a project name or a user-agent
+      // guess -- a proxy here would drift from the component the moment
+      // either changed.
+      if (format === "pdf") {
+        const inline = await page.evaluate(() => navigator.pdfViewerEnabled !== false);
+        if (inline) {
+          await expect(viewer.locator('iframe[title="Syllabus"]')).toBeVisible();
+        } else {
+          // The iframe must not merely be hidden -- it must never mount.
+          // Mounting it IS the action that triggers the download.
+          await expect(viewer.getByRole("link", { name: /open syllabus/i })).toBeVisible();
+          await expect(viewer.locator("iframe")).toHaveCount(0);
+        }
+      } else {
+        // docx-preview writes real page nodes into the container; their
+        // presence is the property, where "no error text" is only a proxy.
+        await expect(viewer.locator(".docx-wrapper, .docx")).not.toHaveCount(0);
+      }
+
+      // Now the absence means something: the viewer has finished choosing,
+      // so a download after this point could only be the errant one.
       await page.waitForTimeout(1500);
       expect(downloads).toEqual([]);
     });

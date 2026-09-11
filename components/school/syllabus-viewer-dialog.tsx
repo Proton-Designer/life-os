@@ -16,6 +16,63 @@ function forceDownloadUrl(url: string): string {
   return url.includes("?") ? `${url}&download=` : `${url}?download=`;
 }
 
+/**
+ * Whether THIS browser can render a PDF inside an `<iframe>`.
+ *
+ * `navigator.pdfViewerEnabled` is the standardised property for exactly
+ * this question (Chrome 94+, Safari 16.4+, Firefox 90+). We read the
+ * property itself rather than sniffing the user agent, which is only a
+ * proxy for it — and the wrong proxy on every browser that doesn't fit
+ * the pattern being matched.
+ *
+ * `undefined` (a browser too old to expose it) resolves to `true`, which
+ * is the pre-2026-09-10 behaviour: an unrecognised browser is far more
+ * likely to have a viewer than not, and a false negative here costs a
+ * working inline render. Only an explicit `false` changes anything.
+ */
+function canRenderPdfInline(): boolean {
+  if (typeof navigator === "undefined") return true;
+  const flag = (navigator as Navigator & { pdfViewerEnabled?: boolean }).pdfViewerEnabled;
+  return flag === undefined ? true : flag;
+}
+
+/**
+ * The PDF path for a browser with no built-in viewer — phones, chiefly.
+ *
+ * Deliberately NOT `DownloadFallback`: Ayman's original C1 report was that
+ * View downloaded the file instead of showing it, so answering the same
+ * tap with a Download button would be conceding the exact complaint. A new
+ * tab hands the file to the browser's OWN PDF viewer, which is viewing.
+ * Download stays available, demoted to a secondary link.
+ *
+ * The primary link carries the plain signed URL, never `forceDownloadUrl`
+ * — the `?download=` parameter is what turns a view into a save.
+ */
+function PdfHandoff({ url }: { url: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+      <p className="text-sm text-muted-foreground">
+        This browser can&apos;t display a PDF inside the app. Opening it in a new tab uses the
+        browser&apos;s own viewer — it won&apos;t save the file.
+      </p>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent/50"
+      >
+        Open syllabus
+      </a>
+      <a
+        href={forceDownloadUrl(url)}
+        className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        Download instead
+      </a>
+    </div>
+  );
+}
+
 function DownloadFallback({ url, message }: { url: string; message: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3">
@@ -37,8 +94,17 @@ function DownloadFallback({ url, message }: { url: string; message: string }) {
  * persisted — closing this dialog and reopening it re-fetches a new one
  * rather than reusing an old, possibly expired, signed URL.
  *
- * PDFs render inline via `<iframe>` — that already worked before C1; this
- * branch is untouched. .docx (the ONE format no browser renders inline —
+ * PDFs render inline via `<iframe>` ONLY where the browser has a built-in
+ * PDF viewer (`canRenderPdfInline`). The claim this comment used to make —
+ * "that already worked before C1; this branch is untouched" — was true of
+ * desktop and false of Ayman's phone, which is the device the C1 report
+ * came from. Mobile Chromium ships no PDF plugin, so the iframe navigated,
+ * failed to display, and handed the file to the downloader: a titled modal
+ * with a 380x649 void in it, and a download he never asked for. The
+ * "honest fallback" below never fired, because nothing threw — the iframe
+ * path LOOKED successful, so the code never reached the honest branch.
+ * A silent success is how an honest failure gets bypassed. Those browsers
+ * now get `PdfHandoff` instead. .docx (the ONE format no browser renders inline —
  * every other syllabus Ayman has is a PDF) is rendered client-side with
  * `docx-preview`, dynamically imported so the ~975KB library only loads
  * when a .docx is actually opened, never in the main bundle. Anything else
@@ -65,6 +131,18 @@ export function SyllabusViewerDialog({
   const containerRef = useRef<HTMLDivElement>(null);
   const [docxError, setDocxError] = useState(false);
   const [docxLoading, setDocxLoading] = useState(false);
+  // `null` until the client has answered the capability question. The PDF
+  // branch renders NOTHING until then, and that is the entire fix: mounting
+  // the <iframe> is itself the action that triggers the download on a
+  // browser with no viewer, so "mount it, then correct" would fire the bug
+  // once per open before correcting it. It cannot be read during render
+  // either — the server has no `navigator`, and guessing would be a
+  // hydration mismatch. One frame of "Loading…", then the right branch.
+  const [pdfInline, setPdfInline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setPdfInline(canRenderPdfInline());
+  }, []);
 
   useEffect(() => {
     if (!open || result?.kind !== "docx") return;
@@ -122,8 +200,12 @@ export function SyllabusViewerDialog({
             )}
             <div ref={containerRef} className={cn(docxError && "invisible")} />
           </div>
-        ) : (
+        ) : pdfInline === null ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">Loading document…</p>
+        ) : pdfInline ? (
           <iframe src={result.url} title="Syllabus" className="min-h-0 flex-1 rounded-md border border-border/40" />
+        ) : (
+          <PdfHandoff url={result.url} />
         )}
       </DialogContent>
     </Dialog>

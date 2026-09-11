@@ -28,6 +28,61 @@ describe("SyllabusViewerDialog", () => {
     expect(screen.getByTitle("Syllabus")).toHaveAttribute("src", PDF.url);
   });
 
+  // --------------------------------------------------------------------
+  // Mobile PDF (2026-09-10). On Ayman's phone, View produced a titled
+  // modal with a 380x649 VOID in it and downloaded the file anyway --
+  // mobile Chromium ships no PDF plugin, so the <iframe> navigated,
+  // couldn't display, and handed off to the downloader. Nothing threw, so
+  // the component's own "can't be previewed" fallback never fired: the
+  // failing path looked successful all the way down.
+  //
+  // These three cases pin the branch on the PROPERTY the component reads
+  // (navigator.pdfViewerEnabled), not on a user-agent string, which is
+  // only a proxy for it. Deleting the pdfInline guard turns the first one
+  // red -- verified by doing exactly that before trusting these.
+  // --------------------------------------------------------------------
+  function stubPdfViewer(enabled: boolean | undefined) {
+    Object.defineProperty(navigator, "pdfViewerEnabled", {
+      value: enabled,
+      configurable: true,
+    });
+  }
+
+  it("never mounts the iframe on a browser with no PDF viewer -- mounting it IS what triggers the download", () => {
+    stubPdfViewer(false);
+    render(<SyllabusViewerDialog open onOpenChange={vi.fn()} result={PDF} />);
+    // Not "hidden", not "empty" -- absent. A hidden iframe still navigates.
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    expect(screen.getByRole("link", { name: "Open syllabus" })).toHaveAttribute("href", PDF.url);
+  });
+
+  it("hands a viewer-less browser the PLAIN signed url, never the ?download= one", () => {
+    stubPdfViewer(false);
+    render(<SyllabusViewerDialog open onOpenChange={vi.fn()} result={PDF} />);
+    // The whole point of C1 was that View saved the file instead of showing
+    // it. Answering the same tap with a download would concede the report.
+    expect(screen.getByRole("link", { name: "Open syllabus" }).getAttribute("href")).not.toContain(
+      "download="
+    );
+    // Download stays reachable, demoted -- not removed.
+    expect(screen.getByRole("link", { name: "Download instead" }).getAttribute("href")).toContain(
+      "download="
+    );
+  });
+
+  it("still renders inline when the browser reports a viewer, and when it is too old to say", () => {
+    stubPdfViewer(true);
+    const { unmount } = render(<SyllabusViewerDialog open onOpenChange={vi.fn()} result={PDF} />);
+    expect(screen.getByTitle("Syllabus")).toHaveAttribute("src", PDF.url);
+    unmount();
+
+    // undefined => assume yes. An unrecognised browser is far likelier to
+    // have a viewer than not, and a false negative costs a working render.
+    stubPdfViewer(undefined);
+    render(<SyllabusViewerDialog open onOpenChange={vi.fn()} result={PDF} />);
+    expect(screen.getByTitle("Syllabus")).toHaveAttribute("src", PDF.url);
+  });
+
   it("shows an honest can't-preview message with a Download link for 'other' (e.g. legacy .doc), never the iframe", () => {
     render(<SyllabusViewerDialog open onOpenChange={vi.fn()} result={OTHER} />);
     expect(screen.getByText("This document can't be previewed.")).toBeInTheDocument();
