@@ -43,16 +43,47 @@
 # reports any such column with no PAIRS entry as UNMAPPED. This is reported,
 # always, in full, every run (never silently dropped) — but does NOT by
 # itself fail the script. That is a deliberate, stated choice, not an
-# oversight: at the moment this landed, 36 real columns fit this shape with
+# oversight: at the moment this landed, 35 real columns fit this shape with
 # no PAIRS entry (prayers.status, mcp_scheduled_actions.tool_name, and
 # mcp_widgets.status among them) — none individually triaged. Failing the
-# build on all 36 on day one would make preflight permanently red for a
+# build on all 35 on day one would make preflight permanently red for a
 # backlog nobody has reviewed yet, which is exactly the "a check that's
 # always red gets ignored" failure mode this codebase has already paid for
-# once. A column a human has looked at and either mapped (added to PAIRS) or
-# explicitly excluded (a comment here, same as checkin_allocations.domain's
-# existing exclusion note) stops being reported; everything else stays
-# visible, unmissably, until one of those two things happens to it.
+# once — the lead's own ruling on this backlog: someone hits a wall of red
+# about columns unrelated to their change, mid-deploy, and comments the
+# check out or adds `|| true`, and then the instrument is gone and nobody
+# notices, which is worse than never having built it. A column a human has
+# looked at and either mapped (added to PAIRS) or explicitly excluded (a
+# comment here, same as checkin_allocations.domain's existing exclusion
+# note) stops being reported; everything else stays visible, unmissably,
+# until one of those two things happens to it.
+#
+# INTENDED END STATE, not yet true, recorded so the plan survives past
+# tonight: report-only while the backlog is nonzero; the MOMENT
+# report_unmapped()'s count reaches zero, flip it to fail the script like
+# check_pair() already does. A newly-added constrained column with no PAIRS
+# entry should then be a hard gate, not a report — but only once every
+# PRE-EXISTING one has been individually mapped or explicitly excluded, so
+# that day-one's failure is never about something nobody chose to look at
+# yet. Several of the 35 need real judgement, not a rushed 4am guess, and a
+# wrong exclusion documented under time pressure is worse than an honest,
+# still-open report (e.g. `exercises.primary_muscles`/`secondary_muscles`
+# are array-subset constraints, not a closed value-set the way `kind`
+# columns are, and `migration_ledger.status` plausibly has no business
+# needing a TS mirror at all — both are judgement calls for whoever triages
+# them, not decided here).
+#
+# REQUIRES A REAL DATABASE CONNECTION — this is not a unit test and must
+# never run in the default `vitest` pass. `preflight.sh` is its home: call
+# `./scripts/preflight.sh "$DATABASE_URL_POOLER"` (see `.env.local`), which
+# runs this script's self-test first, then the real check, only when a URL
+# is given. Running THIS script directly with no URL is loud, not silent:
+# it prints a usage error to stderr and exits 2 rather than a false "OK".
+# `preflight.sh` without a URL is similarly loud about skipping the whole
+# database-checks section ("SKIPPED — no postgres url given. This is NOT a
+# pass.") — a silent skip is an absence, and an absence is exactly the bug
+# class this file exists to catch, at the meta level as much as the data
+# level.
 #
 # Usage:  ./scripts/check-enum-drift.sh "<postgres-url>"
 #         ./scripts/check-enum-drift.sh --self-test "<postgres-url>"
