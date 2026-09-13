@@ -25,7 +25,7 @@ If you are a fresh agent, read `CLAUDE.md` first (it is short), then this.
 | `docs/audits/` | One 2026-08-15 frontend structure audit. | Historical. |
 | `PROJECT_STATUS.md` | 333 KB append-only build log, 2026-08-10 → 2026-08-20. | **Frozen historical log.** Its opening section asserts single-user/non-multi-tenant, which is false today. See the banner at its top. |
 | `context/Life OS — Complete Feature Guide.docx` | Screen-by-screen behavioural guide, written 2026-08-29. | **Stale.** Predates the 2026-09-01 domains/onboarding restructure — it describes the legacy shell only. |
-| `README.md` | Untouched `create-next-app` boilerplate. | Ignore. |
+| `README.md` | Project overview, getting started. | Current — corrected 2026-09-13; this row previously called it untouched boilerplate, which was wrong (or went stale) as of this same 2026-09-10 pass. |
 
 **The single most common wrong belief a fresh agent forms here** is that this is a
 single-user personal app for one person. It was, until 2026-09-01. It is not now.

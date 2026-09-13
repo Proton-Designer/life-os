@@ -1,0 +1,2733 @@
+{
+  "meta": {
+    "artifact": "knowledge-map",
+    "version": "1.0",
+    "generated_at": "2026-09-13T18:03:12.741Z",
+    "target": "/sessions/rcw-0195cbztfnroblgdnkflavka/mnt/tracking-app",
+    "git": {
+      "commit": "1cce1ef",
+      "branch": "main",
+      "dirty": true
+    },
+    "tool": {
+      "name": "agent-brain",
+      "version": "0.1.0"
+    }
+  },
+  "data": {
+    "nodes": [
+      {
+        "id": "arch.data-flows",
+        "path": ".brain/architecture/data-flows.md",
+        "title": "Data Flows",
+        "layer": "L2",
+        "type": "architecture",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1421,
+        "covers": "The 3 flows that matter most in this codebase: cookie-authed request→RLS, MCP bearer-token→RLS, and Home's cross-domain data assembly",
+        "excludes": "Per-domain internal data shape (see the relevant domain.* doc)",
+        "answers": [
+          "how does an mcp write reach the database",
+          "how does home assemble its data",
+          "how does a schema change roll out safely"
+        ],
+        "populated": true
+      },
+      {
+        "id": "arch.dependency-graph",
+        "path": ".brain/architecture/dependency-graph.md",
+        "title": "Dependency Graph",
+        "layer": "L2",
+        "type": "architecture",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1719,
+        "covers": "Internal lib/ dependency shape, the tenancy/RLS mechanism, and the migration discipline that keeps schema and code from silently disagreeing",
+        "excludes": "Column-by-column schema (out of scope at this layer); full routing/stack detail (see context/ARCHITECTURE.md)",
+        "answers": [
+          "what breaks if i change this",
+          "how does tenancy get enforced at the database layer",
+          "what depends on what across domains"
+        ],
+        "populated": true
+      },
+      {
+        "id": "arch.service-map",
+        "path": ".brain/architecture/service-map.md",
+        "title": "Service Map",
+        "layer": "L2",
+        "type": "architecture",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1080,
+        "covers": "Every distinct API/route surface this single-process app exposes, treated as a 'service' for navigation purposes",
+        "excludes": "The main cookie-authed page tree itself (see REPOSITORY_MAP.md for the full route table)",
+        "answers": [
+          "what api surfaces does this app expose",
+          "where does each api route live"
+        ],
+        "populated": true
+      },
+      {
+        "id": "arch.system-overview",
+        "path": ".brain/architecture/system-overview.md",
+        "title": "System Overview",
+        "layer": "L2",
+        "type": "architecture",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1725,
+        "covers": "Components, boundaries, request lifecycle, external dependencies at a glance",
+        "excludes": "Per-service detail (see arch.service-map), dependency edges (see arch.dependency-graph), data flows (see arch.data-flows), full technical convention detail (see context/ARCHITECTURE.md — the canonical, still-accurate L3 source this file compresses and points at)",
+        "answers": [
+          "what is the architecture",
+          "how does this system work",
+          "what are the components"
+        ],
+        "populated": true
+      },
+      {
+        "id": "archive.2026-09-13.feature-guide-docx",
+        "path": ".brain/archive/context/life-os-complete-feature-guide.docx.PROVENANCE.md",
+        "title": "[ARCHIVED] Life OS — Complete Feature Guide.docx",
+        "layer": "L5",
+        "type": "archive",
+        "status": "archived",
+        "owner": "unassigned",
+        "tokens_est": 434,
+        "covers": null,
+        "excludes": null,
+        "answers": null,
+        "populated": true
+      },
+      {
+        "id": "archive.2026-09-13.root-agents-md-v1",
+        "path": ".brain/archive/2026-09-13.root-agents-md-v1.md",
+        "title": "[ARCHIVED] Root AGENTS.md (pre-Agent-Brain version)",
+        "layer": "L5",
+        "type": "archive",
+        "status": "archived",
+        "owner": "unassigned",
+        "tokens_est": 6709,
+        "covers": null,
+        "excludes": null,
+        "answers": null,
+        "populated": true
+      },
+      {
+        "id": "archive.2026-09-13.root-claude-md-v1",
+        "path": ".brain/archive/2026-09-13.root-claude-md-v1.md",
+        "title": "[ARCHIVED] Root CLAUDE.md (pre-Agent-Brain version)",
+        "layer": "L5",
+        "type": "archive",
+        "status": "archived",
+        "owner": "unassigned",
+        "tokens_est": 3234,
+        "covers": null,
+        "excludes": null,
+        "answers": null,
+        "populated": true
+      },
+      {
+        "id": "ctx.product",
+        "path": "PRODUCT_CONTEXT.md",
+        "title": "Product Context",
+        "layer": "L2",
+        "type": "map",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1306,
+        "covers": "What the product does, who uses it, business constraints, domain vocabulary",
+        "excludes": "Engineering conventions (see gov.ownership, root AGENTS.md), technical architecture (see arch.system-overview)",
+        "answers": [
+          "what does this product do",
+          "who uses this",
+          "what are we optimizing for"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.business-lockin",
+        "path": ".brain/domains/business-lockin.md",
+        "title": "Business / Lock-In",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1336,
+        "covers": "The 3-item daily Kill List, weekly business goal, Lock-In deep-work/deep-study sessions, Signal:Noise ratio",
+        "excludes": "Work/Co-op targets and task pipeline (see domain.work-coop, shares work_sessions); check-in allocation mechanics (see domain.distractions-checkins); Insights' rendering of Signal:Noise (see domain.insights)",
+        "answers": [
+          "how does the kill list work",
+          "how is signal:noise computed",
+          "what is a lock-in session"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.calendar",
+        "path": ".brain/domains/calendar.md",
+        "title": "Calendar",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 600,
+        "covers": "A Sun-Sat hour-grid week view, read-mostly beyond the weekly-goal headline",
+        "excludes": "Deadline/task data itself (owned by School/Work — see domain.school, domain.work-coop)",
+        "answers": [
+          "how does the week calendar work"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.deen",
+        "path": ".brain/domains/deen.md",
+        "title": "Deen (Faith Practice)",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1587,
+        "covers": "Five daily prayers with real astronomical windows, Qur'an reading, sunnah tracking, the habit-builder pipeline, tiered reflection, Qada backlog",
+        "excludes": "Cross-domain ranking of Deen items on Home (see domain.home-arbiter); Evening Close's distraction gate (see domain.evening-close); MCP entity wiring detail (see domain.mcp-connector)",
+        "answers": [
+          "how does prayer tracking work",
+          "where is qada backlog computed",
+          "how do prayer time windows work",
+          "why is windows.ts the only safe prayer-time entry point"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.distractions-checkins",
+        "path": ".brain/domains/distractions-checkins.md",
+        "title": "Distractions + Check-ins",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1221,
+        "covers": "One-tap distraction capture + 3-strike forced-rewrite discipline; periodic time-allocation check-ins",
+        "excludes": "The evening-close refusal gate itself (see domain.evening-close); Signal:Noise computation that consumes checkin_allocations (see domain.insights, domain.business-lockin)",
+        "answers": [
+          "how does the 3-strike distraction rule work",
+          "how does the allocation check-in model work"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.evening-close",
+        "path": ".brain/domains/evening-close.md",
+        "title": "Evening Close / Morning Open / Night Plan",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1268,
+        "covers": "The nightly close ceremony (with a refusal gate), the read-only morning-open screen, and the dump/star/crown night-plan engine",
+        "excludes": "Distraction plan/trigger mechanics that drive the refusal gate (see domain.distractions-checkins)",
+        "answers": [
+          "why does close refuse to complete",
+          "does review still exist",
+          "how does the night plan crowning work"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.fitness",
+        "path": ".brain/domains/fitness.md",
+        "title": "Fitness",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1145,
+        "covers": "Training plans (micro + routine), daily log, body metrics, 4-week measurement cycles",
+        "excludes": "Cross-domain ranking on Home (see domain.home-arbiter); MCP entity/column detail (see domain.mcp-connector, docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md)",
+        "answers": [
+          "how does fitness tracking work",
+          "why can't the cycle anchor be written",
+          "what can MCP write in fitness"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.home-arbiter",
+        "path": ".brain/domains/home-arbiter.md",
+        "title": "Home + Cross-Domain Arbiter",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1332,
+        "covers": "Home as the single daily entry point; the cross-domain arbiter that ranks candidates from every domain into one 'Now'",
+        "excludes": "Per-domain data sources feeding Home (see each domain.* doc); metrics/trends (deliberately excluded from Home, see domain.insights)",
+        "answers": [
+          "how does home decide what to show",
+          "what is the arbiter's ranking order",
+          "why does home show only one next action"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.insights",
+        "path": ".brain/domains/insights.md",
+        "title": "Insights",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 886,
+        "covers": "The analytics hub — everything Home deliberately excludes: metrics, trends, history",
+        "excludes": "Home's own current-day view (see domain.home-arbiter); raw check-in/allocation mechanics (see domain.distractions-checkins)",
+        "answers": [
+          "where do metrics and trends live",
+          "how is the legacy/domains signal:noise divergence computed"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.mcp-connector",
+        "path": ".brain/domains/mcp-connector.md",
+        "title": "MCP AI-Connector",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1471,
+        "covers": "The remote MCP server + hand-rolled OAuth 2.1 authorization server letting external AI clients read/write real account data",
+        "excludes": "Widget rendering (see domain.widgets, though it shares readTool()); per-domain write-scope decisions in full (see docs/ai-connector/*-WRITE-SCOPE-DECISIONS.md)",
+        "answers": [
+          "how does the mcp server authenticate a request",
+          "what can an ai agent read or write via mcp",
+          "how does the oauth flow work"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.school",
+        "path": ".brain/domains/school.md",
+        "title": "School",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1376,
+        "covers": "Class/assignment tracker: classes, assessments, weekly schedule, grade projection, risk scoring",
+        "excludes": "Self-Mastery's separate, unconnected spaced-repetition system (see domain.self-mastery); shared tasks table used by Work too (see domain.work-coop)",
+        "answers": [
+          "how are grades computed",
+          "why is the questions table dead",
+          "what did the CollegeOS merge actually ship for school"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.self-mastery",
+        "path": ".brain/domains/self-mastery.md",
+        "title": "Self-Mastery (ULM — Learning)",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1293,
+        "covers": "Book ingestion, FSRS spaced repetition over lessons/cards, the lesson-promotion/verdict loop",
+        "excludes": "School's separate, unconnected tracker (see domain.school); MCP entity detail (see domain.mcp-connector)",
+        "answers": [
+          "how does spaced repetition work",
+          "why is book upload disabled",
+          "what is a lesson promotion"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.settings-onboarding",
+        "path": ".brain/domains/settings-onboarding.md",
+        "title": "Settings & Onboarding (incl. domain-vocabulary migration)",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1258,
+        "covers": "The domain-first onboarding wizard, Settings, and the two-navigation-mode split this is the origin of",
+        "excludes": "Per-domain settings detail (theme, feature-visibility columns) beyond the vocabulary/nav mechanism itself",
+        "answers": [
+          "why do two domain vocabularies exist at once",
+          "what is legacy mode vs domains mode",
+          "why does an account get the wrong nav"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.widgets",
+        "path": ".brain/domains/widgets.md",
+        "title": "Widgets (AI-created Home dashboard cards)",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1042,
+        "covers": "Declarative, MCP-created Home dashboard widgets — Tier 1 only, no code execution",
+        "excludes": "The read/write tool machinery widgets reuse (see domain.mcp-connector)",
+        "answers": [
+          "how do ai-created home widgets stay safe",
+          "what widget kinds exist"
+        ],
+        "populated": true
+      },
+      {
+        "id": "domain.work-coop",
+        "path": ".brain/domains/work-coop.md",
+        "title": "Work / Co-op",
+        "layer": "L2",
+        "type": "domain",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1207,
+        "covers": "Job/freelance work: up to 3 live Targets, a per-target task pipeline, Deep Work/Deep Study Lock-In sessions",
+        "excludes": "Lock-In session mechanics and Signal:Noise (see domain.business-lockin, they share work_sessions); School's separate task/schedule model (see domain.school)",
+        "answers": [
+          "how do work targets and the task pipeline work",
+          "why do work subdomains share one pipeline"
+        ],
+        "populated": true
+      },
+      {
+        "id": "gov.contribution-protocol",
+        "path": ".brain/governance/contribution-protocol.md",
+        "title": "Contribution Protocol",
+        "layer": "L2",
+        "type": "governance",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1217,
+        "covers": "What .brain doc to update for a given change type, agent-specific update rules, the verification gate",
+        "excludes": "How to write a .brain document (see gov.documentation-standards), when a document should be archived (see gov.knowledge-lifecycle)",
+        "answers": [
+          "what do I update when I change code",
+          "how do I keep the brain current"
+        ],
+        "populated": true
+      },
+      {
+        "id": "gov.documentation-standards",
+        "path": ".brain/governance/documentation-standards.md",
+        "title": "Documentation Standards",
+        "layer": "L2",
+        "type": "governance",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1160,
+        "covers": "Where knowledge belongs by layer, frontmatter schema, writing and review rules — for this repository specifically",
+        "excludes": "When to update a doc after a code change (see gov.contribution-protocol); when a doc retires (see gov.knowledge-lifecycle)",
+        "answers": [
+          "how do I write a .brain document",
+          "where does this piece of knowledge belong",
+          "what frontmatter is required"
+        ],
+        "populated": true
+      },
+      {
+        "id": "gov.knowledge-lifecycle",
+        "path": ".brain/governance/knowledge-lifecycle.md",
+        "title": "Knowledge Lifecycle",
+        "layer": "L2",
+        "type": "governance",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1416,
+        "covers": "Review cadence, drift handling, archiving and deletion rules",
+        "excludes": "What to update on a code change (see gov.contribution-protocol), authoring/frontmatter rules (see gov.documentation-standards)",
+        "answers": [
+          "when should a document be archived",
+          "how often is knowledge reviewed",
+          "what do I do about a drifted document"
+        ],
+        "populated": true
+      },
+      {
+        "id": "gov.ownership",
+        "path": ".brain/governance/ownership.md",
+        "title": "Ownership",
+        "layer": "L2",
+        "type": "governance",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 961,
+        "covers": "Ownership by area, what's genuinely unknown, the escalation path for unowned things",
+        "excludes": "Engineering conventions (see COMPANY_CONTEXT.md); per-domain code paths (see .brain/domains/)",
+        "answers": [
+          "who owns this service",
+          "who do I ask about a domain",
+          "what does 'Lead' mean in this repo's docs"
+        ],
+        "populated": true
+      },
+      {
+        "id": "gov.tool-output-policy",
+        "path": ".brain/governance/tool-output-policy.md",
+        "title": "Tool Output Policy",
+        "layer": "L2",
+        "type": "governance",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1124,
+        "covers": "Token-expensive commands, safe defaults, destructive-command rules, containment-tool interaction",
+        "excludes": "Which containment tools are actually enabled here (see tool.optimization-registry)",
+        "answers": [
+          "how do I keep tool output from flooding context",
+          "what commands are safe to run"
+        ],
+        "populated": true
+      },
+      {
+        "id": "map.repository",
+        "path": "REPOSITORY_MAP.md",
+        "title": "Repository Map",
+        "layer": "L2",
+        "type": "map",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1143,
+        "covers": "Top-level layout, where each domain's code lives, where to make common changes",
+        "excludes": "Per-domain implementation detail (see .brain/domains/), dependency edges (see arch.dependency-graph)",
+        "answers": [
+          "where does the code for X live",
+          "what is in this directory",
+          "which service handles Y"
+        ],
+        "populated": true
+      },
+      {
+        "id": "mem.active-work",
+        "path": ".brain/memory/active-work.md",
+        "title": "Active Work",
+        "layer": "L2",
+        "type": "memory",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 952,
+        "covers": "In-flight work, partial migrations, recently completed work",
+        "excludes": "Why a past decision was made (see mem.decisions), currently-broken behavior (see mem.known-issues)",
+        "answers": [
+          "what is in flight",
+          "why is this code half-migrated"
+        ],
+        "populated": true
+      },
+      {
+        "id": "mem.decisions",
+        "path": ".brain/memory/decisions.md",
+        "title": "Decisions",
+        "layer": "L2",
+        "type": "memory",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1455,
+        "covers": "Decisions made, alternatives considered, what superseded what",
+        "excludes": "Work currently in progress (see mem.active-work), currently-broken behavior (see mem.known-issues)",
+        "answers": [
+          "why was X chosen",
+          "why do we do it this way",
+          "was Y considered"
+        ],
+        "populated": true
+      },
+      {
+        "id": "mem.known-issues",
+        "path": ".brain/memory/known-issues.md",
+        "title": "Known Issues",
+        "layer": "L2",
+        "type": "memory",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1565,
+        "covers": "Active gaps, deliberate constraints that look like bugs, unresolved identity mysteries, resolved issues",
+        "excludes": "Why a design choice was made (see mem.decisions), approaches already tried and abandoned (see mem.lessons)",
+        "answers": [
+          "what is broken",
+          "is this a known problem",
+          "what code looks dead but isn't"
+        ],
+        "populated": true
+      },
+      {
+        "id": "mem.lessons",
+        "path": ".brain/memory/lessons.md",
+        "title": "Lessons",
+        "layer": "L2",
+        "type": "memory",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 901,
+        "covers": "Approaches tried and abandoned, anti-patterns for this codebase",
+        "excludes": "Why the current approach was chosen instead (see mem.decisions), current bugs (see mem.known-issues)",
+        "answers": [
+          "has this been tried before",
+          "what went wrong last time",
+          "how reliable is automated dead-code detection here"
+        ],
+        "populated": true
+      },
+      {
+        "id": "meta.agents-readme",
+        "path": ".brain/agents/README.md",
+        "title": "Agents (Reserved)",
+        "layer": "L2",
+        "type": "meta",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 617,
+        "covers": "Why agent role definitions aren't installed, what's preserved from existing agent configs",
+        "excludes": "Who owns which area of the codebase (see gov.ownership)",
+        "answers": null,
+        "populated": true
+      },
+      {
+        "id": "meta.archive-readme",
+        "path": ".brain/archive/README.md",
+        "title": "Archive",
+        "layer": "L2",
+        "type": "meta",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 678,
+        "covers": "Why documents get archived, the rules for L5 content, what's currently archived",
+        "excludes": "Whether a specific document should be archived now (see gov.knowledge-lifecycle)",
+        "answers": [
+          "where did the old documentation go",
+          "what did this used to look like"
+        ],
+        "populated": true
+      },
+      {
+        "id": "meta.brain-readme",
+        "path": ".brain/README.md",
+        "title": "The .brain Directory",
+        "layer": "L2",
+        "type": "meta",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1861,
+        "covers": "Index of the whole knowledge base, how to use it, rules for keeping it true",
+        "excludes": "The content of any single domain or architecture document (see that document itself)",
+        "answers": [
+          "what is the .brain directory",
+          "where does knowledge live"
+        ],
+        "populated": true
+      },
+      {
+        "id": "meta.domains-readme",
+        "path": ".brain/domains/README.md",
+        "title": "Domains",
+        "layer": "L2",
+        "type": "meta",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1118,
+        "covers": "What qualifies as a domain, the full domain index, how to write one",
+        "excludes": "The domains themselves (see each domain's own .brain/domains/*.md)",
+        "answers": [
+          "what business domains exist",
+          "which domain owns X"
+        ],
+        "populated": true
+      },
+      {
+        "id": "meta.indexes-readme",
+        "path": ".brain/indexes/README.md",
+        "title": "Indexes",
+        "layer": "L2",
+        "type": "meta",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 779,
+        "covers": "What each generated index file is for, how to regenerate, why not to hand-edit",
+        "excludes": "How to write the .brain documents the indexes are built from (see gov.documentation-standards)",
+        "answers": [
+          "what are the indexes for",
+          "where is symbol X defined",
+          "can I edit the index files"
+        ],
+        "populated": true
+      },
+      {
+        "id": "tool.integrations",
+        "path": ".brain/tooling/integrations.md",
+        "title": "Integrations",
+        "layer": "L2",
+        "type": "tooling",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 781,
+        "covers": "CI/CD, environments, external services, credential locations",
+        "excludes": "MCP-exposed tools (see tool.mcp-registry), build/test/dev commands (see tool.registry)",
+        "answers": [
+          "what external systems does this connect to",
+          "where does CI run",
+          "where do I look at logs and errors"
+        ],
+        "populated": true
+      },
+      {
+        "id": "tool.mcp-registry",
+        "path": ".brain/tooling/mcp-registry.md",
+        "title": "MCP Registry",
+        "layer": "L2",
+        "type": "tooling",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 507,
+        "covers": "MCP servers available to agents developing this repo; how that differs from the product's own MCP feature",
+        "excludes": "The product's own MCP connector as a feature (see domain.mcp-connector), external services (see tool.integrations)",
+        "answers": [
+          "what MCP servers are available to agents working in this repo",
+          "is this repo an MCP server or an MCP client"
+        ],
+        "populated": true
+      },
+      {
+        "id": "tool.optimization-registry",
+        "path": ".brain/tooling/optimization-registry.md",
+        "title": "Token Optimization Registry",
+        "layer": "L2",
+        "type": "tooling",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 701,
+        "covers": "Which containment/optimization tools are enabled in this repo",
+        "excludes": "MCP servers (see tool.mcp-registry), general tool-output safety rules (see gov.tool-output-policy)",
+        "answers": [
+          "what token optimization tools are enabled",
+          "should I use a containment tool here"
+        ],
+        "populated": true
+      },
+      {
+        "id": "tool.registry",
+        "path": ".brain/tooling/registry.md",
+        "title": "Tool Registry",
+        "layer": "L2",
+        "type": "tooling",
+        "status": "canonical",
+        "owner": "unassigned",
+        "tokens_est": 1107,
+        "covers": "Everyday, slow, and destructive commands; environment setup; Agent-Brain's own commands",
+        "excludes": "External services and CI configuration (see tool.integrations), token-optimization tooling (see tool.optimization-registry)",
+        "answers": [
+          "how do I build this",
+          "how do I run the tests",
+          "what commands exist"
+        ],
+        "populated": true
+      }
+    ],
+    "edges": [
+      {
+        "from": "meta.brain-readme",
+        "to": "arch.system-overview",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "arch.dependency-graph",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "arch.service-map",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "arch.data-flows",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "meta.domains-readme",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.home-arbiter",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.deen",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.fitness",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.self-mastery",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.work-coop",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.business-lockin",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.school",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.evening-close",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.distractions-checkins",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.calendar",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.insights",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.widgets",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "domain.settings-onboarding",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "mem.lessons",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "mem.active-work",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "gov.contribution-protocol",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "gov.documentation-standards",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "gov.knowledge-lifecycle",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "gov.tool-output-policy",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "tool.integrations",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "tool.mcp-registry",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "tool.optimization-registry",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "meta.indexes-readme",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "meta.archive-readme",
+        "kind": "links"
+      },
+      {
+        "from": "meta.brain-readme",
+        "to": "meta.agents-readme",
+        "kind": "links"
+      },
+      {
+        "from": "meta.agents-readme",
+        "to": "gov.documentation-standards",
+        "kind": "links"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "arch.dependency-graph",
+        "kind": "related"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "lib/mcp/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "lib/home/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "supabase/migrations/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "arch.data-flows",
+        "to": "domain.home-arbiter",
+        "kind": "links"
+      },
+      {
+        "from": "arch.dependency-graph",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "arch.dependency-graph",
+        "to": "arch.service-map",
+        "kind": "related"
+      },
+      {
+        "from": "arch.dependency-graph",
+        "to": "lib/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.dependency-graph",
+        "to": "supabase/migrations/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.dependency-graph",
+        "to": "arch.service-map",
+        "kind": "links"
+      },
+      {
+        "from": "arch.dependency-graph",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "arch.dependency-graph",
+        "kind": "related"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "app/api/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "app/.well-known/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "app/(app)/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "map.repository",
+        "kind": "links"
+      },
+      {
+        "from": "arch.service-map",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "arch.dependency-graph",
+        "kind": "related"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "arch.data-flows",
+        "kind": "related"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "arch.service-map",
+        "kind": "related"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "map.repository",
+        "kind": "related"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "app/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "lib/**",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "context/ARCHITECTURE.md",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "context/PURPOSE-AND-DOMAINS.md",
+        "kind": "sources"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "domain.settings-onboarding",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "arch.dependency-graph",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "arch.data-flows",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "arch.service-map",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "map.repository",
+        "kind": "links"
+      },
+      {
+        "from": "arch.system-overview",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "meta.archive-readme",
+        "to": "archive.2026-09-13.root-claude-md-v1",
+        "kind": "links"
+      },
+      {
+        "from": "meta.archive-readme",
+        "to": "archive.2026-09-13.root-agents-md-v1",
+        "kind": "links"
+      },
+      {
+        "from": "meta.archive-readme",
+        "to": "archive.2026-09-13.feature-guide-docx",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.home-arbiter",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.deen",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.fitness",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.self-mastery",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.work-coop",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.business-lockin",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.school",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.evening-close",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.distractions-checkins",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.calendar",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.insights",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.widgets",
+        "kind": "links"
+      },
+      {
+        "from": "meta.domains-readme",
+        "to": "domain.settings-onboarding",
+        "kind": "links"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "domain.work-coop",
+        "kind": "related"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "domain.insights",
+        "kind": "related"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "domain.distractions-checkins",
+        "kind": "related"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "lib/business/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.business-lockin",
+        "to": "app/(app)/business/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.calendar",
+        "to": "domain.school",
+        "kind": "related"
+      },
+      {
+        "from": "domain.calendar",
+        "to": "domain.work-coop",
+        "kind": "related"
+      },
+      {
+        "from": "domain.calendar",
+        "to": "domain.deen",
+        "kind": "related"
+      },
+      {
+        "from": "domain.calendar",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.calendar",
+        "to": "app/(app)/calendar/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.deen",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.deen",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.deen",
+        "to": "domain.settings-onboarding",
+        "kind": "related"
+      },
+      {
+        "from": "domain.deen",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.deen",
+        "to": "lib/deen/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.deen",
+        "to": "lib/prayer-times/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.deen",
+        "to": "app/(app)/deen/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.deen",
+        "to": "components/deen/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.deen",
+        "to": "tool.integrations",
+        "kind": "links"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "domain.evening-close",
+        "kind": "related"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "domain.business-lockin",
+        "kind": "related"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "domain.insights",
+        "kind": "related"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "lib/distractions/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "lib/checkins/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "app/(app)/distractions/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.distractions-checkins",
+        "to": "app/(app)/checkin/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "domain.distractions-checkins",
+        "kind": "related"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "domain.business-lockin",
+        "kind": "related"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "domain.self-mastery",
+        "kind": "related"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "lib/evening-close/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "lib/night-plan/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "app/(app)/close/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "app/(app)/open/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.evening-close",
+        "to": "app/(app)/review/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.fitness",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.fitness",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.fitness",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.fitness",
+        "to": "lib/fitness/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.fitness",
+        "to": "app/(app)/fitness/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.fitness",
+        "to": "components/fitness/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.deen",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.fitness",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.self-mastery",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.business-lockin",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.work-coop",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.school",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "domain.widgets",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "lib/home/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.home-arbiter",
+        "to": "app/(app)/page.tsx",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.insights",
+        "to": "domain.business-lockin",
+        "kind": "related"
+      },
+      {
+        "from": "domain.insights",
+        "to": "domain.distractions-checkins",
+        "kind": "related"
+      },
+      {
+        "from": "domain.insights",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.insights",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.insights",
+        "to": "app/(app)/insights/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.insights",
+        "to": "lib/insights/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "domain.widgets",
+        "kind": "related"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "domain.settings-onboarding",
+        "kind": "related"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "arch.data-flows",
+        "kind": "related"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "lib/mcp/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "app/api/mcp/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.mcp-connector",
+        "to": "app/.well-known/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.school",
+        "to": "domain.self-mastery",
+        "kind": "related"
+      },
+      {
+        "from": "domain.school",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.school",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.school",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.school",
+        "to": "lib/school/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.school",
+        "to": "app/(app)/school/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.school",
+        "to": "components/school/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "domain.school",
+        "kind": "related"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "lib/self-mastery/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "lib/promotions/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "app/(app)/personal/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "app/api/self-mastery/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.self-mastery",
+        "to": "components/self-mastery/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "app/(app)/settings/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "app/(app)/onboarding/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "lib/domains/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "lib/shell/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.settings-onboarding",
+        "to": "components/onboarding/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.widgets",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.widgets",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.widgets",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.widgets",
+        "to": "lib/widgets/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.widgets",
+        "to": "components/home/mcp-widgets-panel.tsx",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.widgets",
+        "to": "app/(app)/widgets/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "domain.business-lockin",
+        "kind": "related"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "domain.home-arbiter",
+        "kind": "related"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "domain.mcp-connector",
+        "kind": "related"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "arch.system-overview",
+        "kind": "related"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "lib/coop/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "app/(app)/work/**",
+        "kind": "sources"
+      },
+      {
+        "from": "domain.work-coop",
+        "to": "components/co-op/**",
+        "kind": "sources"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "arch.dependency-graph",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "arch.data-flows",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "mem.lessons",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "mem.active-work",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "tool.integrations",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "map.repository",
+        "kind": "links"
+      },
+      {
+        "from": "gov.contribution-protocol",
+        "to": "gov.knowledge-lifecycle",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "mem.lessons",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "mem.active-work",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "meta.archive-readme",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "gov.documentation-standards",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "gov.knowledge-lifecycle",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "gov.knowledge-lifecycle",
+        "to": "gov.documentation-standards",
+        "kind": "links"
+      },
+      {
+        "from": "gov.knowledge-lifecycle",
+        "to": "mem.active-work",
+        "kind": "links"
+      },
+      {
+        "from": "gov.knowledge-lifecycle",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "gov.knowledge-lifecycle",
+        "to": "meta.archive-readme",
+        "kind": "links"
+      },
+      {
+        "from": "gov.knowledge-lifecycle",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "gov.ownership",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "gov.tool-output-policy",
+        "to": "map.repository",
+        "kind": "links"
+      },
+      {
+        "from": "gov.tool-output-policy",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "gov.tool-output-policy",
+        "to": "tool.optimization-registry",
+        "kind": "links"
+      },
+      {
+        "from": "meta.indexes-readme",
+        "to": "map.repository",
+        "kind": "links"
+      },
+      {
+        "from": "mem.active-work",
+        "to": "domain.self-mastery",
+        "kind": "links"
+      },
+      {
+        "from": "mem.active-work",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "mem.active-work",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "mem.decisions",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "mem.known-issues",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "tool.integrations",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "tool.integrations",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "tool.integrations",
+        "to": "mem.active-work",
+        "kind": "links"
+      },
+      {
+        "from": "tool.mcp-registry",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "tool.mcp-registry",
+        "to": "map.repository",
+        "kind": "links"
+      },
+      {
+        "from": "tool.optimization-registry",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "tool.registry",
+        "to": "mem.known-issues",
+        "kind": "links"
+      },
+      {
+        "from": "ctx.product",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "ctx.product",
+        "to": "arch.system-overview",
+        "kind": "links"
+      },
+      {
+        "from": "ctx.product",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "ctx.product",
+        "to": "mem.decisions",
+        "kind": "links"
+      },
+      {
+        "from": "ctx.product",
+        "to": "domain.settings-onboarding",
+        "kind": "links"
+      },
+      {
+        "from": "ctx.product",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "arch.system-overview",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "tool.registry",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "gov.tool-output-policy",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "meta.domains-readme",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "domain.home-arbiter",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "domain.mcp-connector",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "domain.settings-onboarding",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "gov.ownership",
+        "kind": "links"
+      },
+      {
+        "from": "map.repository",
+        "to": "arch.dependency-graph",
+        "kind": "links"
+      }
+    ],
+    "routes": [
+      {
+        "question": "can I edit the index files",
+        "id": "meta.indexes-readme",
+        "tokens_est": 779,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "does review still exist",
+        "id": "domain.evening-close",
+        "tokens_est": 1268,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "has this been tried before",
+        "id": "mem.lessons",
+        "tokens_est": 901,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how are grades computed",
+        "id": "domain.school",
+        "tokens_est": 1376,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do I build this",
+        "id": "tool.registry",
+        "tokens_est": 1107,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do I keep the brain current",
+        "id": "gov.contribution-protocol",
+        "tokens_est": 1217,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do I keep tool output from flooding context",
+        "id": "gov.tool-output-policy",
+        "tokens_est": 1124,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do I run the tests",
+        "id": "tool.registry",
+        "tokens_est": 1107,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do I write a .brain document",
+        "id": "gov.documentation-standards",
+        "tokens_est": 1160,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do ai-created home widgets stay safe",
+        "id": "domain.widgets",
+        "tokens_est": 1042,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do prayer time windows work",
+        "id": "domain.deen",
+        "tokens_est": 1587,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how do work targets and the task pipeline work",
+        "id": "domain.work-coop",
+        "tokens_est": 1207,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does a schema change roll out safely",
+        "id": "arch.data-flows",
+        "tokens_est": 1421,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does an mcp write reach the database",
+        "id": "arch.data-flows",
+        "tokens_est": 1421,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does fitness tracking work",
+        "id": "domain.fitness",
+        "tokens_est": 1145,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does home assemble its data",
+        "id": "arch.data-flows",
+        "tokens_est": 1421,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does home decide what to show",
+        "id": "domain.home-arbiter",
+        "tokens_est": 1332,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does prayer tracking work",
+        "id": "domain.deen",
+        "tokens_est": 1587,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does spaced repetition work",
+        "id": "domain.self-mastery",
+        "tokens_est": 1293,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does tenancy get enforced at the database layer",
+        "id": "arch.dependency-graph",
+        "tokens_est": 1719,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the 3-strike distraction rule work",
+        "id": "domain.distractions-checkins",
+        "tokens_est": 1221,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the allocation check-in model work",
+        "id": "domain.distractions-checkins",
+        "tokens_est": 1221,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the kill list work",
+        "id": "domain.business-lockin",
+        "tokens_est": 1336,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the mcp server authenticate a request",
+        "id": "domain.mcp-connector",
+        "tokens_est": 1471,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the night plan crowning work",
+        "id": "domain.evening-close",
+        "tokens_est": 1268,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the oauth flow work",
+        "id": "domain.mcp-connector",
+        "tokens_est": 1471,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does the week calendar work",
+        "id": "domain.calendar",
+        "tokens_est": 600,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how does this system work",
+        "id": "arch.system-overview",
+        "tokens_est": 1725,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how is signal:noise computed",
+        "id": "domain.business-lockin",
+        "tokens_est": 1336,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how is the legacy/domains signal:noise divergence computed",
+        "id": "domain.insights",
+        "tokens_est": 886,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how often is knowledge reviewed",
+        "id": "gov.knowledge-lifecycle",
+        "tokens_est": 1416,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "how reliable is automated dead-code detection here",
+        "id": "mem.lessons",
+        "tokens_est": 901,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "is this a known problem",
+        "id": "mem.known-issues",
+        "tokens_est": 1565,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "is this repo an MCP server or an MCP client",
+        "id": "tool.mcp-registry",
+        "tokens_est": 507,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "should I use a containment tool here",
+        "id": "tool.optimization-registry",
+        "tokens_est": 701,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "was Y considered",
+        "id": "mem.decisions",
+        "tokens_est": 1455,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what MCP servers are available to agents working in this repo",
+        "id": "tool.mcp-registry",
+        "tokens_est": 507,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what api surfaces does this app expose",
+        "id": "arch.service-map",
+        "tokens_est": 1080,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what are the components",
+        "id": "arch.system-overview",
+        "tokens_est": 1725,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what are the indexes for",
+        "id": "meta.indexes-readme",
+        "tokens_est": 779,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what are we optimizing for",
+        "id": "ctx.product",
+        "tokens_est": 1306,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what breaks if i change this",
+        "id": "arch.dependency-graph",
+        "tokens_est": 1719,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what business domains exist",
+        "id": "meta.domains-readme",
+        "tokens_est": 1118,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what can MCP write in fitness",
+        "id": "domain.fitness",
+        "tokens_est": 1145,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what can an ai agent read or write via mcp",
+        "id": "domain.mcp-connector",
+        "tokens_est": 1471,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what code looks dead but isn't",
+        "id": "mem.known-issues",
+        "tokens_est": 1565,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what commands are safe to run",
+        "id": "gov.tool-output-policy",
+        "tokens_est": 1124,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what commands exist",
+        "id": "tool.registry",
+        "tokens_est": 1107,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what depends on what across domains",
+        "id": "arch.dependency-graph",
+        "tokens_est": 1719,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what did the CollegeOS merge actually ship for school",
+        "id": "domain.school",
+        "tokens_est": 1376,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what did this used to look like",
+        "id": "meta.archive-readme",
+        "tokens_est": 678,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what do I do about a drifted document",
+        "id": "gov.knowledge-lifecycle",
+        "tokens_est": 1416,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what do I update when I change code",
+        "id": "gov.contribution-protocol",
+        "tokens_est": 1217,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what does 'Lead' mean in this repo's docs",
+        "id": "gov.ownership",
+        "tokens_est": 961,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what does this product do",
+        "id": "ctx.product",
+        "tokens_est": 1306,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what external systems does this connect to",
+        "id": "tool.integrations",
+        "tokens_est": 781,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what frontmatter is required",
+        "id": "gov.documentation-standards",
+        "tokens_est": 1160,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is a lesson promotion",
+        "id": "domain.self-mastery",
+        "tokens_est": 1293,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is a lock-in session",
+        "id": "domain.business-lockin",
+        "tokens_est": 1336,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is broken",
+        "id": "mem.known-issues",
+        "tokens_est": 1565,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is in flight",
+        "id": "mem.active-work",
+        "tokens_est": 952,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is in this directory",
+        "id": "map.repository",
+        "tokens_est": 1143,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is legacy mode vs domains mode",
+        "id": "domain.settings-onboarding",
+        "tokens_est": 1258,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is the .brain directory",
+        "id": "meta.brain-readme",
+        "tokens_est": 1861,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is the arbiter's ranking order",
+        "id": "domain.home-arbiter",
+        "tokens_est": 1332,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what is the architecture",
+        "id": "arch.system-overview",
+        "tokens_est": 1725,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what token optimization tools are enabled",
+        "id": "tool.optimization-registry",
+        "tokens_est": 701,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what went wrong last time",
+        "id": "mem.lessons",
+        "tokens_est": 901,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "what widget kinds exist",
+        "id": "domain.widgets",
+        "tokens_est": 1042,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "when should a document be archived",
+        "id": "gov.knowledge-lifecycle",
+        "tokens_est": 1416,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where did the old documentation go",
+        "id": "meta.archive-readme",
+        "tokens_est": 678,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where do I look at logs and errors",
+        "id": "tool.integrations",
+        "tokens_est": 781,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where do metrics and trends live",
+        "id": "domain.insights",
+        "tokens_est": 886,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where does CI run",
+        "id": "tool.integrations",
+        "tokens_est": 781,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where does each api route live",
+        "id": "arch.service-map",
+        "tokens_est": 1080,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where does knowledge live",
+        "id": "meta.brain-readme",
+        "tokens_est": 1861,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where does the code for X live",
+        "id": "map.repository",
+        "tokens_est": 1143,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where does this piece of knowledge belong",
+        "id": "gov.documentation-standards",
+        "tokens_est": 1160,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where is qada backlog computed",
+        "id": "domain.deen",
+        "tokens_est": 1587,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "where is symbol X defined",
+        "id": "meta.indexes-readme",
+        "tokens_est": 779,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "which domain owns X",
+        "id": "meta.domains-readme",
+        "tokens_est": 1118,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "which service handles Y",
+        "id": "map.repository",
+        "tokens_est": 1143,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "who do I ask about a domain",
+        "id": "gov.ownership",
+        "tokens_est": 961,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "who owns this service",
+        "id": "gov.ownership",
+        "tokens_est": 961,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "who uses this",
+        "id": "ctx.product",
+        "tokens_est": 1306,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why can't the cycle anchor be written",
+        "id": "domain.fitness",
+        "tokens_est": 1145,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why do two domain vocabularies exist at once",
+        "id": "domain.settings-onboarding",
+        "tokens_est": 1258,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why do we do it this way",
+        "id": "mem.decisions",
+        "tokens_est": 1455,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why do work subdomains share one pipeline",
+        "id": "domain.work-coop",
+        "tokens_est": 1207,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why does an account get the wrong nav",
+        "id": "domain.settings-onboarding",
+        "tokens_est": 1258,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why does close refuse to complete",
+        "id": "domain.evening-close",
+        "tokens_est": 1268,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why does home show only one next action",
+        "id": "domain.home-arbiter",
+        "tokens_est": 1332,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why is book upload disabled",
+        "id": "domain.self-mastery",
+        "tokens_est": 1293,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why is the questions table dead",
+        "id": "domain.school",
+        "tokens_est": 1376,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why is this code half-migrated",
+        "id": "mem.active-work",
+        "tokens_est": 952,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why is windows.ts the only safe prayer-time entry point",
+        "id": "domain.deen",
+        "tokens_est": 1587,
+        "kind": "document",
+        "anchor": null
+      },
+      {
+        "question": "why was X chosen",
+        "id": "mem.decisions",
+        "tokens_est": 1455,
+        "kind": "document",
+        "anchor": null
+      }
+    ],
+    "reachability": {
+      "entry": [
+        "CLAUDE.md",
+        "AGENTS.md"
+      ],
+      "max_hops": 3,
+      "unreachable": [],
+      "hops": {
+        "meta.brain-readme": 1,
+        "arch.system-overview": 1,
+        "map.repository": 1,
+        "meta.domains-readme": 1,
+        "domain.settings-onboarding": 1,
+        "mem.decisions": 1,
+        "mem.known-issues": 1,
+        "mem.active-work": 1,
+        "mem.lessons": 1,
+        "tool.registry": 1,
+        "gov.contribution-protocol": 1,
+        "gov.ownership": 1,
+        "ctx.product": 1,
+        "arch.data-flows": 1,
+        "arch.dependency-graph": 1,
+        "tool.integrations": 1,
+        "tool.optimization-registry": 1,
+        "archive.2026-09-13.root-agents-md-v1": 1,
+        "gov.knowledge-lifecycle": 1,
+        "arch.service-map": 2,
+        "domain.home-arbiter": 2,
+        "domain.deen": 2,
+        "domain.fitness": 2,
+        "domain.self-mastery": 2,
+        "domain.work-coop": 2,
+        "domain.business-lockin": 2,
+        "domain.school": 2,
+        "domain.evening-close": 2,
+        "domain.distractions-checkins": 2,
+        "domain.calendar": 2,
+        "domain.insights": 2,
+        "domain.mcp-connector": 2,
+        "domain.widgets": 2,
+        "gov.documentation-standards": 2,
+        "gov.tool-output-policy": 2,
+        "tool.mcp-registry": 2,
+        "meta.indexes-readme": 2,
+        "meta.archive-readme": 2,
+        "meta.agents-readme": 2,
+        "archive.2026-09-13.root-claude-md-v1": 3,
+        "archive.2026-09-13.feature-guide-docx": 3
+      }
+    }
+  }
+}

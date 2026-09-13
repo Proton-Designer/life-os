@@ -1,349 +1,48 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Agent Guide — Life OS
 
-# This is NOT the Next.js you know
+Multi-tenant personal-operating-system app (Next.js 16 + React 19 + Supabase).
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+This repository uses **Agent-Brain**: knowledge is layered, and you navigate to it
+rather than searching for it.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+## Start here
 
-<!-- END:nextjs-agent-rules -->
+1. Read `CLAUDE.md` first (routing + hard constraints).
+2. Use the table below to load only what your task needs.
+3. Read the domain summary before the code it describes.
 
-# Project-specific constraints
+**Do not grep the repository to answer a question the routing table answers.**
 
-## Never pass a function as a prop from a Server Component to a Client Component
+## Routing
 
-Hit twice during the 2026-08-15/16 structural refactor (Phase D's `AreaChart` `yTickFormat` callback, Phase E's `GoalCard` `onSave` closure) — both times `tsc --noEmit` and the full `vitest` suite passed clean, and the bug only surfaced live in the browser console ("Functions cannot be passed directly to Client Components"). jsdom-based unit tests don't enforce the RSC serialization boundary, so this class of bug is invisible to every automated check except an actual `next dev`/`next build` render.
+| If you need… | Read |
+|---|---|
+| System architecture | `.brain/architecture/system-overview.md` |
+| Where code lives | `REPOSITORY_MAP.md` |
+| A business domain (14 total) | `.brain/domains/README.md` |
+| Past decisions | `.brain/memory/decisions.md` |
+| Known problems | `.brain/memory/known-issues.md` |
+| Work in flight | `.brain/memory/active-work.md` |
+| Commands & tooling | `.brain/tooling/registry.md` |
+| Ownership | `.brain/governance/ownership.md` |
+| The full incident history behind every rule below | `.brain/archive/2026-09-13.root-agents-md-v1.md` |
 
-**The fix, every time:** if the value you need to hand a Client Component is a Server Action (`"use server"`, either its own file or an inline directive), a bound reference survives the boundary — use `someAction.bind(null, arg)`, not a wrapping arrow function. If it's a plain formatting/callback function, replace it with a plain serializable value the Client Component can format internally (e.g. `AreaChart`'s `yTickFormat` callback became a plain `unit?: string` prop).
+Machine-readable routing: `.brain/indexes/knowledge-map.json` (after `brain index`).
 
-**No lint rule enforces this** — evaluated `eslint-plugin-react-server-components` in Phase H (2026-08-16) and rejected it: the package is explicitly self-described by its own author as "an experiment," hasn't been published since May 2024, and its only rule (`use-client`) checks directive placement, not prop serializability — it would not have caught either incident above. No better-maintained alternative exists as of this writing. Re-evaluate the ecosystem periodically; until then, this paragraph is the enforcement mechanism.
+## Rules
 
-**When touching a page.tsx that passes props into a Client Component**, mentally check every prop: is it a function? If yes, is it a real Server Action reference (fine) or a closure/inline arrow (not fine)? Verify by actually loading the page in a browser and checking the console — not by `tsc`/`vitest` alone.
+- **Layers, in order.** Summary → documentation → source. Never source first.
+- **Code wins.** If a summary contradicts the code, the code is correct. Fix the
+  summary and record it in `.brain/memory/known-issues.md`.
+- **Write down what you learn.** Decisions, traps, dead ends go in
+  `.brain/memory/`.
+- **Update what you invalidate.** See `.brain/governance/contribution-protocol.md`.
+- **Report honestly.**
 
-## Never derive a calendar date from a raw `Date` — always from the user's timezone
+## Constraints (each cost a production incident — see archive above)
 
-Hit **three times in one night** (2026-08-24/25), in three different layers:
-
-1. **Shipping code, live for months.** `lib/prayer-times/calculate.ts` built its Julian date from `date.getUTCFullYear()/getUTCMonth()/getUTCDate()`. Ayman is `America/Chicago` (UTC−5), so from **19:00 local onward it is already tomorrow in UTC** and the app computed *tomorrow's* prayer times. Five production callers were affected — Day's Shape, the Now module, sector progress, the allocation queue, and the Deen Next-Prayer KPI. Symptom was oblique: activity blocks collapsed to zero width at the left edge of the ribbon, because every one of today's events fell before the (tomorrow) range start and clamped to 0%. Fixed in `03ab12b` by normalising **inside** `computePrayerWindows` — one point, not five call sites.
-2. **Hand-written SQL.** Postgres `current_date` is UTC. Seeding a "today" row at 22:05 CDT creates it dated tomorrow. (The app's own SQL is clean — audited 2026-08-25, zero occurrences of `current_date`/`now()::date` in `supabase/` or query code. Every date arrives as an explicit string computed in the app layer. Keep it that way.)
-3. **Test fixtures.** A spec picked "today" from the runner's clock and silently created tasks dated tomorrow relative to the account's local day.
-
-**The rule:** a calendar date is a function of an instant *and a timezone*. Never `new Date()`, `getUTCDate()`, or `current_date` as a stand-in. Use `localDateString(now, timezone)`, and for day bounds use `resolveLocalTime(dateStr, "00:00", timezone)` — **not** `` `${dateStr}T00:00:00Z` ``, which treats an already-local date as a UTC boundary and pulls in the previous evening (that exact bug has shipped twice; see the comment in `lib/home/get-home-extras.ts`).
-
-**Watch for the inverse too.** A function that normalises internally will *re-localise* a pseudo-instant like `new Date(\`${dateStr}T00:00:00Z\`)` a day backward in any zone behind UTC. If you pass a date-derived anchor into such a function, make it a real local instant — noon local is safest, being maximally far from both midnight boundaries.
-
-**Tests must pin the boundary**, not just the happy path: the same local time either side of the UTC rollover (e.g. 18:59 and 19:01 CDT) must produce identical results, and at least one timezone *east* of UTC, where the bug inverts.
-
-`computePrayerWindows` lives in `lib/prayer-times/windows.ts` and is the only safe entry point; `calculate.ts` is timezone-naive by design and trusts the UTC Y/M/D it's handed. A one-point fix only holds for callers who go through that point: on 2026-08-31, `components/settings/location-settings.tsx` was found calling `calculatePrayerTimes` directly with `date: new Date()` — showing tomorrow's prayer times every evening after ~19:00 local, for months, while the "fixed" module sat one layer above it untouched. **When you fix a bug class at a chokepoint, grep for callers who bypass the chokepoint** — that's the check nobody ran, and it's cheap.
-
-## Committing from a shared working tree: use `scripts/agent-commit.sh`
-
-Several agents edit ONE working tree with ONE `.git`, which means they share ONE
-**index**. Both obvious commit strategies race, and this was learned the hard way
-twice in one night (2026-08-25):
-
-```
-git commit -m "msg" -- <paths>     # ignores the index; commits WORKING-TREE
-                                   # state, so another agent's unsaved edit to
-                                   # a file you own rides along.  → 87119ee
-git add <paths>; git commit        # reads the index at commit time; another
-                                   # agent staging in the gap between your add
-                                   # and your commit puts THEIR files in YOUR
-                                   # commit.                       → 631a921
-```
-
-The second is strictly better, but still unsafe: **verifying with `git diff
---cached` does not help, because the race happens after the verification.** The
-index is shared mutable state, so stage-and-commit has to be *atomic with
-respect to the other agents*.
-
-**Always commit with:**
-
-```
-./scripts/agent-commit.sh "your commit message" path/one path/two
-```
-
-It takes a mkdir mutex (macOS has no `flock`), resets the index, stages exactly
-your paths, prints precisely what will be committed, and commits. The index
-reset touches the **index only** — it never modifies the working tree, so no
-one's uncommitted edits are ever at risk.
-
-Everything else still applies: explicit paths only, `git diff HEAD -- <path>`
-before you stage a file, and never `git add -A`, `git commit -a`, `git stash`,
-`git reset --hard`, `git checkout --`, or `git clean` in the shared tree.
-
-If a commit lands under the wrong agent's message anyway, **leave it**. The code
-is correct and present; rewriting history in a tree other agents are actively
-committing to is far worse than a misattributed diff.
-
-## Before deploying: run the full e2e suite, and distrust a green that saw nothing
-
-`tsc` + `vitest` are structurally blind to most of what breaks this app. On
-2026-08-25 a batch shipped on "1577/1577 green" alone. The Playwright suite
-was **already red at that commit** and stayed red, unnoticed, for a day:
-eight specs described UI that the same night's redesign had replaced, and a
-real defect — `/school` scrolling horizontally at 390px, Ayman's own phone —
-was live in production the whole time. Unit tests cannot see any of it.
-
-**Run `npx playwright test` (both projects) before every deploy.** Not a
-`-g`-filtered subset: `-g` also filters out the `setup` project, so the run
-silently reuses a stale `storageState` and you learn nothing about auth.
-
-### A check that examines nothing reports success
-
-Three separate checks did this in one afternoon (2026-08-26), and all three
-failed **green**, which is the direction nothing ever flags:
-
-- An overlap check measured an assessments table that was **empty** on SEED —
-  zero overlaps found, because there was nothing to overlap. The real bug
-  (a crushed Name column at 390px) appeared the moment the fixture was seeded
-  to match the shape of the reported bug.
-- `layout-overflow.spec.ts` passed `/school` in ~3s by measuring **before the
-  class cards rendered**. A timing settle (networkidle + fonts + rAF) cannot
-  distinguish "nothing wide has mounted yet" from "nothing wide exists." Only
-  a *content* assertion can — hence `READY_SELECTOR` in that spec.
-- A `-g`-filtered production run skipped the auth setup entirely and reported
-  a pass against a session that was never established.
-
-**Before trusting any check about a reported bug, seed the fixture to the
-shape of that bug and confirm the check FAILS first.** A red you can explain
-is evidence; a green you didn't earn is not. (Same discipline that made the
-prayer-floor fix trustworthy: prove the broken case first, so the fixed case
-means something.)
-
-#### A check can also pass for the wrong *reason*
-
-Subtler than examining nothing, and it looks identical in the log. Writing
-`e2e/lock-in-overlay.spec.ts` (2026-08-26 night), the Lead asserted the
-full-screen overlay covered the mobile nav pill by hit-testing it —
-`document.elementFromPoint` at the pill's centre, which reads like the honest
-question ("if he taps here, what does he actually hit?"). It is worthless for
-stacking: Radix's modal layer sets `pointer-events: none` on the body while a
-dialog is open, and `elementFromPoint` skips those elements. Proven by
-re-introducing the bug at runtime with `addStyleTag` — with the overlay forced
-back to `z-40`, the hit test *still* reported the pill as not-on-top. The check
-was measuring pointer-events, not paint order, and would have passed over the
-exact defect it was written for.
-
-Two rules fall out:
-
-- **Re-introduce the bug and watch the check go red before trusting it.** Do it
-  with a runtime override (`addStyleTag`, a route stub) rather than editing the
-  source — in a shared tree, editing another agent's file to prove a point is
-  its own hazard, and the override is faster anyway.
-#### Overlap and truncation are different instruments
-
-Re-found on 2026-09-02 capturing R7 evidence for School's grade ledger. The
-assessments table's Name column renders `Midter…` / `Reacti…` at 390px — the
-identical strings render in full 400px lower in the same dialog:
-
-```
-Assessments table  "Midterm Exam 2 — Stereochemistry"   box  56px  needs 229px  CLIPPED
-Grade section      "Midterm Exam 2 — Stereochemistry"   box 229px  needs 229px  fits
-```
-
-The check written for it was a **column-overlap** detector — cells whose boxes
-intersect — and it reported `NONE`, cleanly, twice. **The columns never
-overlap. One is too narrow and clips with an ellipsis**, which an overlap
-detector structurally cannot see. It was found by looking at the screenshot,
-then re-measuring `el.scrollWidth > el.clientWidth` per element.
-
-This is the same table the note above describes being missed by an overlap
-check on an empty fixture. Seeding it fixed *that* gap and exposed a second
-one: the fixture was finally right and the **instrument** was still measuring
-the wrong property. A layout gate needs both — intersection AND clipping —
-and page-level `scrollWidth === clientWidth` proves neither, since a clipped
-cell overflows nothing.
-
-- **When asserting on layout or stacking, assert the property itself**
-  (computed `z-index`, `scrollWidth`, a measured box), not a proxy that
-  *feels* more end-to-end. The realistic-looking assertion is the one most
-  likely to be silently satisfied by something else.
-
-Related: verifying against a dirty tree. On the same night an engineer ran the
-full layout suite and found every shell-wrapped route red at 320px, diagnosed it
-correctly to the shell, and had lost a six-minute run to another agent's
-half-finished topbar edit. The clean-worktree rule below is not just about
-`tsc`.
-
-### Three mechanical traps that cost real time
-
-- **`playwright test | tail` returns `tail`'s exit code.** A run with 12
-  failures reported `exit 0`. Never read a test result through a pipe — run
-  it bare and check `$?`, or write to a file.
-- **Killing a mutating e2e run leaves SEED dirty.** An interrupted
-  `fitness.spec.ts` left an orphaned active plan that the *next* run read as
-  its baseline and then deleted, failing a residue comparison that had
-  nothing to do with the code. If you kill a suite, check SEED before
-  believing the next run's failure.
-- **`vitest` in a hand-rolled `git worktree` reports garbage.** A worktree with
-  `node_modules` symlinked from the main checkout breaks vitest's resolution:
-  on 2026-09-10 the full suite reported **113 files / 670 tests failing** in a
-  worktree and **3362 passing, zero failures, in-tree — on the same commit.**
-  Nothing was broken. `tsc` in a worktree is fine (that is what `deploy-prod.sh`
-  gates on, with `.next/types` copied in); vitest is not. If a suite goes
-  catastrophically red, re-run it in-tree before believing a single line of it.
-
-#### A red you did not earn is as dangerous as a green you did not earn
-
-The section above is about unearned **greens** — a check that examined nothing,
-a hit test measuring pointer-events instead of paint order, a regex blind to
-the one construct it existed to catch. The vitest-worktree trap is the mirror
-image, and it fails differently.
-
-An unearned green gets **trusted**, and ships a bug. An unearned red gets
-**chased** — a night lost to a phantom — or, worse, gets *fixed*: someone
-patches healthy code until the artifact stops appearing, and now there is a
-real defect where there was none. Both come from the instrument rather than the
-system, and neither is visible in the output. 670 failures looks exactly like a
-catastrophe and exactly like a symlink.
-
-**So the rule is symmetrical.** Before believing a green, ask what would have
-had to be true for it to be red. Before believing a red — especially a
-spectacular one — ask whether you are measuring the system or the way you
-invoked it. The tell is usually magnitude without a mechanism: a change that
-plausibly breaks three tests does not plausibly break six hundred.
-
-**A test file can keep dead code looking alive.** `CheckinSchedulerLoader` was
-retired months ago — `supabase/functions/dispatch-notifications/index.ts:8` says
-so outright — and survived because its own test file still passed. Green tests
-on a component that is mounted nowhere read as health and mean nothing: the
-check is fine, the *subject* isn't real. It cost an engineer a wrong bug report
-on 2026-09-10, because they reverse-engineered the behaviour of a component that
-never runs and concluded a live feature was broken. Worse, `e2e/helpers.ts`
-asserted in prose that the scheduler "mounts on every authenticated page" — the
-stated rationale for a helper every spec calls — and that was the sentence they
-reasoned from. **When you retire a component, delete its test in the same
-commit, and grep the prose for claims about it.** A stale comment outlives dead
-code and is read more often.
-
-**And a cleanup check must assert the state it claims, not a UI string.** Same
-night: an e2e harness reported `SEED left clean: PASS` on the strength of
-`/Lock In/.test(body)` while an orphaned `deep_study` session sat unended in
-the database. Any unrelated Lock In button satisfies that regex — and Deep
-Study's End Session control lives on Home, not `/business`, so the cleanup loop
-never found the button it needed. The property is *does an unended row exist*,
-and only the database answers it. The next run would have read that orphan as
-baseline and failed somewhere unrelated.
-
-#### A strong proxy is more dangerous than a weak one
-
-Found 2026-09-10. Three Home widget kinds shipped with schema validation,
-rendering, Home wiring, positive controls, and timezone-boundary tests —
-`tsc` clean, 3464 vitest green — and **none of them could ever be created.**
-Migration 141's `mcp_widgets.kind` CHECK constraint was never widened as
-kinds were added, so every insert failed at the database. The engineer had
-verified the mechanism, measured the guard's reach across all 57 entities,
-and confirmed a two-caller invariant. Rigour at every layer above the broken
-one.
-
-The tests were not bad. Each was worth writing and each will catch its own
-class of defect tomorrow. They were simply positioned **above** the layer
-that was broken, and every one of them mocks the database — so the whole
-suite was structurally incapable of seeing a CHECK constraint, exactly as
-`tsc` is.
-
-**Rigour at layer N tells you nothing about layer N−1.** The transferable
-rule is not "test more," it is: name the layer each check actually reaches,
-and notice which layers nothing reaches. "All the tests pass" was the proxy
-accepted here, and it is a *strong* proxy — which is what makes it worse
-than a weak one. A weak check invites the sanity check that would have
-caught this. A strong one earns the confidence it then misplaces.
-
-The enum/CHECK pair is the specific instance worth grepping for: a TS union
-and a Postgres CHECK that must agree, with nothing in CI comparing them.
-`scripts/check-enum-drift.sh` exists for this now and enumerates from the
-database rather than a hand-maintained list — a hand-maintained list of
-things-to-compare has the same failure mode as the thing it is checking.
-
-#### Mutual citation is not corroboration when none of the citers consulted the source
-
-The sharpest shape of the same night, and the hardest to see. A registry
-entry claimed a column had no freshness timestamp, citing a design doc. Its
-test pinned that same null and **named the doc in the test's own title**.
-The doc presented the column as an open request. Three artifacts in
-agreement, each pointing at the next — and **not one of them had asked the
-database**, which had carried a trigger-backed `updated_at` for weeks. Twelve
-entities were affected, a quarter of the read surface reporting no freshness
-at all.
-
-The citation trail is not incidental to the illusion, it **is** the illusion.
-A bare unsourced claim invites a check; a claim with a footnote reads as
-already checked, so nobody re-runs it. This is the stale-comment problem one
-order up — there, one artifact described something that no longer existed;
-here, three describe *each other* and none describes the system.
-
-**A citation is a pointer, not evidence.** Before repeating a sourced claim,
-follow the chain to something that is not another document — the database,
-the running code, a real response. If every link in the chain is prose, the
-chain has no anchor, however many links it has.
-
-#### "The committed state" is a moving target in a shared tree
-
-`deploy-prod.sh` ships the committed state, not the dirty tree, which is
-correct and is the whole reason the shared tree is survivable. But with four
-agents committing to one tree, **HEAD can move between the moment you verify
-and the moment the deploy script reads it.** It happened on 2026-09-10: a
-lead verified `3a52a32` and the deploy shipped `03da0d6`, one commit later.
-Harmless that time — the delta was a shell script outside the Next build —
-and disclosed rather than discovered, which is the behaviour to copy.
-
-**Record the sha you verified, and compare it to the sha the deploy reports.**
-`deploy-prod.sh` prints what it shipped; if it does not match what you
-checked, say so in the same breath as the word "green." A verified sha and a
-deployed sha that differ is not automatically a problem, but it is always a
-fact, and it is only cheap to state before someone else has to find it.
-
-### Production verification is worth the two minutes
-
-`PLAYWRIGHT_BASE_URL=https://tracking-app-sand.vercel.app npx playwright test …`
-runs the same specs against the live site with no local server. Capture the
-failing check **before** deploying and re-run it after — a deploy that
-doesn't flip a known-red check didn't do what you think it did.
-
-Expect the first post-deploy run to hit a cold serverless start; `login`'s
-post-signin assertion carries an extended timeout for exactly that reason.
-A slow login there is not a broken login — verify against localhost, the
-previous deployment, and Supabase's token endpoint directly before concluding
-you have shipped an outage.
-
-## Only ONE agent runs Playwright at a time
-
-The shared working tree has a second shared mutable resource besides the git
-index, and it went unguarded far longer: **the e2e environment**. All specs
-drive one SEED account against one live database, and every run rewrites
-`playwright/.auth/user.json`.
-
-On 2026-08-26 four agents ran mutating suites concurrently. Two failure modes,
-both of which look like application bugs and are not:
-
-- **Corrupt `storageState`.** Two `auth.setup` processes wrote the file at
-  once, leaving a complete JSON object followed by a fragment — the file ends
-  `}}`. Every test in the run then fails with
-  `SyntaxError: Unexpected non-whitespace character after JSON`, which reads
-  exactly like broken authentication. Fix: `rm playwright/.auth/user.json`,
-  then run the `setup` project alone.
-- **Cross-run row collisions.** Specs create and delete rows the other runs
-  are mid-assertion on. Three engineers each independently "found" failures
-  they were partly causing for each other.
-
-**Rule: the Lead runs `npx playwright test`. Nobody else — not filtered, not a
-single spec.** `tsc` and `vitest` are pure and stay free for everyone; ask the
-Lead for any browser verification.
-
-### A spec must clean up on failure, not only on success
-
-The same incident exposed a spec that amplified one unrelated failure into a
-permanently red test: `school-class-view.spec.ts` asserted on shared text
-(`getByText("Sep. 3rd")`, which matches *any* task due that day), and its
-cleanup ran only after the assertions. One corrupted-auth failure left its
-task behind; the next run then had two rows due that date, failed strict-mode
-ambiguity, and left a third.
-
-Two rules fall out, and they apply to every mutating spec:
-
-- **Anchor assertions to something unique to this run** (the generated title),
-  never to a value other rows can share.
-- **Put teardown in `afterEach`**, registered *before* the row is created, so
-  an assertion failure anywhere still removes it. Keep any in-UI removal as a
-  real assertion — the `afterEach` is a net beneath it, not a replacement.
+- Never pass a function prop from a Server Component to a Client Component.
+- Never derive a calendar date from a raw `Date` — use `lib/date-utils.ts`.
+- Commit only via `./scripts/agent-commit.sh "msg" <paths>` — never `git add -A`.
+- Only the session's "Lead" runs `npx playwright test`.
+- A check that examines nothing reports success — prove it fails first.

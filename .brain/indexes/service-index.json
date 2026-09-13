@@ -1,0 +1,640 @@
+{
+  "meta": {
+    "artifact": "service-index",
+    "version": "1.0",
+    "generated_at": "2026-09-13T18:03:12.741Z",
+    "target": "/sessions/rcw-0195cbztfnroblgdnkflavka/mnt/tracking-app",
+    "git": {
+      "commit": "1cce1ef",
+      "branch": "main",
+      "dirty": true
+    },
+    "tool": {
+      "name": "agent-brain",
+      "version": "0.1.0"
+    }
+  },
+  "data": {
+    "services": [
+      {
+        "name": "app",
+        "path": "app",
+        "kind": "service",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.system-overview",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "bcryptjs",
+          "city-timezones",
+          "lucide-react",
+          "mcp-handler",
+          "next",
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "components",
+        "path": "components",
+        "kind": "service",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": null,
+        "doc": null,
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@testing-library/react",
+          "@testing-library/user-event",
+          "class-variance-authority",
+          "docx-preview",
+          "lucide-react",
+          "next",
+          "radix-ui",
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "e2e",
+        "path": "e2e",
+        "kind": "service",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": null,
+        "doc": null,
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@playwright/test",
+          "@supabase/supabase-js"
+        ]
+      },
+      {
+        "name": "__tests__",
+        "path": "lib/__tests__",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "lucide-react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "ai",
+        "path": "lib/ai",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "business",
+        "path": "lib/business",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "capture",
+        "path": "lib/capture",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "next",
+          "vitest"
+        ]
+      },
+      {
+        "name": "charts",
+        "path": "lib/charts",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "checkins",
+        "path": "lib/checkins",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "commitments",
+        "path": "lib/commitments",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "coop",
+        "path": "lib/coop",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "deen",
+        "path": "lib/deen",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "distractions",
+        "path": "lib/distractions",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "domains",
+        "path": "lib/domains",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "evening-close",
+        "path": "lib/evening-close",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "fitness",
+        "path": "lib/fitness",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "home",
+        "path": "lib/home",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.data-flows",
+        "depends_on": [
+          "lib/prayer-times"
+        ],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "insights",
+        "path": "lib/insights",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "mcp",
+        "path": "lib/mcp",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.data-flows",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@modelcontextprotocol/server",
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "night-plan",
+        "path": "lib/night-plan",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "notifications",
+        "path": "lib/notifications",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest",
+          "web-push"
+        ]
+      },
+      {
+        "name": "prayer-times",
+        "path": "lib/prayer-times",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [
+          "lib/home"
+        ],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "promotions",
+        "path": "lib/promotions",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "next",
+          "vitest"
+        ]
+      },
+      {
+        "name": "pwa",
+        "path": "lib/pwa",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "scheduling",
+        "path": "lib/scheduling",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "school",
+        "path": "lib/school",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "self-mastery",
+        "path": "lib/self-mastery",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [
+          "scripts"
+        ],
+        "external": [
+          "@supabase/supabase-js",
+          "react",
+          "ts-fsrs",
+          "unpdf",
+          "vitest"
+        ]
+      },
+      {
+        "name": "settings",
+        "path": "lib/settings",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "shell",
+        "path": "lib/shell",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "lucide-react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "supabase",
+        "path": "lib/supabase",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [
+          "scripts"
+        ],
+        "external": [
+          "@supabase/ssr",
+          "@supabase/supabase-js",
+          "next",
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "tasks",
+        "path": "lib/tasks",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "weekly-planning",
+        "path": "lib/weekly-planning",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "vitest"
+        ]
+      },
+      {
+        "name": "widgets",
+        "path": "lib/widgets",
+        "kind": "library",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.dependency-graph",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/supabase-js",
+          "vitest"
+        ]
+      },
+      {
+        "name": "public",
+        "path": "public",
+        "kind": "service",
+        "package": null,
+        "language": "JavaScript",
+        "entrypoint": null,
+        "owner": null,
+        "doc": null,
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": []
+      },
+      {
+        "name": "scripts",
+        "path": "scripts",
+        "kind": "service",
+        "package": null,
+        "language": "Shell",
+        "entrypoint": null,
+        "owner": null,
+        "doc": null,
+        "depends_on": [
+          "lib/self-mastery",
+          "lib/supabase"
+        ],
+        "depended_on_by": [],
+        "external": [
+          "@playwright/test",
+          "@supabase/ssr",
+          "@supabase/supabase-js",
+          "dotenv",
+          "ts-fsrs",
+          "vitest"
+        ]
+      },
+      {
+        "name": "supabase",
+        "path": "supabase",
+        "kind": "service",
+        "package": null,
+        "language": "SQL",
+        "entrypoint": null,
+        "owner": "unassigned",
+        "doc": "arch.data-flows",
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": [
+          "@supabase/ssr",
+          "@supabase/supabase-js",
+          "next",
+          "react",
+          "vitest"
+        ]
+      },
+      {
+        "name": "test-stubs",
+        "path": "test-stubs",
+        "kind": "service",
+        "package": null,
+        "language": "TypeScript",
+        "entrypoint": null,
+        "owner": null,
+        "doc": null,
+        "depends_on": [],
+        "depended_on_by": [],
+        "external": []
+      }
+    ]
+  }
+}
