@@ -15,6 +15,7 @@ vi.mock("../llm/dev-shim-provider", () => ({
 function makeSupabaseWithLessons(
   lessons: { id: string; core_claim: string | null; provenance_quote: string }[],
   notSpy?: (column: string, operator: string, value: unknown) => void,
+  onUpdate?: (vals: Record<string, unknown>, eqCalls: [string, unknown][]) => void,
 ) {
   return {
     from(table: string) {
@@ -33,6 +34,20 @@ function makeSupabaseWithLessons(
               };
             },
           };
+        },
+        update(vals: Record<string, unknown>) {
+          const eqCalls: [string, unknown][] = [];
+          const builder = {
+            eq(col: string, val: unknown) {
+              eqCalls.push([col, val]);
+              return builder;
+            },
+            then(resolve: (v: { error: null }) => void) {
+              onUpdate?.(vals, eqCalls);
+              resolve({ error: null });
+            },
+          };
+          return builder;
         },
       };
     },
@@ -139,6 +154,149 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
 
     expect(notCalls).toEqual([["rank", "is", null]]);
   });
+
+  it("item 7: a SUPPORTS verdict does NOT touch the lessons row -- no update call at all", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      checkEntailment: vi.fn().mockResolvedValue({ verdict: "SUPPORTS", reason: "matches" }),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let updateCalled = false;
+    const supabase = makeSupabaseWithLessons(
+      [{ id: "l1", core_claim: "c", provenance_quote: "q" }],
+      undefined,
+      () => (updateCalled = true),
+    );
+
+    const result = await STAGE_HANDLERS.verifying_grounding!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(updateCalled).toBe(false);
+    expect(result.nextChunkIndex).toBe(1);
+  });
+
+  it("item 7: a CONTRADICTS verdict rejects the lesson -- status:'rejected', rank:null, scoped to status='archived' on the way out", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      checkEntailment: vi.fn().mockResolvedValue({ verdict: "CONTRADICTS", reason: "the quote says the opposite" }),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let updateVals: Record<string, unknown> | null = null;
+    let updateEqCalls: [string, unknown][] = [];
+    const supabase = makeSupabaseWithLessons(
+      [{ id: "l1", core_claim: "c", provenance_quote: "q" }],
+      undefined,
+      (vals, eqCalls) => {
+        updateVals = vals;
+        updateEqCalls = eqCalls;
+      },
+    );
+
+    const result = await STAGE_HANDLERS.verifying_grounding!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(updateVals).toEqual({ status: "rejected", rank: null });
+    expect(updateEqCalls).toEqual([
+      ["id", "l1"],
+      ["status", "archived"],
+    ]);
+    // The stage still advances -- the CHECK succeeded (it correctly found a
+    // problem); only the lesson's own fate changes, not the MAP loop.
+    expect(result.nextStage).toBe("verifying_grounding");
+    expect(result.nextChunkIndex).toBe(1);
+  });
+
+  it("item 7: an UNRELATED verdict ALSO rejects the lesson -- same database action as CONTRADICTS, never silently kept", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      checkEntailment: vi.fn().mockResolvedValue({ verdict: "UNRELATED", reason: "the quote doesn't establish the claim" }),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let updateVals: Record<string, unknown> | null = null;
+    const supabase = makeSupabaseWithLessons(
+      [{ id: "l1", core_claim: "c", provenance_quote: "q" }],
+      undefined,
+      (vals) => (updateVals = vals),
+    );
+
+    await STAGE_HANDLERS.verifying_grounding!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(updateVals).toEqual({ status: "rejected", rank: null });
+  });
+
+  it("item 7: CONTRADICTS logs at a higher severity (console.error) than UNRELATED (console.warn) -- not the same severity even though the DB action is identical", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      checkEntailment: vi.fn().mockResolvedValue({ verdict: "CONTRADICTS", reason: "opposite" }),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+    await STAGE_HANDLERS.verifying_grounding!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: makeSupabaseWithLessons([{ id: "l1", core_claim: "c", provenance_quote: "q" }]) as never,
+    });
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    errorSpy.mockClear();
+    warnSpy.mockClear();
+
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      checkEntailment: vi.fn().mockResolvedValue({ verdict: "UNRELATED", reason: "unrelated" }),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+    await STAGE_HANDLERS.verifying_grounding!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: makeSupabaseWithLessons([{ id: "l1", core_claim: "c", provenance_quote: "q" }]) as never,
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("item 7: checkEntailment throwing (the check itself failing) propagates -- fails closed, does NOT reject or advance the lesson", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      checkEntailment: vi.fn().mockRejectedValue(new Error("shim timed out")),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let updateCalled = false;
+    const supabase = makeSupabaseWithLessons(
+      [{ id: "l1", core_claim: "c", provenance_quote: "q" }],
+      undefined,
+      () => (updateCalled = true),
+    );
+
+    await expect(
+      STAGE_HANDLERS.verifying_grounding!({
+        job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+        supabase: supabase as never,
+      }),
+    ).rejects.toThrow(/shim timed out/);
+
+    expect(updateCalled).toBe(false);
+  });
 });
 
 describe("extracting_lessons stage — fail-closed on no real provider, idempotent per-chunk writes", () => {
@@ -150,7 +308,7 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
   });
 
   function makeSupabase(opts: {
-    chunk: { id: string; text: string; page_start: number; page_end: number } | null;
+    chunk: { id: string; text: string; page_start: number; page_end: number; section_id?: string | null } | null;
     onDelete?: (eqCalls: [string, unknown][]) => void;
     onInsert?: (rows: unknown[]) => void;
   }) {
@@ -273,6 +431,71 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
     expect(result.nextChunkIndex).toBe(1);
     expect(result.tokensIn).toBe(500);
     expect(result.tokensOut).toBe(80);
+  });
+
+  it("item 8: threads the chunk's section_id onto every lesson extracted from it -- chunkingStage already writes it, this stage just wasn't reading it back", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    const candidate = {
+      title: "t",
+      coreClaim: "claim",
+      mechanism: "mech",
+      actionTemplate: "act",
+      evidenceStrength: "author_anecdote" as const,
+      provenanceQuote: "quote",
+      pageRef: 3,
+      sourceChunkId: "c1",
+    };
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      extractLessons: vi.fn().mockResolvedValue([candidate]),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let insertedRows: unknown[] = [];
+    const supabase = makeSupabase({
+      chunk: { id: "c1", text: "passage text", page_start: 3, page_end: 3, section_id: "section-42" },
+      onInsert: (rows) => (insertedRows = rows),
+    });
+
+    await STAGE_HANDLERS.extracting_lessons!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(insertedRows).toHaveLength(1);
+    expect((insertedRows[0] as Record<string, unknown>)["section_id"]).toBe("section-42");
+  });
+
+  it("item 8: a chunk with no detected section (section_id: null) writes null, not a guessed value", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    const candidate = {
+      title: "t",
+      coreClaim: "claim",
+      mechanism: "mech",
+      actionTemplate: "act",
+      evidenceStrength: "author_anecdote" as const,
+      provenanceQuote: "quote",
+      pageRef: 3,
+      sourceChunkId: "c1",
+    };
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      extractLessons: vi.fn().mockResolvedValue([candidate]),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let insertedRows: unknown[] = [];
+    const supabase = makeSupabase({
+      chunk: { id: "c1", text: "passage text", page_start: 3, page_end: 3, section_id: null },
+      onInsert: (rows) => (insertedRows = rows),
+    });
+
+    await STAGE_HANDLERS.extracting_lessons!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect((insertedRows[0] as Record<string, unknown>)["section_id"]).toBeNull();
   });
 });
 

@@ -229,9 +229,15 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
 async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResult> {
   const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
 
+  // section_id selected alongside the rest (item 8): chunkingStage already
+  // writes it onto every source_chunks row (see buildSectionInsertPlan
+  // above) -- this stage just wasn't reading it back, so every lesson
+  // extracted from a chunk lost its chapter/section provenance the moment
+  // it was written, even though the FK to book_sections was there from
+  // migration 064 onward.
   const { data: chunkRow, error: chunkError } = await ctx.supabase
     .from("source_chunks")
-    .select("id, text, page_start, page_end")
+    .select("id, text, page_start, page_end, section_id")
     .eq("book_id", ctx.job.book_id)
     .order("sort_order", { ascending: true })
     .range(chunkIndex, chunkIndex)
@@ -270,6 +276,13 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
         book_id: ctx.job.book_id,
         user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 064)
         source_chunk_id: c.sourceChunkId,
+        // Every candidate extracted here comes from this ONE chunkRow
+        // (extractLessons is called once per chunk, above) -- so all of
+        // them inherit that chunk's section_id, not a per-candidate value.
+        // Nullable by the same FK (064) that made source_chunk_id nullable:
+        // a chunk with no detected section carries section_id: null, and a
+        // lesson from it should too, not a guessed value.
+        section_id: chunkRow.section_id,
         title: c.title,
         core_claim: c.coreClaim,
         mechanism: c.mechanism,
@@ -581,22 +594,91 @@ async function verifyGroundingStage(ctx: StageContext): Promise<StageWorkResult>
     );
   }
 
+  // NOT wrapped in try/catch -- deliberately. If checkEntailment itself
+  // throws (network error, malformed shim response, a real timeout), that
+  // is the SAME fail-closed posture as the no-provider branch above: this
+  // stage's own `throw` propagates to the caller's bracketStage, which
+  // records a failed attempt; `cursor_chunk_index` is never advanced past
+  // this lesson, so `claim_ingestion_job` retries the exact same lesson up
+  // to max_attempts (gate 5) rather than this code guessing a verdict on
+  // its behalf. A check that could not run must never be treated as though
+  // it passed -- fail open here (assume SUPPORTS when the check errors)
+  // is exactly the shape of bug this whole file exists to refuse; fail
+  // closed by retrying (worst case, the book terminally fails after
+  // max_attempts, same as any other stage failure) is the only posture
+  // that can never let an unverified lesson through.
   const result = await provider.checkEntailment({
     claim: lesson.core_claim ?? "",
     quote: lesson.provenance_quote,
   });
 
-  // R12.3's backfill-on-failure loop (retry the next-ranked archived
-  // candidate) is worker ORCHESTRATION -- out of scope here per the same
-  // boundary confirmed with ow9rlnds for checkEntailment itself. This
-  // stage records the verdict via the caller's bracketStage/telemetry; it
-  // does not act on a non-SUPPORTS verdict beyond that. Flagging rather
-  // than silently dropping the requirement: a real backfill loop is future
-  // work, not a gap this stage was ever scoped to close. Unlike the
-  // no-provider case above, a CONTRADICTS/UNRELATED verdict from a REAL
-  // check is a legitimate, meaningful result -- it is not this stage's job
-  // to decide what happens next with it.
-  void result;
+  // ACT ON THE VERDICT (item 7). `checkEntailment` itself stays the pure,
+  // stateless (claim, quote) -> verdict leaf types.ts documents -- this
+  // stage is the "future worker" that interface's own comment names as
+  // where verdict orchestration belongs, so acting here doesn't duplicate
+  // or fight `isGrounded()` (grounding.ts): that function is a DIFFERENT,
+  // independent hallucination-firewall arm -- a verbatim substring check
+  // enforced write-time, inside every provider's own `extractLessons`,
+  // before a candidate lesson ever reaches this table at all (see
+  // grounding.ts's own header: "one of two independent enforcement
+  // points"). By the time a lesson gets here it has ALREADY passed that
+  // check; entailment is a second, later, semantic gate over lessons that
+  // survived merge, catching what a substring match structurally cannot --
+  // a quote that is present verbatim but does not actually support (or
+  // actively contradicts) the claim built on top of it.
+  //
+  // R12.3's backfill-on-failure loop (retry the NEXT-ranked archived
+  // candidate in a rejected lesson's place) stays explicitly out of scope
+  // -- that is a bigger orchestration feature this item was never asked to
+  // build, and the comment this replaces already flagged it as future
+  // work. What WAS a bug: `void result;` discarded a real verdict instead
+  // of acting on the one thing in scope -- keeping a lesson the check
+  // found unsupported out of a user's hands. This is a learning product;
+  // shipping a hallucinated lesson is its worst possible failure.
+  //
+  // D-018 PRECEDENT (generatingCardsStage below): a lesson that fails a
+  // gate gets a RECOVERABLE status, never a delete. Same instinct here --
+  // `rejected` (lesson_status, migration 060) has existed in the schema
+  // since this table was created but no code path has ever written it
+  // until now; it is exactly the "a real check disqualified this,
+  // distinct from 'archived' meaning only 'the merge didn't pick it'"
+  // state the schema already anticipated. `rank` is cleared alongside it
+  // so the lesson drops out of BOTH this stage's own rank-ordered walk and
+  // generatingCardsStage's identical one (both filter `.not("rank", "is",
+  // null)`) -- the same mechanism that already excludes every candidate
+  // mergingStage never selected, not a new exclusion path. Scoped to
+  // `status: 'archived'` on the way out, matching every other targeted
+  // write in this file (extractingLessonsStage's delete, mergingStage's
+  // reset, generatingCardsStage's promote) rather than being the one write
+  // that touches a row regardless of what state it's actually in.
+  //
+  // CONTRADICTS and UNRELATED are NOT the same severity, even though both
+  // lead to the identical database action (rejected, unranked, never
+  // reaches generating_cards): CONTRADICTS means the check found the quote
+  // actively DISAGREES with the claim -- the specific hallucination shape
+  // types.ts's own doc comment names as the reason this gate exists at all
+  // ("verbatim grounding + cosine relevance both pass a quote that
+  // CONTRADICTS its claim -- only meaning catches it"). UNRELATED means
+  // the check could not CONFIRM support, without asserting the claim is
+  // false -- a weaker, more ambiguous failure. Logged at different
+  // severities so CONTRADICTS is the one that draws attention. A
+  // persisted, queryable per-lesson reason (a real audit trail beyond a
+  // log line) is a natural follow-up, not silently dropped -- it needs a
+  // new column and therefore a migration number from the Lead, which is
+  // out of this item's "surgically small" scope.
+  if (result.verdict !== "SUPPORTS") {
+    const log = result.verdict === "CONTRADICTS" ? console.error : console.warn;
+    log(
+      `[verifying_grounding] lesson ${lesson.id} rejected -- verdict=${result.verdict} reason=${JSON.stringify(result.reason).slice(0, 300)}`,
+    );
+
+    const { error: rejectError } = await ctx.supabase
+      .from("lessons")
+      .update({ status: "rejected", rank: null })
+      .eq("id", lesson.id)
+      .eq("status", "archived");
+    if (rejectError) throw rejectError;
+  }
 
   return {
     nextStage: "verifying_grounding",
