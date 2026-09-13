@@ -78,12 +78,27 @@ genuinely new account goes signup → onboarding → Home → session → 5 card
 "Session complete." It checks the retrieval invariant at the **network layer** (no answer
 text in any response before the user commits), and it passes against production.
 
-**Security work.** All 19 cross-tenant FK gaps closed (`058`–`059`, `100`–`101`, plus
-ULM's `086`–`089`). Two were proven exploitable by running the attack: a squatted row on
-another user's parent permanently locks them out of their own data, invisibly, because
-RLS hides the offending row. As of 2026-09-10 there are **67 composite tenancy FKs** and
-**zero** single-column FKs to user-scoped parents, enforced by
-`scripts/check-fk-tenancy.sh` rather than by memory.
+**Security work.** All cross-tenant FK gaps found before 2026-09-10 closed
+(`058`–`059`, `100`–`101`, plus ULM's `086`–`089`). Two were proven exploitable by
+running the attack: a squatted row on another user's parent permanently locks them
+out of their own data, invisibly, because RLS hides the offending row. **Correction
+(2026-09-13):** the "zero single-column FKs, enforced by `check-fk-tenancy.sh`"
+claim that stood here was false the moment it was written — `check-fk-tenancy.sh`
+requires `psql`, and `psql` had no install path on the agent machines actually
+running these scripts, so the check had never once executed. The first time it
+became runnable (see `.brain/tooling/registry.md`'s "Database checks" section for
+the now-working, no-root `psql` install), it immediately found 4 real single-column
+FKs the MCP tables (`130`/`132`/`142`/`145`) had shipped with —
+`mcp_audit_log.token_id`, `mcp_oauth_refresh_tokens.access_token_id`,
+`mcp_scheduled_actions.token_id`, `mcp_notification_dispatch_log.scheduled_action_id`
+— all pointing at `mcp_access_tokens`/`mcp_scheduled_actions`. Closed in `150`,
+same pattern as `100`/`101`; no row was found already cross-tenant (checked
+directly, not assumed). As of 2026-09-13 there are **71 composite tenancy FKs**
+and, **re-verified by an actual run of `check-fk-tenancy.sh` against production,
+not asserted from memory,** zero single-column FKs to user-scoped parents. See
+`.brain/memory/lessons.md` (2026-09-13 entry) for the general failure mode: an
+enforcement script that cannot run enforces nothing, and reads identically to one
+that does.
 
 **Durable instruments (all self-testing).** `scripts/preflight.sh` runs the lot.
 

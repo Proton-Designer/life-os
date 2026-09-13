@@ -51,6 +51,56 @@ of which existed at the time of this finding. Re-verify by hand regardless.
 
 ---
 
+## 2026-09-13 — check-fk-tenancy.sh (and every other psql-dependent check) was never runnable on this machine; the docs claimed it was enforcing
+
+**Goal:** get `psql` working in the agent environment so the database-side
+safety net (`check-rls.sh`, `check-fk-tenancy.sh`, `check-enum-drift.sh`,
+`check-migrations-applied.sh`, `apply-migration.sh`) could run at all — it
+had been blocked, silently, since these scripts were first written.
+**Approach:** installed a real, official `psql 14` for aarch64 with no root,
+by `apt-get download`ing the Ubuntu jammy `.deb`s for `postgresql-client-14`
+and `libpq5` and extracting them with `dpkg-deb -x` into a userspace prefix
+(`$HOME/.local/pgsql`) — every other runtime dependency (`libssl`, `libsasl2`,
+`libldap`, `libkrb5*`) was already present on the base image. Then ran the
+real scripts against live production for the first time.
+**Outcome:** `check-fk-tenancy.sh` immediately reported 4 real, live,
+unmitigated single-column FKs to user-scoped parents in the MCP tables
+(`mcp_audit_log.token_id`, `mcp_oauth_refresh_tokens.access_token_id`,
+`mcp_scheduled_actions.token_id`, `mcp_notification_dispatch_log.scheduled_action_id`)
+— the exact cross-tenant-lockout exploit shape 058/086/100/101 exist to
+close. `.brain/architecture/system-overview.md` asserted "zero single-column
+FKs to user-scoped parents, enforced by `scripts/check-fk-tenancy.sh`" as of
+2026-09-10. That sentence had been false since the MCP tables shipped
+(migrations 130/132/142/145), and nobody could have known from running the
+check, because the check could not run. Closed in migration 150, proven via
+rollback-transaction before applying, applied, and `check-fk-tenancy.sh` now
+reports 0 for the whole schema.
+**Root cause:** the enforcement script existed, was correct, and was cited
+in prose as an active guarantee — but its one dependency, `psql`, was never
+installed on the machine actually running it, and a missing binary fails
+with a shell error rather than a wrong answer, so nobody saw even that. A
+tool that cannot run and a tool that has never been run both look identical
+from the outside: silence. Nothing in CI or in the docs distinguished "this
+invariant is checked and holds" from "this invariant is asserted and
+unchecked."
+**Lesson:** an enforcement mechanism that cannot run enforces nothing, and
+looks identical to one that does. A hard-constraint doc claim of the form
+"invariant X is enforced by script Y" is only as true as Y's last
+successful, examined run on the environment that matters (here: production)
+— recording that the check *exists* is not recording that it *ran*.
+Whether a checking tool is actually executable, on the machine meant to
+execute it, right now, is a fact worth checking on its own, separate from
+whether the check's internal logic is sound (this incident found the logic
+was fine — it caught real gaps the very first time it ran).
+**Would work if:** `preflight.sh`, or the onboarding for a new agent
+environment, verified `psql --version` succeeds before trusting any doc
+claim gated on a DB check, the way it already verifies `tsc`/`vitest` exit
+codes rather than trusting a piped `head`. The runbook for making `psql`
+available on this environment now lives at `$HOME/.local/pgsql/env.sh` (see
+`.brain/tooling/registry.md`); `source` it, don't reinvent it.
+
+---
+
 ## Patterns that do not work in this codebase
 
 - **Treating a stated "practiced" claim from an external source as equally

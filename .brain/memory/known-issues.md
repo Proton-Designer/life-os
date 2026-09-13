@@ -123,6 +123,56 @@ large native `.node` bindings first.
 next-build baseline (see `.brain/tooling/registry.md`); not yet automated as
 a preflight check.
 
+### Migration `116` (`reading_logs`) is on disk, unapplied to production, and structurally refused by the gated runner
+**Area:** `supabase/migrations/116_generic_reading_log.sql` · **Severity:**
+low today (table has zero consumers), but the file is currently un-appliable
+as written
+**Symptom:** `check-migrations-applied.sh` reports `116_generic_reading_log.sql`
+as UNAPPLIED against production; `public.reading_logs` does not exist there
+and there is no `migration_ledger` row for it. Running
+`./scripts/apply-migration.sh --dry-run "$DATABASE_URL_POOLER"
+supabase/migrations/116_generic_reading_log.sql` refuses outright: `exit 7`,
+"this file contains its own transaction control" (bare `begin;`/`commit;` at
+lines 25/51).
+**Cause:** `116` was written and committed 2026-09-01, the same window R33
+(the runner-owns-the-transaction rule, `apply-migration.sh`) was established
+after migrations `111`/`114`/`115` each hit exactly this failure that night.
+`116`'s own commit message says only "applied and verified on **scratch**" —
+never production — and `ALLOCATIONS.md`'s standing rule names the mechanism:
+"production applies go through `apply-migration.sh` — never bare psql. Two
+migrations arrived invisible to the ledger that way in one night." `116`
+almost certainly reached scratch the same ungated way, which is why scratch
+tolerates the bare `begin`/`commit` its file carries and production's real
+gate does not. It is not in `supabase/migrations/_withdrawn/` (present, but
+empty) and `ALLOCATIONS.md` still lists it as `allocated`, not `withdrawn` —
+this was never a deliberate decision, just a migration that was never run
+through the one path that would have caught the problem before commit.
+**Consumer check (2026-09-13):** zero references to `reading_logs` anywhere
+in `app/`, `lib/`, `components/`, `scripts/`, or `supabase/` outside the
+migration file itself and its own `ALLOCATIONS.md` row. The only other
+mentions are historical: `.remember/archive.md` and
+`.remember/today-2026-09-03.done.md` both flag "116_reading_logs" as an
+already-known "latent trap" from a 2026-09-03 migration-safety inventory —
+this is not a new finding, it was previously identified and deliberately
+left alone. "A3 Part 3 / generic practice engine" as a *concept* does have
+live consumers (`lib/home/day-ribbon.ts`, `lib/home/get-day-shape.ts` — the
+`deen_habits.cue_time` half, migration 114), but that is a sibling feature,
+not this table; `reading_logs` itself was never wired to any reader or
+writer.
+**Workaround / recommendation:** do not apply as-is. If/when this table is
+wanted: strip the bare `begin;`/`commit;` (let `--single-transaction` own
+the file, per R33), confirm it still has no intended consumer at apply time,
+and apply through `apply-migration.sh` only — never bare `psql`. Until a
+consumer exists, adding it to production only to tidy the ledger is not
+worth the schema surface.
+**Do not:** apply this file with a bare `psql -f` to "get past" the
+`apply-migration.sh` refusal — that is the exact ungated path that produced
+this state on scratch in the first place, and it's how "two migrations
+arrived invisible to the ledger" the last time it happened.
+**Tracked:** found (again) 2026-09-13 while making `check-migrations-applied.sh`
+runnable for the first time on this machine (see the `psql` lesson,
+`.brain/memory/lessons.md`); left unapplied pending a real consumer.
+
 ---
 
 ## Deliberate constraints that look like bugs

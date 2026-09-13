@@ -49,7 +49,7 @@ A multi-tenant "personal operating system" web app — Next.js 16 (App Router) +
 ## Boundaries
 
 - **`lib/` is framework-free** — pure calculation/derivation, no React, no Next APIs. This is what makes it unit-testable with `vitest` and is not accidental (`lib/shell/`'s own header states this explicitly for nav rules).
-- **RLS is the tenancy mechanism, not defense-in-depth** — every public table (77 as of 2026-09-10, moving) has RLS enabled; enforced further by `scripts/check-rls.sh`/`check-fk-tenancy.sh` rather than left to convention.
+- **RLS is the tenancy mechanism, not defense-in-depth** — every public table (77 as of 2026-09-10, moving) has RLS enabled; enforced further by `scripts/check-rls.sh`/`check-fk-tenancy.sh`, both of which require `psql` with a live production URL to actually run (no `psql` install existed on any agent machine before 2026-09-13 — see `.brain/tooling/registry.md`'s "Database checks" section for the current, no-root install and `source $HOME/.local/pgsql/env.sh` runbook, and `.brain/memory/lessons.md`'s 2026-09-13 entry for what ran unnoticed in the meantime: 4 real single-column FKs to user-scoped parents in the MCP tables, closed in migration `150` the first time the check ever executed). Citing these scripts as enforcement is only true for the invariants they have actually been RUN against, not the ones they merely know how to check.
 - **The MCP connector never gets a privileged client for user data** — even service-role-authenticated routes mint a per-request, RLS-scoped JWT for the actual domain query. See `.brain/domains/mcp-connector.md`.
 - **No hard deletes on the MCP write path** — enforced by convention per write-registry entry.
 
