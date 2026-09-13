@@ -63,3 +63,9 @@ node_modules/
 
 # consolidated credentials reference — NEVER commit
 .credentials*
+
+# Agent-Brain install tool (local helper, not part of the app)
+agent-brain-tool/
+
+# Roadmap working docs — canonical copies live in the Claude Project and docs/audits/
+Claude outputs/
