@@ -9,10 +9,29 @@ const PDF: SyllabusViewerResult = { url: "https://example.com/syllabus.pdf", kin
 const DOCX: SyllabusViewerResult = { url: "https://example.com/syllabus.docx", kind: "docx" };
 const OTHER: SyllabusViewerResult = { url: "https://example.com/syllabus.doc", kind: "other" };
 
+// jsdom's `Blob` global replaces Node's own, but Node's native `Response`
+// (undici) is still what runs under vitest -- its body extraction calls
+// `.stream()` on whatever it's given, which jsdom's `Blob` does not
+// implement. `new Response(new Blob())` therefore throws synchronously
+// (TypeError: object.stream is not a function) the instant the fetch mock
+// below runs, before docx-preview's mocked `renderAsync` is ever reached --
+// which is exactly why the two docx tests that assert on `renderAsyncMock`
+// were failing. The component only reads `response.ok` and calls
+// `response.blob()` (see syllabus-viewer-dialog.tsx), so a plain object
+// satisfying that shape sidesteps the Response/Blob interop bug entirely
+// without weakening what these tests check.
+function fakeFetchResponse(): Response {
+  return {
+    ok: true,
+    status: 200,
+    blob: () => Promise.resolve(new Blob()),
+  } as unknown as Response;
+}
+
 describe("SyllabusViewerDialog", () => {
   beforeEach(() => {
     renderAsyncMock.mockReset();
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(new Blob(), { status: 200 }))));
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(fakeFetchResponse())));
   });
   afterEach(() => {
     vi.unstubAllGlobals();

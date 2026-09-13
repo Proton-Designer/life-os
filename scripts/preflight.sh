@@ -46,13 +46,68 @@ record $? "tsc"
 grep -c "error TS" /tmp/preflight-tsc.log | sed 's/^/  errors: /'
 
 step "unit tests"
-npx vitest run </dev/null > /tmp/preflight-vitest.log 2>&1
+VITEST_JSON=/tmp/preflight-vitest.json
+rm -f "$VITEST_JSON"
+npx vitest run --reporter=default --reporter=json --outputFile.json="$VITEST_JSON" </dev/null > /tmp/preflight-vitest.log 2>&1
 record $? "vitest"
 grep -E "Test Files|Tests " /tmp/preflight-vitest.log | tail -2 | sed 's/^/  /'
-# A green suite is also what you get when tests are silently skipped.
-if grep -qE "[0-9]+ skipped" /tmp/preflight-vitest.log; then
-  echo "  WARNING: skipped tests present — a green with skips is not a green"
-  FAILED+=("vitest-skips")
+
+# A green suite is also what you get when tests are silently skipped -- but an
+# ACCIDENTAL new skip and a single NAMED, deliberately-gated one (an explicit env
+# var a human turned off on purpose, documented at its own describe.skipIf) are not
+# the same failure and must not be reported as if they were. Distinguish them by
+# EXACT identity (file :: full test name), never a loose pattern or a bare count --
+# a fuzzy match here is exactly the "assertion that checks the things you thought to
+# name" shape this repo has already been burned by.
+#
+# Add an entry below ONLY for a skip a human has reviewed and decided is safe to
+# leave un-run by default (see the test's own comment for why). Every entry names
+# exactly ONE test. A skip appearing ANYWHERE else still fails this script.
+ALLOWED_SKIPS=(
+  "lib/ai/__tests__/dev-provider-injection.test.ts::R22 gate 1 — a document cannot act on this machine produces no file, shell or network effect"
+)
+
+if [ ! -f "$VITEST_JSON" ]; then
+  echo "  FAIL: no JSON report at $VITEST_JSON -- cannot audit for skips, so this does not count as a pass"
+  FAILED+=("vitest-skip-audit-missing")
+else
+  node -e '
+    const fs = require("fs");
+    const reportPath = process.argv[1];
+    const root = process.argv[2].endsWith("/") ? process.argv[2] : process.argv[2] + "/";
+    const allowed = new Set(process.argv.slice(3));
+    let report;
+    try {
+      report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+    } catch (e) {
+      console.log("  FAIL: could not parse vitest JSON report: " + e.message);
+      process.exit(1);
+    }
+    const skipped = [];
+    for (const file of report.testResults || []) {
+      const rel = file.name.startsWith(root) ? file.name.slice(root.length) : file.name;
+      for (const t of file.assertionResults || []) {
+        if (t.status === "skipped" || t.status === "pending" || t.status === "todo") {
+          skipped.push(rel + "::" + t.fullName);
+        }
+      }
+    }
+    if (skipped.length === 0) {
+      console.log("  no skipped tests");
+      process.exit(0);
+    }
+    console.log("  skipped test(s) found:");
+    for (const s of skipped) console.log("    " + s);
+    const unexpected = skipped.filter((s) => !allowed.has(s));
+    if (unexpected.length > 0) {
+      console.log("  FAIL: unexpected skip(s), not on the ALLOWED_SKIPS list in this script:");
+      for (const s of unexpected) console.log("    " + s);
+      process.exit(1);
+    }
+    console.log("  all skip(s) are named on the allowlist (reviewed, deliberate)");
+    process.exit(0);
+  ' "$VITEST_JSON" "$(pwd)" "${ALLOWED_SKIPS[@]}"
+  record $? "vitest-skips"
 fi
 
 step "production build (the ONLY check that sees RSC boundary violations)"
