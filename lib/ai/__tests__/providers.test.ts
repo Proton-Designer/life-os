@@ -11,11 +11,24 @@ describe("provider registry", () => {
     }
   });
 
-  it("defaultModel is a name DeepSeek's own API reference actually lists, and it's flash, not pro (Boss ruling: nobody pays pro rates to learn their key works)", () => {
-    // Pins against silently reverting to an unverified/aliased name --
-    // "deepseek-chat" was never confirmed to resolve and isn't one of the
-    // three models DeepSeek's live reference lists.
-    expect(PROVIDERS.deepseek.defaultModel).toBe("deepseek-v4-flash");
+  it("defaultModel is a REAL, current model id (not a retired alias), and it's flash, not pro (Boss ruling: nobody pays pro rates to learn their key works)", () => {
+    // Regression for the 2026-09-13 finding: "deepseek-v4-flash" was never
+    // one of the two models `GET /models` actually lists (`deepseek-flash`,
+    // `deepseek-v4-pro`) -- it worked only because DeepSeek accepts it as a
+    // legacy alias and bills it at the flash price. Pin the REAL name so a
+    // future revert back to the alias fails loudly here instead of only
+    // being discoverable by reading DeepSeek's own pricing page again.
+    expect(PROVIDERS.deepseek.defaultModel).toBe("deepseek-flash");
+    expect(PROVIDERS.deepseek.defaultModel).not.toBe("deepseek-v4-flash");
+  });
+
+  it("model tiering exposes exactly the two real models, cheap mapped to flash", () => {
+    expect(PROVIDERS.deepseek.models.cheap).toBe("deepseek-flash");
+    expect(PROVIDERS.deepseek.models.capable).toBe("deepseek-v4-pro");
+  });
+
+  it("is flagged as a reasoning model, so callers know thinking-mode overhead applies", () => {
+    expect(PROVIDERS.deepseek.reasoningModel).toBe(true);
   });
 
   it("rejects unknown providers so a crafted form post can't reach storage", () => {

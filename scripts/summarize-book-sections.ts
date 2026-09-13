@@ -26,7 +26,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import { resolveApiKey, PROVIDERS } from "@/lib/ai/resolve-key";
+import { resolveApiKeyWithSource, PROVIDERS } from "@/lib/ai/resolve-key";
 import { HeuristicProvider } from "@/lib/self-mastery/ingestion/llm/heuristic-provider";
 import { DeepSeekProvider } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
 import { summarizeBookSections } from "@/lib/self-mastery/ingestion/summarize-sections";
@@ -86,15 +86,38 @@ async function main() {
     summaryModel = null;
     console.log("summarize-book-sections: using HeuristicProvider (deterministic, keyless, NOT a real summary — see its own header).");
   } else {
-    const apiKey = await resolveApiKey(untyped, (book as { user_id: string }).user_id, "deepseek");
-    if (!apiKey) {
+    const resolved = await resolveApiKeyWithSource(untyped, (book as { user_id: string }).user_id, "deepseek");
+    if (!resolved) {
       console.error(
         `summarize-book-sections: no DeepSeek key configured for this book's owner (user_api_keys, provider='deepseek').\n` +
           `  Configure one in Settings, or pass --provider=heuristic to exercise the pipeline without spending anything.`,
       );
       process.exit(1);
     }
-    provider = new DeepSeekProvider(apiKey);
+    // GATEWAY BUILD, 2026-09-13 (E1): this script's own header says the key
+    // is always "the book owner's OWN DeepSeek key" -- but resolveApiKey's
+    // fallback order (user key, then the shared server key, then null) means
+    // a book owner with NO key configured would silently fall through to
+    // the operator's shared, $1.98-total DeepSeek balance instead, and this
+    // script runs one call PER SECTION with no cap of its own. That is
+    // exactly the "an uncapped key running full-book ingestion drains the
+    // account in one run" scenario the LLM gateway was built to prevent --
+    // refuse outright here rather than silently spending shared money on a
+    // path this script never intended to use it for. DeepSeekProvider
+    // itself stays deliberately thin (no key resolution, no cap, no
+    // Supabase access -- its own header) and is NOT routed through
+    // lib/ai/gateway.ts in this pass; this refusal is the narrower fix that
+    // closes the actual risk without restructuring that class or its tests.
+    if (resolved.source === "server") {
+      console.error(
+        `summarize-book-sections: this book's owner has no key of their own -- resolution fell back to the ` +
+          `SHARED operator DeepSeek key. Refusing: a multi-section book run against the shared balance is ` +
+          `exactly the risk the LLM gateway's spend cap exists to prevent, and DeepSeekProvider does not go ` +
+          `through the gateway. Configure the book owner's own key in Settings, or pass --provider=heuristic.`,
+      );
+      process.exit(1);
+    }
+    provider = new DeepSeekProvider(resolved.key);
     summarizedBy = "model";
     summaryModel = PROVIDERS.deepseek.defaultModel;
     console.log(`summarize-book-sections: using DeepSeekProvider (${summaryModel}).`);

@@ -1,8 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/supabase/auth";
-import { resolveApiKey, DEFAULT_PROVIDER } from "@/lib/ai/resolve-key";
-import { chat } from "@/lib/ai/client";
+import { gatewayChat } from "@/lib/ai/gateway";
 
 /**
  * Written feedback on a typed retrieval answer — the one thing a user's own API
@@ -45,9 +44,6 @@ export async function getAnswerFeedback(cardId: string, userAnswer: string): Pro
 
   const { supabase, userId } = await requireUser();
 
-  const apiKey = await resolveApiKey(supabase, userId, DEFAULT_PROVIDER);
-  if (!apiKey) return null; // the default state of the app — not an error
-
   // RLS restricts this to the caller's own cards, so a guessed id yields nothing.
   const { data, error } = await supabase
     .from("cards")
@@ -56,9 +52,17 @@ export async function getAnswerFeedback(cardId: string, userAnswer: string): Pro
     .maybeSingle();
   if (error || !data?.answer) return null;
 
-  const res = await chat(
-    DEFAULT_PROVIDER,
-    apiKey,
+  // Routed through the gateway (lib/ai/gateway.ts), not lib/ai/client.ts's
+  // chat() directly, as of the Phase 1 LLM gateway build: this is what gets
+  // this feature tiering (cheap/deepseek-flash is plenty for a two-sentence
+  // critique), the shared-key spend cap, structured retry, and usage
+  // logging for free. NULL IS STILL THE NORMAL ANSWER for every reason it
+  // always was (no key, cap reached, provider down, malformed reply) --
+  // gatewayChat() degrades to `ok: false` for all of them, never throws.
+  const res = await gatewayChat(
+    supabase,
+    userId,
+    "answer_feedback",
     [
       { role: "system", content: SYSTEM },
       {

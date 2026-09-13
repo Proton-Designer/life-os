@@ -57,5 +57,58 @@ export async function hasAiAvailable(client: SupabaseClient, userId: string): Pr
   return (await resolveApiKey(client, userId, "deepseek")) !== null;
 }
 
+export type KeySource = "user" | "server";
+
+export interface ResolvedKey {
+  key: string;
+  /**
+   * "user" = this account's own BYO key (their own DeepSeek balance, their
+   * own responsibility). "server" = the operator-funded fallback key
+   * (`DEEPSEEK_API_KEY`), a single shared account balance every user without
+   * their own key draws from.
+   *
+   * THIS IS THE FIELD THE SPEND CAP KEYS OFF OF (`lib/ai/spend-cap.ts`): the
+   * cap protects the shared "server" balance, never a user's own key. A
+   * user's BYO key is their own money; refusing calls against it on OUR
+   * ceiling would be paternalistic and would not protect anything of ours.
+   */
+  source: KeySource;
+}
+
+/**
+ * Same resolution order as `resolveApiKey` (user key, then server key, then
+ * null) but also reports WHICH one it found, for the gateway's spend cap and
+ * usage log. Deliberately a separate function rather than changing
+ * `resolveApiKey`'s return shape: `resolveApiKey` has existing callers
+ * (`answer-feedback-actions.ts`, `api-key-actions.ts`) that only ever needed
+ * the string, and changing a widely-used function's return type to grow one
+ * new caller's requirement is exactly the kind of blast-radius risk this
+ * codebase's own incidents warn about. New callers that need the source
+ * (the gateway) call this one instead.
+ */
+export async function resolveApiKeyWithSource(
+  client: SupabaseClient,
+  userId: string,
+  provider: ProviderId,
+): Promise<ResolvedKey | null> {
+  const { data, error } = await client
+    .from("user_api_keys")
+    .select("encrypted_key")
+    .eq("user_id", userId)
+    .eq("provider", provider)
+    .maybeSingle();
+
+  if (!error && data?.encrypted_key) {
+    try {
+      return { key: decryptSecret(data.encrypted_key as string), source: "user" };
+    } catch {
+      // Same fallback posture as resolveApiKey: an unreadable ciphertext
+      // falls through to the server key rather than failing the caller.
+    }
+  }
+  const fromServer = serverKey(provider);
+  return fromServer ? { key: fromServer, source: "server" } : null;
+}
+
 export const DEFAULT_PROVIDER: ProviderId = "deepseek";
 export { PROVIDERS };

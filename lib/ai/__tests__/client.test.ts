@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chat } from "../client";
+import { chat, verifyKey } from "../client";
 
 // Boss ruling (R7, DeepSeek task), relayed via ULM lead. Three findings on
 // the exact screen where a user has just pasted their own API key:
@@ -87,6 +87,133 @@ describe("chat()'s HTTP status / content-shape mapping", () => {
   it("a real 2xx response with content is still a success", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }] }));
     const result = await chat("deepseek", "sk-test", [{ role: "user", content: "hi" }]);
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe("ok");
+  });
+
+  it("every failure branch carries a structured errorKind a retry policy can key off of, without parsing message text", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, {}));
+    expect((await chat("deepseek", "sk-test", [])).errorKind).toBe("auth");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(429, {}));
+    expect((await chat("deepseek", "sk-test", [])).errorKind).toBe("rate_limited");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, {}));
+    expect((await chat("deepseek", "sk-test", [])).errorKind).toBe("bad_request");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, {}));
+    expect((await chat("deepseek", "sk-test", [])).errorKind).toBe("server_error");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { choices: [{ message: { content: "" } }] }));
+    expect((await chat("deepseek", "sk-test", [])).errorKind).toBe("empty_content");
+  });
+
+  it("parses usage, including cache-hit tokens (top-level) and reasoning tokens (nested under completion_tokens_details), per DeepSeek's actual wire shape", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        model: "deepseek-flash",
+        choices: [{ message: { content: "the answer" } }],
+        usage: {
+          prompt_tokens: 100,
+          prompt_cache_hit_tokens: 60,
+          completion_tokens: 50,
+          completion_tokens_details: { reasoning_tokens: 30 },
+        },
+      }),
+    );
+    const result = await chat("deepseek", "sk-test", [{ role: "user", content: "hi" }]);
+    expect(result.ok).toBe(true);
+    expect(result.modelUsed).toBe("deepseek-flash");
+    expect(result.usage).toEqual({
+      promptTokens: 100,
+      cachedPromptTokens: 60,
+      completionTokens: 50,
+      reasoningTokens: 30,
+    });
+  });
+
+  it("still returns usage on the empty-content failure path -- tokens were billed even though no usable answer came back", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        choices: [{ message: { content: "", reasoning_content: "long internal chain of thought..." } }],
+        usage: { prompt_tokens: 20, completion_tokens: 26, completion_tokens_details: { reasoning_tokens: 24 } },
+      }),
+    );
+    const result = await chat("deepseek", "sk-test", [{ role: "user", content: "hi" }]);
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("empty_content");
+    expect(result.usage?.reasoningTokens).toBe(24);
+    // Distinct message when reasoning is the known cause, not the generic
+    // "empty response" -- a human reading logs should not have to guess.
+    expect(result.message).toMatch(/reasoning/i);
+  });
+
+  it("passes thinking:disabled through to the request body when opts.thinking === false", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }] }));
+    await chat("deepseek", "sk-test", [{ role: "user", content: "hi" }], { thinking: false });
+    const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sentBody.thinking).toEqual({ type: "disabled" });
+  });
+});
+
+// Regression for the 2026-09-13 finding (Boss ruling, relayed via the LifeOS
+// lead): verifyKey() used to call with maxTokens: 5 against a REASONING
+// model that defaults to thinking mode on. A trivial "reply with ok" burned
+// 24 of 26 output tokens on hidden reasoning_content in one measured real
+// call, content came back empty, and client.ts's own empty-content check
+// (correctly, in isolation) reported failure -- so "Test key" told every
+// user with a perfectly valid key that it was broken. Two behaviors pinned:
+// (1) verifyKey must disable thinking mode entirely, not just raise the
+// token count and hope reasoning finishes in time; (2) even so, if a future
+// model variant still reasons with thinking nominally off, the failure
+// message must name reasoning as the cause rather than reading as a bad key.
+describe("verifyKey() and the reasoning-mode regression", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function jsonResponse(status: number, body: unknown) {
+    return { status, ok: status >= 200 && status < 300, json: async () => body };
+  }
+
+  it("disables thinking mode and uses a real token floor, not the old maxTokens: 5", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }] }));
+    await verifyKey("deepseek", "sk-test");
+    const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sentBody.thinking).toEqual({ type: "disabled" });
+    expect(sentBody.max_tokens).toBeGreaterThan(5);
+  });
+
+  it("a valid key that returns real content succeeds -- the exact case the old code got wrong under a reasoning model", async () => {
+    // This mock reproduces DeepSeek's actual measured shape for a naive
+    // maxTokens:5 call against a reasoning model (26 total completion
+    // tokens, 24 spent on reasoning, empty content) to prove the OLD
+    // behavior would have failed it, before proving the NEW call succeeds
+    // via the fixture below.
+    const oldStyleReasoningExhaustion = jsonResponse(200, {
+      choices: [{ message: { content: "", reasoning_content: "...24 tokens of internal reasoning..." } }],
+      usage: { prompt_tokens: 12, completion_tokens: 26, completion_tokens_details: { reasoning_tokens: 24 } },
+    });
+    fetchMock.mockResolvedValueOnce(oldStyleReasoningExhaustion);
+    const wouldHaveFailedWithOldMaxTokens = await chat(
+      "deepseek",
+      "sk-test",
+      [{ role: "user", content: "Reply with the single word: ok" }],
+      { maxTokens: 5 }, // the OLD call shape, thinking left enabled
+    );
+    expect(wouldHaveFailedWithOldMaxTokens.ok).toBe(false);
+
+    // Now the actual fixed verifyKey(): thinking disabled, real content comes back.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        choices: [{ message: { content: "ok" } }],
+        usage: { prompt_tokens: 12, completion_tokens: 2, completion_tokens_details: { reasoning_tokens: 0 } },
+      }),
+    );
+    const result = await verifyKey("deepseek", "sk-test");
     expect(result.ok).toBe(true);
     expect(result.content).toBe("ok");
   });
