@@ -1,89 +1,337 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { DeepSeekProvider } from "../deepseek-provider";
-import * as aiClient from "@/lib/ai/client";
+import * as gatewayModule from "@/lib/ai/gateway";
+import type { GatewayChatResult } from "@/lib/ai/gateway";
 
 /**
- * UNVERIFIED HALF, STATED PLAINLY (per the lead's own instruction): no
- * DeepSeek key is configured on any account today (zero `user_api_keys`
- * rows), so this suite cannot prove a real DeepSeek call round-trips
- * correctly — that would require live credentials this program doesn't
- * have. What IS proven here: `summarizeSection` builds the right request
- * shape against `lib/ai/client.ts`'s already-tested `chat()` (its own HTTP
- * status/content-shape mapping is covered in lib/ai/__tests__/client.test.ts,
- * not re-tested here), and every other `LlmProvider` method throws with a
- * clear R6 pointer rather than silently doing the wrong job.
+ * Phase 1 item 3: DeepSeekProvider now routes every call through
+ * `gatewayChat()` (lib/ai/gateway.ts), never `lib/ai/client.ts`'s `chat()`
+ * and never `fetch` directly -- every test here mocks `gatewayChat` itself,
+ * zero network, zero spend, matching the "mock-backed first" posture the
+ * Lead asked for before any real-money calibration run.
  */
+
+const FAKE_SUPABASE = {} as unknown as SupabaseClient;
+const USER_ID = "u-test-1";
+
+function okResult(content: string, usage?: Partial<NonNullable<GatewayChatResult["usage"]>>): GatewayChatResult {
+  return {
+    ok: true,
+    content,
+    usage: {
+      promptTokens: usage?.promptTokens ?? 100,
+      cachedPromptTokens: usage?.cachedPromptTokens ?? 0,
+      completionTokens: usage?.completionTokens ?? 50,
+      reasoningTokens: usage?.reasoningTokens ?? 0,
+    },
+    costUsd: 0.0001,
+    keySource: "server",
+    attempts: 1,
+  };
+}
+
+function failResult(message: string): GatewayChatResult {
+  return { ok: false, message, keySource: "server", attempts: 1 };
+}
+
+let gatewayChatSpy: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  gatewayChatSpy = vi.spyOn(gatewayModule, "gatewayChat");
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("DeepSeekProvider.summarizeSection", () => {
-  it("calls chat() with provider='deepseek', the given key, and a prompt naming the book/section/excerpts", async () => {
-    const chatSpy = vi.spyOn(aiClient, "chat").mockResolvedValue({ ok: true, content: "A short summary." });
-    const provider = new DeepSeekProvider("sk-test-key");
+  it("calls gatewayChat with the right feature name, thinking disabled, and a prompt naming the book/section/excerpts", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("A short summary."));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
 
     const result = await provider.summarizeSection({
-      bookTitle: "Atomic Habits",
+      bookTitle: "Actionable Gamification",
       sectionTitle: "Chapter 3",
       chunkTexts: ["First excerpt text.", "Second excerpt text."],
     });
 
     expect(result.summary).toBe("A short summary.");
-    expect(chatSpy).toHaveBeenCalledTimes(1);
-    const [provider_, apiKey, messages, opts] = chatSpy.mock.calls[0]!;
-    expect(provider_).toBe("deepseek");
-    expect(apiKey).toBe("sk-test-key");
-    expect(messages.some((m) => m.role === "system")).toBe(true);
-    const userMessage = messages.find((m) => m.role === "user")!;
-    expect(userMessage.content).toContain("Atomic Habits");
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
+    const [supabaseArg, userIdArg, feature, messages, opts] = gatewayChatSpy.mock.calls[0]!;
+    expect(supabaseArg).toBe(FAKE_SUPABASE);
+    expect(userIdArg).toBe(USER_ID);
+    expect(feature).toBe("self_mastery_ingestion_summarize_section");
+    expect(messages.some((m: { role: string }) => m.role === "system")).toBe(true);
+    const userMessage = messages.find((m: { role: string }) => m.role === "user")!;
+    expect(userMessage.content).toContain("Actionable Gamification");
     expect(userMessage.content).toContain("Chapter 3");
     expect(userMessage.content).toContain("First excerpt text.");
-    expect(userMessage.content).toContain("Second excerpt text.");
-    expect(opts?.maxTokens).toBeGreaterThan(0);
-
-    chatSpy.mockRestore();
+    // thinking:false is the deliberate cost decision this item is built
+    // around -- if this regresses to unset/true, ingestion silently pays
+    // for hidden reasoning tokens on every one of 66+ calls per book.
+    expect(opts?.thinking).toBe(false);
   });
 
   it("trims the returned content", async () => {
-    const chatSpy = vi.spyOn(aiClient, "chat").mockResolvedValue({ ok: true, content: "  padded summary  \n" });
-    const provider = new DeepSeekProvider("sk-test-key");
+    gatewayChatSpy.mockResolvedValue(okResult("  padded summary  \n"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] });
     expect(result.summary).toBe("padded summary");
-    chatSpy.mockRestore();
   });
 
-  it("THROWS rather than returning a fabricated summary when chat() fails — never a placeholder value", async () => {
-    const chatSpy = vi.spyOn(aiClient, "chat").mockResolvedValue({ ok: false, message: "DeepSeek rejected that key. Check it's still active." });
-    const provider = new DeepSeekProvider("sk-bad-key");
-    await expect(provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] })).rejects.toThrow(/rejected that key/i);
-    chatSpy.mockRestore();
+  it("THROWS rather than returning a fabricated summary when the gateway call fails", async () => {
+    gatewayChatSpy.mockResolvedValue(failResult("The shared AI budget cap has been reached"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    await expect(provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] })).rejects.toThrow(
+      /budget cap/i,
+    );
   });
 
-  it("THROWS on a 2xx-but-empty response, same as chat()'s own documented failure mode", async () => {
-    const chatSpy = vi.spyOn(aiClient, "chat").mockResolvedValue({ ok: false, message: "DeepSeek returned an empty response." });
-    const provider = new DeepSeekProvider("sk-test-key");
-    await expect(provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] })).rejects.toThrow(/empty response/i);
-    chatSpy.mockRestore();
+  it("sets lastUsage from the gateway's real usage/cost, not a guess", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("ok", { promptTokens: 321, completionTokens: 44 }));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    await provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] });
+    expect(provider.lastUsage).toEqual({
+      promptTokens: 321,
+      cachedPromptTokens: 0,
+      completionTokens: 44,
+      reasoningTokens: 0,
+      costUsd: 0.0001,
+    });
   });
 });
 
-describe("DeepSeekProvider — every other LlmProvider method is out of scope by ruling (R6), not an oversight", () => {
-  it("throws a clear R6 pointer for every lesson-extraction method, never a silent wrong answer", async () => {
-    const provider = new DeepSeekProvider("sk-test-key");
-    await expect(provider.triageChunk({ chunkText: "x" })).rejects.toThrow(/R6/);
-    await expect(provider.extractLessons({ chunkText: "x", pageStart: 1, pageEnd: 1, sourceChunkId: "c1" })).rejects.toThrow(/R6/);
-    await expect(provider.mergeLessons({ candidates: [], targetCount: { min: 1, max: 2 } })).rejects.toThrow(/R6/);
+const CHUNK_TEXT =
+  "The two-minute rule states that when you start a new habit, it should take less than two minutes to do. " +
+  "This works because almost any habit can be scaled down into a two-minute version.";
+
+function validExtractJson(overrides: Partial<Record<string, string>> = {}): string {
+  return JSON.stringify({
+    lessons: [
+      {
+        title: "Shrink new habits to two minutes",
+        core_claim: "Beginning any new routine works best when the initial version is trivially quick to complete.",
+        mechanism: "A tiny starting version removes the friction that normally stops a habit before it forms.",
+        action_template: "Pick one habit and define a version of it that takes under two minutes.",
+        provenance_quote:
+          "The two-minute rule states that when you start a new habit, it should take less than two minutes to do.",
+        ...overrides,
+      },
+    ],
+  });
+}
+
+describe("DeepSeekProvider.extractLessons", () => {
+  it("returns a grounded, gate-passing candidate from a valid first-attempt response", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(validExtractJson()));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const candidates = await provider.extractLessons({
+      chunkText: CHUNK_TEXT,
+      pageStart: 12,
+      pageEnd: 12,
+      sourceChunkId: "chunk-1",
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.title).toBe("Shrink new habits to two minutes");
+    expect(candidates[0]!.sourceChunkId).toBe("chunk-1");
+    expect(candidates[0]!.pageRef).toBe(12);
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // everything passed -- no retry needed
+    const opts = gatewayChatSpy.mock.calls[0]![4];
+    expect(opts?.thinking).toBe(false);
+  });
+
+  it("drops a candidate whose provenance_quote is not a verbatim substring of the chunk (isGrounded firewall survives the port)", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(validExtractJson({ provenance_quote: "This sentence was never in the source chunk at all." })),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const candidates = await provider.extractLessons({
+      chunkText: CHUNK_TEXT,
+      pageStart: 1,
+      pageEnd: 1,
+      sourceChunkId: "chunk-1",
+    });
+
+    expect(candidates).toHaveLength(0);
+  });
+
+  it("drops a candidate whose core_claim is too close to a copy of provenance_quote, and retries with a strictness note", async () => {
+    gatewayChatSpy
+      .mockResolvedValueOnce(
+        okResult(
+          validExtractJson({
+            core_claim: "The two-minute rule states that when you start a new habit, it should take less than two minutes to do.",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(okResult(validExtractJson()));
+
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const candidates = await provider.extractLessons({
+      chunkText: CHUNK_TEXT,
+      pageStart: 1,
+      pageEnd: 1,
+      sourceChunkId: "chunk-1",
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(2);
+    const secondUserPrompt = gatewayChatSpy.mock.calls[1]![3].find((m: { role: string }) => m.role === "user")!.content;
+    expect(secondUserPrompt).toMatch(/previous attempt's core_claim was rejected/);
+  });
+
+  it("returns an empty array (never throws) when every attempt returns unparseable JSON", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("not json at all"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const candidates = await provider.extractLessons({
+      chunkText: CHUNK_TEXT,
+      pageStart: 1,
+      pageEnd: 1,
+      sourceChunkId: "chunk-1",
+    });
+    expect(candidates).toEqual([]);
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS exhausted
+  });
+
+  it("THROWS immediately on a genuine gateway failure -- never silently degrades to an empty candidate list", async () => {
+    gatewayChatSpy.mockResolvedValue(failResult("DeepSeek says you're out of quota or rate-limited."));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
     await expect(
-      provider.generateCards({
-        lesson: {
-          title: "t",
-          coreClaim: "c",
-          mechanism: "m",
-          actionTemplate: "a",
-          evidenceStrength: "author_anecdote",
-          provenanceQuote: "q",
-          pageRef: 1,
-          sourceChunkId: "c1",
-        },
-      }),
-    ).rejects.toThrow(/R6/);
-    await expect(provider.gradeAnswer({ cardPrompt: "p", cardAnswer: "a", userAnswer: "u" })).rejects.toThrow(/R6/);
-    await expect(provider.checkEntailment({ claim: "c", quote: "q" })).rejects.toThrow(/R6/);
+      provider.extractLessons({ chunkText: CHUNK_TEXT, pageStart: 1, pageEnd: 1, sourceChunkId: "chunk-1" }),
+    ).rejects.toThrow(/quota or rate-limited/i);
+    // Fails closed on the FIRST call -- an infra failure is not retried as
+    // if it were model noise (that would burn 3x the calls for no benefit
+    // on a failure mode retrying can't fix).
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("strips a markdown code fence around the JSON before parsing", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("```json\n" + validExtractJson() + "\n```"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const candidates = await provider.extractLessons({
+      chunkText: CHUNK_TEXT,
+      pageStart: 1,
+      pageEnd: 1,
+      sourceChunkId: "chunk-1",
+    });
+    expect(candidates).toHaveLength(1);
+  });
+});
+
+const LESSON = {
+  title: "Shrink new habits to two minutes",
+  coreClaim: "Beginning any new routine works best when the initial version is trivially quick to complete.",
+  mechanism: "A tiny starting version removes the friction that normally stops a habit before it forms.",
+  actionTemplate: "Pick one habit and define a version of it that takes under two minutes.",
+  evidenceStrength: "author_anecdote" as const,
+  provenanceQuote: "The two-minute rule states that when you start a new habit, it should take less than two minutes to do.",
+  pageRef: 12,
+  sourceChunkId: "chunk-1",
+};
+
+function validCardsJson(overrides: Partial<Record<string, string>> = {}): string {
+  return JSON.stringify({
+    free_recall_prompt: "What does this lesson claim about the ideal length of a new habit's first version?",
+    application_prompt: "You want to start flossing every night but keep skipping it -- what's the two-minute version?",
+    application_answer: "Floss just one tooth for the first week, so the habit takes under two minutes to complete.",
+    why_prompt: "In your own words, why does a tiny starting version make a new habit more likely to stick?",
+    ...overrides,
+  });
+}
+
+describe("DeepSeekProvider.generateCards", () => {
+  it("returns free_recall, application, why, and a cloze card from a valid response", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(validCardsJson()));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const cards = await provider.generateCards({ lesson: LESSON });
+
+    const types = cards.map((c) => c.promptType);
+    expect(types).toContain("free_recall");
+    expect(types).toContain("application");
+    expect(types).toContain("why");
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the heuristic free_recall template when every attempt's own free_recall leaks the answer", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(
+        validCardsJson({
+          // Reuses the claim's own exact wording -- must fail passesAntiLeak.
+          free_recall_prompt: LESSON.coreClaim,
+        }),
+      ),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const cards = await provider.generateCards({ lesson: LESSON });
+
+    expect(cards.some((c) => c.promptType === "free_recall")).toBe(true); // fallback guarantees this
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS exhausted trying to get a passing one
+  });
+
+  it("THROWS immediately on a genuine gateway failure", async () => {
+    gatewayChatSpy.mockResolvedValue(failResult("DeepSeek returned an error (HTTP 500)."));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    await expect(provider.generateCards({ lesson: LESSON })).rejects.toThrow(/HTTP 500/);
+  });
+});
+
+describe("DeepSeekProvider.checkEntailment", () => {
+  it("returns SUPPORTS from a valid response, in exactly one call", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(JSON.stringify({ passage_point: "x", verdict: "SUPPORTS", reason: "matches" })),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const result = await provider.checkEntailment({ claim: "c", quote: "q" });
+
+    expect(result).toEqual({ verdict: "SUPPORTS", reason: "matches" });
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
+    const opts = gatewayChatSpy.mock.calls[0]![4];
+    expect(opts?.thinking).toBe(false);
+  });
+
+  it("returns CONTRADICTS / UNRELATED verbatim from a valid response", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(JSON.stringify({ passage_point: "x", verdict: "CONTRADICTS", reason: "opposite" })),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    expect(await provider.checkEntailment({ claim: "c", quote: "q" })).toEqual({
+      verdict: "CONTRADICTS",
+      reason: "opposite",
+    });
+  });
+
+  it("FAILS CLOSED to UNRELATED, not a throw, when a successful call returns an unparseable/invalid-shape response", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("not valid json"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.checkEntailment({ claim: "c", quote: "q" });
+    expect(result.verdict).toBe("UNRELATED");
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // no retry loop for entailment -- one call per lesson
+  });
+
+  it("THROWS (does not fail closed to a verdict) when the gateway call itself fails -- an infra failure is not a real judgment", async () => {
+    gatewayChatSpy.mockResolvedValue(failResult("The shared AI budget cap has been reached"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    await expect(provider.checkEntailment({ claim: "c", quote: "q" })).rejects.toThrow(/budget cap/i);
+  });
+});
+
+describe("DeepSeekProvider — mergeLessons/triageChunk/gradeAnswer are verified dead, not implemented", () => {
+  it("throws a clear pointer for each, never a silent wrong answer", async () => {
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    await expect(provider.triageChunk({ chunkText: "x" })).rejects.toThrow(/not implemented/);
+    await expect(provider.mergeLessons({ candidates: [], targetCount: { min: 1, max: 2 } })).rejects.toThrow(
+      /not implemented/,
+    );
+    await expect(provider.gradeAnswer({ cardPrompt: "p", cardAnswer: "a", userAnswer: "u" })).rejects.toThrow(
+      /not implemented/,
+    );
+    expect(gatewayChatSpy).not.toHaveBeenCalled();
   });
 });

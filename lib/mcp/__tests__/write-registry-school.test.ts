@@ -208,12 +208,12 @@ describe("school.class_assessment.add", () => {
 
     const outcome = await action.handler(
       { userClient: client, userId: "user-1", timezone: "UTC", now, id: "class-1" },
-      { name: "Midterm 2", type: "midterm_final", date: "2026-10-15" },
+      { name: "Midterm 2", type: "final_midterm", date: "2026-10-15" },
     );
 
     expect(textOf(outcome)).toEqual({ id: "assessment-new", taskId: "task-new" });
     expect(calls.tasks.insert[0]).toMatchObject({ domain: "school", class_id: "class-1", due_date: "2026-10-15" });
-    expect(calls.class_assessments.insert[0]).toMatchObject({ class_id: "class-1", name: "Midterm 2", type: "midterm_final" });
+    expect(calls.class_assessments.insert[0]).toMatchObject({ class_id: "class-1", name: "Midterm 2", type: "final_midterm" });
   });
 
   it("REJECTS an invalid assessment type", async () => {

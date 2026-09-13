@@ -94,30 +94,35 @@ async function main() {
       );
       process.exit(1);
     }
-    // GATEWAY BUILD, 2026-09-13 (E1): this script's own header says the key
-    // is always "the book owner's OWN DeepSeek key" -- but resolveApiKey's
-    // fallback order (user key, then the shared server key, then null) means
-    // a book owner with NO key configured would silently fall through to
-    // the operator's shared, $1.98-total DeepSeek balance instead, and this
-    // script runs one call PER SECTION with no cap of its own. That is
-    // exactly the "an uncapped key running full-book ingestion drains the
-    // account in one run" scenario the LLM gateway was built to prevent --
-    // refuse outright here rather than silently spending shared money on a
-    // path this script never intended to use it for. DeepSeekProvider
-    // itself stays deliberately thin (no key resolution, no cap, no
-    // Supabase access -- its own header) and is NOT routed through
-    // lib/ai/gateway.ts in this pass; this refusal is the narrower fix that
-    // closes the actual risk without restructuring that class or its tests.
+    // UPDATED, Phase 1 item 3 (2026-09-13): DeepSeekProvider is now routed
+    // through lib/ai/gateway.ts's `gatewayChat()` for every call it makes,
+    // including `summarizeSection` -- the constructor no longer takes a raw
+    // key at all (the gateway resolves it internally, same
+    // user-key-then-server-key order as `resolveApiKeyWithSource` below),
+    // and every server-key call is now subject to the gateway's own hard
+    // spend cap (lib/ai/spend-cap.ts). The comment this replaces argued for
+    // refusing a fallback-to-shared-key run here BECAUSE DeepSeekProvider
+    // had no cap of its own -- that specific reason is gone. The refusal
+    // below is kept anyway, deliberately more conservative than the
+    // gateway's own cap requires: this script can still burn many calls
+    // (one per section) in a single invocation against a shared,
+    // near-empty balance before the cap's own pre-flight check would ever
+    // see a reason to refuse a later call in a DIFFERENT run, and a book
+    // owner silently spending the operator's shared money because they
+    // never configured their own key is still a surprising outcome worth
+    // stopping explicitly rather than leaving entirely to the cap. Revisit
+    // this policy with the Lead if that's ever too strict in practice --
+    // it is not a re-derivation of a stale safety requirement.
     if (resolved.source === "server") {
       console.error(
         `summarize-book-sections: this book's owner has no key of their own -- resolution fell back to the ` +
           `SHARED operator DeepSeek key. Refusing: a multi-section book run against the shared balance is ` +
-          `exactly the risk the LLM gateway's spend cap exists to prevent, and DeepSeekProvider does not go ` +
-          `through the gateway. Configure the book owner's own key in Settings, or pass --provider=heuristic.`,
+          `still worth stopping explicitly here, on top of (not instead of) the LLM gateway's own spend cap. ` +
+          `Configure the book owner's own key in Settings, or pass --provider=heuristic.`,
       );
       process.exit(1);
     }
-    provider = new DeepSeekProvider(resolved.key);
+    provider = new DeepSeekProvider(untyped, (book as { user_id: string }).user_id);
     summarizedBy = "model";
     summaryModel = PROVIDERS.deepseek.defaultModel;
     console.log(`summarize-book-sections: using DeepSeekProvider (${summaryModel}).`);
