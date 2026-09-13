@@ -6,7 +6,7 @@ function assessment(overrides: Partial<GradeLedgerAssessment> = {}): GradeLedger
   return {
     id: "a1",
     name: "Midterm",
-    type: "midterm_final",
+    type: "final_midterm",
     date: "2026-10-06",
     taskId: "t1",
     risk: { score: 0, band: "low", confidence: "moderate" },

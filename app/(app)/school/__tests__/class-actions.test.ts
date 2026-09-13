@@ -44,9 +44,9 @@ describe("class-actions — thin wrappers over lib/school/actions-core.ts", () =
 
   it("addClassAssessment delegates to addClassAssessmentCore", async () => {
     const { addClassAssessment } = await import("../class-actions");
-    await addClassAssessment("class-1", "Midterm 2", "midterm_final", "2026-10-15");
+    await addClassAssessment("class-1", "Midterm 2", "final_midterm", "2026-10-15");
 
-    expect(addClassAssessmentCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "class-1", "Midterm 2", "midterm_final", "2026-10-15");
+    expect(addClassAssessmentCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "class-1", "Midterm 2", "final_midterm", "2026-10-15");
     expect(revalidatePathMock).toHaveBeenCalledWith("/school");
   });
 

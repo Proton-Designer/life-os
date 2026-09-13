@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ClassAssessments, type ClassAssessment } from "@/components/school/class-assessments";
 import { ClassGradeLedger } from "@/components/school/class-grade-ledger";
+import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
 import { TaskWizardDialog, type TaskWizardSubmitInput } from "@/components/school/task-wizard-dialog";
@@ -391,6 +392,14 @@ export function ClassDetailDialog({
             B3 instant-load contract as everything else in this dialog. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
           <ClassGradeLedger assessments={classData.assessments} targetGradePct={classData.targetGradePct} />
+        </div>
+
+        {/* Same B3 instant-load contract as the grade ledger above: reads
+            straight from classData.questions (server props). The panel is
+            self-contained (immediate-commit CRUD via its own Server Actions,
+            like SyllabusPanel), so it needs nothing staged here. */}
+        <div className="rounded-2xl border border-border/40 bg-card p-4">
+          <QuestionBankPanel classId={classData.id} questions={classData.questions} />
         </div>
 
         <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">

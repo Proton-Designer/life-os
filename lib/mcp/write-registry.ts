@@ -5,7 +5,7 @@ import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, 
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
 import { addTaskCore, updateTaskCore, toggleTaskCore, updateScheduleEventCore, setScheduleEventOverrideCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
-import { createClassCore, updateClassCore, addClassAssessmentCore, updateClassAssessmentCore } from "@/lib/school/actions-core";
+import { createClassCore, updateClassCore, addClassAssessmentCore, updateClassAssessmentCore, ASSESSMENT_TYPES } from "@/lib/school/actions-core";
 import {
   quickLogExerciseCore,
   confirmWorkoutSessionCore,
@@ -236,7 +236,8 @@ async function assertRowDomain(userClient: SupabaseClient, table: "tasks" | "sch
 }
 
 const TASK_TYPES = ["homework_assignment", "reading_review", "quiz", "exam", "final_midterm", "project_paper", "reminder", "other"] as const;
-const ASSESSMENT_TYPES = ["quiz", "exam", "midterm_final"] as const;
+// Imported, never re-declared: a second copy of this vocabulary is exactly the
+// drift migration 151 converged away. ASSESSMENT_TYPES lives in actions-core.
 const DAYS_OF_WEEK = [0, 1, 2, 3, 4, 5, 6] as const;
 
 export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
@@ -823,7 +824,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           add: {
             action: "add",
             description: "Add an assessment to a class. Also creates its linked task (ruling R5). Requires the top-level id (the class's id).",
-            patchShape: "{ name: string, type: 'quiz'|'exam'|'midterm_final', date: string }",
+            patchShape: "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string }",
             idempotent: false,
             idempotencyVerification: "addClassAssessmentCore (lib/school/actions-core.ts) plain-INSERTs a task AND a class_assessments row, no conflict handling on either -- a retry creates a second, duplicate task+assessment pair.",
             handler: async (ctx, patch) => {
@@ -841,7 +842,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           edit: {
             action: "edit",
             description: "Edit an assessment's name/type/date/weight, syncing its linked task's title/due_date. Requires the top-level id.",
-            patchShape: "{ name: string, type: 'quiz'|'exam'|'midterm_final', date: string, weight_pct?: number|null }",
+            patchShape: "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string, weight_pct?: number|null }",
             idempotent: true,
             idempotencyVerification: "updateClassAssessmentCore (lib/school/actions-core.ts) UPDATEs the assessment and its linked task to the exact given values -- a retry writes the identical rows.",
             handler: async (ctx, patch) => {

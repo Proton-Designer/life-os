@@ -53,9 +53,32 @@ describe("updateClassCore", () => {
     await updateClassCore(client, "user-1", "class-1", { shortName: "Prob & Stats", room: "ENG 201", instructor: null });
 
     expect(from).toHaveBeenCalledWith("classes");
-    expect(chain.update).toHaveBeenCalledWith({ short_name: "Prob & Stats", room: "ENG 201", instructor: null });
+    expect(chain.update).toHaveBeenCalledWith({ short_name: "Prob & Stats", room: "ENG 201", instructor: null, term: undefined });
     expect(chain.eq).toHaveBeenCalledWith("id", "class-1");
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  // Migration 152 (Phase 1 #11) adds classes.term. Covered here even though
+  // no reader is wired up yet (get-class-cards.ts/class-detail-dialog.tsx
+  // deliberately do NOT select/display it pre-apply -- see this engineer's
+  // own report: database.types.ts can't know about a column that isn't in
+  // the live schema yet, and get-class-cards.ts is checked against it
+  // directly). This write path uses the untyped SupabaseClient, so it
+  // compiles and is correct today and needs no further code change once
+  // migration 152 is applied.
+  it("passes term through untouched (undefined when omitted, a real value or null when provided)", async () => {
+    const chain = makeChain();
+    const from = vi.fn(() => chain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassCore(client, "user-1", "class-1", { term: "Fall 2026" });
+
+    expect(chain.update).toHaveBeenCalledWith({
+      short_name: undefined,
+      room: undefined,
+      instructor: undefined,
+      term: "Fall 2026",
+    });
   });
 });
 
@@ -66,15 +89,30 @@ describe("addClassAssessmentCore", () => {
     const from = vi.fn((table: string) => (table === "tasks" ? tasksChain : assessmentsChain));
     const client = { from } as unknown as SupabaseClient;
 
-    const result = await addClassAssessmentCore(client, "user-1", "class-1", "Midterm 2", "midterm_final", "2026-10-15");
+    const result = await addClassAssessmentCore(client, "user-1", "class-1", "Midterm 2", "final_midterm", "2026-10-15");
 
     expect(tasksChain.insert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: "user-1", domain: "school", title: "Midterm 2", due_date: "2026-10-15", task_type: "final_midterm", class_id: "class-1" })
     );
     expect(assessmentsChain.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: "user-1", class_id: "class-1", name: "Midterm 2", type: "midterm_final", date: "2026-10-15", task_id: "task-new" })
+      expect.objectContaining({ user_id: "user-1", class_id: "class-1", name: "Midterm 2", type: "final_midterm", date: "2026-10-15", task_id: "task-new" })
     );
     expect(result).toEqual({ assessmentId: "assessment-new", taskId: "task-new" });
+  });
+
+  it.each([
+    ["homework_assignment"],
+    ["project_paper"],
+  ])("accepts the widened deliverable type %s and mirrors it onto the linked task's task_type (migration 151)", async (type) => {
+    const tasksChain = makeChain({ data: { id: "task-new" }, error: null });
+    const assessmentsChain = makeChain({ data: { id: "assessment-new" }, error: null });
+    const from = vi.fn((table: string) => (table === "tasks" ? tasksChain : assessmentsChain));
+    const client = { from } as unknown as SupabaseClient;
+
+    await addClassAssessmentCore(client, "user-1", "class-1", "Lab report", type as "homework_assignment" | "project_paper", "2026-10-15");
+
+    expect(tasksChain.insert).toHaveBeenCalledWith(expect.objectContaining({ task_type: type }));
+    expect(assessmentsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ type }));
   });
 
   it("cleans up the just-created task if the assessment insert fails — never an orphaned task with no assessment", async () => {

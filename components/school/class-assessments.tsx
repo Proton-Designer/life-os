@@ -52,10 +52,19 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = { high: "High", moderate: "
 const INSUFFICIENT_GROUP_PROMPT = "rate difficulty to rank this";
 const ALL_INSUFFICIENT_CAPTION = "ranked by due date until you rate difficulty.";
 
+// Migration 151 (Phase 1 #12) widened this beyond quiz/exam/midterm_final
+// and renamed the third value to "final_midterm" -- converged onto
+// lib/tasks/task-type.ts's TASK_TYPE_LABEL spelling for every value this
+// type shares with it, rather than keeping the app's own now-orphaned
+// "Midterm/Final" naming decision alive as a second source of truth. Labels
+// for the two new values are copied verbatim from TASK_TYPE_LABEL for the
+// same reason.
 const TYPE_LABEL: Record<AssessmentType, string> = {
   quiz: "Quiz",
   exam: "Exam",
-  midterm_final: "Midterm/Final",
+  final_midterm: "Midterm/Final",
+  homework_assignment: "Homework/Assignment",
+  project_paper: "Project/Paper",
 };
 
 // Short form for the read-only row display only (the <select> and the
@@ -66,12 +75,16 @@ const TYPE_LABEL: Record<AssessmentType, string> = {
 const TYPE_SHORT_LABEL: Record<AssessmentType, string> = {
   quiz: "Quiz",
   exam: "Exam",
-  midterm_final: "Mid/Final",
+  final_midterm: "Mid/Final",
+  homework_assignment: "HW/Assign",
+  project_paper: "Proj/Paper",
 };
 const TYPE_COLOR: Record<AssessmentType, string> = {
   quiz: "text-accent-warning",
   exam: "text-destructive",
-  midterm_final: "text-accent-coop",
+  final_midterm: "text-accent-coop",
+  homework_assignment: "text-accent-school",
+  project_paper: "text-accent-business",
 };
 
 // EDITING only now (R7 fix, 2026-09-02 — see the read-only row's own comment for why

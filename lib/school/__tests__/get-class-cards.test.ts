@@ -101,6 +101,7 @@ describe("getClassCards", () => {
           { id: "t2", title: "Task t2", dueDate: "2026-08-26", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
           { id: "t3", title: "Task t3", dueDate: "2026-09-15", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
         ],
+        questions: [],
       },
     ]);
   });
@@ -133,7 +134,27 @@ describe("getClassCards", () => {
         upcomingAssessment: null,
         assessments: [],
         tasks: [],
+        questions: [],
       },
+    ]);
+  });
+
+  it("shapes a class's question bank (Phase 1 #20) into camelCase rows, active and retired alike", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      tasks: [],
+      class_assessments: [],
+      questions: [
+        { id: "q1", class_id: "c1", prompt: "What is Big-O of binary search?", answer: "O(log n)", topic: "Complexity", source_anchor: "Ch. 3, p.42", source_skipped: false, origin: "self", active: true },
+        { id: "q2", class_id: "c1", prompt: "Define a heap invariant", answer: "Parent <= children (min-heap)", topic: null, source_anchor: null, source_skipped: true, origin: "missed", active: false },
+      ],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+
+    expect(result[0]!.questions).toEqual([
+      { id: "q1", prompt: "What is Big-O of binary search?", answer: "O(log n)", topic: "Complexity", sourceAnchor: "Ch. 3, p.42", sourceSkipped: false, origin: "self", active: true },
+      { id: "q2", prompt: "Define a heap invariant", answer: "Parent <= children (min-heap)", topic: null, sourceAnchor: null, sourceSkipped: true, origin: "missed", active: false },
     ]);
   });
 

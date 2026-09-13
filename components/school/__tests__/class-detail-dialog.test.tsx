@@ -43,6 +43,7 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     targetGradePct: null,
     assessments: [],
     tasks: [],
+    questions: [],
     ...overrides,
   };
 }
@@ -62,7 +63,7 @@ describe("ClassDetailDialog", () => {
             {
               id: "a1",
               name: "Midterm",
-              type: "midterm_final",
+              type: "final_midterm",
               date: "2026-10-06",
               taskId: "t1",
               risk: { score: 10, band: "low", confidence: "insufficient" },
@@ -216,7 +217,7 @@ describe("ClassDetailDialog", () => {
             {
               id: "a1",
               name: "Midterm",
-              type: "midterm_final",
+              type: "final_midterm",
               date: "2026-10-06",
               taskId: "t1",
               risk: { score: 10, band: "low", confidence: "insufficient" },
@@ -254,7 +255,7 @@ describe("ClassDetailDialog", () => {
             {
               id: "a1",
               name: "Midterm",
-              type: "midterm_final",
+              type: "final_midterm",
               date: "2026-10-06",
               taskId: "t1",
               risk: { score: 10, band: "low", confidence: "insufficient" },
@@ -277,7 +278,7 @@ describe("ClassDetailDialog", () => {
     await waitFor(() =>
       expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", {
         name: "Midterm Exam",
-        type: "midterm_final",
+        type: "final_midterm",
         date: "2026-10-06",
         weightPct: null,
       })
@@ -297,7 +298,7 @@ describe("ClassDetailDialog", () => {
             {
               id: "a1",
               name: "Midterm",
-              type: "midterm_final",
+              type: "final_midterm",
               date: "2026-10-06",
               taskId: "t1",
               risk: { score: 10, band: "low", confidence: "insufficient" },
@@ -332,7 +333,7 @@ describe("ClassDetailDialog", () => {
     await waitFor(() =>
       expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", {
         name: "Midterm",
-        type: "midterm_final",
+        type: "final_midterm",
         date: "2026-10-06",
         weightPct: 60,
       })

@@ -4,6 +4,7 @@ import { weekDatesFrom } from "@/lib/date-utils";
 import { buildAssessmentRiskInput } from "@/lib/school/risk/build-assessment-risk-input";
 import { computeAssignmentRisk, type RiskBand } from "@/lib/school/risk/assignment-risk";
 import type { Confidence } from "@/lib/school/risk/types";
+import type { QuestionOrigin } from "@/lib/school/questions-core";
 
 // `difficulty_rating` / `confidence_rating` / `target_grade_pct` (classes) and
 // `weight_pct` (class_assessments) landed in migration 105 — see that file's own
@@ -75,6 +76,19 @@ export type ClassCardData = {
     taskTypeOtherLabel: string | null;
     classId: string | null;
   }[];
+  /** This class's question bank (Phase 1 #20), active and retired alike —
+   * the panel itself decides what to show and hide (retired questions stay
+   * visible behind a toggle, never hard-deleted; see questions-core.ts). */
+  questions: {
+    id: string;
+    prompt: string;
+    answer: string;
+    topic: string | null;
+    sourceAnchor: string | null;
+    sourceSkipped: boolean;
+    origin: QuestionOrigin;
+    active: boolean;
+  }[];
 };
 
 /**
@@ -118,7 +132,11 @@ export async function getClassCards(
   // the dialog opens (item A2, kills the open-then-load waterfall).
   // `tasksDueThisWeek` and `upcomingAssessment` stay derived in-memory
   // from these same rows, not separate narrower queries.
-  const [{ data: taskRows, error: taskError }, { data: assessmentRows, error: assessmentError }] = await Promise.all([
+  const [
+    { data: taskRows, error: taskError },
+    { data: assessmentRows, error: assessmentError },
+    { data: questionRows, error: questionError },
+  ] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, task_type, task_type_other_label, class_id")
@@ -131,9 +149,16 @@ export async function getClassCards(
       .eq("user_id", userId)
       .in("class_id", classIds)
       .order("date", { ascending: true }),
+    supabase
+      .from("questions")
+      .select("id, class_id, prompt, answer, topic, source_anchor, source_skipped, origin, active")
+      .eq("user_id", userId)
+      .in("class_id", classIds)
+      .order("created_at", { ascending: true }),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
+  if (questionError) throw questionError;
 
   const tasksByClass = new Map<string, ClassCardData["tasks"]>();
   for (const t of taskRows ?? []) {
@@ -176,6 +201,35 @@ export async function getClassCards(
       isExcused: a.is_excused,
     });
     assessmentsByClass.set(a.class_id, list);
+  }
+
+  type RawQuestion = {
+    id: string;
+    prompt: string;
+    answer: string;
+    topic: string | null;
+    sourceAnchor: string | null;
+    sourceSkipped: boolean;
+    origin: QuestionOrigin;
+    active: boolean;
+  };
+  const questionsByClass = new Map<string, RawQuestion[]>();
+  for (const q of questionRows ?? []) {
+    const list = questionsByClass.get(q.class_id) ?? [];
+    list.push({
+      id: q.id,
+      prompt: q.prompt,
+      answer: q.answer,
+      topic: q.topic,
+      sourceAnchor: q.source_anchor,
+      sourceSkipped: q.source_skipped,
+      // Cast, same treatment class-detail-dialog.tsx gives class_assessments.type
+      // (a text column with a CHECK, not a generated Postgres enum) — the CHECK
+      // is the actual guarantee, this cast just names it in TypeScript's terms.
+      origin: q.origin as QuestionOrigin,
+      active: q.active,
+    });
+    questionsByClass.set(q.class_id, list);
   }
 
   return classes.map((c) => {
@@ -225,6 +279,7 @@ export async function getClassCards(
       upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,
       assessments,
       tasks,
+      questions: questionsByClass.get(c.id) ?? [],
     };
   });
 }

@@ -34,6 +34,7 @@ function classData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     targetGradePct: null,
     assessments: [],
     tasks: [],
+    questions: [],
     ...overrides,
   };
 }

@@ -132,7 +132,7 @@ export async function createClass(fields: {
 /** short_name (Opus Lead: must be editable, never seed-only), room, instructor. */
 export async function updateClass(
   classId: string,
-  fields: { shortName?: string | null; room?: string | null; instructor?: string | null }
+  fields: { shortName?: string | null; room?: string | null; instructor?: string | null; term?: string | null }
 ) {
   const { supabase, userId } = await requireUser();
   await updateClassCore(supabase, userId, classId, fields);

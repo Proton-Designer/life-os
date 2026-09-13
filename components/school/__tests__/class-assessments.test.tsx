@@ -14,7 +14,7 @@ function assessment(overrides: Partial<ClassAssessment> = {}): ClassAssessment {
   return {
     id: "a1",
     name: "Midterm",
-    type: "midterm_final",
+    type: "final_midterm",
     date: "2026-10-06",
     task_id: "t1",
     weightPct: null,
