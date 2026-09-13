@@ -57,14 +57,12 @@ export type Database = {
           {
             foreignKeyName: "active_workout_plans_micro_plan_same_user"
             columns: ["user_id", "micro_plan_id"]
-            isOneToOne: false
             referencedRelation: "workout_plans"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "active_workout_plans_routine_plan_same_user"
             columns: ["user_id", "routine_plan_id"]
-            isOneToOne: false
             referencedRelation: "workout_plans"
             referencedColumns: ["user_id", "id"]
           },
@@ -93,6 +91,60 @@ export type Database = {
           id?: string
           period?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ai_usage_log: {
+        Row: {
+          cached_input_tokens: number
+          completion_tokens: number
+          cost_usd: number
+          created_at: string
+          feature: string
+          id: number
+          input_tokens: number
+          key_source: string
+          model: string
+          prompt_hash: string
+          provider: string
+          reasoning_tokens: number
+          retry_count: number
+          succeeded: boolean
+          user_id: string
+        }
+        Insert: {
+          cached_input_tokens?: number
+          completion_tokens?: number
+          cost_usd?: number
+          created_at?: string
+          feature: string
+          id?: never
+          input_tokens?: number
+          key_source: string
+          model: string
+          prompt_hash: string
+          provider?: string
+          reasoning_tokens?: number
+          retry_count?: number
+          succeeded: boolean
+          user_id: string
+        }
+        Update: {
+          cached_input_tokens?: number
+          completion_tokens?: number
+          cost_usd?: number
+          created_at?: string
+          feature?: string
+          id?: never
+          input_tokens?: number
+          key_source?: string
+          model?: string
+          prompt_hash?: string
+          provider?: string
+          reasoning_tokens?: number
+          retry_count?: number
+          succeeded?: boolean
           user_id?: string
         }
         Relationships: []
@@ -183,7 +235,6 @@ export type Database = {
           {
             foreignKeyName: "book_sections_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
@@ -302,21 +353,18 @@ export type Database = {
           {
             foreignKeyName: "card_states_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "card_states_card_id_fkey"
             columns: ["user_id", "card_id"]
-            isOneToOne: false
             referencedRelation: "cards"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "card_states_question_id_fkey"
             columns: ["user_id", "question_id"]
-            isOneToOne: false
             referencedRelation: "questions"
             referencedColumns: ["user_id", "id"]
           },
@@ -363,14 +411,12 @@ export type Database = {
           {
             foreignKeyName: "cards_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "cards_lesson_id_fkey"
             columns: ["user_id", "lesson_id"]
-            isOneToOne: false
             referencedRelation: "lessons"
             referencedColumns: ["user_id", "id"]
           },
@@ -408,7 +454,6 @@ export type Database = {
           {
             foreignKeyName: "checkin_allocations_checkin_same_user"
             columns: ["user_id", "checkin_id"]
-            isOneToOne: false
             referencedRelation: "checkins"
             referencedColumns: ["user_id", "id"]
           },
@@ -461,7 +506,6 @@ export type Database = {
           {
             foreignKeyName: "checkins_work_session_same_user"
             columns: ["user_id", "work_session_id"]
-            isOneToOne: false
             referencedRelation: "work_sessions"
             referencedColumns: ["user_id", "id"]
           },
@@ -469,6 +513,7 @@ export type Database = {
       }
       class_assessments: {
         Row: {
+          category_id: string | null
           class_id: string
           created_at: string
           date: string
@@ -484,6 +529,7 @@ export type Database = {
           weight_pct: number | null
         }
         Insert: {
+          category_id?: string | null
           class_id: string
           created_at?: string
           date: string
@@ -499,6 +545,7 @@ export type Database = {
           weight_pct?: number | null
         }
         Update: {
+          category_id?: string | null
           class_id?: string
           created_at?: string
           date?: string
@@ -515,16 +562,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "class_assessments_category_same_user"
+            columns: ["user_id", "category_id"]
+            referencedRelation: "grade_categories"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
             foreignKeyName: "class_assessments_class_same_user"
             columns: ["user_id", "class_id"]
-            isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "class_assessments_task_same_user"
             columns: ["user_id", "task_id"]
-            isOneToOne: false
             referencedRelation: "tasks"
             referencedColumns: ["user_id", "id"]
           },
@@ -532,47 +583,62 @@ export type Database = {
       }
       classes: {
         Row: {
+          allowed_absences: number | null
+          attendance_policy: string | null
           code: string
           confidence_rating: number | null
           created_at: string
           difficulty_rating: number | null
+          grade_boundaries: Json | null
           id: string
           instructor: string | null
+          late_policy: string | null
           position: number | null
           room: string | null
           short_name: string | null
           syllabus_path: string | null
           target_grade_pct: number | null
+          term: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          allowed_absences?: number | null
+          attendance_policy?: string | null
           code: string
           confidence_rating?: number | null
           created_at?: string
           difficulty_rating?: number | null
+          grade_boundaries?: Json | null
           id?: string
           instructor?: string | null
+          late_policy?: string | null
           position?: number | null
           room?: string | null
           short_name?: string | null
           syllabus_path?: string | null
           target_grade_pct?: number | null
+          term?: string | null
           updated_at?: string
           user_id?: string
         }
         Update: {
+          allowed_absences?: number | null
+          attendance_policy?: string | null
           code?: string
           confidence_rating?: number | null
           created_at?: string
           difficulty_rating?: number | null
+          grade_boundaries?: Json | null
           id?: string
           instructor?: string | null
+          late_policy?: string | null
           position?: number | null
           room?: string | null
           short_name?: string | null
           syllabus_path?: string | null
           target_grade_pct?: number | null
+          term?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -661,7 +727,6 @@ export type Database = {
           {
             foreignKeyName: "coop_tasks_target_same_user"
             columns: ["user_id", "target_id"]
-            isOneToOne: false
             referencedRelation: "coop_targets"
             referencedColumns: ["user_id", "id"]
           },
@@ -723,7 +788,6 @@ export type Database = {
           {
             foreignKeyName: "deen_habit_logs_habit_same_user"
             columns: ["user_id", "habit_id"]
-            isOneToOne: false
             referencedRelation: "deen_habits"
             referencedColumns: ["user_id", "id"]
           },
@@ -800,7 +864,6 @@ export type Database = {
           {
             foreignKeyName: "deen_weekly_focus_habit_same_user"
             columns: ["user_id", "habit_id"]
-            isOneToOne: false
             referencedRelation: "deen_habits"
             referencedColumns: ["user_id", "id"]
           },
@@ -838,14 +901,12 @@ export type Database = {
           {
             foreignKeyName: "distraction_events_reflection_same_user"
             columns: ["user_id", "reflection_entry_id"]
-            isOneToOne: false
             referencedRelation: "reflection_entries"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "distraction_events_trigger_same_user"
             columns: ["user_id", "trigger_id"]
-            isOneToOne: false
             referencedRelation: "distraction_triggers"
             referencedColumns: ["user_id", "id"]
           },
@@ -949,7 +1010,6 @@ export type Database = {
           {
             foreignKeyName: "fitness_benchmarks_exercise_same_user"
             columns: ["user_id", "exercise_id"]
-            isOneToOne: false
             referencedRelation: "exercises"
             referencedColumns: ["user_id", "id"]
           },
@@ -972,6 +1032,49 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      grade_categories: {
+        Row: {
+          class_id: string
+          created_at: string
+          drop_lowest_n: number
+          expected_item_count: number
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+          weight_pct: number
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          drop_lowest_n?: number
+          expected_item_count?: number
+          id?: string
+          name: string
+          updated_at?: string
+          user_id?: string
+          weight_pct: number
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          drop_lowest_n?: number
+          expected_item_count?: number
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+          weight_pct?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grade_categories_class_same_user"
+            columns: ["user_id", "class_id"]
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
       }
       habit_logs: {
         Row: {
@@ -999,7 +1102,6 @@ export type Database = {
           {
             foreignKeyName: "habit_logs_habit_same_user"
             columns: ["user_id", "habit_id"]
-            isOneToOne: false
             referencedRelation: "custom_habits"
             referencedColumns: ["user_id", "id"]
           },
@@ -1055,7 +1157,6 @@ export type Database = {
           {
             foreignKeyName: "ingestion_job_stage_attempts_job_id_fkey"
             columns: ["user_id", "job_id"]
-            isOneToOne: false
             referencedRelation: "ingestion_jobs"
             referencedColumns: ["user_id", "id"]
           },
@@ -1108,7 +1209,6 @@ export type Database = {
           {
             foreignKeyName: "ingestion_jobs_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
@@ -1194,14 +1294,12 @@ export type Database = {
           {
             foreignKeyName: "lesson_promotions_user_id_area_id_fkey"
             columns: ["user_id", "area_id"]
-            isOneToOne: false
             referencedRelation: "user_domains"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "lesson_promotions_user_id_lesson_id_fkey"
             columns: ["user_id", "lesson_id"]
-            isOneToOne: false
             referencedRelation: "lessons"
             referencedColumns: ["user_id", "id"]
           },
@@ -1236,7 +1334,6 @@ export type Database = {
           {
             foreignKeyName: "lesson_verdicts_user_id_promotion_id_fkey"
             columns: ["user_id", "promotion_id"]
-            isOneToOne: false
             referencedRelation: "lesson_promotions"
             referencedColumns: ["user_id", "id"]
           },
@@ -1313,21 +1410,18 @@ export type Database = {
           {
             foreignKeyName: "lessons_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "lessons_section_id_fkey"
             columns: ["user_id", "section_id"]
-            isOneToOne: false
             referencedRelation: "book_sections"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "lessons_source_chunk_id_fkey"
             columns: ["user_id", "source_chunk_id"]
-            isOneToOne: false
             referencedRelation: "source_chunks"
             referencedColumns: ["user_id", "id"]
           },
@@ -1371,7 +1465,7 @@ export type Database = {
       }
       mcp_audit_log: {
         Row: {
-          args: Json
+          args: NonNullable<Json>
           created_at: string
           id: number
           operation: string
@@ -1382,7 +1476,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          args: Json
+          args: NonNullable<Json>
           created_at?: string
           id?: never
           operation: string
@@ -1393,7 +1487,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          args?: Json
+          args?: NonNullable<Json>
           created_at?: string
           id?: never
           operation?: string
@@ -1405,11 +1499,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "mcp_audit_log_token_id_fkey"
-            columns: ["token_id"]
-            isOneToOne: false
+            foreignKeyName: "mcp_audit_log_token_same_user"
+            columns: ["user_id", "token_id"]
             referencedRelation: "mcp_access_tokens"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -1437,11 +1530,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "mcp_notification_dispatch_log_scheduled_action_id_fkey"
-            columns: ["scheduled_action_id"]
-            isOneToOne: false
+            foreignKeyName: "mcp_notification_dispatch_log_scheduled_action_same_user"
+            columns: ["user_id", "scheduled_action_id"]
             referencedRelation: "mcp_scheduled_actions"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
@@ -1516,7 +1608,6 @@ export type Database = {
           {
             foreignKeyName: "mcp_oauth_codes_client_id_fkey"
             columns: ["client_id"]
-            isOneToOne: false
             referencedRelation: "mcp_oauth_clients"
             referencedColumns: ["client_id"]
           },
@@ -1552,24 +1643,22 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "mcp_oauth_refresh_tokens_access_token_id_fkey"
-            columns: ["access_token_id"]
-            isOneToOne: false
-            referencedRelation: "mcp_access_tokens"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "mcp_oauth_refresh_tokens_client_id_fkey"
             columns: ["client_id"]
-            isOneToOne: false
             referencedRelation: "mcp_oauth_clients"
             referencedColumns: ["client_id"]
+          },
+          {
+            foreignKeyName: "mcp_oauth_refresh_tokens_token_same_user"
+            columns: ["user_id", "access_token_id"]
+            referencedRelation: "mcp_access_tokens"
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
       mcp_scheduled_actions: {
         Row: {
-          args: Json
+          args: NonNullable<Json>
           attempt_count: number
           created_at: string
           cron_expression: string | null
@@ -1587,7 +1676,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          args: Json
+          args: NonNullable<Json>
           attempt_count?: number
           created_at?: string
           cron_expression?: string | null
@@ -1605,7 +1694,7 @@ export type Database = {
           user_id?: string
         }
         Update: {
-          args?: Json
+          args?: NonNullable<Json>
           attempt_count?: number
           created_at?: string
           cron_expression?: string | null
@@ -1624,19 +1713,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "mcp_scheduled_actions_token_id_fkey"
-            columns: ["token_id"]
-            isOneToOne: false
+            foreignKeyName: "mcp_scheduled_actions_token_same_user"
+            columns: ["user_id", "token_id"]
             referencedRelation: "mcp_access_tokens"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
       mcp_widgets: {
         Row: {
           created_at: string
-          data_source: Json
-          display: Json
+          data_source: NonNullable<Json>
+          display: NonNullable<Json>
           id: string
           kind: string
           position: number
@@ -1648,8 +1736,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          data_source: Json
-          display?: Json
+          data_source: NonNullable<Json>
+          display?: NonNullable<Json>
           id?: string
           kind: string
           position?: number
@@ -1661,8 +1749,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          data_source?: Json
-          display?: Json
+          data_source?: NonNullable<Json>
+          display?: NonNullable<Json>
           id?: string
           kind?: string
           position?: number
@@ -1847,14 +1935,12 @@ export type Database = {
           {
             foreignKeyName: "plan_micro_exercises_exercise_same_user"
             columns: ["user_id", "exercise_id"]
-            isOneToOne: false
             referencedRelation: "exercises"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "plan_micro_exercises_plan_same_user"
             columns: ["user_id", "plan_id"]
-            isOneToOne: false
             referencedRelation: "workout_plans"
             referencedColumns: ["user_id", "id"]
           },
@@ -1898,14 +1984,12 @@ export type Database = {
           {
             foreignKeyName: "plan_session_exercises_exercise_same_user"
             columns: ["user_id", "exercise_id"]
-            isOneToOne: false
             referencedRelation: "exercises"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "plan_session_exercises_session_same_user"
             columns: ["user_id", "session_id"]
-            isOneToOne: false
             referencedRelation: "plan_sessions"
             referencedColumns: ["user_id", "id"]
           },
@@ -1946,14 +2030,12 @@ export type Database = {
           {
             foreignKeyName: "plan_sessions_plan_same_user"
             columns: ["user_id", "plan_id"]
-            isOneToOne: false
             referencedRelation: "workout_plans"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "plan_sessions_workout_same_user"
             columns: ["user_id", "workout_id"]
-            isOneToOne: false
             referencedRelation: "workouts"
             referencedColumns: ["user_id", "id"]
           },
@@ -2138,7 +2220,6 @@ export type Database = {
           {
             foreignKeyName: "questions_class_id_fkey"
             columns: ["user_id", "class_id"]
-            isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["user_id", "id"]
           },
@@ -2230,7 +2311,6 @@ export type Database = {
           {
             foreignKeyName: "rep_goals_exercise_same_user"
             columns: ["user_id", "exercise_id"]
-            isOneToOne: false
             referencedRelation: "exercises"
             referencedColumns: ["user_id", "id"]
           },
@@ -2316,28 +2396,24 @@ export type Database = {
           {
             foreignKeyName: "reviews_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "reviews_card_id_fkey"
             columns: ["user_id", "card_id"]
-            isOneToOne: false
             referencedRelation: "cards"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "reviews_question_id_fkey"
             columns: ["user_id", "question_id"]
-            isOneToOne: false
             referencedRelation: "questions"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "reviews_session_id_fkey"
             columns: ["user_id", "session_id"]
-            isOneToOne: false
             referencedRelation: "work_sessions"
             referencedColumns: ["user_id", "id"]
           },
@@ -2369,7 +2445,6 @@ export type Database = {
           {
             foreignKeyName: "schedule_event_cancellations_event_same_user"
             columns: ["user_id", "event_id"]
-            isOneToOne: false
             referencedRelation: "schedule_events"
             referencedColumns: ["user_id", "id"]
           },
@@ -2410,7 +2485,6 @@ export type Database = {
           {
             foreignKeyName: "schedule_event_overrides_event_same_user"
             columns: ["user_id", "event_id"]
-            isOneToOne: false
             referencedRelation: "schedule_events"
             referencedColumns: ["user_id", "id"]
           },
@@ -2475,7 +2549,6 @@ export type Database = {
           {
             foreignKeyName: "schedule_events_class_same_user"
             columns: ["user_id", "class_id"]
-            isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["user_id", "id"]
           },
@@ -2513,14 +2586,12 @@ export type Database = {
           {
             foreignKeyName: "self_explanations_lesson_id_fkey"
             columns: ["user_id", "lesson_id"]
-            isOneToOne: false
             referencedRelation: "lessons"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "self_explanations_session_id_fkey"
             columns: ["user_id", "session_id"]
-            isOneToOne: false
             referencedRelation: "work_sessions"
             referencedColumns: ["user_id", "id"]
           },
@@ -2567,14 +2638,12 @@ export type Database = {
           {
             foreignKeyName: "session_sets_exercise_same_user"
             columns: ["user_id", "exercise_id"]
-            isOneToOne: false
             referencedRelation: "exercises"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "session_sets_session_same_user"
             columns: ["user_id", "session_id"]
-            isOneToOne: false
             referencedRelation: "workout_sessions"
             referencedColumns: ["user_id", "id"]
           },
@@ -2621,14 +2690,12 @@ export type Database = {
           {
             foreignKeyName: "source_chunks_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "source_chunks_section_id_fkey"
             columns: ["user_id", "section_id"]
-            isOneToOne: false
             referencedRelation: "book_sections"
             referencedColumns: ["user_id", "id"]
           },
@@ -2660,14 +2727,12 @@ export type Database = {
           {
             foreignKeyName: "sources_book_id_fkey"
             columns: ["user_id", "book_id"]
-            isOneToOne: false
             referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "sources_class_id_fkey"
             columns: ["user_id", "class_id"]
-            isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["user_id", "id"]
           },
@@ -2765,7 +2830,6 @@ export type Database = {
           {
             foreignKeyName: "tasks_class_same_user"
             columns: ["user_id", "class_id"]
-            isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["user_id", "id"]
           },
@@ -2809,7 +2873,6 @@ export type Database = {
           {
             foreignKeyName: "trigger_action_plans_trigger_same_user"
             columns: ["user_id", "trigger_id"]
-            isOneToOne: false
             referencedRelation: "distraction_triggers"
             referencedColumns: ["user_id", "id"]
           },
@@ -2850,14 +2913,12 @@ export type Database = {
           {
             foreignKeyName: "trigger_plan_outcomes_plan_same_user"
             columns: ["user_id", "plan_id"]
-            isOneToOne: false
             referencedRelation: "trigger_action_plans"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "trigger_plan_outcomes_trigger_same_user"
             columns: ["user_id", "trigger_id"]
-            isOneToOne: false
             referencedRelation: "distraction_triggers"
             referencedColumns: ["user_id", "id"]
           },
@@ -3007,7 +3068,7 @@ export type Database = {
       user_subdomains: {
         Row: {
           archived_at: string | null
-          config: Json
+          config: NonNullable<Json>
           created_at: string
           domain_id: string
           id: string
@@ -3017,11 +3078,11 @@ export type Database = {
           position: number
           updated_at: string
           user_id: string
-          widgets: Json
+          widgets: NonNullable<Json>
         }
         Insert: {
           archived_at?: string | null
-          config?: Json
+          config?: NonNullable<Json>
           created_at?: string
           domain_id: string
           id?: string
@@ -3031,11 +3092,11 @@ export type Database = {
           position: number
           updated_at?: string
           user_id?: string
-          widgets?: Json
+          widgets?: NonNullable<Json>
         }
         Update: {
           archived_at?: string | null
-          config?: Json
+          config?: NonNullable<Json>
           created_at?: string
           domain_id?: string
           id?: string
@@ -3045,13 +3106,12 @@ export type Database = {
           position?: number
           updated_at?: string
           user_id?: string
-          widgets?: Json
+          widgets?: NonNullable<Json>
         }
         Relationships: [
           {
             foreignKeyName: "user_subdomains_domain_same_user"
             columns: ["user_id", "domain_id"]
-            isOneToOne: false
             referencedRelation: "user_domains"
             referencedColumns: ["user_id", "id"]
           },
@@ -3064,7 +3124,7 @@ export type Database = {
           headline: string
           id: string
           locked: boolean
-          milestones: Json
+          milestones: NonNullable<Json>
           quran_page_target: number | null
           updated_at: string
           user_id: string
@@ -3076,7 +3136,7 @@ export type Database = {
           headline: string
           id?: string
           locked?: boolean
-          milestones?: Json
+          milestones?: NonNullable<Json>
           quran_page_target?: number | null
           updated_at?: string
           user_id?: string
@@ -3088,7 +3148,7 @@ export type Database = {
           headline?: string
           id?: string
           locked?: boolean
-          milestones?: Json
+          milestones?: NonNullable<Json>
           quran_page_target?: number | null
           updated_at?: string
           user_id?: string
@@ -3140,21 +3200,18 @@ export type Database = {
           {
             foreignKeyName: "work_session_objectives_kill_list_item_same_user"
             columns: ["user_id", "kill_list_item_id"]
-            isOneToOne: false
             referencedRelation: "kill_list_items"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "work_session_objectives_session_same_user"
             columns: ["user_id", "session_id"]
-            isOneToOne: false
             referencedRelation: "work_sessions"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "work_session_objectives_task_same_user"
             columns: ["user_id", "task_id"]
-            isOneToOne: false
             referencedRelation: "tasks"
             referencedColumns: ["user_id", "id"]
           },
@@ -3182,7 +3239,7 @@ export type Database = {
         Insert: {
           cards_reviewed?: number | null
           class_id?: string | null
-          counts_toward_hours?: boolean | null
+          counts_toward_hours?: never
           created_at?: string
           ended_at?: string | null
           goal_minutes?: number | null
@@ -3200,7 +3257,7 @@ export type Database = {
         Update: {
           cards_reviewed?: number | null
           class_id?: string | null
-          counts_toward_hours?: boolean | null
+          counts_toward_hours?: never
           created_at?: string
           ended_at?: string | null
           goal_minutes?: number | null
@@ -3219,28 +3276,24 @@ export type Database = {
           {
             foreignKeyName: "work_sessions_class_same_user"
             columns: ["user_id", "class_id"]
-            isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "work_sessions_kill_list_item_fkey"
             columns: ["user_id", "kill_list_item_id"]
-            isOneToOne: false
             referencedRelation: "kill_list_items"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "work_sessions_promotion_fkey"
             columns: ["user_id", "promotion_id"]
-            isOneToOne: false
             referencedRelation: "lesson_promotions"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "work_sessions_rep_goal_fkey"
             columns: ["user_id", "rep_goal_id"]
-            isOneToOne: false
             referencedRelation: "rep_goals"
             referencedColumns: ["user_id", "id"]
           },
@@ -3284,14 +3337,12 @@ export type Database = {
           {
             foreignKeyName: "workout_exercises_exercise_same_user"
             columns: ["user_id", "exercise_id"]
-            isOneToOne: false
             referencedRelation: "exercises"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "workout_exercises_workout_same_user"
             columns: ["user_id", "workout_id"]
-            isOneToOne: false
             referencedRelation: "workouts"
             referencedColumns: ["user_id", "id"]
           },
@@ -3359,7 +3410,6 @@ export type Database = {
           {
             foreignKeyName: "workout_schedule_workout_same_user"
             columns: ["user_id", "workout_id"]
-            isOneToOne: false
             referencedRelation: "workouts"
             referencedColumns: ["user_id", "id"]
           },
@@ -3400,14 +3450,12 @@ export type Database = {
           {
             foreignKeyName: "workout_sessions_plan_session_same_user"
             columns: ["user_id", "plan_session_id"]
-            isOneToOne: false
             referencedRelation: "plan_sessions"
             referencedColumns: ["user_id", "id"]
           },
           {
             foreignKeyName: "workout_sessions_workout_same_user"
             columns: ["user_id", "workout_id"]
-            isOneToOne: false
             referencedRelation: "workouts"
             referencedColumns: ["user_id", "id"]
           },
@@ -3477,7 +3525,7 @@ export type Database = {
       }
       book_is_deleted: { Args: { p_book_id: string }; Returns: boolean }
       claim_ingestion_job: {
-        Args: never
+        Args: Record<PropertyKey, never>
         Returns: {
           book_id: string
           created_at: string
@@ -3540,7 +3588,7 @@ export type Database = {
         Args: { p_patch: Json; p_subdomain_id: string }
         Returns: {
           archived_at: string | null
-          config: Json
+          config: NonNullable<Json>
           created_at: string
           domain_id: string
           id: string
@@ -3550,7 +3598,7 @@ export type Database = {
           position: number
           updated_at: string
           user_id: string
-          widgets: Json
+          widgets: NonNullable<Json>
         }
         SetofOptions: {
           from: "*"
@@ -3755,12 +3803,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3784,11 +3832,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3809,11 +3857,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3834,11 +3882,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3851,11 +3899,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

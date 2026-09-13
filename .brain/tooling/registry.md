@@ -172,6 +172,78 @@ are pure-code checks, so none run without a live database.
 `check-rsc-function-props.py` is the one exception: pure static analysis, no
 DB, runs in well under a second (`python3 scripts/check-rsc-function-props.py`).
 
+### Regenerating `lib/supabase/database.types.ts` — needs no Docker
+
+`npx supabase gen types typescript --db-url ...` looks like a pure API call
+but is not one: the CLI's own binary has zero type-generation logic in it,
+it is a thin client that always launches `supabase/postgres-meta` in a local
+Docker (or Podman) container and talks to it over HTTP -- true even with
+`--db-url`, even with no other Docker usage anywhere else in the command.
+On a machine with no Docker/Podman and no root to install one (this
+project's whole dev sandbox), that command fails with `docker: command not
+found (podman also not found)` and produces empty stdout. It did this
+silently across migrations 150, 151, 152 and 156 (E1, 2026-09-13): four real
+production migrations landed with `apply-migration.sh`'s regen step failing
+every time, each failure visible only as one warning line in a long apply
+log, easy to miss and missed four times running. `ai_usage_log` (156) went
+untyped, a finished feature reading 152's new columns had to be reverted,
+and `class_assessments.type`'s CHECK-constraint vocabulary (151's rename)
+went stale in the type system's eyes.
+
+**The fix — `scripts/gen-database-types.sh <db-url> [output-path]`:**
+`@supabase/postgres-meta` is an ordinary MIT-licensed npm package (plain
+Node/Fastify, no native Docker dependency) — it IS the exact code Docker
+would have run; the CLI's own Docker image is confirmed (by `strings`-ing
+the CLI binary itself) to be `FROM supabase/postgres-meta:v0.99.0`, and its
+compiled `dist/server/server.js` already ships a documented env-var "generate
+once and print to stdout, then exit" mode (`PG_META_GENERATE_TYPES=typescript`)
+used by the package's own `gen:types:typescript` dev script. The script
+installs that exact pinned version into a machine-local, gitignored
+`.local/pgmeta-gen/` (first run only, ~190 packages, ~20s; every run after
+that is a ~3s `node` invocation against that cache) and runs it directly —
+no container involved at any point.
+
+```bash
+scripts/gen-database-types.sh "$DATABASE_URL_POOLER"        # writes lib/supabase/database.types.ts
+scripts/gen-database-types.sh "$DATABASE_URL_POOLER" /tmp/x.ts   # or any other output path
+```
+
+`apply-migration.sh`'s own post-apply regen step now calls this script
+instead of `npx supabase gen types` directly, and — unlike the old
+`2>/dev/null && [ -s ... ]` check it replaced — fails LOUDLY: non-zero exit
+and a message on stderr, not one warning line among many. The script itself
+refuses to touch the output path at all (rather than write something
+truncated or empty) if: the generator process exits non-zero, the output is
+under 20KB, it doesn't start with `export type Json`, it doesn't end with
+an `as const` Constants block, or — the specific silent-truncation failure
+mode this repo has hit before on large writes — the copied file's checksum
+doesn't match the generated one.
+
+**Fidelity, verified 2026-09-13 (E1):** regenerating against production and
+diffing against the then-committed file showed every difference accounted
+for by either (a) real schema changes (150/151/152/156's new tables,
+columns, and composite FKs) or (b) the pinned postgres-meta version's own
+generator-correctness improvements that the long regeneration outage had
+never let land (`NonNullable<Json>` for NOT NULL jsonb columns, `never` for
+generated-always columns, `Record<PropertyKey, never>` for zero-arg function
+Args) — nothing attributable to this method being less faithful than the
+Docker path it replaces, because it runs the identical pinned code. One
+resulting gap worth knowing, not a bug in this script: a `CHECK (col IN
+(...))` constraint (e.g. `class_assessments.type`) is NOT introspected into
+a TypeScript literal union by this generator — only a native Postgres `CREATE
+TYPE ... AS ENUM` is (see the `Enums` block). A CHECK-constrained column
+types as its base SQL type (`string`) before and after any migration that
+changes the CHECK's allowed values; the vocabulary itself is enforced at the
+DB layer and, where the application layer needs it in TypeScript too, by a
+hand-maintained constant (e.g. `lib/school/actions-core.ts`'s
+`ASSESSMENT_TYPES`) — regenerating this file is not how that vocabulary
+reaches TypeScript and was never going to be.
+
+If a future `supabase` CLI upgrade moves its pinned postgres-meta version,
+re-run the `strings` command in `scripts/gen-database-types.sh`'s own header
+against the new CLI binary and bump `PGMETA_VERSION` to match — don't assume
+"latest" tracks the CLI's pin.
+
 ### Full command reference
 
 | Command | Fits 180s cap? | Notes |

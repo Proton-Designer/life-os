@@ -49,24 +49,9 @@ export interface UsageStore {
   totalServerKeySpendUsd(): Promise<number>;
 }
 
-/**
- * `ai_usage_log` (migration 156) is not yet applied to production, so it
- * does not exist in the GENERATED `lib/supabase/database.types.ts` either --
- * that file is a claim about one specific database's actual schema
- * (ALLOCATIONS.md's own standing rule), and hand-editing 3,900 generated
- * lines to add an entry `supabase gen types` hasn't produced yet is exactly
- * the kind of drift that rule exists to prevent. Narrowly typed escape hatch
- * for JUST this table's two call sites below, rather than losing type
- * safety on the whole service-role client. DELETE THIS CAST once 156 is
- * applied and `apply-migration.sh` regenerates database.types.ts for real
- * (needs Docker/Podman on the machine running the apply -- unavailable in
- * this build's own dev sandbox, see `.brain/memory/known-issues.md`).
- */
-type UntypedTableClient = { from(table: string): { insert(row: Record<string, unknown>): Promise<{ error: { message: string } | null }>; select(columns: string): { eq(col: string, val: string): Promise<{ data: { cost_usd: number | string }[] | null; error: { message: string } | null }> } } };
-
 export class SupabaseUsageStore implements UsageStore {
   async record(entry: UsageLogEntry): Promise<void> {
-    const client = createServiceRoleClient() as unknown as UntypedTableClient;
+    const client = createServiceRoleClient();
     const { error } = await client.from("ai_usage_log").insert({
       user_id: entry.userId,
       feature: entry.feature,
@@ -94,7 +79,7 @@ export class SupabaseUsageStore implements UsageStore {
   }
 
   async totalServerKeySpendUsd(): Promise<number> {
-    const client = createServiceRoleClient() as unknown as UntypedTableClient;
+    const client = createServiceRoleClient();
     // Client-side sum, not a SQL SUM(), deliberately: at the data volume a
     // $1.98 total account balance can ever produce (a few thousand rows at
     // the absolute most before the account is empty regardless), a second

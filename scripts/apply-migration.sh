@@ -208,16 +208,33 @@ echo "APPLIED and recorded: $NAME"
 # was careless; regeneration was simply a step someone had to remember, and the
 # generated file gives no sign of being stale.
 #
+# WHY THIS IS scripts/gen-database-types.sh AND NOT "npx supabase gen types"
+# DIRECTLY (as this step used to read): that command always shells out to
+# Docker/Podman to run `supabase/postgres-meta` locally, EVEN with --db-url --
+# the CLI embeds no type-generation logic of its own. On a machine with no
+# Docker/Podman and no root to install one (this project's dev sandbox), it
+# fails outright, and it did so silently across migrations 150, 151, 152 and
+# 156: this exact step printed "docker: command not found" to a line piped
+# into /dev/null, `[ -s /tmp/_regen_types.ts ]` was false, and the warning
+# below was the only trace -- easy to miss in a long apply log, and missed
+# four times in a row. gen-database-types.sh runs the SAME postgres-meta
+# code Docker would have (installed as a plain npm package, pinned to the
+# exact version the supabase CLI's own Docker image uses -- see that
+# script's header for how to re-verify the pin after a CLI upgrade), so it
+# needs no container at all, and it fails LOUDLY (non-zero exit, message on
+# stderr) rather than leaving a single easy-to-miss warning line.
+#
 # Only for the production URL: types must come from production, or a scratch
 # PROVEN identical by the R24 diff -- never from whatever database happened to
 # be at hand.
 if printf '%s' "$URL" | grep -q 'pooler.supabase.com'; then
   echo "regenerating lib/supabase/database.types.ts from the database just applied to..."
-  if npx supabase gen types typescript --db-url "$URL" > /tmp/_regen_types.ts 2>/dev/null && [ -s /tmp/_regen_types.ts ]; then
-    cp /tmp/_regen_types.ts lib/supabase/database.types.ts
+  if "$(dirname "${BASH_SOURCE[0]}")/gen-database-types.sh" "$URL" lib/supabase/database.types.ts; then
     echo "  types regenerated -- COMMIT THIS DIFF WITH THE MIGRATION."
   else
-    echo "  WARNING: type regeneration failed. The generated file now describes an OLDER schema" >&2
-    echo "  than the database. Regenerate manually before trusting it." >&2
+    echo "  FAILED: type regeneration failed (see error above). The generated file still describes an" >&2
+    echo "  OLDER schema than the database you just migrated. Do NOT treat this as cosmetic --" >&2
+    echo "  regenerate manually (scripts/gen-database-types.sh \"\$URL\") before trusting database.types.ts," >&2
+    echo "  and before any other engineer builds against the columns/tables this migration added." >&2
   fi
 fi

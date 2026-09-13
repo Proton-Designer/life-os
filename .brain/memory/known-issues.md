@@ -175,6 +175,30 @@ runnable for the first time on this machine (see the `psql` lesson,
 
 ---
 
+### `lib/mcp/__tests__/write-registry-school.test.ts` asserts the pre-151 `class_assessments.type` spelling
+**Area:** `lib/mcp/**` (not E1's directory — found as a byproduct of
+verifying migration 151's vocabulary during the `database.types.ts`
+regeneration fix, not fixed here) · **Severity:** one failing test, not
+production-facing
+**Symptom:** `school.class_assessment.add > creates the linked task, then
+the assessment, using the top-level id as the class id` fails with
+`patch.type must be one of: quiz, exam, final_midterm,
+homework_assignment, project_paper. Got: "midterm_final".`
+**Cause:** the test fixture still passes `type: "midterm_final"`, the
+spelling migration 151 (2026-09-13) renamed to `final_midterm` in both the
+DB CHECK constraint and `lib/school/actions-core.ts`'s `ASSESSMENT_TYPES`
+(which `lib/mcp/write-registry.ts`'s `requireEnum` now validates against).
+The cross-boundary gap 151's own header flagged (`write-registry.ts`
+hardcoding the old vocabulary) has since been closed — it now imports
+`ASSESSMENT_TYPES` from `actions-core.ts` rather than hardcoding it — but
+this one test fixture was not updated to match.
+**Do not:** assume this test passing is required for anything in this
+phase's own acceptance criteria — it is unrelated to `database.types.ts`.
+**Tracked:** confirmed failing 2026-09-13 (E1) via
+`npx vitest run lib/mcp/__tests__/write-registry-school.test.ts`; needs a
+one-line fixture fix (`midterm_final` → `final_midterm`) by whoever owns
+`lib/mcp/**`.
+
 ## Deliberate constraints that look like bugs
 
 ### `checkin-scheduler.tsx` / `checkin-scheduler-loader.tsx` are unmounted, not dead
@@ -197,6 +221,33 @@ domain, not cleanup-eligible.
 **See:** `docs/superpowers/notes/2026-08-18-orphaned-code.md`.
 
 ---
+
+## Tooling gaps, since resolved
+
+### `database.types.ts` regeneration silently required Docker — resolved
+**Was:** `apply-migration.sh`'s post-apply regen step ran `npx supabase gen
+types typescript --db-url ...`, which looks like a pure API call but always
+shells out to Docker/Podman to run `supabase/postgres-meta` locally, even
+with `--db-url` — the CLI binary has no type-generation logic of its own. On
+this project's dev sandbox (no Docker/Podman, no root), that command failed
+with `docker: command not found` and empty stdout, and the regen step's own
+`2>/dev/null && [ -s ... ]` check swallowed the failure into one warning
+line. It did this silently across migrations 150, 151, 152 and 156 (E1,
+2026-09-13): `ai_usage_log` (156) landed untyped, a finished feature reading
+152's new columns had to be reverted, and 151's `class_assessments.type`
+CHECK-constraint rename went unreflected.
+**Fixed by:** `scripts/gen-database-types.sh` (E1, 2026-09-13) runs
+`@supabase/postgres-meta` — an ordinary npm package, pinned to the exact
+version the CLI's own Docker image uses — directly via its documented
+env-var "generate and exit" mode, no container needed. `apply-migration.sh`
+now calls this script and fails loudly (non-zero exit, message on stderr)
+instead of one easy-to-miss warning line. See `.brain/tooling/registry.md`
+("Regenerating `lib/supabase/database.types.ts`") for the command and the
+fidelity verification behind it.
+**Watch for:** if a future `supabase` CLI upgrade moves its pinned
+postgres-meta version, `scripts/gen-database-types.sh`'s own header
+explains how to re-verify the pin and bump it — don't assume the script
+stays correct forever unattended.
 
 ## Documentation known to be stale as written, since resolved
 

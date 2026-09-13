@@ -69,3 +69,8 @@ agent-brain-tool/
 
 # Roadmap working docs — canonical copies live in the Claude Project and docs/audits/
 Claude outputs/
+
+# One-time local install of @supabase/postgres-meta used by
+# scripts/gen-database-types.sh (Docker-free database.types.ts regeneration).
+# Machine-local, reproducible from the script -- never commit it.
+/.local/pgmeta-gen/
