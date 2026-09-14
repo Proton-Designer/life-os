@@ -9,8 +9,14 @@ import {
   updateClassCore,
   addClassAssessmentCore,
   updateClassAssessmentCore,
+  createGradeCategoryCore,
+  updateGradeCategoryCore,
+  deleteGradeCategoryCore,
   type AssessmentType,
+  type GradeCategoryInput,
 } from "@/lib/school/actions-core";
+
+export type { GradeCategoryInput };
 
 export type { AssessmentType };
 
@@ -56,10 +62,33 @@ export async function deleteClassAssessment(assessmentId: string) {
  */
 export async function updateClassAssessment(
   assessmentId: string,
-  fields: { name: string; type: AssessmentType; date: string; weightPct?: number | null }
+  fields: { name: string; type: AssessmentType; date: string; weightPct?: number | null; categoryId?: string | null }
 ) {
   const { supabase, userId } = await requireUser();
   await updateClassAssessmentCore(supabase, userId, assessmentId, fields);
+  revalidatePath("/school");
+}
+
+/** Phase 1 #11 — a real weight category (grade_categories, migration 152). */
+export async function createGradeCategory(classId: string, input: GradeCategoryInput): Promise<{ id: string }> {
+  const { supabase, userId } = await requireUser();
+  const id = await createGradeCategoryCore(supabase, userId, classId, input);
+  revalidatePath("/school");
+  return { id };
+}
+
+export async function updateGradeCategory(categoryId: string, input: GradeCategoryInput) {
+  const { supabase, userId } = await requireUser();
+  await updateGradeCategoryCore(supabase, userId, categoryId, input);
+  revalidatePath("/school");
+}
+
+/** Un-categorizes any assessment filed under this category (ON DELETE SET
+ * NULL, migration 152) rather than deleting them — see deleteGradeCategoryCore's
+ * own comment. */
+export async function deleteGradeCategory(categoryId: string) {
+  const { supabase, userId } = await requireUser();
+  await deleteGradeCategoryCore(supabase, userId, categoryId);
   revalidatePath("/school");
 }
 

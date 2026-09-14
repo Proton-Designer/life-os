@@ -28,10 +28,16 @@ export type GradeLedgerAssessment = ClassCardData["assessments"][number];
  */
 export function ClassGradeLedger({
   assessments,
+  categories = [],
   targetGradePct,
   gradeBoundaries = [],
 }: {
   assessments: GradeLedgerAssessment[];
+  /** `classData.categories` (migration 152, Phase 1 #11) — real weight
+   * categories, passed straight through as `computeClassGrade`'s
+   * `categoryDefs`. Empty (the default) preserves the original
+   * synthetic-per-assessment behavior exactly (see grade-ledger.ts's header). */
+  categories?: { id: string; name: string; weightPct: number; dropLowestN: number; expectedItemCount: number }[];
   /** `classData.targetGradePct` — null until the user sets one. Passed straight
    * through to `requiredScoreVerdictText`, which is the only place that turns
    * it into a number; this component never computes a verdict itself. */
@@ -51,7 +57,7 @@ export function ClassGradeLedger({
     );
   }
 
-  const result = computeClassGrade(assessments);
+  const result = computeClassGrade(assessments, categories);
   const byAssessmentId = new Map(result.categoryResults.map((c) => [c.categoryId, c]));
   const verdictText = requiredScoreVerdictText(result, targetGradePct);
   // R59: current/projected/unweighted all come from one function so they can

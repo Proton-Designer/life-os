@@ -77,6 +77,24 @@ export type ClassCardData = {
     pointsEarned: number | null;
     pointsPossible: number | null;
     isExcused: boolean;
+    /** `class_assessments.category_id` (migration 152, Phase 1 #11) — which
+     * `categories` row (below) this assessment belongs to, or null when
+     * uncategorized. Feeds `computeClassGrade`'s `categoryDefs` parameter
+     * alongside `categories`, same as `weightPct` feeds the synthetic path. */
+    categoryId: string | null;
+  }[];
+  /** `grade_categories` rows for this class (migration 152, Phase 1 #11) —
+   * CollegeOS's real weight-category model. Empty for a class that has never
+   * created one, in which case `computeClassGrade` falls back to its original
+   * synthetic-per-assessment treatment entirely unchanged (see that file's
+   * own header). Shape matches `GradeCategoryDefinition`
+   * (lib/school/grades/grade-ledger.ts) field for field. */
+  categories: {
+    id: string;
+    name: string;
+    weightPct: number;
+    dropLowestN: number;
+    expectedItemCount: number;
   }[];
   /** This class's incomplete tasks, regardless of week — deliberately
    * wider than `tasksDueThisWeek`'s this-week/incomplete filter, since the
@@ -152,6 +170,7 @@ export async function getClassCards(
     { data: taskRows, error: taskError },
     { data: assessmentRows, error: assessmentError },
     { data: questionRows, error: questionError },
+    { data: categoryRows, error: categoryError },
   ] = await Promise.all([
     supabase
       .from("tasks")
@@ -161,7 +180,7 @@ export async function getClassCards(
       .in("class_id", classIds),
     supabase
       .from("class_assessments")
-      .select("id, class_id, name, type, date, task_id, weight_pct, points_earned, points_possible, is_excused")
+      .select("id, class_id, name, type, date, task_id, weight_pct, points_earned, points_possible, is_excused, category_id")
       .eq("user_id", userId)
       .in("class_id", classIds)
       .order("date", { ascending: true }),
@@ -171,10 +190,17 @@ export async function getClassCards(
       .eq("user_id", userId)
       .in("class_id", classIds)
       .order("created_at", { ascending: true }),
+    supabase
+      .from("grade_categories")
+      .select("id, class_id, name, weight_pct, drop_lowest_n, expected_item_count")
+      .eq("user_id", userId)
+      .in("class_id", classIds)
+      .order("created_at", { ascending: true }),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
   if (questionError) throw questionError;
+  if (categoryError) throw categoryError;
 
   const tasksByClass = new Map<string, ClassCardData["tasks"]>();
   for (const t of taskRows ?? []) {
@@ -201,6 +227,7 @@ export async function getClassCards(
     pointsEarned: number | null;
     pointsPossible: number | null;
     isExcused: boolean;
+    categoryId: string | null;
   };
   const assessmentsByClass = new Map<string, RawAssessment[]>();
   for (const a of assessmentRows ?? []) {
@@ -215,8 +242,22 @@ export async function getClassCards(
       pointsEarned: a.points_earned,
       pointsPossible: a.points_possible,
       isExcused: a.is_excused,
+      categoryId: a.category_id,
     });
     assessmentsByClass.set(a.class_id, list);
+  }
+
+  const categoriesByClass = new Map<string, ClassCardData["categories"]>();
+  for (const c of categoryRows ?? []) {
+    const list = categoriesByClass.get(c.class_id) ?? [];
+    list.push({
+      id: c.id,
+      name: c.name,
+      weightPct: c.weight_pct,
+      dropLowestN: c.drop_lowest_n,
+      expectedItemCount: c.expected_item_count,
+    });
+    categoriesByClass.set(c.class_id, list);
   }
 
   type RawQuestion = {
@@ -275,6 +316,7 @@ export async function getClassCards(
         pointsEarned: a.pointsEarned,
         pointsPossible: a.pointsPossible,
         isExcused: a.isExcused,
+        categoryId: a.categoryId,
       };
     });
     // Rows are already ordered by date ascending (risk is attached in place, not
@@ -299,6 +341,7 @@ export async function getClassCards(
       tasksDueThisWeek: tasks.filter((t) => t.dueDate !== null && t.dueDate >= weekStart && t.dueDate <= weekEnd).length,
       upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,
       assessments,
+      categories: categoriesByClass.get(c.id) ?? [],
       tasks,
       questions: questionsByClass.get(c.id) ?? [],
     };

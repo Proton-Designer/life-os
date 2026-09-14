@@ -21,6 +21,9 @@ export type ClassAssessment = {
    * actually edits; `risk` below is derived from it server-side, not recomputed live as
    * you type — see this field's own editing-row comment for why. */
   weightPct: number | null;
+  /** `class_assessments.category_id` (migration 152, Phase 1 #11) — which
+   * `grade_categories` row this assessment belongs to, or null. */
+  categoryId: string | null;
   /** Always computed by the caller (lib/school/get-class-cards.ts) from
    * computeAssignmentRisk — the engine degrades gracefully rather than needing this to
    * be optional. `confidence` (not a boolean prop) is what actually drives ranking now
@@ -93,6 +96,7 @@ const TYPE_COLOR: Record<AssessmentType, string> = {
 // inversion of the old <table>, where "Midterm/Final" (a category repeated on every row)
 // claimed several times the width of the assessment's own name.
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_1.75rem]";
+const ROW_GRID_WITH_CATEGORY = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_6rem_1.75rem]";
 
 /**
  * Left half of the expanded class view (item 6c / B2 redesign, 2026-08-26
@@ -112,6 +116,7 @@ const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_1.75rem]";
  */
 export function ClassAssessments({
   assessments,
+  categories,
   editing,
   todayStr,
   onAdd,
@@ -119,11 +124,18 @@ export function ClassAssessments({
   onRemove,
 }: {
   assessments: ClassAssessment[];
+  /** `grade_categories` for this class (Phase 1 #11) — empty for a class that
+   * hasn't created any, in which case the category column doesn't render at
+   * all (nothing to assign an assessment to). */
+  categories: { id: string; name: string }[];
   editing: boolean;
   /** Reference year for formatShortDate — never derive it from a raw Date (AGENTS.md). */
   todayStr: string;
   onAdd: (input: { name: string; type: AssessmentType; date: string }) => void;
-  onUpdate: (id: string, patch: Partial<{ name: string; type: AssessmentType; date: string; weightPct: number | null }>) => void;
+  onUpdate: (
+    id: string,
+    patch: Partial<{ name: string; type: AssessmentType; date: string; weightPct: number | null; categoryId: string | null }>
+  ) => void;
   onRemove: (id: string) => void;
 }) {
   const [addStep, setAddStep] = useState<"closed" | "type" | "details">("closed");
@@ -221,11 +233,12 @@ export function ClassAssessments({
               A simple flex-col list of rows doesn't need a header, same as
               TaskListModule/KpiTaskDialog elsewhere in this app. */}
           {editing && (
-            <div className={cn("grid gap-3 px-1 text-xs text-muted-foreground", ROW_GRID)}>
+            <div className={cn("grid gap-3 px-1 text-xs text-muted-foreground", categories.length > 0 ? ROW_GRID_WITH_CATEGORY : ROW_GRID)}>
               <span>Name</span>
               <span>Type</span>
               <span>Date</span>
               <span>Wt %</span>
+              {categories.length > 0 && <span>Category</span>}
               <span aria-hidden />
             </div>
           )}
@@ -240,7 +253,10 @@ export function ClassAssessments({
                 <div
                   key={a.id}
                   data-testid={`assessment-row-${a.id}`}
-                  className={cn("grid items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5", ROW_GRID)}
+                  className={cn(
+                    "grid items-center gap-3 rounded-lg border border-border/40 px-2 py-1.5",
+                    categories.length > 0 ? ROW_GRID_WITH_CATEGORY : ROW_GRID
+                  )}
                 >
                   <Input
                     value={a.name}
@@ -286,6 +302,21 @@ export function ClassAssessments({
                     placeholder="%"
                     className="h-8 text-xs"
                   />
+                  {categories.length > 0 && (
+                    <select
+                      value={a.categoryId ?? ""}
+                      onChange={(e) => onUpdate(a.id, { categoryId: e.target.value === "" ? null : e.target.value })}
+                      aria-label={`Category for ${a.name || "new assessment"}`}
+                      className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                    >
+                      <option value="">None</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     type="button"
                     onClick={() => onRemove(a.id)}

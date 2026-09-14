@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ClassAssessments, type ClassAssessment } from "@/components/school/class-assessments";
 import { ClassGradeLedger } from "@/components/school/class-grade-ledger";
+import { GradeCategoriesPanel } from "@/components/school/grade-categories-panel";
 import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
@@ -33,6 +34,7 @@ function mapAssessments(source: ClassCardData["assessments"]): ClassAssessment[]
     task_id: a.taskId,
     risk: a.risk,
     weightPct: a.weightPct,
+    categoryId: a.categoryId,
   }));
 }
 
@@ -289,7 +291,11 @@ export function ClassDetailDialog({
           const orig = originalAssessmentById.get(a.id);
           return (
             orig !== undefined &&
-            (orig.name !== a.name || orig.type !== a.type || orig.date !== a.date || orig.weightPct !== a.weightPct)
+            (orig.name !== a.name ||
+              orig.type !== a.type ||
+              orig.date !== a.date ||
+              orig.weightPct !== a.weightPct ||
+              orig.categoryId !== a.categoryId)
           );
         });
 
@@ -342,7 +348,7 @@ export function ClassDetailDialog({
           });
         }
         for (const a of assessmentsToUpdate) {
-          await updateClassAssessment(a.id, { name: a.name, type: a.type, date: a.date, weightPct: a.weightPct });
+          await updateClassAssessment(a.id, { name: a.name, type: a.type, date: a.date, weightPct: a.weightPct, categoryId: a.categoryId });
         }
         for (const t of tasksToUpdate) {
           await updateTask(t.id, {
@@ -509,6 +515,7 @@ export function ClassDetailDialog({
           <div className="rounded-2xl border border-border/40 bg-card p-4">
             <ClassAssessments
               assessments={assessments}
+              categories={classData.categories}
               editing={editing}
               todayStr={todayStr}
               onAdd={handleAddAssessment}
@@ -521,13 +528,22 @@ export function ClassDetailDialog({
           </div>
         </div>
 
+        {/* Self-contained immediate-commit CRUD (own Server Actions), same shape as
+            SyllabusPanel/QuestionBankPanel below — nothing staged here. Assignment of an
+            assessment TO a category is staged, through ClassAssessments' own category
+            select above; creating/editing/deleting a category itself is not. */}
+        <div className="rounded-2xl border border-border/40 bg-card p-4">
+          <GradeCategoriesPanel classId={classData.id} categories={classData.categories} />
+        </div>
+
         {/* Reads straight from classData.assessments (server props), not the
-            staged `assessments` state above — there's no grade-entry UI yet
+            staged `assessments` state above — there's no grade-ENTRY (points) UI yet
             (out of scope for this pass), so there's nothing to stage. Same
             B3 instant-load contract as everything else in this dialog. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
           <ClassGradeLedger
             assessments={classData.assessments}
+            categories={classData.categories}
             targetGradePct={classData.targetGradePct}
             gradeBoundaries={classData.gradeBoundaries}
           />

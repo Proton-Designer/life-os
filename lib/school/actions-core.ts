@@ -201,6 +201,11 @@ export interface UpdateClassAssessmentInput {
   type: AssessmentType;
   date: string;
   weightPct?: number | null;
+  /** `class_assessments.category_id` (migration 152, Phase 1 #11) — which
+   * `grade_categories` row this assessment belongs to, or null to
+   * un-categorize it. Undefined (field omitted) leaves the column untouched,
+   * same convention as `weightPct` above. */
+  categoryId?: string | null;
 }
 
 /**
@@ -238,6 +243,7 @@ export async function updateClassAssessmentCore(
       // undefined (field omitted entirely) leaves the column untouched;
       // null is a real, storable "unknown weight" — never coalesced away.
       ...(fields.weightPct !== undefined ? { weight_pct: fields.weightPct } : {}),
+      ...(fields.categoryId !== undefined ? { category_id: fields.categoryId } : {}),
     })
     .eq("id", assessmentId)
     .eq("user_id", userId);
@@ -253,4 +259,71 @@ export async function updateClassAssessmentCore(
       .eq("user_id", userId);
     if (taskError) throw taskError;
   }
+}
+
+// ---------------------------------------------------------------------
+// Grade categories (migration 152, Phase 1 #11) -- CollegeOS's real weight-
+// category model: drop_lowest_n / expected_item_count live on the category,
+// never on an assessment (see that migration's own header). Schema shipped
+// with zero UI wired to it -- this is that wiring.
+// ---------------------------------------------------------------------
+
+export interface GradeCategoryInput {
+  name: string;
+  weightPct: number;
+  dropLowestN?: number;
+  expectedItemCount?: number;
+}
+
+/** weight_pct > 0 and <= 100 is the table's own CHECK; not re-validated here --
+ * a violation surfaces as a real Postgres error, same posture as weightPct on
+ * class_assessments (that CHECK isn't re-implemented in actions-core.ts either). */
+export async function createGradeCategoryCore(
+  supabase: SupabaseClient,
+  userId: string,
+  classId: string,
+  input: GradeCategoryInput
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("grade_categories")
+    .insert({
+      user_id: userId,
+      class_id: classId,
+      name: input.name,
+      weight_pct: input.weightPct,
+      drop_lowest_n: input.dropLowestN ?? 0,
+      expected_item_count: input.expectedItemCount ?? 1,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function updateGradeCategoryCore(
+  supabase: SupabaseClient,
+  userId: string,
+  categoryId: string,
+  input: GradeCategoryInput
+): Promise<void> {
+  const { error } = await supabase
+    .from("grade_categories")
+    .update({
+      name: input.name,
+      weight_pct: input.weightPct,
+      drop_lowest_n: input.dropLowestN ?? 0,
+      expected_item_count: input.expectedItemCount ?? 1,
+    })
+    .eq("id", categoryId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+/** `class_assessments.category_id` is `ON DELETE SET NULL` scoped to that one
+ * column (migration 152) -- deleting a category un-categorizes its
+ * assessments rather than deleting them, so this needs no manual cleanup
+ * pass the way `deleteClass` (class-actions.ts) does for its own FKs. */
+export async function deleteGradeCategoryCore(supabase: SupabaseClient, userId: string, categoryId: string): Promise<void> {
+  const { error } = await supabase.from("grade_categories").delete().eq("id", categoryId).eq("user_id", userId);
+  if (error) throw error;
 }

@@ -14,6 +14,7 @@ function assessment(overrides: Partial<GradeLedgerAssessment> = {}): GradeLedger
     pointsEarned: null,
     pointsPossible: null,
     isExcused: false,
+    categoryId: null,
     ...overrides,
   };
 }

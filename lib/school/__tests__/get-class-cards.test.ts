@@ -49,6 +49,7 @@ function assessment(id: string, classId: string, name: string, date: string, ove
     points_earned: null,
     points_possible: null,
     is_excused: false,
+    category_id: null,
     ...overrides,
   };
 }
@@ -98,9 +99,10 @@ describe("getClassCards", () => {
         tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
         assessments: [
-          { id: "a1", name: "Quiz 2", type: "quiz", date: "2026-09-10", taskId: null, weightPct: null, pointsEarned: null, pointsPossible: null, isExcused: false },
-          { id: "a2", name: "Quiz 3", type: "quiz", date: "2026-09-20", taskId: null, weightPct: null, pointsEarned: null, pointsPossible: null, isExcused: false },
+          { id: "a1", name: "Quiz 2", type: "quiz", date: "2026-09-10", taskId: null, weightPct: null, pointsEarned: null, pointsPossible: null, isExcused: false, categoryId: null },
+          { id: "a2", name: "Quiz 3", type: "quiz", date: "2026-09-20", taskId: null, weightPct: null, pointsEarned: null, pointsPossible: null, isExcused: false, categoryId: null },
         ],
+        categories: [],
         tasks: [
           { id: "t1", title: "Task t1", dueDate: "2026-08-25", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
           { id: "t2", title: "Task t2", dueDate: "2026-08-26", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
@@ -143,6 +145,7 @@ describe("getClassCards", () => {
         tasksDueThisWeek: 0,
         upcomingAssessment: null,
         assessments: [],
+        categories: [],
         tasks: [],
         questions: [],
       },

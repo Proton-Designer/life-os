@@ -18,6 +18,7 @@ function assessment(overrides: Partial<ClassAssessment> = {}): ClassAssessment {
     date: "2026-10-06",
     task_id: "t1",
     weightPct: null,
+    categoryId: null,
     risk: { score: 0, band: "low", confidence: "moderate" },
     ...overrides,
   };
@@ -28,6 +29,7 @@ describe("ClassAssessments", () => {
     render(
       <ClassAssessments
         assessments={[assessment()]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -57,6 +59,7 @@ describe("ClassAssessments", () => {
     render(
       <ClassAssessments
         assessments={[assessment({ name: longName })]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -77,6 +80,7 @@ describe("ClassAssessments", () => {
     render(
       <ClassAssessments
         assessments={[]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -93,6 +97,7 @@ describe("ClassAssessments", () => {
     render(
       <ClassAssessments
         assessments={[assessment()]}
+        categories={[]}
         editing
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -113,6 +118,7 @@ describe("ClassAssessments", () => {
     render(
       <ClassAssessments
         assessments={[assessment({ name: "Q" })]}
+        categories={[]}
         editing
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -133,6 +139,7 @@ describe("ClassAssessments", () => {
       render(
         <ClassAssessments
           assessments={[assessment({ weightPct: null })]}
+          categories={[]}
           editing
           todayStr="2026-08-26"
           onAdd={vi.fn()}
@@ -149,6 +156,7 @@ describe("ClassAssessments", () => {
       render(
         <ClassAssessments
           assessments={[assessment({ weightPct: 40 })]}
+          categories={[]}
           editing
           todayStr="2026-08-26"
           onAdd={vi.fn()}
@@ -165,6 +173,7 @@ describe("ClassAssessments", () => {
       render(
         <ClassAssessments
           assessments={[assessment({ weightPct: null })]}
+          categories={[]}
           editing
           todayStr="2026-08-26"
           onAdd={vi.fn()}
@@ -184,6 +193,7 @@ describe("ClassAssessments", () => {
       render(
         <ClassAssessments
           assessments={[assessment({ weightPct: null })]}
+          categories={[]}
           editing
           todayStr="2026-08-26"
           onAdd={vi.fn()}
@@ -200,7 +210,7 @@ describe("ClassAssessments", () => {
     const onAdd = vi.fn();
     const user = userEvent.setup();
     render(
-      <ClassAssessments assessments={[]} editing todayStr="2026-08-26" onAdd={onAdd} onUpdate={vi.fn()} onRemove={vi.fn()} />
+      <ClassAssessments assessments={[]} categories={[]} editing todayStr="2026-08-26" onAdd={onAdd} onUpdate={vi.fn()} onRemove={vi.fn()} />
     );
     await user.click(screen.getByRole("button", { name: "Add assessment" }));
     expect(screen.getByText("Assessment type")).toBeInTheDocument();
@@ -221,6 +231,7 @@ describe("ClassAssessments", () => {
     const { rerender } = render(
       <ClassAssessments
         assessments={[assessment({ task_id: "t1" })]}
+        categories={[]}
         editing
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -233,6 +244,7 @@ describe("ClassAssessments", () => {
     rerender(
       <ClassAssessments
         assessments={[assessment({ task_id: "t1" })]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -245,6 +257,7 @@ describe("ClassAssessments", () => {
     rerender(
       <ClassAssessments
         assessments={[assessment({ task_id: null })]}
+        categories={[]}
         editing
         todayStr="2026-08-26"
         onAdd={vi.fn()}
@@ -263,7 +276,16 @@ function rankedAssessment(
   score: number,
   confidence: ClassAssessment["risk"]["confidence"] = "moderate"
 ): ClassAssessment {
-  return { id, name, type: "quiz", date, task_id: null, weightPct: null, risk: { score, band: score >= 50 ? "high" : "low", confidence } };
+  return {
+    id,
+    name,
+    type: "quiz",
+    date,
+    task_id: null,
+    weightPct: null,
+    categoryId: null,
+    risk: { score, band: score >= 50 ? "high" : "low", confidence },
+  };
 }
 
 // R28 (The Boss, 2026-09-02): confidence stays OUT of the sort key within one list, but
@@ -281,7 +303,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       rankedAssessment("b", "High-risk final due later", "2026-09-10", 90, "low"),
     ];
     render(
-      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+      <ClassAssessments assessments={items} categories={[]} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     const rows = screen.getAllByTestId(/^assessment-row-/);
     // b scores higher risk than a, despite being LATER by date — proves ranking is by
@@ -296,7 +318,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       rankedAssessment("b", "Same risk, earlier date", "2026-09-01", 50, "moderate"),
     ];
     render(
-      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+      <ClassAssessments assessments={items} categories={[]} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     const rows = screen.getAllByTestId(/^assessment-row-/);
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-b", "assessment-row-a"]);
@@ -310,7 +332,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       rankedAssessment("ranked-item", "Rated, due later, scores low", "2026-09-15", 5, "low"),
     ];
     render(
-      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+      <ClassAssessments assessments={items} categories={[]} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     const rows = screen.getAllByTestId(/^assessment-row-/);
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
@@ -335,7 +357,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       rankedAssessment("earlier", "Insufficient, earlier date", "2026-09-01", 0, "insufficient"),
     ];
     render(
-      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+      <ClassAssessments assessments={items} categories={[]} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     const rows = screen.getAllByTestId(/^assessment-row-/);
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["assessment-row-earlier", "assessment-row-later"]);
@@ -344,7 +366,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
   it("shows no insufficient-group prompt when every item is confidently ranked", () => {
     const items = [rankedAssessment("a", "Rated quiz", "2026-09-01", 40, "low")];
     render(
-      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+      <ClassAssessments assessments={items} categories={[]} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     expect(screen.queryByText("rate difficulty to rank this")).not.toBeInTheDocument();
     expect(screen.queryByText("ranked by due date until you rate difficulty.")).not.toBeInTheDocument();
@@ -360,7 +382,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
       rankedAssessment("earlier", "Unrated, earlier date, lower raw score", "2026-09-01", 1, "insufficient"),
     ];
     render(
-      <ClassAssessments assessments={items} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
+      <ClassAssessments assessments={items} categories={[]} editing={false} todayStr="2026-08-20" onAdd={() => {}} onUpdate={() => {}} onRemove={() => {}} />
     );
     expect(screen.getByText("ranked by due date until you rate difficulty.")).toBeInTheDocument();
     expect(screen.queryByText("rate difficulty to rank this")).not.toBeInTheDocument();
@@ -377,6 +399,7 @@ describe("ClassAssessments — confidence-based ranking (R28)", () => {
     render(
       <ClassAssessments
         assessments={[rankedAssessment("a", "Some assessment", "2026-09-01", 30, confidence)]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-20"
         onAdd={() => {}}
@@ -406,7 +429,7 @@ function realAssessment(id: string, name: string, date: string, weightPct: numbe
     projectedGradePct: 85,
   });
   const { score, band, confidence } = computeAssignmentRisk(input);
-  return { id, name, type: "quiz", date, task_id: null, weightPct, risk: { score, band, confidence } };
+  return { id, name, type: "quiz", date, task_id: null, weightPct, categoryId: null, risk: { score, band, confidence } };
 }
 
 describe("ClassAssessments — R35: the mixed confidence group is now reachable through the real engine", () => {
@@ -427,6 +450,7 @@ describe("ClassAssessments — R35: the mixed confidence group is now reachable 
     render(
       <ClassAssessments
         assessments={[unweighted, weighted]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-20"
         onAdd={() => {}}
@@ -453,6 +477,7 @@ describe("ClassAssessments — R35: the mixed confidence group is now reachable 
     render(
       <ClassAssessments
         assessments={[later, earlier]}
+        categories={[]}
         editing={false}
         todayStr="2026-08-20"
         onAdd={() => {}}

@@ -41,6 +41,7 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     attendancePolicy: null,
     allowedAbsences: null,
     gradeBoundaries: [],
+    categories: [],
     hasSyllabus: false,
     tasksDueThisWeek: 0,
     upcomingAssessment: null,
@@ -76,6 +77,7 @@ describe("ClassDetailDialog", () => {
               pointsEarned: null,
               pointsPossible: null,
               isExcused: false,
+              categoryId: null,
             },
           ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
@@ -239,6 +241,7 @@ describe("ClassDetailDialog", () => {
               pointsEarned: null,
               pointsPossible: null,
               isExcused: false,
+              categoryId: null,
             },
           ],
           tasks: [{ id: "t1", title: "Study ch. 4", dueDate: "2026-10-06", taskType: "exam", taskTypeOtherLabel: null, classId: "c1" }],
@@ -277,6 +280,7 @@ describe("ClassDetailDialog", () => {
               pointsEarned: null,
               pointsPossible: null,
               isExcused: false,
+              categoryId: null,
             },
           ],
         })}
@@ -295,6 +299,7 @@ describe("ClassDetailDialog", () => {
         type: "final_midterm",
         date: "2026-10-06",
         weightPct: null,
+        categoryId: null,
       })
     );
     expect(addClassAssessmentMock).not.toHaveBeenCalled();
@@ -320,6 +325,7 @@ describe("ClassDetailDialog", () => {
               pointsEarned: null,
               pointsPossible: null,
               isExcused: false,
+              categoryId: null,
             },
             {
               id: "a2",
@@ -332,6 +338,7 @@ describe("ClassDetailDialog", () => {
               pointsEarned: null,
               pointsPossible: null,
               isExcused: false,
+              categoryId: null,
             },
           ],
         })}
@@ -350,6 +357,7 @@ describe("ClassDetailDialog", () => {
         type: "final_midterm",
         date: "2026-10-06",
         weightPct: 60,
+        categoryId: null,
       })
     );
     // The untouched sibling's weight must not be reported as changed, and must
