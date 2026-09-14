@@ -110,27 +110,21 @@ export async function computePlanSeeds(
   const openWorries = await getOpenWorries(supabase, userId);
   const worrySeeds = worriesToDumpItems(openWorries).filter((w) => !excludeIds.has(w.id));
 
-  // Goal milestones (#45) depend on migration 157 (goals/goal_milestones),
-  // which is written and proved but NOT yet applied to production (R5/R32 —
-  // numbers and applies are the lead's). Until it lands, this query fails
-  // with "relation does not exist"; treated as "no milestone seeds" rather
-  // than failing the whole close, the same defensive shape every other
-  // Promise.all branch in this file already gets from Supabase returning
-  // {data:null,error} instead of throwing.
-  let milestoneSeeds: DumpItem[] = [];
-  try {
-    const monthStart = monthStartFor(localDateString(now, timezone));
-    const unfinished = await getUnfinishedMilestonesForMonth(supabase, userId, monthStart);
-    milestoneSeeds = unfinished
-      .filter((m) => !excludeIds.has(m.id))
-      .map((m) => ({ id: m.id, title: m.title, source: "goal_milestone" as const }));
-  } catch {
-    milestoneSeeds = [];
-  }
+  // Goal milestones (#45) come from goals/goal_milestones — migration 165,
+  // applied to production 2026-09-14. This used to be wrapped in a try/catch
+  // that swallowed every error into "no milestone seeds", justified only while
+  // 165 was unapplied (and mislabelled as 157). With the tables live, a real
+  // failure must surface rather than silently drop the user's milestones from
+  // tonight's plan — the same posture as the school_risk source below.
+  const monthStart = monthStartFor(localDateString(now, timezone));
+  const unfinished = await getUnfinishedMilestonesForMonth(supabase, userId, monthStart);
+  const milestoneSeeds: DumpItem[] = unfinished
+    .filter((m) => !excludeIds.has(m.id))
+    .map((m) => ({ id: m.id, title: m.title, source: "goal_milestone" as const }));
 
-  // #28: school_risk. NOT wrapped in try/catch the way milestoneSeeds is above —
-  // classes/class_assessments are long-live tables, not a migration awaiting apply, so a
-  // real failure here should surface, not be swallowed into a silent "no school seeds."
+  // #28: school_risk. Not wrapped in try/catch: classes/class_assessments are
+  // long-live tables, so a real failure here should surface, not be swallowed
+  // into a silent "no school seeds."
   const todayStr = localDateString(now, timezone);
   const schoolItems = await getSchoolTodayFeed(supabase, userId, todayStr, planningDate);
   const schoolRiskSeeds: DumpItem[] = schoolItems
