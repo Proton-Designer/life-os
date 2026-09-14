@@ -27,12 +27,22 @@ async function todayForCapture(): Promise<string> {
  * omitted if nothing did) — never defaulted to today, which would fabricate a deadline
  * nobody stated.
  */
-export async function captureTask(input: { title: string; dueDate?: string | null }): Promise<void> {
+export async function captureTask(input: {
+  title: string;
+  dueDate?: string | null;
+  /** "HH:MM" local time, as parsed by parse-utterance.ts. Threaded straight to
+   * `addTaskCore`'s `dueTime` (writes `tasks.due_time`) — every downstream reader that
+   * keys off a task having a time (get-day-shape's timeline, calendar's timed-block
+   * bucket, get-priority-items' urgency ranking) only sees a task at all once this is
+   * passed, so silently dropping it here is the bug, not a simplification. */
+  dueTime?: string | null;
+}): Promise<void> {
   const { supabase, userId } = await requireUser();
   await addTaskCore(supabase, userId, {
     domain: "school",
     title: input.title,
     ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+    ...(input.dueTime ? { dueTime: input.dueTime } : {}),
   });
   revalidatePath("/");
 }

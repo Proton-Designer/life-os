@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import { updateProfile } from "@/app/(app)/settings/actions";
 import { signOut } from "@/app/(app)/actions";
 import { LocationSettings } from "@/components/settings/location-settings";
+import { DeleteAccountSection } from "@/components/settings/delete-account-section";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -218,12 +219,17 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
       </Panel>
 
       <Panel id="data" className="scroll-mt-24" title="Data">
-        <a
-          href="/settings/export"
-          className="self-start rounded-md border border-border/40 px-4 py-2 text-sm hover:bg-accent/40"
-        >
-          Export my data (JSON)
-        </a>
+        <div className="flex flex-col gap-4">
+          <a
+            href="/settings/export"
+            className="self-start rounded-md border border-border/40 px-4 py-2 text-sm hover:bg-accent/40"
+          >
+            Export my data (JSON)
+          </a>
+          {/* #32: account deletion, the other half of this panel's job —
+              export what you have, or remove all of it. */}
+          <DeleteAccountSection />
+        </div>
       </Panel>
     </div>
   );

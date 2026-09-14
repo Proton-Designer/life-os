@@ -9,11 +9,64 @@ import { DistractionCaptureDialog } from "@/components/distractions/distraction-
 import { ReviewDialogTrigger } from "@/components/distractions/review-dialog-trigger";
 import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
 import { isReviewOpen } from "@/lib/distractions/plan-rules";
+import { getTodayDistractionCountForNow } from "@/app/(app)/distractions/actions";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
 const TICK_MS = 60 * 1000;
+// Same cadence as NotificationsBell's own poll — the bell is the established
+// precedent for a "live" topbar count sourced by polling a server action
+// directly from this client component, never by a count passed down as a
+// prop from a Server Component (that would only refresh on whatever page's
+// own revalidatePath("/") happened to fire, and this button renders on
+// every route via the shared (app) layout, not just Home).
+const DISTRACTION_POLL_MS = 60 * 1000;
+
+/**
+ * #50: the top bar's Distractions control used to render with no indication
+ * anything had been logged today — you had to open Home's Focus panel to see
+ * the same number getTodayDistractionCount() already computes. This overlays
+ * that count as a small pill, the same visual idiom NotificationsBell already
+ * uses for its own unread badge (absolute-positioned, bg-accent-info,
+ * text-background — no raw hex, both semantic tokens from globals.css).
+ * Wraps the dialog rather than editing distraction-capture-dialog.tsx itself
+ * — that file belongs to a different track's file ownership for this pass.
+ */
+function DistractionCountBadge() {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const next = await getTodayDistractionCountForNow();
+        if (!cancelled) setCount(next);
+      } catch {
+        // Best-effort, same posture as NotificationsBell's own poll — a
+        // failed refresh leaves the last-known count showing rather than
+        // clearing it, and the next 60s tick retries on its own.
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, DISTRACTION_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (!count) return null;
+
+  return (
+    <span
+      aria-hidden
+      className="absolute -right-1.5 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-accent-info px-1 text-[10px] font-semibold leading-none text-background"
+    >
+      {count}
+    </span>
+  );
+}
 
 export function Topbar({
   account,
@@ -109,7 +162,10 @@ export function Topbar({
           reviewOpen ? "gap-1 max-[359px]:gap-0" : "gap-2"
         )}
       >
-        <DistractionCaptureDialog />
+        <div className="relative">
+          <DistractionCaptureDialog />
+          <DistractionCountBadge />
+        </div>
         {/* Popup, not a navigation (Ayman: "change the 'Review' tab/
             screen at the top into a popup module ... like the
             distractions popup") — the /review route itself still exists

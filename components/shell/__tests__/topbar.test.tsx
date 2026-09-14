@@ -34,6 +34,20 @@ vi.mock("@/app/(app)/review/actions", () => ({
   getReviewData: (...args: unknown[]) => getReviewDataMock(...args),
 }));
 
+// #50: Topbar polls getTodayDistractionCountForNow directly (same idiom as
+// getNotificationsForNow above) for its live badge on the Distractions
+// button. DistractionCaptureDialog (also rendered by Topbar) imports the
+// other three exports of this module — all stubbed here for the same
+// no-real-Supabase reason as every other mock in this file, since mocking
+// the module replaces every export, not just the one under test.
+const { getTodayDistractionCountForNowMock } = vi.hoisted(() => ({ getTodayDistractionCountForNowMock: vi.fn() }));
+vi.mock("@/app/(app)/distractions/actions", () => ({
+  getTodayDistractionCountForNow: (...args: unknown[]) => getTodayDistractionCountForNowMock(...args),
+  listTriggersForDomain: vi.fn(async () => []),
+  logDistraction: vi.fn(async () => {}),
+  createTriggerAndLog: vi.fn(async () => {}),
+}));
+
 // DistractionCaptureDialog (rendered by Topbar) now reads useLockInOverlay()
 // to infer its domain from an active session (2026-09-10), so Topbar needs
 // a real LockInOverlayProvider ancestor — same pattern as
@@ -97,6 +111,7 @@ describe("Topbar", () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
     getNotificationsForNowMock.mockResolvedValue([]);
     getReviewDataMock.mockResolvedValue({ dateLabel: "Saturday 15 Aug", groups: [] });
+    getTodayDistractionCountForNowMock.mockReset().mockResolvedValue(0);
   });
 
   it("does not render a page title — PageHeader owns it, to avoid rendering it twice", () => {
@@ -161,6 +176,25 @@ describe("Topbar", () => {
   it("shows the Distractions button in the topbar", () => {
     renderTopbar();
     expect(screen.getByRole("button", { name: /distractions/i })).toBeInTheDocument();
+  });
+
+  // #50: the top bar's Distractions control used to render with no
+  // indication anything had been logged today — getTodayDistractionCount()
+  // already existed and was already shown on Home's Focus panel, just never
+  // surfaced here. This is the regression test: it fails if the badge is
+  // removed, or if it stops polling getTodayDistractionCountForNow.
+  it("shows a live distraction count badge once today's count is fetched — regression test for #50", async () => {
+    getTodayDistractionCountForNowMock.mockResolvedValue(3);
+    renderTopbar();
+    expect(await screen.findByText("3")).toBeInTheDocument();
+    expect(getTodayDistractionCountForNowMock).toHaveBeenCalled();
+  });
+
+  it("shows no distraction count badge when nothing has been logged today", async () => {
+    getTodayDistractionCountForNowMock.mockResolvedValue(0);
+    renderTopbar();
+    await waitFor(() => expect(getTodayDistractionCountForNowMock).toHaveBeenCalled());
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
   // Fake timers here (not just nowIso) because Topbar's mount effect

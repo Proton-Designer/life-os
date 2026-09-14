@@ -61,6 +61,27 @@ describe("capture actions", () => {
       await captureTask({ title: "Buy notebook", dueDate: null });
       expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "school", title: "Buy notebook" });
     });
+
+    // #30/#31: a spoken time ("...at 5pm") reached this action's `dueTime` param but was
+    // never forwarded to addTaskCore — the task landed with due_time null, so
+    // get-day-shape's timeline, calendar's timed-block bucket, and get-priority-items'
+    // urgency ranking all missed it (each keys off due_time being non-null). Threaded
+    // through here, the same way dueDate already is.
+    it("threads dueTime through to addTaskCore — regression test for #30/#31", async () => {
+      await captureTask({ title: "Submit lab report", dueDate: "2026-09-05", dueTime: "17:00" });
+      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", {
+        domain: "school",
+        title: "Submit lab report",
+        dueDate: "2026-09-05",
+        dueTime: "17:00",
+      });
+    });
+
+    it("omits dueTime entirely when nothing resolved, rather than fabricating midnight", async () => {
+      await captureTask({ title: "Buy notebook", dueDate: null, dueTime: null });
+      const call = addTaskCoreMock.mock.calls[0]![2] as Record<string, unknown>;
+      expect(call).not.toHaveProperty("dueTime");
+    });
   });
 
   describe("captureDistraction", () => {

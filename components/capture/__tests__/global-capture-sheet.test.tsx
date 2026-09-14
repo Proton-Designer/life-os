@@ -66,7 +66,31 @@ describe("GlobalCaptureSheet", () => {
     await openSheet(user);
     await user.type(screen.getByLabelText("Capture input"), "Submit lab report tomorrow");
     await user.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(captureTaskMock).toHaveBeenCalledWith({ title: "Submit lab report", dueDate: expect.any(String) });
+    expect(captureTaskMock).toHaveBeenCalledWith({
+      title: "Submit lab report",
+      dueDate: expect.any(String),
+      dueTime: null,
+    });
+  });
+
+  // #30/#31: a spoken time used to be parsed into the preview (formatParsedWhen shows
+  // it) and then silently dropped on confirm — captureTask never received it, so
+  // get-day-shape's timeline, calendar's timed-block bucket, and get-priority-items'
+  // urgency ranking all missed the task (none of them see an untimed task). This is the
+  // test that actually guards the fix: it fails the moment `dueTime` stops reaching
+  // captureTask, unlike the sibling test above (no time in the utterance, nothing to
+  // drop).
+  it("a spoken time reaches captureTask as dueTime — regression test for #30/#31", async () => {
+    const user = userEvent.setup();
+    render(<GlobalCaptureSheet timezone="America/Chicago" />);
+    await openSheet(user);
+    await user.type(screen.getByLabelText("Capture input"), "Submit lab report tomorrow at 5pm");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(captureTaskMock).toHaveBeenCalledWith({
+      title: "Submit lab report",
+      dueDate: expect.any(String),
+      dueTime: "17:00",
+    });
   });
 
   it("a distraction capture routes through captureDistraction only, with the shown category confirmed", async () => {

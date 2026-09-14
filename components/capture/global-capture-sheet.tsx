@@ -62,6 +62,12 @@ function nowMinutesIntoDayFor(timezone: string): number {
   return hour * 60 + minute;
 }
 
+/** "HH:MM" (24h, zero-padded) for `tasks.due_time` — the column addTaskCore writes.
+ * Kept separate from formatParsedWhen, which renders a locale time for display only. */
+function formatParsedTime(time: { hour: number; minute: number }): string {
+  return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
+}
+
 function formatParsedWhen(parsed: ParsedUtterance, todayStr: string): string | null {
   if (parsed.date == null && parsed.time == null) return null;
   const dateLabel = parsed.date != null ? formatShortDate(parsed.date, todayStr) : "no date";
@@ -162,7 +168,11 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
     setError(null);
     try {
       if (captureType === "task") {
-        await captureTask({ title: parsed.title, dueDate: parsed.date });
+        await captureTask({
+          title: parsed.title,
+          dueDate: parsed.date,
+          dueTime: parsed.time ? formatParsedTime(parsed.time) : null,
+        });
       } else if (captureType === "distraction") {
         await captureDistraction({ title: parsed.title, domain });
       } else if (captureType === "worry") {
