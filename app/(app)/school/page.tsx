@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { CalendarClock, AlertTriangle, ShieldCheck, CalendarCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom, formatShortDate } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString, formatShortDate } from "@/lib/date-utils";
+import { UPCOMING_WINDOW_DAYS } from "@/lib/tasks/task-groups";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { TASK_TYPE_LABEL, type TaskType } from "@/lib/tasks/task-type";
@@ -34,6 +35,7 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
 import { getClassCards } from "@/lib/school/get-class-cards";
 import { ClassCard } from "@/components/school/class-card";
+import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
 
 type TaskData = {
   id: string;
@@ -92,6 +94,24 @@ export default async function SchoolPage() {
   );
 
   const classNameById = new Map((classRows ?? []).map((c) => [c.id, c.short_name ?? c.code]));
+
+  // Phase 1 #14 — cross-class deadline/risk dashboard. Same nextWeekDates/horizonStr
+  // computation TaskListModule uses for bucketTaskGroup, so this panel's buckets can
+  // never drift from the Task list's (lib/tasks/task-groups.ts's own vocabulary).
+  const nextWeekDates = weekDatesFrom(addDaysToDateString(weekDates[0]!, 7));
+  const horizonStr = addDaysToDateString(dateStr, UPCOMING_WINDOW_DAYS);
+  const deadlineRiskRows: DeadlineRiskRow[] = classCards.flatMap((c) =>
+    c.assessments.map((a) => ({
+      id: a.id,
+      name: a.name,
+      className: c.shortName ?? c.code,
+      dueDate: a.date,
+      risk: { score: a.risk.score, band: a.risk.band },
+    }))
+  );
+  // Panel's own one-metric-rule convention (its header comment): the number that
+  // summarizes this panel, not a separate KPI card duplicating it.
+  const highRiskCount = deadlineRiskRows.filter((r) => r.risk.band === "high" || r.risk.band === "critical").length;
   const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
     id: c.id,
     label: c.short_name ?? c.code,
@@ -326,6 +346,24 @@ export default async function SchoolPage() {
         }
       >
         <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
+      </Panel>
+
+      {/* Phase 1 #14 — the cross-class risk rollup the Task list doesn't provide (it's
+          date-ordered, not risk-ranked, and only ever shows tasks, not assessments).
+          Sits beside the Task list rather than inside it: different unit (assessments,
+          not tasks) and a different ordering principle (risk, not date). */}
+      <Panel
+        title="Deadline risk"
+        heroValue={`${highRiskCount}`}
+        caption={highRiskCount === 0 ? "nothing high-risk right now" : `high/critical-risk assessment${highRiskCount === 1 ? "" : "s"}`}
+      >
+        <DeadlineRiskPanel
+          rows={deadlineRiskRows}
+          todayStr={dateStr}
+          weekDates={weekDates}
+          nextWeekDates={nextWeekDates}
+          horizonStr={horizonStr}
+        />
       </Panel>
 
       {/* Item 6b (Ayman, verbatim): "a module card for every single class

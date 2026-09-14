@@ -66,6 +66,55 @@ describe("ClassCard", () => {
     expect(screen.queryByText("2026-09-10")).not.toBeInTheDocument();
   });
 
+  // Phase 1 #14 — computeCourseRisk's first production caller (previously zero callers
+  // anywhere, per that file's own header). Softmax-weighted, so one critical assessment
+  // among low-risk ones still reads as high overall, not diluted to "moderate" — proven
+  // against the real engine, not a hand-picked band.
+  it("shows a course-risk badge computed from this class's real assessment risk scores", () => {
+    render(
+      <ClassCard
+        data={classData({
+          assessments: [
+            {
+              id: "a1",
+              name: "Critical exam",
+              type: "exam",
+              date: "2026-09-10",
+              taskId: null,
+              weightPct: 30,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+              categoryId: null,
+              risk: { score: 90, band: "critical", confidence: "high" },
+            },
+            {
+              id: "a2",
+              name: "Trivial quiz",
+              type: "quiz",
+              date: "2026-09-12",
+              taskId: null,
+              weightPct: 5,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+              categoryId: null,
+              risk: { score: 10, band: "low", confidence: "high" },
+            },
+          ],
+        })}
+        timezone="America/Chicago"
+        todayStr="2026-08-26"
+      />
+    );
+    expect(screen.getByText("Critical risk")).toBeInTheDocument();
+  });
+
+  it("hides the course-risk badge for a class with zero assessments — no fabricated risk", () => {
+    render(<ClassCard data={classData({ assessments: [] })} timezone="America/Chicago" todayStr="2026-08-26" />);
+    expect(screen.queryByText(/risk$/)).not.toBeInTheDocument();
+  });
+
   // The real null-path case (Opus Lead review): Lin Alg (MATH 2418) has no
   // short_name yet, null room/instructor, zero tasks, no upcoming
   // assessment, and no syllabus. Must render as valid, readable content —
