@@ -1,17 +1,28 @@
 import "server-only";
 import { PROVIDERS, type ProviderId } from "./providers";
-import { openAiCompatibleChat, type OpenAiCompatibleChatOpts } from "./adapters/openai-compatible";
+import { openAiCompatibleChat } from "./adapters/openai-compatible";
+import { openAiSdkChat } from "./adapters/openai-sdk";
 import type { ChatResult } from "./adapters/types";
 
 export type { ChatResult } from "./adapters/types";
 
 /**
- * The multi-provider dispatcher (2026-09-14, slice 3). Every caller of
- * `chat()` keeps the exact same signature and behavior it had when this
- * file WAS the DeepSeek-only OpenAI-wire client — that implementation
- * moved verbatim to adapters/openai-compatible.ts (see that file's own
- * header), and this function now just routes to whichever adapter speaks
- * `PROVIDERS[provider].wireProtocol`.
+ * The multi-provider dispatcher (2026-09-14, slices 3-4). Every caller of
+ * `chat()` keeps the exact same signature it had when this file WAS the
+ * DeepSeek-only OpenAI-wire client.
+ *
+ * TWO DIFFERENT IMPLEMENTATIONS SHARE `wireProtocol: "openai-compatible"`,
+ * by design (the Lead's explicit ruling, slice 4): DeepSeek alone keeps its
+ * original raw-fetch path (adapters/openai-compatible.ts — moved verbatim
+ * in slice 3, confirmed byte-for-byte by client.test.ts passing unchanged)
+ * because "leave the existing DeepSeek path byte-for-byte working" and
+ * "OpenAI/Kimi/Grok on the real `openai` SDK" are both real requirements
+ * that can't both be satisfied by ONE shared implementation — DeepSeek was
+ * never proven against the SDK's own request shape, and the other three
+ * were never proven against the raw-fetch one. `provider === "deepseek"`
+ * is the one place that split is made explicit, rather than hidden behind
+ * a wireProtocol value that would imply more uniformity than actually
+ * exists between the four.
  *
  * anthropic.ts/google.ts land in later slices; until then, routing a
  * non-openai-compatible provider here throws rather than silently doing
@@ -19,10 +30,20 @@ export type { ChatResult } from "./adapters/types";
  * already takes for an unregistered ingest stage (a 501, not a silent
  * 200). Nothing calls `chat()` with a non-deepseek provider yet
  * (`gatewayChat` still hardcodes `DEFAULT_PROVIDER`), so this branch is
- * unreachable in production today — a placeholder for the next slice, not
+ * unreachable in production today — a placeholder for a later slice, not
  * a live gap.
  */
-export type ChatOpts = OpenAiCompatibleChatOpts;
+export interface ChatOpts {
+  maxTokens?: number;
+  temperature?: number;
+  /** Override PROVIDERS[provider].defaultModel — e.g. the gateway's tiering. */
+  model?: string;
+  timeoutMs?: number;
+  /** DeepSeek-only (adapters/openai-compatible.ts's own header) — ignored by every other adapter. */
+  thinking?: boolean;
+  /** Normalized 3-level reasoning control for the SDK-backed adapters (openai-sdk.ts, and anthropic.ts once it lands) — ignored by DeepSeek's raw-fetch path, which keeps its own `thinking` boolean instead. */
+  effort?: "low" | "medium" | "high";
+}
 
 export async function chat(
   provider: ProviderId,
@@ -30,14 +51,14 @@ export async function chat(
   messages: { role: "system" | "user"; content: string }[],
   opts: ChatOpts = {},
 ): Promise<ChatResult> {
-  const { wireProtocol, label } = PROVIDERS[provider];
-  switch (wireProtocol) {
-    case "openai-compatible":
-      return openAiCompatibleChat(provider, apiKey, messages, opts);
-    case "anthropic":
-    case "google":
-      throw new Error(`chat(): ${label} (wireProtocol "${wireProtocol}") isn't wired yet — its adapter lands in a later multi-provider slice.`);
+  if (provider === "deepseek") {
+    return openAiCompatibleChat(provider, apiKey, messages, opts);
   }
+  if (provider === "openai" || provider === "moonshot" || provider === "xai") {
+    return openAiSdkChat(provider, apiKey, messages, opts);
+  }
+  const { wireProtocol, label } = PROVIDERS[provider];
+  throw new Error(`chat(): ${label} (wireProtocol "${wireProtocol}") isn't wired yet — its adapter lands in a later multi-provider slice.`);
 }
 
 /**
@@ -62,14 +83,17 @@ export async function chat(
  * (large `reasoning_content`, tiny/absent `content`, at the OLD maxTokens)
  * as a regression test.
  *
- * `thinking: false` is a no-op for non-DeepSeek openai-compatible providers
- * today (see adapters/openai-compatible.ts's own header, gap 1) and doesn't
- * apply to anthropic/google adapters at all once those land — each adapter
- * owns translating "verify cheaply" into its own equivalent.
+ * `thinking: false` applies to DeepSeek only (its raw-fetch adapter's own
+ * field). `effort: "low"` is its slice-4 sibling for the SDK-backed
+ * adapters (openai-sdk.ts's OpenAI entry; Kimi/xAI don't confirm support
+ * yet, so it's silently unsent for them — see openai-sdk.ts's QUIRKS
+ * table) — each provider gets whichever of the two its own adapter reads,
+ * the other is simply ignored.
  */
 export async function verifyKey(provider: ProviderId, apiKey: string): Promise<ChatResult> {
   return chat(provider, apiKey, [{ role: "user", content: "Reply with the single word: ok" }], {
     maxTokens: 20,
     thinking: false,
+    effort: "low",
   });
 }

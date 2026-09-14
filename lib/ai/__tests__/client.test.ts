@@ -281,18 +281,35 @@ describe("chat()'s per-call timeoutMs", () => {
  * green, proving the extraction was genuinely byte-for-byte).
  */
 describe("chat() -- multi-provider dispatch", () => {
+  // This project's vitest.config.ts runs every test in jsdom, for the many
+  // test files that render components — but the `openai` SDK (slice 4)
+  // refuses to construct a client whenever `window`/`window.document`/
+  // `navigator` are ALL defined, reading that as "running in a browser"
+  // (node_modules/openai/internal/detect-platform.js). Production is real
+  // Node.js in a Vercel function (no `navigator` at all), so this is a
+  // false positive specific to jsdom, not a real risk — `dangerouslyAllowBrowser`
+  // stays OFF in the adapter itself (that flag is a genuine safety check,
+  // not something to weaken for real client-side misuse); undefining just
+  // `navigator` for the scope of this one test is enough to flip the SDK's
+  // check without touching `window`/`document`, which other files' component
+  // tests in this same jsdom environment still need.
   it("routes every openai-compatible provider through the shared adapter (proven by a real fetch call happening, not just no throw)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
-    });
+    vi.stubGlobal("navigator", undefined);
+    // A REAL Response object, not a plain {status,ok,json} stand-in: the
+    // openai SDK (openai/moonshot/xai) reads more off the response than
+    // the raw-fetch adapter does (deepseek) -- a minimal stand-in made the
+    // SDK path throw internally, misclassified as errorKind:"network" by
+    // this file's own catch-all, found live writing this test. A real
+    // Response satisfies both adapters' needs at once.
+    const fetchMock = vi.fn().mockImplementation(
+      async () => new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200, headers: { "content-type": "application/json" } }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     for (const provider of ["deepseek", "openai", "moonshot", "xai"] as const) {
       fetchMock.mockClear();
       const result = await chat(provider, "test-key", [{ role: "user", content: "hi" }]);
-      expect(result.ok).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.ok, `${provider}: ${result.message ?? ""}`).toBe(true);
+      expect(fetchMock).toHaveBeenCalled();
     }
     vi.unstubAllGlobals();
   });
