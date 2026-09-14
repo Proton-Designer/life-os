@@ -36,6 +36,8 @@ import { Panel } from "@/components/ui/panel";
 import { getClassCards } from "@/lib/school/get-class-cards";
 import { ClassCard } from "@/components/school/class-card";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
+import { SchoolTodayPanel } from "@/components/school/school-today-panel";
+import { getSchoolTodayFeed } from "@/lib/school/school-today";
 
 type TaskData = {
   id: string;
@@ -112,6 +114,14 @@ export default async function SchoolPage() {
   // Panel's own one-metric-rule convention (its header comment): the number that
   // summarizes this panel, not a separate KPI card duplicating it.
   const highRiskCount = deadlineRiskRows.filter((r) => r.risk.band === "high" || r.risk.band === "critical").length;
+
+  // Phase 1 #15 — day-level, not the wider due-soon window above. Reads the same
+  // classCards.assessments rows deadlineRiskRows does; getSchoolTodayFeed itself filters
+  // to dueDate === dateStr.
+  const schoolTodayItems = getSchoolTodayFeed(
+    classCards.map((c) => ({ code: c.code, assessments: c.assessments })),
+    dateStr
+  );
   const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
     id: c.id,
     label: c.short_name ?? c.code,
@@ -346,6 +356,12 @@ export default async function SchoolPage() {
         }
       >
         <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
+      </Panel>
+
+      {/* Phase 1 #15 — day-level, sits above #14's wider window: "what does school look
+          like today" is a narrower, more urgent question than "what's coming up." */}
+      <Panel title="School today" heroValue={`${schoolTodayItems.length}`} caption="due today across your classes">
+        <SchoolTodayPanel items={schoolTodayItems} />
       </Panel>
 
       {/* Phase 1 #14 — the cross-class risk rollup the Task list doesn't provide (it's
