@@ -124,6 +124,58 @@ if [ -n "$DB_URL" ]; then
   ./scripts/check-enum-drift.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
   if [ $? -ne 0 ]; then echo "  FAIL: the drift check cannot see injected drift"; FAILED+=("drift-selftest");
   else echo "  self-test fires"; ./scripts/check-enum-drift.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-enum-drift"; fi
+
+  step "applied-migration tracking, on disk and in git (self-tested first)"
+  ./scripts/check-applied-migrations-tracked.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
+  if [ $? -ne 0 ]; then echo "  FAIL: this check cannot detect an applied-but-untracked migration file"; FAILED+=("applied-migrations-tracked-selftest");
+  else echo "  self-test fires"; ./scripts/check-applied-migrations-tracked.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-applied-migrations-tracked"; fi
+
+  step "FK tenancy -- single-column FKs to user-scoped parents (self-tested first)"
+  ./scripts/check-fk-tenancy.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
+  if [ $? -ne 0 ]; then echo "  FAIL: this check cannot detect a single-column FK to a user-scoped parent"; FAILED+=("fk-tenancy-selftest");
+  else echo "  self-test fires"; ./scripts/check-fk-tenancy.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-fk-tenancy"; fi
+
+  step "lesson_promotions.retired_at vs. lesson_verdicts (self-tested first)"
+  ./scripts/check-retired-at-drift.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
+  if [ $? -ne 0 ]; then echo "  FAIL: this check cannot detect injected retired_at drift"; FAILED+=("retired-at-drift-selftest");
+  else echo "  self-test fires"; ./scripts/check-retired-at-drift.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-retired-at-drift"; fi
+
+  step "cards.suspended_at vs. lesson_verdicts (self-tested first)"
+  ./scripts/check-suspension-drift.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
+  if [ $? -ne 0 ]; then echo "  FAIL: this check cannot detect injected suspension drift"; FAILED+=("suspension-drift-selftest");
+  else echo "  self-test fires"; ./scripts/check-suspension-drift.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-suspension-drift"; fi
+
+  step "scarcity indexes are actually UNIQUE, not just present (self-tested first)"
+  ./scripts/check-scarcity-indexes.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
+  if [ $? -ne 0 ]; then echo "  FAIL: this check cannot detect a non-unique index wearing a scarcity index's name"; FAILED+=("scarcity-indexes-selftest");
+  else echo "  self-test fires"; ./scripts/check-scarcity-indexes.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-scarcity-indexes"; fi
+
+  step "vocabulary drift -- two DB objects encoding one concept with different spellings (self-tested first)"
+  ./scripts/check-vocabulary-drift.sh --self-test "$DB_URL" </dev/null >/dev/null 2>&1
+  if [ $? -ne 0 ]; then echo "  FAIL: this check cannot detect a planted near-identical value-set pair"; FAILED+=("vocabulary-drift-selftest");
+  else echo "  self-test fires"; ./scripts/check-vocabulary-drift.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-vocabulary-drift"; fi
+
+  step "scheduler cache (card_states) vs. FSRS replay over reviews -- NO self-test here, on purpose"
+  # check-scheduler-cache-drift.sh's own --self-test writes REAL fixture rows
+  # (auth.users/books/lessons/cards/reviews/card_states) and refuses to run
+  # against anything that doesn't look like scratch/localhost unless forced
+  # with --i-know-this-writes -- Mode 3's corruption is a real INSERT into the
+  # append-only `reviews` log that the script itself says is never cleaned up.
+  # Every other self-test in this section proves itself inside a rolled-back
+  # transaction; this one cannot, so it stays a manual, scratch-only tool and
+  # only the read-only live replay runs here.
+  ./scripts/check-scheduler-cache-drift.sh "$DB_URL" </dev/null | sed 's/^/  /'; record ${PIPESTATUS[0]} "check-scheduler-cache-drift"
+
+  # NOT wired, reported to the Lead instead of wired red-on-day-one:
+  #   check-migrations-applied.sh    -- currently FAILS on this database (a real
+  #                                      unapplied migration found live); wiring
+  #                                      a check that's red from the start trains
+  #                                      everyone to ignore preflight.
+  #   check-function-replaced.sh     -- self-test passes, but it has no generic
+  #                                      "check the whole schema" mode: it is a
+  #                                      per-migration snapshot/verify tool that
+  #                                      needs a function name and a prior md5,
+  #                                      supplied by whoever wrote that migration.
 else
   step "database checks"
   echo "  SKIPPED — no postgres url given. This is NOT a pass."
