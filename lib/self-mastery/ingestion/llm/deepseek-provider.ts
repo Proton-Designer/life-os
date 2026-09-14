@@ -77,6 +77,48 @@ const MAX_TOKENS_EXTRACT = 1000;
 const MAX_TOKENS_CARDS = 600;
 const MAX_TOKENS_ENTAILMENT = 220;
 
+/**
+ * FOUND LIVE (2026-09-14, Phase 1 #5's first real production book): every
+ * gatewayChat call defaulted to client.ts's global 20s TIMEOUT_MS, and a
+ * real extractLessons call over a 2-4k-token chunk does not finish in 20s
+ * from Vercel -- confirmed failing twice with errorKind:"timeout" against
+ * a real book (ingestion_job_stage_attempts), never against the local dev
+ * shim or a mocked test, which is why this went unnoticed until a real
+ * production run existed to find it.
+ *
+ * 60s for extraction/cards, not client.ts's 20s default and not the
+ * route's full 280s ceiling: generous headroom over what a bounded
+ * (1000/600 max_tokens) completion should need even under load, while
+ * `INGESTION_RETRY`'s maxAttempts:2 keeps the worst case for ONE call at
+ * 2x this value -- 120s for extraction/cards, well inside route.ts's
+ * maxDuration=280 with real margin left for auth/claim/DB writes. 30s for
+ * entailment: its own output budget (MAX_TOKENS_ENTAILMENT=220) is a
+ * fraction of extraction's/cards', and it already runs with no MAX_ATTEMPTS
+ * loop of its own (checkEntailment's own header), so it needs less margin,
+ * not more.
+ *
+ * WHY maxAttempts:2 HERE, NOT THE GATEWAY'S DEFAULT 3: this is a
+ * DELIBERATE reduction, not an oversight. The default 3 exists for short
+ * interactive calls (answer feedback, verifyKey) where a sub-second-to-
+ * single-digit-second in-request retry is nearly free. At 60-90s per
+ * attempt that reasoning inverts -- 3 attempts would risk 180-270s inside
+ * ONE cron invocation for a single call, eating nearly the whole 280s
+ * budget on ONE of several calls a stage handler might need to make, and a
+ * timeout that repeats under real load is more likely CORRELATED (the same
+ * slow moment) than independent, so a same-request retry is the least
+ * likely retry to actually help. The ingestion cursor's own stage-level
+ * retry (`ingestion_jobs.max_attempts`, 3, migration 074) already covers
+ * genuine persistence across SEPARATE cron invocations a minute apart --
+ * a real "try again later," not a same-request retry. `errorKind:"timeout"`
+ * stays in retry.ts's RETRYABLE_KINDS unchanged (still correct for short
+ * calls); this narrows the ATTEMPT COUNT for these three calls specifically,
+ * via the gateway's existing per-call `retry` option, rather than changing
+ * the shared classification for every caller.
+ */
+const INGESTION_LONG_TIMEOUT_MS = 60_000;
+const ENTAILMENT_TIMEOUT_MS = 30_000;
+const INGESTION_RETRY = { maxAttempts: 2 };
+
 /** Mirrors DevShimProvider's own `lastUsage` convention (dev-shim-provider.ts)
  * -- read by worker-stages.ts's telemetry (`provider.lastUsage?.promptTokens`)
  * and by the calibration harness. `costUsd` is the gateway's own estimate
@@ -157,6 +199,7 @@ export class DeepSeekProvider implements LlmProvider {
     userPrompt: string,
     maxTokens: number,
     validate: (obj: unknown) => obj is T,
+    callOpts?: { timeoutMs?: number; retry?: { maxAttempts?: number } },
   ): Promise<T | null> {
     const result = await gatewayChat(
       this.supabase,
@@ -166,7 +209,7 @@ export class DeepSeekProvider implements LlmProvider {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      { maxTokens, thinking: false },
+      { maxTokens, thinking: false, timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
     );
     if (result.usage) {
       this.lastUsage = {
@@ -280,6 +323,7 @@ Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mec
         userPrompt,
         MAX_TOKENS_EXTRACT,
         isValid,
+        { timeoutMs: INGESTION_LONG_TIMEOUT_MS, retry: INGESTION_RETRY },
       );
       if (!parsed) continue;
 
@@ -374,6 +418,7 @@ Return ONLY strict JSON: {"free_recall_prompt": "...", "application_prompt": "..
         userPrompt,
         MAX_TOKENS_CARDS,
         isValid,
+        { timeoutMs: INGESTION_LONG_TIMEOUT_MS, retry: INGESTION_RETRY },
       );
       if (!parsed) continue;
 
@@ -459,6 +504,7 @@ Respond with ONLY a JSON object: {"passage_point": "<one short sentence>", "verd
       userPrompt,
       MAX_TOKENS_ENTAILMENT,
       isEntailmentResult,
+      { timeoutMs: ENTAILMENT_TIMEOUT_MS, retry: INGESTION_RETRY },
     );
     if (!result) {
       // Fail closed, not open -- see this method's own doc comment. This

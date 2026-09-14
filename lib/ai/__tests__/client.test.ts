@@ -218,3 +218,56 @@ describe("verifyKey() and the reasoning-mode regression", () => {
     expect(result.content).toBe("ok");
   });
 });
+
+/**
+ * FOUND LIVE (2026-09-14): every call, regardless of shape, aborted at the
+ * same hardcoded 20s (TIMEOUT_MS), and a real self-mastery extraction call
+ * timed out against production -- twice, `ingestion_job_stage_attempts`
+ * confirms -- with no test anywhere pinning the timeout behavior at all.
+ * This describe block is the regression that closes that gap: a genuinely
+ * hanging request must abort at the CONFIGURED duration, not always 20s.
+ */
+describe("chat()'s per-call timeoutMs", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchMock = vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+      // A real hanging request: only ever settles if aborted -- exactly the
+      // shape a slow DeepSeek response has until either it replies or the
+      // AbortController fires. Never resolves on its own, so the ONLY way
+      // this promise settles is the timeout under test.
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("aborts at the default 20s when no timeoutMs is passed -- unchanged prior behavior", async () => {
+    const resultPromise = chat("deepseek", "sk-test", [{ role: "user", content: "hi" }]);
+    await vi.advanceTimersByTimeAsync(19_999);
+    // Not yet aborted -- proves this isn't a shorter, coincidentally-passing timer.
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("timeout");
+  });
+
+  it("aborts at a custom timeoutMs, not the 20s default -- the actual fix", async () => {
+    const resultPromise = chat("deepseek", "sk-test", [{ role: "user", content: "hi" }], { timeoutMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(20_000);
+    // The bug this pins against: at the OLD hardcoded 20s, this would
+    // already have aborted here. It must not have.
+    await Promise.race([resultPromise, Promise.resolve("still pending")]).then((v) => expect(v).toBe("still pending"));
+    await vi.advanceTimersByTimeAsync(40_000);
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("timeout");
+  });
+});

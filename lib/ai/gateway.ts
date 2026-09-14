@@ -31,6 +31,16 @@ export interface GatewayChatOptions {
   temperature?: number;
   /** Overrides the tier's thinking-mode default. */
   thinking?: boolean;
+  /**
+   * Overrides client.ts's TIMEOUT_MS default (20s) for this call. Found
+   * necessary live, 2026-09-14: self-mastery's ingestion extraction calls
+   * (larger chunks, up to 1000 output tokens) timed out at 20s in
+   * production — see deepseek-provider.ts's own call sites for the values
+   * chosen and why. Every OTHER caller (answer feedback, verifyKey, etc.)
+   * omits this and keeps the unchanged 20s default; this is additive, not
+   * a global timeout change.
+   */
+  timeoutMs?: number;
   retry?: RetryOptions;
   /** Test seam — an in-memory FakeUsageStore in every gateway test, never Supabase. */
   usageStore?: UsageStore;
@@ -91,6 +101,7 @@ export async function gatewayChat(
         temperature: opts.temperature,
         model,
         thinking,
+        timeoutMs: opts.timeoutMs,
       }),
     opts.retry,
   );

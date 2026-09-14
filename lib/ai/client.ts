@@ -37,6 +37,14 @@ export interface ChatResult {
   errorKind?: "auth" | "rate_limited" | "bad_request" | "server_error" | "empty_content" | "timeout" | "network";
 }
 
+// The default for every caller that doesn't pass its own timeoutMs —
+// unchanged from before this constant became overridable, so every existing
+// short/interactive call (answer feedback, verifyKey, etc.) keeps its exact
+// prior behavior. A caller whose own call shape genuinely needs longer
+// (self-mastery ingestion's extraction/card-generation calls, found timing
+// out in production at this value — see gateway.ts's GatewayChatOptions.timeoutMs
+// and deepseek-provider.ts's own call sites) passes timeoutMs explicitly
+// rather than this constant moving for everyone.
 const TIMEOUT_MS = 20_000;
 
 interface ChatOpts {
@@ -44,6 +52,8 @@ interface ChatOpts {
   temperature?: number;
   /** Override PROVIDERS[provider].defaultModel — e.g. the gateway's tiering. */
   model?: string;
+  /** Overrides TIMEOUT_MS for this one call. See TIMEOUT_MS's own comment. */
+  timeoutMs?: number;
   /**
    * Explicitly enable/disable DeepSeek's "thinking" (reasoning) mode
    * (https://api-docs.deepseek.com/guides/thinking_mode). Both live DeepSeek
@@ -84,7 +94,7 @@ export async function chat(
   const { baseUrl, defaultModel, label } = PROVIDERS[provider];
   const model = opts.model ?? defaultModel;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? TIMEOUT_MS);
   try {
     const body: Record<string, unknown> = {
       model,
