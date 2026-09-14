@@ -5,6 +5,10 @@ import { PageHeader } from "@/components/shell/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { startDayAction } from "./actions";
+
+const START_DAY_BUTTON_CLASS =
+  "inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground";
 
 /**
  * The morning open — B1's other half.
@@ -12,17 +16,26 @@ import { localDateString } from "@/lib/date-utils";
  * BOSS-VISION §6: "≤ 3 taps, optional: Start Day, confirm last night's crowned
  * three, see today's shape."
  *
- * READ-ONLY, DELIBERATELY. The vision also says the morning open is
- * "confirm-and-start, never a second writer". So this page shows what last
- * night decided and gets out of the way; it does not let you re-crown at 7am.
- * If the plan is wrong, the honest remedy is to re-run the close, not to give
- * the morning a quiet second write path that would make "the night before is
- * the authoritative writer" false without anything saying so.
+ * READ-ONLY, DELIBERATELY, FOR THE PLAN. The vision also says the morning
+ * open is "confirm-and-start, never a second writer" — for the crowned
+ * three. This page shows what last night decided and gets out of the way;
+ * it does not let you re-crown at 7am. If the plan is wrong, the honest
+ * remedy is to re-run the close, not to give the morning a quiet second
+ * write path that would make "the night before is the authoritative writer"
+ * false without anything saying so.
  *
- * THE TAP BUDGET IS THE FEATURE. Landing here IS the first tap; "Start day" is
- * the second and it leads to today's shape. A correct screen that costs five
- * taps has failed the thing it was specified for, so the count is asserted
- * rather than assumed — two controls, and neither is a menu.
+ * "Start day" IS a write — #33's idempotent wake mark (day_starts,
+ * lib/day-structure/day-start.ts) — but it is a DIFFERENT kind of state
+ * than the plan: a once-per-day timestamp with no content to get wrong, not
+ * a second attempt at ranking tasks. Tapping it merely confirms "yes, I am
+ * up"; it can never change WHAT today's plan is, only that Day Structure
+ * (#34-#36) now has a clock to measure the day against.
+ *
+ * THE TAP BUDGET IS THE FEATURE. Landing here IS the first tap; "Start day"
+ * is the second and it leads straight to /open/today (#36, Merged Today) —
+ * "today's shape". A correct screen that costs five taps has failed the
+ * thing it was specified for, so the count is asserted rather than assumed:
+ * two controls, and neither is a menu.
  *
  * A plan is read for the USER'S today via localDateString(now, timezone).
  * Deriving it from the server clock would silently read tomorrow's plan for
@@ -63,12 +76,11 @@ export default async function MorningOpenPage() {
               Today is open. The close runs this evening.
             </p>
           </div>
-          <Link
-            href="/"
-            className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
-          >
-            Start day
-          </Link>
+          <form action={startDayAction}>
+            <button type="submit" className={START_DAY_BUTTON_CLASS}>
+              Start day
+            </button>
+          </form>
         </section>
       ) : (
         <section className="space-y-4">
@@ -106,12 +118,11 @@ export default async function MorningOpenPage() {
           </ol>
           <div className="flex items-center gap-3">
             {/* Confirm-and-start: one tap. */}
-            <Link
-              href="/"
-              className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
-            >
-              Start day
-            </Link>
+            <form action={startDayAction}>
+              <button type="submit" className={START_DAY_BUTTON_CLASS}>
+                Start day
+              </button>
+            </form>
             {/* R60's one escape: it ROUTES to the close's plan stage — re-running
                 the writer — rather than re-crowning here. A re-crown in place
                 would make "the night before is the only writer of rank" false

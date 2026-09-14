@@ -52,6 +52,7 @@ export default async function EveningClosePage() {
               hoursTodayMinutes={data.hoursTodayMinutes}
               weekdayBaselines={data.weekdayBaselines}
               weekdayIndex={data.weekdayIndex}
+              deltaMinutes={data.deltaMinutes}
             />
             <VerdictDueList promotions={duePromotions} />
             <ClosePlanStage initialLines={data.tomorrowLines} />

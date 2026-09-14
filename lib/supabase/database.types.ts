@@ -759,6 +759,30 @@ export type Database = {
         }
         Relationships: []
       }
+      day_starts: {
+        Row: {
+          created_at: string
+          id: string
+          local_date: string
+          user_id: string
+          woke_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          local_date: string
+          user_id?: string
+          woke_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          local_date?: string
+          user_id?: string
+          woke_at?: string
+        }
+        Relationships: []
+      }
       deen_habit_logs: {
         Row: {
           completed: boolean

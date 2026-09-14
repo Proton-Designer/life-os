@@ -6,8 +6,9 @@ import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
 import type { ReviewItem } from "@/lib/distractions/types";
-import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
-import { resolveLocalTime } from "@/lib/date-utils";
+import { getHoursTodayMinutes } from "@/lib/evening-close/hours-today";
+import { getTodayDayStart } from "@/lib/day-structure/day-start";
+import { computeDeltaMinutes } from "@/lib/day-structure/delta-clock";
 
 export type PlannedItem = { id: string; title: string; mitRank: number; completed: boolean };
 
@@ -35,6 +36,11 @@ export type EveningCloseData = {
    * are deliberately ABSENT until migration 122 gives them a value — an unset
    * baseline is not a zero baseline, and rendering "0 / 0" would read as a
    * failed day rather than an unanswered question.
+   *
+   * Computed via lib/evening-close/hours-today.ts (extracted, not
+   * reimplemented, so Day Structure's efficiency metric (#35) reads from the
+   * exact same day-bounded, counts_toward_hours-filtered query rather than a
+   * second copy that can drift from this one).
    */
   hoursTodayMinutes: number;
   /** `user_settings.weekday_baselines` (122). Null = never set: the comparison is ABSENT, not failed. */
@@ -43,6 +49,16 @@ export type EveningCloseData = {
   weekdayIndex: number;
   /** Lines already dumped for TOMORROW, so re-entering the ceremony resumes rather than restarts. */
   tomorrowLines: { id: string; title: string }[];
+  /**
+   * Minutes since today's Start Day tap (#33/#34, Day Structure) — null when
+   * Start Day hasn't been tapped today, not zero. A zero here would read as
+   * "just woke up a moment ago" for someone who never marked waking at all,
+   * the same absent-is-not-a-value trap `weekdayBaselines`/Day Won already
+   * guards against. The close only READS today's wake mark to report Delta
+   * alongside Hours; it never writes one — that write path is #33's Start
+   * Day tap (app/(app)/open/actions.ts) only.
+   */
+  deltaMinutes: number | null;
 };
 
 /**
@@ -64,18 +80,13 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   const today = localDateString(new Date(), timezone);
 
   const supabase = await createClient();
-  // Day bounds from the user's local midnight, via resolveLocalTime — never
-  // `${today}T00:00:00Z`, which treats an already-local date as a UTC boundary
-  // and pulls in the previous evening. That exact bug has shipped twice here.
   const tomorrow = addDaysToDateString(today, 1);
-  const dayStart = resolveLocalTime(today, "00:00", timezone).toISOString();
-  const dayEnd = resolveLocalTime(today, "23:59", timezone).toISOString();
 
   // The user's weekday, not the server's. `today` is already their local
   // calendar date; a noon UTC instant off that date cannot slip either way.
   const weekdayIndex = new Date(`${today}T12:00:00Z`).getUTCDay();
 
-  const [triggers, unplannedTodayCount, planned, sessions, tomorrowRows, settings] = await Promise.all([
+  const [triggers, unplannedTodayCount, planned, hoursTodayMinutes, tomorrowRows, settings, wakeMark] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
     getTodayDistractionCount(supabase, user.id, today),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
@@ -88,16 +99,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .eq("planned_date", today)
       .not("mit_rank", "is", null)
       .order("mit_rank", { ascending: true }),
-    // Filter on the GENERATED column, never a hardcoded kind list — migration
-    // 057 makes counts_toward_hours unwritable by application code precisely
-    // so this answer cannot drift between the surfaces that ask it.
-    supabase
-      .from("work_sessions")
-      .select("started_at, ended_at")
-      .eq("user_id", user.id)
-      .eq("counts_toward_hours", true)
-      .gte("started_at", dayStart)
-      .lt("started_at", dayEnd),
+    getHoursTodayMinutes(supabase, user.id, today, timezone, new Date()),
     supabase
       .from("tasks")
       .select("id, title")
@@ -105,6 +107,8 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .eq("planned_date", tomorrow)
       .order("created_at", { ascending: true }),
     supabase.from("user_settings").select("weekday_baselines").eq("user_id", user.id).maybeSingle(),
+    // #33/#34 (Day Structure), read-only.
+    getTodayDayStart(supabase, user.id, timezone, new Date()),
   ]);
 
   const blockers = closeBlockers({ triggers, unplannedTodayCount });
@@ -122,13 +126,8 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     unplannedTodayCount,
     weekdayBaselines: (settings.data?.weekday_baselines ?? null) as number[] | null,
     weekdayIndex,
-    hoursTodayMinutes: computeFocusTimeMinutes(
-      (sessions.data ?? []).map((s) => ({
-        startedAt: new Date(s.started_at),
-        endedAt: s.ended_at ? new Date(s.ended_at) : null,
-      })),
-      new Date()
-    ),
+    hoursTodayMinutes,
+    deltaMinutes: wakeMark ? computeDeltaMinutes(wakeMark.wokeAtIso, new Date()) : null,
     tomorrowLines: (tomorrowRows.data ?? []).map((t) => ({ id: t.id, title: t.title })),
     todaysThree: (planned.data ?? []).map((t) => ({
       id: t.id,
