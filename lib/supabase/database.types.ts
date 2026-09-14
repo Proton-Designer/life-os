@@ -900,6 +900,7 @@ export type Database = {
           id: string
           reflection_entry_id: string | null
           reflection_tier: number | null
+          session_id: string | null
           trigger_id: string
           user_id: string
         }
@@ -909,6 +910,7 @@ export type Database = {
           id?: string
           reflection_entry_id?: string | null
           reflection_tier?: number | null
+          session_id?: string | null
           trigger_id: string
           user_id?: string
         }
@@ -918,6 +920,7 @@ export type Database = {
           id?: string
           reflection_entry_id?: string | null
           reflection_tier?: number | null
+          session_id?: string | null
           trigger_id?: string
           user_id?: string
         }
@@ -926,6 +929,12 @@ export type Database = {
             foreignKeyName: "distraction_events_reflection_same_user"
             columns: ["user_id", "reflection_entry_id"]
             referencedRelation: "reflection_entries"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "distraction_events_session_same_user"
+            columns: ["user_id", "session_id"]
+            referencedRelation: "work_sessions"
             referencedColumns: ["user_id", "id"]
           },
           {
