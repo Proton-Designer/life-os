@@ -110,5 +110,52 @@ export async function resolveApiKeyWithSource(
   return fromServer ? { key: fromServer, source: "server" } : null;
 }
 
+/**
+ * Reads ONLY this user's own stored key -- structurally incapable of
+ * returning the shared server key, unlike `resolveApiKey`/
+ * `resolveApiKeyWithSource` (both of which fall through to `serverKey()` by
+ * design, for gateway-routed calls that SHOULD draw on the operator-funded
+ * balance when the user has none). This function exists for exactly one
+ * kind of caller: "does the key THIS USER put in THIS FORM still work" --
+ * a check that must never be able to silently test (and, if ever routed
+ * through a non-gateway `chat()`/`verifyKey()` call, spend against) the
+ * shared balance on behalf of a user who has no key of their own.
+ *
+ * `app/(app)/settings/api-key-actions.ts`'s `testStoredKey()` is the one
+ * caller today: it used to call `resolveApiKey()`, which returns the
+ * server key whenever no user row exists -- meaning ANY signed-in user
+ * (regardless of whether they'd ever saved a key; the UI's "Test key"
+ * button is a client-side-only guard, not a server-side one) could trigger
+ * a real, uncapped, unlogged call against the shared DeepSeek balance
+ * simply by invoking this server action for a provider they had no key
+ * for. Found in an adversarial verification pass, 2026-09-13. Fixed by
+ * giving `testStoredKey` a function that cannot return the server key at
+ * all, rather than trusting every future caller to remember not to use
+ * `resolveApiKey` here -- see `lib/ai/__tests__/resolve-key.test.ts` for
+ * the regression test.
+ */
+export async function resolveStoredUserKey(
+  client: SupabaseClient,
+  userId: string,
+  provider: ProviderId,
+): Promise<string | null> {
+  const { data, error } = await client
+    .from("user_api_keys")
+    .select("encrypted_key")
+    .eq("user_id", userId)
+    .eq("provider", provider)
+    .maybeSingle();
+  if (error || !data?.encrypted_key) return null;
+  try {
+    return decryptSecret(data.encrypted_key as string);
+  } catch {
+    // Unreadable ciphertext (a rotated server secret, a corrupted row) --
+    // this path must NEVER fall through to the server key, so an unusable
+    // stored key reads the same as no stored key at all, not as "try the
+    // shared one instead."
+    return null;
+  }
+}
+
 export const DEFAULT_PROVIDER: ProviderId = "deepseek";
 export { PROVIDERS };

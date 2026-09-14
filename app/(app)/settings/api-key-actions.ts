@@ -105,12 +105,32 @@ export async function removeApiKey(provider: string): Promise<KeyActionResult> {
   return { ok: true, message: "Key removed. The features it enabled are switched off." };
 }
 
-/** Re-check a stored key without the user re-pasting it. Keys get revoked. */
+/**
+ * Re-check a stored key without the user re-pasting it. Keys get revoked.
+ *
+ * MUST NEVER BE ABLE TO REACH THE SHARED SERVER KEY -- this is callable by
+ * any signed-in user (the UI only shows the "Test key" button when a key is
+ * already stored; that is a display choice, not an authorization boundary,
+ * and this action has none of its own). `resolveStoredUserKey`
+ * (lib/ai/resolve-key.ts) is used instead of `resolveApiKey` specifically
+ * because it is structurally incapable of returning the server key -- see
+ * its own header for the bug this replaced (an uncapped, unlogged path to
+ * the shared balance, found 2026-09-13).
+ *
+ * Calling `verifyKey()` directly here (not `gatewayChat()`) remains correct:
+ * the key this function tests is always the caller's own BYO key or
+ * nothing at all, never the shared server key, so there is no shared
+ * balance to protect and nothing to log against a per-user cap that only
+ * exists to protect that shared balance (lib/ai/spend-cap.ts's own header).
+ * `saveApiKey` above has the same property for the same reason -- its `key`
+ * is always the raw, not-yet-stored value the caller just typed in, never
+ * anything resolved from storage.
+ */
 export async function testStoredKey(provider: string): Promise<KeyActionResult> {
   if (!isProviderId(provider)) return { ok: false, message: "Unknown provider." };
   const { supabase, userId } = await requireUser();
-  const { resolveApiKey } = await import("@/lib/ai/resolve-key");
-  const key = await resolveApiKey(supabase, userId, provider);
+  const { resolveStoredUserKey } = await import("@/lib/ai/resolve-key");
+  const key = await resolveStoredUserKey(supabase, userId, provider);
   if (!key) return { ok: false, message: "No key stored for this provider." };
   const check = await verifyKey(provider, key);
   return check.ok

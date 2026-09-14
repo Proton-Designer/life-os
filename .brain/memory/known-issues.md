@@ -249,6 +249,33 @@ postgres-meta version, `scripts/gen-database-types.sh`'s own header
 explains how to re-verify the pin and bump it — don't assume the script
 stays correct forever unattended.
 
+### Migration 151's own CROSS-BOUNDARY NOTE is now half-stale (2026-09-14)
+**Was:** `supabase/migrations/151_widen_class_assessment_types.sql`'s header
+flags `lib/mcp/write-registry.ts`'s `ASSESSMENT_TYPES` and
+`lib/mcp/registry.ts`'s class-assessment `description` string as BOTH still
+hardcoding the pre-151 3-value vocabulary (`quiz/exam/midterm_final`).
+**Now:** only half true. `write-registry.ts` does not hardcode its own copy
+-- it imports `ASSESSMENT_TYPES` directly from `lib/school/actions-core.ts`
+(already the correct 5-value list), so that half of the note is resolved,
+apparently fixed sometime after 151 was written. `lib/mcp/registry.ts`'s
+description string DID still read the stale 3-value text -- fixed directly
+(E1, 2026-09-14; found in an adversarial verification pass) since it is a
+one-line string with no behavioral coupling, and since that text is read by
+LLM agents as ground truth for valid values via the MCP tool schema, not
+just by humans -- stale vocabulary there is actively misleading, not merely
+untidy.
+**Do not edit `151_widen_class_assessment_types.sql` itself to fix this**
+even though its header is now inaccurate: the migration is already applied
+to production, and `check-migrations-applied.sh` (part of
+`preflight.sh`'s DB branch) compares every migration file's current md5
+against `migration_ledger`'s recorded md5 -- editing so much as a comment
+in an applied migration file makes that check report it as "EDITED AFTER
+APPLY," a real tamper-detection signal this repo relies on, for no schema
+benefit (verified: attempted this fix directly in the migration file first,
+reverted once the ledger-md5 consequence was found). This entry is the
+correction; the migration file stays exactly as applied.
+**Tracked:** found and the `registry.ts` half fixed 2026-09-14 (E1).
+
 ## Documentation known to be stale as written, since resolved
 
 ### `docs/ai-connector/PROGRAM-PLAN.md` / `docs/ai-connector/CAPABILITIES.md` widget-CHECK claim — resolved

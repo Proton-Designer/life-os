@@ -70,10 +70,40 @@ export function computePartialThreshold(targetCount: number, ceiling = 10, floor
 }
 
 /**
- * Cluster by embedding cosine similarity (~0.86), collapse each cluster to
- * its best representative, then rank and keep the top N, deliberately
- * spreading selection across the book (page-range buckets) rather than
- * clustering in one chapter.
+ * Normalizes a title to a plain lowercase/whitespace-collapsed string for
+ * exact comparison — NOT a fuzzy/Jaccard match. Deliberately narrow: see
+ * `clusterAndRank`'s own header for why this specific, conservative signal
+ * (and not a broader lexical-similarity score) is the right fallback.
+ */
+function normalizeTitle(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Cluster by embedding cosine similarity (~0.86) OR an exact normalized-title
+ * match, collapse each cluster to its best representative, then rank and
+ * keep the top N, deliberately spreading selection across the book
+ * (page-range buckets) rather than clustering in one chapter.
+ *
+ * WHY THE TITLE FALLBACK EXISTS: `HeuristicProvider.mergeLessons` runs with
+ * no real embedder anywhere in this repo today (ADR-003; worker-stages.ts's
+ * own header) — every embedding is `[]`, `cosineSimilarity([], [])` is
+ * always 0, so the embedding half of this function NEVER fires in
+ * production; it only clusters when a real embedder is eventually wired in.
+ * Verified this is not theoretical: real book 9094481c-1109-4cfb-a46f-
+ * b63c7706d2c1 (2026-09-13 production ingestion) surfaced exactly one
+ * genuine duplicate among its 56 surviving lessons — ranks 43 and 52, both
+ * titled "Reward what you truly value" (p108/p114), same mechanism restated
+ * from two nearby passages. An exact normalized-title match is deliberately
+ * the ONLY lexical signal used here, not a broader word-overlap/Jaccard
+ * threshold: the same book's ranks 11/21/33/44 are four genuinely distinct
+ * lessons that all discuss the same "Core Drives" framework under different
+ * titles, and a looser lexical threshold risks collapsing legitimately
+ * distinct lessons that merely share a topic — see this file's own test
+ * (`merge.test.ts`) for both cases side by side, with the real text. This is
+ * a narrow patch for a demonstrated gap, not a claim that title-matching
+ * replaces real semantic dedup; a real embedder remains the actual fix
+ * (tracked as out of this scope — ADR-003).
  *
  * `n` is resolved by the caller from `MergeLessonsInput.targetCount` — this
  * function doesn't compute the target itself since the LlmProvider contract
@@ -92,7 +122,11 @@ export function clusterAndRank(items: ScoredCandidate[], n: number): CandidateLe
     let placed = false;
     for (const cluster of clusters) {
       const rep = cluster[0];
-      if (rep && cosineSimilarity(rep.embedding, item.embedding) >= SIMILARITY_THRESHOLD) {
+      if (
+        rep &&
+        (cosineSimilarity(rep.embedding, item.embedding) >= SIMILARITY_THRESHOLD ||
+          normalizeTitle(rep.candidate.title) === normalizeTitle(item.candidate.title))
+      ) {
         cluster.push(item);
         placed = true;
         break;

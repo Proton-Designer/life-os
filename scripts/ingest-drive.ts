@@ -29,6 +29,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/supabase/database.types";
 import { STAGE_HANDLERS } from "../lib/self-mastery/ingestion/worker-stages";
 import { bracketStage, describeError } from "../lib/self-mastery/ingestion/telemetry";
+import { getDevProviderBaseUrl } from "../lib/ai/dev-provider";
 
 const USER_ID = "d3a4edfb-6ebf-4564-93d9-e5a08fb695b1";
 const BOOK_ID = "9094481c-1109-4cfb-a46f-b63c7706d2c1";
@@ -49,11 +50,70 @@ async function fetchDeepSeekBalance(apiKey: string): Promise<unknown> {
   return res.json();
 }
 
+/**
+ * PROVIDER SELECTION, MADE LOUD AND FAIL-FAST -- a real reproducibility trap
+ * found in an adversarial verification pass (2026-09-13): `worker-stages.ts`'s
+ * `resolveIngestionProvider()` prefers `DevShimProvider` whenever
+ * `getDevProviderBaseUrl()` is non-null (NODE_ENV != production AND
+ * `SELF_MASTERY_DEV_PROVIDER_URL` is set) -- and that var IS set in
+ * `.env.local`, which this script loads unconditionally. A plain
+ * `npx tsx scripts/ingest-drive.ts` therefore selects the dev shim by
+ * default and fails outright unless `scripts/dev-provider-shim.mjs` happens
+ * to be running -- which it never is for a real-book production run, so the
+ * one real run that worked only worked because someone manually cleared
+ * `SELF_MASTERY_DEV_PROVIDER_URL` for that one invocation, undocumented and
+ * unrepeatable. This function makes that choice visible and checked BEFORE
+ * any real work (or spend) happens, rather than leaving the next person to
+ * discover it via a wall of shim-connection-refused errors partway through
+ * a 173-chunk run: it prints which provider will actually be used and why,
+ * and when the dev shim would be selected, it probes the shim's port with a
+ * short timeout and ABORTS immediately with an actionable message if
+ * nothing answers -- this script's whole reason to exist is driving a REAL
+ * production book through the REAL DeepSeek-backed gateway, so a
+ * dev-shim selection that can't even reach its shim is never something to
+ * silently limp through.
+ */
+async function checkProviderSelection(): Promise<void> {
+  const devUrl = getDevProviderBaseUrl();
+  if (!devUrl) {
+    console.log(`[ingest-drive] PROVIDER: DeepSeekProvider (real, gateway-routed, spend-capped) -- SELF_MASTERY_DEV_PROVIDER_URL is unset or NODE_ENV=production.`);
+    return;
+  }
+
+  console.log(`[ingest-drive] PROVIDER: DevShimProvider would be selected -- SELF_MASTERY_DEV_PROVIDER_URL=${devUrl} is set and NODE_ENV != production.`);
+  console.log(`[ingest-drive] Probing ${devUrl} for a live dev-provider-shim...`);
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    await fetch(devUrl, { signal: controller.signal }).catch((e) => {
+      throw e;
+    });
+    clearTimeout(timeout);
+    console.log(`[ingest-drive] Shim answered -- proceeding against DevShimProvider. If a REAL book run was intended, this is the wrong provider: stop now and re-run with SELF_MASTERY_DEV_PROVIDER_URL unset.`);
+  } catch {
+    console.log(
+      [
+        "",
+        "!!! ABORTING: SELF_MASTERY_DEV_PROVIDER_URL is set but nothing answered at that address. !!!",
+        `!!! This run would select DevShimProvider (dev shim) and fail on its first real-model call, exactly the trap that broke the last production run's reproducibility. !!!`,
+        "!!! Fix one of the two ways, then re-run: !!!",
+        "!!!   (a) driving a REAL book through DeepSeek (the normal case for this script): unset SELF_MASTERY_DEV_PROVIDER_URL in .env.local, or !!!",
+        "!!!   (b) actually testing against the dev shim: start it first (node scripts/dev-provider-shim.mjs). !!!",
+        "",
+      ].join("\n"),
+    );
+    process.exitCode = 2;
+    throw new Error("ingest-drive: provider selection would fail (dev shim unreachable) -- aborted before any real work or spend.");
+  }
+}
+
 async function main() {
   const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
   const deepseekKey = requireEnv("DEEPSEEK_API_KEY");
   const supabase = createClient<Database>(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+  await checkProviderSelection();
 
   const invocationStart = Date.now();
   console.log(`[ingest-drive] invocation starting ${new Date(invocationStart).toISOString()}`);

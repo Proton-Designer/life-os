@@ -442,7 +442,7 @@ export const REGISTRY: Record<string, DomainDef> = {
       class_assessment: {
         entity: "class_assessment",
         table: "class_assessments",
-        description: "One assessment (quiz/exam/midterm_final) for a class, with its grade-engine inputs. Adding one also creates a linked task (ruling R5) -- see write-registry's class_assessment.add.",
+        description: "One assessment (quiz/exam/final_midterm/homework_assignment/project_paper) for a class, with its grade-engine inputs. Adding one also creates a linked task (ruling R5) -- see write-registry's class_assessment.add.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:

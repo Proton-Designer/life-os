@@ -75,13 +75,25 @@ describe("HeuristicProvider.mergeLessons — embedder call shape", () => {
     expect(embed).not.toHaveBeenCalled();
   });
 
-  it("works with no embedder at all (embedding-less clustering, every candidate its own cluster)", async () => {
-    const candidates = [makeCandidate(), makeCandidate({ coreClaim: "A different claim." })];
+  it("works with no embedder at all -- two candidates with genuinely different titles each survive as their own lesson", async () => {
+    const candidates = [
+      makeCandidate({ title: "First lesson" }),
+      makeCandidate({ title: "Second lesson", coreClaim: "A different claim." }),
+    ];
     const provider = new HeuristicProvider(); // no embedder injected
 
     const result = await provider.mergeLessons({ candidates, targetCount: { min: 1, max: 2 } });
 
     expect(result).toHaveLength(2);
+  });
+
+  it("with no embedder, still collapses two candidates that share an exact (normalized) title -- merge.ts's title fallback for the no-embedder path (see merge.ts's own header: real book 9094481c-1109-4cfb-a46f-b63c7706d2c1 surfaced exactly this shape as a genuine duplicate)", async () => {
+    const candidates = [makeCandidate(), makeCandidate({ coreClaim: "A different claim." })];
+    const provider = new HeuristicProvider(); // no embedder injected
+
+    const result = await provider.mergeLessons({ candidates, targetCount: { min: 1, max: 2 } });
+
+    expect(result).toHaveLength(1);
   });
 });
 
