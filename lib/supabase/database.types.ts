@@ -2856,6 +2856,92 @@ export type Database = {
           },
         ]
       }
+      staged_deliverables: {
+        Row: {
+          batch_id: string
+          committed_assessment_id: string | null
+          confidence: number
+          created_at: string
+          date: string | null
+          id: string
+          name: string
+          source_snippet: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          batch_id: string
+          committed_assessment_id?: string | null
+          confidence: number
+          created_at?: string
+          date?: string | null
+          id?: string
+          name: string
+          source_snippet?: string | null
+          type: string
+          user_id?: string
+        }
+        Update: {
+          batch_id?: string
+          committed_assessment_id?: string | null
+          confidence?: number
+          created_at?: string
+          date?: string | null
+          id?: string
+          name?: string
+          source_snippet?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staged_deliverables_batch_same_user"
+            columns: ["user_id", "batch_id"]
+            referencedRelation: "staging_batches"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "staged_deliverables_committed_assessment_same_user"
+            columns: ["user_id", "committed_assessment_id"]
+            referencedRelation: "class_assessments"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      staging_batches: {
+        Row: {
+          class_id: string
+          created_at: string
+          id: string
+          source: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          id?: string
+          source: string
+          status?: string
+          user_id?: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          id?: string
+          source?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staging_batches_class_same_user"
+            columns: ["user_id", "class_id"]
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       sunnah_logs: {
         Row: {
           completed: boolean
@@ -3665,6 +3751,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      claim_staging_batch: { Args: { p_batch_id: string }; Returns: string }
       complete_session: { Args: { p_session_id: string }; Returns: Json }
       complete_target: { Args: { p_target_id: string }; Returns: undefined }
       confirm_storage_deleted: {
@@ -3686,6 +3773,7 @@ export type Database = {
         Returns: undefined
       }
       delete_coop_target: { Args: { p_target_id: string }; Returns: undefined }
+      finalize_staging_batch: { Args: { p_batch_id: string }; Returns: boolean }
       get_session_queue: {
         Args: { p_limit_due: number; p_limit_new: number }
         Returns: {
