@@ -1,6 +1,7 @@
 import { computeClassGrade } from "@/lib/school/grades/grade-ledger";
 import { projectClassGrade } from "@/lib/school/grades/grade-projection";
 import { requiredScoreVerdictText } from "@/lib/school/grades/required-score-verdict";
+import { letterGradeForPct, type GradeBoundary } from "@/lib/school/grades/letterGrade";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
 export type GradeLedgerAssessment = ClassCardData["assessments"][number];
@@ -28,12 +29,18 @@ export type GradeLedgerAssessment = ClassCardData["assessments"][number];
 export function ClassGradeLedger({
   assessments,
   targetGradePct,
+  gradeBoundaries = [],
 }: {
   assessments: GradeLedgerAssessment[];
   /** `classData.targetGradePct` — null until the user sets one. Passed straight
    * through to `requiredScoreVerdictText`, which is the only place that turns
    * it into a number; this component never computes a verdict itself. */
   targetGradePct: number | null;
+  /** `classData.gradeBoundaries` (migration 152, Phase 1 #11) — already parsed
+   * by `parseGradeBoundaries` in get-class-cards.ts. Empty (the default) means
+   * no custom scale set, in which case no letter grade is shown at all — this
+   * component fabricates no default scale (letterGradeForPct's own contract). */
+  gradeBoundaries?: GradeBoundary[];
 }) {
   if (assessments.length === 0) {
     return (
@@ -73,6 +80,12 @@ export function ClassGradeLedger({
       ) : (
         <p className="text-sm">
           <span className="font-medium">{projection.currentGrade.toFixed(1)}%</span>
+          {/* First real caller of letterGradeForPct (lib/school/grades/letterGrade.ts) —
+              zero callers before Phase 1 #11 wired classes.grade_boundaries through. Only
+              shown once the user has actually set a scale; this app invents no default one. */}
+          {gradeBoundaries.length > 0 && (
+            <span className="font-medium"> ({letterGradeForPct(projection.currentGrade, gradeBoundaries)})</span>
+          )}
           <span className="text-muted-foreground"> current</span>
           {projection.projectedGrade != null && Math.abs(projection.projectedGrade - projection.currentGrade) > 0.05 && (
             <span className="text-muted-foreground"> · {projection.projectedGrade.toFixed(1)}% projected</span>

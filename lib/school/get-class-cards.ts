@@ -5,6 +5,7 @@ import { buildAssessmentRiskInput } from "@/lib/school/risk/build-assessment-ris
 import { computeAssignmentRisk, type RiskBand } from "@/lib/school/risk/assignment-risk";
 import type { Confidence } from "@/lib/school/risk/types";
 import type { QuestionOrigin } from "@/lib/school/questions-core";
+import { parseGradeBoundaries } from "@/lib/school/grades/parse-grade-boundaries";
 
 // `difficulty_rating` / `confidence_rating` / `target_grade_pct` (classes) and
 // `weight_pct` (class_assessments) landed in migration 105 — see that file's own
@@ -23,6 +24,19 @@ export type ClassCardData = {
   code: string;
   room: string | null;
   instructor: string | null;
+  /** `classes.term` (migration 152, Phase 1 #11) — free text (e.g. "Fall 2026"),
+   * hand-entered like room/instructor. Null until set. */
+  term: string | null;
+  /** `classes.late_policy`/`attendance_policy`/`allowed_absences` (migration 152,
+   * Phase 1 #11) — free text/numeric, informational only, same null-until-set
+   * treatment as term. */
+  latePolicy: string | null;
+  attendancePolicy: string | null;
+  allowedAbsences: number | null;
+  /** `classes.grade_boundaries` (migration 152) parsed via
+   * `parseGradeBoundaries` — a custom letter-grade scale, or `[]` when unset
+   * (never a fabricated default; see that column's own comment). */
+  gradeBoundaries: { letter: string; minPct: number }[];
   hasSyllabus: boolean;
   tasksDueThisWeek: number;
   upcomingAssessment: { name: string; date: string } | null;
@@ -116,7 +130,9 @@ export async function getClassCards(
 
   const { data: classRows, error: classError } = await supabase
     .from("classes")
-    .select("id, short_name, code, room, instructor, syllabus_path, difficulty_rating, confidence_rating, target_grade_pct")
+    .select(
+      "id, short_name, code, room, instructor, syllabus_path, difficulty_rating, confidence_rating, target_grade_pct, term, late_policy, attendance_policy, allowed_absences, grade_boundaries"
+    )
     .eq("user_id", userId)
     .order("position", { ascending: true, nullsFirst: false })
     .order("code", { ascending: true });
@@ -272,6 +288,11 @@ export async function getClassCards(
       code: c.code,
       room: c.room,
       instructor: c.instructor,
+      term: c.term,
+      latePolicy: c.late_policy,
+      attendancePolicy: c.attendance_policy,
+      allowedAbsences: c.allowed_absences,
+      gradeBoundaries: parseGradeBoundaries(c.grade_boundaries),
       difficultyRating: c.difficulty_rating,
       targetGradePct: c.target_grade_pct,
       hasSyllabus: c.syllabus_path !== null,

@@ -72,7 +72,7 @@ function expectRealRiskResult(assessments: { risk: { score: number; band: string
 describe("getClassCards", () => {
   it("shapes a normal class: this-week task count derived from the full task list, nearest upcoming assessment, full arrays carried through", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: "FO 2.404", instructor: "Nemec", syllabus_path: "u/c1/x.pdf", difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: "FO 2.404", instructor: "Nemec", syllabus_path: "u/c1/x.pdf", difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
       tasks: [task("t1", "c1", "2026-08-25"), task("t2", "c1", "2026-08-26"), task("t3", "c1", "2026-09-15")],
       class_assessments: [assessment("a1", "c1", "Quiz 2", "2026-09-10"), assessment("a2", "c1", "Quiz 3", "2026-09-20")],
     });
@@ -87,6 +87,11 @@ describe("getClassCards", () => {
         code: "CS-3345-HON",
         room: "FO 2.404",
         instructor: "Nemec",
+        term: null,
+        latePolicy: null,
+        attendancePolicy: null,
+        allowedAbsences: null,
+        gradeBoundaries: [],
         difficultyRating: null,
         targetGradePct: null,
         hasSyllabus: true,
@@ -113,7 +118,7 @@ describe("getClassCards", () => {
   // not crash and not show "undefined".
   it("shapes a class with nothing else attached to it (the Lin Alg / MATH 2418 shape) without crashing or producing undefined", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c2", short_name: "Lin Alg", code: "MATH 2418", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      classes: [{ id: "c2", short_name: "Lin Alg", code: "MATH 2418", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
       tasks: [],
       class_assessments: [],
     });
@@ -127,6 +132,11 @@ describe("getClassCards", () => {
         code: "MATH 2418",
         room: null,
         instructor: null,
+        term: null,
+        latePolicy: null,
+        attendancePolicy: null,
+        allowedAbsences: null,
+        gradeBoundaries: [],
         difficultyRating: null,
         targetGradePct: null,
         hasSyllabus: false,
@@ -141,7 +151,7 @@ describe("getClassCards", () => {
 
   it("shapes a class's question bank (Phase 1 #20) into camelCase rows, active and retired alike", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
       tasks: [],
       class_assessments: [],
       questions: [
@@ -170,8 +180,8 @@ describe("getClassCards", () => {
   it("never attributes another class's task count or assessment to a class with none of its own", async () => {
     const supabase = makeFakeSupabase({
       classes: [
-        { id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null },
-        { id: "c2", short_name: "Phys", code: "PHYS-2326-002", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null },
+        { id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null },
+        { id: "c2", short_name: "Phys", code: "PHYS-2326-002", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null },
       ],
       tasks: [task("t1", "c1", "2026-08-25")],
       class_assessments: [assessment("a1", "c1", "Exam 1", "2026-09-01")],
@@ -187,7 +197,7 @@ describe("getClassCards", () => {
 
   it("keeps a class's full incomplete task list even for tasks outside this week — not just the this-week count", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
       tasks: [task("t1", "c1", "2026-08-25"), task("t2", "c1", "2026-10-01")],
       class_assessments: [],
     });
@@ -199,7 +209,7 @@ describe("getClassCards", () => {
 
   it("carries weight/points/excused through unchanged, neither defaulted nor coalesced", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
       tasks: [],
       class_assessments: [
         assessment("a1", "c1", "Midterm", "2026-09-10", { weight_pct: 20, points_earned: 45, points_possible: 50, is_excused: false }),
@@ -218,7 +228,7 @@ describe("getClassCards", () => {
 
   it("ignores a past assessment when picking the nearest upcoming one, but still carries it in the full array", async () => {
     const supabase = makeFakeSupabase({
-      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null }],
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
       tasks: [],
       class_assessments: [assessment("a1", "c1", "Past Quiz", "2026-08-01"), assessment("a2", "c1", "Future Quiz", "2026-09-01")],
     });

@@ -73,13 +73,36 @@ export interface UpdateClassInput {
   /** `classes.term` (migration 152, Phase 1 #11) -- free text, same editable-
    * after-creation treatment as shortName/room/instructor. */
   term?: string | null;
+  /** `classes.late_policy`/`attendance_policy` (migration 152, Phase 1 #11) --
+   * free text, informational only -- no feature computes against these, same
+   * posture as term. */
+  latePolicy?: string | null;
+  attendancePolicy?: string | null;
+  /** `classes.allowed_absences` (migration 152) -- a real count, non-negative
+   * when present (the column's own CHECK); this function does not re-clamp
+   * it, the caller (updateClass) is expected to have already. */
+  allowedAbsences?: number | null;
+  /** `classes.grade_boundaries` (migration 152) -- a jsonb array of
+   * {letter, minPct}, or null for "no custom scale set." Undefined (field
+   * omitted) leaves the column untouched, same convention as
+   * `updateClassAssessmentCore`'s `weightPct`. */
+  gradeBoundaries?: { letter: string; minPct: number }[] | null;
 }
 
-/** short_name (Opus Lead: must be editable, never seed-only), room, instructor, term. */
+/** short_name (Opus Lead: must be editable, never seed-only), room, instructor, term, late/attendance policy, allowed absences, grade boundaries. */
 export async function updateClassCore(supabase: SupabaseClient, userId: string, classId: string, input: UpdateClassInput): Promise<void> {
   const { error } = await supabase
     .from("classes")
-    .update({ short_name: input.shortName, room: input.room, instructor: input.instructor, term: input.term })
+    .update({
+      short_name: input.shortName,
+      room: input.room,
+      instructor: input.instructor,
+      term: input.term,
+      late_policy: input.latePolicy,
+      attendance_policy: input.attendancePolicy,
+      allowed_absences: input.allowedAbsences,
+      ...(input.gradeBoundaries !== undefined ? { grade_boundaries: input.gradeBoundaries } : {}),
+    })
     .eq("id", classId)
     .eq("user_id", userId);
   if (error) throw error;

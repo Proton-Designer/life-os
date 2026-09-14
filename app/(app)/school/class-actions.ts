@@ -129,10 +129,20 @@ export async function createClass(fields: {
   return { id };
 }
 
-/** short_name (Opus Lead: must be editable, never seed-only), room, instructor. */
+/** short_name (Opus Lead: must be editable, never seed-only), room, instructor, term,
+ * late/attendance policy, allowed absences, grade boundaries (Phase 1 #11). */
 export async function updateClass(
   classId: string,
-  fields: { shortName?: string | null; room?: string | null; instructor?: string | null; term?: string | null }
+  fields: {
+    shortName?: string | null;
+    room?: string | null;
+    instructor?: string | null;
+    term?: string | null;
+    latePolicy?: string | null;
+    attendancePolicy?: string | null;
+    allowedAbsences?: number | null;
+    gradeBoundaries?: { letter: string; minPct: number }[] | null;
+  }
 ) {
   const { supabase, userId } = await requireUser();
   await updateClassCore(supabase, userId, classId, fields);

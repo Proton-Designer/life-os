@@ -36,6 +36,11 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     code: "MATH 2418",
     room: "FO 1.202",
     instructor: "Dr. Nguyen",
+    term: null,
+    latePolicy: null,
+    attendancePolicy: null,
+    allowedAbsences: null,
+    gradeBoundaries: [],
     hasSyllabus: false,
     tasksDueThisWeek: 0,
     upcomingAssessment: null,
@@ -135,7 +140,16 @@ describe("ClassDetailDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
 
     await waitFor(() =>
-      expect(updateClassMock).toHaveBeenCalledWith("c1", { shortName: "Lin Alg", room: "FO 2.100", instructor: "Dr. Nguyen" })
+      expect(updateClassMock).toHaveBeenCalledWith("c1", {
+        shortName: "Lin Alg",
+        room: "FO 2.100",
+        instructor: "Dr. Nguyen",
+        term: null,
+        latePolicy: null,
+        attendancePolicy: null,
+        allowedAbsences: null,
+        gradeBoundaries: [],
+      })
     );
     await waitFor(() => expect(refreshMock).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Save Lin Alg" })).not.toBeInTheDocument();

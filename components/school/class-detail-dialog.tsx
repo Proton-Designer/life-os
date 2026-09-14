@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import {
   updateClass,
   addClassAssessment,
@@ -49,6 +49,20 @@ function mapTasks(source: ClassCardData["tasks"], className: string): TaskListIt
 }
 
 type TaskDraft = { title: string; dueDate: string; taskType: TaskType; taskTypeOtherLabel: string };
+
+/** A `classData.gradeBoundaries` row plus a stable client-only `key` — the
+ * server shape ({letter, minPct}) has nothing unique to key React rows on
+ * once two rows can share a letter or a minPct mid-edit, so this is drawn
+ * from an incrementing counter, never `crypto.randomUUID()` (this file has
+ * no other client-generated ids, and a counter is enough for a same-session
+ * list that's never persisted with its key). */
+type GradeBoundaryDraft = { key: number; letter: string; minPct: string };
+
+let nextBoundaryDraftKey = 0;
+
+function toDrafts(boundaries: ClassCardData["gradeBoundaries"]): GradeBoundaryDraft[] {
+  return boundaries.map((b) => ({ key: nextBoundaryDraftKey++, letter: b.letter, minPct: b.minPct.toString() }));
+}
 
 /**
  * The expanded class view (B1/B2/B3 redesign, 2026-08-26 afternoon batch).
@@ -99,6 +113,15 @@ export function ClassDetailDialog({
   const [shortName, setShortName] = useState(classData.shortName ?? "");
   const [room, setRoom] = useState(classData.room ?? "");
   const [instructor, setInstructor] = useState(classData.instructor ?? "");
+  const [term, setTerm] = useState(classData.term ?? "");
+  const [latePolicy, setLatePolicy] = useState(classData.latePolicy ?? "");
+  const [attendancePolicy, setAttendancePolicy] = useState(classData.attendancePolicy ?? "");
+  // String, not number -- lets the field sit empty (unset) rather than coalescing to 0,
+  // the same "empty input means null, never a fabricated zero" contract handleWeightChange
+  // in class-assessments.tsx already uses for weight_pct. Parsed back to a number (or null)
+  // only in handleSave.
+  const [allowedAbsences, setAllowedAbsences] = useState(classData.allowedAbsences?.toString() ?? "");
+  const [gradeBoundaries, setGradeBoundaries] = useState<GradeBoundaryDraft[]>(() => toDrafts(classData.gradeBoundaries));
   const [assessments, setAssessments] = useState<ClassAssessment[]>(() => mapAssessments(classData.assessments));
   const [tasks, setTasks] = useState<TaskListItem[]>(() => mapTasks(classData.tasks, displayName));
 
@@ -111,6 +134,11 @@ export function ClassDetailDialog({
     setShortName(classData.shortName ?? "");
     setRoom(classData.room ?? "");
     setInstructor(classData.instructor ?? "");
+    setTerm(classData.term ?? "");
+    setLatePolicy(classData.latePolicy ?? "");
+    setAttendancePolicy(classData.attendancePolicy ?? "");
+    setAllowedAbsences(classData.allowedAbsences?.toString() ?? "");
+    setGradeBoundaries(toDrafts(classData.gradeBoundaries));
     setAssessments(mapAssessments(classData.assessments));
     setTasks(mapTasks(classData.tasks, displayName));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `displayName` is derived from classData itself, not an independent input
@@ -133,6 +161,11 @@ export function ClassDetailDialog({
     setShortName(classData.shortName ?? "");
     setRoom(classData.room ?? "");
     setInstructor(classData.instructor ?? "");
+    setTerm(classData.term ?? "");
+    setLatePolicy(classData.latePolicy ?? "");
+    setAttendancePolicy(classData.attendancePolicy ?? "");
+    setAllowedAbsences(classData.allowedAbsences?.toString() ?? "");
+    setGradeBoundaries(toDrafts(classData.gradeBoundaries));
     setAssessments(originalAssessmentsRef.current);
     setTasks(originalTasksRef.current);
     setSaveError(null);
@@ -221,10 +254,29 @@ export function ClassDetailDialog({
     setSaveError(null);
     startTransition(async () => {
       try {
+        // Empty input -> null (unset), never a fabricated "" or 0 — same contract as
+        // updateClassCore's other optional fields and class-assessments.tsx's weight.
+        const trimmedLatePolicy = latePolicy.trim() || null;
+        const trimmedAttendancePolicy = attendancePolicy.trim() || null;
+        const parsedAllowedAbsences = allowedAbsences.trim() === "" ? null : Number(allowedAbsences);
+        // A row with no letter typed yet is a draft, not a boundary — dropped before
+        // save rather than persisted as `{letter: "", minPct}`, which parseGradeBoundaries
+        // (the READ side) would reject anyway (see that file's own validation).
+        const parsedBoundaries = gradeBoundaries
+          .filter((b) => b.letter.trim() !== "" && b.minPct.trim() !== "" && Number.isFinite(Number(b.minPct)))
+          .map((b) => ({ letter: b.letter.trim(), minPct: Number(b.minPct) }));
+
         const detailsChanged =
           shortName.trim() !== (classData.shortName ?? "") ||
           room.trim() !== (classData.room ?? "") ||
-          instructor.trim() !== (classData.instructor ?? "");
+          instructor.trim() !== (classData.instructor ?? "") ||
+          term.trim() !== (classData.term ?? "") ||
+          trimmedLatePolicy !== classData.latePolicy ||
+          trimmedAttendancePolicy !== classData.attendancePolicy ||
+          (parsedAllowedAbsences !== null && !Number.isFinite(parsedAllowedAbsences)
+            ? true // garbage input still counts as "changed" so Save's error path can catch it, not silently no-op
+            : parsedAllowedAbsences !== classData.allowedAbsences) ||
+          JSON.stringify(parsedBoundaries) !== JSON.stringify(classData.gradeBoundaries);
 
         // Add (both sections) commits immediately outside this flow — see
         // handleAddAssessment/handleAddTask — so there is no staged-insert
@@ -275,10 +327,18 @@ export function ClassDetailDialog({
         for (const t of tasksToRemove) await removeTask(t.id);
 
         if (detailsChanged) {
+          if (parsedAllowedAbsences !== null && !Number.isFinite(parsedAllowedAbsences)) {
+            throw new Error("Allowed absences must be a number");
+          }
           await updateClass(classData.id, {
             shortName: shortName.trim() || null,
             room: room.trim() || null,
             instructor: instructor.trim() || null,
+            term: term.trim() || null,
+            latePolicy: trimmedLatePolicy,
+            attendancePolicy: trimmedAttendancePolicy,
+            allowedAbsences: parsedAllowedAbsences,
+            gradeBoundaries: parsedBoundaries,
           });
         }
         for (const a of assessmentsToUpdate) {
@@ -343,16 +403,91 @@ export function ClassDetailDialog({
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
 
         {editing ? (
-          <div className="flex flex-wrap items-end gap-2">
-            <Input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Abbreviation" className="w-40" />
-            <Input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="Room" className="w-40" />
-            <Input value={instructor} onChange={(e) => setInstructor(e.target.value)} placeholder="Instructor" className="w-48" />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <Input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Abbreviation" className="w-40" />
+              <Input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="Room" className="w-40" />
+              <Input value={instructor} onChange={(e) => setInstructor(e.target.value)} placeholder="Instructor" className="w-48" />
+              <Input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Term (e.g. Fall 2026)" className="w-48" />
+            </div>
+            {/* Policies + grade boundaries (Phase 1 #11) — schema shipped in migration 152 with
+                zero UI wired to it; this is that wiring. Informational only (late_policy/
+                attendance_policy), no feature reads them yet — same posture the migration's own
+                comment documents. */}
+            <div className="flex flex-wrap items-end gap-2">
+              <Input
+                value={latePolicy}
+                onChange={(e) => setLatePolicy(e.target.value)}
+                placeholder="Late-work policy"
+                className="w-64"
+              />
+              <Input
+                value={attendancePolicy}
+                onChange={(e) => setAttendancePolicy(e.target.value)}
+                placeholder="Attendance policy"
+                className="w-64"
+              />
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={allowedAbsences}
+                onChange={(e) => setAllowedAbsences(e.target.value)}
+                placeholder="Allowed absences"
+                className="w-40"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Grading scale (optional)</p>
+              {gradeBoundaries.map((b) => (
+                <div key={b.key} className="flex items-center gap-2">
+                  <Input
+                    value={b.letter}
+                    onChange={(e) =>
+                      setGradeBoundaries((prev) => prev.map((row) => (row.key === b.key ? { ...row, letter: e.target.value } : row)))
+                    }
+                    placeholder="Letter (e.g. A-)"
+                    aria-label="Grade letter"
+                    className="h-8 w-28"
+                  />
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={b.minPct}
+                    onChange={(e) =>
+                      setGradeBoundaries((prev) => prev.map((row) => (row.key === b.key ? { ...row, minPct: e.target.value } : row)))
+                    }
+                    placeholder="Min %"
+                    aria-label="Minimum percent for this letter"
+                    className="h-8 w-24"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setGradeBoundaries((prev) => prev.filter((row) => row.key !== b.key))}
+                    aria-label={`Remove ${b.letter || "this"} boundary`}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="self-start"
+                onClick={() => setGradeBoundaries((prev) => [...prev, { key: nextBoundaryDraftKey++, letter: "", minPct: "" }])}
+              >
+                Add letter grade
+              </Button>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
             {classData.code}
             {classData.room && ` · ${classData.room}`}
             {classData.instructor && ` · ${classData.instructor}`}
+            {classData.term && ` · ${classData.term}`}
           </p>
         )}
 
@@ -391,7 +526,11 @@ export function ClassDetailDialog({
             (out of scope for this pass), so there's nothing to stage. Same
             B3 instant-load contract as everything else in this dialog. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
-          <ClassGradeLedger assessments={classData.assessments} targetGradePct={classData.targetGradePct} />
+          <ClassGradeLedger
+            assessments={classData.assessments}
+            targetGradePct={classData.targetGradePct}
+            gradeBoundaries={classData.gradeBoundaries}
+          />
         </div>
 
         {/* Same B3 instant-load contract as the grade ledger above: reads
