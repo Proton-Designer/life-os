@@ -1,3 +1,5 @@
+import { addDaysToDateString, weekDatesFrom } from "@/lib/date-utils";
+
 export type TaskGroupKey = "overdue" | "dueSoon" | "next30" | "future";
 
 /** RENDER order — deliberately does NOT include "overdue" (2026-09-10, Ayman:
@@ -16,8 +18,35 @@ export const TASK_GROUP_LABEL: Record<TaskGroupKey, string> = {
   future: "Future",
 };
 
-/** How far ahead "Upcoming" reaches — rolling days from today, beyond the two-week Due Soon range, deliberately not a calendar month. */
+/** How far ahead "Upcoming" reaches, in days — beyond the two-week Due Soon range, deliberately not a calendar month. */
 export const UPCOMING_WINDOW_DAYS = 30;
+
+/**
+ * `nextWeekDates` and the "Upcoming" bucket's `horizonStr`, in one place — the shared
+ * horizon-defect fix (#51, Opus Lead-verified by arithmetic, 2026-09-14). Was previously
+ * computed independently at two call sites (task-list-module.tsx, school/page.tsx), each
+ * anchoring `horizonStr` to `todayStr + UPCOMING_WINDOW_DAYS` — but the Due Soon
+ * exclusion `bucketTaskGroup` checks against ends at `nextWeekDates`' own last day
+ * (`weekStart + 13d`, where `weekStart = todayStr - dayOfWeek`), NOT at `todayStr`. Since
+ * `weekStart` moves relative to `todayStr` depending on which weekday it is, "Upcoming"'s
+ * actual width was `17 + dayOfWeek` days — 17 on a Sunday, 23 on a Saturday — not the
+ * constant 30 its own doc comment promised.
+ *
+ * THE FIX: anchor `horizonStr` to the END of the Due Soon range (`nextWeekDates`' last
+ * day) instead of to `todayStr`. "Upcoming" then always starts the day after Due Soon
+ * ends and always runs exactly `UPCOMING_WINDOW_DAYS` days from there — constant width
+ * on every weekday, by construction, not by weekday-dependent luck.
+ *
+ * Both call sites now call this ONE function instead of each deriving `nextWeekDates`/
+ * `horizonStr` independently — two implementations of the same derived value is exactly
+ * how this defect went unnoticed for as long as it did (bucketTaskGroup's own boundary
+ * was correct all along; only the horizon feeding it drifted).
+ */
+export function deadlineWindow(weekDates: string[]): { nextWeekDates: string[]; horizonStr: string } {
+  const nextWeekDates = weekDatesFrom(addDaysToDateString(weekDates[0]!, 7));
+  const horizonStr = addDaysToDateString(nextWeekDates[nextWeekDates.length - 1]!, UPCOMING_WINDOW_DAYS);
+  return { nextWeekDates, horizonStr };
+}
 
 /**
  * Which group a due date falls into (revised 2026-09-10 batch 2, Ayman:

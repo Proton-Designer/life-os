@@ -192,7 +192,10 @@ describe("TaskListModule", () => {
   it("filtering narrows results without auto-expanding collapsed groups", async () => {
     render(
       <TaskListModule
-        tasks={[task({ id: "t1", title: "Future homework", dueDate: "2026-10-01" })]}
+        // #51 fix (2026-09-14): the Upcoming window widened to a real, constant 30 days
+        // (was 19 for this specific TODAY under the old weekday-dependent formula), so
+        // this date has to sit further out to stay genuinely beyond the horizon.
+        tasks={[task({ id: "t1", title: "Future homework", dueDate: "2026-11-01" })]}
         classes={CLASSES}
         todayStr={TODAY}
         weekDates={WEEK_DATES}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bucketTaskGroup, groupTasksByBucket, splitByWeek, TASK_GROUP_ORDER, TASK_GROUP_LABEL } from "../task-groups";
+import { bucketTaskGroup, groupTasksByBucket, splitByWeek, deadlineWindow, UPCOMING_WINDOW_DAYS, TASK_GROUP_ORDER, TASK_GROUP_LABEL } from "../task-groups";
+import { getWeekStartDate, weekDatesFrom, addDaysToDateString } from "@/lib/date-utils";
 
 const TODAY = "2026-08-25"; // Tuesday
 const WEEK_DATES = ["2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29"];
@@ -170,6 +171,66 @@ describe("splitByWeek", () => {
   it("loses no task — every Due Soon item lands in exactly one half", () => {
     const { thisWeek, nextWeek } = splitByWeek(dueSoonTasks, WEEK_DATES);
     expect([...thisWeek, ...nextWeek].map((t) => t.id).sort()).toEqual(dueSoonTasks.map((t) => t.id).sort());
+  });
+});
+
+// #51 (Opus Lead-verified by arithmetic, 2026-09-14): the OLD horizon formula
+// (addDaysToDateString(todayStr, UPCOMING_WINDOW_DAYS)) anchored "Upcoming"'s end to
+// TODAY, but bucketTaskGroup's Due Soon exclusion ends at nextWeekDates' own last day
+// (weekStart + 13), where weekStart moves relative to today depending on the weekday —
+// so "Upcoming"'s actual width was 17 + dayOfWeek days (17 on Sunday, 23 on Saturday),
+// never the constant 30 its own doc comment promised. deadlineWindow fixes this by
+// anchoring the horizon to the END of Due Soon instead of to today.
+describe("deadlineWindow — #51 fix: a constant-width Upcoming bucket on every weekday", () => {
+  // One calendar week, Sun (2026-08-23) through Sat (2026-08-29) — every one of these
+  // maps to the SAME calendar week and therefore the same weekStart/weekDates, so
+  // deadlineWindow's result must be IDENTICAL across all seven, independent of which
+  // day within the week is being treated as "today".
+  const WEEKDAYS = ["2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29"];
+
+  it("RED-VERIFIED: the OLD formula's width actually varied by weekday (17-23 days), proving the bug was real", () => {
+    const oldWidths = WEEKDAYS.map((today, dayOfWeek) => {
+      const weekStart = getWeekStartDate(today);
+      const weekDates = weekDatesFrom(weekStart);
+      const nextWeekDates = weekDatesFrom(addDaysToDateString(weekDates[0]!, 7));
+      const dueSoonEnd = nextWeekDates[6]!;
+      const oldHorizon = addDaysToDateString(today, UPCOMING_WINDOW_DAYS); // the pre-fix formula
+      // Width in days from the day after Due Soon ends through the horizon, inclusive —
+      // exactly what bucketTaskGroup's "next30" bucket spans.
+      const width = (Date.parse(oldHorizon) - Date.parse(dueSoonEnd)) / 86_400_000;
+      return { dayOfWeek, width };
+    });
+    // Sunday (dayOfWeek 0) through Saturday (dayOfWeek 6): 17 through 23 days — matching
+    // the Lead's own "17 on Sunday, 23 on Saturday" arithmetic exactly.
+    expect(oldWidths.map((w) => w.width)).toEqual([17, 18, 19, 20, 21, 22, 23]);
+    // Not a constant 30 on six of the seven days — this IS the defect, reproduced
+    // against the exact pre-fix formula, not just asserted from the ticket's arithmetic.
+    expect(new Set(oldWidths.map((w) => w.width)).size).toBeGreaterThan(1);
+  });
+
+  it("FIXED: deadlineWindow's horizon is IDENTICAL across all seven weekdays of the same calendar week", () => {
+    const horizons = WEEKDAYS.map((today) => {
+      const weekDates = weekDatesFrom(getWeekStartDate(today));
+      return deadlineWindow(weekDates).horizonStr;
+    });
+    expect(new Set(horizons).size).toBe(1);
+  });
+
+  it("FIXED: the Upcoming window is exactly UPCOMING_WINDOW_DAYS wide, on every weekday", () => {
+    for (const today of WEEKDAYS) {
+      const weekDates = weekDatesFrom(getWeekStartDate(today));
+      const { nextWeekDates, horizonStr } = deadlineWindow(weekDates);
+      const dueSoonEnd = nextWeekDates[6]!;
+      const width = (Date.parse(horizonStr) - Date.parse(dueSoonEnd)) / 86_400_000;
+      expect(width).toBe(UPCOMING_WINDOW_DAYS);
+    }
+  });
+
+  it("includes the horizon day itself in Upcoming and excludes the day after, using the FIXED horizon end to end", () => {
+    const weekDates = weekDatesFrom(getWeekStartDate("2026-08-29")); // Saturday — the old formula's worst case
+    const { nextWeekDates, horizonStr } = deadlineWindow(weekDates);
+    expect(bucketTaskGroup(horizonStr, "2026-08-29", weekDates, nextWeekDates, horizonStr)).toBe("next30");
+    expect(bucketTaskGroup(addDaysToDateString(horizonStr, 1), "2026-08-29", weekDates, nextWeekDates, horizonStr)).toBe("future");
   });
 });
 

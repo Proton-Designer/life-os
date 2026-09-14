@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { CalendarClock, AlertTriangle, ShieldCheck, CalendarCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, weekDatesFrom, addDaysToDateString, formatShortDate } from "@/lib/date-utils";
-import { UPCOMING_WINDOW_DAYS } from "@/lib/tasks/task-groups";
+import { localDateString, getWeekStartDate, weekDatesFrom, formatShortDate } from "@/lib/date-utils";
+import { deadlineWindow } from "@/lib/tasks/task-groups";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { TASK_TYPE_LABEL, type TaskType } from "@/lib/tasks/task-type";
@@ -101,11 +101,13 @@ export default async function SchoolPage() {
 
   const classNameById = new Map((classRows ?? []).map((c) => [c.id, c.short_name ?? c.code]));
 
-  // Phase 1 #14 — cross-class deadline/risk dashboard. Same nextWeekDates/horizonStr
-  // computation TaskListModule uses for bucketTaskGroup, so this panel's buckets can
-  // never drift from the Task list's (lib/tasks/task-groups.ts's own vocabulary).
-  const nextWeekDates = weekDatesFrom(addDaysToDateString(weekDates[0]!, 7));
-  const horizonStr = addDaysToDateString(dateStr, UPCOMING_WINDOW_DAYS);
+  // Phase 1 #14 — cross-class deadline/risk dashboard. Same deadlineWindow()
+  // TaskListModule uses for bucketTaskGroup, so this panel's buckets can never drift
+  // from the Task list's (lib/tasks/task-groups.ts's own vocabulary) — #51 fix
+  // (2026-09-14): this is now the ONLY place either file derives nextWeekDates/
+  // horizonStr, closing the exact duplication risk that let the old horizon defect
+  // (weekday-dependent 17-23 day "Upcoming" window) go unnoticed.
+  const { nextWeekDates, horizonStr } = deadlineWindow(weekDates);
   const deadlineRiskRows: DeadlineRiskRow[] = classCards.flatMap((c) =>
     c.assessments.map((a) => ({
       id: a.id,

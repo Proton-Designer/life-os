@@ -5,12 +5,11 @@ import { ChevronDown, Check, Pencil, Trash2 } from "lucide-react";
 import {
   TASK_GROUP_ORDER,
   TASK_GROUP_LABEL,
-  UPCOMING_WINDOW_DAYS,
+  deadlineWindow,
   groupTasksByBucket,
   splitByWeek,
   type TaskGroupKey,
 } from "@/lib/tasks/task-groups";
-import { addDaysToDateString, weekDatesFrom } from "@/lib/date-utils";
 import { TASK_TYPE_LABEL, TASK_TYPE_COLOR, TASK_TYPE_OPTIONS, type TaskType } from "@/lib/tasks/task-type";
 import type { TaskWizardClassOption } from "./task-wizard-dialog";
 import { formatShortDate } from "@/lib/date-utils";
@@ -390,13 +389,11 @@ export function TaskListModule({
     return true;
   });
 
-  // All derived from todayStr/weekDates with pure string arithmetic — never
-  // from a fresh `new Date()`, which would re-derive "today" in the
-  // server's zone rather than his (AGENTS.md). `weekDates[0]` is this
-  // week's Sunday (weekDatesFrom's own contract), so next week's Sunday is
-  // exactly 7 days after it.
-  const nextWeekDates = weekDatesFrom(addDaysToDateString(weekDates[0], 7));
-  const horizonStr = addDaysToDateString(todayStr, UPCOMING_WINDOW_DAYS);
+  // #51 fix (2026-09-14): nextWeekDates/horizonStr now come from task-groups.ts's own
+  // deadlineWindow — see that function's header for why a per-call-site horizon anchored
+  // to todayStr made "Upcoming" a weekday-dependent 17-23 day window instead of a
+  // constant 30.
+  const { nextWeekDates, horizonStr } = deadlineWindow(weekDates);
 
   const groups = groupTasksByBucket(filtered, todayStr, weekDates, nextWeekDates, horizonStr);
   const { thisWeek, nextWeek } = splitByWeek(groups.dueSoon, weekDates);

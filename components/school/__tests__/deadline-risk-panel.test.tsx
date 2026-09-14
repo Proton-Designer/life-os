@@ -2,12 +2,14 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "../deadline-risk-panel";
 import { weekDatesFrom, addDaysToDateString, getWeekStartDate } from "@/lib/date-utils";
+import { deadlineWindow } from "@/lib/tasks/task-groups";
 import type { RiskBand } from "@/lib/school/risk/assignment-risk";
 
 const TODAY = "2026-09-15"; // a Tuesday
 const WEEK_DATES = weekDatesFrom(getWeekStartDate(TODAY));
-const NEXT_WEEK_DATES = weekDatesFrom(addDaysToDateString(WEEK_DATES[0]!, 7));
-const HORIZON = addDaysToDateString(TODAY, 30);
+// #51 fix: real callers derive both of these from deadlineWindow(), not a
+// todayStr-anchored horizon — this test now matches what page.tsx actually computes.
+const { nextWeekDates: NEXT_WEEK_DATES, horizonStr: HORIZON } = deadlineWindow(WEEK_DATES);
 
 function row(overrides: Partial<DeadlineRiskRow> & { id: string }): DeadlineRiskRow {
   return {
