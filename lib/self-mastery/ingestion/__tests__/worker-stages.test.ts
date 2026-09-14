@@ -6,10 +6,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * that reversal — the FIRST version of worker-stages.ts fell back to
  * HeuristicProvider and recorded a normal success; this suite proves the
  * current version refuses to.
+ *
+ * PHASE 1 ITEM 3 UPDATE: `resolveIngestionProvider()` (worker-stages.ts) no
+ * longer throws a "no real provider available" error itself when
+ * `DevShimProvider.fromEnv()` returns null -- it falls through to a real,
+ * gateway-routed `DeepSeekProvider` instead (absence, not a guarded
+ * presence, same as `DevShimProvider.fromEnv()`'s own null-in-production
+ * behavior). The fail-closed OUTCOME this suite exists to prove is
+ * unchanged -- a chunk/lesson still can't silently "pass" without a real
+ * provider actually running a check -- but the MECHANISM moved: it is now
+ * `DeepSeekProvider`'s own call, through `gatewayChat`, failing closed (no
+ * key / spend cap / provider error -> throws), not a pre-flight
+ * `if (!provider)` check here. `gatewayChat` is mocked below so these tests
+ * can force that failure deterministically, without depending on any real
+ * env var being unset or a real network call.
  */
 
 vi.mock("../llm/dev-shim-provider", () => ({
   DevShimProvider: { fromEnv: vi.fn() },
+}));
+
+vi.mock("@/lib/ai/gateway", () => ({
+  gatewayChat: vi.fn(),
 }));
 
 function makeSupabaseWithLessons(
@@ -62,19 +80,21 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
     vi.clearAllMocks();
   });
 
-  it("THROWS when DevShimProvider.fromEnv() returns null -- no fallback, no marked pass", async () => {
+  it("THROWS when DevShimProvider.fromEnv() returns null AND the DeepSeekProvider fallback's own gateway call fails -- no marked pass either way", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    vi.mocked(gatewayChat).mockResolvedValue({ ok: false, message: "AI features aren't enabled for this account." });
 
     const { STAGE_HANDLERS } = await import("../worker-stages");
     const supabase = makeSupabaseWithLessons([{ id: "l1", core_claim: "claim", provenance_quote: "quote" }]);
 
     await expect(
       STAGE_HANDLERS.verifying_grounding!({
-        job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+        job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
         supabase: supabase as never,
       }),
-    ).rejects.toThrow(/no real entailment provider available/);
+    ).rejects.toThrow(/gateway call failed/);
   });
 
   it("does NOT call checkEntailment at all when no provider is available -- the refusal happens before any check attempt", async () => {
@@ -360,16 +380,21 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
     };
   }
 
-  it("throws when DevShimProvider.fromEnv() returns null -- no HeuristicProvider fallback", async () => {
+  it("throws when DevShimProvider.fromEnv() returns null AND the DeepSeekProvider fallback's own gateway call fails -- no HeuristicProvider fallback either way", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    vi.mocked(gatewayChat).mockResolvedValue({ ok: false, message: "AI features aren't enabled for this account." });
 
     const { STAGE_HANDLERS } = await import("../worker-stages");
     const supabase = makeSupabase({ chunk: { id: "c1", text: "some passage", page_start: 1, page_end: 1 } });
 
     await expect(
-      STAGE_HANDLERS.extracting_lessons!({ job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never, supabase: supabase as never }),
-    ).rejects.toThrow(/no real extraction provider available/);
+      STAGE_HANDLERS.extracting_lessons!({
+        job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+        supabase: supabase as never,
+      }),
+    ).rejects.toThrow(/gateway call failed/);
   });
 
   it("advances to merging (whole-book) once every source_chunks row has been offered", async () => {
@@ -577,16 +602,21 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
     source_chunk_id: "c1",
   };
 
-  it("throws when DevShimProvider.fromEnv() returns null -- no HeuristicProvider fallback", async () => {
+  it("throws when DevShimProvider.fromEnv() returns null AND the DeepSeekProvider fallback's own gateway call fails -- no HeuristicProvider fallback either way", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    vi.mocked(gatewayChat).mockResolvedValue({ ok: false, message: "AI features aren't enabled for this account." });
 
     const { STAGE_HANDLERS } = await import("../worker-stages");
     const supabase = makeSupabase({ lesson: LESSON });
 
     await expect(
-      STAGE_HANDLERS.generating_cards!({ job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never, supabase: supabase as never }),
-    ).rejects.toThrow(/no real card-generation provider available/);
+      STAGE_HANDLERS.generating_cards!({
+        job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+        supabase: supabase as never,
+      }),
+    ).rejects.toThrow(/gateway call failed/);
   });
 
   it("advances to finalizing (whole-book) once every rank-ordered lesson has been offered", async () => {

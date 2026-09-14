@@ -23,14 +23,32 @@
  * asterisk. R12.3 already ruled the firewall's OTHER semantic arm (the
  * embedding-relevance floor) fails closed on unavailability rather than
  * degrading and annotating; this stage now matches that discipline rather
- * than being the one place the firewall quietly downgrades itself. If
- * `getDevProviderBaseUrl()` (dev/shim) or a future funded provider isn't
- * available, this stage THROWS — the attempt records as a genuine failure
- * (bracketStage), the chunk retries, and it never silently "passes."
+ * than being the one place the firewall quietly downgrades itself.
+ *
+ * PROVIDER SELECTION (Phase 1 item 3, 2026-09-13, superseding the version of
+ * this comment that said "throws if no dev provider is configured"):
+ * `resolveIngestionProvider()` below now ALWAYS returns something real to
+ * call, ABSENCE NOT A GUARDED PRESENCE, same pattern as
+ * `getDevProviderBaseUrl()`/`isIngestionAvailable()` elsewhere in this repo
+ * -- dev keeps preferring `DevShimProvider` when `SELF_MASTERY_DEV_PROVIDER_URL`
+ * is configured (and `NODE_ENV !== "production"`, checked inside
+ * `getDevProviderBaseUrl()` itself); every other case (production, or dev
+ * without a shim) falls through to the real, gateway-routed
+ * `DeepSeekProvider` instead. There is no longer a "no real provider at
+ * all" branch to throw from at SELECTION time -- but the fail-closed
+ * guarantee this comment describes is UNCHANGED, just relocated: a missing
+ * key, a spend-cap refusal, or a genuine provider failure now throws from
+ * INSIDE the call itself (`DeepSeekProvider`'s `chatJson`, via
+ * `gatewayChat`'s `ok:false` path) rather than from a pre-flight
+ * `if (!provider)` check here. Either way, a stage that can't get a real
+ * verdict/extraction/card set throws, `bracketStage` records a genuine
+ * failure, and the chunk retries up to `max_attempts` -- it never silently
+ * "passes."
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { DevShimProvider } from "./llm/dev-shim-provider";
+import { DeepSeekProvider } from "./llm/deepseek-provider";
 import { HeuristicProvider } from "./llm/heuristic-provider";
 import type { CandidateLesson } from "./llm/types";
 import { loadPdf, extractPages, extractOutline } from "./pdf";
@@ -38,6 +56,7 @@ import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
 import { computeTargetLessonCount } from "./merge";
 import { buildSectionInsertPlan } from "./persist-sections";
+import { repairExtractedPages } from "./text-repair";
 
 type IngestStage = Database["public"]["Enums"]["ingest_stage"];
 type IngestionJobRow = Database["public"]["Tables"]["ingestion_jobs"]["Row"];
@@ -57,6 +76,32 @@ export interface StageContext {
 }
 
 export type StageHandler = (ctx: StageContext) => Promise<StageWorkResult>;
+
+/**
+ * The one place all three real-model stages (`extractingLessonsStage`,
+ * `verifyGroundingStage`, `generatingCardsStage`) get their provider.
+ * `DevShimProvider.fromEnv()` already IS the "dev only, absence not a
+ * guarded presence" check (`getDevProviderBaseUrl()`'s own header): it
+ * returns `null` in production (checked first, unconditionally) or when
+ * `SELF_MASTERY_DEV_PROVIDER_URL` is unset, so this function does not
+ * re-implement that gate -- it just says what to do on EITHER null case:
+ * fall through to the real, gateway-routed, spend-capped `DeepSeekProvider`,
+ * using `ctx.job.user_id` (the book's owner, set by `set_user_id_from_book`
+ * at job-creation time -- migration 074) so `gatewayChat` resolves that
+ * user's own key first, the shared operator-funded `DEEPSEEK_API_KEY`
+ * otherwise, exactly like every other gateway caller.
+ *
+ * Typed as the concrete union, not the `LlmProvider` interface: both
+ * concrete classes expose their own `lastUsage` (DevShimProvider's
+ * long-standing convention; DeepSeekProvider's new one, Phase 1 item 3) for
+ * real-call telemetry, but `LlmProvider` itself declares no such member --
+ * every call site below reads `provider.lastUsage` for `StageWorkResult`'s
+ * `tokensIn`/`tokensOut`, which only typechecks against the union of the
+ * two concrete classes, not the shared interface.
+ */
+function resolveIngestionProvider(ctx: StageContext): DevShimProvider | DeepSeekProvider {
+  return DevShimProvider.fromEnv() ?? new DeepSeekProvider(ctx.supabase, ctx.job.user_id);
+}
 
 /**
  * `queued`/`extracting_text`/`parsing_structure`/`chunking` collapsed into
@@ -130,7 +175,20 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   if (downloadError) throw downloadError;
 
   const pdf = await loadPdf(new Uint8Array(await fileBlob.arrayBuffer()));
-  const pages = await extractPages(pdf);
+  // text-repair.ts's own header (ULM L6 §3 finding): a NUL byte (U+0000) in
+  // extracted PDF text makes Postgres reject the insert outright
+  // ("unsupported Unicode escape sequence") on EVERY source_chunks/
+  // book_sections/lessons/cards row that contains it, identically, every
+  // retry -- a poison pill that burns all of max_attempts before failing.
+  // `repairExtractedPages` was written and unit-tested for exactly this
+  // (plus ligature/hyphenation cleanup) but had never actually been wired
+  // into this real worker path -- confirmed live, running Phase 1 item 3's
+  // real book, the first real PDF whose extracted text has ever reached
+  // this INSERT. Applied here, once, before structure parsing and
+  // chunking both see the same repaired text (so section titles/chunk text
+  // stay consistent with each other, not repaired in one place and raw in
+  // the other).
+  const pages = repairExtractedPages(await extractPages(pdf));
   const outline = await extractOutline(pdf);
   const sections = parseStructure(pages, outline);
   const chunks = chunkBook(pages, sections);
@@ -205,14 +263,16 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
 /**
  * One `source_chunks` row per invocation, in `sort_order` -- same
  * deterministic-ordering-for-idempotent-retry reasoning as
- * `verifyGroundingStage` below. FAILS CLOSED on no real provider (R43,
+ * `verifyGroundingStage` below. FAILS CLOSED on a provider failure (R43,
  * matching `verifyGroundingStage`'s own posture) -- extraction is
- * content-generation, not a firewall check, but item 7's entire point is
- * exercising real-model behaviour end to end; silently falling back to
- * `HeuristicProvider` here would defeat that without anyone deciding to.
+ * content-generation, not a firewall check, but this pipeline's entire
+ * point is exercising real-model behaviour end to end; `HeuristicProvider`
+ * is never in this call path at all (see `resolveIngestionProvider`).
  *
- * Write-time gates applied inside `DevShimProvider.extractLessons` itself
- * (grounding, language sanity, claim-not-quote) -- not duplicated here.
+ * Write-time gates applied inside the active provider's own `extractLessons`
+ * (`DevShimProvider` in dev, `DeepSeekProvider` otherwise -- see
+ * `resolveIngestionProvider`; grounding, language sanity, claim-not-quote,
+ * ported identically into both) -- not duplicated here.
  * `passesTitleClaimRelevance` and the merge-time claim/provenance cosine
  * floor are NOT applied anywhere in this run (both need an embedding this
  * repo doesn't have -- the same ADR-003/R43 deferral `relevance_floor`,
@@ -249,12 +309,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
     return { nextStage: "merging", nextChunkIndex: null };
   }
 
-  const provider = DevShimProvider.fromEnv();
-  if (!provider) {
-    throw new Error(
-      "extracting_lessons: no real extraction provider available (SELF_MASTERY_DEV_PROVIDER_URL unset, or NODE_ENV=production) -- refusing to silently degrade to HeuristicProvider for a run whose entire point is exercising real-model behaviour.",
-    );
-  }
+  const provider = resolveIngestionProvider(ctx);
 
   const candidates = await provider.extractLessons({
     chunkText: chunkRow.text,
@@ -396,10 +451,11 @@ async function mergingStage(ctx: StageContext): Promise<StageWorkResult> {
 }
 
 /**
- * One `rank`-ordered lesson per invocation. FAILS CLOSED on no real
- * provider, same posture as `extractingLessonsStage`. Card-text write-time
- * gates (anti-leak, language sanity, card-text sanity) run INSIDE
- * `DevShimProvider.generateCards` itself; not duplicated here.
+ * One `rank`-ordered lesson per invocation. FAILS CLOSED on a provider
+ * failure, same posture as `extractingLessonsStage` (see
+ * `resolveIngestionProvider`). Card-text write-time gates (anti-leak,
+ * language sanity, card-text sanity) run INSIDE the active provider's own
+ * `generateCards`; not duplicated here.
  *
  * PROMOTION (D-018): a lesson whose surviving card count is zero must not
  * reach `status: 'active'` -- left at `'archived'`, still queryable for
@@ -426,12 +482,7 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
     return { nextStage: "finalizing", nextChunkIndex: null };
   }
 
-  const provider = DevShimProvider.fromEnv();
-  if (!provider) {
-    throw new Error(
-      "generating_cards: no real card-generation provider available (SELF_MASTERY_DEV_PROVIDER_URL unset, or NODE_ENV=production) -- refusing to silently degrade to HeuristicProvider for a run whose entire point is exercising real-model behaviour.",
-    );
-  }
+  const provider = resolveIngestionProvider(ctx);
 
   const candidate: CandidateLesson = {
     title: lessonRow.title,
@@ -582,17 +633,13 @@ async function verifyGroundingStage(ctx: StageContext): Promise<StageWorkResult>
     return { nextStage: "generating_cards", nextChunkIndex: null };
   }
 
-  const provider = DevShimProvider.fromEnv();
-  if (!provider) {
-    // FAIL CLOSED (R43). No annotation, no fallback, no marked-pass with a
-    // caveat -- an entailment check that cannot actually check must not
-    // produce a row that looks like one that did. The chunk retries
-    // (claim_ingestion_job) up to max_attempts (gate 5), same as any other
-    // stage failure.
-    throw new Error(
-      "verifying_grounding: no real entailment provider available (SELF_MASTERY_DEV_PROVIDER_URL unset, or NODE_ENV=production) -- refusing to fall back to a trivially-always-SUPPORTS check.",
-    );
-  }
+  // FAIL CLOSED (R43) is enforced by `resolveIngestionProvider` + the
+  // provider itself now, not by a pre-flight null check here: there is no
+  // "no real provider" case left to guard against (dev shim, or
+  // gateway-routed DeepSeekProvider, always). What R43 actually forbids --
+  // silently falling back to a trivially-always-SUPPORTS check -- still
+  // cannot happen: `HeuristicProvider` is never in this call path at all.
+  const provider = resolveIngestionProvider(ctx);
 
   // NOT wrapped in try/catch -- deliberately. If checkEntailment itself
   // throws (network error, malformed shim response, a real timeout), that
