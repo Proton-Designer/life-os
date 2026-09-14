@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildCategoriesAndItems, type GradeCategoryDefinition, type AssessmentGradeRow } from "@/lib/school/grades/grade-ledger";
+import { buildCategoriesAndItems, type GradeCategoryDefinition } from "@/lib/school/grades/grade-ledger";
+import type { GradeLedgerAssessment } from "@/components/school/class-grade-ledger";
 import { computeCourseGrade } from "@/lib/school/grades/courseGrade";
 import { computeScenario } from "@/lib/school/grades/scenario";
 import { solveRequiredScore } from "@/lib/school/grades/requiredScore";
@@ -31,7 +32,12 @@ export function GradeScenarioPanel({
   categories,
   targetGradePct,
 }: {
-  assessments: AssessmentGradeRow[];
+  /** `GradeLedgerAssessment`, not the narrower engine-facing `AssessmentGradeRow` —
+   * this component needs each row's real `.name` for `labelFor` below, which
+   * `AssessmentGradeRow` doesn't carry (`buildCategoriesAndItems` only needs an id for
+   * its own bookkeeping). `GradeLedgerAssessment` is a structural superset of
+   * `AssessmentGradeRow`, so passing it to `buildCategoriesAndItems` still compiles. */
+  assessments: GradeLedgerAssessment[];
   categories: GradeCategoryDefinition[];
   targetGradePct: number | null;
 }) {
@@ -42,15 +48,16 @@ export function GradeScenarioPanel({
     [assessments, categories]
   );
 
-  // Categories with real, human-readable names for the input rows — a synthetic
-  // per-assessment category's `name` is the assessment row's own id (see
-  // buildCategoriesAndItems), unreadable as a label, so this looks the actual
-  // assessment name up instead. A real grade_categories row's name is already
-  // the right label.
+  // A synthetic per-assessment category's own `name` (buildCategoriesAndItems' engine-
+  // facing GradeCategory) is the assessment row's raw UUID, not something to ever show a
+  // user — the engine only needs it as a lookup key. This maps back to the REAL
+  // assessment name for display. Production bug found live (2026-09-15, Opus Lead): the
+  // lookup existed but its result was discarded, falling back to the UUID-as-name every
+  // time — fixed here by actually using `asAssessment.name`, not the raw category name.
   const assessmentNameById = useMemo(() => new Map(assessments.map((a) => [a.id, a])), [assessments]);
   function labelFor(categoryId: string, fallbackName: string): string {
     const asAssessment = assessmentNameById.get(categoryId);
-    return asAssessment ? `${fallbackName} (single assessment)` : fallbackName;
+    return asAssessment ? asAssessment.name : fallbackName;
   }
 
   const baseline = computeCourseGrade(engineCategories, items);
