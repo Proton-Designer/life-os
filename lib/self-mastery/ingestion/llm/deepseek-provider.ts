@@ -73,7 +73,18 @@ const DEAD_METHOD =
   "not implemented -- verified dead for this provider: no call site in this repo invokes it on a real (non-heuristic) LlmProvider. See this file's own header before implementing it -- confirm a real caller first.";
 
 const MAX_TOKENS_SUMMARIZE = 400;
-const MAX_TOKENS_EXTRACT = 1000;
+// Right-sized 2026-09-14 (BUG-1's layer 2), from real data, not intuition:
+// across all 182 successful production extractLessons calls logged in
+// ai_usage_log, completion_tokens p50=348, p90=412, p99=446, max=458. 600
+// is ~30% headroom above the observed max -- comfortable for legitimate
+// variance, while cutting a runaway/looping generation's worst case well
+// under half of the old 1000. This does not fix BUG-1 by itself (the root
+// cause is a real, non-deterministic DeepSeek generation stall -- the same
+// chunk 0 text succeeded in an earlier ingest of this same title), it
+// bounds how long a stall can run before hitting the cap; layer 1 (route.ts's
+// skip-and-advance on exhausted attempts) is what makes a stall harmless
+// to the rest of the book regardless of how long any one call takes.
+const MAX_TOKENS_EXTRACT = 600;
 const MAX_TOKENS_CARDS = 600;
 const MAX_TOKENS_ENTAILMENT = 220;
 
