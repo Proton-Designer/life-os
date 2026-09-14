@@ -41,13 +41,40 @@ export async function resolveApiKey(
       // Ciphertext we can't open — a rotated server secret, or a corrupted row.
       // Fall through to the server key rather than throwing: the user loses an
       // optional feature, which beats an error they cannot act on.
-      return serverKey(provider);
+      return serverKey(provider, userId);
     }
   }
-  return serverKey(provider);
+  return serverKey(provider, userId);
 }
 
-function serverKey(provider: ProviderId): string | null {
+/**
+ * PHASE 1 MULTI-PROVIDER (2026-09-14, Ayman's ruling via the Phase-1 lead):
+ * the shared operator-funded key is an ALLOWLIST, not a fallback for
+ * everyone. The DeepSeek spend cap is $1.00 LIFETIME and GLOBAL (spend-
+ * cap.ts) — a stranger drawing on it doesn't just cost money, it can
+ * exhaust the cap and cut off Ayman's OWN AI access. `AI_SHARED_KEY_POLICY`
+ * defaults to `"allowlist"`; only `"everyone"` (explicit, opt-in) restores
+ * the old fallback-for-anyone behavior.
+ *
+ * FAIL-SAFE BY CONSTRUCTION, not by a check that could be gotten wrong: an
+ * unset or empty `AI_SHARED_KEY_ALLOWED_USER_IDS` produces an empty list,
+ * and `.includes()` on an empty list is `false` for every user id — the
+ * policy defaulting to "allowlist" with no list configured means NOBODY
+ * gets the shared key, not everyone. There is no code path here that reads
+ * an absent env var as "allow all."
+ */
+function sharedKeyAllowed(userId: string): boolean {
+  const policy = process.env.AI_SHARED_KEY_POLICY ?? "allowlist";
+  if (policy === "everyone") return true;
+  const allowed = (process.env.AI_SHARED_KEY_ALLOWED_USER_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return allowed.includes(userId);
+}
+
+function serverKey(provider: ProviderId, userId: string): string | null {
+  if (!sharedKeyAllowed(userId)) return null;
   const fromEnv = process.env[`${provider.toUpperCase()}_API_KEY`];
   return fromEnv && fromEnv.length > 0 ? fromEnv : null;
 }
@@ -106,7 +133,7 @@ export async function resolveApiKeyWithSource(
       // falls through to the server key rather than failing the caller.
     }
   }
-  const fromServer = serverKey(provider);
+  const fromServer = serverKey(provider, userId);
   return fromServer ? { key: fromServer, source: "server" } : null;
 }
 

@@ -84,3 +84,87 @@ describe("resolveStoredUserKey", () => {
     expect(chain.eq).toHaveBeenCalledWith("provider", "deepseek");
   });
 });
+
+/**
+ * Phase 1 multi-provider (2026-09-14): the shared operator-funded key
+ * became an ALLOWLIST, not a fallback for everyone -- the DeepSeek spend
+ * cap is $1.00 lifetime and GLOBAL, so a stranger on the shared key could
+ * exhaust it and cut off Ayman's own AI access. These tests exercise the
+ * REAL `sharedKeyAllowed`/`serverKey` logic, not a mock of it -- unlike
+ * gateway.test.ts, which mocks `resolveApiKeyWithSource` entirely and so
+ * never runs this code at all.
+ */
+describe("resolveApiKeyWithSource / resolveApiKey -- shared-key allowlist", () => {
+  const noRow = { data: null, error: null };
+
+  beforeEach(() => {
+    delete process.env.AI_SHARED_KEY_POLICY;
+    delete process.env.AI_SHARED_KEY_ALLOWED_USER_IDS;
+    process.env.DEEPSEEK_API_KEY = "sk-shared-operator-key";
+  });
+  afterEach(() => {
+    delete process.env.AI_SHARED_KEY_POLICY;
+    delete process.env.AI_SHARED_KEY_ALLOWED_USER_IDS;
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it("FAIL-SAFE: default policy (allowlist), no list configured -> the server key is withheld from EVERYONE, not granted to everyone", async () => {
+    const { resolveApiKeyWithSource } = await import("../resolve-key");
+    const client = { from: vi.fn(() => makeChain(noRow)) } as unknown as SupabaseClient;
+
+    const result = await resolveApiKeyWithSource(client, "any-random-user", "deepseek");
+    expect(result).toBeNull();
+  });
+
+  it("allowlisted user id -> gets the server key", async () => {
+    process.env.AI_SHARED_KEY_ALLOWED_USER_IDS = "user-a, user-b ,user-c";
+    const { resolveApiKeyWithSource } = await import("../resolve-key");
+    const client = { from: vi.fn(() => makeChain(noRow)) } as unknown as SupabaseClient;
+
+    const result = await resolveApiKeyWithSource(client, "user-b", "deepseek");
+    expect(result).toEqual({ key: "sk-shared-operator-key", source: "server" });
+  });
+
+  it("non-allowlisted user id -> withheld, even with a real allowlist configured (not just an empty one)", async () => {
+    process.env.AI_SHARED_KEY_ALLOWED_USER_IDS = "user-a,user-b";
+    const { resolveApiKeyWithSource } = await import("../resolve-key");
+    const client = { from: vi.fn(() => makeChain(noRow)) } as unknown as SupabaseClient;
+
+    const result = await resolveApiKeyWithSource(client, "user-z", "deepseek");
+    expect(result).toBeNull();
+  });
+
+  it('AI_SHARED_KEY_POLICY="everyone" -> restores the old fallback-for-anyone behavior, explicit opt-in only', async () => {
+    process.env.AI_SHARED_KEY_POLICY = "everyone";
+    const { resolveApiKeyWithSource } = await import("../resolve-key");
+    const client = { from: vi.fn(() => makeChain(noRow)) } as unknown as SupabaseClient;
+
+    const result = await resolveApiKeyWithSource(client, "any-random-user", "deepseek");
+    expect(result).toEqual({ key: "sk-shared-operator-key", source: "server" });
+  });
+
+  it("a user's OWN stored key is NEVER gated by the allowlist -- it's their money, their key", async () => {
+    process.env.API_KEY_ENCRYPTION_SECRET = SECRET;
+    const { encryptSecret } = await import("../encryption");
+    const { resolveApiKeyWithSource } = await import("../resolve-key");
+    const rawKey = "sk-the-users-own-real-key";
+    const chain = makeChain({ data: { encrypted_key: encryptSecret(rawKey) }, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    // Default policy, no allowlist -- would withhold the SERVER key, but
+    // this user has their own, which must never be gated by that policy.
+    const result = await resolveApiKeyWithSource(client, "not-on-any-allowlist", "deepseek");
+    expect(result).toEqual({ key: rawKey, source: "user" });
+    delete process.env.API_KEY_ENCRYPTION_SECRET;
+  });
+
+  it("resolveApiKey (the older, non-source-tracking function) applies the identical gate, not a separate one", async () => {
+    const { resolveApiKey } = await import("../resolve-key");
+    const client = { from: vi.fn(() => makeChain(noRow)) } as unknown as SupabaseClient;
+
+    expect(await resolveApiKey(client, "any-random-user", "deepseek")).toBeNull();
+
+    process.env.AI_SHARED_KEY_ALLOWED_USER_IDS = "any-random-user";
+    expect(await resolveApiKey(client, "any-random-user", "deepseek")).toBe("sk-shared-operator-key");
+  });
+});
