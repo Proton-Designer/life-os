@@ -12,7 +12,9 @@ import { computeDeltaMinutes } from "@/lib/day-structure/delta-clock";
 import { composeDump, type DumpItem } from "@/lib/night-plan/night-plan";
 import { getOpenWorries, worriesToDumpItems } from "@/lib/night-plan/worries";
 import { getUnfinishedMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
+import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
 
 export type PlannedItem = { id: string; title: string; mitRank: number; completed: boolean };
 
@@ -84,12 +86,25 @@ export type EveningCloseData = {
  * worries covers the durable case; an un-acted-on seed simply reappears next
  * time, which is the correct behavior for a still-unresolved worry or
  * milestone, not a bug this needs to paper over).
+ *
+ * `planningDate` is which day the plan being built is FOR — tomorrow from
+ * `getEveningCloseData`, today from `getReplanData` — separate from `now`,
+ * which stays "the real current moment" throughout. `getSchoolTodayFeed`
+ * (Phase 1 #15/#28, lib/school/school-today.ts) needs both, kept distinct
+ * for the same reason that file's own header gives: `today` feeds the risk
+ * engine's proximity factor (urgency relative to the real "now"), while
+ * `planningDate` selects which day's assessments to seed the dump with.
+ * Collapsing them would make a school deliverable due tomorrow score as due
+ * TODAY the moment the evening close (which always plans for tomorrow)
+ * calls this. `school_risk` (`lib/night-plan/night-plan.ts`'s own
+ * `DumpSource` union) had zero callers before this — this is that wiring.
  */
-async function computePlanSeeds(
-  supabase: SupabaseClient,
+export async function computePlanSeeds(
+  supabase: SupabaseClient<Database>,
   userId: string,
   timezone: string,
   now: Date,
+  planningDate: string,
   excludeIds: ReadonlySet<string>
 ): Promise<DumpItem[]> {
   const openWorries = await getOpenWorries(supabase, userId);
@@ -113,7 +128,16 @@ async function computePlanSeeds(
     milestoneSeeds = [];
   }
 
-  const composed = composeDump([...worrySeeds, ...milestoneSeeds], []);
+  // #28: school_risk. NOT wrapped in try/catch the way milestoneSeeds is above —
+  // classes/class_assessments are long-live tables, not a migration awaiting apply, so a
+  // real failure here should surface, not be swallowed into a silent "no school seeds."
+  const todayStr = localDateString(now, timezone);
+  const schoolItems = await getSchoolTodayFeed(supabase, userId, todayStr, planningDate);
+  const schoolRiskSeeds: DumpItem[] = schoolItems
+    .filter((item) => !excludeIds.has(item.id))
+    .map((item) => ({ id: item.id, title: item.title, source: "school_risk" as const }));
+
+  const composed = composeDump([...worrySeeds, ...milestoneSeeds, ...schoolRiskSeeds], []);
   return composed.items;
 }
 
@@ -176,6 +200,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     user.id,
     timezone,
     new Date(),
+    tomorrow,
     new Set(tomorrowLines.map((l) => l.id))
   );
 
@@ -237,7 +262,7 @@ export async function getReplanData(): Promise<ReplanData | null> {
     .order("created_at", { ascending: true });
 
   const todayLines = (todayRows ?? []).map((t) => ({ id: t.id, title: t.title }));
-  const planSeeds = await computePlanSeeds(supabase, user.id, timezone, new Date(), new Set(todayLines.map((l) => l.id)));
+  const planSeeds = await computePlanSeeds(supabase, user.id, timezone, new Date(), today, new Set(todayLines.map((l) => l.id)));
 
   return { dateLabel: today, todayLines, planSeeds };
 }
