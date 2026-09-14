@@ -132,6 +132,18 @@ describe("captureCore — \"I just got distracted by my phone\"", () => {
     await captureCore(client, "user-1", "Asia/Tokyo", new Date("2026-09-09T01:30:00.000Z"), "deen", "x", null, undefined);
     expect(calls.distraction_events.insert[0]).toMatchObject({ date: "2026-09-09" });
   });
+
+  it("#52: threads an optional sessionId onto the event insert when given", async () => {
+    const { client, calls } = makeClient({ singleSeq: { distraction_triggers: [{ id: "trig-1" }], distraction_events: [{ id: "event-1" }] } });
+    await captureCore(client, "user-1", tz, now, "deen", "phone", null, undefined, "session-1");
+    expect(calls.distraction_events.insert[0]).toMatchObject({ session_id: "session-1" });
+  });
+
+  it("#52: writes session_id: null when no session is active (the common case) rather than omitting the column", async () => {
+    const { client, calls } = makeClient({ singleSeq: { distraction_triggers: [{ id: "trig-1" }], distraction_events: [{ id: "event-1" }] } });
+    await captureCore(client, "user-1", tz, now, "deen", "phone", null, undefined);
+    expect(calls.distraction_events.insert[0]).toMatchObject({ session_id: null });
+  });
 });
 
 describe("logEventCore — logging against an ALREADY-KNOWN trigger", () => {
@@ -153,6 +165,12 @@ describe("logEventCore — logging against an ALREADY-KNOWN trigger", () => {
   it("rejects a missing trigger_id", async () => {
     const { client } = makeClient();
     await expect(logEventCore(client, "user-1", tz, now, undefined, undefined)).rejects.toThrow(/patch\.trigger_id is required/i);
+  });
+
+  it("#52: threads an optional sessionId onto the event insert when given", async () => {
+    const { client, calls } = makeClient({ maybeSingleSeq: { distraction_triggers: [{ id: "trig-1" }] }, singleSeq: { distraction_events: [{ id: "event-1" }] } });
+    await logEventCore(client, "user-1", tz, now, "trig-1", undefined, "session-1");
+    expect(calls.distraction_events.insert[0]).toMatchObject({ session_id: "session-1" });
   });
 });
 

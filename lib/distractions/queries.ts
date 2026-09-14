@@ -167,6 +167,32 @@ export async function getTodayDistractionCount(supabase: TypedClient, userId: st
 }
 
 /**
+ * Distractions logged against ONE specific work session (#52, migration
+ * 169's `distraction_events.session_id`) — the topbar's "N this session"
+ * live counter during a Lock-In/Deep Study session, distinct from
+ * `getTodayDistractionCount` above (which is day-scoped, not
+ * session-scoped, and would keep counting after the session ends or
+ * include distractions from a session that ended earlier the same day).
+ *
+ * TAKES A PLAIN (untyped) `SupabaseClient`, not this file's own
+ * `TypedClient` — `database.types.ts` won't carry `session_id` until the
+ * Lead applies migration 169 and regenerates it (ALLOCATIONS.md: "a types
+ * file is a claim about ONE specific database"), and this function ships
+ * ahead of that apply, same posture as `lib/goals/queries.ts` shipping
+ * ahead of migration 165's apply. Once 169 lands this can switch back to
+ * `TypedClient` as a pure type tightening, no behavior change.
+ */
+export async function getSessionDistractionCount(supabase: SupabaseClient, userId: string, sessionId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("distraction_events")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("session_id", sessionId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
  * Every trigger with at least one event today, grouped by domain in review
  * order, domains with zero events omitted entirely (spec §5). isNew is true
  * when the trigger has no current plan — the review demands one with no

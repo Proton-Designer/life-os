@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
-import { getTriggersForDomain, getTodayDistractionCount } from "@/lib/distractions/queries";
+import { getTriggersForDomain, getTodayDistractionCount, getSessionDistractionCount } from "@/lib/distractions/queries";
 import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
+import type { TablesInsert } from "@/lib/supabase/database.types";
 
 async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string) {
   const { data: profile } = await supabase.from("profiles").select("timezone").eq("user_id", userId).maybeSingle();
@@ -41,6 +42,20 @@ export async function getTodayDistractionCountForNow(): Promise<number> {
 }
 
 /**
+ * #52's live "N this session" counter — same client-polls-a-server-action
+ * idiom as `getTodayDistractionCountForNow` above and `topbar.tsx`'s own
+ * `DistractionCountBadge` (60s poll), scoped to one session id instead of
+ * "today." Returns 0 for an unowned/foreign session id rather than leaking
+ * whether it exists — `getSessionDistractionCount` is itself scoped to
+ * `user_id = userId`, so a session belonging to someone else can never
+ * return a nonzero count here.
+ */
+export async function getSessionDistractionCountForNow(sessionId: string): Promise<number> {
+  const { supabase, userId } = await requireUser();
+  return getSessionDistractionCount(supabase, userId, sessionId);
+}
+
+/**
  * Deen tier linkage (spec §1): a tier writes a normal reflection_entries
  * row — the exact shape logReflectionEntry (deen/actions.ts) already
  * writes — so the existing Deen Reflection module lights up with no
@@ -51,7 +66,9 @@ async function insertEvent(
   userId: string,
   triggerId: string,
   date: string,
-  tier?: 1 | 2 | 3
+  tier?: 1 | 2 | 3,
+  /** #52, migration 169: the active work session at capture time, if any — see `lib/distractions/actions-core.ts`'s `insertEventCore` for the full reasoning (nullable, composite-FK'd, column-scoped ON DELETE SET NULL). */
+  sessionId?: string | null
 ): Promise<void> {
   let reflectionEntryId: string | null = null;
   if (tier) {
@@ -64,20 +81,26 @@ async function insertEvent(
     reflectionEntryId = entry.id;
   }
 
+  // `session_id` cast via TablesInsert — see lib/distractions/queries.ts's
+  // getSessionDistractionCount comment: database.types.ts won't carry this
+  // column until the Lead applies migration 169 and regenerates it. Same
+  // ship-ahead-of-apply cast app/(app)/close/plan-actions.ts:253 already
+  // uses for an analogous case.
   const { error } = await supabase.from("distraction_events").insert({
     user_id: userId,
     trigger_id: triggerId,
     date,
     reflection_tier: tier ?? null,
     reflection_entry_id: reflectionEntryId,
-  });
+    session_id: sessionId ?? null,
+  } as unknown as TablesInsert<"distraction_events">);
   if (error) throw error;
 }
 
-export async function logDistraction(triggerId: string, tier?: 1 | 2 | 3): Promise<void> {
+export async function logDistraction(triggerId: string, tier?: 1 | 2 | 3, sessionId?: string | null): Promise<void> {
   const { supabase, userId } = await requireUser();
   const date = await todayForUser(supabase, userId);
-  await insertEvent(supabase, userId, triggerId, date, tier);
+  await insertEvent(supabase, userId, triggerId, date, tier, sessionId);
   revalidatePath("/");
   if (tier) revalidatePath("/deen");
 }
@@ -87,6 +110,8 @@ export async function createTriggerAndLog(input: {
   name: string;
   description: string | null;
   tier?: 1 | 2 | 3;
+  /** #52 — see logDistraction's own param. */
+  sessionId?: string | null;
 }): Promise<{ triggerId: string }> {
   const { supabase, userId } = await requireUser();
   const date = await todayForUser(supabase, userId);
@@ -117,7 +142,7 @@ export async function createTriggerAndLog(input: {
     triggerId = created.id;
   }
 
-  await insertEvent(supabase, userId, triggerId, date, input.tier);
+  await insertEvent(supabase, userId, triggerId, date, input.tier, input.sessionId);
   revalidatePath("/");
   if (input.tier) revalidatePath("/deen");
   return { triggerId };

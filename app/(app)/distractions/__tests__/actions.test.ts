@@ -97,3 +97,68 @@ describe("recordPlanOutcome", () => {
     expect(rpcMock).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * #52: distraction_events.session_id (migration 169) — logDistraction/
+ * createTriggerAndLog thread an optional session id through to the insert,
+ * and getSessionDistractionCountForNow reads it back scoped to one user's
+ * one session.
+ */
+describe("#52 session linkage", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+    revalidatePathMock.mockClear();
+    rpcMock = vi.fn(async () => ({ data: null, error: null }));
+  });
+
+  it("logDistraction writes session_id when an active session id is passed", async () => {
+    const eventsChain = makeChain({ data: { id: "event-1" }, error: null });
+    fromImpl = tableRouter({ distraction_events: eventsChain });
+    const { logDistraction } = await import("../actions");
+
+    await logDistraction("trig-1", undefined, "session-1");
+
+    expect(eventsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: "session-1" }));
+  });
+
+  it("logDistraction writes session_id: null when no session id is passed", async () => {
+    const eventsChain = makeChain({ data: { id: "event-1" }, error: null });
+    fromImpl = tableRouter({ distraction_events: eventsChain });
+    const { logDistraction } = await import("../actions");
+
+    await logDistraction("trig-1");
+
+    expect(eventsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
+  });
+
+  it("createTriggerAndLog threads input.sessionId through to the event insert", async () => {
+    const triggersChain = makeChain({ data: { id: "trig-new" }, error: null });
+    const eventsChain = makeChain({ data: { id: "event-1" }, error: null });
+    fromImpl = tableRouter({ distraction_triggers: triggersChain, distraction_events: eventsChain });
+    const { createTriggerAndLog } = await import("../actions");
+
+    await createTriggerAndLog({ domain: "business", name: "Slack", description: null, sessionId: "session-2" });
+
+    expect(eventsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: "session-2" }));
+  });
+
+  it("getSessionDistractionCountForNow scopes the count to this user and this session id", async () => {
+    const eqSpy = vi.fn();
+    const rawChain: Record<string, unknown> = {};
+    rawChain.select = vi.fn(() => rawChain);
+    rawChain.eq = vi.fn((...args: unknown[]) => {
+      eqSpy(...args);
+      return rawChain;
+    });
+    rawChain.then = (resolve: (v: { count: number; error: null }) => void) => resolve({ count: 4, error: null });
+    fromImpl = tableRouter({ distraction_events: rawChain as unknown as ReturnType<typeof makeChain> });
+    const { getSessionDistractionCountForNow } = await import("../actions");
+
+    const result = await getSessionDistractionCountForNow("session-1");
+
+    expect(result).toBe(4);
+    expect(eqSpy).toHaveBeenCalledWith("user_id", "user-1");
+    expect(eqSpy).toHaveBeenCalledWith("session_id", "session-1");
+  });
+});

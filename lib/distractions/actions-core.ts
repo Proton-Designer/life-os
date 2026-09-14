@@ -53,6 +53,16 @@ async function insertEventCore(
   triggerId: string,
   date: string,
   tier?: 1 | 2 | 3,
+  /**
+   * The work_sessions row active when this distraction was captured (#52,
+   * migration 169) — null/undefined whenever no Lock-In/Deep Study session
+   * is running, which is the common case for both the capture dialog and
+   * this MCP write path. Added as the LAST, optional parameter deliberately
+   * so `lib/mcp/write-registry.ts`'s existing calls into `captureCore`/
+   * `logEventCore` (which have no notion of a browser-side active session)
+   * keep working unchanged.
+   */
+  sessionId?: string | null,
 ): Promise<{ eventId: string; reflectionEntryId: string | null }> {
   let reflectionEntryId: string | null = null;
   if (tier) {
@@ -63,7 +73,14 @@ async function insertEventCore(
 
   const { data: event, error } = await supabase
     .from("distraction_events")
-    .insert({ user_id: userId, trigger_id: triggerId, date, reflection_tier: tier ?? null, reflection_entry_id: reflectionEntryId })
+    .insert({
+      user_id: userId,
+      trigger_id: triggerId,
+      date,
+      reflection_tier: tier ?? null,
+      reflection_entry_id: reflectionEntryId,
+      session_id: sessionId ?? null,
+    })
     .select("id")
     .single();
   if (error) throw error;
@@ -94,6 +111,8 @@ export async function captureCore(
   name: unknown,
   description: unknown,
   tier: unknown,
+  /** See insertEventCore's own doc comment — optional, last, defaults to no link. */
+  sessionId?: string | null,
 ): Promise<CaptureResult> {
   if (!isDistractionDomain(domain)) {
     throw new Error(`patch.domain must be one of: ${DISTRACTION_DOMAINS.join(", ")}. Got: ${JSON.stringify(domain)}.`);
@@ -135,7 +154,7 @@ export async function captureCore(
     triggerId = created.id;
   }
 
-  const { eventId, reflectionEntryId } = await insertEventCore(supabase, userId, triggerId, date, tier as 1 | 2 | 3 | undefined);
+  const { eventId, reflectionEntryId } = await insertEventCore(supabase, userId, triggerId, date, tier as 1 | 2 | 3 | undefined, sessionId);
   return { triggerId, eventId, reflectionEntryId };
 }
 
@@ -157,6 +176,8 @@ export async function logEventCore(
   now: Date,
   triggerId: unknown,
   tier: unknown,
+  /** See insertEventCore's own doc comment — optional, last, defaults to no link. */
+  sessionId?: string | null,
 ): Promise<LogEventResult> {
   if (typeof triggerId !== "string" || triggerId.length === 0) {
     throw new Error("patch.trigger_id is required and must be a non-empty string.");
@@ -167,7 +188,7 @@ export async function logEventCore(
 
   await assertTriggerOwnership(supabase, userId, triggerId);
   const date = localDateString(now, timezone);
-  const { eventId, reflectionEntryId } = await insertEventCore(supabase, userId, triggerId, date, tier as 1 | 2 | 3 | undefined);
+  const { eventId, reflectionEntryId } = await insertEventCore(supabase, userId, triggerId, date, tier as 1 | 2 | 3 | undefined, sessionId);
   return { eventId, reflectionEntryId };
 }
 

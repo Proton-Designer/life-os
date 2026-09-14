@@ -2,7 +2,12 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Plus, Search } from "lucide-react";
-import { createTriggerAndLog, listTriggersForDomain, logDistraction } from "@/app/(app)/distractions/actions";
+import {
+  createTriggerAndLog,
+  listTriggersForDomain,
+  logDistraction,
+  getSessionDistractionCountForNow,
+} from "@/app/(app)/distractions/actions";
 import { rankTriggersForCapture } from "@/lib/distractions/plan-rules";
 import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -29,6 +34,55 @@ const DOMAIN_LABEL: Record<DistractionDomain, string> = {
 const TIERS = [1, 2, 3] as const;
 type Tier = (typeof TIERS)[number];
 const TIER_LABEL: Record<Tier, string> = { 1: "Light", 2: "Moderate", 3: "Heavy" };
+
+// Same cadence as topbar.tsx's own DistractionCountBadge (#50) — one
+// established idiom for "a client component polls a server action for a
+// live count," not a second one invented here.
+const SESSION_DISTRACTION_POLL_MS = 60 * 1000;
+
+/**
+ * #52's live "N this session" counter. Polls
+ * `getSessionDistractionCountForNow`, scoped to the active session id, the
+ * same idiom `components/shell/topbar.tsx`'s `DistractionCountBadge` uses
+ * for its own day-scoped count. Resets to null (renders nothing) whenever
+ * `sessionId` changes — a new session starts at zero, not the prior
+ * session's last-known count.
+ */
+function SessionDistractionCounter({ sessionId, bump }: { sessionId: string; bump: number }) {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const next = await getSessionDistractionCountForNow(sessionId);
+        if (!cancelled) setCount(next);
+      } catch {
+        // Best-effort, same posture as DistractionCountBadge's own poll —
+        // keep the last-known count showing; the next tick retries.
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, SESSION_DISTRACTION_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // `bump` deliberately re-triggers this effect (and its immediate
+    // `refresh()`) right after this component's own dialog logs a new
+    // event — the count reflects a distraction logged a second ago rather
+    // than waiting out the rest of the 60s tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, bump]);
+
+  if (count === null) return null;
+
+  return (
+    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+      {count} this session
+    </span>
+  );
+}
 
 const TEXTAREA_CLASS =
   "rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
@@ -60,6 +114,9 @@ export function DistractionCaptureDialog() {
   const [newDescription, setNewDescription] = useState("");
   const [tier, setTier] = useState<Tier | null>(null);
   const [, startTransition] = useTransition();
+  // #52: bumped after every successful log so SessionDistractionCounter
+  // re-polls immediately instead of waiting out its own 60s tick.
+  const [sessionLogBump, setSessionLogBump] = useState(0);
 
   function reset() {
     setStep("domain");
@@ -105,9 +162,11 @@ export function DistractionCaptureDialog() {
   // revalidatePath inside the action refreshes whatever's listening.
   function handleTapTrigger(triggerId: string) {
     const loggedTier = tier ?? undefined;
+    const loggedSessionId = session?.id ?? null;
     setOpen(false);
     startTransition(async () => {
-      await logDistraction(triggerId, loggedTier);
+      await logDistraction(triggerId, loggedTier, loggedSessionId);
+      setSessionLogBump((n) => n + 1);
     });
     reset();
   }
@@ -118,9 +177,11 @@ export function DistractionCaptureDialog() {
     if (!name) return;
     const description = newDescription.trim() || null;
     const savedTier = tier ?? undefined;
+    const loggedSessionId = session?.id ?? null;
     setOpen(false);
     startTransition(async () => {
-      await createTriggerAndLog({ domain, name, description, tier: savedTier });
+      await createTriggerAndLog({ domain, name, description, tier: savedTier, sessionId: loggedSessionId });
+      setSessionLogBump((n) => n + 1);
     });
     reset();
   }
@@ -133,11 +194,16 @@ export function DistractionCaptureDialog() {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
-          Distractions
-        </Button>
-      </DialogTrigger>
+      <div className="flex items-center gap-2">
+        <DialogTrigger asChild>
+          <Button type="button" variant="outline" size="sm">
+            Distractions
+          </Button>
+        </DialogTrigger>
+        {/* #52: only rendered during an active Lock-In/Deep Study session —
+            "N this session" has no meaning with no session running. */}
+        {session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
+      </div>
       <DialogContent className={cn("sm:max-w-md", domain === "deen" && step === "triggers" && "sm:max-w-lg")}>
         {step === "domain" && (
           <>
