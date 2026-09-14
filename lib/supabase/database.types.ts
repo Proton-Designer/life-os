@@ -1219,6 +1219,70 @@ export type Database = {
           },
         ]
       }
+      habit_votes: {
+        Row: {
+          created_at: string
+          date: string
+          habit_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          habit_id: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          habit_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "habit_votes_habit_same_user"
+            columns: ["user_id", "habit_id"]
+            referencedRelation: "identity_habits"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      identity_habits: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          id: string
+          identity_statement: string
+          rank: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          identity_statement: string
+          rank: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          identity_statement?: string
+          rank?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ingestion_driver_heartbeats: {
         Row: {
           id: number
@@ -3142,6 +3206,30 @@ export type Database = {
             referencedColumns: ["user_id", "id"]
           },
         ]
+      }
+      user_ai_preferences: {
+        Row: {
+          created_at: string
+          model_tier: string
+          provider: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          model_tier?: string
+          provider?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          model_tier?: string
+          provider?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       user_api_keys: {
         Row: {
