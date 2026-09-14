@@ -1057,6 +1057,85 @@ export type Database = {
         }
         Relationships: []
       }
+      goal_milestones: {
+        Row: {
+          created_at: string
+          done_at: string | null
+          goal_id: string
+          id: string
+          month_start: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          done_at?: string | null
+          goal_id: string
+          id?: string
+          month_start: string
+          title: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          done_at?: string | null
+          goal_id?: string
+          id?: string
+          month_start?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goal_milestones_goal_same_user"
+            columns: ["user_id", "goal_id"]
+            referencedRelation: "goals"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      goals: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          domain: string | null
+          id: string
+          month_start: string
+          rank: number
+          reason: string
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          domain?: string | null
+          id?: string
+          month_start: string
+          rank: number
+          reason: string
+          status?: string
+          title: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          domain?: string | null
+          id?: string
+          month_start?: string
+          rank?: number
+          reason?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       grade_categories: {
         Row: {
           class_id: string
@@ -3595,9 +3674,9 @@ export type Database = {
       get_session_queue: {
         Args: { p_limit_due: number; p_limit_new: number }
         Returns: {
-          book_id: string | null
-          card_id: string | null
-          question_id: string | null
+          book_id: string
+          card_id: string
+          question_id: string
           queue_position: number
           reason: string
         }[]
