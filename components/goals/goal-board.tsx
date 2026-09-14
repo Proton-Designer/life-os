@@ -1,0 +1,394 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { ChevronDown, ChevronRight, CircleCheck, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatShortDate } from "@/lib/date-utils";
+import {
+  createGoalAction,
+  setGoalStatusAction,
+  addMilestoneAction,
+  setMilestoneDoneAction,
+} from "@/app/(app)/goals/actions";
+import type { Goal } from "@/lib/goals/actions-core";
+import type { GoalMilestone } from "@/lib/goals/queries";
+
+/**
+ * The Goals board (#43/#44) — this month's Top 5 ranked goals, each with a
+ * reason and at most one milestone, plus the 5-goal ceiling surfaced
+ * honestly rather than hidden.
+ *
+ * Server actions are IMPORTED, not passed as props (same discipline as
+ * components/worries/worry-list.tsx) — the RSC function-prop hazard
+ * CLAUDE.md records; importing removes the hazard rather than testing for
+ * it.
+ *
+ * THE CEILING IS THE DATABASE'S (`goals_rank_per_month_idx`, migration
+ * 165), not this component's rank list — this file computes "which ranks
+ * look free" purely to steer the add form toward a rank the write is
+ * actually likely to succeed at (and to word the button honestly when none
+ * are), but the real refusal, including a race between two tabs, comes
+ * back from `createGoalAction` as a real error and is shown, not swallowed.
+ */
+
+const RANKS = [1, 2, 3, 4, 5] as const;
+
+const DOMAIN_OPTIONS: { value: string; label: string }[] = [
+  { value: "none", label: "No domain" },
+  { value: "deen", label: "Deen" },
+  { value: "business", label: "Business" },
+  { value: "fitness", label: "Fitness" },
+  { value: "school", label: "School" },
+  { value: "co_op", label: "Work" },
+];
+
+function domainLabel(domain: string | null): string | null {
+  if (!domain) return null;
+  return DOMAIN_OPTIONS.find((d) => d.value === domain)?.label ?? domain;
+}
+
+function GoalMilestoneRow({
+  goalId,
+  monthStart,
+  milestone,
+}: {
+  goalId: string;
+  monthStart: string;
+  milestone: GoalMilestone | undefined;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [optimisticDone, setOptimisticDone] = useState<boolean | null>(null);
+
+  if (!milestone) {
+    if (!adding) {
+      return (
+        <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(true)} className="w-fit text-xs">
+          + Add this month's milestone
+        </Button>
+      );
+    }
+    return (
+      <form
+        className="flex flex-col gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const t = title.trim();
+          if (!t) return;
+          startTransition(async () => {
+            const res = await addMilestoneAction({ goalId, monthStart, title: t });
+            if ("error" in res) {
+              setError(res.error);
+            } else {
+              setAdding(false);
+              setTitle("");
+              setError(null);
+            }
+          });
+        }}
+      >
+        <div className="flex gap-1.5">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="This month's milestone"
+            autoFocus
+            className="h-7 text-xs"
+          />
+          <Button type="submit" size="sm" disabled={isPending || !title.trim()}>
+            Add
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)}>
+            Cancel
+          </Button>
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </form>
+    );
+  }
+
+  const done = optimisticDone ?? milestone.doneAt !== null;
+
+  function toggle() {
+    setError(null);
+    const next = !done;
+    setOptimisticDone(next);
+    startTransition(async () => {
+      const res = await setMilestoneDoneAction(milestone!.id, next);
+      if ("error" in res) {
+        setError(res.error);
+        setOptimisticDone(!next);
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={isPending}
+        className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+      >
+        <CircleCheck className={done ? "size-3.5 text-accent-business" : "size-3.5"} strokeWidth={2} />
+        <span className={done ? "line-through decoration-muted-foreground/50" : undefined}>{milestone.title}</span>
+      </button>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function ActiveGoalCard({
+  goal,
+  milestone,
+  monthStart,
+  onResolve,
+}: {
+  goal: Goal;
+  milestone: GoalMilestone | undefined;
+  monthStart: string;
+  onResolve: (goalId: string, status: "done" | "dropped") => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function resolve(status: "done" | "dropped") {
+    setError(null);
+    startTransition(async () => {
+      const res = await setGoalStatusAction(goal.id, status);
+      if ("error" in res) {
+        setError(res.error);
+      } else {
+        onResolve(goal.id, status);
+      }
+    });
+  }
+
+  const label = domainLabel(goal.domain);
+
+  return (
+    <li className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
+            {goal.rank}
+          </span>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">{goal.title}</span>
+            {label && <span className="text-xs text-muted-foreground">{label}</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <Button size="sm" variant="outline" disabled={isPending} onClick={() => resolve("done")}>
+            <CircleCheck className="size-4" aria-hidden />
+            Done
+          </Button>
+          <Button size="sm" variant="ghost" disabled={isPending} onClick={() => resolve("dropped")}>
+            <X className="size-4" aria-hidden />
+            Drop
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">{goal.reason}</p>
+      <GoalMilestoneRow goalId={goal.id} monthStart={monthStart} milestone={milestone} />
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </li>
+  );
+}
+
+function AddGoalForm({
+  monthStart,
+  availableRanks,
+  onAdded,
+  onCancel,
+}: {
+  monthStart: string;
+  availableRanks: number[];
+  onAdded: () => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [reason, setReason] = useState("");
+  const [domain, setDomain] = useState("none");
+  const [rank, setRank] = useState(String(availableRanks[0] ?? 1));
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const t = title.trim();
+        const r = reason.trim();
+        if (!t || !r) return;
+        startTransition(async () => {
+          const res = await createGoalAction({
+            monthStart,
+            title: t,
+            reason: r,
+            rank: Number(rank) as 1 | 2 | 3 | 4 | 5,
+            domain: domain === "none" ? null : domain,
+          });
+          if ("error" in res) {
+            setError(res.error);
+          } else {
+            onAdded();
+          }
+        });
+      }}
+    >
+      <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Goal title" autoFocus />
+      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this goal matters (required)" />
+      <div className="flex flex-wrap gap-2">
+        <Select value={domain} onValueChange={setDomain}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DOMAIN_OPTIONS.map((d) => (
+              <SelectItem key={d.value} value={d.value}>
+                {d.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={rank} onValueChange={setRank}>
+          <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {RANKS.map((r) => (
+              <SelectItem key={r} value={String(r)} disabled={!availableRanks.includes(r)}>
+                Rank {r}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={isPending || !title.trim() || !reason.trim()}>
+          Add goal
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </form>
+  );
+}
+
+export function GoalBoard({
+  monthStart,
+  todayStr,
+  goals,
+  milestones,
+}: {
+  monthStart: string;
+  todayStr: string;
+  goals: Goal[];
+  milestones: GoalMilestone[];
+}) {
+  const [allGoals, setAllGoals] = useState(goals);
+  const [adding, setAdding] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+
+  const active = allGoals.filter((g) => g.status === "active").sort((a, b) => a.rank - b.rank);
+  const resolved = allGoals.filter((g) => g.status !== "active");
+  const availableRanks = RANKS.filter((r) => !active.some((g) => g.rank === r));
+  const atCeiling = active.length >= 5;
+  const milestoneByGoal = new Map(milestones.map((m) => [m.goalId, m]));
+
+  function markResolved(goalId: string, status: "done" | "dropped") {
+    setAllGoals((prev) =>
+      prev.map((g) => (g.id === goalId ? { ...g, status, completedAt: status === "done" ? new Date().toISOString() : null } : g))
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">This month's Top 5</span>
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">{active.length}/5</span>
+        </div>
+        {atCeiling && (
+          <p className="text-xs text-muted-foreground">
+            Your 5 active goals are full. Complete or drop one to make room for another.
+          </p>
+        )}
+      </div>
+
+      {active.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border/60 py-10 text-center">
+          <p className="text-sm font-medium">No goals set for this month yet.</p>
+          <p className="max-w-xs text-xs text-muted-foreground">
+            Pick up to five things that matter this month, in order, each with a reason.
+          </p>
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {active.map((goal) => (
+            <ActiveGoalCard
+              key={goal.id}
+              goal={goal}
+              milestone={milestoneByGoal.get(goal.id)}
+              monthStart={monthStart}
+              onResolve={markResolved}
+            />
+          ))}
+        </ul>
+      )}
+
+      {adding ? (
+        <AddGoalForm
+          monthStart={monthStart}
+          availableRanks={availableRanks}
+          onAdded={() => setAdding(false)}
+          onCancel={() => setAdding(false)}
+        />
+      ) : atCeiling ? (
+        <Button type="button" variant="outline" disabled className="w-fit" title="All 5 ranks are in use this month">
+          Ceiling reached — 5/5 active
+        </Button>
+      ) : (
+        <Button type="button" variant="outline" onClick={() => setAdding(true)} className="w-fit">
+          + Add a goal
+        </Button>
+      )}
+
+      {resolved.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            aria-expanded={historyExpanded}
+            onClick={() => setHistoryExpanded((v) => !v)}
+            className="flex w-fit items-center gap-1 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            {historyExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            Completed & dropped ({resolved.length})
+          </button>
+          {historyExpanded && (
+            <ul className="flex flex-col gap-2 pl-2">
+              {resolved.map((goal) => (
+                <li
+                  key={goal.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border/20 bg-card/60 p-3 text-muted-foreground"
+                >
+                  <span className={goal.status === "done" ? "truncate text-sm line-through decoration-muted-foreground/50" : "truncate text-sm"}>
+                    {goal.title}
+                  </span>
+                  <span className="shrink-0 text-xs">
+                    {goal.status === "done" ? "Done" : "Dropped"}
+                    {goal.completedAt ? ` · ${formatShortDate(goal.completedAt.slice(0, 10), todayStr)}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

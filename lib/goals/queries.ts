@@ -1,15 +1,11 @@
 /**
  * Goals — read side used by the Night Plan's seeding (#45).
  *
- * DEPENDS ON THE MIGRATION IN `supabase/migrations/` FOR `goals` AND
- * `goal_milestones` (architect's schema — see that migration's header for
- * the reasoning: new tables, not a reshape of `weekly_goals`). Written and
- * proved in `BEGIN; … ROLLBACK;` but NOT applied to production by this
- * track (R32-style discipline: numbers and applies belong to the lead).
- * Until it is applied, any call into this file will fail with "relation
- * does not exist" — that is expected, not defensive-coded around, the same
- * way every other track's schema-dependent code in this program ships
- * ahead of its own migration being applied.
+ * DEPENDS ON `goals` AND `goal_milestones` FROM MIGRATION 165
+ * (`supabase/migrations/165_goals_and_milestones.sql` — architect's schema,
+ * see that migration's header for the reasoning: new tables, not a reshape
+ * of `weekly_goals`). 165 IS APPLIED to production — this file's queries
+ * are live, not aspirational (stale note fixed 2026-09-14, #45 follow-up).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -54,4 +50,39 @@ export async function getUnfinishedMilestonesForMonth(
 /** First of the month for an already-local `YYYY-MM-DD` date string. Pure string slicing — see this file's header on why no `Date` object is involved. */
 export function monthStartFor(localDateStr: string): string {
   return `${localDateStr.slice(0, 7)}-01`;
+}
+
+export type GoalMilestone = {
+  id: string;
+  goalId: string;
+  title: string;
+  doneAt: string | null;
+};
+
+/**
+ * ALL milestones (done and unfinished both) for a calendar month — the
+ * Goals page's own read, distinct from `getUnfinishedMilestonesForMonth`
+ * above (which exists only to feed #45's Night Plan seeding and would hide
+ * a completed milestone the page still needs to render with its checkmark).
+ * At most one row per goal per month, per `goal_milestones_user_goal_month_key`
+ * (migration 165) — callers may safely index the result by `goalId`.
+ */
+export async function getMilestonesForMonth(
+  supabase: SupabaseClient,
+  userId: string,
+  monthStart: string
+): Promise<GoalMilestone[]> {
+  const { data, error } = await supabase
+    .from("goal_milestones")
+    .select("id, goal_id, title, done_at")
+    .eq("user_id", userId)
+    .eq("month_start", monthStart)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r: { id: string; goal_id: string; title: string; done_at: string | null }) => ({
+    id: r.id,
+    goalId: r.goal_id,
+    title: r.title,
+    doneAt: r.done_at,
+  }));
 }
