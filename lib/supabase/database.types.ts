@@ -1283,6 +1283,7 @@ export type Database = {
       ingestion_jobs: {
         Row: {
           book_id: string
+          consecutive_skipped_positions: number
           created_at: string
           cursor_attempt: number
           cursor_chunk_index: number | null
@@ -1291,12 +1292,14 @@ export type Database = {
           leased_until: string | null
           max_attempts: number
           reingest: boolean
+          skipped_positions: number
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
         }
         Insert: {
           book_id: string
+          consecutive_skipped_positions?: number
           created_at?: string
           cursor_attempt?: number
           cursor_chunk_index?: number | null
@@ -1305,12 +1308,14 @@ export type Database = {
           leased_until?: string | null
           max_attempts?: number
           reingest?: boolean
+          skipped_positions?: number
           stage?: Database["public"]["Enums"]["ingest_stage"]
           updated_at?: string
           user_id: string
         }
         Update: {
           book_id?: string
+          consecutive_skipped_positions?: number
           created_at?: string
           cursor_attempt?: number
           cursor_chunk_index?: number | null
@@ -1319,6 +1324,7 @@ export type Database = {
           leased_until?: string | null
           max_attempts?: number
           reingest?: boolean
+          skipped_positions?: number
           stage?: Database["public"]["Enums"]["ingest_stage"]
           updated_at?: string
           user_id?: string
@@ -3708,6 +3714,7 @@ export type Database = {
         }
         Returns: {
           book_id: string
+          consecutive_skipped_positions: number
           created_at: string
           cursor_attempt: number
           cursor_chunk_index: number | null
@@ -3716,6 +3723,7 @@ export type Database = {
           leased_until: string | null
           max_attempts: number
           reingest: boolean
+          skipped_positions: number
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
@@ -3732,6 +3740,7 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: {
           book_id: string
+          consecutive_skipped_positions: number
           created_at: string
           cursor_attempt: number
           cursor_chunk_index: number | null
@@ -3740,6 +3749,7 @@ export type Database = {
           leased_until: string | null
           max_attempts: number
           reingest: boolean
+          skipped_positions: number
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
@@ -3891,6 +3901,39 @@ export type Database = {
         Returns: undefined
       }
       seed_meditations_deck: { Args: { p_lessons: Json }; Returns: Json }
+      skip_ingestion_cursor_position: {
+        Args: {
+          p_expected_attempt: number
+          p_expected_chunk_index: number
+          p_expected_stage: Database["public"]["Enums"]["ingest_stage"]
+          p_job_id: string
+          p_next_chunk_index: number
+          p_next_stage: Database["public"]["Enums"]["ingest_stage"]
+          p_skip_reason: string
+        }
+        Returns: {
+          book_id: string
+          consecutive_skipped_positions: number
+          created_at: string
+          cursor_attempt: number
+          cursor_chunk_index: number | null
+          id: string
+          last_error: string | null
+          leased_until: string | null
+          max_attempts: number
+          reingest: boolean
+          skipped_positions: number
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ingestion_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       start_session: {
         Args: { p_local_date: string }
         Returns: {
