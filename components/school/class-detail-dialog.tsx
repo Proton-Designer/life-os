@@ -490,12 +490,24 @@ export function ClassDetailDialog({
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {classData.code}
-            {classData.room && ` · ${classData.room}`}
-            {classData.instructor && ` · ${classData.instructor}`}
-            {classData.term && ` · ${classData.term}`}
-          </p>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-sm text-muted-foreground">
+              {classData.code}
+              {classData.room && ` · ${classData.room}`}
+              {classData.instructor && ` · ${classData.instructor}`}
+              {classData.term && ` · ${classData.term}`}
+            </p>
+            {/* Opus Lead review (2026-09-15): these previously only showed in edit mode —
+                a cheap, separate line here rather than crowding the summary line above,
+                since a policy is free text and can run longer than a room/instructor. */}
+            {(classData.latePolicy || classData.attendancePolicy) && (
+              <p className="text-xs text-muted-foreground">
+                {classData.latePolicy && `Late: ${classData.latePolicy}`}
+                {classData.latePolicy && classData.attendancePolicy && " · "}
+                {classData.attendancePolicy && `Attendance: ${classData.attendancePolicy}`}
+              </p>
+            )}
+          </div>
         )}
 
         {/* items-start: Syllabus is usually much shorter than Assessments

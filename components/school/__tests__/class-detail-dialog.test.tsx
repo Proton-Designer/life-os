@@ -131,6 +131,26 @@ describe("ClassDetailDialog", () => {
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  // Opus Lead review (2026-09-15): late/attendance policy previously only showed in edit
+  // mode — cheap fix, a read-only line.
+  it("shows late and attendance policy in the read-only view, not just while editing", () => {
+    render(
+      <ClassDetailDialog
+        open
+        onOpenChange={vi.fn()}
+        classData={baseClassData({ latePolicy: "10% off per day late", attendancePolicy: "3 absences allowed" })}
+        timezone="America/Chicago"
+      />
+    );
+    expect(screen.getByText("Late: 10% off per day late · Attendance: 3 absences allowed")).toBeInTheDocument();
+  });
+
+  it("renders no policy line at all when neither is set — no empty row", () => {
+    render(<ClassDetailDialog open onOpenChange={vi.fn()} classData={baseClassData()} timezone="America/Chicago" />);
+    expect(screen.queryByText(/^Late:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Attendance:/)).not.toBeInTheDocument();
+  });
+
   it("Save commits course-detail changes and exits editing mode", async () => {
     const user = userEvent.setup();
     render(<ClassDetailDialog open onOpenChange={vi.fn()} classData={baseClassData()} timezone="America/Chicago" />);
