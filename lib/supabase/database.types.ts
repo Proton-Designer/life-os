@@ -1210,6 +1210,21 @@ export type Database = {
           },
         ]
       }
+      ingestion_driver_heartbeats: {
+        Row: {
+          id: number
+          last_polled_at: string
+        }
+        Insert: {
+          id: number
+          last_polled_at: string
+        }
+        Update: {
+          id?: number
+          last_polled_at?: string
+        }
+        Relationships: []
+      }
       ingestion_job_stage_attempts: {
         Row: {
           attempt: number
