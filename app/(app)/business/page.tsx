@@ -11,6 +11,8 @@ import { KillListModuleControls } from "@/components/business/kill-list-module-c
 import { IncompleteTasksModule } from "@/components/business/incomplete-tasks-module";
 import { getIncompleteByDate } from "@/app/(app)/business/kill-list-history-actions";
 import { GoalCard } from "@/components/shared/goal-card";
+import { getCompletedBusinessGoals } from "@/lib/business/completed-goals";
+import { CompletedGoalsArchive } from "@/components/business/completed-goals-archive";
 import { FocusTimeCard } from "@/components/business/focus-time-card";
 import type { StoredSessionHour } from "@/components/business/lock-in-session";
 import { PageContainer } from "@/components/shell/page-container";
@@ -30,7 +32,7 @@ export default async function BusinessPage() {
   const weekStart = getWeekStartDate(dateStr);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [slots, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate] =
+  const [slots, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate, completedGoals] =
     await Promise.all([
       getKillListSlots(userId, dateStr),
       supabase
@@ -61,6 +63,10 @@ export default async function BusinessPage() {
         .gte("started_at", thirtyDaysAgoIso)
         .order("started_at", { ascending: false }),
       getIncompleteByDate(),
+      // #53: Business's completed-goals archive — goals(domain='business',
+      // status='done'), not weekly_goals (no completion lifecycle there).
+      // See lib/business/completed-goals.ts's header.
+      getCompletedBusinessGoals(supabase, userId),
     ]);
 
   const killListCompletedToday = slots.filter((s) => s.completed).length;
@@ -149,6 +155,8 @@ export default async function BusinessPage() {
           />
         </div>
       </div>
+
+      <CompletedGoalsArchive goals={completedGoals} todayStr={dateStr} />
     </PageContainer>
   );
 }
