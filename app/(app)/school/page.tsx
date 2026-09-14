@@ -69,10 +69,10 @@ export default async function SchoolPage() {
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
 
-  // getClassCards depends only on userId/weekStart/dateStr (known before any
-  // of the three queries below resolve), so it joins this wave instead of
+  // getClassCards/getSchoolTodayFeed depend only on userId/weekStart/dateStr (known
+  // before any of the three queries below resolve), so both join this wave instead of
   // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -87,6 +87,10 @@ export default async function SchoolPage() {
       .eq("domain", "school"),
     supabase.from("classes").select("id, short_name, code").eq("user_id", userId),
     getClassCards(supabase, userId, weekStart, dateStr),
+    // Phase 1 #15 — /school wants TODAY specifically, so both date params are dateStr
+    // here; #28 (Night Plan, an evening ritual planning tomorrow) will pass a different
+    // targetDate than todayStr when it becomes this function's second caller.
+    getSchoolTodayFeed(supabase, userId, dateStr, dateStr),
   ]);
 
   const cancelledDates = await getCancelledDatesByEvent(
@@ -115,13 +119,6 @@ export default async function SchoolPage() {
   // summarizes this panel, not a separate KPI card duplicating it.
   const highRiskCount = deadlineRiskRows.filter((r) => r.risk.band === "high" || r.risk.band === "critical").length;
 
-  // Phase 1 #15 — day-level, not the wider due-soon window above. Reads the same
-  // classCards.assessments rows deadlineRiskRows does; getSchoolTodayFeed itself filters
-  // to dueDate === dateStr.
-  const schoolTodayItems = getSchoolTodayFeed(
-    classCards.map((c) => ({ code: c.code, assessments: c.assessments })),
-    dateStr
-  );
   const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
     id: c.id,
     label: c.short_name ?? c.code,
