@@ -536,7 +536,17 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
     lesson: Record<string, unknown> | null;
     onCardsInsert?: (rows: unknown[]) => void;
     onPromote?: (status: string) => void;
+    onCardStatesInsert?: (rows: unknown[]) => void;
+    /** Lets a test simulate the real DB refusing this insert (e.g. the R43-style
+     * "prove the test has teeth" break -- see this file's own header on why every
+     * assertion here is checked RED before it is trusted GREEN). */
+    cardStatesInsertError?: { message: string } | null;
   }) {
+    // Fabricated ids, distinct per row -- the fix reads THESE back off the
+    // `cards` insert's own `.select("id")` response and must use exactly
+    // them (not the lesson id, not a placeholder) when building card_states
+    // rows, so a test asserting the wrong id would still catch a real bug.
+    let nextCardId = 0;
     return {
       from(table: string) {
         if (table === "lessons") {
@@ -579,9 +589,20 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
             delete() {
               return { eq: async () => ({ error: null }) };
             },
-            insert: async (rows: unknown[]) => {
+            insert(rows: unknown[]) {
               opts.onCardsInsert?.(rows);
-              return { error: null };
+              const inserted = rows.map(() => ({ id: `card-${nextCardId++}` }));
+              return {
+                select: async () => ({ data: inserted, error: null }),
+              };
+            },
+          };
+        }
+        if (table === "card_states") {
+          return {
+            insert: async (rows: unknown[]) => {
+              opts.onCardStatesInsert?.(rows);
+              return { error: opts.cardStatesInsertError ?? null };
             },
           };
         }
@@ -673,5 +694,104 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
     expect(promoteCalled).toBe(false);
     expect(result.nextStage).toBe("generating_cards");
     expect(result.nextChunkIndex).toBe(1);
+  });
+
+  /**
+   * POST-DEPLOY FINDING: a real-ingested card with no `card_states` row is
+   * permanently invisible to `get_session_queue` (both its arms, 071/126,
+   * select FROM card_states, never from cards) -- readable as lesson
+   * content, never reachable as something to study. `seed_meditations_deck`
+   * (103) always wrote this row for its seeded decks; the real pipeline
+   * never did, for any book, ever. This is the regression test for that gap
+   * -- it asserts the SCHEDULER row exists with the right shape, not merely
+   * that `cards` rows appear. A test checking only "cards were inserted"
+   * would have passed against this exact bug for as long as the bug
+   * existed; that is the assertion this test is written to NOT be.
+   *
+   * A test asserting a real behaviour must be provably able to fail. This
+   * one was: with the fix's `card_states` insert commented out in
+   * worker-stages.ts, this exact test failed with
+   * `expected undefined to deeply equal [...]` (no insert call was ever
+   * made to `card_states`, so `capturedRows` stayed unset) -- confirmed RED
+   * before the insert was restored and this suite re-run GREEN.
+   */
+  it("creates a card_states row for every surviving card, mirroring migration 103's column set exactly (card_id, user_id, book_id, state:'new') -- the fix for the post-deploy 'ingested books are unstudyable' finding", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      generateCards: vi.fn().mockResolvedValue([
+        { promptType: "free_recall", prompt: "p1", answer: "a1" },
+        { promptType: "free_recall", prompt: "p2", answer: "a2" },
+      ]),
+      lastUsage: { promptTokens: 10, completionTokens: 5 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let capturedRows: unknown[] | undefined;
+    const supabase = makeSupabase({
+      lesson: LESSON,
+      onCardStatesInsert: (rows) => (capturedRows = rows),
+    });
+
+    await STAGE_HANDLERS.generating_cards!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-42", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    // Exactly one card_states row per surviving card, keyed to the REAL ids
+    // the cards insert returned -- not the lesson id, not a shared
+    // placeholder, and `user_id` is the JOB'S owner (ctx.job.user_id), not
+    // the cards table's zero-UUID trigger placeholder: card_states' own
+    // trigger (card_states_derive_and_check, 070) does not overwrite
+    // user_id under a service-role caller, it VALIDATES the supplied value
+    // against the card's real owner -- a wrong id here would fail closed
+    // against the real database, and this test would not catch that unless
+    // it checks the exact value, not just that "some insert happened".
+    expect(capturedRows).toEqual([
+      { card_id: "card-0", user_id: "owner-42", book_id: "book-1", state: "new" },
+      { card_id: "card-1", user_id: "owner-42", book_id: "book-1", state: "new" },
+    ]);
+  });
+
+  it("does NOT insert into card_states when zero cards survive -- nothing to schedule for a lesson with no cards", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      generateCards: vi.fn().mockResolvedValue([]),
+      lastUsage: { promptTokens: 10, completionTokens: 5 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    let cardStatesInsertCalled = false;
+    const supabase = makeSupabase({
+      lesson: LESSON,
+      onCardStatesInsert: () => (cardStatesInsertCalled = true),
+    });
+
+    await STAGE_HANDLERS.generating_cards!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-42", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(cardStatesInsertCalled).toBe(false);
+  });
+
+  it("throws (fails closed, does not swallow) when the card_states insert itself fails -- same posture as every other write in this stage", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      generateCards: vi.fn().mockResolvedValue([{ promptType: "free_recall", prompt: "p", answer: "a" }]),
+      lastUsage: { promptTokens: 10, completionTokens: 5 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const supabase = makeSupabase({
+      lesson: LESSON,
+      cardStatesInsertError: { message: "duplicate key value violates unique constraint \"card_states_card_user_key\"" },
+    });
+
+    await expect(
+      STAGE_HANDLERS.generating_cards!({
+        job: { id: "job-1", book_id: "book-1", user_id: "owner-42", cursor_chunk_index: 0 } as never,
+        supabase: supabase as never,
+      }),
+    ).rejects.toThrow(/card_states_card_user_key/);
   });
 });

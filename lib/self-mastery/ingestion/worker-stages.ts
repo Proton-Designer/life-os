@@ -464,6 +464,13 @@ async function mergingStage(ctx: StageContext): Promise<StageWorkResult> {
  *
  * IDEMPOTENT: delete-then-insert of this lesson's `cards`, keyed by
  * `lesson_id`.
+ *
+ * EVERY SURVIVING CARD ALSO GETS A `card_states` ROW HERE, in the same
+ * invocation, immediately after it is created -- see the insert below for
+ * why this is where that row is born, not a later whole-book sweep. A card
+ * with no `card_states` row is invisible to `get_session_queue` forever
+ * (both its arms select FROM card_states, never from cards): readable as
+ * lesson content, never reachable as something to study.
  */
 async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult> {
   const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
@@ -500,18 +507,75 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
   if (deleteError) throw deleteError;
 
   if (cards.length > 0) {
-    const { error: insertError } = await ctx.supabase.from("cards").insert(
-      cards.map((c, i) => ({
-        lesson_id: lessonRow.id,
-        book_id: ctx.job.book_id,
-        user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 065)
-        prompt_type: c.promptType,
-        prompt: c.prompt,
-        answer: c.answer,
-        sort_order: i,
-      })),
-    );
+    const { data: insertedCards, error: insertError } = await ctx.supabase
+      .from("cards")
+      .insert(
+        cards.map((c, i) => ({
+          lesson_id: lessonRow.id,
+          book_id: ctx.job.book_id,
+          user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 065)
+          prompt_type: c.promptType,
+          prompt: c.prompt,
+          answer: c.answer,
+          sort_order: i,
+        })),
+      )
+      .select("id");
     if (insertError) throw insertError;
+
+    // THE BUG THIS CLOSES (post-deploy finding, item 5 follow-up): a card
+    // with no `card_states` row can never enter `get_session_queue` --
+    // BOTH arms (071/126) select FROM card_states, never from cards, so a
+    // card this stage creates and never gives a scheduler row to is
+    // permanently unstudyable, readable only as inert lesson content.
+    // `seed_meditations_deck` (103) has always done this
+    // (`insert into card_states (card_id, user_id, book_id, state) values
+    // (v_card_id, v_caller, v_book_id, 'new')`) for its seeded decks; this
+    // is the real-ingestion path's own version of that exact insert,
+    // mirrored column-for-column -- same four columns, same literal 'new'
+    // state, no other column touched, so a real-ingested card and a seeded
+    // one start scheduling from an identical, verified-correct row shape.
+    //
+    // WHY HERE, NOT A `finalizingStage` SWEEP: this stage's own delete-
+    // then-insert of `cards` (keyed by `lesson_id`, see this function's own
+    // header) already makes every card born here CASCADE-fresh on every
+    // entry, including a retry of this exact lesson -- `cards`'s FK to
+    // `card_states` is `ON DELETE CASCADE` (070), so the delete above has
+    // already removed any card_states row a prior, incomplete attempt at
+    // THIS lesson may have left behind, before a single new card id exists
+    // to collide with. A plain (not upsert) insert is therefore correct,
+    // not merely convenient: on the ONLY path that can re-run this stage
+    // for an already-advanced lesson (a whole-book `reingest`), the cards
+    // above were just deleted and given brand-new ids, so there is no
+    // existing card_states row for those ids to conflict with, and no
+    // already-reviewed card's row is ever touched -- a reviewed card's
+    // history lives under a DIFFERENT card id than whatever this insert
+    // just created. Silently upserting here would hide a genuine bug (a
+    // stale id somehow reappearing) behind a swallowed conflict; this
+    // insert is left to throw, on purpose, matching every other write in
+    // this file's fail-closed posture (see `resolveIngestionProvider`'s own
+    // header) rather than adding an `ON CONFLICT` this design never needs.
+    //
+    // `user_id` must be `ctx.job.user_id`, explicitly and correctly, not
+    // the `cards` insert's zero-UUID placeholder above: `card_states`' own
+    // trigger (`card_states_derive_and_check`, 070) derives `book_id` from
+    // `card_id` unconditionally, but only OVERWRITES `user_id` when
+    // `auth.uid()` is non-null (a real end-user session). Under this
+    // worker's service-role client `auth.uid()` is null, so the trigger
+    // instead VALIDATES the supplied `user_id` against the card's real
+    // owner and raises if it does not match -- a placeholder here would
+    // fail closed immediately, not silently misattribute the row.
+    if (insertedCards && insertedCards.length > 0) {
+      const { error: cardStatesError } = await ctx.supabase.from("card_states").insert(
+        insertedCards.map((row) => ({
+          card_id: row.id,
+          user_id: ctx.job.user_id,
+          book_id: ctx.job.book_id,
+          state: "new" as const,
+        })),
+      );
+      if (cardStatesError) throw cardStatesError;
+    }
   }
 
   // D-018: promote iff at least one card survived; a denied lesson keeps
