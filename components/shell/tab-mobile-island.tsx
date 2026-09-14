@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MoreHorizontal, TrendingUp, Settings, CalendarDays, ClipboardCheck, type LucideIcon } from "lucide-react";
+import { MoreHorizontal, TrendingUp, Settings, CalendarDays, ClipboardCheck, AlertCircle, Flag, type LucideIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
@@ -32,6 +32,10 @@ const MORE_ITEMS: NavItem[] = [
   { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },
   { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, accent: "info" },
+  // Phase 1 (2026-09-14): kept in step with tab-sidebar-nav.tsx's own
+  // MORE_ITEMS — see that file's comment on this addition.
+  { href: "/worries", label: "Worries", icon: AlertCircle, accent: "warning" },
+  { href: "/goals", label: "Goals", icon: Flag, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

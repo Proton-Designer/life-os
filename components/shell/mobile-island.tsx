@@ -32,10 +32,20 @@ const PRIMARY_ITEMS: {
   { href: "/work", label: "Work", key: "work", icon: DOMAIN_ICON.co_op, accent: "coop" },
 ];
 
-// Insights + Settings, in that order — reused from SidebarNav's own SECTIONS
-// (REVIEW then SYSTEM) rather than re-declared here a third time.
+// Insights, Worries, Goals, Settings, in that order — reused from
+// SidebarNav's own SECTIONS (REVIEW then SYSTEM) rather than re-declared
+// here a third time. An EXPLICIT allowlist deliberately, not "every SECTIONS
+// item" — the six MAIN-section items already have their own dedicated slots
+// in PRIMARY_ITEMS above, so admitting everything here would duplicate them
+// into this popover too.
+//
+// Phase 1 (2026-09-14): this allowlist previously named only /insights and
+// /settings, which made /worries reachable in EVERY other nav surface
+// (legacy desktop, both domains-mode renderers) but not this one — a real
+// legacy-mobile gap, found while wiring /goals into all four renderers.
+// Fixed here rather than repeated: /goals joins /worries in the same fix.
 const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
-  (item) => item.href === "/insights" || item.href === "/settings"
+  (item) => item.href === "/insights" || item.href === "/settings" || item.href === "/worries" || item.href === "/goals"
 );
 
 function isActive(pathname: string, href: string) {

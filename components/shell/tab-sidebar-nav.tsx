@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck } from "lucide-react";
+import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
@@ -25,6 +25,13 @@ const MORE_ITEMS: NavItem[] = [
   { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },
   { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, accent: "info" },
+  // Phase 1 (2026-09-14): /worries and /goals existed but had no entry in
+  // EITHER domains-mode renderer at all (this file and its mobile twin
+  // below) — a real gap distinct from mobile-island.tsx's legacy-mobile
+  // allowlist bug fixed in the same pass. Added here, kept in step with
+  // tab-mobile-island.tsx per this const's own doc comment above.
+  { href: "/worries", label: "Worries", icon: AlertCircle, accent: "warning" },
+  { href: "/goals", label: "Goals", icon: Flag, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 
