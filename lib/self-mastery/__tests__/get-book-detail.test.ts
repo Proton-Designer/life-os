@@ -92,3 +92,87 @@ describe("getBookDetail — stalled detection (S6)", () => {
     expect(fromMock).not.toHaveBeenCalledWith("ingestion_jobs");
   });
 });
+
+/**
+ * Phase 1 #8. `sectionTitle` must be the real `book_sections.title` when
+ * one genuinely exists, and null in every other case — never a guess. See
+ * BookDetailLesson.sectionTitle's own header for why each null case is
+ * collapsed here rather than left for the display layer to interpret.
+ */
+describe("getBookDetail — section provenance (Phase 1 #8)", () => {
+  const LESSON_BASE = {
+    title: "Use the two-minute rule",
+    core_claim: null,
+    mechanism: null,
+    action_template: null,
+    evidence_strength: null,
+    provenance_quote: "quote",
+    page_ref: 51,
+    source_chunk_id: "chunk-1",
+    rank: 0,
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    fromMock.mockClear();
+    responses = {
+      books: { data: { ...BASE_BOOK, status: "ready", stage: "done", progress_pct: 100 }, error: null },
+      cards: { data: [], error: null },
+    };
+  });
+
+  it("resolves the real section title when book_sections has one", async () => {
+    responses.lessons = { data: [{ ...LESSON_BASE, id: "l1", section_id: "sec-1" }], error: null };
+    responses.book_sections = { data: [{ id: "sec-1", title: "Chapter 3: Systems Over Goals" }], error: null };
+
+    const { getBookDetail } = await import("../get-book-detail");
+    const detail = await getBookDetail("book-1");
+    expect(detail?.lessons[0]?.sectionTitle).toBe("Chapter 3: Systems Over Goals");
+  });
+
+  it("is null when the lesson has no section_id — never guessed", async () => {
+    responses.lessons = { data: [{ ...LESSON_BASE, id: "l1", section_id: null }], error: null };
+    responses.book_sections = { data: [], error: null };
+
+    const { getBookDetail } = await import("../get-book-detail");
+    const detail = await getBookDetail("book-1");
+    expect(detail?.lessons[0]?.sectionTitle).toBeNull();
+    // No section ids to look up -- the batch query must not fire at all.
+    expect(fromMock).not.toHaveBeenCalledWith("book_sections");
+  });
+
+  it("is null when the section row itself has no title", async () => {
+    responses.lessons = { data: [{ ...LESSON_BASE, id: "l1", section_id: "sec-1" }], error: null };
+    responses.book_sections = { data: [{ id: "sec-1", title: null }], error: null };
+
+    const { getBookDetail } = await import("../get-book-detail");
+    const detail = await getBookDetail("book-1");
+    expect(detail?.lessons[0]?.sectionTitle).toBeNull();
+  });
+
+  it('is null for the "Full Book" sentinel — an honest "no structure found" marker, never shown as a chapter', async () => {
+    responses.lessons = { data: [{ ...LESSON_BASE, id: "l1", section_id: "sec-1" }], error: null };
+    responses.book_sections = { data: [{ id: "sec-1", title: "Full Book" }], error: null };
+
+    const { getBookDetail } = await import("../get-book-detail");
+    const detail = await getBookDetail("book-1");
+    expect(detail?.lessons[0]?.sectionTitle).toBeNull();
+  });
+
+  it("resolves distinct lessons sharing one section from a single batched query", async () => {
+    responses.lessons = {
+      data: [
+        { ...LESSON_BASE, id: "l1", section_id: "sec-1" },
+        { ...LESSON_BASE, id: "l2", section_id: "sec-1" },
+      ],
+      error: null,
+    };
+    responses.book_sections = { data: [{ id: "sec-1", title: "Chapter 1: Getting Started" }], error: null };
+
+    const { getBookDetail } = await import("../get-book-detail");
+    const detail = await getBookDetail("book-1");
+    expect(detail?.lessons.map((l) => l.sectionTitle)).toEqual(["Chapter 1: Getting Started", "Chapter 1: Getting Started"]);
+    // Batched: one book_sections call for both lessons, not one per lesson.
+    expect(fromMock.mock.calls.filter(([table]) => table === "book_sections")).toHaveLength(1);
+  });
+});

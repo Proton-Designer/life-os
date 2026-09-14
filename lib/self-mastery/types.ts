@@ -75,6 +75,19 @@ export interface BookDetailLesson {
   provenanceQuote: string;
   pageRef: number | null;
   sourceChunkId: string | null;
+  /**
+   * Real chapter/section heading, or null. Sourced from `book_sections.title`
+   * via `lessons.section_id` — never synthesized. Null covers three distinct
+   * cases get-book-detail.ts collapses on purpose: no section_id at all (a
+   * chunk with no detected section), a section row with no title, and the
+   * "Full Book" sentinel `parseStructure` writes when neither the PDF's own
+   * outline nor the heading heuristic found any real structure. That last
+   * case is the load-bearing one — "Full Book" is an honest description of
+   * "nothing detected," not a chapter, and showing it as though it were one
+   * would be exactly the fabricated "Ch. 7" `provenance-quote.tsx`'s prior
+   * ruling existed to prevent.
+   */
+  sectionTitle: string | null;
   /** Mean FSRS retrievability across this lesson's own cards — same formula, same live data as the book-level number, just a narrower slice. */
   memoryStrength: number;
   cards: LessonCardState[];

@@ -27,8 +27,20 @@ interface LessonRow {
   provenance_quote: string;
   page_ref: number | null;
   source_chunk_id: string | null;
+  section_id: string | null;
   rank: number | null;
 }
+
+interface BookSectionRow {
+  id: string;
+  title: string | null;
+}
+
+// The honest "nothing detected" sentinel `parseStructure`
+// (lib/self-mastery/ingestion/structure.ts) writes when neither the PDF's
+// own outline nor the heading heuristic found real structure. Never shown
+// as a chapter -- see BookDetailLesson.sectionTitle's own header for why.
+const NO_REAL_STRUCTURE_SENTINEL = "Full Book";
 
 interface CardRow {
   id: string;
@@ -86,7 +98,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
   // and archived/rejected rows exist but aren't shown, matching ULM's own
   // fetchBookDetail exactly.
   const { data: lessonRows, error: lessonsError } = await untypedFrom(supabase, "lessons")
-    .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id, rank")
+    .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id, section_id, rank")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .eq("status", "active")
@@ -94,6 +106,28 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     .returns<LessonRow[]>();
   if (lessonsError) throw lessonsError;
   const lessons = lessonRows ?? [];
+
+  // Batched, not per-lesson: a handful of section ids shared across dozens
+  // of lessons, same "one query for the whole book" posture as cards/
+  // card_states below. Skipped entirely when no lesson has a section_id —
+  // an empty `.in()` list is a real, distinct query worth not sending.
+  const sectionIds = [...new Set(lessons.map((l) => l.section_id).filter((id): id is string => id !== null))];
+  const { data: sectionRows, error: sectionsError } =
+    sectionIds.length > 0
+      ? await untypedFrom(supabase, "book_sections").select("id, title").in("id", sectionIds).returns<BookSectionRow[]>()
+      : { data: [] as BookSectionRow[], error: null };
+  if (sectionsError) throw sectionsError;
+  const sectionTitleById = new Map((sectionRows ?? []).map((s) => [s.id, s.title]));
+
+  // Real title only. Collapses to null for: no section_id, a section row
+  // with no title, and the NO_REAL_STRUCTURE_SENTINEL -- never a guess, per
+  // BookDetailLesson.sectionTitle's own header.
+  const resolveSectionTitle = (sectionId: string | null): string | null => {
+    if (sectionId === null) return null;
+    const title = sectionTitleById.get(sectionId);
+    if (!title || title === NO_REAL_STRUCTURE_SENTINEL) return null;
+    return title;
+  };
 
   const { data: cardRows, error: cardsError } = await untypedFrom(supabase, "cards")
     .select("id, lesson_id, prompt_type")
@@ -170,6 +204,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
       provenanceQuote: l.provenance_quote,
       pageRef: l.page_ref,
       sourceChunkId: l.source_chunk_id,
+      sectionTitle: resolveSectionTitle(l.section_id),
       memoryStrength: averageRetrievability(lessonCardStates, now),
       cards: perCard,
     };

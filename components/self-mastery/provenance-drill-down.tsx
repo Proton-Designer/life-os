@@ -46,12 +46,14 @@ export function ProvenanceDrillDown({
   onOpenChange,
   quote,
   pageRef,
+  sectionTitle,
   sourceChunkId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   quote: string;
   pageRef: number | null;
+  sectionTitle: string | null;
   sourceChunkId: string | null;
 }) {
   return (
@@ -63,7 +65,7 @@ export function ProvenanceDrillDown({
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">What we stored</p>
-            <ProvenanceQuote quote={quote} pageRef={pageRef} />
+            <ProvenanceQuote quote={quote} pageRef={pageRef} sectionTitle={sectionTitle} />
           </div>
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">In context, from the book</p>

@@ -35,7 +35,7 @@ export function LessonCard({ lesson }: { lesson: BookDetailLesson }) {
       </div>
 
       <button type="button" onClick={() => setDrillDownOpen(true)} className="text-left transition-opacity hover:opacity-90">
-        <ProvenanceQuote quote={lesson.provenanceQuote} pageRef={lesson.pageRef} />
+        <ProvenanceQuote quote={lesson.provenanceQuote} pageRef={lesson.pageRef} sectionTitle={lesson.sectionTitle} />
       </button>
 
       {lesson.mechanism ? (
@@ -99,6 +99,7 @@ export function LessonCard({ lesson }: { lesson: BookDetailLesson }) {
         onOpenChange={setDrillDownOpen}
         quote={lesson.provenanceQuote}
         pageRef={lesson.pageRef}
+        sectionTitle={lesson.sectionTitle}
         sourceChunkId={lesson.sourceChunkId}
       />
     </div>
