@@ -82,10 +82,18 @@ export type GradeCategoryDefinition = GradeCategory;
  * since the engine's `GradeItem.pointsPossible` is a real number, not a
  * "maybe." An empty category resolves to `categoryPct: null`, never 0.
  */
-export function computeClassGrade(
+/**
+ * The categories/items construction `computeClassGrade` uses internally,
+ * exported so a second caller (the scenario "what-if" solver, Phase 1 #13 —
+ * see `scenario.ts`'s `computeScenario`, which operates on these same engine
+ * types) reuses this exact mapping rather than re-deriving it. Two
+ * implementations of "which category does this assessment belong to" is
+ * precisely the kind of drift this file's own header exists to prevent.
+ */
+export function buildCategoriesAndItems(
   rows: AssessmentGradeRow[],
   categoryDefs: GradeCategoryDefinition[] = [],
-): CourseGradeResult {
+): { categories: GradeCategory[]; items: GradeItem[] } {
   const categoryIds = new Set(categoryDefs.map((c) => c.id));
   const isRealCategoryRow = (r: AssessmentGradeRow) => !r.isExcused && r.categoryId != null && categoryIds.has(r.categoryId);
   // Excludes rows already claimed by a real category above -- a categorized
@@ -131,5 +139,13 @@ export function computeClassGrade(
       })),
   ];
 
+  return { categories, items };
+}
+
+export function computeClassGrade(
+  rows: AssessmentGradeRow[],
+  categoryDefs: GradeCategoryDefinition[] = [],
+): CourseGradeResult {
+  const { categories, items } = buildCategoriesAndItems(rows, categoryDefs);
   return computeCourseGrade(categories, items);
 }

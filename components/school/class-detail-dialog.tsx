@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ClassAssessments, type ClassAssessment } from "@/components/school/class-assessments";
 import { ClassGradeLedger } from "@/components/school/class-grade-ledger";
+import { GradeScenarioPanel } from "@/components/school/grade-scenario-panel";
 import { GradeCategoriesPanel } from "@/components/school/grade-categories-panel";
 import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
@@ -548,6 +549,17 @@ export function ClassDetailDialog({
             gradeBoundaries={classData.gradeBoundaries}
           />
         </div>
+
+        {/* Phase 1 #13 — computeScenario's first production caller (previously zero
+            callers anywhere, verified by grep). Owns its own card wrapper (unlike its
+            siblings above) because it returns null once there's nothing left to
+            hypothesize about — no fabricated "what-if" on a fully-graded or empty
+            class, and no empty bordered box left behind when it has nothing to say. */}
+        <GradeScenarioPanel
+          assessments={classData.assessments}
+          categories={classData.categories}
+          targetGradePct={classData.targetGradePct}
+        />
 
         {/* Same B3 instant-load contract as the grade ledger above: reads
             straight from classData.questions (server props). The panel is
