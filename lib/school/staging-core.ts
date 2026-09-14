@@ -1,6 +1,9 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addClassAssessmentCore, type AssessmentType } from "@/lib/school/actions-core";
+import type { ExtractedItem } from "@/lib/school/syllabus-extraction";
+
+export type StagingBatchSource = "syllabus" | "announcement";
 
 export type StagingBatchStatus = "pending" | "confirming" | "confirmed";
 
@@ -143,4 +146,52 @@ export async function confirmStagingBatchCore(
     committedCount,
     remaining,
   };
+}
+
+/**
+ * Phase 1 #16 — creates a `staging_batches` row for a class. Deliberately created
+ * ONLY once extraction has actually produced a real result (see
+ * syllabus-extraction-actions.ts's own header) — a `no_key`/`unavailable`/
+ * `parse_failed`/unreadable-file outcome creates NO batch at all, since there is
+ * nothing to confirm and no reason to leave an empty row behind; only a genuine
+ * `extracted` result (including zero items — #19's "nothing schedulable found")
+ * gets a batch.
+ */
+export async function createStagingBatchCore(
+  supabase: SupabaseClient,
+  userId: string,
+  classId: string,
+  source: StagingBatchSource
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("staging_batches")
+    .insert({ user_id: userId, class_id: classId, source })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+/** Bulk-inserts the extracted items as `staged_deliverables` rows against an already-
+ * created batch. A no-op on an empty array (#19's zero-item batch needs no rows at
+ * all — the batch itself, with nothing to commit, IS the success state). */
+export async function createStagedDeliverablesCore(
+  supabase: SupabaseClient,
+  userId: string,
+  batchId: string,
+  items: ExtractedItem[]
+): Promise<void> {
+  if (items.length === 0) return;
+  const { error } = await supabase.from("staged_deliverables").insert(
+    items.map((item) => ({
+      user_id: userId,
+      batch_id: batchId,
+      name: item.name,
+      type: item.type as AssessmentType,
+      date: item.date,
+      confidence: item.confidence,
+      source_snippet: item.sourceSnippet,
+    }))
+  );
+  if (error) throw error;
 }

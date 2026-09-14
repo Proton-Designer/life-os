@@ -4,7 +4,7 @@ import { getClassCards } from "../get-class-cards";
 type Row = Record<string, unknown>;
 
 function makeSelectResult(rows: Row[]) {
-  // A thenable chain that supports .eq/.in/.gte/.lte/.order in any order,
+  // A thenable chain that supports .eq/.in/.gte/.lte/.neq/.is/.order in any order,
   // resolving to { data: rows, error: null } — mirrors the real
   // supabase-js query builder's own thenable shape closely enough for this
   // pure data-shaping function, which only ever awaits the final result.
@@ -12,7 +12,7 @@ function makeSelectResult(rows: Row[]) {
   // `.returns<T>()` is a type-only override in the real supabase-js client — it returns
   // `this` and changes nothing at runtime, so the fake mirrors that rather than needing
   // its own case per call site.
-  for (const method of ["select", "eq", "in", "gte", "lte", "order", "returns"]) {
+  for (const method of ["select", "eq", "in", "gte", "lte", "neq", "is", "order", "returns"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (resolve: (v: { data: Row[]; error: null }) => void) => resolve({ data: rows, error: null });
@@ -109,6 +109,7 @@ describe("getClassCards", () => {
           { id: "t3", title: "Task t3", dueDate: "2026-09-15", taskType: "homework_assignment", taskTypeOtherLabel: null, classId: "c1" },
         ],
         questions: [],
+        pendingStagingBatch: null,
       },
     ]);
   });
@@ -148,6 +149,7 @@ describe("getClassCards", () => {
         categories: [],
         tasks: [],
         questions: [],
+        pendingStagingBatch: null,
       },
     ]);
   });
@@ -239,5 +241,99 @@ describe("getClassCards", () => {
     const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
     expect(result[0].upcomingAssessment).toEqual({ name: "Future Quiz", date: "2026-09-01" });
     expect(result[0].assessments).toHaveLength(2);
+  });
+
+  // Phase 1 #16/#18 — the syllabus-extraction review surface.
+  describe("pendingStagingBatch", () => {
+    function classRow(id: string) {
+      return { id, short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null };
+    }
+
+    it("is null when a class has never had a batch", async () => {
+      const supabase = makeFakeSupabase({ classes: [classRow("c1")], tasks: [], class_assessments: [] });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch).toBeNull();
+    });
+
+    it("surfaces a pending batch with its uncommitted deliverables", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        staging_batches: [{ id: "b1", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staged_deliverables: [
+          { id: "d1", batch_id: "b1", name: "Midterm", type: "exam", date: "2026-10-01", confidence: 0.9, source_snippet: "Midterm: Oct 1", committed_assessment_id: null },
+        ],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch).toEqual({
+        id: "b1",
+        deliverables: [{ id: "d1", name: "Midterm", type: "exam", date: "2026-10-01", confidence: 0.9, sourceSnippet: "Midterm: Oct 1" }],
+      });
+    });
+
+    // The real query's own `.neq("status", "confirmed")` filters a confirmed batch out
+    // before this function ever sees it (this mock, like the rest of this file, trusts
+    // the fixture is already what a real filtered query would return) — so a class with
+    // ONLY a confirmed batch reaches this function with an empty staging_batches result,
+    // exactly like a class that never had a batch at all.
+    it("is null when the only batch is confirmed — nothing left to review", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        staging_batches: [],
+        staged_deliverables: [],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch).toBeNull();
+    });
+
+    it("surfaces a genuinely empty batch (#19's 'nothing schedulable found') as a real batch with zero deliverables, not null", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        staging_batches: [{ id: "b1", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staged_deliverables: [],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch).toEqual({ id: "b1", deliverables: [] });
+    });
+
+    it("picks only the MOST RECENT pending batch when a class somehow has more than one", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        // Newest first — matches what the real query's own .order("created_at", {
+        // ascending: false }) would return (this mock, like the rest of this file,
+        // trusts the fixture is already ordered/filtered the way a real query would).
+        staging_batches: [
+          { id: "newer", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" },
+          { id: "older", class_id: "c1", status: "pending", created_at: "2026-08-01T00:00:00Z" },
+        ],
+        staged_deliverables: [
+          { id: "d-older", batch_id: "older", name: "Old", type: "quiz", date: null, confidence: 0.5, source_snippet: null, committed_assessment_id: null },
+          { id: "d-newer", batch_id: "newer", name: "New", type: "quiz", date: null, confidence: 0.5, source_snippet: null, committed_assessment_id: null },
+        ],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch!.id).toBe("newer");
+      expect(result[0]!.pendingStagingBatch!.deliverables.map((d) => d.id)).toEqual(["d-newer"]);
+    });
+
+    it("never attributes another class's batch or deliverables to a class with none of its own", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1"), { ...classRow("c2"), id: "c2" }],
+        tasks: [],
+        class_assessments: [],
+        staging_batches: [{ id: "b1", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staged_deliverables: [{ id: "d1", batch_id: "b1", name: "Midterm", type: "exam", date: null, confidence: 0.5, source_snippet: null, committed_assessment_id: null }],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      const c2 = result.find((r) => r.id === "c2")!;
+      expect(c2.pendingStagingBatch).toBeNull();
+    });
   });
 });

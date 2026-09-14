@@ -121,6 +121,24 @@ export type ClassCardData = {
     origin: QuestionOrigin;
     active: boolean;
   }[];
+  /** Phase 1 #16/#18 — this class's most recent NOT-YET-CONFIRMED staging batch
+   * (syllabus extraction), or null when there is none. Null covers three real,
+   * distinct states identically: never extracted, already confirmed (nothing left
+   * to review), or a batch whose extraction produced no batch at all (no_key/
+   * unreadable/etc. — see syllabus-extraction-actions.ts, which never creates a
+   * row for those). Only one batch is ever surfaced per class — a second upload
+   * while one is still pending isn't part of this pass's scope. */
+  pendingStagingBatch: {
+    id: string;
+    deliverables: {
+      id: string;
+      name: string;
+      type: string;
+      date: string | null;
+      confidence: number;
+      sourceSnippet: string | null;
+    }[];
+  } | null;
 };
 
 /**
@@ -171,6 +189,7 @@ export async function getClassCards(
     { data: assessmentRows, error: assessmentError },
     { data: questionRows, error: questionError },
     { data: categoryRows, error: categoryError },
+    { data: batchRows, error: batchError },
   ] = await Promise.all([
     supabase
       .from("tasks")
@@ -196,11 +215,57 @@ export async function getClassCards(
       .eq("user_id", userId)
       .in("class_id", classIds)
       .order("created_at", { ascending: true }),
+    // Phase 1 #16/#18 — only one pending batch per class is surfaced (see
+    // ClassCardData.pendingStagingBatch's own comment); ordering desc + picking the
+    // first per class below is enough, no LIMIT-per-group query needed for this scale.
+    supabase
+      .from("staging_batches")
+      .select("id, class_id")
+      .eq("user_id", userId)
+      .in("class_id", classIds)
+      .neq("status", "confirmed")
+      .order("created_at", { ascending: false }),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
   if (questionError) throw questionError;
   if (categoryError) throw categoryError;
+  if (batchError) throw batchError;
+
+  // Dependent on batchRows resolving first (which batch ids exist), so this can't join
+  // the Promise.all wave above — same "the next query needs the prior one's ids" shape
+  // schedule_events/cancelledDates already has in app/(app)/school/page.tsx.
+  const pendingBatchIdByClass = new Map<string, string>();
+  for (const b of batchRows ?? []) {
+    if (!pendingBatchIdByClass.has(b.class_id)) pendingBatchIdByClass.set(b.class_id, b.id); // desc order -> first seen is most recent
+  }
+  const pendingBatchIds = [...pendingBatchIdByClass.values()];
+  const { data: deliverableRows, error: deliverableError } =
+    pendingBatchIds.length === 0
+      ? { data: [] as { id: string; batch_id: string; name: string; type: string; date: string | null; confidence: number; source_snippet: string | null }[], error: null }
+      : await supabase
+          .from("staged_deliverables")
+          .select("id, batch_id, name, type, date, confidence, source_snippet")
+          .eq("user_id", userId)
+          .in("batch_id", pendingBatchIds)
+          .is("committed_assessment_id", null)
+          .order("created_at", { ascending: true });
+  if (deliverableError) throw deliverableError;
+
+  type PendingDeliverable = NonNullable<ClassCardData["pendingStagingBatch"]>["deliverables"][number];
+  const deliverablesByBatch = new Map<string, PendingDeliverable[]>();
+  for (const d of deliverableRows) {
+    const list = deliverablesByBatch.get(d.batch_id) ?? [];
+    list.push({
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      date: d.date,
+      confidence: d.confidence,
+      sourceSnippet: d.source_snippet,
+    });
+    deliverablesByBatch.set(d.batch_id, list);
+  }
 
   const tasksByClass = new Map<string, ClassCardData["tasks"]>();
   for (const t of taskRows ?? []) {
@@ -344,6 +409,9 @@ export async function getClassCards(
       categories: categoriesByClass.get(c.id) ?? [],
       tasks,
       questions: questionsByClass.get(c.id) ?? [],
+      pendingStagingBatch: pendingBatchIdByClass.has(c.id)
+        ? { id: pendingBatchIdByClass.get(c.id)!, deliverables: deliverablesByBatch.get(pendingBatchIdByClass.get(c.id)!) ?? [] }
+        : null,
     };
   });
 }
