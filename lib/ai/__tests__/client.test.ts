@@ -271,3 +271,34 @@ describe("chat()'s per-call timeoutMs", () => {
     expect(result.errorKind).toBe("timeout");
   });
 });
+
+/**
+ * Multi-provider slice 3 (2026-09-14). `chat()` is now a dispatcher on
+ * `PROVIDERS[provider].wireProtocol` — these tests are the dispatcher's
+ * own contract, distinct from openai-compatible.ts's request-shape tests
+ * (lib/ai/adapters/__tests__/openai-compatible.test.ts) and from this
+ * file's own pre-existing DeepSeek behavior tests above (unchanged, still
+ * green, proving the extraction was genuinely byte-for-byte).
+ */
+describe("chat() -- multi-provider dispatch", () => {
+  it("routes every openai-compatible provider through the shared adapter (proven by a real fetch call happening, not just no throw)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    for (const provider of ["deepseek", "openai", "moonshot", "xai"] as const) {
+      fetchMock.mockClear();
+      const result = await chat(provider, "test-key", [{ role: "user", content: "hi" }]);
+      expect(result.ok).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+    vi.unstubAllGlobals();
+  });
+
+  it("throws a clear, named error for a provider whose adapter isn't wired yet, rather than silently doing nothing", async () => {
+    await expect(chat("anthropic", "test-key", [{ role: "user", content: "hi" }])).rejects.toThrow(/Claude.*isn't wired yet/);
+    await expect(chat("google", "test-key", [{ role: "user", content: "hi" }])).rejects.toThrow(/Gemini.*isn't wired yet/);
+  });
+});
