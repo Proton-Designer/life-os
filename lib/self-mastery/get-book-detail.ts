@@ -2,6 +2,7 @@ import { cache } from "react";
 import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
 import { untypedFrom } from "./untyped-from";
+import { looksStalled } from "./ingestion-stage";
 import type { BookDetail, BookDetailLesson, BookStatus, EvidenceStrength, IngestStage, LessonCardState } from "./types";
 
 interface BookRow {
@@ -59,6 +60,27 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     .returns<BookRow>();
   if (bookError) throw bookError;
   if (!book) return null;
+
+  // "Claimed but stopped moving" (S6, 2026-09-14) -- ingestion_jobs.updated_at
+  // is bumped by ingestion_jobs_touch_updated_at on every claim/advance/fail
+  // write, so its age against `now` IS the real "how long since anything
+  // happened to this job" answer, not a proxy for it (see looksStalled's own
+  // header). Only meaningful while the book is still mid-pipeline -- skipped
+  // for ready/failed, where "stalled" is a meaningless question. A book with
+  // no ingestion_jobs row at all (a seeded starter deck predating the real
+  // pipeline) reads as not-stalled via looksStalled's own null handling,
+  // never fabricated.
+  let jobUpdatedAt: Date | null = null;
+  if (book.status !== "ready" && book.status !== "failed") {
+    const { data: jobRow, error: jobError } = await untypedFrom(supabase, "ingestion_jobs")
+      .select("updated_at")
+      .eq("book_id", bookId)
+      .eq("user_id", userId)
+      .maybeSingle()
+      .returns<{ updated_at: string } | null>();
+    if (jobError) throw jobError;
+    jobUpdatedAt = jobRow ? new Date(jobRow.updated_at) : null;
+  }
 
   // Only status='active' lessons — provisional (mid-ingestion, pre-merge)
   // and archived/rejected rows exist but aren't shown, matching ULM's own
@@ -165,5 +187,6 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     readyAt: book.ready_at,
     memoryStrength: bookMemoryStrength,
     lessons: detailLessons,
+    looksStalled: looksStalled(book.stage, jobUpdatedAt, now),
   };
 });

@@ -42,7 +42,10 @@ describe("getInProgressBooks", () => {
     const { getInProgressBooks } = await import("../get-in-progress-books");
     const items = await getInProgressBooks();
     expect(items).toEqual([
-      { id: "book-1", title: "Atomic Habits", statusLabel: "Finding lessons", progressPct: 40, href: "/personal/self_mastery/book-1" },
+      // /self-mastery/${id}, not /personal/self_mastery/${id} — the latter
+      // is dead for any legacy-mode account (see get-in-progress-books.ts's
+      // own comment on this href).
+      { id: "book-1", title: "Atomic Habits", statusLabel: "Finding lessons", progressPct: 40, href: "/self-mastery/book-1" },
     ]);
   });
 });

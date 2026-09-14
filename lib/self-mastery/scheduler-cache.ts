@@ -6,13 +6,26 @@
 // requirement disappears into one person's private resolution of it instead
 // of surfacing as a disagreement between two independent readings).
 //
-// SCOPED TO CARDS ONLY, FOR NOW. R1 (reviews.question_id / card_states.
-// question_id, the XOR extension) has not landed -- gated on Eng 2's
-// multi-review replay proof. This module is written against the schema
-// that actually exists today. Extending it to the question path once R1
-// lands is additive (a second branch alongside the card one, same shape),
-// not a rewrite -- see the design already spec'd in
-// ULM/docs/notes/r1-reviews-card-states-migration-draft.md §5.
+// EXTENDED TO QUESTIONS 2026-09-14 (#24/#26, this batch). R1 (111,
+// reviews.question_id / card_states.question_id, the XOR extension) landed
+// on production well before this file's own header noticed -- exactly the
+// same shape of stale claim 126's header carried about card_states.card_id
+// (corrected by 127's own header, which is where this discipline is
+// borrowed from: never edit an APPLIED migration file to fix a claim it
+// got wrong, correct it at the next place that depends on the claim
+// instead). This comment block is that correction for THIS file.
+//
+// The extension is exactly what the original comment below predicted:
+// additive, a second branch alongside the card one, same shape --
+// `rebuildOneItem` (the pure computational core) needed ZERO changes, since
+// it already operates on `ReviewRow[]` with no `card_id`/`question_id`
+// field in sight. Only `rebuildSchedulerCache` (the orchestration around
+// it -- which table to read reviews FROM, which table to upsert INTO, and
+// under which conflict target) gained a question arm.
+//
+// ORIGINAL NOTE, kept for the historical record it still accurately
+// describes (the REBUILT-FROM-STORED-VALUES rules below apply identically
+// to both arms):
 //
 // WHAT IS REBUILT FROM STORED VALUES, NEVER RECOMPUTED (the hard
 // requirement, restated so the choice is visible at every call site):
@@ -92,7 +105,7 @@ export interface DivergedField {
 
 export interface RebuildResult {
   cardsRebuilt: number;
-  questionsRebuilt: number; // always 0 until R1 lands -- see header
+  questionsRebuilt: number;
   divergedFromExisting: DivergedField[];
 }
 
@@ -132,22 +145,24 @@ export function rebuildOneItem(reviews: ReviewRow[]): CardStateSnapshot {
 
 /**
  * Rebuilds `card_states` for `userId` from `reviews`, per-item, per the
- * header's rules. Idempotent: a second call with no intervening reviews
- * produces the identical snapshot for every item (pure function of an
- * append-only log), so `divergedFromExisting` comes back empty on the
- * second run if it was empty on the first. A user with zero reviews is a
- * clean no-op (`cardsRebuilt: 0`), not an error. Every query is scoped to
- * `userId` explicitly -- this is written to run under a service-role
- * client (RLS bypassed), so the scoping is enforced here, not left to RLS.
+ * header's rules -- now over BOTH item kinds (cards and, since 111/this
+ * batch's #24, questions), each its own arm, sharing `rebuildOneItem`.
+ * Idempotent: a second call with no intervening reviews produces the
+ * identical snapshot for every item (pure function of an append-only log),
+ * so `divergedFromExisting` comes back empty on the second run if it was
+ * empty on the first. A user with zero reviews of either kind is a clean
+ * no-op (`cardsRebuilt: 0, questionsRebuilt: 0`), not an error. Every query
+ * is scoped to `userId` explicitly -- this is written to run under a
+ * service-role client (RLS bypassed), so the scoping is enforced here, not
+ * left to RLS.
  */
 export async function rebuildSchedulerCache(supabase: SupabaseAdmin, userId: string): Promise<RebuildResult> {
   const { data: reviewRows, error: reviewsError } = await supabase
     .from("reviews")
     .select(
-      "card_id, rating, reviewed_at, state_before, state_after, stability_after, difficulty_after, scheduled_days, learning_steps_after",
+      "card_id, question_id, rating, reviewed_at, state_before, state_after, stability_after, difficulty_after, scheduled_days, learning_steps_after",
     )
     .eq("user_id", userId)
-    .not("card_id", "is", null)
     .order("reviewed_at", { ascending: true });
   if (reviewsError) throw reviewsError;
   if (!reviewRows || reviewRows.length === 0) {
@@ -155,10 +170,11 @@ export async function rebuildSchedulerCache(supabase: SupabaseAdmin, userId: str
   }
 
   const byCard = new Map<string, ReviewRow[]>();
+  const byQuestion = new Map<string, ReviewRow[]>();
   for (const row of reviewRows) {
-    const cardId = row.card_id as string;
-    const list = byCard.get(cardId) ?? [];
-    list.push({
+    // `reviews_item_xor` (111) guarantees exactly one of card_id/question_id
+    // is set on every row -- no third case to handle.
+    const reviewRow: ReviewRow = {
       rating: row.rating,
       reviewed_at: row.reviewed_at,
       state_before: row.state_before as DbFsrsState,
@@ -167,37 +183,56 @@ export async function rebuildSchedulerCache(supabase: SupabaseAdmin, userId: str
       difficulty_after: row.difficulty_after,
       scheduled_days: row.scheduled_days,
       learning_steps_after: row.learning_steps_after as number,
-    });
-    byCard.set(cardId, list);
+    };
+    if (row.card_id) {
+      const cardId = row.card_id as string;
+      const list = byCard.get(cardId) ?? [];
+      list.push(reviewRow);
+      byCard.set(cardId, list);
+    } else if (row.question_id) {
+      const questionId = row.question_id as string;
+      const list = byQuestion.get(questionId) ?? [];
+      list.push(reviewRow);
+      byQuestion.set(questionId, list);
+    }
   }
 
   const { data: existingRows, error: existingError } = await supabase
     .from("card_states")
-    .select("card_id, stability, difficulty, due_at, reps, lapses, state, last_review_at, last_rating, learning_steps")
+    .select("card_id, question_id, stability, difficulty, due_at, reps, lapses, state, last_review_at, last_rating, learning_steps")
     .eq("user_id", userId);
   if (existingError) throw existingError;
-  const existingByCard = new Map((existingRows ?? []).map((r) => [r.card_id as string, r]));
+  const existingByCard = new Map((existingRows ?? []).filter((r) => r.card_id).map((r) => [r.card_id as string, r]));
+  const existingByQuestion = new Map((existingRows ?? []).filter((r) => r.question_id).map((r) => [r.question_id as string, r]));
 
-  // card_states.book_id is NOT NULL (pre-R1 schema) -- derive it from
+  // card_states.book_id is nullable (111/127) but must still be non-null for
+  // a CARD-backed row (card_states_book_id_matches_card) -- derive it from
   // `cards`, never trusted from any other source, for every card this
   // rebuild is about to upsert (including cards with no existing
-  // card_states row yet, which have no other source for it).
+  // card_states row yet, which have no other source for it). A
+  // question-backed row's book_id is always null (no lookup needed).
   const cardIds = Array.from(byCard.keys());
-  const { data: cardRows, error: cardsError } = await supabase
-    .from("cards")
-    .select("id, book_id")
-    .in("id", cardIds);
-  if (cardsError) throw cardsError;
-  const bookIdByCard = new Map((cardRows ?? []).map((r) => [r.id as string, r.book_id as string]));
+  const bookIdByCard = new Map<string, string>();
+  if (cardIds.length > 0) {
+    const { data: cardRows, error: cardsError } = await supabase
+      .from("cards")
+      .select("id, book_id")
+      .in("id", cardIds);
+    if (cardsError) throw cardsError;
+    for (const r of cardRows ?? []) bookIdByCard.set(r.id as string, r.book_id as string);
+  }
 
   const diverged: DivergedField[] = [];
-  const upserts: Array<CardStateSnapshot & { card_id: string; user_id: string; book_id: string }> = [];
+  const cardUpserts: Array<CardStateSnapshot & { card_id: string; question_id: null; user_id: string; book_id: string }> = [];
+  const questionUpserts: Array<CardStateSnapshot & { card_id: null; question_id: string; user_id: string; book_id: null }> = [];
+
+  const diffFields = ["stability", "difficulty", "due_at", "reps", "lapses", "state", "last_review_at", "last_rating", "learning_steps"] as const;
 
   for (const [cardId, reviews] of byCard) {
     const rebuilt = rebuildOneItem(reviews);
     const existing = existingByCard.get(cardId);
     if (existing) {
-      for (const field of ["stability", "difficulty", "due_at", "reps", "lapses", "state", "last_review_at", "last_rating", "learning_steps"] as const) {
+      for (const field of diffFields) {
         if (existing[field] !== rebuilt[field]) {
           diverged.push({ cardId, field, cached: existing[field], rebuilt: rebuilt[field] });
         }
@@ -207,15 +242,34 @@ export async function rebuildSchedulerCache(supabase: SupabaseAdmin, userId: str
     if (!bookId) {
       throw new Error(`rebuildSchedulerCache: card ${cardId} has reviews but no matching cards row (or a book_id) -- refusing to upsert an orphaned reference`);
     }
-    upserts.push({ ...rebuilt, card_id: cardId, user_id: userId, book_id: bookId });
+    cardUpserts.push({ ...rebuilt, card_id: cardId, question_id: null, user_id: userId, book_id: bookId });
   }
 
-  if (upserts.length > 0) {
+  for (const [questionId, reviews] of byQuestion) {
+    const rebuilt = rebuildOneItem(reviews);
+    const existing = existingByQuestion.get(questionId);
+    if (existing) {
+      for (const field of diffFields) {
+        if (existing[field] !== rebuilt[field]) {
+          diverged.push({ cardId: questionId, field, cached: existing[field], rebuilt: rebuilt[field] });
+        }
+      }
+    }
+    questionUpserts.push({ ...rebuilt, card_id: null, question_id: questionId, user_id: userId, book_id: null });
+  }
+
+  if (cardUpserts.length > 0) {
     const { error: upsertError } = await supabase
       .from("card_states")
-      .upsert(upserts, { onConflict: "card_id,user_id" });
+      .upsert(cardUpserts, { onConflict: "card_id,user_id" });
+    if (upsertError) throw upsertError;
+  }
+  if (questionUpserts.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("card_states")
+      .upsert(questionUpserts, { onConflict: "question_id,user_id" });
     if (upsertError) throw upsertError;
   }
 
-  return { cardsRebuilt: upserts.length, questionsRebuilt: 0, divergedFromExisting: diverged };
+  return { cardsRebuilt: cardUpserts.length, questionsRebuilt: questionUpserts.length, divergedFromExisting: diverged };
 }

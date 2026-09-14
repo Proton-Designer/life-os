@@ -82,7 +82,18 @@ export const localStorageAdapter: QueueStorageAdapter = {
 export interface PendingReview {
   /** Client-generated, used for de-dup and as the replay-order tiebreaker. */
   id: string;
-  cardId: string;
+  /**
+   * Exactly one of `cardId`/`questionId` is set, mirroring `card_states`'s
+   * own `card_states_item_xor` (111): a card-backed review replays through
+   * `submit_review`, a question-backed one through `submit_question_review`
+   * (161, #24/#26 -- CollegeOS questions reusing this same scheduler).
+   * Every EXISTING caller constructs a card review (`cardId` set,
+   * `questionId` omitted) and needs no change -- omitting an optional key
+   * is source-compatible, not a breaking change. See `itemRef` below for
+   * the one place that resolves which is set.
+   */
+  cardId?: string;
+  questionId?: string;
   rating: 1 | 2 | 3 | 4;
   elapsedMs: number;
   answeredText: string;
@@ -90,6 +101,13 @@ export interface PendingReview {
   aiSuggestedRating: 1 | 2 | 3 | 4 | null;
   /** The calibration tap, captured before reveal — same field ULM never had, matching build-session.ts's `SubmitCardReviewInput.confidence`. */
   confidence: "sure" | "think_so" | "guessing" | null;
+  /**
+   * Raw correctness for a question review (`reviews.correct`, 111 --
+   * "distinct from the derived 1-4 rating"). A card review has no
+   * equivalent column and always carries `undefined`/`null` here; only
+   * `submit_question_review` (161) reads it.
+   */
+  correct?: boolean | null;
   /** Pre-computed at grade time via `fsrs-scheduler.ts`'s `computeNextState` +
    * `toRpcNextState` — replay submits this as-is, it never recomputes FSRS
    * against a possibly-stale server state fetched after reconnect. */
@@ -144,7 +162,9 @@ export type ReplayFailureClassification = "permanent" | "transient-retrying" | "
 
 export interface ReplayFailure {
   id: string;
-  cardId: string;
+  /** Whichever of cardId/questionId the failed item was keyed on -- see `itemRef`. Exactly one is set. */
+  cardId?: string;
+  questionId?: string;
   error: string;
   classification: ReplayFailureClassification;
 }
@@ -200,6 +220,21 @@ export interface ReplayResult {
  * change one anyway, update the matching string below in the SAME
  * migration/commit.
  */
+/**
+ * Resolves which of `cardId`/`questionId` a pending item is keyed on --
+ * exactly one is ever set (see `PendingReview`'s own doc). Every site that
+ * used to read `item.cardId` directly now goes through this instead, so a
+ * question-backed item (161, #24/#26) is routed to `submit_question_review`
+ * and `reviews.question_id` rather than silently coerced through the card
+ * path with an undefined id.
+ */
+type ItemRef = { kind: "card"; id: string } | { kind: "question"; id: string };
+function itemRef(item: PendingReview): ItemRef {
+  if (item.cardId) return { kind: "card", id: item.cardId };
+  if (item.questionId) return { kind: "question", id: item.questionId };
+  throw new Error(`offline-queue: pending review ${item.id} has neither cardId nor questionId set`);
+}
+
 /** The one `submit_review` failure that needs verification instead of a straight
  * permanent/transient classification — see adaptation 4 in this file's header. */
 function isRepsMismatch(error: { message?: string } | null): boolean {
@@ -235,10 +270,12 @@ function isRepsMismatch(error: { message?: string } | null): boolean {
  * accurate than counting attempts.
  */
 async function wasAlreadyApplied(client: TypedClient, item: PendingReview): Promise<boolean> {
+  const ref = itemRef(item);
+  const column = ref.kind === "card" ? "card_id" : "question_id";
   const { data } = await client
     .from("reviews")
     .select("rating, confidence, elapsed_ms, answered_text")
-    .eq("card_id", item.cardId)
+    .eq(column, ref.id)
     .order("reviewed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -273,6 +310,7 @@ function isPermanentFailure(error: { message?: string; code?: string } | null): 
     message.includes("no authenticated user") ||
     message.includes("state is required") ||
     message.includes("has been deleted") || // 081's book_is_deleted guard — NOT in ULM's original list, see file header
+    message.includes("has been retired") || // 161's submit_question_review question-retirement guard — the question-path twin of the line above, same reasoning: retrying can never un-retire it
     (message.includes("session") && message.includes("not found")) ||
     message.includes("row-level security") ||
     message.includes("violates") || // constraint violations (FK, check, not-null, etc.)
@@ -313,11 +351,16 @@ export async function replayPendingReviews(
   // card may be attempted — attempting it out of order would violate submit_review's
   // reps+1 check even if it happened to succeed on the network. Items for every OTHER
   // card are unaffected and keep being attempted.
-  const blockedCardIds = new Set<string>();
+  // Keyed by "kind:id" (see itemRef), not the bare id -- a card id and a
+  // question id are different id spaces (cards.id vs questions.id) and
+  // nothing guarantees they can never collide as strings.
+  const blockedItemKeys = new Set<string>();
   const stillQueued: PendingReview[] = [];
 
   for (const item of ordered) {
-    if (blockedCardIds.has(item.cardId)) {
+    const ref = itemRef(item);
+    const key = `${ref.kind}:${ref.id}`;
+    if (blockedItemKeys.has(key)) {
       stillQueued.push(item);
       continue;
     }
@@ -329,17 +372,39 @@ export async function replayPendingReviews(
       // non-nullable even though the underlying RPC params accept null/jsonb —
       // Supabase's generator doesn't carry RPC-argument nullability the way it
       // does for table columns.
-      const result = await client.rpc("submit_review", {
-        p_card_id: item.cardId,
-        p_session_id: sessionId,
-        p_rating: item.rating,
-        p_elapsed_ms: item.elapsedMs,
-        p_answered_text: item.answeredText,
-        p_ai_feedback: item.aiFeedback as unknown as string,
-        p_ai_suggested_rating: item.aiSuggestedRating as unknown as number,
-        p_next_state: item.nextState as unknown as never,
-        p_confidence: item.confidence ?? undefined,
-      });
+      //
+      // 161 (#24/#26): a question-backed item replays through
+      // `submit_question_review` instead of `submit_review` -- a distinct RPC
+      // name, not an overload, deliberately (see 161's own header: keeping
+      // `submit_review` byte-identical for the card path is the whole point).
+      // Every `raise` string the two RPCs share is byte-identical, so
+      // `isPermanentFailure` below needs no branching by kind -- only ONE new
+      // substring ("has been retired") was added for the question path.
+      const result =
+        ref.kind === "card"
+          ? await client.rpc("submit_review", {
+              p_card_id: ref.id,
+              p_session_id: sessionId,
+              p_rating: item.rating,
+              p_elapsed_ms: item.elapsedMs,
+              p_answered_text: item.answeredText,
+              p_ai_feedback: item.aiFeedback as unknown as string,
+              p_ai_suggested_rating: item.aiSuggestedRating as unknown as number,
+              p_next_state: item.nextState as unknown as never,
+              p_confidence: item.confidence ?? undefined,
+            })
+          : await client.rpc("submit_question_review", {
+              p_question_id: ref.id,
+              p_session_id: sessionId,
+              p_rating: item.rating,
+              p_elapsed_ms: item.elapsedMs,
+              p_answered_text: item.answeredText,
+              p_ai_feedback: item.aiFeedback as unknown as string,
+              p_ai_suggested_rating: item.aiSuggestedRating as unknown as number,
+              p_next_state: item.nextState as unknown as never,
+              p_confidence: item.confidence ?? undefined,
+              p_correct: item.correct ?? undefined,
+            });
       error = result.error as unknown as { message?: string; code?: string } | null;
     } catch (thrown) {
       // A thrown exception (e.g. fetch itself rejecting on total network loss) is by
@@ -364,13 +429,17 @@ export async function replayPendingReviews(
       continue;
     }
 
+    // Failure records carry whichever of cardId/questionId this item was
+    // keyed on (never both) -- `ref` was already resolved above.
+    const refFields = ref.kind === "card" ? { cardId: ref.id } : { questionId: ref.id };
+
     if (isPermanentFailure(error)) {
       droppedIds.add(item.id);
-      failures.push({ id: item.id, cardId: item.cardId, error: error.message ?? "Unknown error", classification: "permanent" });
-      // Does NOT block later items for this card — a permanent failure means this
+      failures.push({ id: item.id, ...refFields, error: error.message ?? "Unknown error", classification: "permanent" });
+      // Does NOT block later items for this item — a permanent failure means this
       // specific review can never be applied, but if (unusually) another queued review
-      // exists for the same card, there's no reason to also refuse that one; it will
-      // get its own independent verdict.
+      // exists for the same card/question, there's no reason to also refuse that one;
+      // it will get its own independent verdict.
       continue;
     }
 
@@ -379,18 +448,18 @@ export async function replayPendingReviews(
       droppedIds.add(item.id);
       failures.push({
         id: item.id,
-        cardId: item.cardId,
+        ...refFields,
         error: error.message ?? "Unknown error",
         classification: "transient-exhausted",
       });
-      // Exhausted, not blocking: a later independent review for this card is still
+      // Exhausted, not blocking: a later independent review for this item is still
       // free to succeed on its own.
       continue;
     }
 
     stillQueued.push({ ...item, attempts });
-    blockedCardIds.add(item.cardId);
-    failures.push({ id: item.id, cardId: item.cardId, error: error.message ?? "Unknown error", classification: "transient-retrying" });
+    blockedItemKeys.add(key);
+    failures.push({ id: item.id, ...refFields, error: error.message ?? "Unknown error", classification: "transient-retrying" });
   }
 
   const remaining = stillQueued.filter((q) => !droppedIds.has(q.id));

@@ -60,7 +60,7 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
   // "processing" forever with no failure path — so accepting the file is the
   // harm, and a hidden trigger is not a guard. See
   // lib/self-mastery/ingestion-availability.ts.
-  if (!isIngestionAvailable()) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
+  if (!(await isIngestionAvailable())) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
 
   const file = formData.get("file");
   const title = String(formData.get("title") ?? "").trim();

@@ -35,7 +35,7 @@ describe("the non-negotiable invariant: the answer must never reach the client b
   it("hydrateQueueCards' select() names id/lesson_id/prompt_type/prompt and NEVER answer", async () => {
     const chain = makeChain({ data: [{ id: "c1", lesson_id: "l1", prompt_type: "free_recall", prompt: "recall this" }], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
-    const entries: QueueEntry[] = [{ cardId: "c1", bookId: "b1", queuePosition: 0, reason: "due" }];
+    const entries: QueueEntry[] = [{ cardId: "c1", questionId: null, bookId: "b1", queuePosition: 0, reason: "due" }];
 
     await hydrateQueueCards(client, entries);
 
@@ -138,14 +138,25 @@ describe("the non-negotiable invariant: the answer must never reach the client b
     expect(retrievabilityB).toBeLessThan(retrievabilityA); // sanity: the weak card really is lower
   });
 
-  it("hydrateQueueCards skips a card that vanished between the queue snapshot and this fetch, rather than crashing", async () => {
+  it("hydrateQueueCards THROWS (never silently shrinks) when a card vanished between the queue snapshot and this fetch", async () => {
+    // Opus architect's red-team of #24 (2026-09): the previous behaviour here
+    // was `if (!row) continue` -- a session that should have had N cards
+    // quietly became one with fewer, with nothing in the UI or logs to say
+    // why. Corrected to throw, verified here rather than merely asserted in
+    // a comment.
     const chain = makeChain({ data: [], error: null }); // card no longer found
     const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
-    const entries: QueueEntry[] = [{ cardId: "gone", bookId: "b1", queuePosition: 0, reason: "due" }];
+    const entries: QueueEntry[] = [{ cardId: "gone", questionId: null, bookId: "b1", queuePosition: 0, reason: "due" }];
 
-    const result = await hydrateQueueCards(client, entries);
+    await expect(hydrateQueueCards(client, entries)).rejects.toThrow(/refusing to silently shrink/);
+  });
 
-    expect(result).toEqual([]);
+  it("hydrateQueueCards THROWS if handed a question-backed entry (cardId null) instead of being silently no-op", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+    const entries: QueueEntry[] = [{ cardId: null, questionId: "q1", bookId: null, queuePosition: 0, reason: "due" }];
+
+    await expect(hydrateQueueCards(client, entries)).rejects.toThrow(/has no cardId/);
   });
 
   it("hydrateQueueCards returns [] without querying at all for an empty entry list", async () => {

@@ -54,6 +54,7 @@ function builtSession(cards: SessionCard[]): BuiltSession {
     plan: { warmUp: [], due: cards, fresh: [], closer: null },
     settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
     overflowDueCount: 0,
+    dueQuestions: [], // 160 (#24/#25): no question-backed queue entries in this UI test's fixtures
   };
 }
 

@@ -23,7 +23,7 @@ export default async function OnboardingPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-12">
       <OnboardingWizard
-        ingestionAvailable={isIngestionAvailable()}
+        ingestionAvailable={await isIngestionAvailable()}
         initialSelectedDomains={initialSelectedDomains}
         domainsWithData={domainsWithData}
         initialFaithConfig={initialFaithConfig}

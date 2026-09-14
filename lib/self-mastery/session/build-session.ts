@@ -29,6 +29,7 @@ import type {
   RawSession,
   SessionCard,
   SessionCompletionResult,
+  SessionQuestion,
   SessionSettings,
 } from "./types";
 
@@ -146,35 +147,125 @@ export async function fetchQueueEntries(
   if (error) throw error;
   return (data ?? []).map((row) => ({
     cardId: row.card_id,
+    // 160 (#24/#25): question_id, added alongside card_id -- null for a
+    // card-backed row, exactly one of the two set for any row (mirrors
+    // card_states_item_xor). Older generated types (pre-160) have no
+    // `question_id` field on this row shape at all; the `as` narrows
+    // through that gap deliberately rather than letting a stale-types
+    // build silently read `undefined` as if it were a valid absence.
+    questionId: (row as { question_id?: string | null }).question_id ?? null,
     bookId: row.book_id,
     queuePosition: row.queue_position,
     reason: row.reason as QueueReason,
   }));
 }
 
-/** Hydrates queue entries into displayable cards. Selects `id, lesson_id, prompt_type, prompt` — NEVER `answer`. See lib/self-mastery/session/types.ts's SessionCard doc for why this is a security invariant, not a style choice. */
+/**
+ * Hydrates CARD-backed queue entries into displayable cards. Selects
+ * `id, lesson_id, prompt_type, prompt` — NEVER `answer`. See
+ * lib/self-mastery/session/types.ts's SessionCard doc for why this is a
+ * security invariant, not a style choice.
+ *
+ * `entries` must already be filtered to `cardId !== null` — `buildTodaysSession`
+ * does this before calling in (question-backed entries go to
+ * `hydrateQueueQuestions` instead). Passing a question entry here throws
+ * immediately rather than silently mis-hydrating it as a card.
+ *
+ * SHORTFALL THROWS, NEVER SHRINKS (Opus architect's red-team of #24,
+ * 2026-09): the previous version did `if (!row) continue`, silently
+ * dropping any entry `get_session_queue` returned but `cards` no longer
+ * has a row for. That is exactly the "verdict derived from silence" shape
+ * this codebase's own review culture flags elsewhere (069's header,
+ * lessons.embedding) — a session that should have had 8 cards quietly
+ * becomes one with 6, with nothing in the UI or the logs to say why. A
+ * genuine race (a card hard-deleted in the instant between
+ * `get_session_queue`'s snapshot and this fetch) is real but vanishingly
+ * rare and worth surfacing as a loud failure — the caller can retry
+ * `buildTodaysSession` from scratch, which re-queries a queue that no
+ * longer includes the vanished card, rather than the user silently getting
+ * a shorter session with no explanation.
+ */
 export async function hydrateQueueCards(client: TypedClient, entries: QueueEntry[]): Promise<SessionCard[]> {
   if (entries.length === 0) return [];
-  const ids = entries.map((e) => e.cardId);
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (entry.cardId === null) {
+      throw new Error(`hydrateQueueCards: entry at queue_position ${entry.queuePosition} has no cardId (question_id: ${entry.questionId}) -- filter to card-backed entries before calling this`);
+    }
+    ids.push(entry.cardId);
+  }
   const { data, error } = await client.from("cards").select("id, lesson_id, prompt_type, prompt").in("id", ids);
   if (error) throw error;
 
   const byId = new Map((data ?? []).map((row) => [row.id, row]));
   const hydrated: SessionCard[] = [];
+  const missing: string[] = [];
   for (const entry of entries) {
-    const row = byId.get(entry.cardId);
-    // A card can vanish between get_session_queue's snapshot and this fetch
-    // (deleted lesson/book mid-session). Skip it, don't crash the queue.
-    if (!row) continue;
+    const row = byId.get(entry.cardId as string);
+    if (!row) {
+      missing.push(entry.cardId as string);
+      continue;
+    }
     hydrated.push({
       id: row.id,
       lessonId: row.lesson_id,
-      bookId: entry.bookId,
+      bookId: entry.bookId as string,
       promptType: row.prompt_type as PromptType,
       prompt: row.prompt,
       reason: entry.reason,
       queuePosition: entry.queuePosition,
     });
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `hydrateQueueCards: get_session_queue returned ${entries.length} card entries but ${missing.length} have no matching cards row (ids: ${missing.join(", ")}) -- refusing to silently shrink the session`
+    );
+  }
+  return hydrated;
+}
+
+/**
+ * Hydrates QUESTION-backed queue entries (160, #24/#25) into displayable
+ * questions. Selects `id, class_id, prompt` — NEVER `answer`, the same
+ * non-negotiable invariant `hydrateQueueCards` enforces for cards (see
+ * `SessionQuestion`'s own doc in types.ts).
+ *
+ * Same throw-on-shortfall discipline as `hydrateQueueCards`, for the
+ * identical reason — see that function's doc.
+ */
+export async function hydrateQueueQuestions(client: TypedClient, entries: QueueEntry[]): Promise<SessionQuestion[]> {
+  if (entries.length === 0) return [];
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (entry.questionId === null) {
+      throw new Error(`hydrateQueueQuestions: entry at queue_position ${entry.queuePosition} has no questionId (card_id: ${entry.cardId}) -- filter to question-backed entries before calling this`);
+    }
+    ids.push(entry.questionId);
+  }
+  const { data, error } = await client.from("questions").select("id, class_id, prompt").in("id", ids);
+  if (error) throw error;
+
+  const byId = new Map((data ?? []).map((row) => [row.id, row]));
+  const hydrated: SessionQuestion[] = [];
+  const missing: string[] = [];
+  for (const entry of entries) {
+    const row = byId.get(entry.questionId as string);
+    if (!row) {
+      missing.push(entry.questionId as string);
+      continue;
+    }
+    hydrated.push({
+      id: row.id,
+      classId: row.class_id,
+      prompt: row.prompt,
+      reason: entry.reason,
+      queuePosition: entry.queuePosition,
+    });
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `hydrateQueueQuestions: get_session_queue returned ${entries.length} question entries but ${missing.length} have no matching questions row (ids: ${missing.join(", ")}) -- refusing to silently shrink the session`
+    );
   }
   return hydrated;
 }
@@ -287,6 +378,28 @@ export async function fetchCardState(client: TypedClient, userId: string, cardId
   };
 }
 
+/** Question-path twin of `fetchCardState` -- reads a question's current FSRS state by `question_id` instead of `card_id`. `null` means the question has never been reviewed (or has no card_states row yet at all -- see 160's migration header on the CollegeOS-side prerequisite this implies). */
+export async function fetchQuestionState(client: TypedClient, userId: string, questionId: string): Promise<DbCardState | null> {
+  const { data, error } = await client
+    .from("card_states")
+    .select("stability, difficulty, due_at, reps, lapses, state, last_review_at, learning_steps")
+    .eq("question_id", questionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    stability: data.stability,
+    difficulty: data.difficulty,
+    dueAt: data.due_at,
+    reps: data.reps,
+    lapses: data.lapses,
+    state: data.state,
+    lastReviewAt: data.last_review_at,
+    learningSteps: data.learning_steps,
+  };
+}
+
 /** The one entry point session UIs call to load today's session — orchestrates settings, the length governor, start_session, get_session_queue, and card hydration. */
 export async function buildTodaysSession(
   client: TypedClient,
@@ -323,13 +436,22 @@ export async function buildTodaysSession(
   const limits = allocateQueueLimits(capacity, totalDueCount, settings.dailyNewLimit);
 
   const entries = await fetchQueueEntries(client, limits);
-  const hydrated = await hydrateQueueCards(client, entries);
+  // 160 (#24/#25): entries are a mix of card- and question-backed rows.
+  // SessionPlan/groupQueueIntoPlan stay card-only (lessonId adjacency
+  // repair and promptType-based closer selection have no question
+  // equivalent -- see SessionQuestion's doc in types.ts) -- split before
+  // hydrating so each hydrator only ever sees the entries it can hydrate,
+  // never silently coercing one kind through the other's path.
+  const cardEntries = entries.filter((e) => e.cardId !== null);
+  const questionEntries = entries.filter((e) => e.questionId !== null);
+  const hydrated = await hydrateQueueCards(client, cardEntries);
+  const dueQuestions = await hydrateQueueQuestions(client, questionEntries);
   const plan = groupQueueIntoPlan(hydrated);
 
   const dueIncluded = entries.filter((e) => e.reason === "due" || e.reason === "warm_up").length;
   const overflowDueCount = Math.max(0, totalDueCount - dueIncluded);
 
-  return { session, plan, settings, overflowDueCount };
+  return { session, plan, settings, overflowDueCount, dueQuestions };
 }
 
 export interface SubmitCardReviewInput {
@@ -354,6 +476,53 @@ export interface SubmitCardReviewInput {
 export interface SubmittedReview {
   reviewId: string;
   scheduledDays: number;
+}
+
+/**
+ * Question-path twin of `SubmitCardReviewInput` (160/161, #24/#26) --
+ * identical shape, `questionId` instead of `cardId`, plus `correct` (the
+ * raw outcome `reviews.correct` exists for, 111 -- "distinct from the
+ * derived rating"). `rating` is still supplied by the caller: the
+ * (confidence, correct) -> rating derivation is a CollegeOS UI concern
+ * (111's own comment), not decided in this scheduler-boundary module.
+ */
+export interface SubmitQuestionReviewInput {
+  desiredRetention?: number;
+  currentState: DbCardState | null;
+  questionId: string;
+  sessionId: string | null;
+  rating: 1 | 2 | 3 | 4;
+  elapsedMs: number;
+  answeredText: string;
+  aiFeedback: string | null;
+  aiSuggestedRating: 1 | 2 | 3 | 4 | null;
+  confidence: "sure" | "think_so" | "guessing" | null;
+  correct: boolean | null;
+  now: Date;
+}
+
+/** Question-path twin of `submitCardReview` -- same FSRS computation, submitted through `submit_question_review` (161) instead of `submit_review`. See that migration's header for why a sibling RPC, not an overload. */
+export async function submitQuestionReview(client: TypedClient, input: SubmitQuestionReviewInput): Promise<SubmittedReview> {
+  const scheduler = getScheduler(input.desiredRetention);
+  const current = toFsrsCard(input.currentState, input.now);
+  const { card: nextCard, scheduledDays } = computeNextState(scheduler, current, input.rating, input.now);
+  const nextState = toRpcNextState(nextCard);
+
+  const { data, error } = await client.rpc("submit_question_review", {
+    p_question_id: input.questionId,
+    p_session_id: input.sessionId as unknown as string,
+    p_rating: input.rating,
+    p_elapsed_ms: input.elapsedMs,
+    p_answered_text: input.answeredText,
+    p_ai_feedback: input.aiFeedback as unknown as string,
+    p_ai_suggested_rating: input.aiSuggestedRating as unknown as number,
+    p_next_state: nextState as unknown as never,
+    p_confidence: input.confidence ?? undefined,
+    p_correct: input.correct ?? undefined,
+  });
+  if (error) throw error;
+
+  return { reviewId: data!.id, scheduledDays };
 }
 
 /** Computes the next FSRS state and submits it through submit_review, which re-validates the transition server-side before writing the review row and the card state in one transaction. Never writes card_states directly. */

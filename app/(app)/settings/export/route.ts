@@ -111,6 +111,12 @@ const USER_SCOPED_TABLES = [
   // MCP home-dashboard widgets the user configured — config, not a secret
   // (contrast mcp_access_tokens/mcp_oauth_*, excluded above).
   "mcp_widgets",
+  // Goals (#43/#44, migration 165 proposed — see that file) — a ranked monthly portfolio and its
+  // milestones. Added the same day the tables were, so this allowlist is
+  // never again silently incomplete for a brand-new table the way this
+  // file's own header describes happening to the original 20.
+  "goals",
+  "goal_milestones",
 ] as const;
 
 export async function GET() {
@@ -122,7 +128,14 @@ export async function GET() {
 
   const entries = await Promise.all(
     USER_SCOPED_TABLES.map(async (table) => {
-      const { data } = await supabase.from(table).select("*").eq("user_id", user.id);
+      // `goals`/`goal_milestones` (migration 165, proposed) aren't in the generated
+      // `database.types.ts` yet -- that file is regenerated FROM the live
+      // database when a migration is actually applied (never hand-edited;
+      // see supabase/migrations/ALLOCATIONS.md), and 165 is written+proved
+      // but deliberately not applied by this track. The cast is provisional:
+      // once the lead applies it and types regenerate, `table` typechecks
+      // against the real union again with no code change needed here.
+      const { data } = await supabase.from(table as never).select("*").eq("user_id", user.id);
       return [table, data ?? []] as const;
     })
   );

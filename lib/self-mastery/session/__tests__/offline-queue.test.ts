@@ -363,3 +363,160 @@ describe("replayPendingReviews", () => {
     expect(remaining).toHaveLength(1); // still queued, worth retrying
   });
 });
+describe("question-backed reviews (160/161, #24/#26 -- CollegeOS questions reusing this scheduler)", () => {
+  /** Like `rpcClient`, but tracks WHICH rpc function name was called and its full args, so a question item's routing to `submit_question_review` (not `submit_review`) is actually verified, not assumed. */
+  function multiRpcClient(
+    handlers: Partial<Record<string, (args: Record<string, unknown>) => { data: unknown; error: { message?: string; code?: string } | null }>>,
+    reviewsLookup: (column: "card_id" | "question_id", value: string) => ReviewsRow | null = () => null,
+  ) {
+    const calledFns: string[] = [];
+    const calledArgs: Record<string, unknown>[] = [];
+    const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
+      calledFns.push(fn);
+      calledArgs.push(args);
+      const handler = handlers[fn];
+      if (!handler) throw new Error(`test double has no handler for rpc("${fn}")`);
+      return handler(args);
+    });
+    const from = vi.fn((table: string) => {
+      if (table !== "reviews") throw new Error(`test double doesn't support .from("${table}")`);
+      let column: "card_id" | "question_id" = "card_id";
+      let value = "";
+      const chain = {
+        select: vi.fn(() => chain),
+        eq: vi.fn((col: string, v: string) => {
+          column = col as "card_id" | "question_id";
+          value = v;
+          return chain;
+        }),
+        order: vi.fn(() => chain),
+        limit: vi.fn(() => chain),
+        maybeSingle: vi.fn(async () => ({ data: reviewsLookup(column, value), error: null })),
+      };
+      return chain;
+    });
+    return { client: { rpc, from } as unknown as ReturnType<typeof createClient>, calledFns, calledArgs };
+  }
+
+  it("a question-backed pending item replays through submit_question_review with p_question_id, never submit_review/p_card_id", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(
+      storage,
+      pendingReview({ id: "q1", cardId: undefined, questionId: "question-a", correct: true, confidence: "sure" }),
+    );
+
+    const { client, calledFns, calledArgs } = multiRpcClient({
+      submit_question_review: () => ({ data: { id: "review-q1" }, error: null }),
+    });
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(calledFns).toEqual(["submit_question_review"]);
+    expect(calledArgs[0]).toMatchObject({ p_question_id: "question-a", p_correct: true, p_confidence: "sure" });
+    expect(calledArgs[0]).not.toHaveProperty("p_card_id");
+    expect(result.succeeded).toEqual(["q1"]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("card and question items in the same queue each route to their own RPC, independently", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(storage, pendingReview({ id: "c1", cardId: "card-a" }));
+    await enqueuePendingReview(storage, pendingReview({ id: "q1", cardId: undefined, questionId: "question-a" }));
+
+    const { client, calledFns } = multiRpcClient({
+      submit_review: () => ({ data: { id: "review-c1" }, error: null }),
+      submit_question_review: () => ({ data: { id: "review-q1" }, error: null }),
+    });
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(calledFns).toEqual(["submit_review", "submit_question_review"]);
+    expect(result.succeeded).toEqual(["c1", "q1"]);
+  });
+
+  it("a card failure never blocks a later QUESTION item (independent id spaces, independent blocking)", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(storage, pendingReview({ id: "c1", cardId: "card-a" }));
+    await enqueuePendingReview(storage, pendingReview({ id: "q1", cardId: undefined, questionId: "question-a" }));
+
+    const { client } = multiRpcClient({
+      submit_review: () => ({ data: null, error: { message: "network hiccup" } }), // transient -> blocks later card-a items only
+      submit_question_review: () => ({ data: { id: "review-q1" }, error: null }),
+    });
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(result.succeeded).toEqual(["q1"]);
+    expect(result.failures[0]?.classification).toBe("transient-retrying");
+  });
+
+  it("submit_question_review's 'has been retired' guard classifies as PERMANENT, not transient — a question review must never be retried forever against content that will never un-retire", async () => {
+    // This is the exact failure mode #24's red-team flagged: a question
+    // review whose errors are NOT recognised by isPermanentFailure would be
+    // retried forever and never surfaced. 'has been retired' is the ONE new
+    // substring 161 introduces; this proves it actually reaches the
+    // permanent bucket end to end, not just that the string exists in the
+    // source.
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(storage, pendingReview({ id: "q1", cardId: undefined, questionId: "question-retired" }));
+
+    const { client } = multiRpcClient({
+      submit_question_review: () => ({
+        data: null,
+        error: { message: "submit_question_review: question question-retired has been retired" },
+      }),
+    });
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.classification).toBe("permanent");
+    expect(result.failures[0]?.questionId).toBe("question-retired");
+    expect(await loadPendingReviews(storage)).toEqual([]); // dead-lettered, never retried
+  });
+
+  it("every OTHER submit_question_review guard string submit_review already has is still classified identically (shared isPermanentFailure, no question-specific branching needed)", async () => {
+    const sharedMessages = [
+      "submit_question_review: no authenticated user",
+      "submit_question_review: rating must be 1..4",
+      "submit_question_review: no card_states row for question q1 / user u1",
+      "submit_question_review: reps must increase by exactly 1 (was 1, proposed 3)",
+      "submit_question_review: stability must be > 0 (proposed -1)",
+      "submit_question_review: due_at must be in the future (proposed 2020-01-01)",
+      "submit_question_review: state is required",
+      "submit_question_review: illegal transition new -> learning",
+    ];
+    for (const message of sharedMessages) {
+      const storage = inMemoryStorage();
+      await enqueuePendingReview(storage, pendingReview({ id: "q1", cardId: undefined, questionId: "q1" }));
+      const { client } = multiRpcClient({
+        submit_question_review: () => ({ data: null, error: { message } }),
+      });
+      const result = await replayPendingReviews(client, storage, "sess-1");
+      expect(result.failures[0]?.classification, `expected permanent for: ${message}`).toBe("permanent");
+    }
+  });
+
+  it("wasAlreadyApplied's lost-response recovery queries reviews by question_id for a question item, not card_id", async () => {
+    const storage = inMemoryStorage();
+    await enqueuePendingReview(
+      storage,
+      pendingReview({ id: "q1", cardId: undefined, questionId: "question-a", rating: 3, elapsedMs: 4000, confidence: null, answeredText: "ans" }),
+    );
+
+    let sawReplayAttempt = false;
+    const { client } = multiRpcClient(
+      {
+        submit_question_review: () => {
+          if (!sawReplayAttempt) {
+            sawReplayAttempt = true;
+            return { data: null, error: { message: "submit_question_review: reps must increase by exactly 1 (was 1, proposed 2)" } };
+          }
+          return { data: { id: "should-not-be-called-twice" }, error: null };
+        },
+      },
+      (column, value) => (column === "question_id" && value === "question-a" ? { rating: 3, confidence: null, elapsed_ms: 4000, answered_text: "ans" } : null),
+    );
+    const result = await replayPendingReviews(client, storage, "sess-1");
+
+    expect(result.succeeded).toEqual(["q1"]);
+    expect(result.recoveredLostResponses).toEqual(["q1"]);
+    expect(result.failures).toEqual([]);
+  });
+});

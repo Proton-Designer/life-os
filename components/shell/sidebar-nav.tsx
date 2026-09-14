@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { Home, TrendingUp, Settings, type LucideIcon } from "lucide-react";
+import { Home, TrendingUp, Settings, BookOpen, AlertCircle, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -26,11 +26,28 @@ export const SECTIONS: NavSection[] = [
       { href: "/fitness", label: "Fitness", icon: DOMAIN_ICON.fitness, accent: "fitness" },
       { href: "/school", label: "School", icon: DOMAIN_ICON.school, accent: "school" },
       { href: "/work", label: "Work", icon: DOMAIN_ICON.co_op, accent: "coop" },
+      // S6, 2026-09-14: legacy accounts (this nav's only audience) had NO
+      // route to Self-Mastery at all before this entry — not hidden, absent.
+      // app/(app)/self-mastery/page.tsx is the legacy-reachable route (see
+      // its own header for why it's separate from /personal/self_mastery,
+      // which redirects a legacy account away before it ever renders).
+      // Same icon/accent as SUBDOMAIN_META's self_mastery entry
+      // (app/(app)/personal/[subdomain]/layout.tsx) and domain-meta.ts's
+      // onboarding copy, so the same feature reads identically wherever a
+      // user encounters it.
+      { href: "/self-mastery", label: "Self-Mastery", icon: BookOpen, accent: "info" },
     ],
   },
   {
     label: "REVIEW",
-    items: [{ href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" }],
+    items: [
+      { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
+      // S6, 2026-09-14: /worries (app/(app)/worries/page.tsx) existed and
+      // worked by direct URL only — its own header flags exactly this gap
+      // ("this track does not own components/shell... wiring a nav entry is
+      // a coordination item for whoever does"). This is that entry.
+      { href: "/worries", label: "Worries", icon: AlertCircle, accent: "warning" },
+    ],
   },
   {
     label: "SYSTEM",

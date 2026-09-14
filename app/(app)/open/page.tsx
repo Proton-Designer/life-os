@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { computeOpenDiff } from "@/lib/night-plan/diff-banner";
 import { startDayAction } from "./actions";
 
 const START_DAY_BUTTON_CLASS =
@@ -60,6 +62,10 @@ export default async function MorningOpenPage() {
     .order("mit_rank", { ascending: true });
 
   const plan = data ?? [];
+  // Item #29 step 3: read-only, derived entirely from the query above — see
+  // lib/night-plan/diff-banner.ts for why these two triggers need no second
+  // read and no stored snapshot. Renders nothing when nothing changed.
+  const diff = computeOpenDiff(plan);
 
   return (
     <PageContainer>
@@ -116,6 +122,15 @@ export default async function MorningOpenPage() {
               );
             })}
           </ol>
+          {diff.changed ? (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-lg border border-accent-info/30 bg-accent-info/10 p-3 text-sm text-accent-info"
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>{diff.message}</span>
+            </div>
+          ) : null}
           <div className="flex items-center gap-3">
             {/* Confirm-and-start: one tap. */}
             <form action={startDayAction}>
@@ -123,12 +138,18 @@ export default async function MorningOpenPage() {
                 Start day
               </button>
             </form>
-            {/* R60's one escape: it ROUTES to the close's plan stage — re-running
-                the writer — rather than re-crowning here. A re-crown in place
+            {/* R60's one escape: it ROUTES to a plan stage — re-running the
+                writer — rather than re-crowning here. A re-crown in place
                 would make "the night before is the only writer of rank" false
                 without anything saying so, and the morning is exactly when a
-                plan feels wrong for reasons the evening was right to ignore. */}
-            <Link href="/close" className="text-sm text-muted-foreground underline underline-offset-4">
+                plan feels wrong for reasons the evening was right to ignore.
+                Routes to /close/replan, NOT /close: /close takes no
+                searchParams and (until this fix) always planned TOMORROW
+                (`planningDateFor()` hardcoded `+1`) — so a 7am tap here
+                silently planned tomorrow while today's stale plan sat
+                untouched. /close/replan renders only the plan stage, targeted
+                at TODAY. */}
+            <Link href="/close/replan" className="text-sm text-muted-foreground underline underline-offset-4">
               Re-plan
             </Link>
           </div>

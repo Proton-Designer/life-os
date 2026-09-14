@@ -3595,8 +3595,9 @@ export type Database = {
       get_session_queue: {
         Args: { p_limit_due: number; p_limit_new: number }
         Returns: {
-          book_id: string
-          card_id: string
+          book_id: string | null
+          card_id: string | null
+          question_id: string | null
           queue_position: number
           reason: string
         }[]
@@ -3731,6 +3732,51 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "work_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      submit_question_review: {
+        Args: {
+          p_ai_feedback: string
+          p_ai_suggested_rating: number
+          p_answered_text: string
+          p_confidence?: Database["public"]["Enums"]["confidence_level"]
+          p_correct?: boolean
+          p_elapsed_ms: number
+          p_next_state: Json
+          p_question_id: string
+          p_rating: number
+          p_session_id: string
+        }
+        Returns: {
+          ai_feedback: string | null
+          ai_suggested_rating: number | null
+          answered_text: string | null
+          book_id: string | null
+          card_id: string | null
+          confidence: Database["public"]["Enums"]["confidence_level"] | null
+          correct: boolean | null
+          difficulty_after: number | null
+          difficulty_before: number | null
+          elapsed_ms: number | null
+          id: string
+          learning_steps_after: number
+          question_id: string | null
+          rating: number
+          request_retention: number
+          reviewed_at: string
+          scheduled_days: number | null
+          session_id: string | null
+          stability_after: number | null
+          stability_before: number | null
+          state_after: Database["public"]["Enums"]["fsrs_state"]
+          state_before: Database["public"]["Enums"]["fsrs_state"] | null
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reviews"
           isOneToOne: true
           isSetofReturn: false
         }

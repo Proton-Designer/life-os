@@ -55,7 +55,7 @@ export default async function EveningClosePage() {
               deltaMinutes={data.deltaMinutes}
             />
             <VerdictDueList promotions={duePromotions} />
-            <ClosePlanStage initialLines={data.tomorrowLines} />
+            <ClosePlanStage initialLines={data.tomorrowLines} seeds={data.planSeeds} mode="tonight" />
           </>
         ) : null}
       </div>

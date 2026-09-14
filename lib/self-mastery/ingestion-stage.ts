@@ -25,6 +25,15 @@ export function bucketIngestStage(stage: IngestStage): IngestionStageKey {
     case "extracting_lessons":
       return "lessons";
     case "merging":
+    // Sits between merging and generating_cards (migration 109) -- bucketed
+    // with them rather than a fifth user-facing bucket of its own. Was
+    // MISSING from this switch entirely until 2026-09-14 (S6): IngestStage
+    // (types.ts) didn't list this value either, so TypeScript's exhaustiveness
+    // check never caught it, and any book actually sitting in
+    // verifying_grounding fell through this switch returning `undefined` at
+    // runtime -- INGESTION_STAGE_LABEL[undefined] renders as nothing. Found
+    // fixing the frozen-books.stage bug, not a hypothetical.
+    case "verifying_grounding":
     case "generating_cards":
     case "finalizing":
       return "cards";
@@ -44,4 +53,25 @@ export const STALLED_THRESHOLD_MS = 3 * 60 * 1000;
 
 export function looksUnclaimed(stage: IngestStage, createdAt: Date, now: Date): boolean {
   return stage === "queued" && now.getTime() - createdAt.getTime() > NO_WORKER_THRESHOLD_MS;
+}
+
+/**
+ * "Claimed, but stopped moving." Distinct from looksUnclaimed (never
+ * picked up at all) and from ordinary in-progress (still advancing, just
+ * slow — a real book spends real minutes per stage). STALLED_THRESHOLD_MS
+ * existed as a defined constant since this file's creation but was never
+ * read anywhere (S6, 2026-09-14) — there was no ingestion_jobs.updated_at
+ * plumbed to a caller to compare it against. `jobUpdatedAt` is that
+ * column: bumped by ingestion_jobs_touch_updated_at on every claim,
+ * advance, or failure write, so its age IS the real "how long since
+ * anything happened to this job" answer, not a proxy for it.
+ *
+ * `null` in (no ingestion_jobs row at all — a book that predates the
+ * ingestion pipeline, e.g. a seeded starter deck) reads as "not stalled":
+ * there is nothing to have stalled.
+ */
+export function looksStalled(stage: IngestStage, jobUpdatedAt: Date | null, now: Date): boolean {
+  if (jobUpdatedAt === null) return false;
+  if (stage === "queued" || stage === "done" || stage === "failed") return false;
+  return now.getTime() - jobUpdatedAt.getTime() > STALLED_THRESHOLD_MS;
 }

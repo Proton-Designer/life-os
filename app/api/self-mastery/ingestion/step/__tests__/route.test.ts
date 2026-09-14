@@ -230,13 +230,26 @@ describe("POST /api/self-mastery/ingestion/step", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.reason).toBe("attempts_exhausted");
-    expect(mock.updateCalls).toHaveLength(1);
-    expect(mock.updateCalls[0]!.table).toBe("ingestion_jobs");
-    expect(mock.updateCalls[0]!.values).toMatchObject({ stage: "failed" });
-    expect((mock.updateCalls[0]!.values as { last_error: string }).last_error).toContain("embedder unreachable");
+    // S6 (2026-09-14): the route now also writes a heartbeat (before the
+    // claim, on every authenticated call) and syncs books.status='failed'
+    // (the bug this pass closes — see route.ts's own header) — so this is
+    // no longer the ONLY update the invocation makes. Asserting on the
+    // specific writes that matter, not the total count, is also the more
+    // robust shape: a future, unrelated addition to this route's
+    // observability shouldn't have to keep re-deriving a magic length here.
+    const ingestionJobsUpdate = mock.updateCalls.find((c) => c.table === "ingestion_jobs");
+    expect(ingestionJobsUpdate?.values).toMatchObject({ stage: "failed" });
+    expect((ingestionJobsUpdate?.values as { last_error: string }).last_error).toContain("embedder unreachable");
+
+    // THE BUG THIS TEST NOW ALSO COVERS: before S6, ingestion_jobs.stage
+    // went to 'failed' but books.status never did, so a user's own UI
+    // (which reads books, never ingestion_jobs, directly) showed this book
+    // stuck at "processing" forever with no signal anything went wrong.
+    const booksUpdate = mock.updateCalls.find((c) => c.table === "books");
+    expect(booksUpdate?.values).toMatchObject({ status: "failed" });
   });
 
-  it("does NOT mark the job failed when attempts remain -- stays retryable, no update issued", async () => {
+  it("does NOT mark the job failed when attempts remain -- stays retryable, only the heartbeat is written", async () => {
     vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
       STAGE_HANDLERS: {
         verifying_grounding: vi.fn().mockRejectedValue(new Error("transient failure")),
@@ -253,6 +266,77 @@ describe("POST /api/self-mastery/ingestion/step", () => {
 
     const body = await res.json();
     expect(body.reason).toBe("stage_work_failed");
-    expect(mock.updateCalls).toHaveLength(0);
+    // No ingestion_jobs write (not exhausted yet) and no books write
+    // (nothing succeeded to sync) -- only the unconditional heartbeat.
+    expect(mock.updateCalls.some((c) => c.table === "ingestion_jobs")).toBe(false);
+    expect(mock.updateCalls.some((c) => c.table === "books")).toBe(false);
+    expect(mock.updateCalls.some((c) => c.table === "ingestion_driver_heartbeats")).toBe(true);
+  });
+
+  describe("books sync on successful advance (S6, 2026-09-14)", () => {
+    it("syncs books.stage and an estimated progress_pct alongside a successful advance", async () => {
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          verifying_grounding: vi.fn().mockResolvedValue({ nextStage: "generating_cards", nextChunkIndex: 0 }),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "verifying_grounding", cursor_chunk_index: 4, cursor_attempt: 1, book_id: "book-1" },
+        rpcResults: { advance_ingestion_cursor: { data: { id: "job-1" }, error: null } },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      expect(res.status).toBe(200);
+
+      const booksUpdate = mock.updateCalls.find((c) => c.table === "books");
+      expect(booksUpdate?.values).toMatchObject({ stage: "generating_cards" });
+      expect(typeof (booksUpdate?.values as { progress_pct: number }).progress_pct).toBe("number");
+    });
+
+    it("does NOT touch books when the advance lands on 'done' -- finalizingStage already owns that terminal write", async () => {
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          finalizing: vi.fn().mockResolvedValue({ nextStage: "done", nextChunkIndex: null }),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "finalizing", cursor_chunk_index: null, cursor_attempt: 1, book_id: "book-1" },
+        rpcResults: { advance_ingestion_cursor: { data: { id: "job-1" }, error: null } },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      expect(res.status).toBe(200);
+      expect(mock.updateCalls.some((c) => c.table === "books")).toBe(false);
+    });
+  });
+
+  describe("driver heartbeat (S6, 2026-09-14)", () => {
+    it("writes the heartbeat on an authenticated call even when there is nothing to do", async () => {
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({ claimedJob: null });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+
+      expect(mock.updateCalls.some((c) => c.table === "ingestion_driver_heartbeats")).toBe(true);
+    });
+
+    it("does NOT write the heartbeat on a failed auth -- only an authenticated call proves the driver is alive", async () => {
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({ claimedJob: null });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      await POST(new Request("http://x", { method: "POST", headers: { authorization: "Bearer wrong" } }));
+
+      expect(mock.updateCalls.some((c) => c.table === "ingestion_driver_heartbeats")).toBe(false);
+    });
   });
 });

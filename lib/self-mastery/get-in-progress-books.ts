@@ -53,7 +53,21 @@ export const getInProgressBooks = cache(async (): Promise<InProgressItem[]> => {
       title: b.title,
       statusLabel,
       progressPct: b.progress_pct,
-      href: `/personal/self_mastery/${b.id}`,
+      // KNOWN BUG, FIXED HERE (S6, 2026-09-14): this used to be
+      // `/personal/self_mastery/${b.id}` — dead for any legacy-mode
+      // account, including the owner's own real daily account
+      // (ayman.0704m@gmail.com). `app/(app)/personal/[subdomain]/layout.tsx`
+      // and `personal/page.tsx` both redirect a legacy-mode account away
+      // from `/personal/*` entirely (`kept.length === 0 -> redirect("/")`),
+      // so Home's own "resume this book" banner — this function's whole
+      // reason to exist — sent a legacy user back to Home the moment they
+      // clicked it. `/self-mastery/${b.id}` (app/(app)/self-mastery/
+      // [bookId]/page.tsx) renders the exact same BookDetailView without
+      // that gate, and works identically for a domains-mode account too —
+      // one canonical, mode-independent URL rather than branching this
+      // function on `getUserDomains()` just to pick between two routes that
+      // render the same component.
+      href: `/self-mastery/${b.id}`,
     };
   });
 });

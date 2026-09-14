@@ -38,7 +38,7 @@ describe("SidebarNav", () => {
     expect(screen.getByText("SYSTEM")).toBeInTheDocument();
   });
 
-  it("renders every one of the 8 routes with an icon", () => {
+  it("renders every one of the 10 routes with an icon", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
@@ -47,7 +47,9 @@ describe("SidebarNav", () => {
       "Fitness",
       "School",
       "Work",
+      "Self-Mastery",
       "Insights",
+      "Worries",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -118,7 +120,9 @@ describe("SidebarNav", () => {
       "Fitness",
       "School",
       "Work",
+      "Self-Mastery",
       "Insights",
+      "Worries",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -126,19 +130,47 @@ describe("SidebarNav", () => {
     }
   });
 
+  // S6, 2026-09-14: legacy accounts (this nav's only audience) had no route
+  // to either feature before these entries existed — Self-Mastery had no
+  // route reachable from here at all (personal/[subdomain]/layout.tsx
+  // redirects legacy accounts away from /personal/* before it would ever
+  // render), and /worries worked by direct URL only (its own page.tsx
+  // header flagged the missing nav entry as a coordination gap).
+  it("links Self-Mastery to the legacy-reachable /self-mastery route, not /personal/self_mastery", () => {
+    render(<SidebarNav variant="expanded" />);
+    expect(screen.getByRole("link", { name: "Self-Mastery" })).toHaveAttribute("href", "/self-mastery");
+  });
+
+  it("links Worries to /worries", () => {
+    render(<SidebarNav variant="expanded" />);
+    expect(screen.getByRole("link", { name: "Worries" })).toHaveAttribute("href", "/worries");
+  });
+
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
     it("omits the matching destination, leaves everything else untouched", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["business"]} />);
       expect(screen.queryByRole("link", { name: "Business" })).not.toBeInTheDocument();
-      for (const label of ["Home", "Deen", "Fitness", "School", "Work", "Insights", "Settings"]) {
+      for (const label of ["Home", "Deen", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Settings"]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });
 
-    it("drops the whole REVIEW section, not just Insights, once it's the section's only item", () => {
+    // REVIEW now carries two items (Insights, Worries — S6 added the
+    // second). Hiding only one must leave the section standing with the
+    // other, which is the real case this pair of tests now needs to prove
+    // that a single fixture didn't before.
+    it("hiding one of REVIEW's two items leaves the section standing with the other", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["insights"]} />);
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
+      expect(screen.getByText("REVIEW")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Worries" })).toBeInTheDocument();
+    });
+
+    it("drops the whole REVIEW section once every item in it is hidden", () => {
+      render(<SidebarNav variant="expanded" hiddenFeatures={["insights", "worries"] as never} />);
+      expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Worries" })).not.toBeInTheDocument();
       expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
     });
 
@@ -149,7 +181,7 @@ describe("SidebarNav", () => {
 
     it("defaults to hiding nothing when the prop is omitted", () => {
       render(<SidebarNav variant="expanded" />);
-      for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work", "Insights", "Settings"]) {
+      for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Settings"]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });

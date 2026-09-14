@@ -5,10 +5,20 @@ export type PromptType = "free_recall" | "application" | "cloze" | "why";
 
 export type QueueReason = "warm_up" | "due" | "new";
 
-/** Raw row from `get_session_queue`. */
+/**
+ * Raw row from `get_session_queue`. Exactly one of `cardId`/`questionId` is
+ * set, mirroring `card_states`'s own `card_states_item_xor` (111) --
+ * `bookId` is set iff `cardId` is (160, #24/#25: CollegeOS questions reuse
+ * this same queue, joined through a class's `sources` row instead of a
+ * book's). Every pre-160 caller assumed `cardId`/`bookId` were always
+ * present; `buildTodaysSession` now filters to card-backed entries before
+ * constructing a `SessionCard`, so that assumption still holds at the one
+ * place it mattered.
+ */
 export interface QueueEntry {
-  cardId: string;
-  bookId: string;
+  cardId: string | null;
+  questionId: string | null;
+  bookId: string | null;
   queuePosition: number;
   reason: QueueReason;
 }
@@ -25,6 +35,28 @@ export interface SessionCard {
   lessonId: string;
   bookId: string;
   promptType: PromptType;
+  prompt: string;
+  reason: QueueReason;
+  queuePosition: number;
+}
+
+/**
+ * A question ready to display -- the question-path twin of `SessionCard`.
+ * Deliberately has NO `answer` field, same non-negotiable invariant as
+ * `SessionCard` (see its own doc): `questions.answer` is never selected by
+ * `hydrateQueueQuestions`. Not yet wired into `SessionPlan`/
+ * `groupQueueIntoPlan` -- `lessonId`-based adjacency repair and
+ * `promptType`-based closer selection are card-specific concepts with no
+ * question equivalent, and deciding how a question interleaves visually
+ * with cards is a product/UI decision for CollegeOS's own session surface,
+ * not settled here. `buildTodaysSession` exposes hydrated questions
+ * separately (`BuiltSession.dueQuestions`) so that surface has real,
+ * reused-scheduler data to build against without this module inventing the
+ * UI shape for it.
+ */
+export interface SessionQuestion {
+  id: string;
+  classId: string;
   prompt: string;
   reason: QueueReason;
   queuePosition: number;
@@ -62,6 +94,16 @@ export interface BuiltSession {
   settings: SessionSettings;
   /** Due cards that exist but didn't fit this session's time budget — they remain due for tomorrow untouched, never silently dropped. */
   overflowDueCount: number;
+  /**
+   * Question-backed queue entries from this same `get_session_queue` call
+   * (160, #24/#25), hydrated (`hydrateQueueQuestions`) but not grouped into
+   * `plan` -- see `SessionQuestion`'s own doc for why. Empty until a caller
+   * actually has question-backed `card_states` rows, which is zero for
+   * every real user today (checked 2026-09-14: `select count(*) from
+   * card_states where question_id is not null` = 0) -- this field exists
+   * so that population is not silently dropped the day it stops being zero.
+   */
+  dueQuestions: SessionQuestion[];
 }
 
 /** A freeze auto-consumed a gap covering this `complete_session` call. Present only on the call where consumption actually happened. */

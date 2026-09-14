@@ -29,7 +29,7 @@ function statusLine(book: LibraryBook, now: Date): string {
 export async function SelfMasteryLibrary() {
   const books = await getSelfMasteryLibrary();
   const now = new Date();
-  const ingestionAvailable = isIngestionAvailable();
+  const ingestionAvailable = await isIngestionAvailable();
 
   return (
     <PageContainer>
@@ -63,7 +63,16 @@ export async function SelfMasteryLibrary() {
           {books.map((book) => (
             <Link
               key={book.id}
-              href={`/personal/self_mastery/${book.id}`}
+              // Canonical, mode-independent URL (see app/(app)/self-mastery/
+              // and get-in-progress-books.ts's own comment) -- NOT
+              // /personal/self_mastery/${book.id}. This component renders at
+              // BOTH /personal/self_mastery (domains mode, via the Personal
+              // tab) and /self-mastery (legacy mode, via sidebar-nav.tsx, and
+              // domains mode by direct URL) — a hardcoded /personal/* link
+              // here would 404/redirect every legacy-mode viewer the moment
+              // they tried to open a book from this exact grid, which is
+              // precisely the S6 bug this pass exists to close.
+              href={`/self-mastery/${book.id}`}
               className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4 transition-colors hover:border-border"
             >
               <div className="flex items-start gap-3">

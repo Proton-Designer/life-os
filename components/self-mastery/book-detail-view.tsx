@@ -52,24 +52,41 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
           </p>
         </div>
       ) : book.status !== "ready" ? (
-        <div className="rounded-2xl border border-border/40 bg-card p-5">
-          <p className="text-sm font-medium text-foreground">
-            {looksUnclaimed(book.stage, new Date(book.createdAt), now)
-              ? "Processing hasn't started yet"
-              : INGESTION_STAGE_LABEL[bucketIngestStage(book.stage)]}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {looksUnclaimed(book.stage, new Date(book.createdAt), now)
-              ? "This usually means the processing service isn't running right now. No need to re-upload — it'll pick up automatically once it's back."
-              : "This can take a while — a full book is a lot to read. Feel free to leave and come back; progress is saved on our end, not in this browser tab."}
-          </p>
-          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
-            <div
-              className="h-full rounded-full bg-[var(--accent-info)] transition-[width] duration-300"
-              style={{ width: `${Math.max(2, book.progressPct)}%` }}
-            />
-          </div>
-        </div>
+        (() => {
+          // S6, 2026-09-14: a third real state, distinct from "never
+          // claimed" and "genuinely still working" — see looksStalled's own
+          // header (lib/self-mastery/ingestion-stage.ts) and this page's
+          // book prop (get-book-detail.ts), which is the only place that
+          // reads ingestion_jobs.updated_at to compute it. Ordered
+          // unclaimed-first: the two are mutually exclusive by
+          // looksStalled's own definition (it returns false for `queued`),
+          // but unclaimed is the more specific, more useful thing to say
+          // when both could in principle apply.
+          const unclaimed = looksUnclaimed(book.stage, new Date(book.createdAt), now);
+          const stalled = !unclaimed && book.looksStalled;
+          const title = unclaimed
+            ? "Processing hasn't started yet"
+            : stalled
+              ? "This seems to have stalled"
+              : INGESTION_STAGE_LABEL[bucketIngestStage(book.stage)];
+          const body = unclaimed
+            ? "This usually means the processing service isn't running right now. No need to re-upload — it'll pick up automatically once it's back."
+            : stalled
+              ? "This hasn't moved in a few minutes, longer than a normal step takes. No need to re-upload — it usually catches back up on its own. If it's still stuck next time you check, try uploading it again."
+              : "This can take a while — a full book is a lot to read. Feel free to leave and come back; progress is saved on our end, not in this browser tab.";
+          return (
+            <div className="rounded-2xl border border-border/40 bg-card p-5">
+              <p className="text-sm font-medium text-foreground">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{body}</p>
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-300 ${stalled ? "bg-[var(--accent-warning)]" : "bg-[var(--accent-info)]"}`}
+                  style={{ width: `${Math.max(2, book.progressPct)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })()
       ) : null}
 
       {book.status === "ready" && book.lessons.length > 0 ? (

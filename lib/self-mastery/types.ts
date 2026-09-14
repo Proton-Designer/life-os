@@ -20,6 +20,15 @@ export type IngestStage =
   | "embedding"
   | "extracting_lessons"
   | "merging"
+  // Added by migration 109 (2026-09-02), between merging and
+  // generating_cards -- missing here until now, which made
+  // bucketIngestStage's switch silently fall through to `undefined` for any
+  // book actually sitting in this stage (a real book stalls here for a
+  // real, measured ~13 minutes per book_sections.ts's own header). Found
+  // fixing the frozen books.stage bug (S6, 2026-09-14) — see
+  // ingestion-progress.ts's header for why books.stage was frozen at
+  // 'queued' for every book regardless of real pipeline position.
+  | "verifying_grounding"
   | "generating_cards"
   | "finalizing"
   | "done"
@@ -83,4 +92,11 @@ export interface BookDetail {
   readyAt: string | null;
   memoryStrength: number;
   lessons: BookDetailLesson[];
+  /** True when the pipeline has been claimed (not `looksUnclaimed`) but
+   * hasn't advanced in over STALLED_THRESHOLD_MS -- "claimed but stopped
+   * moving," distinct from "genuinely slow" or "never picked up." Derived
+   * from ingestion_jobs.updated_at (bumped by every claim/advance/fail),
+   * never fabricated: false whenever there is no job row to check, or the
+   * book is done/failed/ready. See get-book-detail.ts. */
+  looksStalled: boolean;
 }
