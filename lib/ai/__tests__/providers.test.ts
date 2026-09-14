@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROVIDERS, PROVIDER_IDS, isProviderId, validateKeyShape } from "../providers";
+import { MODEL_CATALOG } from "../model-catalog";
 
 describe("provider registry", () => {
   it("every provider tells the user what it unlocks and where to get a key", () => {
@@ -33,8 +34,38 @@ describe("provider registry", () => {
 
   it("rejects unknown providers so a crafted form post can't reach storage", () => {
     expect(isProviderId("deepseek")).toBe(true);
-    expect(isProviderId("anthropic")).toBe(false);
+    expect(isProviderId("anthropic")).toBe(true); // real as of Phase 1 multi-provider, 2026-09-14 -- was the "known-good rejection" example before this pass, now a real provider
+    expect(isProviderId("not-a-real-provider")).toBe(false);
     expect(isProviderId("'; drop table user_api_keys; --")).toBe(false);
+  });
+
+  it("Phase 1 multi-provider (2026-09-14): all 6 providers registered, each wired to a real catalog entry", () => {
+    expect(PROVIDER_IDS.sort()).toEqual(["anthropic", "deepseek", "google", "moonshot", "openai", "xai"].sort());
+    for (const id of PROVIDER_IDS) {
+      if (id === "deepseek") continue; // priced in pricing.ts, not model-catalog.ts -- see that file's own header
+      const catalogEntry = MODEL_CATALOG[id];
+      expect(catalogEntry, `${id} must have a model-catalog.ts entry`).toBeDefined();
+      expect(PROVIDERS[id].models.cheap).toBe(catalogEntry.budget.id);
+      expect(PROVIDERS[id].models.capable).toBe(catalogEntry.flagship.id);
+      // DeepSeek's own established rule (R7): default to the CHEAP tier,
+      // never flagship -- nobody should pay flagship rates just to learn
+      // their key works. Applies to every provider, not just DeepSeek.
+      expect(PROVIDERS[id].defaultModel).toBe(catalogEntry.budget.id);
+    }
+  });
+
+  it("DeepSeek's own entry is untouched by the multi-provider pass -- every pre-existing field, byte-for-byte", () => {
+    expect(PROVIDERS.deepseek.id).toBe("deepseek");
+    expect(PROVIDERS.deepseek.label).toBe("DeepSeek");
+    expect(PROVIDERS.deepseek.baseUrl).toBe("https://api.deepseek.com");
+    expect(PROVIDERS.deepseek.defaultModel).toBe("deepseek-flash");
+    expect(PROVIDERS.deepseek.models).toEqual({ cheap: "deepseek-flash", capable: "deepseek-v4-pro" });
+    expect(PROVIDERS.deepseek.reasoningModel).toBe(true);
+    expect(PROVIDERS.deepseek.consoleUrl).toBe("https://platform.deepseek.com/api_keys");
+    expect(PROVIDERS.deepseek.keyPrefix).toBe("sk-");
+    expect(PROVIDERS.deepseek.unlocks).toBe("Written feedback on your typed answers during a retrieval session.");
+    // wireProtocol is the ONE new field -- confirming it's additive, not a replacement.
+    expect(PROVIDERS.deepseek.wireProtocol).toBe("openai-compatible");
   });
 });
 

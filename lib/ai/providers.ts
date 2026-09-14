@@ -1,9 +1,24 @@
 /**
  * The provider registry. One entry per service a user can supply a key for.
  *
- * DeepSeek is the only provider today (Ayman's ruling, replacing Anthropic):
- * it is OpenAI-wire-compatible, so the client below is a plain fetch and adding
- * a second provider later is a table entry plus a base URL, not a new SDK.
+ * MULTI-PROVIDER (Phase 1, 2026-09-14, Ayman's request): DeepSeek was the
+ * only provider through 2026-09-13 ("adding a second provider later is a
+ * table entry plus a base URL, not a new SDK" -- still true for the three
+ * OpenAI-wire-compatible additions below; Claude and Gemini are NOT
+ * wire-compatible and need their own SDK-backed adapters, see
+ * lib/ai/adapters/). `wireProtocol` is what the dispatcher in client.ts
+ * reads to pick which adapter handles a given provider.
+ *
+ * DEEPSEEK'S OWN ENTRY IS UNCHANGED BELOW -- every existing field, every
+ * existing value, byte-for-byte identical to before this pass. Only
+ * `wireProtocol` (new) was added to it, which no existing code reads yet;
+ * every other field a caller already depends on is untouched.
+ *
+ * MODEL IDS AND PRICES for the five new providers come from
+ * lib/ai/model-catalog.ts, fetched from each provider's own official docs
+ * on 2026-09-14 -- this file just points `defaultModel`/`models` at the
+ * catalog's own ids rather than repeating them, so there is exactly one
+ * place each id is spelled out.
  *
  * EVERY FEATURE BEHIND A KEY IS OPTIONAL BY CONSTRUCTION. Nothing here is
  * consulted to decide whether the app works — only whether a specific
@@ -11,11 +26,17 @@
  * never a broken one, and is never asked to pay for anything.
  */
 
+import { MODEL_CATALOG } from "./model-catalog";
+
+/** Which adapter (lib/ai/adapters/) speaks this provider's wire protocol. */
+export type WireProtocol = "openai-compatible" | "anthropic" | "google";
+
 export const PROVIDERS = {
   deepseek: {
     id: "deepseek",
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com",
+    wireProtocol: "openai-compatible" as WireProtocol,
     // CORRECTED 2026-09-13 (E1, LLM gateway build). The previous comment here
     // claimed "deepseek-v4-flash" was "A LISTED name, not a bet on an alias" --
     // that was false. Fetched DeepSeek's live Models & Pricing page directly
@@ -68,6 +89,97 @@ export const PROVIDERS = {
     consoleUrl: "https://platform.deepseek.com/api_keys",
     keyPrefix: "sk-",
     /** What enabling this actually unlocks, in the user's words, not ours. */
+    unlocks: "Written feedback on your typed answers during a retrieval session.",
+  },
+  anthropic: {
+    id: "anthropic",
+    label: "Claude",
+    // Unused by the anthropic.ts adapter (it calls @anthropic-ai/sdk, which
+    // owns its own base URL) — kept for display/consistency only.
+    baseUrl: "https://api.anthropic.com",
+    wireProtocol: "anthropic" as WireProtocol,
+    defaultModel: MODEL_CATALOG.anthropic.budget.id,
+    models: {
+      cheap: MODEL_CATALOG.anthropic.budget.id,
+      capable: MODEL_CATALOG.anthropic.flagship.id,
+    },
+    // Opus 5 has thinking ON by default (the Lead's own note); adapters
+    // translate the gateway's `effort` option to `output_config.effort`
+    // rather than disabling thinking, which has documented failure modes
+    // on this model family — see adapters/anthropic.ts.
+    reasoningModel: true,
+    consoleUrl: "https://console.anthropic.com/settings/keys",
+    keyPrefix: "sk-ant-",
+    unlocks: "Written feedback on your typed answers during a retrieval session.",
+  },
+  openai: {
+    id: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    wireProtocol: "openai-compatible" as WireProtocol,
+    defaultModel: MODEL_CATALOG.openai.budget.id,
+    models: {
+      cheap: MODEL_CATALOG.openai.budget.id,
+      capable: MODEL_CATALOG.openai.flagship.id,
+    },
+    reasoningModel: true,
+    consoleUrl: "https://platform.openai.com/api-keys",
+    keyPrefix: "sk-",
+    unlocks: "Written feedback on your typed answers during a retrieval session.",
+  },
+  google: {
+    id: "google",
+    label: "Gemini",
+    // Unused by the google.ts adapter (it calls @google/genai, which owns
+    // its own base URL) — kept for display/consistency only.
+    baseUrl: "https://generativelanguage.googleapis.com",
+    wireProtocol: "google" as WireProtocol,
+    defaultModel: MODEL_CATALOG.google.budget.id,
+    models: {
+      cheap: MODEL_CATALOG.google.budget.id,
+      capable: MODEL_CATALOG.google.flagship.id,
+    },
+    reasoningModel: true,
+    consoleUrl: "https://aistudio.google.com/apikey",
+    // NOT independently verified 2026-09-14 (ai.google.dev's key-creation
+    // page didn't state a prefix) — left undefined deliberately rather than
+    // guessed, per validateKeyShape's own rule: a wrongly-rejected valid
+    // key is worse than skipping the prefix check.
+    keyPrefix: undefined as string | undefined,
+    unlocks: "Written feedback on your typed answers during a retrieval session.",
+  },
+  moonshot: {
+    id: "moonshot",
+    label: "Kimi (Moonshot)",
+    baseUrl: "https://api.moonshot.ai/v1",
+    wireProtocol: "openai-compatible" as WireProtocol,
+    defaultModel: MODEL_CATALOG.moonshot.budget.id,
+    models: {
+      cheap: MODEL_CATALOG.moonshot.budget.id,
+      capable: MODEL_CATALOG.moonshot.flagship.id,
+    },
+    reasoningModel: true,
+    consoleUrl: "https://platform.kimi.ai/console/api-keys",
+    // NOT independently verified 2026-09-14 -- same reasoning as google's.
+    keyPrefix: undefined as string | undefined,
+    unlocks: "Written feedback on your typed answers during a retrieval session.",
+  },
+  xai: {
+    id: "xai",
+    label: "Grok (xAI)",
+    baseUrl: "https://api.x.ai/v1",
+    wireProtocol: "openai-compatible" as WireProtocol,
+    defaultModel: MODEL_CATALOG.xai.budget.id,
+    models: {
+      cheap: MODEL_CATALOG.xai.budget.id,
+      capable: MODEL_CATALOG.xai.flagship.id,
+    },
+    reasoningModel: true,
+    // Only a models-listing URL was confirmed 2026-09-14
+    // (console.x.ai/team/default/models); the key-management page specifically
+    // wasn't, so this points at the console root rather than a guessed path.
+    consoleUrl: "https://console.x.ai",
+    keyPrefix: "xai-",
     unlocks: "Written feedback on your typed answers during a retrieval session.",
   },
 } as const;
