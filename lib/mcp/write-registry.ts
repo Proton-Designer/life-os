@@ -28,6 +28,7 @@ import { updateAppearanceCore, setWeekdayBaselinesCore, clearWeekdayBaselinesCor
 import { gradeReviewCore, logSelfExplanationCore } from "@/lib/self-mastery/actions-core";
 import { recordVerdictCore } from "@/lib/promotions/actions-core";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
+import { ToolInputError } from "./tool-input-error";
 
 /**
  * `write(domain, entity, action, id?, patch?)` — L6's dispatch table,
@@ -110,10 +111,20 @@ function isPrayerName(value: unknown): value is PrayerName {
   return typeof value === "string" && (PRAYER_NAMES as readonly string[]).includes(value);
 }
 
+// Every throw in this file's require*/optional* helpers below is a
+// ToolInputError, not a bare Error — 2026-09-14, Opus Lead ruling (#37
+// follow-up). Each one only ever echoes back the literal field name, an
+// allowed-values list this file itself defines, and the caller's OWN
+// submitted value via JSON.stringify — never a database-read value, never
+// an internal identifier. Safe to hand back to the calling AI client
+// verbatim (tool-wrapper.ts's runMcpTool does exactly that for a
+// ToolInputError). Contrast with assertRowDomain below, deliberately NOT
+// converted because its message includes a DB-read column value.
+
 function requireString(patch: WritePatch, field: string): string {
   const value = patch[field];
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`patch.${field} is required and must be a non-empty string.`);
+    throw new ToolInputError(`patch.${field} is required and must be a non-empty string.`);
   }
   return value;
 }
@@ -121,7 +132,7 @@ function requireString(patch: WritePatch, field: string): string {
 function requireEnum<T extends string>(patch: WritePatch, field: string, allowed: readonly T[]): T {
   const value = patch[field];
   if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) {
-    throw new Error(`patch.${field} must be one of: ${allowed.join(", ")}. Got: ${JSON.stringify(value)}.`);
+    throw new ToolInputError(`patch.${field} must be one of: ${allowed.join(", ")}. Got: ${JSON.stringify(value)}.`);
   }
   return value as T;
 }
@@ -129,7 +140,7 @@ function requireEnum<T extends string>(patch: WritePatch, field: string, allowed
 function requireNumberEnum<T extends number>(patch: WritePatch, field: string, allowed: readonly T[]): T {
   const value = patch[field];
   if (typeof value !== "number" || !(allowed as readonly number[]).includes(value)) {
-    throw new Error(`patch.${field} must be one of: ${allowed.join(", ")}. Got: ${JSON.stringify(value)}.`);
+    throw new ToolInputError(`patch.${field} must be one of: ${allowed.join(", ")}. Got: ${JSON.stringify(value)}.`);
   }
   return value as T;
 }
@@ -137,42 +148,42 @@ function requireNumberEnum<T extends number>(patch: WritePatch, field: string, a
 function requirePrayerName(patch: WritePatch): PrayerName {
   const value = patch.prayer_name;
   if (!isPrayerName(value)) {
-    throw new Error(`patch.prayer_name must be one of: ${PRAYER_NAMES.join(", ")}. Got: ${JSON.stringify(value)}.`);
+    throw new ToolInputError(`patch.prayer_name must be one of: ${PRAYER_NAMES.join(", ")}. Got: ${JSON.stringify(value)}.`);
   }
   return value;
 }
 
 /** The top-level `write(..., id, ...)` — required by every action here that targets an existing row (edit/advance/reorder/toggle/...), as opposed to deen's date-keyed actions. */
 function requireId(ctx: WriteContext): string {
-  if (!ctx.id) throw new Error("This action requires the top-level `id` of the row to act on.");
+  if (!ctx.id) throw new ToolInputError("This action requires the top-level `id` of the row to act on.");
   return ctx.id;
 }
 
 function optionalNumber(patch: WritePatch, field: string): number | undefined {
   const value = patch[field];
   if (value === undefined) return undefined;
-  if (typeof value !== "number") throw new Error(`patch.${field} must be a number. Got: ${JSON.stringify(value)}.`);
+  if (typeof value !== "number") throw new ToolInputError(`patch.${field} must be a number. Got: ${JSON.stringify(value)}.`);
   return value;
 }
 
 function optionalString(patch: WritePatch, field: string): string | undefined {
   const value = patch[field];
   if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new Error(`patch.${field} must be a string. Got: ${JSON.stringify(value)}.`);
+  if (typeof value !== "string") throw new ToolInputError(`patch.${field} must be a string. Got: ${JSON.stringify(value)}.`);
   return value;
 }
 
 function optionalNullableString(patch: WritePatch, field: string): string | null | undefined {
   const value = patch[field];
   if (value === undefined) return undefined;
-  if (value !== null && typeof value !== "string") throw new Error(`patch.${field} must be a string or null. Got: ${JSON.stringify(value)}.`);
+  if (value !== null && typeof value !== "string") throw new ToolInputError(`patch.${field} must be a string or null. Got: ${JSON.stringify(value)}.`);
   return value;
 }
 
 function optionalNullableNumber(patch: WritePatch, field: string): number | null | undefined {
   const value = patch[field];
   if (value === undefined) return undefined;
-  if (value !== null && typeof value !== "number") throw new Error(`patch.${field} must be a number or null. Got: ${JSON.stringify(value)}.`);
+  if (value !== null && typeof value !== "number") throw new ToolInputError(`patch.${field} must be a number or null. Got: ${JSON.stringify(value)}.`);
   return value;
 }
 
@@ -200,7 +211,7 @@ function optionalMuscleGroupArray(patch: WritePatch, field: string): MuscleGroup
   const value = patch[field];
   if (value === undefined) return [];
   if (!Array.isArray(value) || !value.every(isMuscleGroup)) {
-    throw new Error(`patch.${field} must be an array of muscle groups (${MUSCLE_GROUPS.join(", ")}). Got: ${JSON.stringify(value)}.`);
+    throw new ToolInputError(`patch.${field} must be an array of muscle groups (${MUSCLE_GROUPS.join(", ")}). Got: ${JSON.stringify(value)}.`);
   }
   return value;
 }
@@ -209,19 +220,19 @@ function optionalMuscleGroupArray(patch: WritePatch, field: string): MuscleGroup
 function requireConfirmSets(patch: WritePatch): ConfirmSetInput[] {
   const value = patch.sets;
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("patch.sets must be a non-empty array of { exerciseId, exerciseName, position, sets, reps, load }.");
+    throw new ToolInputError("patch.sets must be a non-empty array of { exerciseId, exerciseName, position, sets, reps, load }.");
   }
   return value.map((raw, i) => {
     if (typeof raw !== "object" || raw === null) {
-      throw new Error(`patch.sets[${i}] must be an object.`);
+      throw new ToolInputError(`patch.sets[${i}] must be an object.`);
     }
     const r = raw as Record<string, unknown>;
-    if (typeof r.exerciseId !== "string" || !r.exerciseId) throw new Error(`patch.sets[${i}].exerciseId is required.`);
-    if (typeof r.exerciseName !== "string" || !r.exerciseName) throw new Error(`patch.sets[${i}].exerciseName is required.`);
-    if (typeof r.position !== "number") throw new Error(`patch.sets[${i}].position must be a number.`);
-    if (typeof r.sets !== "number") throw new Error(`patch.sets[${i}].sets must be a number.`);
-    if (typeof r.reps !== "number") throw new Error(`patch.sets[${i}].reps must be a number.`);
-    if (r.load !== null && typeof r.load !== "number") throw new Error(`patch.sets[${i}].load must be a number or null.`);
+    if (typeof r.exerciseId !== "string" || !r.exerciseId) throw new ToolInputError(`patch.sets[${i}].exerciseId is required.`);
+    if (typeof r.exerciseName !== "string" || !r.exerciseName) throw new ToolInputError(`patch.sets[${i}].exerciseName is required.`);
+    if (typeof r.position !== "number") throw new ToolInputError(`patch.sets[${i}].position must be a number.`);
+    if (typeof r.sets !== "number") throw new ToolInputError(`patch.sets[${i}].sets must be a number.`);
+    if (typeof r.reps !== "number") throw new ToolInputError(`patch.sets[${i}].reps must be a number.`);
+    if (r.load !== null && typeof r.load !== "number") throw new ToolInputError(`patch.sets[${i}].load must be a number or null.`);
     return { exerciseId: r.exerciseId, exerciseName: r.exerciseName, position: r.position, sets: r.sets, reps: r.reps, load: (r.load as number | null) ?? null };
   });
 }
@@ -377,7 +388,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                 kind === "target"
                   ? await addTargetCore(ctx.userClient, ctx.userId, title, optionalString(patch, "deadline") ?? "")
                   : await addStretchGoalCore(ctx.userClient, ctx.userId, title);
-              if (!id) throw new Error("Title was blank after trimming — nothing was created.");
+              if (!id) throw new ToolInputError("Title was blank after trimming — nothing was created.");
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
                 summary: `created ${kind} "${title}"`,
@@ -425,7 +436,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               const position = optionalNumber(patch, "position");
-              if (position === undefined) throw new Error("patch.position is required.");
+              if (position === undefined) throw new ToolInputError("patch.position is required.");
               await moveTargetCore(ctx.userClient, ctx.userId, id, position);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id, position }) }], structuredContent: { id, updated_at: null, position } },
@@ -453,7 +464,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const targetId = requireId(ctx);
               const title = requireString(patch, "title");
               const id = await addAgendaTaskCore(ctx.userClient, targetId, title, optionalString(patch, "deadline"));
-              if (!id) throw new Error("Title was blank after trimming — nothing was created.");
+              if (!id) throw new ToolInputError("Title was blank after trimming — nothing was created.");
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
                 summary: `added task "${title}" to target ${targetId}`,
@@ -593,7 +604,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const deliverableRaw = requireString(patch, "deliverable");
               const deliverable = deliverableRaw.trim();
               if (deliverable.length === 0) {
-                throw new Error("patch.deliverable is required and must be a non-empty string.");
+                throw new ToolInputError("patch.deliverable is required and must be a non-empty string.");
               }
               const started = await startWorkSessionCore(ctx.userClient, ctx.userId, {
                 kind,
@@ -697,7 +708,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const headline = requireString(patch, "headline");
               const milestonesRaw = patch.milestones;
               if (!Array.isArray(milestonesRaw) || !milestonesRaw.every((m) => typeof m === "string")) {
-                throw new Error("patch.milestones must be an array of strings.");
+                throw new ToolInputError("patch.milestones must be an array of strings.");
               }
               await saveBusinessWeeklyGoalCore(ctx.userClient, ctx.userId, weekStartDate, headline, milestonesRaw);
               return {
@@ -981,8 +992,8 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const exerciseName = requireString(patch, "exercise_name");
               const sets = optionalNumber(patch, "sets");
               const reps = optionalNumber(patch, "reps");
-              if (sets === undefined) throw new Error("patch.sets is required.");
-              if (reps === undefined) throw new Error("patch.reps is required.");
+              if (sets === undefined) throw new ToolInputError("patch.sets is required.");
+              if (reps === undefined) throw new ToolInputError("patch.reps is required.");
               const load = optionalNullableNumber(patch, "load") ?? null;
               const id = await quickLogExerciseCore(ctx.userClient, ctx.userId, date, exerciseId, exerciseName, sets, reps, load);
               return {
@@ -1047,7 +1058,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const weightLb = optionalNumber(patch, "weight_lb");
-              if (weightLb === undefined) throw new Error("patch.weight_lb is required.");
+              if (weightLb === undefined) throw new ToolInputError("patch.weight_lb is required.");
               await logWeightCore(ctx.userClient, ctx.userId, date, weightLb);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ date, weight_lb: weightLb }) }], structuredContent: { id: `${ctx.userId}:${date}`, updated_at: ctx.now.toISOString(), date, weight_lb: weightLb } },
@@ -1064,7 +1075,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const waistIn = optionalNumber(patch, "waist_in");
-              if (waistIn === undefined) throw new Error("patch.waist_in is required.");
+              if (waistIn === undefined) throw new ToolInputError("patch.waist_in is required.");
               await logWaistCore(ctx.userClient, ctx.userId, date, waistIn);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ date, waist_in: waistIn }) }], structuredContent: { id: `${ctx.userId}:${date}`, updated_at: ctx.now.toISOString(), date, waist_in: waistIn } },
@@ -1087,7 +1098,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const date = requireString(patch, "date");
               const exerciseId = requireString(patch, "exercise_id");
               const maxReps = optionalNumber(patch, "max_reps");
-              if (maxReps === undefined) throw new Error("patch.max_reps is required.");
+              if (maxReps === undefined) throw new ToolInputError("patch.max_reps is required.");
               await logBenchmarkRepsCore(ctx.userClient, ctx.userId, date, exerciseId, maxReps);
               return {
                 result: {
@@ -1232,7 +1243,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             handler: async (ctx, patch) => {
               const allocationsRaw = patch.allocations;
               if (typeof allocationsRaw !== "object" || allocationsRaw === null || Array.isArray(allocationsRaw)) {
-                throw new Error("patch.allocations is required and must be an object of domain -> minutes.");
+                throw new ToolInputError("patch.allocations is required and must be an object of domain -> minutes.");
               }
               const result = await saveAllocationCheckinCore(ctx.userClient, ctx.userId, ctx.now, allocationsRaw as Record<string, unknown>);
               return {
@@ -1497,7 +1508,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const answeredText = optionalString(patch, "answered_text");
               const confidenceRaw = optionalNullableString(patch, "confidence");
               if (confidenceRaw != null && !["sure", "think_so", "guessing"].includes(confidenceRaw)) {
-                throw new Error(`patch.confidence must be one of: sure, think_so, guessing, or null/omitted. Got: ${JSON.stringify(confidenceRaw)}.`);
+                throw new ToolInputError(`patch.confidence must be one of: sure, think_so, guessing, or null/omitted. Got: ${JSON.stringify(confidenceRaw)}.`);
               }
               const confidence = (confidenceRaw ?? null) as "sure" | "think_so" | "guessing" | null;
               const result = await gradeReviewCore(ctx.userClient, ctx.userId, {

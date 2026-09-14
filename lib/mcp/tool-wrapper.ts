@@ -6,6 +6,7 @@ import { checkRateLimit } from "./rate-limit";
 import { writeAuditRow, type McpAuditOutcome } from "./audit";
 import { mintSessionJwt, buildUserScopedClient } from "./session";
 import { readMcpAuth, type AuthInfoLike } from "./auth-info";
+import { ToolInputError } from "./tool-input-error";
 
 /**
  * The single composition point every MCP tool handler calls through —
@@ -91,7 +92,13 @@ export async function runMcpTool(
   } catch (e) {
     outcome = "error";
     resultSummary = e instanceof Error ? e.message.slice(0, 500) : "Unknown error";
-    toolResult = errorResult("Something went wrong running that tool.");
+    // ToolInputError (lib/mcp/tool-input-error.ts) is the ONE exception to
+    // the generic message below — its message is written to be safe to
+    // hand back verbatim (see that class's own doc comment on exactly what
+    // it may and may not contain). Every other thrown value — a bare
+    // Error, a Postgres error, anything else — stays behind the generic
+    // text, unchanged from before this type existed.
+    toolResult = e instanceof ToolInputError ? errorResult(e.message) : errorResult("Something went wrong running that tool.");
   }
 
   // AUDIT WRITTEN BEFORE THE TOOL RETURNS, unconditionally, for both the ok

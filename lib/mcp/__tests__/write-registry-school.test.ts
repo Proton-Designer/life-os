@@ -128,6 +128,23 @@ describe("school.task.edit", () => {
     ).rejects.toThrow(/domain boundary|domain "co_op"/i);
   });
 
+  // Regression guard for the boundary lib/mcp/tool-input-error.ts's own doc
+  // comment names explicitly: assertRowDomain's message interpolates a
+  // DB-read `domain` value, so it must stay a plain Error -- if it were
+  // ever converted to ToolInputError, tool-wrapper.ts would hand that
+  // DB-read value straight back to the calling AI client.
+  it("assertRowDomain's rejection is a plain Error, NOT a ToolInputError -- it reads a DB value and must stay behind the generic MCP error message", async () => {
+    const { ToolInputError } = await import("../tool-input-error");
+    const action = getWriteAction("school", "task", "edit")!;
+    const { client } = makeClient({ maybeSingleSeq: { tasks: [{ domain: "co_op" }] } });
+    try {
+      await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "task-1" }, { title: "x" });
+      expect.unreachable("expected assertRowDomain to reject");
+    } catch (e) {
+      expect(e).not.toBeInstanceOf(ToolInputError);
+    }
+  });
+
   it("REJECTS editing a row that doesn't exist for this user", async () => {
     const action = getWriteAction("school", "task", "edit")!;
     const { client } = makeClient({ maybeSingleSeq: { tasks: [null] } });

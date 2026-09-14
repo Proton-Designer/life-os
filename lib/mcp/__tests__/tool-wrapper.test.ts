@@ -134,6 +134,42 @@ describe("runMcpTool", () => {
     expect(inserts[0]).toEqual(expect.objectContaining({ outcome: "error", result_summary: expect.stringContaining("leaked") }));
   });
 
+  // Opus Lead ruling, 2026-09-14 (#37 follow-up): the one narrow exception
+  // to the guarantee above — a ToolInputError's message is written to be
+  // safe (see lib/mcp/tool-input-error.ts's own doc comment on exactly
+  // what it may contain) and is handed back to the client verbatim, so an
+  // AI client can actually learn what was wrong with its call.
+  it("a tool that throws ToolInputError surfaces that error's OWN message to the client verbatim", async () => {
+    const { client, inserts } = makeServiceClient();
+    const { ToolInputError } = await import("../tool-input-error");
+    const throwingFn = vi.fn(async () => {
+      throw new ToolInputError('patch.kind must be one of: deep_work, deep_study. Got: "break".');
+    });
+    const { runMcpTool } = await import("../tool-wrapper");
+
+    const result = await runMcpTool(client, GOOD_AUTH, "work_session_start", "test.work_session.start", "write", {}, throwingFn);
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe('patch.kind must be one of: deep_work, deep_study. Got: "break".');
+    expect(inserts[0]).toEqual(
+      expect.objectContaining({ outcome: "error", result_summary: expect.stringContaining("patch.kind must be one of") })
+    );
+  });
+
+  it("a ToolInputError still does not leak a DIFFERENT, non-input error's internals — only the ToolInputError path is exempted from the generic message", async () => {
+    const { client } = makeServiceClient();
+    const throwingFn = vi.fn(async () => {
+      throw new Error("duplicate key value violates unique constraint \"work_sessions_pkey\"");
+    });
+    const { runMcpTool } = await import("../tool-wrapper");
+
+    const result = await runMcpTool(client, GOOD_AUTH, "work_session_start", "test.work_session.start", "write", {}, throwingFn);
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).not.toContain("unique constraint");
+    expect(textOf(result)).toBe("Something went wrong running that tool.");
+  });
+
   it("a tool call that succeeds but whose audit write fails is reported as FAILED, not as a silent success", async () => {
     const { client } = makeServiceClient({ auditInsertError: { message: "write failed" } });
     const { runMcpTool } = await import("../tool-wrapper");
