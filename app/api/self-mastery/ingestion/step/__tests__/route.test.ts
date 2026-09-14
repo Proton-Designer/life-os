@@ -1,5 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+// Dynamically imported inside each test that needs it, AFTER any vi.doMock
+// and in the same tick as `await import("../route")` -- NOT a static
+// top-level import. `afterEach` here calls `vi.resetModules()`, so a
+// static import resolved once at file-load time would end up a DIFFERENT
+// class instance than the one route.ts's own (dynamically re-resolved)
+// import of deepseek-provider.ts sees on any test after the first reset --
+// `instanceof` silently fails across that boundary. Matches this file's
+// own existing pattern for createServiceRoleClient below, for the same reason.
+async function loadGatewayCallFailedError() {
+  const { GatewayCallFailedError } = await import("@/lib/self-mastery/ingestion/llm/deepseek-provider");
+  return GatewayCallFailedError;
+}
+
 /**
  * A5 gate 3's own red case, per the track plan: "a handler that does the
  * work but writes no telemetry row, and must still fail to advance."
@@ -313,6 +326,221 @@ describe("POST /api/self-mastery/ingestion/step", () => {
       const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
       expect(res.status).toBe(200);
       expect(mock.updateCalls.some((c) => c.table === "books")).toBe(false);
+    });
+  });
+
+  /**
+   * BUG-1 layer 1 (2026-09-14). GATE 5's tests above prove the
+   * fail-the-book default; these prove the narrow, deliberately-scoped
+   * exception: a per-position stage exhausting on a CONTENT-shaped failure
+   * skips that one position instead, while an infrastructure/budget
+   * failure (auth, spend-cap) still fails the book exactly as before, and
+   * a genuine streak of skips still fails the book with the true reason.
+   */
+  describe("BUG-1 layer 1: skip-and-advance on a content-shaped exhaustion", () => {
+    it("exhausted TIMEOUT at a per-position stage -> skipped, cursor advances, book NOT failed", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- timeout", "timeout")),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 0, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+        rpcResults: {
+          skip_ingestion_cursor_position: { data: { skipped_positions: 1, consecutive_skipped_positions: 1 }, error: null },
+        },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.reason).toBe("chunk_skipped_after_exhausted_attempts");
+      expect(body.nextChunkIndex).toBe(1);
+
+      const skipCall = mock.rpcCalls.find((c) => c.fn === "skip_ingestion_cursor_position");
+      expect(skipCall?.args).toMatchObject({
+        p_job_id: "job-1",
+        p_expected_stage: "extracting_lessons",
+        p_expected_chunk_index: 0,
+        p_expected_attempt: 3,
+        p_next_stage: "extracting_lessons",
+        p_next_chunk_index: 1,
+      });
+      // THE assertion this test exists for: the book must NOT be failed.
+      expect(mock.updateCalls.some((c) => c.table === "ingestion_jobs" && (c.values as { stage?: string }).stage === "failed")).toBe(false);
+      expect(mock.updateCalls.some((c) => c.table === "books" && (c.values as { status?: string }).status === "failed")).toBe(false);
+      // books.stage/progress_pct still synced, same as a genuine advance.
+      const booksUpdate = mock.updateCalls.find((c) => c.table === "books");
+      expect(booksUpdate?.values).toMatchObject({ stage: "extracting_lessons" });
+    });
+
+    it("exhausted AUTH failure -> NOT silently skipped past -- book fails with the true (infrastructure) reason", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- key rejected", "auth")),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 0, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.reason).toBe("attempts_exhausted");
+      // THE assertion this test exists for: auth is NEVER content-shaped --
+      // skip_ingestion_cursor_position must never even be called.
+      expect(mock.rpcCalls.some((c) => c.fn === "skip_ingestion_cursor_position")).toBe(false);
+      const ingestionJobsUpdate = mock.updateCalls.find((c) => c.table === "ingestion_jobs");
+      expect(ingestionJobsUpdate?.values).toMatchObject({ stage: "failed" });
+      const booksUpdate = mock.updateCalls.find((c) => c.table === "books");
+      expect(booksUpdate?.values).toMatchObject({ status: "failed" });
+    });
+
+    it("exhausted SPEND-CAP refusal -> NOT silently skipped past, even though errorKind is undefined on a capBlocked result", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- spend cap reached", undefined, true)),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 0, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.reason).toBe("attempts_exhausted");
+      expect(mock.rpcCalls.some((c) => c.fn === "skip_ingestion_cursor_position")).toBe(false);
+    });
+
+    it("3 consecutive skips -> circuit breaker trips, book fails with the provider reason, not a generic one", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- timeout", "timeout")),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 2, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+        // This is the 3rd consecutive skip -- the function's own return
+        // value is what the route trusts, not a count it re-derives.
+        rpcResults: {
+          skip_ingestion_cursor_position: { data: { skipped_positions: 3, consecutive_skipped_positions: 3 }, error: null },
+        },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.reason).toBe("circuit_breaker_tripped");
+      const ingestionJobsUpdate = mock.updateCalls.find((c) => c.table === "ingestion_jobs");
+      expect(ingestionJobsUpdate?.values).toMatchObject({ stage: "failed" });
+      // TWO books writes happen here, in order: the skip's own stage/
+      // progress_pct sync, then failBook's status='failed' write once the
+      // breaker trips -- find the one that actually marks it failed, not
+      // just the first books write.
+      const booksFailUpdate = mock.updateCalls.find((c) => c.table === "books" && (c.values as { status?: string }).status === "failed");
+      expect(booksFailUpdate?.values).toBeDefined();
+      expect((booksFailUpdate?.values as { error_message: string }).error_message).toMatch(/AI provider/i);
+    });
+
+    it("2 consecutive skips (under the K=3 breaker) -> still just a skip, book stays alive", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- timeout", "timeout")),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 1, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+        rpcResults: {
+          skip_ingestion_cursor_position: { data: { skipped_positions: 2, consecutive_skipped_positions: 2 }, error: null },
+        },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.reason).toBe("chunk_skipped_after_exhausted_attempts");
+      expect(mock.updateCalls.some((c) => c.table === "books" && (c.values as { status?: string }).status === "failed")).toBe(false);
+    });
+
+    it("whole-book stage exhaustion (chunk_index null) -> unchanged fail-the-book behavior, never attempts a skip", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          chunking: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- timeout", "timeout")),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "chunking", cursor_chunk_index: null, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.reason).toBe("attempts_exhausted");
+      // THE assertion this test exists for: a content-shaped errorKind is
+      // not enough on its own -- a whole-book stage (no chunk to skip past)
+      // must never call skip_ingestion_cursor_position, timeout or not.
+      expect(mock.rpcCalls.some((c) => c.fn === "skip_ingestion_cursor_position")).toBe(false);
+      const ingestionJobsUpdate = mock.updateCalls.find((c) => c.table === "ingestion_jobs");
+      expect(ingestionJobsUpdate?.values).toMatchObject({ stage: "failed" });
+    });
+
+    it("CODE-LEVEL HALF of the CAS guarantee: when skip_ingestion_cursor_position itself errors (the DB's own CAS refusing), falls back to failing the book rather than silently treating it as success -- the SQL-level refusal itself is proven in a rolled-back transaction at apply time, not re-proven here, same posture GATE 3 already established for advance_ingestion_cursor", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- timeout", "timeout")),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 0, cursor_attempt: 3, max_attempts: 3, book_id: "book-1" },
+        rpcResults: {
+          skip_ingestion_cursor_position: { data: null, error: { message: "skip_ingestion_cursor_position: job job-1 is not at an exhausted position" } },
+        },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.reason).toBe("chunk_skip_failed");
+      const ingestionJobsUpdate = mock.updateCalls.find((c) => c.table === "ingestion_jobs");
+      expect(ingestionJobsUpdate?.values).toMatchObject({ stage: "failed" });
     });
   });
 

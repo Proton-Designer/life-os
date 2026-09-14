@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { bracketStage, describeError } from "@/lib/self-mastery/ingestion/telemetry";
 import { STAGE_HANDLERS } from "@/lib/self-mastery/ingestion/worker-stages";
 import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-availability";
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
-import { untypedFrom } from "@/lib/self-mastery/untyped-from";
+import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
+import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
 
 /**
  * A5 gates 3-4, plus S6's driver wiring (2026-09-14): one ingestion chunk
@@ -102,6 +104,36 @@ function checkIngestionSecret(request: Request): boolean {
   return timingSafeEqual(token, expected);
 }
 
+/**
+ * Shared by both fail-the-book paths (an infrastructure-shaped exhaustion,
+ * and the circuit breaker tripping after too many content-shaped skips) --
+ * BUG-1 layer 1/2. Two writes, `ingestion_jobs` first: if that one fails
+ * there is nothing durable to build on, so it's returned as a hard error.
+ * `books` is best-effort, matching the pre-existing posture here -- a
+ * cosmetic sync failing must not be reported as though the real
+ * failure-recording failed too.
+ */
+async function failBook(
+  supabase: SupabaseClient,
+  params: { jobId: string; bookId: string; jobErrorMessage: string; bookErrorMessage: string },
+): Promise<{ ok: true } | { ok: false; failError: string }> {
+  const { error: failError } = await supabase
+    .from("ingestion_jobs")
+    .update({ stage: "failed", last_error: params.jobErrorMessage })
+    .eq("id", params.jobId);
+  if (failError) {
+    return { ok: false, failError: failError.message };
+  }
+
+  const { error: bookFailError } = await untypedFrom(supabase, "books")
+    .update({ status: "failed", error_message: params.bookErrorMessage })
+    .eq("id", params.bookId);
+  if (bookFailError) {
+    console.error("[self-mastery ingestion] failed to sync books.status='failed'", bookFailError.message);
+  }
+  return { ok: true };
+}
+
 export async function POST(request: Request) {
   if (!process.env.SELF_MASTERY_INGESTION_SECRET) {
     return NextResponse.json({ ok: false, reason: "not_configured" }, { status: 503 });
@@ -187,37 +219,153 @@ export async function POST(request: Request) {
     // `cursor_attempt = cursor_attempt + 1`), so `>= max_attempts` means
     // this was the last one it was ever going to get.
     if (job.cursor_attempt >= job.max_attempts) {
-      const { error: failError } = await supabase
-        .from("ingestion_jobs")
-        .update({ stage: "failed", last_error: `${expectedStage} (chunk ${expectedChunkIndex}): exhausted ${job.max_attempts} attempts -- last error: ${errorMessage}` })
-        .eq("id", job.id);
-      if (failError) {
-        return NextResponse.json(
-          { ok: false, reason: "stage_work_failed_and_could_not_mark_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, failError: failError.message },
-          { status: 500 },
-        );
+      // BUG-1 layer 1 (2026-09-14): a single degenerate chunk exhausting
+      // its attempts on a CONTENT-shaped failure (the model timed out or
+      // returned empty content for THIS chunk) must not fail the whole
+      // book — one bad position among 203 good ones. But this must NOT
+      // apply to an infrastructure/budget failure (a revoked key, a
+      // DeepSeek outage, a spend-cap refusal): those mean every remaining
+      // chunk would exhaust identically, and silently skipping all of them
+      // would walk the whole book to finalizingStage's "zero lessons"
+      // failure over hours while blaming the user's file for our outage.
+      // `GatewayCallFailedError` is the ONLY source of this signal — a
+      // plain thrown Error (a Supabase error, a genuine code bug) is never
+      // eligible, which keeps this narrow by construction: skip is the
+      // exception, fail-the-book stays the default.
+      const isContentShapedFailure =
+        e instanceof GatewayCallFailedError &&
+        !e.capBlocked &&
+        (e.errorKind === "timeout" || e.errorKind === "empty_content");
+
+      // Only stages with a real cursor_chunk_index have a "position" to
+      // skip past — the whole-book stages (queued/extracting_text/
+      // parsing_structure/chunking/merging/finalizing, chunk_index null)
+      // have no sub-unit smaller than the whole job, so exhaustion there
+      // keeps today's fail-the-book behavior unconditionally.
+      if (expectedChunkIndex !== null && isContentShapedFailure) {
+        const nextChunkIndex = expectedChunkIndex + 1;
+        const skipReason = `${expectedStage} (chunk ${expectedChunkIndex}): SKIPPED after exhausting ${job.max_attempts} attempts -- content-shaped failure (${e.errorKind}): ${errorMessage}`;
+
+        const { data: skipped, error: skipError } = await untypedRpc<{
+          skipped_positions: number;
+          consecutive_skipped_positions: number;
+        }>(supabase, "skip_ingestion_cursor_position", {
+          p_job_id: job.id,
+          p_expected_stage: expectedStage,
+          p_expected_chunk_index: expectedChunkIndex,
+          p_expected_attempt: expectedAttempt,
+          p_next_stage: expectedStage,
+          p_next_chunk_index: nextChunkIndex,
+          p_skip_reason: skipReason,
+        });
+
+        if (skipError) {
+          // Couldn't even record the skip -- fall back to the safety net
+          // rather than leave the job silently unclaimable forever.
+          const failed = await failBook(supabase, {
+            jobId: job.id,
+            bookId: job.book_id,
+            jobErrorMessage: `${skipReason} -- AND skip_ingestion_cursor_position itself failed: ${skipError.message}`,
+            bookErrorMessage: "Something went wrong while processing this book. Please try uploading it again.",
+          });
+          return NextResponse.json(
+            { ok: false, reason: "chunk_skip_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, skipError: skipError.message, bookMarkedFailed: failed.ok },
+            { status: 500 },
+          );
+        }
+
+        // null (not a composite-of-nulls -- same PL/pgSQL NULL semantics
+        // advance_ingestion_cursor's own `alreadyAdvanced` check relies on)
+        // means the position had already moved -- a concurrent/retried
+        // caller got here first. The idempotent no-op this design exists
+        // to make safe, not a failure to report.
+        const alreadySkipped = skipped === null;
+
+        // books.stage/progress_pct sync, same call as a genuine advance
+        // makes (see below) -- a skip is still real forward motion the
+        // library view must reflect, not a stall.
+        if (!alreadySkipped && expectedStage !== "done" && expectedStage !== "failed") {
+          const nextProgressPct = estimateBookProgressPct(expectedStage, nextChunkIndex);
+          const bookUpdate: Record<string, unknown> = { stage: expectedStage };
+          if (nextProgressPct !== null) bookUpdate.progress_pct = nextProgressPct;
+          const { error: bookSyncError } = await untypedFrom(supabase, "books").update(bookUpdate).eq("id", job.book_id);
+          if (bookSyncError) {
+            console.error("[self-mastery ingestion] failed to sync books.stage/progress_pct after skip", bookSyncError.message);
+          }
+        }
+
+        // CIRCUIT BREAKER (BUG-1 layer 1's second half): non-determinism
+        // cuts both ways -- the same mechanism that makes one bad chunk
+        // harmless could just as easily paper over a genuinely degraded
+        // provider by skipping every single chunk. 3 consecutive
+        // content-shaped exhaustions, or skips crossing a real fraction of
+        // positions processed so far, is not "a bad chunk" anymore -- it's
+        // reported honestly and immediately rather than let the book walk
+        // all the way to finalizingStage's "zero lessons" message hours
+        // later. `nextChunkIndex` IS "positions processed so far" (0-based,
+        // inclusive of this one) -- no extra query needed.
+        const CONSECUTIVE_SKIP_LIMIT = 3;
+        const SKIP_RATIO_LIMIT = 0.25;
+        // The ratio arm needs a real sample to mean anything: at
+        // nextChunkIndex=1 (the very first position), one skip is 100% of
+        // "positions processed so far" by construction, not evidence of a
+        // pattern. Below this floor, only the consecutive-streak arm can
+        // trip the breaker -- exactly what it exists for.
+        const MIN_POSITIONS_FOR_RATIO_CHECK = 4;
+        const consecutiveSkipped = skipped?.consecutive_skipped_positions ?? 0;
+        const totalSkipped = skipped?.skipped_positions ?? 0;
+        const ratioTripped = nextChunkIndex >= MIN_POSITIONS_FOR_RATIO_CHECK && totalSkipped / nextChunkIndex > SKIP_RATIO_LIMIT;
+        const circuitTripped = !alreadySkipped && (consecutiveSkipped >= CONSECUTIVE_SKIP_LIMIT || ratioTripped);
+
+        if (circuitTripped) {
+          const providerReason =
+            e.errorKind === "timeout"
+              ? "The AI provider kept timing out while processing this book."
+              : "The AI provider kept returning empty responses while processing this book.";
+          const failed = await failBook(supabase, {
+            jobId: job.id,
+            bookId: job.book_id,
+            jobErrorMessage: `${expectedStage}: circuit breaker tripped after ${totalSkipped} skips (${consecutiveSkipped} consecutive) -- last: ${skipReason}`,
+            bookErrorMessage: `${providerReason} Please try again later.`,
+          });
+          return NextResponse.json(
+            {
+              ok: false,
+              reason: "circuit_breaker_tripped",
+              stage: expectedStage,
+              chunkIndex: expectedChunkIndex,
+              skippedPositions: totalSkipped,
+              consecutiveSkippedPositions: consecutiveSkipped,
+              bookMarkedFailed: failed.ok,
+            },
+            { status: 500 },
+          );
+        }
+
+        return NextResponse.json({
+          ok: true,
+          reason: "chunk_skipped_after_exhausted_attempts",
+          stage: expectedStage,
+          chunkIndex: expectedChunkIndex,
+          nextChunkIndex,
+          alreadySkipped,
+          errorKind: e.errorKind,
+          skippedPositions: totalSkipped,
+          consecutiveSkippedPositions: consecutiveSkipped,
+        });
       }
 
-      // THE BUG THIS CLOSES (S6, 2026-09-14, found live): this branch has
-      // always marked `ingestion_jobs.stage = 'failed'` — observable to
-      // anyone reading THAT table — but never touched `books.status` at
-      // all. Every reader a user's own UI actually goes through
-      // (get-library.ts, get-in-progress-books.ts, get-book-detail.ts)
-      // selects `books.status`/`books.stage`, never `ingestion_jobs`
-      // directly, so a book whose job exhausted its attempts mid-pipeline
-      // stayed at `status: 'processing'` FOREVER from the user's point of
-      // view — the exact "stuck at processing forever" failure this whole
-      // track exists to close, just reached by a different door than the
-      // "nothing consumes the queue" door. Best-effort: if THIS write also
-      // fails, the ingestion_jobs-level failure (already recorded above,
-      // and already returned to the caller as a 500) still stands — a
-      // cosmetic sync failing must not be reported as though the real
-      // failure-recording failed too.
-      const { error: bookFailError } = await untypedFrom(supabase, "books")
-        .update({ status: "failed", error_message: "Something went wrong while processing this book. Please try uploading it again." })
-        .eq("id", job.book_id);
-      if (bookFailError) {
-        console.error("[self-mastery ingestion] failed to sync books.status='failed' after exhausted attempts", bookFailError.message);
+      const failed = await failBook(supabase, {
+        jobId: job.id,
+        bookId: job.book_id,
+        jobErrorMessage: `${expectedStage} (chunk ${expectedChunkIndex}): exhausted ${job.max_attempts} attempts -- last error: ${errorMessage}`,
+        bookErrorMessage: "Something went wrong while processing this book. Please try uploading it again.",
+      });
+      if (!failed.ok) {
+        return NextResponse.json(
+          { ok: false, reason: "stage_work_failed_and_could_not_mark_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, failError: failed.failError },
+          { status: 500 },
+        );
       }
 
       return NextResponse.json(

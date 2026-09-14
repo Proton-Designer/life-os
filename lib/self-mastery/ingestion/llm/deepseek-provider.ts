@@ -64,6 +64,7 @@ import type {
   LlmProvider,
 } from "./types";
 import { gatewayChat } from "@/lib/ai/gateway";
+import type { ChatResult } from "@/lib/ai/client";
 import { isGrounded } from "./grounding";
 import { classifyEvidenceStrength } from "../evidence-strength";
 import { passesLanguageSanity, passesClaimNotQuote, passesAntiLeak, passesCardTextSanity } from "../invariants";
@@ -163,6 +164,28 @@ const GENERATE_CARDS_SYSTEM_PROMPT =
 const ENTAILMENT_SYSTEM_PROMPT =
   "You are checking whether a source passage backs up a claim that was derived from it as a paraphrase or generalization. The claim is normally NOT a verbatim restatement of the passage. Only mark it down if the passage's actual point is a DIFFERENT specific idea than the claim, or the OPPOSITE of the claim.";
 
+/**
+ * BUG-1 layer 1 (2026-09-14). Thrown by `chatJson` in place of a plain
+ * `Error` so a caller several frames up (route.ts's exhausted-attempts
+ * handling) can tell WHY the gateway call failed without string-matching a
+ * message. A plain `Error` loses `result.errorKind`/`result.capBlocked`
+ * the moment it's thrown -- this class is the one place that information
+ * survives the throw. `errorKind`/`capBlocked` are exactly `GatewayChatResult`'s
+ * own fields (gateway.ts); this type carries only what a caller needs to
+ * decide "is this a content-shaped failure (safe to skip this one chunk)
+ * or an infrastructure/budget failure (must not be silently skipped past)."
+ */
+export class GatewayCallFailedError extends Error {
+  constructor(
+    message: string,
+    public readonly errorKind?: ChatResult["errorKind"],
+    public readonly capBlocked?: boolean,
+  ) {
+    super(message);
+    this.name = "GatewayCallFailedError";
+  }
+}
+
 export class DeepSeekProvider implements LlmProvider {
   constructor(
     private readonly supabase: SupabaseClient,
@@ -232,7 +255,11 @@ export class DeepSeekProvider implements LlmProvider {
       };
     }
     if (!result.ok) {
-      throw new Error(`DeepSeekProvider(${feature}): gateway call failed -- ${result.message ?? "unknown error"}`);
+      throw new GatewayCallFailedError(
+        `DeepSeekProvider(${feature}): gateway call failed -- ${result.message ?? "unknown error"}`,
+        result.errorKind,
+        result.capBlocked,
+      );
     }
     try {
       const parsed: unknown = JSON.parse(stripJsonFence(result.content ?? ""));
