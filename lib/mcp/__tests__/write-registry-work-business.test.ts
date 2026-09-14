@@ -165,17 +165,46 @@ describe("work.task — add/edit/advance/retreat/block/unblock", () => {
 });
 
 describe("work.work_session — start/end", () => {
-  it("start requires a valid kind and returns the new session's id", async () => {
+  it("start requires a valid kind and a deliverable, and returns the new session's id", async () => {
     const action = getWriteAction("work", "work_session", "start")!;
-    const { client } = makeClient({ maybeSingle: null, insertId: "session-1" });
-    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { kind: "deep_work" });
+    const { client, insertCalls } = makeClient({ maybeSingle: null, insertId: "session-1" });
+    const outcome = await action.handler(
+      { userClient: client, userId: "user-1", timezone: "UTC", now },
+      { kind: "deep_work", deliverable: "Draft the proposal" }
+    );
     expect(textOf(outcome)).toMatchObject({ id: "session-1" });
+    // #37: mapped to a single custom objective, the only kind this
+    // no-setup-dialog tool can produce. startWorkSessionCore inserts
+    // objectives as one array-valued .insert() call, not one row at a time.
+    expect(insertCalls[1]).toEqual([expect.objectContaining({ kind: "custom", custom_text: "Draft the proposal" })]);
   });
 
   it("start REJECTS an invalid kind", async () => {
     const action = getWriteAction("work", "work_session", "start")!;
     const { client } = makeClient();
-    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { kind: "break" })).rejects.toThrow(/kind/i);
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { kind: "break", deliverable: "x" })
+    ).rejects.toThrow(/kind/i);
+  });
+
+  // #37 (Opus Lead ruling, 2026-09-14): this tool has no setup-dialog UI to
+  // collect an objective, so `deliverable` is now a required patch field —
+  // startWorkSessionCore's own server-side gate rejects every caller with
+  // no real objective, and this tool is not exempt.
+  it("start REJECTS a missing deliverable, naming the exact field", async () => {
+    const action = getWriteAction("work", "work_session", "start")!;
+    const { client } = makeClient();
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { kind: "deep_work" })
+    ).rejects.toThrow(/deliverable/i);
+  });
+
+  it("start REJECTS a whitespace-only deliverable", async () => {
+    const action = getWriteAction("work", "work_session", "start")!;
+    const { client } = makeClient();
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { kind: "deep_work", deliverable: "   " })
+    ).rejects.toThrow(/deliverable/i);
   });
 
   it("end requires the top-level id and stamps ended_at", async () => {

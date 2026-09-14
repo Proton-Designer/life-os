@@ -314,9 +314,22 @@ export function SessionSetupDialog({
     });
   }
 
+  // #37: "can't start without typing what you'll produce" — Opus Lead's
+  // ruling (2026-09-14) gates EVERY Lock-In session, not a distinct "Hour"
+  // type. A selected kill-list item or class task already NAMES a
+  // deliverable (it has its own title) — this only additionally requires
+  // typed text from the free-form custom-objective field, so a real
+  // selection never has to be re-typed on top of itself (ruling condition
+  // 4). THE REAL GATE IS THE SERVER'S — startWorkSessionCore
+  // (lib/business/actions-core.ts) throws if this doesn't hold; this is
+  // only the client-side mirror so Start's disabled state has a legible
+  // reason attached to it rather than being silently unclickable.
+  const hasDeliverable = (isDeepStudy ? tasks.order.length > 0 : killList.order.length > 0) || customText.trim() !== "";
+
   const canStart =
     goalMinutes !== null &&
     (!isDeepStudy || classId !== null) &&
+    hasDeliverable &&
     !isStarting &&
     !isLoadingTasks &&
     !isLoadingKillList &&
@@ -325,6 +338,7 @@ export function SessionSetupDialog({
   function handleStart() {
     if (goalMinutes === null) return;
     if (isDeepStudy && classId === null) return;
+    if (!hasDeliverable) return;
 
     const objectives: ObjectiveSelection[] = isDeepStudy
       ? tasks.order.map((id) => ({ kind: "task" as const, id }))
@@ -461,6 +475,14 @@ export function SessionSetupDialog({
                 />
               </div>
             </>
+          )}
+
+          {/* #37: mirrors the server's gate with a visible reason — never a
+              silently disabled Start button. Only shown once the other
+              fields are satisfied, so it doesn't compete with "pick a
+              class"/"set a duration" for attention before those are done. */}
+          {!hasDeliverable && goalMinutes !== null && (!isDeepStudy || classId !== null) && (
+            <p className="text-xs text-muted-foreground">What will you produce? Select an objective or add one above.</p>
           )}
 
           {startError && <p className="text-sm text-destructive">{startError}</p>}

@@ -19,7 +19,13 @@ describe("startWorkSessionCore", () => {
     const from = vi.fn(() => workSessions);
     const client = { from } as unknown as SupabaseClient;
 
-    await expect(startWorkSessionCore(client, "user-1", { kind: "deep_work" })).rejects.toThrow();
+    // #37: a real objective is included so this test still exercises the
+    // ACTIVE-SESSION guard specifically -- with no objectives at all the
+    // call would now be rejected by the #37 gate before ever reaching this
+    // guard, which would make this test pass for the wrong reason.
+    await expect(
+      startWorkSessionCore(client, "user-1", { kind: "deep_work", objectives: [{ kind: "custom", customText: "Draft it" }] })
+    ).rejects.toThrow(/already active/i);
     expect(workSessions.insert).not.toHaveBeenCalled();
   });
 
@@ -27,13 +33,82 @@ describe("startWorkSessionCore", () => {
     const workSessions = makeChain();
     workSessions.maybeSingle = vi.fn(async () => ({ data: null, error: null })); // no active session
     workSessions.single = vi.fn(async () => ({ data: { id: "s1", started_at: "2026-09-10T18:00:00.000Z" }, error: null }));
-    const from = vi.fn(() => workSessions);
+    const objectivesTable = makeChain({ data: null, error: null });
+    const from = vi.fn((table: string) => (table === "work_sessions" ? workSessions : objectivesTable));
     const client = { from } as unknown as SupabaseClient;
 
-    const result = await startWorkSessionCore(client, "user-1", { kind: "deep_study" });
+    const result = await startWorkSessionCore(client, "user-1", {
+      kind: "deep_study",
+      objectives: [{ kind: "task", taskId: "t1" }],
+    });
 
     expect(workSessions.insert).toHaveBeenCalledWith({ user_id: "user-1", kind: "deep_study", goal_minutes: null, class_id: null });
     expect(result).toEqual({ id: "s1", startedAt: "2026-09-10T18:00:00.000Z" });
+  });
+
+  // #37 (Opus Lead's ruling, 2026-09-14): "can't start without typing what
+  // you'll produce" -- enforced here, not only in the setup dialog's
+  // canStart, so no caller (the dialog, the MCP work_session.start tool,
+  // any future one) can route around it.
+  describe("#37 — the deliverable gate", () => {
+    it("rejects a session with no objectives at all, before ever touching the database", async () => {
+      const from = vi.fn();
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(startWorkSessionCore(client, "user-1", { kind: "deep_work" })).rejects.toThrow(
+        /at least one objective/i
+      );
+      expect(from).not.toHaveBeenCalled();
+    });
+
+    it("rejects a session whose only objective is a blank/whitespace custom objective", async () => {
+      const from = vi.fn();
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(
+        startWorkSessionCore(client, "user-1", { kind: "deep_work", objectives: [{ kind: "custom", customText: "   " }] })
+      ).rejects.toThrow(/at least one objective/i);
+      expect(from).not.toHaveBeenCalled();
+    });
+
+    it("accepts a session whose only objective is a real kill_list_item — no typed text required on top of a real selection", async () => {
+      const workSessions = makeChain();
+      workSessions.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+      workSessions.single = vi.fn(async () => ({ data: { id: "s1", started_at: "2026-09-10T18:00:00.000Z" }, error: null }));
+      const objectivesTable = makeChain({ data: null, error: null });
+      const from = vi.fn((table: string) => (table === "work_sessions" ? workSessions : objectivesTable));
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(
+        startWorkSessionCore(client, "user-1", { kind: "deep_work", objectives: [{ kind: "kill_list_item", killListItemId: "k1" }] })
+      ).resolves.toEqual({ id: "s1", startedAt: "2026-09-10T18:00:00.000Z" });
+    });
+
+    it("accepts a session whose only objective is a real task selection", async () => {
+      const workSessions = makeChain();
+      workSessions.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+      workSessions.single = vi.fn(async () => ({ data: { id: "s1", started_at: "2026-09-10T18:00:00.000Z" }, error: null }));
+      const objectivesTable = makeChain({ data: null, error: null });
+      const from = vi.fn((table: string) => (table === "work_sessions" ? workSessions : objectivesTable));
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(
+        startWorkSessionCore(client, "user-1", { kind: "deep_study", objectives: [{ kind: "task", taskId: "t1" }] })
+      ).resolves.toEqual({ id: "s1", startedAt: "2026-09-10T18:00:00.000Z" });
+    });
+
+    it("accepts a session with a non-blank custom objective alongside blank ones", async () => {
+      const workSessions = makeChain();
+      workSessions.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+      workSessions.single = vi.fn(async () => ({ data: { id: "s1", started_at: "2026-09-10T18:00:00.000Z" }, error: null }));
+      const objectivesTable = makeChain({ data: null, error: null });
+      const from = vi.fn((table: string) => (table === "work_sessions" ? workSessions : objectivesTable));
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(
+        startWorkSessionCore(client, "user-1", { kind: "deep_work", objectives: [{ kind: "custom", customText: "Write the draft" }] })
+      ).resolves.toEqual({ id: "s1", startedAt: "2026-09-10T18:00:00.000Z" });
+    });
   });
 
   it("inserts objectives keyed by array order as position, mapping each kind to its own DB column", async () => {
@@ -62,18 +137,11 @@ describe("startWorkSessionCore", () => {
     ]);
   });
 
-  it("does not touch work_session_objectives at all when no objectives were selected", async () => {
-    const workSessions = makeChain();
-    workSessions.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
-    workSessions.single = vi.fn(async () => ({ data: { id: "s1", started_at: "2026-09-10T18:00:00.000Z" }, error: null }));
-    const from = vi.fn(() => workSessions);
-    const client = { from } as unknown as SupabaseClient;
-
-    await startWorkSessionCore(client, "user-1", { kind: "deep_work" });
-
-    expect(from).toHaveBeenCalledTimes(2); // active-check + insert, both on work_sessions
-    expect(from).not.toHaveBeenCalledWith("work_session_objectives");
-  });
+  // NOTE: the old "no objectives selected -> no work_session_objectives
+  // write" test that lived here is superseded, not merely moved — #37
+  // (above) means "no objectives were selected" is no longer a legal call
+  // at all; it's covered by "rejects a session with no objectives at all,
+  // before ever touching the database" in the #37 describe block above.
 
   it("deletes the just-created session if the objectives insert fails — never a session missing objectives it was supposed to have", async () => {
     const workSessions = makeChain();

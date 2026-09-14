@@ -556,8 +556,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           start: {
             action: "start",
-            description: "Start a deep-work/deep-study session. Fails if one is already active for this user (application-level invariant, not a DB constraint).",
-            patchShape: "{ kind: 'deep_work'|'deep_study' }",
+            description:
+              "Start a deep-work/deep-study session. Fails if one is already active for this user (application-level invariant, not a DB constraint). Requires `deliverable`: a non-empty string naming what this session will produce -- #37 (2026-09-14), every Lock-In session must name a deliverable before it can start, and this tool is not exempt just because it has no setup-dialog UI to type one into.",
+            patchShape: "{ kind: 'deep_work'|'deep_study', deliverable: string }",
             // BORDERLINE, marked true on the strength of a GUARD, not a
             // no-op upsert -- worth naming the mechanism precisely rather
             // than rounding to "looks safe." startWorkSessionCore always
@@ -577,14 +578,30 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               "startWorkSessionCore (lib/business/actions-core.ts) plain-INSERTs, but reads `.is('ended_at', null)` FIRST and throws 'A work session is already active' if one exists -- a retry after a successful start hits this guard and is rejected rather than creating a second active session. State-safe, though the retry itself surfaces as an error, not a silent no-op.",
             handler: async (ctx, patch) => {
               const kind = requireEnum(patch, "kind", ["deep_work", "deep_study"] as const);
-              // No goal/objectives concept on this tool — 146 made both
-              // optional on StartWorkSessionInput specifically so a
-              // goal-less start (no setup dialog exists here) still works,
-              // rendering in the overlay exactly as a pre-146 session did.
-              const started = await startWorkSessionCore(ctx.userClient, ctx.userId, { kind });
+              // #37 (Opus Lead ruling, 2026-09-14): startWorkSessionCore now
+              // REJECTS every caller with no objective naming a real
+              // deliverable, including this tool -- which previously called
+              // it with `{ kind }` alone and no objectives concept at all
+              // (the comment this replaced said so explicitly). This tool
+              // still has no kill-list/task selection UI the way the setup
+              // dialog does, so a typed `deliverable` is the only kind of
+              // objective available to it: mapped to a single `custom`
+              // objective, same shape the dialog's own free-text field
+              // produces. Validated here (not left to startWorkSessionCore's
+              // own generic "at least one objective" message) so a caller
+              // that omits it gets an error naming the exact missing field.
+              const deliverableRaw = requireString(patch, "deliverable");
+              const deliverable = deliverableRaw.trim();
+              if (deliverable.length === 0) {
+                throw new Error("patch.deliverable is required and must be a non-empty string.");
+              }
+              const started = await startWorkSessionCore(ctx.userClient, ctx.userId, {
+                kind,
+                objectives: [{ kind: "custom", customText: deliverable }],
+              });
               return {
                 result: { content: [{ type: "text", text: JSON.stringify(started) }], structuredContent: { id: started.id, updated_at: null, started_at: started.startedAt } },
-                summary: `started a ${kind} session`,
+                summary: `started a ${kind} session to ${deliverable}`,
               };
             },
           },

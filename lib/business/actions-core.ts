@@ -71,6 +71,19 @@ export type StartWorkSessionInput = {
 };
 
 /**
+ * #37: whether an objective actually NAMES a deliverable. `kill_list_item`
+ * and `task` objectives always do — they reference a real, already-titled
+ * row, so requiring typed text on TOP of a real selection would be
+ * re-asking a question the selection already answered (Opus Lead's ruling
+ * condition 4). Only a `custom` objective's free-form text can be blank,
+ * so that is the one kind this actually checks.
+ */
+function objectiveNamesADeliverable(objective: StartSessionObjectiveInput): boolean {
+  if (objective.kind === "custom") return objective.customText.trim().length > 0;
+  return true;
+}
+
+/**
  * "At most one active session per user" is an application-level invariant
  * (not a DB constraint), checked read-then-write — matches the original
  * exactly. Scoped to `counts_toward_hours = true` sessions only (a
@@ -84,6 +97,31 @@ export type StartWorkSessionInput = {
  * than left behind. A session carrying a goal but missing the objectives it
  * was supposed to have is worse than no session at all — it would render as
  * a real Lock-In session with a silently empty checklist.
+ *
+ * #37 (Opus Lead's ruling, 2026-09-14): "can't start without typing what
+ * you'll produce" is enforced HERE, not only in session-setup-dialog.tsx's
+ * `canStart` — a disabled button alone is a hidden-button contract; the
+ * scarcity a caller can't route around is the one the server itself
+ * refuses, same posture as the 5-goal ceiling being an index rather than a
+ * form that only draws five rows (migration 165). This is a THROWN
+ * validation error, matching this file's own and every other core()
+ * file's convention for a rejected input (see distraction's captureCore,
+ * goals' createGoal) — not a change to this function's success return
+ * shape, which every existing caller (the setup dialog's `onStart`,
+ * lib/mcp/write-registry.ts's `work_session.start` handler) already
+ * expects to either resolve or throw.
+ *
+ * APPLIES TO EVERY CALLER, deliberately, including the MCP `work_session.
+ * start` tool (lib/mcp/write-registry.ts) — enumerated via `git grep
+ * startWorkSessionCore` per this function's own existing cross-track-
+ * interface warning below. That tool's handler now supplies a `deliverable`
+ * patch field mapped to a single `custom` objective so it keeps working
+ * (see write-registry.ts's own comment on that change).
+ *
+ * NO BACKFILL, NO NOT NULL: this only gates a NEW session's objectives
+ * array at start time. A historical session with zero objectives (every
+ * session started before this ruling) is untouched and renders exactly as
+ * it does today everywhere it's read.
  */
 export async function startWorkSessionCore(
   supabase: SupabaseClient,
@@ -107,6 +145,16 @@ export async function startWorkSessionCore(
   // the file boundary that keeps tracks out of each other's work is exactly
   // what hides the call sites you don't expect.
   const normalized: StartWorkSessionInput = typeof input === "string" ? { kind: input } : input;
+
+  // #37's gate — checked before the active-session read below (a bad
+  // input is rejected without a wasted round trip either way, but this
+  // ordering also means a caller learns "you didn't name a deliverable"
+  // rather than "a session is already active" when both happen to be true).
+  const objectives = normalized.objectives ?? [];
+  if (!objectives.some(objectiveNamesADeliverable)) {
+    throw new Error("A Lock-In session needs at least one objective — name what you'll produce before starting.");
+  }
+
   const { data: active } = await supabase.from("work_sessions").select("id").eq("user_id", userId).is("ended_at", null).eq("counts_toward_hours", true).maybeSingle();
   if (active) throw new Error("A work session is already active");
 
@@ -117,7 +165,6 @@ export async function startWorkSessionCore(
     .single();
   if (sessionError) throw sessionError;
 
-  const objectives = normalized.objectives ?? [];
   if (objectives.length > 0) {
     const rows = objectives.map((objective, position) => ({
       user_id: userId,

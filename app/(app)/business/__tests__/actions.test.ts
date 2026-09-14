@@ -112,7 +112,13 @@ describe("Business actions", () => {
     fromImpl = () => chain;
     const { startWorkSession } = await import("../actions");
 
-    await expect(startWorkSession({ kind: "deep_study" })).rejects.toThrow();
+    // #37: a real objective is included so this exercises the ACTIVE-SESSION
+    // guard specifically — with no objectives at all the call would now be
+    // rejected by startWorkSessionCore's own #37 gate before ever reaching
+    // this guard, which would pass this test for the wrong reason.
+    await expect(
+      startWorkSession({ kind: "deep_study", objectives: [{ kind: "custom", customText: "Draft it" }] })
+    ).rejects.toThrow(/already active/i);
     expect(chain.insert).not.toHaveBeenCalled();
   });
 
@@ -129,7 +135,8 @@ describe("Business actions", () => {
     fromImpl = () => chain;
     const { startWorkSession } = await import("../actions");
 
-    const result = await startWorkSession({ kind: "deep_study" });
+    // #37: startWorkSessionCore now requires at least one real objective.
+    const result = await startWorkSession({ kind: "deep_study", objectives: [{ kind: "custom", customText: "Draft it" }] });
 
     expect(fromMock).toHaveBeenCalledWith("work_sessions");
     expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1", kind: "deep_study" }));

@@ -37,10 +37,16 @@ describe("SessionSetupDialog", () => {
       expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
     });
 
-    it("enables Start once a duration is typed", async () => {
+    // #37 (2026-09-14): a duration ALONE no longer enables Start — see the
+    // "#37 — deliverable gate" describe block below for that rule on its
+    // own. This test now also provides an objective so it keeps testing
+    // what it always tested (duration wiring), not the new gate.
+    it("enables Start once a duration is typed and an objective is given", async () => {
       renderDialog();
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "45");
+      expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+      await user.type(screen.getByLabelText("Custom objective"), "Ship it");
       expect(screen.getByRole("button", { name: "Start" })).toBeEnabled();
     });
 
@@ -137,21 +143,69 @@ describe("SessionSetupDialog", () => {
       });
     });
 
+    // #37: a blank custom objective is never itself enough to enable Start
+    // (see the dedicated describe block below), so this now selects a real
+    // kill-list item to reach a submittable state — and still proves the
+    // ORIGINAL point, that leaving "Custom objective" blank does not add a
+    // phantom empty entry to the payload.
     it("does not include an empty custom objective in the payload", async () => {
+      getSessionKillListObjectivesMock.mockResolvedValue([{ id: "k1", text: "Ship it" }]);
       const onStart = vi.fn(async (_payload: SessionStartPayload) => {});
       renderDialog({ onStart });
+      await screen.findByText("Ship it");
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "30");
+      await user.click(screen.getByText("Ship it"));
       await user.click(screen.getByRole("button", { name: "Start" }));
       await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
-      expect(onStart).toHaveBeenCalledWith({ goalMinutes: 30, classId: null, objectives: [] });
+      expect(onStart).toHaveBeenCalledWith({ goalMinutes: 30, classId: null, objectives: [{ kind: "kill_list_item", id: "k1" }] });
     });
+  });
 
-    it("does not require any objective to enable Start", async () => {
+  // #37 (Opus Lead's ruling, 2026-09-14): "can't start without typing what
+  // you'll produce" — mirrors lib/business/actions-core.ts's
+  // startWorkSessionCore server-side gate on the client, so Start's
+  // disabled state always has a visible reason attached (never a silently
+  // disabled button).
+  describe("#37 — deliverable gate", () => {
+    it("keeps Start disabled with a duration set but no objective selected and no custom text", async () => {
       renderDialog();
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "30");
+      expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+    });
+
+    it("shows an inline reason instead of leaving Start silently disabled", async () => {
+      renderDialog();
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText("Duration in minutes"), "30");
+      expect(screen.getByText(/what will you produce/i)).toBeInTheDocument();
+    });
+
+    it("enables Start once a real kill-list item is selected — no custom text required on top of it", async () => {
+      getSessionKillListObjectivesMock.mockResolvedValue([{ id: "k1", text: "Ship it" }]);
+      renderDialog();
+      await screen.findByText("Ship it");
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText("Duration in minutes"), "30");
+      await user.click(screen.getByText("Ship it"));
       expect(screen.getByRole("button", { name: "Start" })).toBeEnabled();
+    });
+
+    it("enables Start with only typed custom text, no kill-list selection", async () => {
+      renderDialog();
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText("Duration in minutes"), "30");
+      await user.type(screen.getByLabelText("Custom objective"), "Ship it");
+      expect(screen.getByRole("button", { name: "Start" })).toBeEnabled();
+    });
+
+    it("does not enable Start on whitespace-only custom text", async () => {
+      renderDialog();
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText("Duration in minutes"), "30");
+      await user.type(screen.getByLabelText("Custom objective"), "   ");
+      expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
     });
   });
 
@@ -187,13 +241,19 @@ describe("SessionSetupDialog", () => {
       expect(await screen.findByText("Lab report")).toBeInTheDocument();
     });
 
-    it("enables Start once both a duration and a class are set", async () => {
+    // #37: duration + class alone are no longer sufficient — an objective
+    // (a selected task, or Study Material text) is also required.
+    it("enables Start once a duration, a class, and an objective are all set", async () => {
       getSessionClassesMock.mockResolvedValue(CLASSES);
+      getClassTasksDueSoonMock.mockResolvedValue([{ id: "t1", title: "Lab report", dueDate: "2026-09-15" }]);
       renderDialog({ kind: "deep_study" });
       await screen.findByText("PHYS-2326");
       const user = userEvent.setup();
       await user.type(screen.getByLabelText("Duration in minutes"), "60");
       await user.click(screen.getByText("PHYS-2326"));
+      await screen.findByText("Lab report");
+      expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+      await user.click(screen.getByText("Lab report"));
       await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeEnabled());
     });
 
