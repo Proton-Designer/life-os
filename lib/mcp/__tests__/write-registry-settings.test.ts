@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getWriteAction, listWriteEntities, listWriteActions } from "../write-registry";
+import { makeFakeUserSettingsDb } from "@/lib/settings/__tests__/fake-user-settings-db";
 
 function textOf(outcome: Awaited<ReturnType<NonNullable<ReturnType<typeof getWriteAction>>["handler"]>>) {
   const block = outcome.result.content[0];
@@ -61,36 +62,37 @@ describe("settings.profile.update — dispatch", () => {
 });
 
 describe("settings.user_setting.set_weekday_baselines / clear_weekday_baselines — dispatch", () => {
-  function makeClient() {
-    const updateCalls: Record<string, unknown>[] = [];
-    const from = vi.fn(() => {
-      const chain: Record<string, unknown> = {};
-      chain.update = vi.fn((row: Record<string, unknown>) => {
-        updateCalls.push(row);
-        const c2: Record<string, unknown> = {};
-        c2.eq = vi.fn(() => Promise.resolve({ error: null }));
-        return c2;
-      });
-      return chain;
-    });
-    return { client: { from } as unknown as SupabaseClient, updateCalls };
-  }
-
   it("set_weekday_baselines writes the array and reports it in the summary", async () => {
     const action = getWriteAction("settings", "user_setting", "set_weekday_baselines")!;
-    const { client, updateCalls } = makeClient();
-    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { values: [2, 2, 2, 2, 2, 0, 0] });
+    const db = makeFakeUserSettingsDb({ existingUserIds: ["user-1"] });
+    const outcome = await action.handler({ userClient: db.client, userId: "user-1", timezone: "UTC", now }, { values: [2, 2, 2, 2, 2, 0, 0] });
 
-    expect(updateCalls[0]).toEqual({ weekday_baselines: [2, 2, 2, 2, 2, 0, 0] });
+    expect(db.rows.get("user-1")?.weekday_baselines).toEqual([2, 2, 2, 2, 2, 0, 0]);
     expect(outcome.summary).toContain("[2, 2, 2, 2, 2, 0, 0]");
   });
 
   it("clear_weekday_baselines writes NULL and takes no patch", async () => {
     const action = getWriteAction("settings", "user_setting", "clear_weekday_baselines")!;
-    const { client, updateCalls } = makeClient();
-    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {});
+    const db = makeFakeUserSettingsDb({ existingUserIds: ["user-1"] });
+    db.rows.set("user-1", { ...db.rows.get("user-1"), weekday_baselines: [1, 1, 1, 1, 1, 1, 1] });
+    const outcome = await action.handler({ userClient: db.client, userId: "user-1", timezone: "UTC", now }, {});
 
-    expect(updateCalls[0]).toEqual({ weekday_baselines: null });
+    expect(db.rows.get("user-1")?.weekday_baselines).toBeNull();
     expect(textOf(outcome)).toEqual({ cleared: true });
+  });
+
+  // P4-23: SEED, the owner's account and m0704 have no user_settings row.
+  // The tool used to answer "set weekday baselines to [...]" and store nothing.
+  it("P4-23: set_weekday_baselines on an account with NO user_settings row really stores the values", async () => {
+    const action = getWriteAction("settings", "user_setting", "set_weekday_baselines")!;
+    const db = makeFakeUserSettingsDb();
+    await action.handler({ userClient: db.client, userId: "user-1", timezone: "UTC", now }, { values: [4, 4, 4, 4, 4, 1, 0] });
+    expect(db.rows.get("user-1")?.weekday_baselines).toEqual([4, 4, 4, 4, 4, 1, 0]);
+  });
+
+  it("P4-23: a write that matched 0 rows is an error the model sees, never a success summary", async () => {
+    const action = getWriteAction("settings", "user_setting", "set_weekday_baselines")!;
+    const db = makeFakeUserSettingsDb({ dropInserts: true });
+    await expect(action.handler({ userClient: db.client, userId: "user-1", timezone: "UTC", now }, { values: [4, 4, 4, 4, 4, 1, 0] })).rejects.toThrow(/no user_settings row/i);
   });
 });

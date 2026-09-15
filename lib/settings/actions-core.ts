@@ -117,9 +117,43 @@ export async function setWeekdayBaselinesCore(supabase: SupabaseClient, userId: 
     }
   }
 
-  const { error } = await supabase.from("user_settings").update({ weekday_baselines: values }).eq("user_id", userId);
-  if (error) throw error;
+  await writeWeekdayBaselines(supabase, userId, values as number[]);
   return { values: values as number[] };
+}
+
+/**
+ * P4-23: ENSURE THE ROW, THEN UPDATE, THEN PROVE A ROW WAS WRITTEN.
+ *
+ * `user_settings` rows are created lazily — only by the ULM RPCs
+ * (`start_session` / `submit_review` / `submit_question_review`, migrations
+ * 080, 118, 161). 10 of 30 production accounts had none, and a bare
+ * `update().eq("user_id")` against a missing row is NOT an error in
+ * PostgREST: it resolves `{ error: null }` having matched 0 rows. Both the
+ * MCP write and the Settings UI reported success while storing nothing.
+ *
+ * The ensure is `insert ... on conflict (user_id) do nothing` — the same
+ * shape those RPCs use; every other column is defaulted (migration 066), so
+ * an existing row's values are never touched. The 0-row check after the
+ * UPDATE is the general guard: if the row still isn't there (RLS filtered the
+ * insert, wrong user), the write fails loudly instead of lying.
+ */
+async function writeWeekdayBaselines(supabase: SupabaseClient, userId: string, value: number[] | null): Promise<void> {
+  const ensure = await supabase
+    .from("user_settings")
+    .upsert({ user_id: userId }, { onConflict: "user_id", ignoreDuplicates: true });
+  if (ensure.error) throw ensure.error;
+
+  const { data, error } = await supabase
+    .from("user_settings")
+    .update({ weekday_baselines: value })
+    .eq("user_id", userId)
+    .select("user_id");
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(
+      "Weekday baselines were not saved: this account has no user_settings row and one could not be created. Nothing was written.",
+    );
+  }
 }
 
 /**
@@ -129,6 +163,5 @@ export async function setWeekdayBaselinesCore(supabase: SupabaseClient, userId: 
  * only path that produces the first one.
  */
 export async function clearWeekdayBaselinesCore(supabase: SupabaseClient, userId: string): Promise<void> {
-  const { error } = await supabase.from("user_settings").update({ weekday_baselines: null }).eq("user_id", userId);
-  if (error) throw error;
+  await writeWeekdayBaselines(supabase, userId, null);
 }

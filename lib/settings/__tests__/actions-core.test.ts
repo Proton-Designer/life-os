@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { updateAppearanceCore, setWeekdayBaselinesCore, clearWeekdayBaselinesCore } from "../actions-core";
+import { makeFakeUserSettingsDb } from "./fake-user-settings-db";
 
 function makeClient() {
   const upsertCalls: Record<string, unknown>[] = [];
@@ -88,39 +89,78 @@ describe("updateAppearanceCore", () => {
 });
 
 describe("setWeekdayBaselinesCore", () => {
-  it("writes exactly 7 whole-number hours", async () => {
-    const { client, updateCalls } = makeClient();
-    const result = await setWeekdayBaselinesCore(client, "user-1", [0, 1, 2, 3, 4, 5, 6]);
+  it("writes exactly 7 whole-number hours to an account that already has a user_settings row", async () => {
+    const db = makeFakeUserSettingsDb({ existingUserIds: ["user-1"] });
+    const result = await setWeekdayBaselinesCore(db.client, "user-1", [0, 1, 2, 3, 4, 5, 6]);
     expect(result).toEqual({ values: [0, 1, 2, 3, 4, 5, 6] });
-    expect(updateCalls[0]).toMatchObject({ table: "user_settings", row: { weekday_baselines: [0, 1, 2, 3, 4, 5, 6] }, eq: ["user_id", "user-1"] });
+    expect(db.rows.get("user-1")?.weekday_baselines).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  // P4-23 positive control. 10/30 production accounts (incl. the owner and
+  // SEED) have no user_settings row; a bare UPDATE matched 0 rows and the
+  // MCP write reported "set weekday baselines to [...]" while storing nothing.
+  it("P4-23: an account with NO user_settings row gets the row created and the values actually stored", async () => {
+    const db = makeFakeUserSettingsDb();
+    expect(db.rows.has("user-1")).toBe(false);
+    await setWeekdayBaselinesCore(db.client, "user-1", [2, 3, 3, 3, 3, 3, 0]);
+    expect(db.rows.get("user-1")?.weekday_baselines).toEqual([2, 3, 3, 3, 3, 3, 0]);
+    // Other ULM defaults must survive the ensure-insert.
+    expect(db.rows.get("user-1")?.daily_new_limit).toBe(5);
+  });
+
+  it("P4-23: never reports success when the UPDATE matched 0 rows (ensure-insert silently dropped)", async () => {
+    const db = makeFakeUserSettingsDb({ dropInserts: true });
+    await expect(setWeekdayBaselinesCore(db.client, "user-1", [1, 1, 1, 1, 1, 1, 1])).rejects.toThrow(/no user_settings row/i);
+    expect(db.rows.size).toBe(0);
+  });
+
+  it("does not overwrite other columns of an existing row", async () => {
+    const db = makeFakeUserSettingsDb({ existingUserIds: ["user-1"] });
+    db.rows.set("user-1", { ...db.rows.get("user-1"), daily_new_limit: 20 });
+    await setWeekdayBaselinesCore(db.client, "user-1", [1, 1, 1, 1, 1, 1, 1]);
+    expect(db.rows.get("user-1")?.daily_new_limit).toBe(20);
   });
 
   it("rejects a value out of 0-12 range", async () => {
-    const { client } = makeClient();
-    await expect(setWeekdayBaselinesCore(client, "user-1", [13, 0, 0, 0, 0, 0, 0])).rejects.toThrow(/0 to 12/);
+    const db = makeFakeUserSettingsDb();
+    await expect(setWeekdayBaselinesCore(db.client, "user-1", [13, 0, 0, 0, 0, 0, 0])).rejects.toThrow(/0 to 12/);
+    expect(db.rows.size).toBe(0);
   });
 
   it("rejects a non-integer value", async () => {
-    const { client } = makeClient();
-    await expect(setWeekdayBaselinesCore(client, "user-1", [1.5, 0, 0, 0, 0, 0, 0])).rejects.toThrow(/whole number/i);
+    const db = makeFakeUserSettingsDb();
+    await expect(setWeekdayBaselinesCore(db.client, "user-1", [1.5, 0, 0, 0, 0, 0, 0])).rejects.toThrow(/whole number/i);
   });
 
   it("rejects an array that isn't exactly 7 long", async () => {
-    const { client } = makeClient();
-    await expect(setWeekdayBaselinesCore(client, "user-1", [0, 0, 0])).rejects.toThrow(/exactly 7/);
+    const db = makeFakeUserSettingsDb();
+    await expect(setWeekdayBaselinesCore(db.client, "user-1", [0, 0, 0])).rejects.toThrow(/exactly 7/);
   });
 
   it("all-zeros is valid — seven deliberate rest days is a real state, not an error", async () => {
-    const { client, updateCalls } = makeClient();
-    await setWeekdayBaselinesCore(client, "user-1", [0, 0, 0, 0, 0, 0, 0]);
-    expect(updateCalls[0].row).toEqual({ weekday_baselines: [0, 0, 0, 0, 0, 0, 0] });
+    const db = makeFakeUserSettingsDb({ existingUserIds: ["user-1"] });
+    await setWeekdayBaselinesCore(db.client, "user-1", [0, 0, 0, 0, 0, 0, 0]);
+    expect(db.rows.get("user-1")?.weekday_baselines).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 });
 
 describe("clearWeekdayBaselinesCore", () => {
   it("sets NULL, never an all-zero array — 'never set' and 'seven rest days' are different real states", async () => {
-    const { client, updateCalls } = makeClient();
-    await clearWeekdayBaselinesCore(client, "user-1");
-    expect(updateCalls[0]).toMatchObject({ table: "user_settings", row: { weekday_baselines: null }, eq: ["user_id", "user-1"] });
+    const db = makeFakeUserSettingsDb({ existingUserIds: ["user-1"] });
+    db.rows.set("user-1", { ...db.rows.get("user-1"), weekday_baselines: [1, 2, 3, 4, 5, 6, 0] });
+    await clearWeekdayBaselinesCore(db.client, "user-1");
+    expect(db.rows.get("user-1")?.weekday_baselines).toBeNull();
+  });
+
+  it("P4-23: an account with NO user_settings row ends with a row whose baselines are NULL", async () => {
+    const db = makeFakeUserSettingsDb();
+    await clearWeekdayBaselinesCore(db.client, "user-1");
+    expect(db.rows.has("user-1")).toBe(true);
+    expect(db.rows.get("user-1")?.weekday_baselines).toBeNull();
+  });
+
+  it("P4-23: never reports success when the UPDATE matched 0 rows", async () => {
+    const db = makeFakeUserSettingsDb({ dropInserts: true });
+    await expect(clearWeekdayBaselinesCore(db.client, "user-1")).rejects.toThrow(/no user_settings row/i);
   });
 });

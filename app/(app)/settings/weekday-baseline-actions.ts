@@ -3,6 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
+import { setWeekdayBaselinesCore, clearWeekdayBaselinesCore } from "@/lib/settings/actions-core";
+
+/**
+ * P4-23: both actions write through the same core the MCP connector uses,
+ * which ensures the `user_settings` row exists and refuses to report success
+ * when the UPDATE matched 0 rows. Before this, an account with no row (10/30
+ * in production) saw "Saved" while nothing was stored.
+ */
+function errorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string") {
+    return (e as { message: string }).message;
+  }
+  return "Could not save weekday baselines";
+}
 
 /**
  * Writing `user_settings.weekday_baselines` (migration 122).
@@ -32,11 +47,11 @@ export async function saveWeekdayBaselines(values: number[]): Promise<{ ok: true
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("user_settings")
-    .update({ weekday_baselines: values })
-    .eq("user_id", user.id);
-  if (error) return { error: error.message };
+  try {
+    await setWeekdayBaselinesCore(supabase, user.id, values);
+  } catch (e) {
+    return { error: errorMessage(e) };
+  }
 
   revalidatePath("/settings");
   revalidatePath("/close");
@@ -49,11 +64,11 @@ export async function clearWeekdayBaselines(): Promise<{ ok: true } | { error: s
   if (!user) return { error: "Not signed in" };
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("user_settings")
-    .update({ weekday_baselines: null })
-    .eq("user_id", user.id);
-  if (error) return { error: error.message };
+  try {
+    await clearWeekdayBaselinesCore(supabase, user.id);
+  } catch (e) {
+    return { error: errorMessage(e) };
+  }
 
   revalidatePath("/settings");
   revalidatePath("/close");
