@@ -12,6 +12,9 @@ import { getHabitWeeklySummaries } from "@/lib/weekly-review/habit-summary";
 import { getMostRecentCompletedWeek, getThisWeekSoFar } from "@/lib/weekly-review/week-range";
 import { getCollegeOsWeeklyNarrative } from "@/lib/weekly-review/weekly-narrative";
 import { WeeklyReviewView } from "@/components/weekly-review/weekly-review-view";
+import { getForecastableAssessments } from "@/lib/school/get-forecastable-assessments";
+import { computeCourseLoadForecast } from "@/lib/school/course-load-forecast";
+import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
 
 /**
  * The Weekly Review page (#46/#47/#48) — NOT at `/review` (that route is a
@@ -53,7 +56,7 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
   const endIso = resolveLocalTime(range.endDateExclusive, "00:00", timezone).toISOString();
   const weekDayCount = daysBetweenDateStrings(range.startDate, range.endDateExclusive);
 
-  const [hours, recallMinutes, pareto, habitSummaries, narrative] = await Promise.all([
+  const [hours, recallMinutes, pareto, habitSummaries, narrative, forecastableAssessments] = await Promise.all([
     getHoursByKindForRange(supabase, user.id, startIso, endIso, new Date()),
     getEndedRecallMinutesForRange(supabase, user.id, startIso, endIso),
     getDistractionPareto(supabase, user.id),
@@ -64,7 +67,15 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
     // matching row yet and renders nothing, same graceful-absence posture
     // as every other AI/cron-fed panel in this app (getMorningBriefForToday).
     getCollegeOsWeeklyNarrative(supabase, user.id, range.startDate),
+    // P3-10: forward-looking from TODAY, same forecast P2-10 already built
+    // for /school -- not tied to `range` (the completed/so-far week being
+    // reviewed), since "what's coming up" is equally relevant context
+    // either way. See lib/school/get-forecastable-assessments.ts's own
+    // header for why this is a separate, leaner query than /school's own
+    // classCards reuse.
+    getForecastableAssessments(supabase, user.id),
   ]);
+  const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr);
 
   const lastDayInclusive = addDaysToDateString(range.endDateExclusive, -1);
 
@@ -91,6 +102,16 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
         pareto={pareto}
         habitSummaries={habitSummaries}
       />
+      {/* P3-10: only when there's real signal in the full 6-week horizon --
+          same "only show real content" posture the narrative panel above
+          already takes on this page, distinct from /school's own always-show
+          (with an honest empty-state message) posture, which fits a
+          School-focused page better than this broader review surface. */}
+      {courseLoadForecast.hasAnyUpcomingWork ? (
+        <Panel title="Course load">
+          <CourseLoadForecastPanel forecast={courseLoadForecast} todayStr={todayStr} />
+        </Panel>
+      ) : null}
     </PageContainer>
   );
 }
