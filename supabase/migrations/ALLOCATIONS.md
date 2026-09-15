@@ -79,7 +79,10 @@ the point is to make a number unavailable the moment it is promised.
 | `178` | Phase-1 lead correction, 2026-09-14 | book_ready_notification_log.book_id single-column FK (177) -> composite (user_id, book_id) -> books(user_id, id). The lead's review of 177 missed it; check-fk-tenancy.sh caught it on its first post-apply run. APPLIED; check re-run PASS | applied |
 | `179` | School engineer (#24) — allocated by Phase-1 lead 2026-09-14 | questions_create_card_state AFTER INSERT trigger on questions (mirrors 069/159 source-creation triggers) so every question gets its card_states row and can enter get_session_queue; plus idempotent backfill. Not security definer (card_states_own_row ALL check user_id=auth.uid() admits it). Reviewed, dry-run, APPLIED 2026-09-14, shape asserts passed | applied |
 | `180` | School engineer (#25 fix) — allocated by Phase-1 lead 2026-09-14 | get_session_queue NEW-item arm: round-robin by source like the due arm. Current body orders new items by row_number() over (order by state_id) (a random UUID) then LIMITs, so a lone new question starves behind a book's new-card backlog. Found by live verification: queue(20,20) for a user with 219 new cards + 1 new question returned 0 questions. Engineer's positive control (rolled back): 50:1 skew starved before, 1001=starved source after. Lead pre-apply check: 0 new card_states would lose their source join. APPLIED 2026-09-14; the failing production query now returns 1001:card 1002:QUESTION | applied |
-| `181`+ | — | next free | — |
+| `181`–`209` | BLOCK — Team A (overnight run 2026-09-15, Opus Lead [618bf2]) | Phase 2/3 Team A migrations. Individual numbers are recorded as rows below when handed out | reserved |
+| `210`–`239` | BLOCK — Team B (overnight run 2026-09-15, lead tracking-app-a9) | Phase 4 AI/MCP + Canvas + Team B's Phase 3 migrations. Individual numbers are recorded as rows below when handed out | reserved |
+| `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
+| `250`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
