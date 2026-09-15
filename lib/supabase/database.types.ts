@@ -312,6 +312,7 @@ export type Database = {
           file_path: string | null
           file_size_bytes: number | null
           id: string
+          ingestion_mode: string
           lesson_count: number
           milestone_80_at: string | null
           page_count: number | null
@@ -332,6 +333,7 @@ export type Database = {
           file_path?: string | null
           file_size_bytes?: number | null
           id?: string
+          ingestion_mode?: string
           lesson_count?: number
           milestone_80_at?: string | null
           page_count?: number | null
@@ -352,6 +354,7 @@ export type Database = {
           file_path?: string | null
           file_size_bytes?: number | null
           id?: string
+          ingestion_mode?: string
           lesson_count?: number
           milestone_80_at?: string | null
           page_count?: number | null
@@ -4621,6 +4624,7 @@ export type Database = {
           file_path: string | null
           file_size_bytes: number | null
           id: string
+          ingestion_mode: string
           lesson_count: number
           milestone_80_at: string | null
           page_count: number | null
