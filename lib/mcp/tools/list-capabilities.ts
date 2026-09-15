@@ -58,6 +58,15 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
     throw new ToolInputError(`Unknown domain "${domain}". Known domains: ${known.join(", ") || "(none yet)"}.`);
   }
 
+  const writeActionDetail = (entity: string) =>
+    Object.values(WRITE_REGISTRY[domainDef.domain]?.entities[entity]?.actions ?? {}).map((a) => ({
+      action: a.action,
+      description: a.description,
+      patch: a.patchShape,
+      requires_id: ACTIONS_REQUIRING_ID.has(writeActionKey(domainDef.domain, entity, a.action)),
+      schedulable: a.idempotent === true,
+    }));
+
   const entities = Object.values(domainDef.entities).map((e) => {
     // "read" is always available once an entity is in this registry at
     // all; "write" + whatever action names exist come from the SEPARATE
@@ -65,7 +74,6 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
     // hardcoded, so this list can never drift from what `write` will
     // actually accept.
     const writeActionNames = listWriteActions(domainDef.domain, e.entity);
-    const writeActionDefs = WRITE_REGISTRY[domainDef.domain]?.entities[e.entity]?.actions ?? {};
     return {
       entity: e.entity,
       description: e.description,
@@ -73,20 +81,28 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
       fields: { summary: e.summaryColumns, full: e.fullColumns },
       filterable_fields: e.filterableColumns,
       actions: writeActionNames.length > 0 ? ["read", ...writeActionNames.map((a) => `write:${a}`)] : ["read"],
-      write_actions: Object.values(writeActionDefs).map((a) => ({
-        action: a.action,
-        description: a.description,
-        patch: a.patchShape,
-        requires_id: ACTIONS_REQUIRING_ID.has(writeActionKey(domainDef.domain, e.entity, a.action)),
-        schedulable: a.idempotent === true,
-      })),
+      write_actions: writeActionDetail(e.entity),
     };
   });
 
+  // A write entity with no READ entity in this domain (e.g. deen.profile,
+  // whose columns are read via settings.profile) would otherwise be invisible
+  // here, since `entities` is built from the read registry. Generic: any
+  // future write-only entity lands here automatically (a test checks every
+  // WRITE_REGISTRY action is discoverable from some list_capabilities(domain)).
+  const writeOnlyEntities = Object.values(WRITE_REGISTRY[domainDef.domain]?.entities ?? {})
+    .filter((w) => !domainDef.entities[w.entity] && Object.keys(w.actions).length > 0)
+    .map((w) => ({
+      entity: w.entity,
+      note: `Write-only in "${domainDef.domain}": no read entity under this domain name.`,
+      write_actions: writeActionDetail(w.entity),
+    }));
+
+  const base = writeOnlyEntities.length > 0 ? { domain, entities, write_only_entities: writeOnlyEntities } : { domain, entities };
   const payload =
     domainDef.domain === "widgets"
-      ? { domain, entities, widget_kinds: [...WIDGET_KINDS], display_schema: WIDGET_DISPLAY_SCHEMA, data_source_schema: WIDGET_DATA_SOURCE_SCHEMA }
-      : { domain, entities };
+      ? { ...base, widget_kinds: [...WIDGET_KINDS], display_schema: WIDGET_DISPLAY_SCHEMA, data_source_schema: WIDGET_DATA_SOURCE_SCHEMA }
+      : base;
   return {
     result: { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload },
     summary: `listed ${entities.length} entit(ies) for domain "${domain}"`,

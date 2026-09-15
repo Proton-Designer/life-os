@@ -145,18 +145,38 @@ describe("listCapabilitiesTool", () => {
     expect(byEntity.weekly_focus).toEqual(["read", "write:set"]); // P4-06
   });
 
-  it('KNOWN GAP (P4-06, flagged to a9/p4-b-core, not fixed here): weekly_goal and profile have real write actions in WRITE_REGISTRY but no read-registry entity under deen, so list_capabilities("deen") -- which only iterates REGISTRY entities -- never advertises them at all. Documenting the actual (undiscoverable) behavior, not the desired one. (habit/habit_log/weekly_focus DO have read entities and are covered by the test above.)', async () => {
-    const outcome = await listCapabilitiesTool("deen");
-    const payload = textPayload(outcome);
-    const listedEntities = new Set(payload.entities.map((e: { entity: string }) => e.entity));
-    for (const writeOnlyForNow of ["weekly_goal", "profile"]) {
-      expect(listedEntities.has(writeOnlyForNow)).toBe(false);
+  // Was a KNOWN GAP test (P4-06): weekly_goal and profile have deen write
+  // actions but no deen READ entity, so the entity list alone never showed
+  // them. Fixed generically by write_only_entities (P4-03 review, option A).
+  it("EVERY write action in WRITE_REGISTRY is discoverable from list_capabilities(domain) -- including write-only entities", async () => {
+    const { WRITE_REGISTRY } = await import("@/lib/mcp/write-registry");
+    const undiscoverable: string[] = [];
+    for (const domainDef of Object.values(WRITE_REGISTRY)) {
+      const payload = textPayload(await listCapabilitiesTool(domainDef.domain));
+      type Listed = { entity: string; write_actions: { action: string }[] };
+      const listed: Listed[] = [...payload.entities, ...(payload.write_only_entities ?? [])];
+      for (const entityDef of Object.values(domainDef.entities)) {
+        for (const action of Object.keys(entityDef.actions)) {
+          const hit = listed.some((e) => e.entity === entityDef.entity && e.write_actions.some((a) => a.action === action));
+          if (!hit) undiscoverable.push(`${domainDef.domain}.${entityDef.entity}.${action}`);
+        }
+      }
     }
-    // A caller can still find them: WRITE_REGISTRY itself is queryable
-    // (getWriteAction/listWriteEntities/listWriteActions), and `write()`
-    // accepts them today. Only the discovery TOOL's advertised list is short.
-    const { listWriteEntities } = await import("@/lib/mcp/write-registry");
-    expect(listWriteEntities("deen")).toEqual(expect.arrayContaining(["weekly_goal", "profile"]));
+    expect(undiscoverable).toEqual([]);
+  });
+
+  it("write-only entities carry the same per-action detail, and never duplicate a readable entity", async () => {
+    const payload = textPayload(await listCapabilitiesTool("deen"));
+    const writeOnly = Object.fromEntries((payload.write_only_entities ?? []).map((e: { entity: string }) => [e.entity, e]));
+    expect(Object.keys(writeOnly).sort()).toEqual(["profile", "weekly_goal"]);
+    for (const e of Object.values(writeOnly) as { write_actions: Record<string, unknown>[]; note: string }[]) {
+      expect(e.note).toEqual(expect.any(String));
+      for (const a of e.write_actions) expect(Object.keys(a).sort()).toEqual(["action", "description", "patch", "requires_id", "schedulable"]);
+    }
+    const readable = new Set(payload.entities.map((e: { entity: string }) => e.entity));
+    for (const name of Object.keys(writeOnly)) expect(readable.has(name)).toBe(false);
+    // Domains with no write-only entity don't carry an empty key.
+    expect(textPayload(await listCapabilitiesTool("work")).write_only_entities).toBeUndefined();
   });
 
   it("self_mastery: source_chunks/book/book_section/lesson/card/card_state stay read-only -- only review/lesson_promotion/self_explanation gained a write action", async () => {

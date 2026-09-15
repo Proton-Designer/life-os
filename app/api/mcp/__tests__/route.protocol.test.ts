@@ -128,6 +128,8 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
 
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read", "scheduler_manage", "widget_manage", "write"]);
+    // A cold agent must be able to read the compact account-map rows from the description alone.
+    expect(tools.find((t) => t.name === "list_capabilities")?.description).toContain("[one_line, active_for_account, read entity names, writable entity names, views]");
 
     // Discovery first — the actual intended usage pattern (memo §5: "call
     // whenever unsure"), and it should cost nothing against a real DB.

@@ -120,7 +120,7 @@ const handler = createMcpHandler(
       {
         title: "List capabilities",
         description:
-          "Call first with no arguments: returns this account's map (local today and timezone, legacy/domains mode, active areas, and each domain's readable and writable entities as rows in domain_fields order). Call with a domain for its entities' fields, filters, and each write action's description, patch shape, requires_id and schedulable.",
+          "Call first with no arguments. Returns this account's map: today {local_date, timezone, local_time}, mode (legacy|domains), active_areas, vocabulary_map (area -> domains), and domains as a compact table: domain_fields names the columns once and each domains[name] is a row in that order -- [one_line, active_for_account, read entity names, writable entity names, views]. active_for_account is informational, never a restriction. Call with a domain for its entities' fields and filters, each write action's description, patch shape, requires_id and schedulable, and any write_only_entities.",
         inputSchema: ListCapabilitiesInputSchema,
       },
       async ({ domain }, ctx) =>
