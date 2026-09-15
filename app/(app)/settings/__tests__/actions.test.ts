@@ -175,4 +175,16 @@ describe("updateProfile", () => {
       expect(chain.upsert).not.toHaveBeenCalled();
     });
   });
+
+  describe("sleep_reminder_enabled (P2-05, migration 183)", () => {
+    it("writes the toggle through", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ sleep_reminder_enabled: true });
+
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ sleep_reminder_enabled: true }), expect.anything());
+    });
+  });
 });

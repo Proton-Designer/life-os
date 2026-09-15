@@ -46,6 +46,10 @@ export type ProfileUpdatable = Partial<{
   // before the upsert, same posture as theme_preset/hidden_features above;
   // the DB's own CHECK constraint is defense in depth, not the primary guard.
   ai_monthly_spend_cap_usd: number | null;
+  // Migration 183 (P2-05, overnight run 2026-09-15) -- the 9:30 PM reminder
+  // toggle. No app-layer validation needed: it's a plain boolean, and the
+  // DB column already has a NOT NULL default.
+  sleep_reminder_enabled: boolean;
 }>;
 
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;

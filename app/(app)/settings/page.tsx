@@ -3,6 +3,7 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsForm, type SettingsFormData } from "@/components/settings/settings-form";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { SleepReminderSettings } from "@/components/settings/sleep-reminder-settings";
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
 import { ApiKeySettings } from "@/components/settings/api-key-settings";
 import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
@@ -67,6 +68,10 @@ export default async function SettingsPage() {
   const profileThemeFields = profile as { theme_preset?: string; hidden_features?: string[] } | null;
   const themePreset = resolveThemePreset(profileThemeFields?.theme_preset);
   const hiddenFeatures = sanitizeHiddenFeatures(profileThemeFields?.hidden_features);
+  // Migration 183 (P2-05) -- same defensive cast as theme_preset/
+  // hidden_features above (not yet in generated database.types.ts at the
+  // time this is written).
+  const sleepReminderEnabled = (profile as { sleep_reminder_enabled?: boolean } | null)?.sleep_reminder_enabled ?? false;
 
   // Plain serializable values only across the RSC boundary — the provider
   // registry is const-asserted, so it is spread into a plain array here rather
@@ -151,7 +156,10 @@ export default async function SettingsPage() {
             <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
           </Panel>
           <Panel id="notifications" className="scroll-mt-24" title="Notifications">
-            <NotificationSettings />
+            <div className="flex flex-col gap-4">
+              <NotificationSettings />
+              <SleepReminderSettings initialEnabled={sleepReminderEnabled} />
+            </div>
           </Panel>
 
           <Panel title="Weekly shape">

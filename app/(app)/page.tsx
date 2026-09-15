@@ -35,6 +35,8 @@ import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate } from "@/lib/home/build-candidates";
 import { rankCandidates } from "@/lib/home/arbiter";
 import { getMorningBriefForToday } from "@/lib/ai/morning-brief";
+import { getMySleepIntentForToday } from "@/app/(app)/close/sleep-intent-actions";
+import { SleepIntentCard } from "@/components/home/sleep-intent-card";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -60,7 +62,7 @@ export default async function HomePage() {
   // getUserDomains() is called again below for hasSelfMastery/visibility.
   const domainsState = await getUserDomains();
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, mcpWidgets, morningBrief] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, mcpWidgets, morningBrief, sleepIntent] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -97,6 +99,9 @@ export default async function HomePage() {
       // of them, matching gatewayChat's own "degrade to nothing broken"
       // posture rather than surfacing an error for an optional feature.
       getMorningBriefForToday(supabase, userId, now, timezone),
+      // P2-05: decoupled from the evening close ritual entirely -- see
+      // lib/night-plan/sleep-intent.ts's own header for why.
+      getMySleepIntentForToday(),
     ]);
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
@@ -214,6 +219,8 @@ export default async function HomePage() {
           <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
         </Panel>
       ) : null}
+
+      <SleepIntentCard initialBedtime={sleepIntent} />
 
       {/* Position responds to the real arbiter ranking (A2 wiring), not
           a fixed layout slot -- Self-Mastery only renders first when it
