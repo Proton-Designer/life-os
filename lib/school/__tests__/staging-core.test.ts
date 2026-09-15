@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmStagingBatchCore } from "../staging-core";
+import { confirmStagingBatchCore, updateStagedDeliverableCore, deleteStagedDeliverableCore } from "../staging-core";
 
 type Row = Record<string, unknown>;
 
@@ -263,5 +263,61 @@ describe("confirmStagingBatchCore", () => {
     const sd1 = tables.staged_deliverables.find((d) => d.id === "sd-1")!;
     expect(sd1.committed_assessment_id).toBe(tables.class_assessments[0]!.id);
     expect(tables.staging_batches[0]!.status).toBe("confirmed");
+  });
+});
+
+describe("updateStagedDeliverableCore", () => {
+  it("corrects a staged item's name/type/date before confirm", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables);
+    seedDeliverable(tables, { id: "sd-1", name: "Wrong name", type: "homework_assignment", date: null });
+
+    await updateStagedDeliverableCore(client as never, "user-1", "sd-1", { name: "Midterm Exam", type: "exam", date: "2026-10-06" });
+
+    const row = tables.staged_deliverables.find((d) => d.id === "sd-1")!;
+    expect(row).toMatchObject({ name: "Midterm Exam", type: "exam", date: "2026-10-06" });
+  });
+
+  it("accepts a null date — #17's no-guessing rule applies to the correction too, not just the original extraction", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables);
+    seedDeliverable(tables, { id: "sd-1", date: "2026-10-06" });
+
+    await updateStagedDeliverableCore(client as never, "user-1", "sd-1", { name: "Midterm", type: "exam", date: null });
+
+    expect(tables.staged_deliverables.find((d) => d.id === "sd-1")!.date).toBeNull();
+  });
+
+  it("refuses to edit a row that's already committed — committed_assessment_id is set exactly once", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables);
+    seedDeliverable(tables, { id: "sd-1", name: "Original", committed_assessment_id: "already-committed" });
+
+    await updateStagedDeliverableCore(client as never, "user-1", "sd-1", { name: "Should not land", type: "exam", date: "2026-10-06" });
+
+    expect(tables.staged_deliverables.find((d) => d.id === "sd-1")!.name).toBe("Original");
+  });
+});
+
+describe("deleteStagedDeliverableCore", () => {
+  it("rejecting a staged item is a plain delete", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables);
+    seedDeliverable(tables, { id: "sd-1" });
+    seedDeliverable(tables, { id: "sd-2" });
+
+    await deleteStagedDeliverableCore(client as never, "user-1", "sd-1");
+
+    expect(tables.staged_deliverables.map((d) => d.id)).toEqual(["sd-2"]);
+  });
+
+  it("refuses to delete a row that's already committed", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables);
+    seedDeliverable(tables, { id: "sd-1", committed_assessment_id: "already-committed" });
+
+    await deleteStagedDeliverableCore(client as never, "user-1", "sd-1");
+
+    expect(tables.staged_deliverables).toHaveLength(1);
   });
 });

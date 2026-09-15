@@ -20,6 +20,7 @@ import { GradeScenarioPanel } from "@/components/school/grade-scenario-panel";
 import { GradeCategoriesPanel } from "@/components/school/grade-categories-panel";
 import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
+import { SyllabusReviewPanel } from "@/components/school/syllabus-review-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
 import { TaskWizardDialog, type TaskWizardSubmitInput } from "@/components/school/task-wizard-dialog";
 import { TASK_TYPE_OPTIONS, TASK_TYPE_LABEL, dateFieldLabel, type TaskType } from "@/lib/tasks/task-type";
@@ -540,6 +541,11 @@ export function ClassDetailDialog({
             <SyllabusPanel classId={classData.id} hasSyllabus={classData.hasSyllabus} editing={editing} />
           </div>
         </div>
+
+        {/* Phase 1 #16/#17/#19 — reads straight from classData.pendingStagingBatch
+            (server props), owns its own card wrapper the way GradeScenarioPanel does,
+            since it renders nothing at all once there's no batch to review. */}
+        {classData.pendingStagingBatch && <SyllabusReviewPanel batch={classData.pendingStagingBatch} />}
 
         {/* Self-contained immediate-commit CRUD (own Server Actions), same shape as
             SyllabusPanel/QuestionBankPanel below — nothing staged here. Assignment of an

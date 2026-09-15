@@ -3,8 +3,17 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { uploadClassSyllabus, removeClassSyllabus, getClassSyllabusUrl } from "@/app/(app)/school/class-actions";
+import { extractSyllabusDeliverables } from "@/app/(app)/school/syllabus-extraction-actions";
 import { Button } from "@/components/ui/button";
 import { SyllabusViewerDialog, type SyllabusViewerResult } from "@/components/school/syllabus-viewer-dialog";
+
+const EXTRACTION_OUTCOME_MESSAGE: Record<string, string> = {
+  unreadable: "This PDF couldn't be read — it may be encrypted or corrupted. Try a different file or add deliverables manually.",
+  no_text_layer: "Couldn't read text from this PDF — it may be a scanned image. Enter deliverables manually below.",
+  no_key: "Add an API key in Settings to extract deliverables automatically, or add them manually below.",
+  unavailable: "AI extraction isn't available right now — try again shortly, or add deliverables manually below.",
+  parse_failed: "Couldn't make sense of the extraction result — try again, or add deliverables manually below.",
+};
 
 /**
  * Right half of the expanded class view (item 6c): upload, view (in a
@@ -29,10 +38,13 @@ export function SyllabusPanel({
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const extractInputRef = useRef<HTMLInputElement>(null);
   const [isPending, startTransition] = useTransition();
+  const [isExtracting, startExtracting] = useTransition();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerResult, setViewerResult] = useState<SyllabusViewerResult | null>(null);
+  const [extractionMessage, setExtractionMessage] = useState<string | null>(null);
 
   function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -62,6 +74,31 @@ export function SyllabusPanel({
     });
   }
 
+  /** Phase 1 #16 — independent of the plain upload above: its own PDF-only file
+   * input (Opus Lead scope ruling — PNG/JPEG need a vision model, gated on the
+   * multi-provider work), and it never touches `classes.syllabus_path` — the
+   * uploaded bytes are read for text only, never stored (see
+   * syllabus-extraction-actions.ts's own header). */
+  function handleExtractFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setExtractionMessage(null);
+    const formData = new FormData();
+    formData.set("file", file);
+    startExtracting(async () => {
+      const result = await extractSyllabusDeliverables(classId, formData);
+      if (result.outcome === "extracted" && result.itemCount === 0) {
+        setExtractionMessage(null); // the review panel's own #19 empty state covers this once it renders
+      } else if (result.outcome !== "extracted") {
+        setExtractionMessage(EXTRACTION_OUTCOME_MESSAGE[result.outcome] ?? "Extraction didn't work — try again or add manually.");
+      } else if (result.truncated) {
+        setExtractionMessage(`Extracted ${result.itemCount} item${result.itemCount === 1 ? "" : "s"} — this file was long, so only the first part was read. Check for anything missing.`);
+      }
+      router.refresh();
+    });
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <h3 className="text-sm font-medium">Syllabus</h3>
@@ -72,6 +109,20 @@ export function SyllabusPanel({
         className="hidden"
         onChange={handleFileChosen}
       />
+      <input ref={extractInputRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={handleExtractFileChosen} />
+      {editing && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isExtracting}
+          onClick={() => extractInputRef.current?.click()}
+          className="self-start"
+        >
+          {isExtracting ? "Extracting…" : "Extract deliverables from PDF"}
+        </Button>
+      )}
+      {extractionMessage && <p className="text-xs text-muted-foreground">{extractionMessage}</p>}
       {hasSyllabus ? (
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={view}>

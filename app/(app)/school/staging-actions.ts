@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
-import { confirmStagingBatchCore, type ConfirmStagingBatchResult } from "@/lib/school/staging-core";
+import {
+  confirmStagingBatchCore,
+  updateStagedDeliverableCore,
+  deleteStagedDeliverableCore,
+  type ConfirmStagingBatchResult,
+  type UpdateStagedDeliverableInput,
+} from "@/lib/school/staging-core";
+import type { AssessmentType } from "@/lib/school/actions-core";
 
 export type { ConfirmStagingBatchResult };
 
@@ -13,17 +20,33 @@ export type { ConfirmStagingBatchResult };
  * rows still blocked on a missing date) — see that function's own header for the
  * resumability/race-safety this relies on.
  *
- * NOT YET REACHABLE FROM THE UI — #16 (syllabus upload → AI extraction → staged rows)
- * is the only thing that can ever create a `staging_batches` row to confirm, and #16
- * hasn't been built yet. This action exists and is fully tested (staging-core.test.ts:
- * happy path, no-date partial commit, zero-child success state, resume after a crash,
- * true concurrent double-tap) ahead of #16 per the build order, but it has no caller in
- * production until #16 ships a "Confirm" button that calls it. Saying so explicitly
- * rather than rounding this up to "done."
+ * Reachable from the UI as of #16's review panel (syllabus-review-panel.tsx) — #16
+ * is the only thing that can ever create a `staging_batches` row to confirm.
  */
 export async function confirmStagingBatch(batchId: string): Promise<ConfirmStagingBatchResult> {
   const { supabase, userId } = await requireUser();
   const result = await confirmStagingBatchCore(supabase, userId, batchId);
   revalidatePath("/school");
   return result;
+}
+
+/** Phase 1 #16 — corrects a staged item's name/type/date before confirm (e.g. an
+ * invalid model type remapped to homework_assignment with confidence zeroed, or a
+ * null date the model couldn't resolve). */
+export async function updateStagedDeliverable(
+  deliverableId: string,
+  input: { name: string; type: AssessmentType; date: string | null }
+) {
+  const { supabase, userId } = await requireUser();
+  const coreInput: UpdateStagedDeliverableInput = input;
+  await updateStagedDeliverableCore(supabase, userId, deliverableId, coreInput);
+  revalidatePath("/school");
+}
+
+/** Phase 1 #16 — rejects a staged item (a plain delete; see deleteStagedDeliverableCore's
+ * own header for why there's no separate accept/reject column). */
+export async function deleteStagedDeliverable(deliverableId: string) {
+  const { supabase, userId } = await requireUser();
+  await deleteStagedDeliverableCore(supabase, userId, deliverableId);
+  revalidatePath("/school");
 }

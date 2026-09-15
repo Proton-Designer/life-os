@@ -195,3 +195,48 @@ export async function createStagedDeliverablesCore(
   );
   if (error) throw error;
 }
+
+export interface UpdateStagedDeliverableInput {
+  name: string;
+  type: AssessmentType;
+  /** Null is a legal value here (#17's no-guessing rule) -- the user fills in a
+   * date the model couldn't resolve, or leaves it null and the row simply stays
+   * uncommitted at confirm time (see confirmStagingBatchCore's own "no_date"
+   * reason). */
+  date: string | null;
+}
+
+/** Corrects a staged item before confirm -- the review UI's edit path for a
+ * low-confidence type (Opus Lead ruling: an invalid model type is remapped to
+ * homework_assignment with confidence zeroed specifically so the user corrects it
+ * here) or a null/wrong date. Refuses to touch a row that's already committed --
+ * committed_assessment_id is only ever set once, by the confirm loop; editing a
+ * staged row after its real assessment already exists would silently desync the
+ * two. */
+export async function updateStagedDeliverableCore(
+  supabase: SupabaseClient,
+  userId: string,
+  deliverableId: string,
+  input: UpdateStagedDeliverableInput
+): Promise<void> {
+  const { error } = await supabase
+    .from("staged_deliverables")
+    .update({ name: input.name, type: input.type, date: input.date })
+    .eq("id", deliverableId)
+    .eq("user_id", userId)
+    .is("committed_assessment_id", null);
+  if (error) throw error;
+}
+
+/** Rejecting a staged item is a plain delete (staging-core's own convention,
+ * documented on the table itself in migration 167) -- a row that survives to
+ * confirm time IS the accepted set. */
+export async function deleteStagedDeliverableCore(supabase: SupabaseClient, userId: string, deliverableId: string): Promise<void> {
+  const { error } = await supabase
+    .from("staged_deliverables")
+    .delete()
+    .eq("id", deliverableId)
+    .eq("user_id", userId)
+    .is("committed_assessment_id", null);
+  if (error) throw error;
+}
