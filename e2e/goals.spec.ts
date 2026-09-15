@@ -66,7 +66,10 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
     // "complete it" — setGoalStatusAction awaits the server before flipping
     // local state (components/goals/goal-board.tsx's ActiveGoalCard), so
     // the row disappearing here is proof the write already committed, not
-    // an optimistic paint racing ahead of it.
+    // an optimistic paint racing ahead of it. Same toast risk as the two
+    // guards above — this is a separate mutating click, on a page that's
+    // been sitting open since the goal was created.
+    await dismissCheckinToastIfPresent(page);
     await row.getByRole("button", { name: "Done" }).click();
     await expect(row).toBeHidden();
 
