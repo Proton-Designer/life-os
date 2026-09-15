@@ -3,12 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createIdentityHabitCore,
   archiveIdentityHabitCore,
+  killIdentityHabitCore,
   castHabitVoteCore,
   retractHabitVoteCore,
   MAX_ACTIVE_HABITS,
 } from "../actions-core";
 
-type Resp = { data: unknown; error: unknown };
+type Resp = { data: unknown; error: unknown; count?: number | null };
 type Call = { method: string; args: unknown[] };
 
 /**
@@ -112,6 +113,93 @@ describe("archiveIdentityHabitCore", () => {
     const updates = calls.identity_habits!.filter((c) => c.method === "update");
     expect(updates[0]!.args[0]).toMatchObject({ status: "archived" });
     expect((updates[0]!.args[0] as { archived_at: string }).archived_at).toBeTruthy();
+  });
+});
+
+describe("killIdentityHabitCore (P2-11)", () => {
+  it("below the escalation threshold: kills with no reason required, kill_reason stored as null", async () => {
+    const { client, calls } = makeClient({
+      habit_votes: [{ data: null, error: null, count: 5 }],
+      identity_habits: [{ data: null, error: null }],
+    });
+    const result = await killIdentityHabitCore(client, "user-1", "h1");
+
+    expect(result).toEqual({ ok: true });
+    const updates = calls.identity_habits!.filter((c) => c.method === "update");
+    expect(updates[0]!.args[0]).toMatchObject({ status: "archived", kill_reason: null });
+  });
+
+  it("THE REGRESSION GUARD: at/above the threshold, refuses without ever attempting the update when no reason is given", async () => {
+    const { client, calls } = makeClient({
+      habit_votes: [{ data: null, error: null, count: 14 }],
+    });
+    const result = await killIdentityHabitCore(client, "user-1", "h1");
+
+    expect(result).toEqual({ ok: false, reason: "requires_reason" });
+    expect(calls.identity_habits).toBeUndefined(); // .from("identity_habits") never even called
+  });
+
+  it("an all-whitespace reason is treated as no reason at all -- still refuses", async () => {
+    const { client, calls } = makeClient({
+      habit_votes: [{ data: null, error: null, count: 20 }],
+    });
+    const result = await killIdentityHabitCore(client, "user-1", "h1", "   \n  ");
+
+    expect(result).toEqual({ ok: false, reason: "requires_reason" });
+    expect(calls.identity_habits).toBeUndefined();
+  });
+
+  it("at/above the threshold WITH a real reason: kills and stores the trimmed reason", async () => {
+    const { client, calls } = makeClient({
+      habit_votes: [{ data: null, error: null, count: 30 }],
+      identity_habits: [{ data: null, error: null }],
+    });
+    const result = await killIdentityHabitCore(client, "user-1", "h1", "  I no longer identify with this.  ");
+
+    expect(result).toEqual({ ok: true });
+    const updates = calls.identity_habits!.filter((c) => c.method === "update");
+    expect(updates[0]!.args[0]).toMatchObject({ status: "archived", kill_reason: "I no longer identify with this." });
+  });
+
+  it("counts votes scoped to this user and this habit", async () => {
+    const { client, calls } = makeClient({
+      habit_votes: [{ data: null, error: null, count: 0 }],
+      identity_habits: [{ data: null, error: null }],
+    });
+    await killIdentityHabitCore(client, "user-1", "h1");
+
+    const eqArgs = calls.habit_votes!.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(eqArgs).toContainEqual(["user_id", "user-1"]);
+    expect(eqArgs).toContainEqual(["habit_id", "h1"]);
+  });
+
+  it("scopes the update to this user's own active habit, same as archiveIdentityHabitCore", async () => {
+    const { client, calls } = makeClient({
+      habit_votes: [{ data: null, error: null, count: 0 }],
+      identity_habits: [{ data: null, error: null }],
+    });
+    await killIdentityHabitCore(client, "user-1", "h1");
+
+    const eqArgs = calls.identity_habits!.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(eqArgs).toContainEqual(["id", "h1"]);
+    expect(eqArgs).toContainEqual(["user_id", "user-1"]);
+    expect(eqArgs).toContainEqual(["status", "active"]);
+  });
+
+  it("a null count (a query hiccup) is treated as 0 votes, never crashes", async () => {
+    const { client } = makeClient({
+      habit_votes: [{ data: null, error: null, count: null }],
+      identity_habits: [{ data: null, error: null }],
+    });
+    const result = await killIdentityHabitCore(client, "user-1", "h1");
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("propagates a genuine database error from the count query", async () => {
+    const { client } = makeClient({
+      habit_votes: [{ data: null, error: { message: "connection reset" } }],
+    });
+    await expect(killIdentityHabitCore(client, "user-1", "h1")).rejects.toMatchObject({ message: "connection reset" });
   });
 });
 

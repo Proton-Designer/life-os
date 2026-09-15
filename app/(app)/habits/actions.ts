@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import {
   createIdentityHabitCore,
   archiveIdentityHabitCore,
+  killIdentityHabitCore,
   castHabitVoteCore,
   retractHabitVoteCore,
   type Habit,
@@ -56,6 +57,21 @@ export async function archiveIdentityHabitAction(habitId: string): Promise<Actio
   const { supabase, userId } = await requireUser();
   try {
     await archiveIdentityHabitCore(supabase, userId, habitId);
+    revalidateHabitSurfaces();
+    return { ok: true };
+  } catch (err) {
+    return { error: describeHabitError(err) };
+  }
+}
+
+export type KillHabitActionResult = ActionResult<{ ok: true }> | { ok: false; reason: "requires_reason" };
+
+/** P2-11 -- `reason` optional; killIdentityHabitCore re-checks server-side whether one was actually required, never trusting a client's own idea of the habit's vote count. */
+export async function killIdentityHabitAction(habitId: string, reason?: string): Promise<KillHabitActionResult> {
+  const { supabase, userId } = await requireUser();
+  try {
+    const result = await killIdentityHabitCore(supabase, userId, habitId, reason);
+    if (!result.ok) return result;
     revalidateHabitSurfaces();
     return { ok: true };
   } catch (err) {

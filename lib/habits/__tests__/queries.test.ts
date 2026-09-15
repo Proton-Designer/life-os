@@ -96,6 +96,34 @@ describe("getActiveHabitsWithStatus", () => {
     expect(h2!.score).toBeLessThan(h1!.score!);
   });
 
+  it("voteCount (P2-11) is the habit's own total vote-row count, not the global total across habits", async () => {
+    const supabase = makeClient({
+      identity_habits: [
+        {
+          data: [
+            { id: "h1", identity_statement: "the athlete", rank: 1, created_at: "2026-08-01T00:00:00Z" },
+            { id: "h2", identity_statement: "the reader", rank: 2, created_at: "2026-08-01T00:00:00Z" },
+          ],
+          error: null,
+        },
+      ],
+      habit_votes: [
+        {
+          data: [
+            { habit_id: "h1", date: "2026-09-12" },
+            { habit_id: "h1", date: "2026-09-13" },
+            { habit_id: "h1", date: "2026-09-14" },
+            { habit_id: "h2", date: "2026-09-14" },
+          ],
+          error: null,
+        },
+      ],
+    });
+    const [h1, h2] = await getActiveHabitsWithStatus(supabase, "user-1", "2026-09-14", tz);
+    expect(h1!.voteCount).toBe(3);
+    expect(h2!.voteCount).toBe(1);
+  });
+
   it("orders habits by rank ascending (the query's own .order call, not a re-sort here)", async () => {
     const supabase = makeClient({
       identity_habits: [{ data: [], error: null }],

@@ -8,11 +8,13 @@ vi.mock("@/lib/supabase/auth", () => ({ requireUser: () => requireUserMock() }))
 
 const createIdentityHabitCoreMock = vi.fn();
 const archiveIdentityHabitCoreMock = vi.fn();
+const killIdentityHabitCoreMock = vi.fn();
 const castHabitVoteCoreMock = vi.fn();
 const retractHabitVoteCoreMock = vi.fn();
 vi.mock("@/lib/habits/actions-core", () => ({
   createIdentityHabitCore: (...args: unknown[]) => createIdentityHabitCoreMock(...args),
   archiveIdentityHabitCore: (...args: unknown[]) => archiveIdentityHabitCoreMock(...args),
+  killIdentityHabitCore: (...args: unknown[]) => killIdentityHabitCoreMock(...args),
   castHabitVoteCore: (...args: unknown[]) => castHabitVoteCoreMock(...args),
   retractHabitVoteCore: (...args: unknown[]) => retractHabitVoteCoreMock(...args),
 }));
@@ -62,6 +64,37 @@ describe("habit actions (#39/#40) — 'use server' wrappers over lib/habits/acti
     expect(res).toEqual({ ok: true });
     expect(archiveIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1");
     expect(revalidatePathMock).toHaveBeenCalledWith("/habits");
+  });
+
+  it("killIdentityHabitAction (P2-11) calls through with the optional reason and revalidates on success", async () => {
+    killIdentityHabitCoreMock.mockResolvedValue({ ok: true });
+    const { killIdentityHabitAction } = await import("../actions");
+    const res = await killIdentityHabitAction("h1", "no longer relevant");
+    expect(res).toEqual({ ok: true });
+    expect(killIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1", "no longer relevant");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/habits");
+  });
+
+  it("killIdentityHabitAction passes reason through as undefined when omitted", async () => {
+    killIdentityHabitCoreMock.mockResolvedValue({ ok: true });
+    const { killIdentityHabitAction } = await import("../actions");
+    await killIdentityHabitAction("h1");
+    expect(killIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1", undefined);
+  });
+
+  it("killIdentityHabitAction passes a requires_reason refusal straight through, without revalidating", async () => {
+    killIdentityHabitCoreMock.mockResolvedValue({ ok: false, reason: "requires_reason" });
+    const { killIdentityHabitAction } = await import("../actions");
+    const res = await killIdentityHabitAction("h1");
+    expect(res).toEqual({ ok: false, reason: "requires_reason" });
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+
+  it("killIdentityHabitAction maps a thrown database error to an honest message, same as the other actions", async () => {
+    killIdentityHabitCoreMock.mockRejectedValue(new Error("connection reset"));
+    const { killIdentityHabitAction } = await import("../actions");
+    const res = await killIdentityHabitAction("h1", "a reason");
+    expect(res).toEqual({ error: "connection reset" });
   });
 
   it("castHabitVoteAction resolves the caller's timezone and passes it to the core, along with a real Date", async () => {

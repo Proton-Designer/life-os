@@ -8,6 +8,7 @@ type TypedClient = SupabaseClient<Database>;
 /** Mirrors identity_habits_rank_per_user_idx (migration 175) -- restated here only so a caller reads the ceiling without opening the migration. */
 import { MAX_ACTIVE_HABITS } from "./constants";
 export { MAX_ACTIVE_HABITS };
+import { killRequiresReason } from "./kill-escalation";
 
 export type Habit = {
   id: string;
@@ -92,6 +93,48 @@ export async function archiveIdentityHabitCore(supabase: TypedClient, userId: st
     .eq("user_id", userId)
     .eq("status", "active");
   if (error) throw error;
+}
+
+export type KillHabitResult = { ok: true } | { ok: false; reason: "requires_reason" };
+
+/**
+ * P2-11 -- the escalation-aware kill flow named in
+ * archiveIdentityHabitCore's own header above. A NEW, parallel path, not a
+ * replacement for archiveIdentityHabitCore (which stays exactly as-is for
+ * any caller that doesn't need escalation).
+ *
+ * THE GATE IS RE-CHECKED SERVER-SIDE, NEVER TRUSTED FROM THE CLIENT: the
+ * UI can decide "should I show the reason field" from an already-fetched
+ * vote count for responsiveness, but this function does its OWN count
+ * against `habit_votes` before deciding whether `reason` was required --
+ * a stale or forged client-side read must never let an investment-heavy
+ * habit slip through as an un-reasoned kill.
+ *
+ * `reason` is validated non-empty (after trim) when required -- an
+ * all-whitespace "reason" would satisfy a naive `!reason` check while
+ * being exactly as uninformative as no reason at all.
+ */
+export async function killIdentityHabitCore(supabase: TypedClient, userId: string, habitId: string, reason?: string): Promise<KillHabitResult> {
+  const { count, error: countError } = await supabase
+    .from("habit_votes")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("habit_id", habitId);
+  if (countError) throw countError;
+
+  const trimmedReason = reason?.trim();
+  if (killRequiresReason(count ?? 0) && !trimmedReason) {
+    return { ok: false, reason: "requires_reason" };
+  }
+
+  const { error } = await supabase
+    .from("identity_habits")
+    .update({ status: "archived", archived_at: new Date().toISOString(), kill_reason: trimmedReason ?? null })
+    .eq("id", habitId)
+    .eq("user_id", userId)
+    .eq("status", "active");
+  if (error) throw error;
+  return { ok: true };
 }
 
 /**

@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   createIdentityHabitAction,
-  archiveIdentityHabitAction,
   castHabitVoteAction,
   retractHabitVoteAction,
 } from "@/app/(app)/habits/actions";
 import { MAX_ACTIVE_HABITS } from "@/lib/habits/constants";
 import type { HabitWithStatus } from "@/lib/habits/queries";
+import { KillHabitDialog } from "@/components/habits/kill-habit-dialog";
 
 /**
  * The Habits board (#39/#40/#41) -- up to 7 identity-statement habits, each
@@ -69,6 +69,7 @@ function HabitRow({
 }) {
   const [voted, setVoted] = useState(habit.votedToday);
   const [error, setError] = useState<string | null>(null);
+  const [killDialogOpen, setKillDialogOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function toggleVote() {
@@ -82,18 +83,6 @@ function HabitRow({
         setError(res.error);
         setVoted(!next);
         onVoteChange(habit.id, !next);
-      }
-    });
-  }
-
-  function archive() {
-    setError(null);
-    startTransition(async () => {
-      const res = await archiveIdentityHabitAction(habit.id);
-      if ("error" in res) {
-        setError(res.error);
-      } else {
-        onArchive(habit.id);
       }
     });
   }
@@ -123,15 +112,23 @@ function HabitRow({
             size="icon-sm"
             variant="ghost"
             disabled={isPending}
-            onClick={archive}
-            aria-label="Archive this habit"
-            title="Archive"
+            onClick={() => setKillDialogOpen(true)}
+            aria-label="Kill this habit"
+            title="Kill"
           >
             <X className="size-4" aria-hidden />
           </Button>
         </div>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
+      <KillHabitDialog
+        open={killDialogOpen}
+        onOpenChange={setKillDialogOpen}
+        habitId={habit.id}
+        identityStatement={habit.identityStatement}
+        voteCount={habit.voteCount}
+        onKilled={onArchive}
+      />
     </li>
   );
 }
@@ -191,7 +188,7 @@ export function HabitList({ habits, today }: { habits: HabitWithStatus[]; today:
   function handleAdded(habit: NewHabit) {
     setAllHabits((prev) => [
       ...prev,
-      { id: habit.id, identityStatement: habit.identityStatement, rank: habit.rank, votedToday: false, isNew: true, score: null },
+      { id: habit.id, identityStatement: habit.identityStatement, rank: habit.rank, votedToday: false, isNew: true, score: null, voteCount: 0 },
     ]);
     setAdding(false);
   }

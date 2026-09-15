@@ -17,6 +17,8 @@ export type HabitWithStatus = {
   isNew: boolean;
   /** 0..1, replayed from the vote log -- NULL while `isNew` (the spec refuses to judge early, not "shows a low number"). */
   score: number | null;
+  /** P2-11 -- total habit_votes rows ever cast for this habit, for the kill-flow's escalation gate (lib/habits/kill-escalation.ts). Display-only here; killIdentityHabitCore re-checks its own count server-side before actually gating. */
+  voteCount: number;
 };
 
 export type HabitWithVotes = {
@@ -112,6 +114,7 @@ export async function getActiveHabitsWithStatus(
       votedToday: h.voteDates.includes(todayStr),
       isNew,
       score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr),
+      voteCount: h.voteDates.length,
     };
   });
 }
