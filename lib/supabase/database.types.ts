@@ -328,6 +328,79 @@ export type Database = {
         }
         Relationships: []
       }
+      canvas_connections: {
+        Row: {
+          canvas_user_id: string | null
+          canvas_user_name: string | null
+          created_at: string
+          encrypted_token: string
+          instance_url: string
+          token_last4: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          canvas_user_id?: string | null
+          canvas_user_name?: string | null
+          created_at?: string
+          encrypted_token: string
+          instance_url: string
+          token_last4: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          canvas_user_id?: string | null
+          canvas_user_name?: string | null
+          created_at?: string
+          encrypted_token?: string
+          instance_url?: string
+          token_last4?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      canvas_course_mappings: {
+        Row: {
+          canvas_course_code: string | null
+          canvas_course_id: string
+          canvas_course_name: string
+          class_id: string | null
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          canvas_course_code?: string | null
+          canvas_course_id: string
+          canvas_course_name: string
+          class_id?: string | null
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          canvas_course_code?: string | null
+          canvas_course_id?: string
+          canvas_course_name?: string
+          class_id?: string | null
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canvas_course_mappings_class_same_user"
+            columns: ["user_id", "class_id"]
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       card_states: {
         Row: {
           book_id: string | null
