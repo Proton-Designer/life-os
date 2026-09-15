@@ -16,6 +16,14 @@ vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathM
 let calls: string[] = [];
 let syllabusPath: string | null = null;
 let failOn: string | null = null;
+// P3-14 hardening (2b4f472's lecture-cleanup `.list()` call, then its
+// try/catch fix): kept OUT of the shared `calls` log on purpose -- `.list()`
+// runs unconditionally on every deleteClass call, and several tests below
+// assert `calls` as an EXACT array of the delete/select sequence; folding
+// list into that log would break those for a reason unrelated to what they
+// test. Default: no lecture files, so `.remove()` for the lectures bucket
+// never fires and existing storage assertions are unaffected.
+let lectureListThrows = false;
 
 function makeFilterChain(label: string) {
   const result = failOn === label ? { error: new Error(`boom: ${label}`) } : { error: null };
@@ -29,6 +37,11 @@ function makeFilterChain(label: string) {
 const storageRemoveMock = vi.fn(async (paths: string[]) => {
   calls.push(`storage.remove:${paths.join(",")}`);
   return { error: null };
+});
+
+const storageListMock = vi.fn(async (_path: string) => {
+  if (lectureListThrows) throw new Error("boom: storage.list");
+  return { data: [], error: null }; // no lecture files by default
 });
 
 const supabase = {
@@ -52,7 +65,7 @@ const supabase = {
       },
     };
   },
-  storage: { from: () => ({ remove: storageRemoveMock }) },
+  storage: { from: () => ({ remove: storageRemoveMock, list: storageListMock }) },
 };
 
 vi.mock("@/lib/supabase/auth", () => ({
@@ -65,6 +78,7 @@ describe("deleteClass", () => {
     calls = [];
     syllabusPath = null;
     failOn = null;
+    lectureListThrows = false;
   });
 
   it("deletes the class's schedule events and tasks, then the class row itself", async () => {
@@ -125,5 +139,14 @@ describe("deleteClass", () => {
 
     await expect(deleteClass("class-1")).rejects.toThrow(/boom/);
     expect(calls).toEqual(["select:classes"]);
+  });
+
+  it("HEAD-red fix (2026-09-15): a throwing lecture-storage list() never fails the delete -- the class row is already gone by that point, so this must stay best-effort", async () => {
+    lectureListThrows = true;
+    const { deleteClass } = await import("../class-actions");
+
+    await expect(deleteClass("class-1")).resolves.toBeUndefined();
+    expect(calls).toContain("delete:classes");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/school");
   });
 });

@@ -384,9 +384,22 @@ export async function deleteClass(classId: string) {
   // orphaned forever. Best-effort, same posture as the syllabus cleanup just
   // above: the database is already settled by this point, so a storage
   // failure here must never surface as a failed delete.
-  const { data: lectureFiles } = await supabase.storage.from(LECTURES_BUCKET).list(`${userId}/${classId}`);
-  if (lectureFiles && lectureFiles.length > 0) {
-    await supabase.storage.from(LECTURES_BUCKET).remove(lectureFiles.map((f) => `${userId}/${classId}/${f.name}`));
+  //
+  // WRAPPED IN TRY/CATCH (2026-09-15 hardening, HEAD-red fix): the
+  // "best-effort" claim only held for a returned `{data, error}` shape --
+  // supabase-js storage calls don't throw under normal operation, but a
+  // genuine best-effort guarantee must hold even if a call DOES throw (a
+  // real network fault, or a test/mock client that throws instead of
+  // resolving with an error). Caught and logged, never rethrown -- the class
+  // row is already gone by this point, so surfacing this as a failed delete
+  // would be dishonest.
+  try {
+    const { data: lectureFiles } = await supabase.storage.from(LECTURES_BUCKET).list(`${userId}/${classId}`);
+    if (lectureFiles && lectureFiles.length > 0) {
+      await supabase.storage.from(LECTURES_BUCKET).remove(lectureFiles.map((f) => `${userId}/${classId}/${f.name}`));
+    }
+  } catch (err) {
+    console.error("[deleteClass] failed to clean up lecture storage objects", err);
   }
 
   revalidatePath("/school");

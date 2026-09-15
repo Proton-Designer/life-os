@@ -808,8 +808,11 @@ describe("habits.identity_habit handlers", () => {
   it("create inserts at the lowest free rank", async () => {
     const action = getWriteAction("habits", "identity_habit", "create")!;
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "insert"]) chain[m] = vi.fn(() => chain);
-    chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null }); // no active habits -> rank 1 free
+    // "in" alongside "eq": createIdentityHabitCore's pre-check queries
+    // `.in("status", ["active", "paused"])` (P3-07 blocking-finding fix,
+    // 3d3bd72) instead of `.eq("status", "active")`.
+    for (const m of ["select", "eq", "in", "insert"]) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null }); // no active/paused habits -> rank 1 free
     chain.single = vi.fn(async () => ({ data: { id: "h-1", identity_statement: "I am disciplined", rank: 1, created_at: now.toISOString() }, error: null }));
     const client = makeTableClient({ identity_habits: chain as unknown as ReturnType<typeof makeChain> });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { identity_statement: "I am disciplined" });
