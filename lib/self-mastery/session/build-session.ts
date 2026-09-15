@@ -468,11 +468,13 @@ export async function buildTodaysSession(
   // into an open-ended cram session. No existing session-size constant exists
   // to cite here (checked: no CHECK on user_settings.session_target_minutes,
   // no UI control sets it yet) -- MAX_SESSION_MINUTES_WITH_INTENSITY is a new,
-  // named ceiling, not a rediscovered one. 20 minutes is roughly double the
-  // spec's own upper bound: generous for a real exam week, still bounded.
-  // Expressed as a capacity (via the SAME median-pace math as baseCapacity,
-  // not a bare item-count guess) so the cap means what it says in real
-  // minutes regardless of how fast or slow this user's own pace is.
+  // named ceiling, not a rediscovered one. 20 minutes is DELIBERATELY ~2x the
+  // spec's own 10-minute upper bound -- "double your normal session during
+  // exam crunch" is a legible, explainable-to-the-user rule; a higher
+  // multiple would start to feel like the cram session this ceiling exists
+  // to prevent. Expressed as a capacity (via the SAME median-pace math as
+  // baseCapacity, not a bare item-count guess) so the cap means what it says
+  // in real minutes regardless of how fast or slow this user's own pace is.
   const MAX_SESSION_MINUTES_WITH_INTENSITY = 20;
   const absoluteCeiling = estimateSessionCapacity(MAX_SESSION_MINUTES_WITH_INTENSITY, medianMs);
   const capacity = Math.min(intensifiedCapacity, absoluteCeiling);
