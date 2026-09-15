@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { WriteArgs } from "../tools/write";
+import { makeFakeMcpDb } from "@/lib/scheduling/__tests__/fake-mcp-tables";
 
 /**
  * MOCKS DEPENDENCIES, NOT `runMcpTool` ITSELF, for two different reasons:
@@ -180,6 +181,46 @@ describe("processOneScheduledAction — denial paths (the lead's own explicit te
     expect(runMcpToolMock).not.toHaveBeenCalled();
     expect(writeAuditRowMock).toHaveBeenCalledWith(client, expect.objectContaining({ outcome: "denied" }));
     expect(updateCalls.find((c) => c.row.status !== undefined)?.row).toMatchObject({ status: "paused" });
+  });
+});
+
+describe("processOneScheduledAction — P4-11 race: row claimed under token A, OAuth refresh re-points it to B before it fires", () => {
+  function dbWith(tokenIdNow: string) {
+    return makeFakeMcpDb({
+      mcp_scheduled_actions: [{ ...makeRow(), token_id: tokenIdNow, status: "active", next_run_at: now.toISOString() }],
+      profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
+    });
+  }
+
+  it("re-reads the row's CURRENT token when the in-memory one is dead, and fires under the live successor instead of pausing", async () => {
+    getLiveTokenByIdMock.mockImplementation(async (_s, id) => (id === "tok-2" ? { userId: "user-1", scopes: ["write"] } : null));
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockResolvedValue(okResult());
+    const db = dbWith("tok-2"); // stored row already moved to tok-2
+    const claimedEarlier = makeRow({ token_id: "tok-1" }); // in-memory copy still says tok-1
+
+    const outcome = await processOneScheduledAction(db.client, claimedEarlier, now);
+
+    expect(outcome).toBe("ok");
+    expect(runMcpToolMock).toHaveBeenCalledWith(db.client, { scopes: ["write"], extra: { userId: "user-1", tokenId: "tok-2" } }, "write", "settings.profile.update", "write", expect.anything(), expect.any(Function));
+    expect(db.tables.mcp_scheduled_actions[0].status).not.toBe("paused");
+  });
+
+  it("still denies when the stored token is the same dead one (plain revocation is unaffected)", async () => {
+    getLiveTokenByIdMock.mockResolvedValue(null);
+    const db = dbWith("tok-1");
+    const outcome = await processOneScheduledAction(db.client, makeRow({ token_id: "tok-1" }), now);
+    expect(outcome).toBe("denied");
+    expect(runMcpToolMock).not.toHaveBeenCalled();
+    expect(db.tables.mcp_scheduled_actions[0]).toMatchObject({ status: "paused", last_outcome: "denied" });
+  });
+
+  it("still denies when the row moved to a token that is ALSO dead (e.g. reuse detection revoked the successor)", async () => {
+    getLiveTokenByIdMock.mockResolvedValue(null);
+    const db = dbWith("tok-2");
+    const outcome = await processOneScheduledAction(db.client, makeRow({ token_id: "tok-1" }), now);
+    expect(outcome).toBe("denied");
+    expect(writeAuditRowMock).toHaveBeenCalledWith(db.client, expect.objectContaining({ outcome: "denied", tokenId: "tok-2" }));
   });
 });
 

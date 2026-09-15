@@ -174,6 +174,14 @@ async function fetchTimezoneForUser(serviceClient: SupabaseClient, userId: strin
   return (data?.timezone as string | undefined) ?? "UTC";
 }
 
+/** The stored row's token_id right now (not the batch's claimed copy). Null on any read failure — the caller then denies exactly as before. */
+async function fetchCurrentTokenId(serviceClient: SupabaseClient, id: string): Promise<string | null> {
+  const { data, error } = await serviceClient.from("mcp_scheduled_actions").select("token_id").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  const tokenId = (data as { token_id?: unknown }).token_id;
+  return typeof tokenId === "string" ? tokenId : null;
+}
+
 function resolveOperation(row: ScheduledActionRow): string {
   return row.tool_name === "notify" ? "notify.send" : resolveWriteOperation(row.args as WriteArgs);
 }
@@ -276,8 +284,23 @@ async function finalizeNotifyFailure(serviceClient: SupabaseClient, row: Schedul
 }
 
 /** Processes exactly one claimed row: fresh token/user check, dispatch through runMcpTool if live, then finalize (advance/pause/cancel) using the policy for its `tool_name`. Exported separately from `processScheduledActions` so a test can drive one row without needing a real claim query. */
-export async function processOneScheduledAction(serviceClient: SupabaseClient, row: ScheduledActionRow, now: Date): Promise<"ok" | "error" | "denied"> {
-  const liveToken = await getLiveTokenById(serviceClient, row.token_id);
+export async function processOneScheduledAction(serviceClient: SupabaseClient, claimedRow: ScheduledActionRow, now: Date): Promise<"ok" | "error" | "denied"> {
+  let row = claimedRow;
+  let liveToken = await getLiveTokenById(serviceClient, row.token_id);
+  if (!liveToken) {
+    // P4-11 race: `row` is the copy claimed at the start of this batch. An
+    // OAuth refresh can re-point the stored row to its new token and revoke
+    // the old one while this batch is still working through earlier rows
+    // (lib/scheduling/token-handoff.ts). Before denying, re-read the row's
+    // CURRENT token_id; if it moved, check THAT token instead. A plain
+    // revocation (same token) or a successor that is also revoked (refresh
+    // reuse detection) still denies.
+    const currentTokenId = await fetchCurrentTokenId(serviceClient, row.id);
+    if (currentTokenId && currentTokenId !== row.token_id) {
+      row = { ...row, token_id: currentTokenId };
+      liveToken = await getLiveTokenById(serviceClient, currentTokenId);
+    }
+  }
   if (!liveToken) {
     await denyRow(serviceClient, row, now, "The token that scheduled this action has since been revoked.");
     return "denied";

@@ -33,6 +33,11 @@ vi.mock("@/lib/mcp/tokens", () => ({
   getTokenScopesById: (...args: unknown[]) => getTokenScopesById(...args),
 }));
 
+const repointScheduledActionsToken = vi.fn();
+vi.mock("@/lib/scheduling/token-handoff", () => ({
+  repointScheduledActionsToken: (...args: unknown[]) => repointScheduledActionsToken(...args),
+}));
+
 import { POST } from "../route";
 
 function formRequest(fields: Record<string, string>) {
@@ -54,6 +59,8 @@ beforeEach(() => {
   createAccessToken.mockReset();
   revokeAccessToken.mockReset();
   getTokenScopesById.mockReset();
+  repointScheduledActionsToken.mockReset();
+  repointScheduledActionsToken.mockResolvedValue(0);
 });
 
 describe("POST /api/mcp/oauth/token", () => {
@@ -185,6 +192,43 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(body.access_token).toBe("lifeos_pat_rotated");
       expect(body.scope).toBe("read"); // NOT widened to "read write"
       expect(body.refresh_token).toBe("lifeos_oauthrefresh_rotated");
+    });
+
+    it("P4-11: re-points the user's scheduled actions old->new BEFORE revoking the old token", async () => {
+      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
+      getTokenScopesById.mockResolvedValueOnce(["read", "write"]);
+      createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_rotated", status: { id: "tok-new", scopes: ["read", "write"] } });
+      mintRefreshToken.mockResolvedValueOnce({ ok: true, refreshToken: "lifeos_oauthrefresh_rotated" });
+
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
+
+      expect(response.status).toBe(200);
+      expect(repointScheduledActionsToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old", "tok-new");
+      expect(repointScheduledActionsToken.mock.invocationCallOrder[0]).toBeLessThan(revokeAccessToken.mock.invocationCallOrder[0]);
+    });
+
+    it("P4-11: a failed re-point fails the refresh closed -- revokes the NEW token, never the old one", async () => {
+      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
+      getTokenScopesById.mockResolvedValueOnce(["read"]);
+      createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_rotated", status: { id: "tok-new", scopes: ["read"] } });
+      repointScheduledActionsToken.mockRejectedValueOnce(new Error("db down"));
+
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
+
+      expect(response.status).toBe(500);
+      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-new");
+      expect(revokeAccessToken).not.toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old");
+      expect(mintRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it("P4-11: REUSE DETECTED never re-points scheduled actions -- the stolen chain's schedules stay denied", async () => {
+      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
+      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1", clientId: "cid" });
+      findLiveAccessTokenIdsForClient.mockResolvedValueOnce(["tok-attacker"]);
+
+      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
+
+      expect(repointScheduledActionsToken).not.toHaveBeenCalled();
     });
   });
 });

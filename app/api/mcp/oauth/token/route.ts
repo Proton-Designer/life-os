@@ -10,6 +10,7 @@ import {
   formatOAuthTokenLabel,
 } from "@/lib/mcp/oauth";
 import { createAccessToken, revokeAccessToken, getTokenScopesById } from "@/lib/mcp/tokens";
+import { repointScheduledActionsToken } from "@/lib/scheduling/token-handoff";
 
 /**
  * RFC 6749 sec 4.1.3 / 6 token endpoint — the second half of the
@@ -160,6 +161,21 @@ export async function POST(request: Request) {
     const minted = await createAccessToken(supabase, rotated.userId, formatOAuthTokenLabel(rotatedClient), priorScopes);
     if (!minted.ok || !minted.token || !minted.status) {
       return tokenError("server_error", minted.message, 500);
+    }
+
+    // P4-11: move this user's scheduled actions onto the new token BEFORE the
+    // old one is revoked — they fire under `token_id`, and the runner pauses
+    // any row whose token is revoked, so revoking first killed every schedule
+    // an OAuth client had created at its first refresh. Only this legitimate
+    // rotation re-points; the reuse-detection branch above deliberately does
+    // not (a stolen chain's schedules must stay denied). If the move fails,
+    // fail the refresh closed: revoke the token we just minted and leave the
+    // old token + schedules exactly as they were.
+    try {
+      await repointScheduledActionsToken(supabase, rotated.userId, rotated.oldAccessTokenId, minted.status.id);
+    } catch (e) {
+      await revokeAccessToken(supabase, rotated.userId, minted.status.id);
+      return tokenError("server_error", e instanceof Error ? e.message : "Could not complete the token refresh.", 500);
     }
     await revokeAccessToken(supabase, rotated.userId, rotated.oldAccessTokenId);
 
