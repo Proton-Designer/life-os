@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDayConnectionUserMessage, normalizeDayConnection } from "@/app/(app)/personal/closer-day-connection-actions";
+import { buildDayConnectionUserMessage, normalizeDayConnection } from "@/lib/self-mastery/closer-day-connection";
 
 describe("buildDayConnectionUserMessage", () => {
   it("lists each due item with its domain", () => {
