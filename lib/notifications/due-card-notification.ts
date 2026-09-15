@@ -5,15 +5,25 @@ import { sendPushToUser } from "./send-push";
 import { countDueCards } from "@/lib/self-mastery/session/build-session";
 
 /**
- * #10: a daily push naming a real due card — "a spaced-repetition product
+ * #10: a daily push naming a real due item — "a spaced-repetition product
  * with no return trigger dies quietly" (the build plan's own words). At
  * most one per user per local day (`due_card_notification_log`, migration
  * 170, APPLIED), only for a user with a push subscription AND at least one
- * real due card, at or after a morning send threshold, copy naming that
- * card's actual front (truncated), deep-linking to `/` — where the
+ * real due item, at or after a morning send threshold, copy naming that
+ * item's actual front (truncated), deep-linking to `/` — where the
  * due-card entry point (`components/self-mastery/session/session-entry-
  * card.tsx`) lives; there is no separate `/review` route, the retrieval
  * session is a client overlay opened from Home.
+ *
+ * COVERS BOTH BOOK CARDS AND SCHOOL QUESTIONS (fixed 2026-09-14, once
+ * migration 179 made questions schedulable through the SAME `card_states`
+ * table) — see `getOneDueItemPrompt`'s own header for the bug this closed
+ * and why `countDueCards` itself never had it. The push title still says
+ * "card(s)" regardless of kind, matching this app's own existing
+ * vocabulary (`components/self-mastery/session/session-entry-card.tsx`'s
+ * "N cards due" already uses the identical `countDueCards` number for a
+ * mixed card/question queue — this file is not introducing a new usage,
+ * only following the established one).
  *
  * TRIGGER: polled by the SAME 15-minute pg_cron heartbeat as
  * `supabase/functions/dispatch-notifications` (jobid 1's schedule) via
@@ -92,7 +102,7 @@ const SEND_WINDOW_DURATION_MS = 3 * 60 * 60 * 1000;
 
 /**
  * Whether `now` falls within this user's morning send window on `sentDate`
- * (their own local calendar day) — `[threshold, threshold + 1h)`, not an
+ * (their own local calendar day) — `[threshold, threshold + 3h)`, not an
  * open-ended "any time after threshold": a bounded window is what makes
  * "23:59 local -> no send" and "08:00 local -> send" both true at once,
  * per the Opus Lead's own test spec. See this file's header for why
@@ -132,19 +142,38 @@ async function releaseSendSlot(supabase: SupabaseClient, userId: string, sentDat
 }
 
 /**
- * The actual front (prompt) of ONE due card, truncated — picks the MOST
- * OVERDUE card (earliest `due_at`) so the copy names a specific, real
- * piece of content rather than an arbitrary one. Returns null only when
- * `card_states`/`cards` disagree with the caller's own `countDueCards() >
- * 0` read (a data inconsistency, not "nothing due" — callers already
- * checked that before calling this) — in that case, callers release their
- * claim and skip rather than push a notification with no real content to
- * name.
+ * The actual front (prompt) of ONE due item — a book card OR a school
+ * question — truncated. Picks the MOST OVERDUE row (earliest `due_at`) so
+ * the copy names a specific, real piece of content rather than an
+ * arbitrary one.
+ *
+ * BOTH KINDS, because `card_states` is the ONE FSRS-scheduled table for
+ * both (migration 111's unification, 179's "every question gets a
+ * card_states row" — `card_states_item_xor` guarantees exactly one of
+ * `card_id`/`question_id` is set per row). `countDueCards` (lib/self-
+ * mastery/session/build-session.ts) already counts both kinds — its
+ * `.select("card_id", {count:"exact",head:true})` filters on `user_id`/
+ * `state`/`due_at` only, never on `card_id` being non-null, so a
+ * question-only due queue was already reflected in the NUMBER this file
+ * sends. The bug this function used to have was narrower but real: it
+ * only ever looked up `cards`, so if the single MOST OVERDUE row happened
+ * to be question-backed, the `cards` lookup found nothing (`.eq("id",
+ * null)` matches no row in SQL) and the whole notification was skipped —
+ * silently dropping a real due-question-only day, and even a mixed day
+ * where the single most-overdue item happened to be a question. Found and
+ * fixed 2026-09-14 (Opus Lead review, once questions became schedulable
+ * via 179).
+ *
+ * Returns null only when `card_states` disagrees with the caller's own
+ * `countDueCards() > 0` read (a data inconsistency, not "nothing due" —
+ * callers already checked that before calling this) — in that case,
+ * callers release their claim and skip rather than push a notification
+ * with no real content to name.
  */
-async function getOneDueCardPrompt(supabase: SupabaseClient, userId: string, now: Date): Promise<string | null> {
+async function getOneDueItemPrompt(supabase: SupabaseClient, userId: string, now: Date): Promise<string | null> {
   const { data: state, error: stateError } = await supabase
     .from("card_states")
-    .select("card_id")
+    .select("card_id, question_id")
     .eq("user_id", userId)
     .neq("state", "new")
     .lte("due_at", now.toISOString())
@@ -154,16 +183,37 @@ async function getOneDueCardPrompt(supabase: SupabaseClient, userId: string, now
   if (stateError) throw stateError;
   if (!state) return null;
 
-  const { data: card, error: cardError } = await supabase
-    .from("cards")
-    .select("prompt")
-    .eq("id", (state as { card_id: string }).card_id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (cardError) throw cardError;
-  if (!card) return null;
+  const row = state as { card_id: string | null; question_id: string | null };
 
-  return truncatePrompt((card as { prompt: string }).prompt);
+  if (row.card_id) {
+    const { data: card, error: cardError } = await supabase
+      .from("cards")
+      .select("prompt")
+      .eq("id", row.card_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (cardError) throw cardError;
+    if (!card) return null;
+    return truncatePrompt((card as { prompt: string }).prompt);
+  }
+
+  if (row.question_id) {
+    const { data: question, error: questionError } = await supabase
+      .from("questions")
+      .select("prompt")
+      .eq("id", row.question_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (questionError) throw questionError;
+    if (!question) return null;
+    return truncatePrompt((question as { prompt: string }).prompt);
+  }
+
+  // card_states_item_xor (migration 111) guarantees exactly one of
+  // card_id/question_id is set on every row -- unreachable in practice,
+  // kept as an explicit, honest "nothing to name" rather than a silent
+  // fallthrough returning undefined.
+  return null;
 }
 
 export interface DueCardNotificationDispatchResult {
@@ -209,7 +259,7 @@ export async function dispatchDueCardNotifications(supabase: SupabaseClient, now
     // without ever calling sendPushToUser.
     if (!(await claimSendSlot(supabase, userId, sentDate))) continue;
 
-    const prompt = await getOneDueCardPrompt(supabase, userId, now);
+    const prompt = await getOneDueItemPrompt(supabase, userId, now);
     if (prompt === null) {
       await releaseSendSlot(supabase, userId, sentDate);
       continue;

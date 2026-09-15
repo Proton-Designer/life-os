@@ -32,16 +32,18 @@ const AT_1100_LOCAL = new Date("2026-09-14T16:00:00.000Z"); // threshold + 3:00 
  * users already hold a due_card_notification_log row for today (a prior
  * successful send, or a concurrent tick that already won the race) — the
  * claim INSERT itself simulates the unique-violation a real DB would raise
- * for those users. `dueCardByUser` seeds one card_states/cards pair per
- * user for getOneDueCardPrompt. `insertCalls`/`deleteCalls` record every
- * due_card_notification_log write this test can assert against.
+ * for those users. `dueItemByUser` seeds one card_states row per user,
+ * either card-backed (`kind: "card"`) or question-backed (`kind:
+ * "question"`) — `card_states_item_xor`'s real shape (migration 111/179).
+ * `insertCalls`/`deleteCalls` record every due_card_notification_log write
+ * this test can assert against.
  */
 function makeClient(
   opts: {
     subs?: { user_id: string }[];
     profiles?: { user_id: string; timezone: string | null; checkin_window_start?: string | null }[];
     claimedUsers?: Set<string>;
-    dueCardByUser?: Record<string, { cardId: string; prompt: string } | undefined>;
+    dueItemByUser?: Record<string, { kind: "card" | "question"; id: string; prompt: string } | undefined>;
   } = {}
 ) {
   const insertCalls: Record<string, unknown>[] = [];
@@ -93,13 +95,26 @@ function makeClient(
     }
     if (table === "card_states") {
       chain.maybeSingle = vi.fn(async () => {
-        const row = opts.dueCardByUser?.[eqArgs.user_id as string];
-        return { data: row ? { card_id: row.cardId } : null, error: null };
+        const row = opts.dueItemByUser?.[eqArgs.user_id as string];
+        if (!row) return { data: null, error: null };
+        return {
+          data: {
+            card_id: row.kind === "card" ? row.id : null,
+            question_id: row.kind === "question" ? row.id : null,
+          },
+          error: null,
+        };
       });
     }
     if (table === "cards") {
       chain.maybeSingle = vi.fn(async () => {
-        const row = Object.values(opts.dueCardByUser ?? {}).find((r) => r?.cardId === eqArgs.id);
+        const row = Object.values(opts.dueItemByUser ?? {}).find((r) => r?.kind === "card" && r.id === eqArgs.id);
+        return { data: row ? { prompt: row.prompt } : null, error: null };
+      });
+    }
+    if (table === "questions") {
+      chain.maybeSingle = vi.fn(async () => {
+        const row = Object.values(opts.dueItemByUser ?? {}).find((r) => r?.kind === "question" && r.id === eqArgs.id);
         return { data: row ? { prompt: row.prompt } : null, error: null };
       });
     }
@@ -123,7 +138,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_0759_LOCAL);
       expect(result.dispatched).toBe(0);
@@ -136,7 +151,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
       expect(result.dispatched).toBe(1);
@@ -147,7 +162,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_2359_LOCAL);
       expect(result.dispatched).toBe(0);
@@ -160,7 +175,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_1059_LOCAL);
       expect(result.dispatched).toBe(1);
@@ -171,7 +186,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_1100_LOCAL);
       expect(result.dispatched).toBe(0);
@@ -188,9 +203,9 @@ describe("dispatchDueCardNotifications (#10)", () => {
           { user_id: "chicago-user", timezone: "America/Chicago" },
           { user_id: "tokyo-user", timezone: "Asia/Tokyo" },
         ],
-        dueCardByUser: {
-          "chicago-user": { cardId: "c1", prompt: "x" },
-          "tokyo-user": { cardId: "c2", prompt: "y" },
+        dueItemByUser: {
+          "chicago-user": { kind: "card", id: "c1", prompt: "x" },
+          "tokyo-user": { kind: "card", id: "c2", prompt: "y" },
         },
       });
       const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
@@ -205,7 +220,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago", checkin_window_start: "06:00:00" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       // 06:00 local == 11:00Z. AT_0759_LOCAL (12:59Z == 07:59 local) is
       // within [06:00, 07:00)? No -- past it. Use an instant at 06:00 local
@@ -223,7 +238,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
         claimedUsers: new Set(["user-1"]),
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
       expect(result.dispatched).toBe(0);
@@ -241,7 +256,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
 
       const [first, second] = await Promise.all([
@@ -260,7 +275,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client, insertCalls, deleteCalls } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
       expect(result.dispatched).toBe(0);
@@ -274,7 +289,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client, insertCalls, deleteCalls } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: {},
+        dueItemByUser: {},
       });
       const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
       expect(result.dispatched).toBe(0);
@@ -289,7 +304,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       const { client, deleteCalls } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+        dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
       });
       const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
       expect(result.dispatched).toBe(1);
@@ -315,7 +330,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
     const { client } = makeClient({
       subs: [{ user_id: "user-1" }],
       profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-      dueCardByUser: { "user-1": { cardId: "card-1", prompt: "What is the capital of France?" } },
+      dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "What is the capital of France?" } },
     });
 
     const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
@@ -324,13 +339,46 @@ describe("dispatchDueCardNotifications (#10)", () => {
     expect(sendPushToUserMock).toHaveBeenCalledWith(client, "user-1", "3 cards are due", "What is the capital of France?", "/");
   });
 
+  // 2026-09-14 (Opus Lead review): migration 179 made questions
+  // schedulable through the SAME card_states table (card_states_item_xor:
+  // exactly one of card_id/question_id per row) -- a user whose most
+  // overdue item is a question must still get a real push, not a silently
+  // skipped day.
+  it("sends a push naming a due QUESTION's prompt when the most overdue item is question-backed", async () => {
+    countDueCardsMock.mockResolvedValue(2);
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    const { client } = makeClient({
+      subs: [{ user_id: "user-1" }],
+      profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
+      dueItemByUser: { "user-1": { kind: "question", id: "question-1", prompt: "State Newton's second law." } },
+    });
+
+    const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
+
+    expect(result).toEqual({ usersChecked: 1, dispatched: 1 });
+    expect(sendPushToUserMock).toHaveBeenCalledWith(client, "user-1", "2 cards are due", "State Newton's second law.", "/");
+  });
+
+  it("a user whose ONLY due items are questions still gets notified -- not silently skipped", async () => {
+    countDueCardsMock.mockResolvedValue(1);
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    const { client } = makeClient({
+      subs: [{ user_id: "user-1" }],
+      profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
+      dueItemByUser: { "user-1": { kind: "question", id: "question-1", prompt: "Define entropy." } },
+    });
+    const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
+    expect(result.dispatched).toBe(1);
+    expect(sendPushToUserMock).toHaveBeenCalledWith(client, "user-1", "1 card is due", "Define entropy.", "/");
+  });
+
   it("singular copy for exactly one due card", async () => {
     countDueCardsMock.mockResolvedValue(1);
     sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
     const { client } = makeClient({
       subs: [{ user_id: "user-1" }],
       profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-      dueCardByUser: { "user-1": { cardId: "card-1", prompt: "Recall the Pythagorean theorem" } },
+      dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "Recall the Pythagorean theorem" } },
     });
     await dispatchDueCardNotifications(client, AT_0800_LOCAL);
     expect(sendPushToUserMock).toHaveBeenCalledWith(client, "user-1", "1 card is due", "Recall the Pythagorean theorem", "/");
@@ -343,7 +391,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
     const { client } = makeClient({
       subs: [{ user_id: "user-1" }],
       profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
-      dueCardByUser: { "user-1": { cardId: "card-1", prompt: longPrompt } },
+      dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: longPrompt } },
     });
     await dispatchDueCardNotifications(client, AT_0800_LOCAL);
     const body = sendPushToUserMock.mock.calls[0][3] as string;
@@ -358,7 +406,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
     const { client } = makeClient({
       subs: [{ user_id: "user-1" }],
       profiles: [],
-      dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+      dueItemByUser: { "user-1": { kind: "card", id: "card-1", prompt: "x" } },
     });
     // 13:00Z is 08:00 in UTC-as-fallback-timezone too (UTC == UTC).
     const atUtcDefault = new Date("2026-09-14T08:00:00.000Z");
@@ -374,7 +422,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
         { user_id: "user-1", timezone: "America/Chicago" },
         { user_id: "user-2", timezone: "America/Chicago" },
       ],
-      dueCardByUser: { "user-2": { cardId: "card-2", prompt: "Second user's card" } },
+      dueItemByUser: { "user-2": { kind: "card", id: "card-2", prompt: "Second user's card" } },
     });
     const result = await dispatchDueCardNotifications(client, AT_0800_LOCAL);
     expect(result).toEqual({ usersChecked: 2, dispatched: 1 });
