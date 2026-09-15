@@ -1,14 +1,19 @@
 import { vi } from "vitest";
 
 /**
- * P4-17 test doubles shared by route.test.ts and contract.test.ts (not a
- * test file itself: vitest only collects *.test.ts).
+ * P4-17/P4-14 test doubles shared by route.test.ts and contract.test.ts (not
+ * a test file itself: vitest only collects *.test.ts).
  *
- * - fakeServiceClient: mcp_audit_log inserts are recorded, and the rate-limit
- *   count query returns the number of recorded rows for the `token_id` it
- *   filters on (plus an optional per-token preload). The budget is therefore
- *   really shared across whichever transport wrote the rows, which is exactly
- *   what the shared-rate-limit test needs to observe.
+ * - fakeServiceClient: mcp_audit_log inserts are recorded. The rate limit is
+ *   now one atomic RPC (public.mcp_rate_limit_consume, migration 220) rather
+ *   than a count query, so the fake keeps its own in-memory `hits` map keyed
+ *   by bucket key ("tok:<id>" / "user:<id>" / their "sched-" siblings,
+ *   exactly rateLimitBuckets()'s own keys) and mirrors the real RPC's
+ *   contract: check every key against its limit, deny (consuming nothing) if
+ *   any is at its limit, else increment all of them. `preloadCounts` seeds
+ *   `tok:<id>` with prior hits, same convention the old count-based fake used.
+ *   The budget is shared across whichever transport called it, which is
+ *   exactly what the shared-rate-limit test needs to observe.
  * - fakeUserClient: one permissive, deterministic PostgREST chain. Any
  *   builder method returns the chain; awaiting it resolves to the table's
  *   rows. `range` slices, `single`/`maybeSingle` return the first row (or the
@@ -25,31 +30,38 @@ export interface AuditRow extends Record<string, unknown> {
 
 export function fakeServiceClient(opts: { preloadCounts?: Record<string, number>; auditInsertError?: boolean; uncountedTokens?: string[] } = {}) {
   const auditInserts: AuditRow[] = [];
+  const hits: Record<string, number> = {};
+  for (const [tokenId, n] of Object.entries(opts.preloadCounts ?? {})) hits[`tok:${tokenId}`] = n;
+
   const from = vi.fn((table: string) => {
-    const filters: Record<string, unknown> = {};
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "gte", "update", "is", "order"]) chain[m] = vi.fn(() => chain);
-    chain.eq = vi.fn((col: string, value: unknown) => {
-      filters[col] = value;
-      return chain;
-    });
-    chain.then = (resolve: (v: unknown) => void) => {
-      if (table === "mcp_audit_log") {
-        const tokenId = String(filters.token_id);
-        // A token listed here always reads as "no recent calls": the contract test makes hundreds of calls and is not about the limit.
-        if (opts.uncountedTokens?.includes(tokenId)) return resolve({ count: 0, error: null, data: null });
-        const count = (opts.preloadCounts?.[tokenId] ?? 0) + auditInserts.filter((r) => r.token_id === tokenId).length;
-        return resolve({ count, error: null, data: null });
-      }
-      return resolve({ data: null, error: null });
-    };
+    for (const m of ["select", "eq", "gte", "update", "is", "order"]) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null, count: 0 });
     chain.insert = vi.fn((row: AuditRow) => {
       if (!opts.auditInsertError) auditInserts.push(row);
       return { then: (resolve: (v: unknown) => void) => resolve({ error: opts.auditInsertError ? { message: "boom" } : null }) };
     });
     return chain;
   });
-  return { client: { from }, auditInserts };
+
+  const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+    if (name === "mcp_rate_limit_consume") {
+      const keys = args.p_keys as string[];
+      const limits = args.p_limits as number[];
+      // "tok:<id>" / "sched-tok:<id>" -> "<id>" (uncountedTokens is keyed by token id, not by bucket key).
+      const tokenId = keys[0]?.split(":").slice(1).join(":");
+      if (tokenId !== undefined && opts.uncountedTokens?.includes(tokenId)) return { data: { allowed: true }, error: null };
+      for (let i = 0; i < keys.length; i++) {
+        if ((hits[keys[i]] ?? 0) >= limits[i]) return { data: { allowed: false, limited_key: keys[i], retry_after_seconds: 60 }, error: null };
+      }
+      for (const key of keys) hits[key] = (hits[key] ?? 0) + 1;
+      return { data: { allowed: true }, error: null };
+    }
+    if (name === "mcp_rate_limit_note_failure") return { data: { over_limit: false, retry_after_seconds: 60 }, error: null };
+    return { data: null, error: null };
+  });
+
+  return { client: { from, rpc }, auditInserts };
 }
 
 export const TOKEN_ROW = {

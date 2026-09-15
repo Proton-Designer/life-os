@@ -20,13 +20,21 @@ vi.mock("@/lib/mcp/session", () => ({
   buildUserScopedClient: buildUserScopedClientMock,
 }));
 
-function makeServiceClient(opts: { rateLimitCount?: number; auditInsertError?: unknown } = {}) {
+function makeServiceClient(opts: { rateLimited?: boolean; auditInsertError?: unknown } = {}) {
   const inserts: Record<string, unknown>[] = [];
   const events: string[] = [];
+  // P4-14: the limiter is one RPC (mcp_rate_limit_consume). Record what it was asked.
+  const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
+  const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+    rpcCalls.push({ name, args });
+    return opts.rateLimited
+      ? { data: { allowed: false, limited_key: `tok:${String((args.p_keys as string[])[0]).split(":")[1]}`, retry_after_seconds: 23 }, error: null }
+      : { data: { allowed: true }, error: null };
+  });
   const from = vi.fn(() => {
     const chain: Record<string, unknown> = {};
     for (const m of ["select", "eq", "gte", "update", "is"]) chain[m] = vi.fn(() => chain);
-    chain.then = (resolve: (v: unknown) => void) => resolve({ count: opts.rateLimitCount ?? 0, error: null });
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null });
     chain.insert = vi.fn((row: Record<string, unknown>) => {
       inserts.push(row);
       events.push(`audit:${String(row.outcome)}`);
@@ -34,7 +42,7 @@ function makeServiceClient(opts: { rateLimitCount?: number; auditInsertError?: u
     });
     return chain;
   });
-  return { client: { from } as unknown as SupabaseClient, inserts, events };
+  return { client: { from, rpc } as unknown as SupabaseClient, inserts, events, rpcCalls };
 }
 
 const GOOD_AUTH: AuthInfoLike = { scopes: ["read", "write"], extra: { userId: "user-1", tokenId: "tok-1" } };
@@ -107,7 +115,7 @@ describe("executeOperation — typed failures", () => {
   });
 
   it("rate_limited → 429, audited as denied", async () => {
-    const { client, inserts } = makeServiceClient({ rateLimitCount: 999 });
+    const { client, inserts } = makeServiceClient({ rateLimited: true });
     const { executeOperation } = await import("../execute");
     const spec = op();
     const outcome = await executeOperation(client, GOOD_AUTH, spec, "mcp");
@@ -202,5 +210,41 @@ describe("P4-12: the transport reaches the audit row", () => {
     const mcp = makeServiceClient();
     await executeOperation(mcp.client, GOOD_AUTH, op(), "mcp");
     expect(mcp.inserts[0].transport).toBe("mcp");
+  });
+});
+
+describe("P4-14: rate-limit lanes and Retry-After", () => {
+  it("MCP and REST calls consume the INTERACTIVE per-token and per-user buckets", async () => {
+    const { executeOperation } = await import("../execute");
+    for (const transport of ["mcp", "rest"] as const) {
+      const svc = makeServiceClient();
+      await executeOperation(svc.client, GOOD_AUTH, op(), transport);
+      expect(svc.rpcCalls[0].name).toBe("mcp_rate_limit_consume");
+      expect(svc.rpcCalls[0].args.p_keys).toEqual(["tok:tok-1", "user:user-1"]);
+    }
+  });
+
+  it("scheduled fires consume the SCHEDULER buckets, never the interactive ones", async () => {
+    const { executeOperation } = await import("../execute");
+    const svc = makeServiceClient();
+    await executeOperation(svc.client, GOOD_AUTH, op(), "scheduler");
+    expect(svc.rpcCalls[0].args.p_keys).toEqual(["sched-tok:tok-1", "sched-user:user-1"]);
+  });
+
+  it("a rate-limited result carries retryAfterSeconds, and the message tells the caller when to retry", async () => {
+    const { executeOperation } = await import("../execute");
+    const svc = makeServiceClient({ rateLimited: true });
+    const outcome = await executeOperation(svc.client, GOOD_AUTH, op(), "rest");
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.retryAfterSeconds).toBe(23);
+    expect(outcome.message).toMatch(/retry after 23s/i);
+  });
+
+  it("a scope denial does not touch the rate limiter at all (it never consumes budget)", async () => {
+    const { executeOperation } = await import("../execute");
+    const svc = makeServiceClient();
+    await executeOperation(svc.client, READ_ONLY_AUTH, op({ requiredScope: "write" }), "mcp");
+    expect(svc.rpcCalls).toHaveLength(0);
   });
 });

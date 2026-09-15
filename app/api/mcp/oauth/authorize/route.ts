@@ -7,6 +7,7 @@ import { renderConsentPage, renderErrorPage, renderLoginRequiredPage } from "@/l
 import type { McpScope } from "@/lib/mcp/tokens";
 import { getPublicOrigin } from "mcp-handler";
 import { authorizeReturnPath, isAllowedResource, isSameOriginRequest } from "@/lib/mcp/authorize-guards";
+import { noteAuthFailure, tooManyAuthFailuresResponse } from "@/lib/mcp/auth-failure-limit";
 
 /**
  * RFC 6749 sec 4.1 authorization endpoint, with a MANDATORY consent step —
@@ -146,13 +147,25 @@ function html(body: string, status = 200): Response {
   return new NextResponse(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+/**
+ * P4-14: a "client_error" page (bad/missing client_id, unknown client,
+ * redirect_uri mismatch) is exactly the shape a client guessing at
+ * credentials produces, so it consumes a per-IP auth-failure bucket like
+ * every other credential-failure path; over the limit it becomes 429.
+ */
+async function clientErrorResponse(request: Request, message: string): Promise<Response> {
+  const verdict = await noteAuthFailure(createServiceRoleClient(), request);
+  if (verdict.limited) return tooManyAuthFailuresResponse(verdict.retryAfterSeconds);
+  return html(renderErrorPage(message), 400);
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const result = await resolveAuthorizeRequest(searchParams, ownOrigins(request));
 
   switch (result.stage) {
     case "client_error":
-      return html(renderErrorPage(result.message), 400);
+      return clientErrorResponse(request, result.message);
     case "redirect_error":
       return redirectWithError(result.redirectUri, result.state, result.error, result.description);
     case "needs_login":
@@ -201,7 +214,7 @@ export async function POST(request: Request) {
 
   switch (result.stage) {
     case "client_error":
-      return html(renderErrorPage(result.message), 400);
+      return clientErrorResponse(request, result.message);
     case "redirect_error":
       return redirectWithError(result.redirectUri, result.state, result.error, result.description);
     case "needs_login":

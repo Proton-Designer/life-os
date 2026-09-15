@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeServiceClient, fakeUserClient } from "./fake-db";
+// P4-14: dynamically imported in beforeEach, not statically here -- see
+// app/api/mcp/__tests__/route.test.ts's own comment on why (a static import
+// here drags in the mocked @/lib/mcp/tokens before this file's own mock
+// consts initialize, tripping their TDZ).
 
 /**
  * P4-17: the /api/v1 REST adapter, driven through its EXPORTED route
@@ -36,13 +40,15 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient }));
 
 let service = fakeServiceClient();
 
-beforeEach(() => {
+beforeEach(async () => {
   service = fakeServiceClient();
   createServiceRoleClient.mockImplementation(() => service.client);
   verifyAccessTokenMock.mockClear();
   isUserActiveMock.mockReset();
   isUserActiveMock.mockResolvedValue(true);
   userClientOpts = {};
+  const { __resetAuthFailureCacheForTests } = await import("@/lib/mcp/auth-failure-limit");
+  __resetAuthFailureCacheForTests();
 });
 
 const BASE = "https://lifeos.test/api/v1";
@@ -146,6 +152,25 @@ describe("auth", () => {
     expect((await problem(res)).code).toBe("token_in_query");
     expect(verifyAccessTokenMock).not.toHaveBeenCalled();
   });
+
+  it("P4-14: a 401 becomes 429 rate_limited with Retry-After once the auth-failure RPC reports over_limit, and a successful call never consumes that bucket", async () => {
+    service = fakeServiceClient();
+    service.client.rpc = vi.fn(async (name: string) =>
+      name === "mcp_rate_limit_note_failure" ? { data: { over_limit: true, retry_after_seconds: 33 }, error: null } : { data: { allowed: true }, error: null },
+    );
+    createServiceRoleClient.mockImplementation(() => service.client);
+    const { GET } = await catchAll();
+
+    const flooded = await GET(req("/deen/prayer", { headers: { Authorization: "Bearer nope", "x-forwarded-for": "203.0.113.9" } }));
+    expect(flooded.status).toBe(429);
+    expect(flooded.headers.get("retry-after")).toBe("33");
+    expect((await problem(flooded)).code).toBe("rate_limited");
+
+    const ok = await GET(req("/deen/prayer", { headers: { ...AUTH, "x-forwarded-for": "203.0.113.9" } }));
+    expect(ok.status).toBe(200);
+    expect(service.client.rpc).toHaveBeenCalledTimes(2); // the flooded 401 (note_failure) + the ok call's rate-limit consume; never a note_failure for the success
+    expect((service.client.rpc as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual(["mcp_rate_limit_note_failure", "mcp_rate_limit_consume"]);
+  });
 });
 
 describe("discovery", () => {
@@ -167,7 +192,13 @@ describe("discovery", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.token).toEqual(expect.objectContaining({ id: "tok-1", label: "Instinct", scopes: ["read", "write"], expires_at: "2026-12-01T00:00:00.000Z", client_kind: "agent", last4: "abcd" }));
-    expect(body.rate_limit).toEqual({ max_calls: 30, window_seconds: 60, scope: "per token, shared by MCP and REST" });
+    expect(body.rate_limit).toEqual({
+      max_calls: 30,
+      window_seconds: 60,
+      scope: "per token, shared by MCP and REST",
+      user_max_calls: 60,
+      user_scope: "across all of this account's tokens",
+    });
     expect(service.auditInserts).toEqual([expect.objectContaining({ operation: "discovery.me", transport: "rest", outcome: "ok", token_id: "tok-1" })]);
   });
 });

@@ -73,10 +73,18 @@ export function problemResponse(
   detail: string,
   ctx: Pick<ResponseContext, "requestId" | "operation">,
   extraHeaders: Record<string, string> = {},
+  // P4-14: the ACTUAL seconds until the exhausted bucket's window resets
+  // (from executeOperation's rate-limit result, or the auth-failure
+  // limiter). Falls back to the fixed window length only when no real
+  // value is available (a caller that hasn't been rate-limited itself).
+  retryAfterSeconds?: number,
 ): Response {
   const headers = baseHeaders(ctx, "application/problem+json");
   for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
-  if (code === "rate_limited") headers.set("Retry-After", String(RATE_LIMIT_WINDOW_SECONDS));
+  if (code === "rate_limited") {
+    const seconds = retryAfterSeconds !== undefined && retryAfterSeconds > 0 ? Math.ceil(retryAfterSeconds) : RATE_LIMIT_WINDOW_SECONDS;
+    headers.set("Retry-After", String(seconds));
+  }
   const body = { type: `urn:lifeos:problem:${code}`, title: TITLES[code], status, code, detail, operation: ctx.operation, request_id: ctx.requestId };
   return new Response(JSON.stringify(body), { status, headers });
 }
@@ -101,7 +109,7 @@ function nextLink(data: unknown, linkBase: URL | null): string | null {
 }
 
 export function operationToResponse(result: OperationResult, ctx: ResponseContext): Response {
-  if (!result.ok) return problemResponse(result.code, result.status, result.message, ctx);
+  if (!result.ok) return problemResponse(result.code, result.status, result.message, ctx, {}, result.retryAfterSeconds);
 
   // A tool that REPORTS an error without throwing (isError:true) is still an
   // error: never a 200. Its text was written for the model, so it is shown

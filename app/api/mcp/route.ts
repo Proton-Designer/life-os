@@ -2,6 +2,7 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { verifyAccessToken } from "@/lib/mcp/tokens";
 import { isUserActive } from "@/lib/mcp/active-user";
+import { noteAuthFailure, tooManyAuthFailuresResponse } from "@/lib/mcp/auth-failure-limit";
 import { runMcpTool } from "@/lib/mcp/tool-wrapper";
 import { readMcpAuth, type AuthInfoLike } from "@/lib/mcp/auth-info";
 import { TOOL_INPUT_SCHEMAS, buildOperationSpec, type ParsedToolArgs } from "@/lib/agent-api/operations";
@@ -156,4 +157,17 @@ const handler = createMcpHandler(
 
 const authedHandler = withMcpAuth(handler, verifyToken, { required: true });
 
-export { authedHandler as GET, authedHandler as POST, authedHandler as DELETE };
+/**
+ * P4-14: a 401 out of the auth boundary above consumes a per-IP
+ * auth-failure bucket (never the happy path, see auth-failure-limit.ts's
+ * own header for why); over the limit, the client is told to back off
+ * (429 + Retry-After) instead of continuing to probe.
+ */
+async function withAuthFailureLimit(request: Request): Promise<Response> {
+  const response = await authedHandler(request);
+  if (response.status !== 401) return response;
+  const verdict = await noteAuthFailure(createServiceRoleClient(), request);
+  return verdict.limited ? tooManyAuthFailuresResponse(verdict.retryAfterSeconds) : response;
+}
+
+export { withAuthFailureLimit as GET, withAuthFailureLimit as POST, withAuthFailureLimit as DELETE };

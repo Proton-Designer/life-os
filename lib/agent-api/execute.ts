@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { tokenHasScope, touchLastUsed, type McpScope } from "@/lib/mcp/tokens";
-import { checkRateLimit } from "@/lib/mcp/rate-limit";
+import { consumeRateLimit } from "@/lib/mcp/rate-limit";
 import { writeAuditRow, type McpAuditOutcome, type McpAuditTransport } from "@/lib/mcp/audit";
 import { mintSessionJwt, buildUserScopedClient } from "@/lib/mcp/session";
 import { readMcpAuth, type AuthInfoLike } from "@/lib/mcp/auth-info";
@@ -85,6 +85,8 @@ export interface OperationFailure {
   status: number;
   /** Always safe to show the caller: static text, or a ToolInputError's own message. Never a raw internal error. */
   message: string;
+  /** P4-14: only on `rate_limited` -- seconds until the window resets (REST sends it as Retry-After; the MCP text says it). */
+  retryAfterSeconds?: number;
 }
 
 export type OperationResult = OperationSuccess | OperationFailure;
@@ -125,7 +127,7 @@ export async function executeOperation(
 
   // A denial's own audit write is awaited and NOT caught: if it fails, this
   // rejects, exactly as runMcpTool always has.
-  const deny = async (code: "insufficient_scope" | "rate_limited", message: string): Promise<OperationFailure> => {
+  const deny = async (code: "insufficient_scope" | "rate_limited", message: string, retryAfterSeconds?: number): Promise<OperationFailure> => {
     await writeAuditRow(serviceClient, {
       userId: auth.userId,
       tokenId: auth.tokenId,
@@ -137,16 +139,25 @@ export async function executeOperation(
       transport,
     });
     void touchLastUsed(serviceClient, auth.tokenId).catch(() => {});
-    return failure(code, message);
+    const denied = failure(code, message);
+    return retryAfterSeconds !== undefined ? { ...denied, retryAfterSeconds } : denied;
   };
 
   if (!tokenHasScope(auth.scopes, requiredScope)) {
     return deny("insufficient_scope", `This token doesn't have "${requiredScope}" permission.`);
   }
 
-  const rateLimit = await checkRateLimit(serviceClient, auth.tokenId);
+  // P4-14: one atomic RPC (migration 220) -- per token AND per user, all or
+  // nothing, and a denial consumes nothing. Scheduled fires draw on their own
+  // lane so a busy interactive session can't make them fail; MCP and REST
+  // share the interactive lane (one budget per token across both).
+  const rateLimit = await consumeRateLimit(serviceClient, {
+    tokenId: auth.tokenId,
+    userId: auth.userId,
+    lane: transport === "scheduler" ? "scheduler" : "interactive",
+  });
   if (!rateLimit.ok) {
-    return deny("rate_limited", rateLimit.message ?? "Rate limited.");
+    return deny("rate_limited", rateLimit.message ?? "Rate limited.", rateLimit.retryAfterSeconds);
   }
 
   let outcome: McpAuditOutcome = "ok";

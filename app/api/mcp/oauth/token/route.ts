@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   consumeAuthorizationCode,
@@ -9,6 +10,7 @@ import {
   runRefreshGrant,
 } from "@/lib/mcp/oauth";
 import { createAccessToken, OAUTH_ACCESS_TOKEN_TTL_SECONDS } from "@/lib/mcp/tokens";
+import { noteAuthFailure, tooManyAuthFailuresResponse } from "@/lib/mcp/auth-failure-limit";
 
 /**
  * RFC 6749 sec 4.1.3 / 6 token endpoint — the second half of the
@@ -57,7 +59,18 @@ function oauthTokenOptions() {
 const GENERIC_SERVER_ERROR = "The token request couldn't be completed. Try again.";
 const TOKEN_CAP_MESSAGE_FOR_CLIENT = "This account already has the maximum number of active connections. Revoke one in Life OS Settings, then reconnect.";
 
-function tokenError(error: string, description: string, status = 400) {
+/**
+ * P4-14: invalid_grant / invalid_request are the failure shapes a client
+ * guessing or replaying a dead credential produces -- so, like the /api/mcp
+ * and /api/v1 401 paths, they consume a per-IP auth-failure bucket, and over
+ * the limit this becomes 429 instead. unsupported_grant_type/server_error
+ * are not caller-credential failures and are never counted.
+ */
+async function tokenError(request: Request, serviceClient: SupabaseClient, error: string, description: string, status = 400) {
+  if (error === "invalid_grant" || error === "invalid_request") {
+    const verdict = await noteAuthFailure(serviceClient, request);
+    if (verdict.limited) return tooManyAuthFailuresResponse(verdict.retryAfterSeconds);
+  }
   return NextResponse.json({ error, error_description: description }, { status });
 }
 
@@ -82,11 +95,11 @@ async function parseTokenRequestBody(request: Request): Promise<URLSearchParams 
 }
 
 export async function POST(request: Request) {
+  const supabase = createServiceRoleClient();
   const form = await parseTokenRequestBody(request);
-  if (!form) return tokenError("invalid_request", "Malformed request body.");
+  if (!form) return tokenError(request, supabase, "invalid_request", "Malformed request body.");
 
   const grantType = form.get("grant_type");
-  const supabase = createServiceRoleClient();
 
   if (grantType === "authorization_code") {
     const code = form.get("code");
@@ -94,11 +107,11 @@ export async function POST(request: Request) {
     const clientId = form.get("client_id");
     const codeVerifier = form.get("code_verifier");
     if (!code || !redirectUri || !clientId || !codeVerifier) {
-      return tokenError("invalid_request", "code, redirect_uri, client_id, and code_verifier are all required.");
+      return tokenError(request, supabase, "invalid_request", "code, redirect_uri, client_id, and code_verifier are all required.");
     }
 
     const consumed = await consumeAuthorizationCode(supabase, { rawCode: code, clientId, redirectUri, codeVerifier });
-    if (!consumed.ok) return tokenError(consumed.error, consumed.message);
+    if (!consumed.ok) return tokenError(request, supabase, consumed.error, consumed.message);
 
     // Label with the DCR-supplied client_name ("Claude"), never the raw
     // client_id (a ~50-char random string) — see formatOAuthTokenLabel's
@@ -106,11 +119,11 @@ export async function POST(request: Request) {
     const client = await getOAuthClient(supabase, clientId);
     const minted = await createAccessToken(supabase, consumed.userId, formatOAuthTokenLabel(client), consumed.scopes, oauthTokenOptions());
     if (!minted.ok || !minted.token || !minted.status) {
-      return tokenError("server_error", minted.message, 500);
+      return tokenError(request, supabase, "server_error", minted.message, 500);
     }
 
     const refresh = await mintRefreshToken(supabase, { accessTokenId: minted.status.id, clientId, userId: consumed.userId });
-    if (!refresh.ok) return tokenError("server_error", refresh.message, 500);
+    if (!refresh.ok) return tokenError(request, supabase, "server_error", refresh.message, 500);
 
     return NextResponse.json({
       access_token: minted.token,
@@ -123,13 +136,13 @@ export async function POST(request: Request) {
 
   if (grantType === "refresh_token") {
     const rawRefreshToken = form.get("refresh_token");
-    if (!rawRefreshToken) return tokenError("invalid_request", "refresh_token is required.");
+    if (!rawRefreshToken) return tokenError(request, supabase, "invalid_request", "refresh_token is required.");
 
     // The label needs the client's registered name, so look the refresh row
     // up first (read-only; client_id never changes). An unknown token stops
     // here. Everything that WRITES happens inside one transaction below.
     const found = await findAccessTokenForRefreshToken(supabase, rawRefreshToken);
-    if (!found) return tokenError("invalid_grant", "Refresh token is invalid.");
+    if (!found) return tokenError(request, supabase, "invalid_grant", "Refresh token is invalid.");
     const client = await getOAuthClient(supabase, found.clientId);
 
     // P4-13: the whole grant is public.mcp_oauth_refresh_grant (migration
@@ -158,17 +171,17 @@ export async function POST(request: Request) {
           refresh_token: grant.refreshToken,
         });
       case "invalid":
-        return tokenError("invalid_grant", "Refresh token is invalid.");
+        return tokenError(request, supabase, "invalid_grant", "Refresh token is invalid.");
       case "reuse":
-        return tokenError("invalid_grant", "Refresh token has already been used. The associated access has been revoked.");
+        return tokenError(request, supabase, "invalid_grant", "Refresh token has already been used. The associated access has been revoked.");
       case "revoked":
-        return tokenError("invalid_grant", "The access this refresh token belonged to has been revoked or no longer exists. Reconnect to continue.");
+        return tokenError(request, supabase, "invalid_grant", "The access this refresh token belonged to has been revoked or no longer exists. Reconnect to continue.");
       case "cap":
-        return tokenError("server_error", TOKEN_CAP_MESSAGE_FOR_CLIENT, 500);
+        return tokenError(request, supabase, "server_error", TOKEN_CAP_MESSAGE_FOR_CLIENT, 500);
       case "error":
-        return tokenError("server_error", GENERIC_SERVER_ERROR, 500);
+        return tokenError(request, supabase, "server_error", GENERIC_SERVER_ERROR, 500);
     }
   }
 
-  return tokenError("unsupported_grant_type", `grant_type "${grantType}" is not supported. Use authorization_code or refresh_token.`);
+  return tokenError(request, supabase, "unsupported_grant_type", `grant_type "${grantType}" is not supported. Use authorization_code or refresh_token.`);
 }

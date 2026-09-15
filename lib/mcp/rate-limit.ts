@@ -2,74 +2,91 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Per-token rate limiting for MCP tool calls (L3, PROGRAM-PLAN.md).
+ * Rate limiting for the agent surface -- MCP tool calls, REST /api/v1 calls
+ * and scheduled fires -- via ONE atomic RPC, public.mcp_rate_limit_consume
+ * (migration 220, P4-14).
  *
- * NO REDIS, NO IN-MEMORY STATE — by instruction, and for a concrete reason:
- * a serverless function's memory does not survive between invocations, so
- * an in-memory counter limits nothing on Vercel; the next call is a cold
- * process with a counter back at zero. `mcp_audit_log` is the only state
- * that actually persists between calls, so the limiter counts real rows in
- * it rather than keeping a count of its own anywhere.
+ * WHY NOT COUNT mcp_audit_log ROWS ANY MORE (the pre-P4-14 design): that was
+ * count-then-act, so a parallel burst all passed before any audit row landed
+ * (proven on a real Postgres: 35 of 40 parallel calls got through a 30 limit);
+ * denied calls wrote audit rows and so consumed budget; it was per token only;
+ * and scheduled fires shared the interactive budget. The RPC takes a per-key
+ * advisory lock, checks EVERY key, and increments all of them or none: 40
+ * parallel calls allow exactly 30, and a denial costs nothing. Still no
+ * in-memory state -- serverless instances don't share memory.
  *
- * PER TOKEN, NOT PER USER: `mcp_audit_log_token_id_created_at_idx`
- * (migration 130) exists for exactly this query. A user with several
- * tokens must not have one noisy token exhaust the budget of another --
- * counting by user_id would do that.
+ * BUCKETS PER LANE
+ *   interactive (MCP and REST share it): per token AND per user (all tokens)
+ *   scheduler: its own per-token and per-user buckets, so a busy interactive
+ *              session never makes scheduled writes fail and pause
  *
- * DEFAULTS BELOW ARE MINE, NOT SPECIFIED — same posture as migration 130's
- * scopes (also mine, documented as such). 30 calls / 60s is a guess at
- * "fast enough for an interactive assistant session, slow enough to bound
- * damage from a runaway loop"; there is no usage data yet to tune it
- * against. Treat as a placeholder the owner/lead should revisit once real
- * MCP traffic exists.
+ * The numbers are placeholders, same posture as before: no real traffic yet.
+ * The per-user ceiling is 2x the per-token limit, so one token alone never
+ * trips it first; it exists to stop "mint more tokens" from multiplying the
+ * budget.
+ *
+ * FIXED WINDOWS: up to 2x a limit can land across a window boundary. Accepted
+ * (bounding loops and abuse, not metering) -- see migration 220's header.
  */
 export const RATE_LIMIT_WINDOW_SECONDS = 60;
 export const RATE_LIMIT_MAX_CALLS = 30;
+export const RATE_LIMIT_USER_MAX_CALLS = 60;
+export const SCHEDULER_RATE_LIMIT_MAX_CALLS = 30;
+export const SCHEDULER_RATE_LIMIT_USER_MAX_CALLS = 60;
+
+/** Retry-After used when the limiter itself can't answer (it fails closed). */
+const FAIL_CLOSED_RETRY_SECONDS = 5;
+
+export type RateLimitLane = "interactive" | "scheduler";
 
 export interface RateLimitResult {
   ok: boolean;
-  /** Present only when `ok` is false — safe to return to the caller as-is. */
+  /** Present only when `ok` is false -- safe to return to the caller as-is. */
   message?: string;
+  /** Present only when `ok` is false: seconds until the window resets (HTTP Retry-After). */
+  retryAfterSeconds?: number;
+}
+
+export function rateLimitBuckets(lane: RateLimitLane, tokenId: string, userId: string): { keys: string[]; limits: number[] } {
+  if (lane === "scheduler") {
+    return { keys: [`sched-tok:${tokenId}`, `sched-user:${userId}`], limits: [SCHEDULER_RATE_LIMIT_MAX_CALLS, SCHEDULER_RATE_LIMIT_USER_MAX_CALLS] };
+  }
+  return { keys: [`tok:${tokenId}`, `user:${userId}`], limits: [RATE_LIMIT_MAX_CALLS, RATE_LIMIT_USER_MAX_CALLS] };
 }
 
 /**
- * Counts this token's `mcp_audit_log` rows in the trailing window. Uses a
- * `head: true, count: "exact"` select so Postgres returns a row count
- * without shipping the rows themselves — this runs on every tool call, so
- * it has to stay cheap.
- *
- * `supabase` MUST be a service-role client (see verifyAccessToken's own
- * comment in lib/mcp/tokens.ts for why an RLS-scoped client can't be used
- * here either — same reasoning: rate-limiting happens before/around the
- * per-user session is minted, and mcp_audit_log grants the user only
- * SELECT, not the aggregate query shape this needs against other users'
- * absence of rows... more simply: this is infrastructure bookkeeping, not
- * a user-facing read, and belongs on the service-role path like the token
- * lookup it sits next to).
+ * Consumes one call from every bucket of `lane` for this token and user, or
+ * none if any is exhausted. `supabase` MUST be the service-role client
+ * (EXECUTE on the RPC is granted to service_role only).
  */
-export async function checkRateLimit(
+export async function consumeRateLimit(
   supabase: SupabaseClient,
-  tokenId: string,
-  windowSeconds: number = RATE_LIMIT_WINDOW_SECONDS,
-  maxCalls: number = RATE_LIMIT_MAX_CALLS,
+  params: { tokenId: string; userId: string; lane: RateLimitLane },
 ): Promise<RateLimitResult> {
-  const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString();
-  const { count, error } = await supabase
-    .from("mcp_audit_log")
-    .select("id", { count: "exact", head: true })
-    .eq("token_id", tokenId)
-    .gte("created_at", windowStart);
+  const { keys, limits } = rateLimitBuckets(params.lane, params.tokenId, params.userId);
+  const { data, error } = await supabase.rpc("mcp_rate_limit_consume", {
+    p_keys: keys,
+    p_limits: limits,
+    p_window_seconds: RATE_LIMIT_WINDOW_SECONDS,
+  });
 
-  if (error) {
-    // Fail CLOSED: if we can't even tell how many calls this token has made
-    // recently, we cannot honestly claim the limit is respected. A denial a
-    // legitimate caller can retry in a moment is a far smaller cost than a
-    // rate limit that silently stops limiting the moment its own query breaks.
-    return { ok: false, message: "Rate limit check failed; try again shortly." };
+  const answer = (data ?? null) as { allowed?: unknown; limited_key?: unknown; retry_after_seconds?: unknown } | null;
+  if (error || !answer || typeof answer.allowed !== "boolean") {
+    // Fail CLOSED: if we can't tell whether this call is within budget, we
+    // can't honestly claim the limit holds. A caller can retry in a moment.
+    return { ok: false, message: "Rate limit check failed; try again shortly.", retryAfterSeconds: FAIL_CLOSED_RETRY_SECONDS };
   }
+  if (answer.allowed) return { ok: true };
 
-  if ((count ?? 0) >= maxCalls) {
-    return { ok: false, message: `Rate limit exceeded: ${maxCalls} calls per ${windowSeconds}s per token.` };
-  }
-  return { ok: true };
+  const retryAfterSeconds =
+    typeof answer.retry_after_seconds === "number" && answer.retry_after_seconds > 0 ? Math.ceil(answer.retry_after_seconds) : RATE_LIMIT_WINDOW_SECONDS;
+  const limitedKey = typeof answer.limited_key === "string" ? answer.limited_key : "";
+  const perUser = limitedKey.startsWith("user:") || limitedKey.startsWith("sched-user:");
+  const limit = limits[keys.indexOf(limitedKey)] ?? limits[0];
+  const scope = perUser ? "across all of this account's tokens" : "per token";
+  return {
+    ok: false,
+    message: `Rate limit exceeded: ${limit} calls per ${RATE_LIMIT_WINDOW_SECONDS}s ${scope}. Retry after ${retryAfterSeconds}s.`,
+    retryAfterSeconds,
+  };
 }
