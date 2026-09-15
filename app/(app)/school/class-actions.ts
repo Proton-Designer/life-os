@@ -21,6 +21,11 @@ export type { GradeCategoryInput };
 export type { AssessmentType };
 
 const SYLLABUS_BUCKET = "syllabi";
+// Same bucket name as lecture-actions.ts's own (private, not exported) --
+// duplicated rather than imported so this file doesn't need to claim
+// lecture-actions.ts (same reasoning that file's own header gives for
+// duplicating sanitizeFilenameSegment instead of importing it).
+const LECTURES_BUCKET = "lectures";
 const SYLLABUS_SIGNED_URL_TTL_SECONDS = 300; // 5 minutes — short-lived, minted fresh per view, never cached.
 
 /**
@@ -370,6 +375,18 @@ export async function deleteClass(classId: string) {
 
   if (existing.syllabus_path) {
     await supabase.storage.from(SYLLABUS_BUCKET).remove([existing.syllabus_path]);
+  }
+
+  // P3-14 FIX (HANDOFF-team-b.md §5 item 1): lecture_recordings rows cascade
+  // with the class delete above (FK), but the audio bytes themselves live in
+  // the `lectures` bucket under `<userId>/<classId>/<filename>`
+  // (lecture-actions.ts's own path convention) and were never removed --
+  // orphaned forever. Best-effort, same posture as the syllabus cleanup just
+  // above: the database is already settled by this point, so a storage
+  // failure here must never surface as a failed delete.
+  const { data: lectureFiles } = await supabase.storage.from(LECTURES_BUCKET).list(`${userId}/${classId}`);
+  if (lectureFiles && lectureFiles.length > 0) {
+    await supabase.storage.from(LECTURES_BUCKET).remove(lectureFiles.map((f) => `${userId}/${classId}/${f.name}`));
   }
 
   revalidatePath("/school");
