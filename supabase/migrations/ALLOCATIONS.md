@@ -86,6 +86,7 @@ the point is to make a number unavailable the moment it is promised.
 | `184` | Sonnet ENG 1 (Team A, P2-07) | staging_batches.raw_text, nullable, populated for announcement source only | APPLIED 2026-09-15 |
 | `185` | Sonnet ENG 1 (Team A, P2-09) | practice_tests + practice_test_answers (fixed pre-exam intervals) | APPLIED 2026-09-15 |
 | `186` | Sonnet ENG 1 (Team A, P2-11) | identity_habits.kill_reason, nullable, escalated kill-flow | pending |
+| `187` | Sonnet ENG 1 (Team A, P2-14), allocated by Opus Lead, 2026-09-15 | books.ingestion_mode, not null default 'standard', CHECK IN ('standard','batch') | pending |
 | `190` | Sonnet ENG 2 (Team A, P2-04) | work_sessions.hour_notified_at idempotency column | pending |
 | `210`–`239` | BLOCK — Team B (overnight run 2026-09-15, lead tracking-app-a9) | Phase 4 AI/MCP + Canvas + Team B's Phase 3 migrations. Individual numbers are recorded as rows below when handed out | reserved |
 | `210` | Team B / tracking-app-1e (P2-20) — allocated by Team B lead tracking-app-a9, 2026-09-15 | Canvas integration: encrypted BYO Canvas token + instance URL per user, Canvas course <-> local class mapping. RLS + composite tenancy FKs | allocated |
