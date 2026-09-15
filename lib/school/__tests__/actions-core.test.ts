@@ -180,4 +180,33 @@ describe("updateClassAssessmentCore", () => {
     await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20", weightPct: null });
     expect(assessmentsChain.update).toHaveBeenCalledWith({ name: "x", type: "quiz", date: "2026-10-20", weight_pct: null });
   });
+
+  /**
+   * P2-21 (Opus Lead's never-overwrite-a-user-grade ruling): providing
+   * pointsEarned here is THE user-edit path migration 189's points_source
+   * invariant is about -- it must ALWAYS clear points_source back to null,
+   * so a user's correction to a Canvas-synced grade is never silently
+   * re-overwritten by the next sync (lib/canvas/sync-core.ts only ever
+   * writes points_earned when points_source is null-or-already-'canvas',
+   * so clearing it here is what makes a manual correction stick).
+   */
+  it("providing pointsEarned always clears points_source, marking the grade user-entered again", async () => {
+    const assessmentsChain = makeChain({ data: { task_id: null }, error: null });
+    const from = vi.fn(() => assessmentsChain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20", pointsEarned: 87 });
+    expect(assessmentsChain.update).toHaveBeenCalledWith({ name: "x", type: "quiz", date: "2026-10-20", points_earned: 87, points_source: null });
+  });
+
+  it("omitting pointsEarned leaves both points_earned and points_source untouched", async () => {
+    const assessmentsChain = makeChain({ data: { task_id: null }, error: null });
+    const from = vi.fn(() => assessmentsChain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20" });
+    const call = assessmentsChain.update.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("points_earned");
+    expect(call).not.toHaveProperty("points_source");
+  });
 });

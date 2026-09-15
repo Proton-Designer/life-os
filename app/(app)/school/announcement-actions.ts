@@ -3,57 +3,32 @@
 import { revalidatePath } from "next/cache";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
-import { extractDeliverablesFromAnnouncementText } from "@/lib/school/announcement-extraction";
-import { createStagingBatchCore, createStagedDeliverablesCore } from "@/lib/school/staging-core";
+import { stageAnnouncementCore, type StageAnnouncementOutcome } from "@/lib/school/announcement-extraction-core";
 
 /**
  * P2-07 — pasted announcement → AI parse → staged diff, the action-layer
  * wiring. Parallel to syllabus-extraction-actions.ts, minus the PDF-parsing
- * step (plain pasted text, no file). A `staging_batches` row is created ONLY
- * once extraction actually runs and produces a result — same rule that
- * file's own header states, same reason: a paste too short to bother with,
- * or an AI call that never ran, leaves no batch and no history row behind.
+ * step (plain pasted text, no file).
+ *
+ * P2-21: the actual "parse then stage" logic moved to
+ * lib/school/announcement-extraction-core.ts's `stageAnnouncementCore` (R5
+ * extraction) — the new Canvas announcement poller needs the identical
+ * step, looped over many users with a service-role client and no session.
+ * This function is now a thin wrapper: resolve the cookie-authed user/
+ * timezone, call the core, revalidate. Behavior unchanged.
  */
 
-export type AnnouncementExtractionOutcome =
-  | { outcome: "extracted"; batchId: string; itemCount: number; truncated: boolean }
-  | { outcome: "too_short" }
-  | { outcome: "no_key" }
-  | { outcome: "unavailable" }
-  | { outcome: "parse_failed" };
-
-/** Below this, a paste is almost certainly not a real announcement ("ok" /
- * accidental submit) — deciding this before ever calling the gateway means
- * a near-empty paste never spends a call or leaves a history row. */
-const MIN_ANNOUNCEMENT_LENGTH = 10;
-/** Matches migration 184's own `staging_batches_raw_text_length` CHECK — the
- * insert below would fail the CHECK past this anyway; trimming here first
- * gives a clean "was it stored" invariant rather than relying on the DB to
- * reject an over-long write after the AI call already ran. */
-const MAX_STORED_RAW_TEXT_LENGTH = 10_000;
+export type AnnouncementExtractionOutcome = StageAnnouncementOutcome;
 
 export async function extractAnnouncementDeliverables(classId: string, announcementText: string): Promise<AnnouncementExtractionOutcome> {
   const { supabase, userId } = await requireUser();
-
-  const trimmed = announcementText.trim();
-  if (trimmed.length < MIN_ANNOUNCEMENT_LENGTH) {
-    return { outcome: "too_short" };
-  }
-
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
 
-  const result = await extractDeliverablesFromAnnouncementText(supabase, userId, trimmed, todayStr);
-  if (result.status !== "extracted") {
-    return { outcome: result.status };
-  }
-
-  const batchId = await createStagingBatchCore(supabase, userId, classId, "announcement", trimmed.slice(0, MAX_STORED_RAW_TEXT_LENGTH));
-  await createStagedDeliverablesCore(supabase, userId, batchId, result.items);
-
-  revalidatePath("/school");
-  return { outcome: "extracted", batchId, itemCount: result.items.length, truncated: result.truncated };
+  const result = await stageAnnouncementCore(supabase, userId, classId, announcementText, todayStr);
+  if (result.outcome === "extracted") revalidatePath("/school");
+  return result;
 }
 
 export interface AnnouncementHistoryEntry {

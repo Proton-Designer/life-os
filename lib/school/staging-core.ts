@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addClassAssessmentCore, type AssessmentType } from "@/lib/school/actions-core";
 import type { ExtractedItem } from "@/lib/school/syllabus-extraction";
 
-export type StagingBatchSource = "syllabus" | "announcement";
+export type StagingBatchSource = "syllabus" | "announcement" | "canvas_assignment";
 
 export type StagingBatchStatus = "pending" | "confirming" | "confirmed";
 
@@ -165,11 +165,17 @@ export async function createStagingBatchCore(
   /** P2-07: the pasted announcement text (migration 184's `raw_text`), for the
    * per-course history list. Omitted (undefined) for a syllabus batch -- there
    * is no raw text to store, same as before this parameter existed. */
-  rawText?: string
+  rawText?: string,
+  /** P2-21: migration 189's dedup marker (a partial unique index on
+   * (user_id, canvas_announcement_id)) -- set only by the Canvas
+   * announcement poller (lib/canvas/sync-core.ts), so re-polling the same
+   * Canvas announcement is a true INSERT...ON CONFLICT DO NOTHING no-op at
+   * the database level. Undefined for every other caller, unchanged. */
+  canvasAnnouncementId?: string
 ): Promise<string> {
   const { data, error } = await supabase
     .from("staging_batches")
-    .insert({ user_id: userId, class_id: classId, source, raw_text: rawText ?? null })
+    .insert({ user_id: userId, class_id: classId, source, raw_text: rawText ?? null, canvas_announcement_id: canvasAnnouncementId ?? null })
     .select("id")
     .single();
   if (error) throw error;

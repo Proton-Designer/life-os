@@ -1324,9 +1324,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           edit: {
             action: "edit",
             description:
-              "Edit an assessment's name/type/date/weight/category, syncing its linked task's title/due_date. Requires the top-level id. category_id widened in P4-08 (WIRING only -- updateClassAssessmentCore already accepted it) -- pass a grade_categories id to categorize, or null to un-categorize; omit to leave the current category untouched.",
+              "Edit an assessment's name/type/date/weight/category/grade, syncing its linked task's title/due_date. Requires the top-level id. category_id widened in P4-08 (WIRING only -- updateClassAssessmentCore already accepted it) -- pass a grade_categories id to categorize, or null to un-categorize; omit to leave the current category untouched. points_earned (P2-21): providing it always clears any Canvas grade-sync marker on this assessment, so a manual correction here is never silently overwritten by the next Canvas sync.",
             patchShape:
-              "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string, weight_pct?: number|null, category_id?: string|null }",
+              "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string, weight_pct?: number|null, category_id?: string|null, points_earned?: number|null }",
             idempotent: true,
             idempotencyVerification: "updateClassAssessmentCore (lib/school/actions-core.ts) UPDATEs the assessment and its linked task to the exact given values -- a retry writes the identical rows.",
             handler: async (ctx, patch) => {
@@ -1336,8 +1336,9 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const date = requireString(patch, "date");
               const weightPct = optionalNullableNumber(patch, "weight_pct");
               const categoryId = optionalNullableString(patch, "category_id");
+              const pointsEarned = optionalNullableNumber(patch, "points_earned");
               try {
-                await updateClassAssessmentCore(ctx.userClient, ctx.userId, id, { name, type, date, weightPct, categoryId });
+                await updateClassAssessmentCore(ctx.userClient, ctx.userId, id, { name, type, date, weightPct, categoryId, pointsEarned });
               } catch (err) {
                 if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No grade category found with id "${categoryId}".`);
                 throw err;

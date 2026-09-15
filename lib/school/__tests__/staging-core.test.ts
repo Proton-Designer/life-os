@@ -338,4 +338,16 @@ describe("createStagingBatchCore (P2-07)", () => {
     expect(row.source).toBe("announcement");
     expect(row.raw_text).toBe("Quiz moved to Friday.");
   });
+
+  /** P2-21: migration 189's dedup marker -- undefined (every pre-existing caller) stores null; the Canvas poller is the only caller that ever supplies it. */
+  it("stores canvas_announcement_id when the poller supplies it, null otherwise", async () => {
+    const { client, tables } = createFakeDb();
+    const withoutId = await createStagingBatchCore(client as never, "user-1", "class-1", "announcement", "Quiz moved to Friday.");
+    expect(tables.staging_batches.find((b) => b.id === withoutId)!.canvas_announcement_id).toBeNull();
+
+    const withId = await createStagingBatchCore(client as never, "user-1", "class-1", "canvas_assignment", "New assignment from Canvas.", "canvas-announce-42");
+    const row = tables.staging_batches.find((b) => b.id === withId)!;
+    expect(row.canvas_announcement_id).toBe("canvas-announce-42");
+    expect(row.source).toBe("canvas_assignment");
+  });
 });

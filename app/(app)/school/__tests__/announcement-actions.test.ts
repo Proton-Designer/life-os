@@ -48,7 +48,9 @@ describe("extractAnnouncementDeliverables (P2-07)", () => {
     extractMock.mockResolvedValue({ status: "extracted", items: [{ name: "Quiz", type: "quiz", date: "2026-10-01", confidence: 0.8, sourceSnippet: "x" }], truncated: false });
     const result = await extractAnnouncementDeliverables("class-1", "  The quiz has been moved to Oct 1.  ");
     expect(result).toEqual({ outcome: "extracted", batchId: "batch-1", itemCount: 1, truncated: false });
-    expect(createStagingBatchCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "class-1", "announcement", "The quiz has been moved to Oct 1.");
+    // P2-21: createStagingBatchCore gained a 6th (canvasAnnouncementId) param --
+    // undefined for a manually-pasted announcement, unchanged behavior.
+    expect(createStagingBatchCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "class-1", "announcement", "The quiz has been moved to Oct 1.", undefined);
     expect(createStagedDeliverablesCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "batch-1", expect.any(Array));
   });
 

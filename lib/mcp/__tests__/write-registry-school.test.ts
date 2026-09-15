@@ -277,6 +277,29 @@ describe("school.class_assessment.edit", () => {
     expect(calls.class_assessments.update[0]).toMatchObject({ name: "Renamed", type: "exam", date: "2026-10-20" });
     expect(calls.tasks.update[0]).toMatchObject({ title: "Renamed", due_date: "2026-10-20", task_type: "exam" });
   });
+
+  /** P2-21: providing points_earned via MCP is a real user-edit path -- must clear points_source, same as the UI's own updateClassAssessmentCore call. */
+  it("providing points_earned clears points_source (P2-21 never-overwrite invariant)", async () => {
+    const action = getWriteAction("school", "class_assessment", "edit")!;
+    const { client, calls } = makeClient({ singleSeq: { class_assessments: [{ task_id: null }] } });
+
+    await action.handler(
+      { userClient: client, userId: "user-1", timezone: "UTC", now, id: "assessment-1" },
+      { name: "Essay 1", type: "quiz", date: "2026-10-20", points_earned: 87 },
+    );
+
+    expect(calls.class_assessments.update[0]).toEqual({ name: "Essay 1", type: "quiz", date: "2026-10-20", points_earned: 87, points_source: null });
+  });
+
+  it("omitting points_earned leaves it (and points_source) untouched", async () => {
+    const action = getWriteAction("school", "class_assessment", "edit")!;
+    const { client, calls } = makeClient({ singleSeq: { class_assessments: [{ task_id: null }] } });
+
+    await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "assessment-1" }, { name: "Essay 1", type: "quiz", date: "2026-10-20" });
+
+    expect(calls.class_assessments.update[0]).not.toHaveProperty("points_earned");
+    expect(calls.class_assessments.update[0]).not.toHaveProperty("points_source");
+  });
 });
 
 describe("school.schedule_event.edit_series — 'change the class permanently'", () => {

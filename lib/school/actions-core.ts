@@ -211,6 +211,19 @@ export interface UpdateClassAssessmentInput {
    * un-categorize it. Undefined (field omitted) leaves the column untouched,
    * same convention as `weightPct` above. */
   categoryId?: string | null;
+  /**
+   * P2-21: the ONLY user-facing writer of `points_earned` this codebase
+   * has (Canvas grade sync, lib/canvas/sync-core.ts, is the only OTHER
+   * one, and it never calls this function — it writes points_earned
+   * directly, scoped by its own never-overwrite check). Providing this
+   * field ALWAYS clears `points_source` back to null (migration 189's own
+   * invariant: a non-null points_earned with points_source=null is
+   * presumed user-entered) — a user correcting a Canvas-synced grade here
+   * must not have that correction silently re-overwritten by the next
+   * sync. Undefined (omitted) leaves both columns untouched, same
+   * convention as weightPct/categoryId above.
+   */
+  pointsEarned?: number | null;
 }
 
 /**
@@ -249,6 +262,10 @@ export async function updateClassAssessmentCore(
       // null is a real, storable "unknown weight" — never coalesced away.
       ...(fields.weightPct !== undefined ? { weight_pct: fields.weightPct } : {}),
       ...(fields.categoryId !== undefined ? { category_id: fields.categoryId } : {}),
+      // P2-21: a user-supplied grade always wins over -- and clears the
+      // marker for -- whatever Canvas last synced. See this field's own
+      // doc comment on UpdateClassAssessmentInput.
+      ...(fields.pointsEarned !== undefined ? { points_earned: fields.pointsEarned, points_source: null } : {}),
     })
     .eq("id", assessmentId)
     .eq("user_id", userId);
