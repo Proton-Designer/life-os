@@ -2,12 +2,14 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RetrievalSessionOverlay } from "../retrieval-session-overlay";
-import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types";
+import type { BuiltSession, SessionCard, SessionQuestion } from "@/lib/self-mastery/session/types";
 
 const loadTodaysSessionMock = vi.fn();
 const revealCardAnswerMock = vi.fn();
+const revealQuestionAnswerMock = vi.fn();
 const revealLessonContextMock = vi.fn();
 const fetchCurrentCardStateMock = vi.fn();
+const gradeQuestionMock = vi.fn();
 const finishSessionMock = vi.fn();
 const logSelfExplanationMock = vi.fn();
 const revalidateAfterReviewMock = vi.fn();
@@ -15,8 +17,10 @@ const revalidateAfterReviewMock = vi.fn();
 vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
   loadTodaysSession: () => loadTodaysSessionMock(),
   revealCardAnswer: (cardId: string) => revealCardAnswerMock(cardId),
+  revealQuestionAnswer: (questionId: string) => revealQuestionAnswerMock(questionId),
   revealLessonContext: (lessonId: string) => revealLessonContextMock(lessonId),
   fetchCurrentCardState: (cardId: string) => fetchCurrentCardStateMock(cardId),
+  gradeQuestion: (input: unknown) => gradeQuestionMock(input),
   finishSession: (sessionId: string) => finishSessionMock(sessionId),
   logSelfExplanation: (input: unknown) => logSelfExplanationMock(input),
   revalidateAfterReview: () => revalidateAfterReviewMock(),
@@ -44,17 +48,21 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({}),
 }));
 
-function card(id: string, prompt: string, reason: SessionCard["reason"] = "due"): SessionCard {
-  return { id, lessonId: `lesson-${id}`, bookId: "book-1", promptType: "free_recall", prompt, reason, queuePosition: 0 };
+function card(id: string, prompt: string, reason: SessionCard["reason"] = "due", queuePosition = 0): SessionCard {
+  return { id, lessonId: `lesson-${id}`, bookId: "book-1", promptType: "free_recall", prompt, reason, queuePosition };
 }
 
-function builtSession(cards: SessionCard[]): BuiltSession {
+function question(id: string, prompt: string, reason: SessionQuestion["reason"] = "due", queuePosition = 0): SessionQuestion {
+  return { id, classId: "class-1", prompt, reason, queuePosition };
+}
+
+function builtSession(cards: SessionCard[], dueQuestions: SessionQuestion[] = []): BuiltSession {
   return {
     session: { id: "sess-1", userId: "user-1", localDate: "2026-09-01", startedAt: "2026-09-01T12:00:00Z", endedAt: null, cardsReviewed: 0, newCardsIntroduced: 0 },
     plan: { warmUp: [], due: cards, fresh: [], closer: null },
     settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
     overflowDueCount: 0,
-    dueQuestions: [], // 160 (#24/#25): no question-backed queue entries in this UI test's fixtures
+    dueQuestions,
   };
 }
 
@@ -62,9 +70,12 @@ describe("RetrievalSessionOverlay", () => {
   beforeEach(() => {
     loadTodaysSessionMock.mockReset();
     revealCardAnswerMock.mockReset();
+    revealQuestionAnswerMock.mockReset();
     revealLessonContextMock.mockReset();
     revealLessonContextMock.mockResolvedValue({ mechanism: null, actionTemplate: null }); // the common case: not every lesson has both fields
     fetchCurrentCardStateMock.mockReset();
+    gradeQuestionMock.mockReset();
+    gradeQuestionMock.mockResolvedValue({ scheduledDays: 1 });
     finishSessionMock.mockReset();
     logSelfExplanationMock.mockReset();
     revalidateAfterReviewMock.mockReset();
@@ -477,6 +488,114 @@ describe("RetrievalSessionOverlay", () => {
 
       await waitFor(() => expect(screen.getByText("Second prompt")).toBeInTheDocument());
       expect(screen.queryByText("First mechanism.")).not.toBeInTheDocument();
+    });
+  });
+
+  // Phase 1 #25/#26: question-backed turns, interleaved by queue_position
+  // with cards, revealed/graded through their own question-path actions.
+  describe("question-backed turns (Phase 1 #25/#26)", () => {
+    it("interleaves a due question between two due cards by queue_position, not appended after them", async () => {
+      loadTodaysSessionMock.mockResolvedValue(
+        builtSession(
+          [card("c1", "Card one", "due", 0), card("c2", "Card two", "due", 2)],
+          [question("q1", "Question one", "due", 1)]
+        )
+      );
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("Card one")).toBeInTheDocument());
+      revealCardAnswerMock.mockResolvedValue("Card one answer");
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Good" }));
+
+      // Position 1 is the question, sorted ahead of Card two's position 2.
+      await waitFor(() => expect(screen.getByText("Question one")).toBeInTheDocument());
+    });
+
+    it("shows a question's prompt without ever fetching its answer, same reveal-on-commit invariant as a card", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([], [question("q1", "What is FSRS?")]));
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("What is FSRS?")).toBeInTheDocument());
+      expect(revealQuestionAnswerMock).not.toHaveBeenCalled();
+      expect(revealCardAnswerMock).not.toHaveBeenCalled();
+    });
+
+    it("Reveal calls revealQuestionAnswer (not revealCardAnswer) for a question-backed turn, and shows no lesson-context sections", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([], [question("q1", "What is FSRS?")]));
+      revealQuestionAnswerMock.mockResolvedValue("Free Spaced Repetition Scheduler");
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("What is FSRS?")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+
+      await waitFor(() => expect(screen.getByText("Free Spaced Repetition Scheduler")).toBeInTheDocument());
+      expect(revealQuestionAnswerMock).toHaveBeenCalledWith("q1");
+      expect(revealCardAnswerMock).not.toHaveBeenCalled();
+      expect(revealLessonContextMock).not.toHaveBeenCalled();
+      expect(screen.queryByText("Why it works")).not.toBeInTheDocument();
+      expect(screen.queryByText("Try this")).not.toBeInTheDocument();
+    });
+
+    it("grading a question calls gradeQuestion (not the offline card queue) with the question id, session id, rating, and typed answer", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([], [question("q1", "What is FSRS?")]));
+      revealQuestionAnswerMock.mockResolvedValue("Free Spaced Repetition Scheduler");
+      finishSessionMock.mockResolvedValue({
+        currentStreak: 1, longestStreak: 1, freezesAvailable: 0, totalReviews: 1, totalSessions: 1,
+        freezeConsumed: null, effortfulWin: null, dueTomorrow: 0,
+      });
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("What is FSRS?")).toBeInTheDocument());
+      await user.type(screen.getByPlaceholderText(/Type what you remember/), "my recall");
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByText("Free Spaced Repetition Scheduler")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Good" }));
+
+      expect(gradeQuestionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ questionId: "q1", sessionId: "sess-1", rating: 3, answeredText: "my recall" })
+      );
+      expect(enqueuePendingReviewMock).not.toHaveBeenCalled();
+      expect(fetchCurrentCardStateMock).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.getByText("Session complete.")).toBeInTheDocument());
+    });
+
+    // THE required condition (Opus Lead): no offline queue for questions in
+    // this pass, so a failed submit must be VISIBLE and must preserve the
+    // user's typed answer for retry -- never a silent drop, never a reset
+    // to a blank field.
+    it("a failed question submit shows a visible error, does NOT advance, and keeps the user's typed answer for retry", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([], [question("q1", "What is FSRS?")]));
+      revealQuestionAnswerMock.mockResolvedValue("Free Spaced Repetition Scheduler");
+      gradeQuestionMock.mockRejectedValueOnce(new Error("submit_question_review: no card_states row for question q1 / user u1"));
+      const user = userEvent.setup();
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("What is FSRS?")).toBeInTheDocument());
+      await user.type(screen.getByPlaceholderText(/Type what you remember/), "my recall");
+      await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+      await waitFor(() => expect(screen.getByText("Free Spaced Repetition Scheduler")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: "Good" }));
+
+      await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+      // Still on the SAME question, not advanced past it.
+      expect(screen.getByText("What is FSRS?")).toBeInTheDocument();
+      // The typed answer is still in the textbox, ready for a retry.
+      expect(screen.getByPlaceholderText(/Type what you remember/)).toHaveValue("my recall");
+      // The grade buttons are still live -- a retry is possible.
+      expect(screen.getByRole("button", { name: "Good" })).not.toBeDisabled();
+    });
+
+    it("a School-only user with zero cards but real due questions gets a real session, not the empty state", async () => {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([], [question("q1", "School-only question")]));
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText("School-only question")).toBeInTheDocument());
+      expect(screen.queryByText("Nothing due today.")).not.toBeInTheDocument();
     });
   });
 });

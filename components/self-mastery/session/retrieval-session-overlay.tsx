@@ -14,12 +14,14 @@ import {
   localStorageAdapter,
 } from "@/lib/self-mastery/session/offline-queue";
 import { createClient } from "@/lib/supabase/client";
-import { buildCardSequence, rollNextInterstitialGap } from "./build-card-sequence";
+import { buildInterleavedSequence, rollNextInterstitialGap, type SessionSequenceItem } from "./build-card-sequence";
 import {
   loadTodaysSession,
   revealCardAnswer,
+  revealQuestionAnswer,
   revealLessonContext,
   fetchCurrentCardState,
+  gradeQuestion,
   finishSession,
   logSelfExplanation,
   revalidateAfterReview,
@@ -27,7 +29,7 @@ import {
 } from "@/app/(app)/personal/self-mastery-session-actions";
 import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
 import type { LessonContext } from "@/lib/self-mastery/session/build-session";
-import type { BuiltSession, SessionCard } from "@/lib/self-mastery/session/types";
+import type { BuiltSession } from "@/lib/self-mastery/session/types";
 
 type Confidence = "sure" | "think_so" | "guessing";
 type Rating = 1 | 2 | 3 | 4;
@@ -55,13 +57,18 @@ type Phase = "loading" | "error" | "empty" | "card" | "revealed" | "self_explain
  * in state AFTER calling revealCardAnswer, which only fires after the user
  * has committed an attempt (tapped "Reveal"). There is no code path here
  * that could show an answer before that tap, because there is no answer
- * to show until that fetch runs.
+ * to show until that fetch runs. The same split applies to
+ * revealQuestionAnswer/fetchQuestionAnswer for question-backed turns
+ * (Phase 1 #26) — identical invariant, identical reason.
  */
 export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [built, setBuilt] = useState<BuiltSession | null>(null);
-  const [sequence, setSequence] = useState<SessionCard[]>([]);
+  // Phase 1 #25's own point: this is the INTERLEAVED card+question sequence
+  // (buildInterleavedSequence), not cards alone -- `cardIndex` indexes into
+  // it regardless of which kind sits at that position.
+  const [sequence, setSequence] = useState<SessionSequenceItem[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [answeredText, setAnsweredText] = useState("");
   const [confidence, setConfidence] = useState<Confidence | null>(null);
@@ -87,14 +94,21 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   const nextInterstitialAtRef = useRef(rollNextInterstitialGap());
   const cardsSinceInterstitialRef = useRef(0);
 
-  const currentCard = sequence[cardIndex] ?? null;
-  // Kept in sync with currentCard.id on every render (not just at fetch
-  // time) so a feedback request abandoned by the user grading before it
-  // resolves -- or advancing to a self-explanation interstitial, or
+  const currentItem = sequence[cardIndex] ?? null;
+  // `.id`/`.prompt`/`.reason`/`.queuePosition` are shared by SessionCard and
+  // SessionQuestion (see types.ts) -- accessible on the union with no
+  // narrowing. Only the CARD-specific bits (lessonId, self-explanation,
+  // lesson context, AI feedback) need `currentCard` narrowed out; only the
+  // QUESTION-specific submit path needs `currentQuestion`.
+  const currentCard = currentItem?.kind === "card" ? currentItem.item : null;
+  const currentQuestion = currentItem?.kind === "question" ? currentItem.item : null;
+  // Kept in sync with the current item's id on every render (not just at
+  // fetch time) so a feedback request abandoned by the user grading before
+  // it resolves -- or advancing to a self-explanation interstitial, or
   // closing the overlay entirely -- can never paint onto a DIFFERENT
-  // card's screen once it finally arrives late.
-  const activeCardIdRef = useRef<string | null>(currentCard?.id ?? null);
-  activeCardIdRef.current = currentCard?.id ?? null;
+  // item's screen once it finally arrives late.
+  const activeItemIdRef = useRef<string | null>(currentItem?.item.id ?? null);
+  activeItemIdRef.current = currentItem?.item.id ?? null;
 
   // Reset and load fresh every time the overlay opens — start_session
   // itself resumes an incomplete same-local-date session rather than
@@ -111,7 +125,10 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
         const result = await loadTodaysSession();
         if (cancelled) return;
         setBuilt(result);
-        const seq = buildCardSequence(result.plan);
+        // Phase 1 #25 required addition: INTERLEAVE dueQuestions into the
+        // card sequence by queue_position, don't append them after every
+        // card -- see build-card-sequence.ts's own header for why.
+        const seq = buildInterleavedSequence(result.plan, result.dueQuestions);
         setSequence(seq);
         setPhase(seq.length === 0 ? "empty" : "card");
         timerRef.current = startTimer(Date.now());
@@ -177,21 +194,33 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   }
 
   async function handleReveal() {
-    if (!currentCard) return;
+    if (!currentItem) return;
     setError(null);
     setIsSubmitting(true);
     try {
-      // lessonContext's own fetch is caught independently -- it's optional
-      // display content, not part of the reveal invariant's success/failure
-      // path, so a failure here must never block or error out the reveal
-      // the way a failed revealCardAnswer does.
-      const [answer, context] = await Promise.all([
-        revealCardAnswer(currentCard.id),
-        revealLessonContext(currentCard.lessonId).catch(() => null),
-      ]);
-      setRevealedAnswer(answer);
-      setLessonContext(context);
-      setPhase("revealed");
+      if (currentQuestion) {
+        // No lesson context (questions have no lessonId) and no AI feedback
+        // for a question-backed turn in this pass -- getAnswerFeedback is
+        // card-specific (it reads `cards.prompt/answer` by cardId), and
+        // extending it to questions is out of #26's scope. Honest "not
+        // built yet," never faked.
+        const answer = await revealQuestionAnswer(currentQuestion.id);
+        setRevealedAnswer(answer);
+        setLessonContext(null);
+        setPhase("revealed");
+      } else if (currentCard) {
+        // lessonContext's own fetch is caught independently -- it's optional
+        // display content, not part of the reveal invariant's success/failure
+        // path, so a failure here must never block or error out the reveal
+        // the way a failed revealCardAnswer does.
+        const [answer, context] = await Promise.all([
+          revealCardAnswer(currentCard.id),
+          revealLessonContext(currentCard.lessonId).catch(() => null),
+        ]);
+        setRevealedAnswer(answer);
+        setLessonContext(context);
+        setPhase("revealed");
+      }
     } catch {
       setError("Couldn't load the answer. Try again.");
       setIsSubmitting(false);
@@ -204,28 +233,38 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     // before commit and break the reveal-on-commit invariant. Never
     // awaited here: the grade buttons are already interactive by the time
     // this resolves (or doesn't). If the user grades first, this result is
-    // simply discarded when it arrives -- see the activeCardIdRef check.
-    const requestedCardId = currentCard.id;
-    const requestedAnswer = answeredText;
-    getAnswerFeedback(requestedCardId, requestedAnswer)
-      .then((feedback) => {
-        if (activeCardIdRef.current !== requestedCardId) return; // abandoned -- user already moved on
-        setAiFeedback(feedback);
-      })
-      .catch(() => {
-        // null is the normal answer for every failure mode already: no
-        // key, provider down, rate-limited, malformed reply. A network
-        // rejection here is the same thing by a different path -- render
-        // nothing, exactly as if getAnswerFeedback itself had returned
-        // null.
-      });
+    // simply discarded when it arrives -- see the activeItemIdRef check.
+    // CARD ONLY -- see the branch above for why questions don't get this.
+    if (currentCard) {
+      const requestedCardId = currentCard.id;
+      const requestedAnswer = answeredText;
+      getAnswerFeedback(requestedCardId, requestedAnswer)
+        .then((feedback) => {
+          if (activeItemIdRef.current !== requestedCardId) return; // abandoned -- user already moved on
+          setAiFeedback(feedback);
+        })
+        .catch(() => {
+          // null is the normal answer for every failure mode already: no
+          // key, provider down, rate-limited, malformed reply. A network
+          // rejection here is the same thing by a different path -- render
+          // nothing, exactly as if getAnswerFeedback itself had returned
+          // null.
+        });
+    }
   }
 
   function advanceToNextCardOrInterstitial() {
     cardsSinceInterstitialRef.current += 1;
     resetCardInputs();
     const isLastCard = cardIndex + 1 >= sequence.length;
-    if (!isLastCard && cardsSinceInterstitialRef.current >= nextInterstitialAtRef.current) {
+    // Self-explanation is a CARD-specific interstitial -- there is no
+    // lessonId for a question-backed turn, and build-card-sequence.ts's own
+    // doc on buildInterleavedSequence is explicit that there is no question
+    // equivalent to repairLessonAdjacency or self-explanation. Only ever
+    // offered right after grading a CARD (checked against `currentCard`,
+    // still valid here since cardIndex hasn't advanced yet), never a
+    // question.
+    if (!isLastCard && currentCard && cardsSinceInterstitialRef.current >= nextInterstitialAtRef.current) {
       cardsSinceInterstitialRef.current = 0;
       nextInterstitialAtRef.current = rollNextInterstitialGap();
       setExplanationText("");
@@ -256,55 +295,86 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
    * submit_review's REAL Postgres error text, which only survives over a
    * direct Supabase client call). See fetchCurrentCardState/gradeCard's own
    * comments in self-mastery-session-actions.ts.
+   *
+   * QUESTION-BACKED TURNS (Phase 1 #26) go through a DIFFERENT path below:
+   * `gradeQuestion`, a plain online-only Server Action, not the offline
+   * queue -- there is no offline queue for questions in this pass (Opus
+   * Lead's explicit scoping). This means a failed question submit MUST
+   * propagate as a thrown rejection (gradeQuestion's own doc: "MUST
+   * propagate to the caller, never be swallowed") -- it lands in this
+   * function's `catch`, which sets a visible error and, critically, never
+   * calls `advanceToNextCardOrInterstitial()` (that call sits after the
+   * branch, unreached on a throw) -- so `answeredText`/`confidence` stay
+   * exactly as the user left them and the same Grade buttons are still
+   * live for a retry, never a silent drop and never a blank field.
    */
   async function handleGrade(rating: Rating) {
-    if (!currentCard || !built) return;
+    if (!currentItem || !built) return;
     setError(null);
     setIsSubmitting(true);
     try {
-      const currentState = await fetchCurrentCardState(currentCard.id);
-      // built.settings.desiredRetention, not the default -- read fresh at
-      // grade time from the already-resolved session (see
-      // fsrs-scheduler.ts's header comment for why this call site is
-      // specifically immune to the mount-order trap ULM's own version had).
-      const scheduler = getScheduler(built.settings.desiredRetention);
-      const now = new Date();
-      const { card: nextCard } = computeNextState(scheduler, toFsrsCard(currentState, now), rating, now);
-
-      // Whatever's in aiFeedback right now -- populated if it arrived
-      // before this tap, still null if the user graded before it resolved
-      // (a second opinion, never a gate, per the contract). suggestedRating
-      // is a HINT rendered next to the buttons, never a preselection or a
-      // fallback for `rating` itself -- an invented number here would feed
-      // a real FSRS grade and corrupt the schedule permanently in an
-      // append-only table.
-      await enqueuePendingReview(localStorageAdapter, {
-        id: crypto.randomUUID(),
-        cardId: currentCard.id,
-        rating,
-        elapsedMs: elapsedMs(timerRef.current, Date.now()),
-        answeredText,
-        aiFeedback: aiFeedback?.feedback ?? null,
-        aiSuggestedRating: aiFeedback?.suggestedRating ?? null,
-        confidence,
-        nextState: toRpcNextState(nextCard),
-      });
-
-      const browserClient = createClient();
-      const result = await replayPendingReviews(browserClient, localStorageAdapter, built.session.id);
-      const permanentFailure = result.failures.find((f) => f.classification === "permanent");
-      if (permanentFailure) {
-        // Rare, and by definition unrecoverable by retrying -- surface it
-        // rather than silently dropping the attempt, but don't block the
-        // session over one card.
-        setError(`That review couldn't be saved: ${permanentFailure.error}`);
-      } else {
+      if (currentQuestion) {
+        await gradeQuestion({
+          questionId: currentQuestion.id,
+          sessionId: built.session.id,
+          rating,
+          elapsedMs: elapsedMs(timerRef.current, Date.now()),
+          answeredText,
+          confidence,
+          // No per-question exam-grading UX exists yet to derive an
+          // objective right/wrong signal (questions-core.ts's own note on
+          // `origin='missed'` staying unused for the identical reason) --
+          // the FSRS `rating` above is the real, subjective self-report
+          // signal already in use here; `correct` stays null rather than a
+          // fabricated derivation from it.
+          correct: null,
+        });
         void revalidateAfterReview();
+      } else if (currentCard) {
+        const currentState = await fetchCurrentCardState(currentCard.id);
+        // built.settings.desiredRetention, not the default -- read fresh at
+        // grade time from the already-resolved session (see
+        // fsrs-scheduler.ts's header comment for why this call site is
+        // specifically immune to the mount-order trap ULM's own version had).
+        const scheduler = getScheduler(built.settings.desiredRetention);
+        const now = new Date();
+        const { card: nextCard } = computeNextState(scheduler, toFsrsCard(currentState, now), rating, now);
+
+        // Whatever's in aiFeedback right now -- populated if it arrived
+        // before this tap, still null if the user graded before it resolved
+        // (a second opinion, never a gate, per the contract). suggestedRating
+        // is a HINT rendered next to the buttons, never a preselection or a
+        // fallback for `rating` itself -- an invented number here would feed
+        // a real FSRS grade and corrupt the schedule permanently in an
+        // append-only table.
+        await enqueuePendingReview(localStorageAdapter, {
+          id: crypto.randomUUID(),
+          cardId: currentCard.id,
+          rating,
+          elapsedMs: elapsedMs(timerRef.current, Date.now()),
+          answeredText,
+          aiFeedback: aiFeedback?.feedback ?? null,
+          aiSuggestedRating: aiFeedback?.suggestedRating ?? null,
+          confidence,
+          nextState: toRpcNextState(nextCard),
+        });
+
+        const browserClient = createClient();
+        const result = await replayPendingReviews(browserClient, localStorageAdapter, built.session.id);
+        const permanentFailure = result.failures.find((f) => f.classification === "permanent");
+        if (permanentFailure) {
+          // Rare, and by definition unrecoverable by retrying -- surface it
+          // rather than silently dropping the attempt, but don't block the
+          // session over one card.
+          setError(`That review couldn't be saved: ${permanentFailure.error}`);
+        } else {
+          void revalidateAfterReview();
+        }
+        // transient-retrying is NOT an error from the user's point of view —
+        // this is the offline case working as designed: the attempt is
+        // safely queued and will replay on the next reconnect, and the
+        // session keeps moving. Nothing here blocks on it.
       }
-      // transient-retrying is NOT an error from the user's point of view —
-      // this is the offline case working as designed: the attempt is
-      // safely queued and will replay on the next reconnect, and the
-      // session keeps moving. Nothing here blocks on it.
       advanceToNextCardOrInterstitial();
     } catch {
       setError("Couldn't save that grade. Try again.");
@@ -429,12 +499,13 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
               </div>
             )}
 
-            {(phase === "card" || phase === "revealed") && currentCard && (
+            {(phase === "card" || phase === "revealed") && currentItem && (
               <div className="flex w-full max-w-xl flex-col gap-4">
                 <p className="text-center text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  {currentCard.reason === "warm_up" ? "Warm-up" : currentCard.reason === "new" ? "New" : "Due"}
+                  {currentItem.item.reason === "warm_up" ? "Warm-up" : currentItem.item.reason === "new" ? "New" : "Due"}
+                  {currentQuestion ? " · Question" : null}
                 </p>
-                <p className="text-center text-xl font-medium">{currentCard.prompt}</p>
+                <p className="text-center text-xl font-medium">{currentItem.item.prompt}</p>
 
                 <textarea
                   value={answeredText}
