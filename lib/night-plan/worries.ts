@@ -102,3 +102,75 @@ export async function getHandledWorries(supabase: SupabaseClient, userId: string
 export function worriesToDumpItems(worries: readonly Worry[]): DumpItem[] {
   return worries.map((w) => ({ id: w.id, title: w.title, source: "worry" as const }));
 }
+
+// ---------------------------------------------------------------------------
+// P4-07: write cores for the Worry List's two writes. Moved here from
+// app/(app)/worries/actions.ts (R5/P4-06 extraction rule — no
+// requireUser()/getProfile() in a core, so app/(app)/worries/actions.ts's
+// cookie-authed wrappers and the MCP write tool share one implementation).
+// `findWorry` was already core-shaped (took supabase/userId as plain
+// params) in the Server Action file; only its call sites moved.
+// ---------------------------------------------------------------------------
+
+/**
+ * Scoped by `user_id` AND `dump_source = 'worry'` — defense in depth, not
+ * just a lookup: this must never resolve to an ordinary school/co_op task by
+ * accident (a stale id from a different surface), and `dump_source='worry'`
+ * is the only predicate that admits exclusively worries. Both
+ * `markWorryHandledCore`/`reopenWorryCore` below check existence FIRST via
+ * this function, so a stale/foreign id gets a clean "not found" instead of
+ * a silent no-op update matching zero rows.
+ */
+async function findWorry(supabase: SupabaseClient, userId: string, id: string): Promise<{ id: string } | null> {
+  const { data } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .eq("dump_source", "worry")
+    .maybeSingle();
+  return data;
+}
+
+export type WorryCoreResult = { ok: true } | { ok: false; error: string };
+
+/** SET, NOT TOGGLE — a checkbox that flips whatever the row currently holds races a double-tap into the wrong state; this asserts the state it means rather than trusting the caller's belief about what the row was before. */
+export async function markWorryHandledCore(supabase: SupabaseClient, userId: string, id: string): Promise<WorryCoreResult> {
+  const existing = await findWorry(supabase, userId, id);
+  if (!existing) return { ok: false, error: "That worry could not be found." };
+
+  const { error } = await supabase.from("tasks").update({ completed: true, completed_at: new Date().toISOString() }).eq("id", id).eq("user_id", userId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** worry_outcome cleared too (P2-12): an outcome describes how a worry WAS resolved -- reopening means it wasn't, so a stale outcome sitting on an open worry would be a lie the next Anti-Worry Hour session could act on. */
+export async function reopenWorryCore(supabase: SupabaseClient, userId: string, id: string): Promise<WorryCoreResult> {
+  const existing = await findWorry(supabase, userId, id);
+  if (!existing) return { ok: false, error: "That worry could not be found." };
+
+  const { error } = await supabase.from("tasks").update({ completed: false, completed_at: null, worry_outcome: null }).eq("id", id).eq("user_id", userId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * P2-12 — the Monday Anti-Worry Hour's one write: mark a worry handled AND
+ * record HOW (migration 201's `worry_outcome`), in one round trip. NOT part
+ * of P4-07's MCP scope (not in the task's acceptance criteria) -- extracted
+ * here anyway, alongside its siblings, purely so this file has ONE copy of
+ * `findWorry` rather than a second one duplicated back into
+ * app/(app)/worries/actions.ts.
+ */
+export async function recordWorryOutcomeCore(supabase: SupabaseClient, userId: string, id: string, outcome: WorryOutcome): Promise<WorryCoreResult> {
+  const existing = await findWorry(supabase, userId, id);
+  if (!existing) return { ok: false, error: "That worry could not be found." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ completed: true, completed_at: new Date().toISOString(), worry_outcome: outcome })
+    .eq("id", id)
+    .eq("user_id", userId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}

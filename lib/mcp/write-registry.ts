@@ -21,6 +21,12 @@ import {
 } from "@/lib/deen/actions-core";
 import type { HabitStage } from "@/lib/deen/habit-stage";
 import { localDateString } from "@/lib/date-utils";
+import { planningDateForCore, dumpLineCore, claimSeedLinesCore, savePlanRanksCore, type PlanMode, type SeedLine, type SeedSource } from "@/lib/night-plan/plan-actions-core";
+import { markWorryHandledCore, reopenWorryCore } from "@/lib/night-plan/worries";
+import { saveSleepIntentCore, clearSleepIntentCore } from "@/lib/night-plan/sleep-intent-core";
+import { markDayStarted } from "@/lib/day-structure/day-start";
+import { createGoal, completeGoal, dropGoal, addMilestone, completeMilestone, reopenMilestone } from "@/lib/goals/actions-core";
+import { createIdentityHabitCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
@@ -48,7 +54,7 @@ import { updateAppearanceCore, setWeekdayBaselinesCore, clearWeekdayBaselinesCor
 import { gradeReviewCore, logSelfExplanationCore } from "@/lib/self-mastery/actions-core";
 import { recordVerdictCore } from "@/lib/promotions/actions-core";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
-import { ToolInputError } from "./tool-input-error";
+import { ToolInputError, ToolNotFoundError } from "./tool-input-error";
 
 /**
  * `write(domain, entity, action, id?, patch?)` — L6's dispatch table,
@@ -291,6 +297,27 @@ async function assertRowDomain(userClient: SupabaseClient, table: "tasks" | "sch
   if (data.domain !== domain) {
     throw new Error(`id "${id}" belongs to domain "${data.domain ?? "none"}", not "${domain}" — refusing to write across the domain boundary.`);
   }
+}
+
+/**
+ * P4-07: FK-violation (23503) -> ToolNotFoundError translation, done HERE
+ * rather than inside `castHabitVoteCore`/`retractHabitVoteCore`/`addMilestone`
+ * — unlike P4-06's deen cores (which this file's own author was actively
+ * extracting), `lib/habits/actions-core.ts` is claimed by another agent
+ * (Sonnet ENG 1, P2-11) mid-run and `lib/goals/actions-core.ts` predates
+ * this task; translating at the handler boundary keeps every P4-07 change
+ * inside this file (and the new lib/night-plan/*.ts files this task owns
+ * outright) rather than editing either shared core file. Duplicated locally
+ * rather than shared, same precedent as lib/promotions/actions-core.ts's
+ * and lib/deen/actions-core.ts's own private `pgCode` helpers.
+ */
+const FK_VIOLATION = "23503";
+function pgCode(error: unknown): string | null {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+  }
+  return null;
 }
 
 const TASK_TYPES = ["homework_assignment", "reading_review", "quiz", "exam", "final_midterm", "project_paper", "reminder", "other"] as const;
@@ -1927,6 +1954,403 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: result.updatedAt, ...result },
                 },
                 summary: `logged a self-explanation for lesson ${lessonId}`,
+              };
+            },
+          },
+        },
+      },
+    },
+  },
+  // ---------------------------------------------------------------------
+  // P4-07: daily rituals. review.night_plan_task gains write actions on an
+  // entity that already has read coverage (lib/mcp/registry.ts). review.worry
+  // and review.sleep_intent, and every entity under day/goals/habits below,
+  // have NO read-registry counterpart at all yet -- a real discoverability
+  // gap (list_capabilities can't advertise them), logged in the task's own
+  // Plan/OPEN_QUESTIONS rather than fixed here (read coverage is a separate
+  // task's scope). Every date-bearing handler here that isn't explicitly
+  // noted otherwise requires patch.date -- P4-06's lesson: never duplicate
+  // the default-to-today logic inline; register in
+  // lib/agent-api/write-action-meta.ts's DATE_DEFAULTS_TO_TODAY instead.
+  // ---------------------------------------------------------------------
+  review: {
+    domain: "review",
+    entities: {
+      night_plan_task: {
+        entity: "night_plan_task",
+        actions: {
+          dump: {
+            action: "dump",
+            description: "Persist one dumped Night Plan line for tonight's (or today's, for a same-day replan) plan. Returns the new row's id so it can be starred/crowned via save_ranks.",
+            patchShape: "{ title: string, mode?: 'tonight'|'today' }",
+            idempotent: false,
+            idempotencyVerification: "dumpLineCore does a plain INSERT -- a retry creates a second dumped line with the same title.",
+            handler: async (ctx, patch) => {
+              const title = requireString(patch, "title");
+              const mode = patch.mode === undefined ? "tonight" : requireEnum(patch, "mode", ["tonight", "today"] as const);
+              const plannedDate = planningDateForCore(mode as PlanMode, ctx.now, ctx.timezone);
+              const result = await dumpLineCore(ctx.userClient, ctx.userId, plannedDate, title);
+              if ("error" in result) throw new ToolInputError(result.error);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ ...result, planned_date: plannedDate }) }],
+                  structuredContent: { id: result.id, updated_at: ctx.now.toISOString(), planned_date: plannedDate },
+                },
+                summary: `dumped "${title}" for ${plannedDate}`,
+              };
+            },
+          },
+          claim_seeds: {
+            action: "claim_seeds",
+            description: "Turn still-unclaimed seed lines (open worries or unfinished goal milestones/school-risk items shown in the dump) into real dumped lines. NOT atomic across seeds -- each is its own statement; a mid-batch failure is recoverable. Returns the seed-id -> real-task-id map (identity for worries, new ids for milestone/school_risk seeds).",
+            patchShape: "{ seeds: { id: string, title: string, source: 'worry'|'goal_milestone'|'school_risk' }[], mode?: 'tonight'|'today' }",
+            idempotent: false,
+            idempotencyVerification: "claimSeedLinesCore mixes an UPDATE (worry seeds, naturally idempotent -- a re-claim matches 0 rows and is dropped, not erred) with a plain INSERT (goal_milestone/school_risk seeds, NOT idempotent -- a retry creates a duplicate dumped row). Any insert-shaped seed in the batch makes the whole call non-idempotent.",
+            handler: async (ctx, patch) => {
+              const seedsRaw = patch.seeds;
+              if (!Array.isArray(seedsRaw) || seedsRaw.length === 0) {
+                throw new ToolInputError("patch.seeds must be a non-empty array of { id, title, source }.");
+              }
+              const seeds: SeedLine[] = seedsRaw.map((raw, i) => {
+                if (typeof raw !== "object" || raw === null) throw new ToolInputError(`patch.seeds[${i}] must be an object.`);
+                const r = raw as Record<string, unknown>;
+                if (typeof r.id !== "string" || !r.id) throw new ToolInputError(`patch.seeds[${i}].id is required.`);
+                if (typeof r.title !== "string" || !r.title) throw new ToolInputError(`patch.seeds[${i}].title is required.`);
+                const allowedSources: readonly SeedSource[] = ["worry", "goal_milestone", "school_risk"];
+                if (typeof r.source !== "string" || !(allowedSources as readonly string[]).includes(r.source)) {
+                  throw new ToolInputError(`patch.seeds[${i}].source must be one of: ${allowedSources.join(", ")}. Got: ${JSON.stringify(r.source)}.`);
+                }
+                return { id: r.id, title: r.title, source: r.source as SeedSource };
+              });
+              const mode = patch.mode === undefined ? "tonight" : requireEnum(patch, "mode", ["tonight", "today"] as const);
+              const plannedDate = planningDateForCore(mode as PlanMode, ctx.now, ctx.timezone);
+              const result = await claimSeedLinesCore(ctx.userClient, ctx.userId, plannedDate, seeds);
+              if ("error" in result) throw new ToolInputError(result.error);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), claimed: result.claimed },
+                },
+                summary: `claimed ${result.claimed.length} of ${seeds.length} seed line(s) for ${plannedDate}`,
+              };
+            },
+          },
+          save_ranks: {
+            action: "save_ranks",
+            description: "Write the plan's star/crown ranks (clears this planned_date's stale ranks first, then upserts the computed ones in one statement). crowned must also be in starred, and at most 3 may be starred -- assignRanks enforces both.",
+            patchShape: "{ starred: string[], crowned: string|null, mode?: 'tonight'|'today' }",
+            idempotent: true,
+            idempotencyVerification: "savePlanRanksCore clears mit_rank for this planned_date then upserts the SAME computed ranks from the patch's own starred/crowned -- a retry lands on the identical final state. The clear-then-upsert is two separate statements (the core's own header names this), so a crash strictly BETWEEN them is a real risk window, not that retries diverge from each other.",
+            handler: async (ctx, patch) => {
+              const starredRaw = patch.starred;
+              if (!Array.isArray(starredRaw) || !starredRaw.every((s) => typeof s === "string")) {
+                throw new ToolInputError("patch.starred must be an array of strings.");
+              }
+              const crownedRaw = patch.crowned;
+              if (crownedRaw !== null && typeof crownedRaw !== "string") {
+                throw new ToolInputError(`patch.crowned must be a string or null. Got: ${JSON.stringify(crownedRaw)}.`);
+              }
+              const mode = patch.mode === undefined ? "tonight" : requireEnum(patch, "mode", ["tonight", "today"] as const);
+              const plannedDate = planningDateForCore(mode as PlanMode, ctx.now, ctx.timezone);
+              const result = await savePlanRanksCore(ctx.userClient, ctx.userId, plannedDate, starredRaw, crownedRaw);
+              if ("error" in result) throw new ToolInputError(result.error);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ ok: true, planned_date: plannedDate }) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), planned_date: plannedDate },
+                },
+                summary: `saved plan ranks for ${plannedDate} (${starredRaw.length} starred${crownedRaw ? ", 1 crowned" : ""})`,
+              };
+            },
+          },
+        },
+      },
+      worry: {
+        entity: "worry",
+        actions: {
+          set_handled: {
+            action: "set_handled",
+            description: "Mark a worry handled. SET, not toggle. Scoped to dump_source='worry' as defense in depth -- can never mark an ordinary task 'handled' by accident. Requires the top-level id.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "markWorryHandledCore sets a fixed value (completed:true) after an existence check -- a retry sets the identical value (completed_at does advance, same benign-timestamp reasoning as deen.prayer.log).",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const result = await markWorryHandledCore(ctx.userClient, ctx.userId, id);
+              if (!result.ok) throw new ToolNotFoundError(result.error);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, handled: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), handled: true } },
+                summary: `marked worry ${id} handled`,
+              };
+            },
+          },
+          reopen: {
+            action: "reopen",
+            description: "Reopen a handled worry -- clears completed, completed_at, and worry_outcome (a stale outcome on a reopened worry would misinform the next Anti-Worry Hour session). Requires the top-level id.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "reopenWorryCore sets fixed values after an existence check -- a retry sets the identical values.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const result = await reopenWorryCore(ctx.userClient, ctx.userId, id);
+              if (!result.ok) throw new ToolNotFoundError(result.error);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, handled: false }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), handled: false } },
+                summary: `reopened worry ${id}`,
+              };
+            },
+          },
+        },
+      },
+      sleep_intent: {
+        entity: "sleep_intent",
+        actions: {
+          set: {
+            action: "set",
+            description: "Set tonight's intended bedtime (HH:MM, 24-hour). Upserts on (user_id, today's local date).",
+            patchShape: "{ time: string }",
+            idempotent: true,
+            idempotencyVerification: "saveSleepIntentCore upserts on (user_id,intent_date) with the time taken verbatim from the patch -- a retry upserts the identical value.",
+            handler: async (ctx, patch) => {
+              const time = requireString(patch, "time");
+              const dateStr = localDateString(ctx.now, ctx.timezone);
+              const result = await saveSleepIntentCore(ctx.userClient, ctx.userId, dateStr, time);
+              if (!result.ok) throw new ToolInputError(result.message);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date: dateStr, time }) }], structuredContent: { updated_at: ctx.now.toISOString(), date: dateStr, time } },
+                summary: `set sleep intent for ${dateStr} to ${time}`,
+              };
+            },
+          },
+          clear: {
+            action: "clear",
+            description: "Clear tonight's intended bedtime, if one was set.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "clearSleepIntentCore deletes matching (user_id,intent_date) -- 0 rows on retry is a no-op, same value either way.",
+            handler: async (ctx) => {
+              const dateStr = localDateString(ctx.now, ctx.timezone);
+              const result = await clearSleepIntentCore(ctx.userClient, ctx.userId, dateStr);
+              if (!result.ok) throw new ToolInputError(result.message);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date: dateStr }) }], structuredContent: { updated_at: ctx.now.toISOString(), date: dateStr } },
+                summary: `cleared sleep intent for ${dateStr}`,
+              };
+            },
+          },
+        },
+      },
+    },
+  },
+  day: {
+    domain: "day",
+    entities: {
+      day_start: {
+        entity: "day_start",
+        actions: {
+          start: {
+            action: "start",
+            description: "Mark today's day as started (the morning open's one write). Idempotent by a real DB unique key (user_id, local_date) -- tapping/calling twice the same local day never creates a second mark or moves the first one's woke_at.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "markDayStarted (lib/day-structure/day-start.ts) upserts with ignoreDuplicates:true on the DB's own unique(user_id,local_date) constraint -- a retry is a true INSERT...ON CONFLICT DO NOTHING no-op, not merely one this code happens to tolerate.",
+            handler: async (ctx) => {
+              const result = await markDayStarted(ctx.userClient, ctx.userId, ctx.timezone, ctx.now);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), local_date: result.localDate, woke_at: result.wokeAtIso },
+                },
+                summary: `started day ${result.localDate}`,
+              };
+            },
+          },
+        },
+      },
+    },
+  },
+  goals: {
+    domain: "goals",
+    entities: {
+      goal: {
+        entity: "goal",
+        actions: {
+          create: {
+            action: "create",
+            description: "Create a goal for a month, at an explicit rank 1-5. The 5-per-month ceiling is enforced by the database (goals_rank_per_month_idx, partial unique on status='active') -- a rank collision surfaces as a real Postgres error, not a pre-check here.",
+            patchShape: "{ month_start: string, title: string, reason: string, rank: 1|2|3|4|5, domain?: string|null }",
+            idempotent: false,
+            idempotencyVerification: "createGoal does a plain INSERT -- a retry attempts a SECOND goal at the same rank, which the database's own unique index rejects (not silently accepted, but also not a clean no-op retry).",
+            handler: async (ctx, patch) => {
+              const monthStart = requireString(patch, "month_start");
+              const title = requireString(patch, "title");
+              const reason = requireString(patch, "reason");
+              const rank = requireNumberEnum(patch, "rank", [1, 2, 3, 4, 5] as const);
+              const domainField = optionalNullableString(patch, "domain") ?? null;
+              const result = await createGoal(ctx.userClient, ctx.userId, { monthStart, title, reason, rank, domain: domainField });
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `created goal "${title}" for ${monthStart} at rank ${rank}`,
+              };
+            },
+          },
+          set_status: {
+            action: "set_status",
+            description: "Mark a goal done or dropped (there is no path back to 'active' -- completing/dropping releases its rank for the month). Scoped to status='active' in the core: completing/dropping an already-resolved goal is a DELIBERATE no-op (0 rows, not an error) -- already-resolved and doesn't-exist are indistinguishable by this design, so this action does NOT throw not-found. Requires the top-level id.",
+            patchShape: "{ status: 'done'|'dropped' }",
+            idempotent: true,
+            idempotencyVerification: "completeGoal/dropGoal scope their UPDATE to status='active' -- once transitioned, a retry matches 0 rows and leaves the already-set state untouched. Same end state regardless of retry count.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const status = requireEnum(patch, "status", ["done", "dropped"] as const);
+              if (status === "done") await completeGoal(ctx.userClient, ctx.userId, id);
+              else await dropGoal(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, status }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), status } },
+                summary: `set goal ${id} to ${status}`,
+              };
+            },
+          },
+        },
+      },
+      milestone: {
+        entity: "milestone",
+        actions: {
+          add: {
+            action: "add",
+            description: "Add a milestone to a goal. month_start is the goal's own month, passed explicitly (denormalised onto this table by design, see addMilestone's own header) -- not re-derived from the goal here. A cross-tenant goal_id is rejected by the database's own composite tenancy FK (migration 165), surfaced as a clean not-found rather than a raw constraint error.",
+            patchShape: "{ goal_id: string, month_start: string, title: string }",
+            idempotent: false,
+            idempotencyVerification: "addMilestone does a plain INSERT -- a retry creates a second milestone with the same title.",
+            handler: async (ctx, patch) => {
+              const goalId = requireString(patch, "goal_id");
+              const monthStart = requireString(patch, "month_start");
+              const title = requireString(patch, "title");
+              try {
+                const result = await addMilestone(ctx.userClient, ctx.userId, { goalId, monthStart, title });
+                return {
+                  result: {
+                    content: [{ type: "text", text: JSON.stringify(result) }],
+                    structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                  },
+                  summary: `added milestone "${title}" to goal ${goalId}`,
+                };
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No goal found with id "${goalId}".`);
+                throw err;
+              }
+            },
+          },
+          set_done: {
+            action: "set_done",
+            description: "Set (not toggle) a milestone's done state. Unlike goal.set_status, this core has NO status scoping -- 0 rows unambiguously means the milestone doesn't exist for this user, so this DOES throw not-found (checked explicitly here, since completeMilestone/reopenMilestone don't report rows-affected themselves). Requires the top-level id.",
+            patchShape: "{ done: boolean }",
+            idempotent: true,
+            idempotencyVerification: "completeMilestone sets done_at=now() (advances like logged_at on deen.prayer.log -- benign, never read as this entity's real-world state beyond set/unset); reopenMilestone sets done_at=null, stable on retry.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const done = requireBoolean(patch, "done");
+              const { data: existing, error: existErr } = await ctx.userClient.from("goal_milestones").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (existErr) throw existErr;
+              if (!existing) throw new ToolNotFoundError(`No milestone found with id "${id}".`);
+              if (done) await completeMilestone(ctx.userClient, ctx.userId, id);
+              else await reopenMilestone(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, done }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), done } },
+                summary: `set milestone ${id} done to ${done}`,
+              };
+            },
+          },
+        },
+      },
+    },
+  },
+  habits: {
+    domain: "habits",
+    entities: {
+      identity_habit: {
+        entity: "identity_habit",
+        actions: {
+          create: {
+            action: "create",
+            description: "Create an identity habit, auto-assigned the lowest free rank (an internal slot number, up to MAX_ACTIVE_HABITS -- not a user-facing priority order). The ceiling is enforced by the database's own partial unique index, not this action's pre-check.",
+            patchShape: "{ identity_statement: string }",
+            idempotent: false,
+            idempotencyVerification: "createIdentityHabitCore does a plain INSERT into the next free rank -- a retry finds a DIFFERENT free rank and creates a SECOND habit, not a no-op.",
+            handler: async (ctx, patch) => {
+              const identityStatement = requireString(patch, "identity_statement");
+              const result = await createIdentityHabitCore(ctx.userClient, ctx.userId, identityStatement);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `created identity habit "${identityStatement}"`,
+              };
+            },
+          },
+          archive: {
+            action: "archive",
+            description: "Soft-archive an identity habit, releasing its rank. Scoped to status='active' in the core: archiving an already-archived or foreign id is a DELIBERATE no-op (0 rows, not an error), same reasoning as goals.goal.set_status -- this does NOT throw not-found. Requires the top-level id.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "archiveIdentityHabitCore scopes its UPDATE to status='active' -- once archived, a retry matches 0 rows and leaves the already-archived state untouched.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await archiveIdentityHabitCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, archived: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), archived: true } },
+                summary: `archived identity habit ${id}`,
+              };
+            },
+          },
+        },
+      },
+      vote: {
+        entity: "vote",
+        actions: {
+          cast: {
+            action: "cast",
+            description: "Cast (affirm) a vote for a habit. Votes may only be cast for the caller's own local today -- missing date defaults to today; an explicit date that isn't today is rejected server-side. A cross-tenant habit_id is rejected by the database's composite tenancy FK, surfaced as a clean not-found. Requires the top-level id (the habit).",
+            patchShape: "{ date?: string }",
+            idempotent: true,
+            idempotencyVerification: "castHabitVoteCore upserts with ignoreDuplicates:true on the DB's own one-vote-per-day unique constraint -- explicitly race-proof per the core's own header, not merely tolerant of a retry.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const date = requireString(patch, "date");
+              try {
+                await castHabitVoteCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No identity habit found with id "${id}".`);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, date, voted: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), date, voted: true } },
+                summary: `cast today's vote for habit ${id}`,
+              };
+            },
+          },
+          retract: {
+            action: "retract",
+            description: "Retract today's vote for a habit, if one exists. Same today-only restriction as cast. Requires the top-level id (the habit).",
+            patchShape: "{ date?: string }",
+            idempotent: true,
+            idempotencyVerification: "retractHabitVoteCore deletes matching (user_id,habit_id,date) -- 0 rows on retry (nothing to retract, or already retracted) is a no-op, same SET-not-toggle reasoning as castHabitVoteCore.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const date = requireString(patch, "date");
+              try {
+                await retractHabitVoteCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No identity habit found with id "${id}".`);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, date, voted: false }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), date, voted: false } },
+                summary: `retracted today's vote for habit ${id}`,
               };
             },
           },

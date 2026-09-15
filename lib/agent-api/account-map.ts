@@ -56,6 +56,12 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   review: "Night Plan items",
   home: "Aggregate; read owning domains",
   widgets: "Home widgets (widget_manage)",
+  // P4-07: write-only domains (no REGISTRY/read entry at all yet -- P4-05's
+  // future territory). No `d.description` to fall back to for these (that
+  // field only exists on a read DomainDef), so they need an explicit line.
+  day: "Morning day-start mark",
+  goals: "Monthly goals + milestones",
+  habits: "Identity habits + daily votes",
 };
 
 export interface AccountMapDomain {
@@ -116,6 +122,27 @@ export async function buildAccountMap(client: SupabaseClient, userId: string, no
       active_for_account: state.mode === "legacy" || !gated.has(d.domain) || gatedActive.has(d.domain),
       read: Object.keys(d.entities),
       write: Object.values(WRITE_REGISTRY[d.domain]?.entities ?? {})
+        .filter((e) => Object.keys(e.actions).length > 0)
+        .map((e) => e.entity),
+      views: [],
+    };
+  }
+
+  // P4-07: domains that exist ONLY in WRITE_REGISTRY (no REGISTRY entry at
+  // all) -- day/goals/habits today. Without this, an agent reading the
+  // account map (the very first thing it sees on connect) would have no
+  // way to learn these write surfaces exist, even though
+  // list_capabilities(domain) already serves them (P4-07's
+  // write-only-domain fix in list-capabilities.ts). Kept in sync
+  // automatically the same way REGISTRY's own loop above is -- no
+  // hardcoded domain names beyond the one-liner fallback.
+  for (const wd of Object.values(WRITE_REGISTRY)) {
+    if (domains[wd.domain]) continue; // already covered above -- has real read coverage
+    domains[wd.domain] = {
+      one_line: DOMAIN_ONE_LINERS[wd.domain] ?? "Write-only -- see list_capabilities().",
+      active_for_account: state.mode === "legacy" || !gated.has(wd.domain) || gatedActive.has(wd.domain),
+      read: [],
+      write: Object.values(wd.entities)
         .filter((e) => Object.keys(e.actions).length > 0)
         .map((e) => e.entity),
       views: [],

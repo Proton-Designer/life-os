@@ -52,28 +52,41 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
     };
   }
 
+  // P4-07: a domain can now be WRITE-ONLY (day/goals/habits — no read
+  // entity anywhere yet, unlike deen.profile/deen.weekly_goal, which are
+  // write-only ENTITIES inside an otherwise-readable domain, handled below
+  // by `writeOnlyEntities`). `getDomain` only ever sees REGISTRY (read), so
+  // a domain that exists ONLY in WRITE_REGISTRY resolves here instead —
+  // `readEntities` is `{}` for one of these, which correctly falls every
+  // one of its entities into `writeOnlyEntities` below rather than
+  // silently disappearing. P4-05 is expected to add real read entities for
+  // some of these later; when it does, this code path keeps working
+  // unchanged (the domain simply stops being 100% write-only, the same way
+  // deen.profile would if a deen-scoped read entity for it ever landed).
   const domainDef = getDomain(domain);
-  if (!domainDef) {
-    const known = listDomains().map((d) => d.domain);
-    throw new ToolInputError(`Unknown domain "${domain}". Known domains: ${known.join(", ") || "(none yet)"}.`);
+  const writeDomainDef = WRITE_REGISTRY[domain];
+  if (!domainDef && !writeDomainDef) {
+    const known = new Set([...listDomains().map((d) => d.domain), ...Object.keys(WRITE_REGISTRY)]);
+    throw new ToolInputError(`Unknown domain "${domain}". Known domains: ${[...known].join(", ") || "(none yet)"}.`);
   }
+  const readEntities = domainDef?.entities ?? {};
 
   const writeActionDetail = (entity: string) =>
-    Object.values(WRITE_REGISTRY[domainDef.domain]?.entities[entity]?.actions ?? {}).map((a) => ({
+    Object.values(writeDomainDef?.entities[entity]?.actions ?? {}).map((a) => ({
       action: a.action,
       description: a.description,
       patch: a.patchShape,
-      requires_id: ACTIONS_REQUIRING_ID.has(writeActionKey(domainDef.domain, entity, a.action)),
+      requires_id: ACTIONS_REQUIRING_ID.has(writeActionKey(domain, entity, a.action)),
       schedulable: a.idempotent === true,
     }));
 
-  const entities = Object.values(domainDef.entities).map((e) => {
+  const entities = Object.values(readEntities).map((e) => {
     // "read" is always available once an entity is in this registry at
     // all; "write" + whatever action names exist come from the SEPARATE
     // write-registry (lib/mcp/write-registry.ts) — queried live, not
     // hardcoded, so this list can never drift from what `write` will
     // actually accept.
-    const writeActionNames = listWriteActions(domainDef.domain, e.entity);
+    const writeActionNames = listWriteActions(domain, e.entity);
     return {
       entity: e.entity,
       description: e.description,
@@ -87,21 +100,23 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
   });
 
   // A write entity with no READ entity in this domain (e.g. deen.profile,
-  // whose columns are read via settings.profile) would otherwise be invisible
-  // here, since `entities` is built from the read registry. Generic: any
-  // future write-only entity lands here automatically (a test checks every
+  // whose columns are read via settings.profile -- or, now, EVERY entity of
+  // a 100%-write-only domain like day/goals/habits) would otherwise be
+  // invisible here, since `entities` above is built from the read registry
+  // alone. Generic: any future write-only entity, in a readable domain or a
+  // write-only one, lands here automatically (a test checks every
   // WRITE_REGISTRY action is discoverable from some list_capabilities(domain)).
-  const writeOnlyEntities = Object.values(WRITE_REGISTRY[domainDef.domain]?.entities ?? {})
-    .filter((w) => !domainDef.entities[w.entity] && Object.keys(w.actions).length > 0)
+  const writeOnlyEntities = Object.values(writeDomainDef?.entities ?? {})
+    .filter((w) => !readEntities[w.entity] && Object.keys(w.actions).length > 0)
     .map((w) => ({
       entity: w.entity,
-      note: `Write-only in "${domainDef.domain}": no read entity under this domain name.`,
+      note: domainDef ? `Write-only in "${domain}": no read entity under this domain name.` : `"${domain}" has no read coverage at all yet -- every entity here is write-only.`,
       write_actions: writeActionDetail(w.entity),
     }));
 
   const base = writeOnlyEntities.length > 0 ? { domain, entities, write_only_entities: writeOnlyEntities } : { domain, entities };
   const payload =
-    domainDef.domain === "widgets"
+    domain === "widgets"
       ? { ...base, widget_kinds: [...WIDGET_KINDS], display_schema: WIDGET_DISPLAY_SCHEMA, data_source_schema: WIDGET_DATA_SOURCE_SCHEMA }
       : base;
   return {

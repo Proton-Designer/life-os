@@ -3,9 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { addDaysToDateString, localDateString } from "@/lib/date-utils";
-import { assignRanks } from "@/lib/evening-close/rank-assignment";
-import type { TablesInsert } from "@/lib/supabase/database.types";
+import {
+  planningDateForCore,
+  dumpLineCore,
+  claimSeedLinesCore,
+  savePlanRanksCore,
+  type PlanMode,
+  type SeedLine,
+  type SeedSource,
+  type ClaimedSeed,
+} from "@/lib/night-plan/plan-actions-core";
+
+export type { PlanMode, SeedLine, SeedSource, ClaimedSeed };
 
 /**
  * The plan stage's writes — the only part of the evening close that persists
@@ -55,57 +64,24 @@ import type { TablesInsert } from "@/lib/supabase/database.types";
  * it — the numbers just drift.
  */
 
-export type PlanMode = "tonight" | "today";
-
 async function planningDateFor(mode: PlanMode = "tonight"): Promise<{ userId: string; plannedDate: string } | null> {
   const user = await getAuthedUser();
   if (!user) return null;
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  const today = localDateString(new Date(), timezone);
-  // "tonight" (the ordinary evening close) plans the user's LOCAL tomorrow,
-  // unchanged from before this file was parameterised. "today" (only
-  // /close/replan) targets the user's local today — no `+1` — which is the
-  // one-line fix for the #29 bug: this used to be unconditional.
-  return { userId: user.id, plannedDate: mode === "today" ? today : addDaysToDateString(today, 1) };
+  return { userId: user.id, plannedDate: planningDateForCore(mode, new Date(), timezone) };
 }
 
-/** Persist one dumped line. Returns its id so the surface can star it. */
+/** THIN WRAPPER over dumpLineCore (lib/night-plan/plan-actions-core.ts, P4-07) — the MCP write tool calls the same core. */
 export async function dumpLine(title: string, mode: PlanMode = "tonight"): Promise<{ id: string } | { error: string }> {
-  const trimmed = title.trim();
-  if (trimmed.length === 0) return { error: "Nothing to add" };
-
   const ctx = await planningDateFor(mode);
   if (ctx === null) return { error: "Not signed in" };
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("tasks")
-    .insert({
-      user_id: ctx.userId,
-      title: trimmed,
-      planned_date: ctx.plannedDate,
-      domain: null,
-      // The engine calls this source `user`; the column calls it `note`. See
-      // the mapping in this file's header.
-      dump_source: "note",
-      // mit_rank stays null: "dumped, not starred" is a real state, and the
-      // rank is only assigned when a crown exists.
-      mit_rank: null,
-      completed: false,
-    })
-    .select("id")
-    .single();
-
-  if (error) return { error: error.message };
-  revalidatePath(mode === "today" ? "/close/replan" : "/close");
-  return { id: data.id };
+  const result = await dumpLineCore(supabase, ctx.userId, ctx.plannedDate, title);
+  if ("id" in result) revalidatePath(mode === "today" ? "/close/replan" : "/close");
+  return result;
 }
-
-export type SeedSource = "worry" | "goal_milestone" | "school_risk";
-export type SeedLine = { id: string; title: string; source: SeedSource };
-/** Maps a seed's ORIGINAL id (a worry's own tasks.id, or a goal_milestones.id) to the real tasks.id it now lives at. Identity for worries — see claimSeedLines. */
-export type ClaimedSeed = { seedId: string; taskId: string };
 
 /**
  * Turns a still-unclaimed seed line (item #28/#45 — a worry or unfinished
@@ -145,6 +121,9 @@ export type ClaimedSeed = { seedId: string; taskId: string };
  * can retry Finish) — a different failure mode than `savePlanRanks`'s, which
  * IS scoped to be a single statement because a half-*ranked* plan is the
  * failure the architect called out by name.
+ *
+ * THIN WRAPPER over claimSeedLinesCore (lib/night-plan/plan-actions-core.ts,
+ * P4-07) — the MCP write tool calls the same core.
  */
 export async function claimSeedLines(
   seeds: SeedLine[],
@@ -155,47 +134,9 @@ export async function claimSeedLines(
   if (ctx === null) return { error: "Not signed in" };
 
   const supabase = await createClient();
-  const claimed: ClaimedSeed[] = [];
-
-  for (const seed of seeds) {
-    if (seed.source === "worry") {
-      const { data, error } = await supabase
-        .from("tasks")
-        .update({ planned_date: ctx.plannedDate })
-        .eq("id", seed.id)
-        .eq("user_id", ctx.userId)
-        .eq("dump_source", "worry")
-        .eq("completed", false)
-        .select("id");
-      if (error) return { error: error.message };
-      // 0 rows: someone else already handled/claimed it since the page
-      // loaded. Drop it rather than error — the client filters it out of
-      // starred/crowned before ranking.
-      if (data && data.length > 0) claimed.push({ seedId: seed.id, taskId: seed.id });
-    } else {
-      const { data, error } = await supabase
-        .from("tasks")
-        .insert({
-          user_id: ctx.userId,
-          title: seed.title,
-          domain: null,
-          // "milestone" for a goal_milestone seed, "school" for a school_risk
-          // one — this file's own header names the full mapping. Both are
-          // fresh dumped rows, never an existing one to update (unlike worry).
-          dump_source: seed.source === "goal_milestone" ? "milestone" : "school",
-          planned_date: ctx.plannedDate,
-          mit_rank: null,
-          completed: false,
-        })
-        .select("id")
-        .single();
-      if (error) return { error: error.message };
-      claimed.push({ seedId: seed.id, taskId: data.id });
-    }
-  }
-
-  revalidatePath(mode === "today" ? "/close/replan" : "/close");
-  return { claimed };
+  const result = await claimSeedLinesCore(supabase, ctx.userId, ctx.plannedDate, seeds);
+  if ("claimed" in result) revalidatePath(mode === "today" ? "/close/replan" : "/close");
+  return result;
 }
 
 /**
@@ -227,6 +168,9 @@ export async function claimSeedLines(
  * old N+1-statement loop, and the error path below says so explicitly rather
  * than returning a bare Postgres message, so a user who hits it knows to
  * retry rather than assuming their old plan is intact.
+ *
+ * THIN WRAPPER over savePlanRanksCore (lib/night-plan/plan-actions-core.ts,
+ * P4-07) — the MCP write tool calls the same core.
  */
 export async function savePlanRanks(
   starred: string[],
@@ -236,41 +180,9 @@ export async function savePlanRanks(
   const ctx = await planningDateFor(mode);
   if (ctx === null) return { error: "Not signed in" };
 
-  let ranks;
-  try {
-    ranks = assignRanks({ starred, crowned });
-  } catch (e) {
-    // assignRanks refuses an unstarred crown or more than three stars. Surface
-    // it rather than writing a partial plan.
-    return { error: e instanceof Error ? e.message : "Invalid plan" };
-  }
-  if (ranks.length === 0) return { ok: true };
-
   const supabase = await createClient();
-
-  const { error: clearError } = await supabase
-    .from("tasks")
-    .update({ mit_rank: null })
-    .eq("user_id", ctx.userId)
-    .eq("planned_date", ctx.plannedDate)
-    .not("mit_rank", "is", null);
-  if (clearError) return { error: clearError.message };
-
-  // Only id/user_id/mit_rank are set. The generated Insert type requires
-  // every NOT NULL column (title included) because it can't know this
-  // always resolves to the UPDATE branch of ON CONFLICT(id) -- every id
-  // here already names a real, existing task. Cast past that rather than
-  // fetching each task's title just to satisfy a type for a branch this
-  // call never actually takes; if it ever did (a bad id, a real bug), the
-  // real Postgres NOT NULL constraint fails the insert loudly regardless of
-  // what TypeScript believed here.
-  const upsertRows = ranks.map(({ id, mitRank }) => ({ id, user_id: ctx.userId, mit_rank: mitRank })) as unknown as TablesInsert<"tasks">[];
-  const { error: upsertError } = await supabase.from("tasks").upsert(upsertRows, { onConflict: "id" });
-  if (upsertError) {
-    return {
-      error: `Today's old ranks were cleared but the new plan didn't fully save (${upsertError.message}). Try Finish again.`,
-    };
-  }
+  const result = await savePlanRanksCore(supabase, ctx.userId, ctx.plannedDate, starred, crowned);
+  if (!("ok" in result)) return result;
 
   // #29: this used to revalidate only /close and / — a same-day replan
   // launched from /open (via /close/replan) returned to a stale cached

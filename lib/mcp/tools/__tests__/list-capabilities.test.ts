@@ -79,9 +79,17 @@ describe("listCapabilitiesTool", () => {
       "business",
       "calendar",
       "checkins",
+      // P4-07: day/goals/habits are WRITE_REGISTRY-only domains (no
+      // REGISTRY/read entry at all yet) -- buildAccountMap's own
+      // write-only-domain fix lists them here too, with read:[], so an
+      // agent reading the account map isn't blind to a write surface that
+      // genuinely exists. See account-map.test.ts for the dedicated coverage.
+      "day",
       "deen",
       "distractions",
       "fitness",
+      "goals",
+      "habits",
       "home",
       "review",
       "school",
@@ -177,6 +185,39 @@ describe("listCapabilitiesTool", () => {
     for (const name of Object.keys(writeOnly)) expect(readable.has(name)).toBe(false);
     // Domains with no write-only entity don't carry an empty key.
     expect(textPayload(await listCapabilitiesTool("work")).write_only_entities).toBeUndefined();
+  });
+
+  it("P4-07: a domain that exists ONLY in WRITE_REGISTRY (no read entity at all) resolves instead of throwing 'unknown domain', with every entity under write_only_entities", async () => {
+    for (const domain of ["day", "goals", "habits"]) {
+      const payload = textPayload(await listCapabilitiesTool(domain));
+      expect(payload.domain).toBe(domain);
+      expect(payload.entities).toEqual([]); // no read coverage yet -- P4-05's future territory
+      expect(payload.write_only_entities.length).toBeGreaterThan(0);
+      for (const e of payload.write_only_entities) {
+        expect(e.note).toMatch(/no read coverage at all/i);
+        expect(e.write_actions.length).toBeGreaterThan(0);
+      }
+    }
+    const goalsEntities = textPayload(await listCapabilitiesTool("goals")).write_only_entities.map((e: { entity: string }) => e.entity).sort();
+    expect(goalsEntities).toEqual(["goal", "milestone"]);
+  });
+
+  it("P4-07: a MIXED domain (some entities readable, some write-only) reports both correctly -- future-proofs the write-only-domain fix against P4-05 adding read entities for day/goals/habits later (review is the existing example of this exact shape: night_plan_task is readable, worry/sleep_intent are not)", async () => {
+    const payload = textPayload(await listCapabilitiesTool("review"));
+    const readableNames = new Set(payload.entities.map((e: { entity: string }) => e.entity));
+    expect(readableNames.has("night_plan_task")).toBe(true);
+    const nightPlanTask = payload.entities.find((e: { entity: string }) => e.entity === "night_plan_task");
+    expect(nightPlanTask.actions.sort()).toEqual(["read", "write:claim_seeds", "write:dump", "write:save_ranks"].sort());
+    const writeOnlyNames = payload.write_only_entities.map((e: { entity: string }) => e.entity).sort();
+    expect(writeOnlyNames).toEqual(["sleep_intent", "worry"]);
+    for (const e of payload.write_only_entities) expect(e.note).toMatch(/no read entity under this domain name/i);
+    // Not double-counted: a write-only entity never also appears in `entities`.
+    expect(readableNames.has("worry")).toBe(false);
+    expect(readableNames.has("sleep_intent")).toBe(false);
+  });
+
+  it("P4-07: 'unknown domain' error's known-domains list includes write-only domains too", async () => {
+    await expect(listCapabilitiesTool("not_a_real_domain")).rejects.toThrow(/\bday\b.*\bgoals\b.*\bhabits\b|\bhabits\b.*\bgoals\b.*\bday\b/);
   });
 
   it("self_mastery: source_chunks/book/book_section/lesson/card/card_state stay read-only -- only review/lesson_promotion/self_explanation gained a write action", async () => {

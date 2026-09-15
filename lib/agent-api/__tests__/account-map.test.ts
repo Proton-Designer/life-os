@@ -104,8 +104,14 @@ describe("buildAccountMap — capability sets", () => {
   it("lists every registry domain once, with its real read entities, its writable entities, and empty views", async () => {
     const { buildAccountMap, DOMAIN_ONE_LINERS } = await import("../account-map");
     const map = await buildAccountMap(makeClient(FAITH_SCHOOL), "user-1", NOW);
-    expect(Object.keys(map.domains).sort()).toEqual(Object.keys(REGISTRY).sort());
+    // P4-07: map.domains is now a SUPERSET of REGISTRY's own keys (it also
+    // carries WRITE_REGISTRY-only domains like day/goals/habits -- see the
+    // dedicated test below for those). Every REGISTRY domain must still be
+    // present, one-to-one, which is what this loop actually checks.
+    expect(Object.keys(REGISTRY).every((name) => name in map.domains)).toBe(true);
     for (const [name, d] of Object.entries(map.domains)) {
+      if (!(name in REGISTRY)) continue; // covered by the write-only-domain test below
+
       expect(DOMAIN_ONE_LINERS[name], `registry domain "${name}" needs a one-liner`).toBeTruthy();
       expect(d.one_line).toBe(DOMAIN_ONE_LINERS[name]);
       expect(d.read).toEqual(Object.keys(REGISTRY[name].entities));
@@ -113,6 +119,25 @@ describe("buildAccountMap — capability sets", () => {
       expect(d.write).toEqual(expectedWritable);
       expect(d.views).toEqual([]);
     }
+  });
+
+  it("P4-07: ALSO lists every WRITE_REGISTRY-only domain (no REGISTRY entry at all) with read:[] and its real writable entities -- so the account map (the first thing an agent sees) doesn't hide a write surface REGISTRY has never heard of", async () => {
+    const { buildAccountMap, DOMAIN_ONE_LINERS } = await import("../account-map");
+    const map = await buildAccountMap(makeClient(FAITH_SCHOOL), "user-1", NOW);
+    const writeOnlyDomains = Object.keys(WRITE_REGISTRY).filter((name) => !REGISTRY[name]);
+    expect(writeOnlyDomains.length).toBeGreaterThan(0); // day/goals/habits today -- a positive control so this test isn't vacuous
+    for (const name of writeOnlyDomains) {
+      expect(map.domains[name], `write-only domain "${name}" missing from the account map`).toBeTruthy();
+      expect(DOMAIN_ONE_LINERS[name], `write-only domain "${name}" needs a one-liner`).toBeTruthy();
+      expect(map.domains[name].one_line).toBe(DOMAIN_ONE_LINERS[name]);
+      expect(map.domains[name].read).toEqual([]);
+      const expectedWritable = Object.values(WRITE_REGISTRY[name].entities).filter((e) => Object.keys(e.actions).length > 0).map((e) => e.entity);
+      expect(map.domains[name].write).toEqual(expectedWritable);
+      expect(map.domains[name].write.length).toBeGreaterThan(0);
+      expect(map.domains[name].views).toEqual([]);
+    }
+    // The overall domain count now exceeds REGISTRY's own -- the two loops are additive, not overlapping.
+    expect(Object.keys(map.domains).length).toBe(Object.keys(REGISTRY).length + writeOnlyDomains.length);
   });
 
   it("is a pure function of (fixture, userId, now): same inputs → deep-equal output, regardless of the wall clock", async () => {

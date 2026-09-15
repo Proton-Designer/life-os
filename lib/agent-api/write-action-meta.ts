@@ -45,6 +45,14 @@ export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
   "deen.habit_log.toggle",
   "deen.habit_log.set_status",
   "deen.weekly_focus.set",
+  // P4-07
+  "review.worry.set_handled",
+  "review.worry.reopen",
+  "goals.goal.set_status",
+  "goals.milestone.set_done",
+  "habits.identity_habit.archive",
+  "habits.vote.cast",
+  "habits.vote.retract",
 ]);
 
 /**
@@ -70,6 +78,11 @@ export const DATE_DEFAULTS_TO_TODAY: ReadonlySet<string> = new Set([
   "deen.reflection_entry.log",
   "deen.habit_log.toggle",
   "deen.habit_log.set_status",
+  // P4-07 -- votes may only ever be cast/retracted for local today anyway
+  // (assertRequestedDateIsToday rejects anything else), so defaulting the
+  // one legal value removes friction without weakening the guarantee.
+  "habits.vote.cast",
+  "habits.vote.retract",
 ]);
 
 /** Handlers that require patch.date where a silent "today" would be wrong. The agent must always send it. */

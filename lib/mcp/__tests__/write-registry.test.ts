@@ -208,7 +208,7 @@ describe("WRITE_REGISTRY shape — the deliverable the team-lead asked for", () 
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "update", "insert", "upsert"]) chain[m] = vi.fn(() => chain);
+  for (const m of ["select", "eq", "update", "insert", "upsert", "delete"]) chain[m] = vi.fn(() => chain);
   chain.maybeSingle = vi.fn(async () => resolvedValue);
   chain.single = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
@@ -518,5 +518,364 @@ describe("deen.weekly_goal.save handler", () => {
     await expect(
       action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { headline: "x", milestones: [] }),
     ).rejects.toThrow(/patch\.week_start_date/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4-07: review.night_plan_task/worry/sleep_intent, day.day_start,
+// goals.goal/milestone, habits.identity_habit/vote.
+// ---------------------------------------------------------------------------
+
+describe("review.night_plan_task handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z"); // UTC evening -> local date depends on tz below
+
+  it("dump inserts a note-dumped row for tomorrow (default mode) and returns its id", async () => {
+    const action = getWriteAction("review", "night_plan_task", "dump")!;
+    const client = makeTableClient({ tasks: makeChain({ data: { id: "t-1" }, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { title: "Buy milk" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toMatchObject({ id: "t-1", planned_date: "2026-09-09" }); // tomorrow of 2026-09-08 UTC
+  });
+
+  it("dump REJECTS a missing title", async () => {
+    const action = getWriteAction("review", "night_plan_task", "dump")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/patch\.title/i);
+  });
+
+  it("dump with mode='today' plans local today, not tomorrow", async () => {
+    const action = getWriteAction("review", "night_plan_task", "dump")!;
+    const client = makeTableClient({ tasks: makeChain({ data: { id: "t-1" }, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { title: "x", mode: "today" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text).planned_date).toBe("2026-09-08");
+  });
+
+  it("dump REJECTS an invalid mode", async () => {
+    const action = getWriteAction("review", "night_plan_task", "dump")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { title: "x", mode: "yesterday" })).rejects.toThrow(/patch\.mode/i);
+  });
+
+  it("claim_seeds REJECTS an empty/missing seeds array", async () => {
+    const action = getWriteAction("review", "night_plan_task", "claim_seeds")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { seeds: [] })).rejects.toThrow(/patch\.seeds/i);
+  });
+
+  it("claim_seeds REJECTS an invalid seed source", async () => {
+    const action = getWriteAction("review", "night_plan_task", "claim_seeds")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { seeds: [{ id: "s1", title: "x", source: "bogus" }] }),
+    ).rejects.toThrow(/patch\.seeds\[0\]\.source/i);
+  });
+
+  it("claim_seeds claims a worry seed (update path) and a milestone seed (insert path) in one call", async () => {
+    const action = getWriteAction("review", "night_plan_task", "claim_seeds")!;
+    const chain: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "update", "insert"]) chain[m] = vi.fn(() => chain);
+    let call = 0;
+    chain.then = (resolve: (v: unknown) => void) => {
+      call += 1;
+      // 1st table op is the worry UPDATE...select (array result); 2nd is the milestone INSERT...select (single result via .single()).
+      return resolve(call === 1 ? { data: [{ id: "worry-1" }], error: null } : { data: null, error: null });
+    };
+    chain.single = vi.fn(async () => ({ data: { id: "new-task-1" }, error: null }));
+    const client = makeTableClient({ tasks: chain as unknown as ReturnType<typeof makeChain> });
+
+    const outcome = await action.handler(
+      { userClient: client, userId: "user-1", timezone: "UTC", now },
+      { seeds: [{ id: "worry-1", title: "A worry", source: "worry" }, { id: "milestone-1", title: "A milestone", source: "goal_milestone" }] },
+    );
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    const parsed = JSON.parse(block.text);
+    expect(parsed.claimed).toEqual(
+      expect.arrayContaining([{ seedId: "worry-1", taskId: "worry-1" }, { seedId: "milestone-1", taskId: "new-task-1" }]),
+    );
+  });
+
+  it("save_ranks REJECTS starred that isn't an array of strings", async () => {
+    const action = getWriteAction("review", "night_plan_task", "save_ranks")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { starred: [1, 2], crowned: null }),
+    ).rejects.toThrow(/patch\.starred/i);
+  });
+
+  it("save_ranks REJECTS an invalid assignRanks input (crown not in starred) via the core's own error, not a raw exception escaping", async () => {
+    const action = getWriteAction("review", "night_plan_task", "save_ranks")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { starred: ["a", "b"], crowned: "c" }),
+    ).rejects.toThrow();
+  });
+
+  it("save_ranks with an empty computed rank set (nothing starred) is a clean ok, no writes attempted", async () => {
+    const action = getWriteAction("review", "night_plan_task", "save_ranks")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { starred: [], crowned: null });
+    expect(outcome.summary).toMatch(/0 starred/);
+  });
+});
+
+describe("review.worry handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("set_handled REQUIRES the top-level id", async () => {
+    const action = getWriteAction("review", "worry", "set_handled")!;
+    const client = makeTableClient({ tasks: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("set_handled throws ToolNotFoundError when the worry doesn't exist for this user", async () => {
+    const action = getWriteAction("review", "worry", "set_handled")!;
+    const client = makeTableClient({ tasks: makeChain({ data: null, error: null }) }); // findWorry's maybeSingle -> null
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "bad-id" }, {})).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("set_handled marks it handled when found", async () => {
+    const action = getWriteAction("review", "worry", "set_handled")!;
+    const client = makeTableClient({ tasks: makeChain({ data: { id: "w-1" }, error: null }) }); // maybeSingle finds it; subsequent update resolves via same chain's `.then`
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "w-1" }, {});
+    expect(outcome.summary).toMatch(/w-1/);
+  });
+
+  it("reopen throws ToolNotFoundError when the worry doesn't exist", async () => {
+    const action = getWriteAction("review", "worry", "reopen")!;
+    const client = makeTableClient({ tasks: makeChain({ data: null, error: null }) });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "bad-id" }, {})).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+});
+
+describe("review.sleep_intent handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("set REJECTS an invalid bedtime", async () => {
+    const action = getWriteAction("review", "sleep_intent", "set")!;
+    const client = makeTableClient({ sleep_intents: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { time: "not-a-time" })).rejects.toThrow(/24-hour/i);
+  });
+
+  it("set REJECTS a missing time", async () => {
+    const action = getWriteAction("review", "sleep_intent", "set")!;
+    const client = makeTableClient({ sleep_intents: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/patch\.time/i);
+  });
+
+  it("set upserts a valid bedtime for local today", async () => {
+    const action = getWriteAction("review", "sleep_intent", "set")!;
+    const client = makeTableClient({ sleep_intents: makeChain() });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { time: "22:30" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toEqual({ date: "2026-09-08", time: "22:30" });
+  });
+
+  it("clear clears today's intent", async () => {
+    const action = getWriteAction("review", "sleep_intent", "clear")!;
+    const client = makeTableClient({ sleep_intents: makeChain() });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {});
+    expect(outcome.summary).toMatch(/2026-09-08/);
+  });
+});
+
+describe("day.day_start.start handler", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("marks today started and returns the local date + woke_at", async () => {
+    const action = getWriteAction("day", "day_start", "start")!;
+    const client = makeTableClient({
+      day_starts: makeChain({ data: { local_date: "2026-09-08", woke_at: now.toISOString() }, error: null }),
+    });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {});
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toEqual({ localDate: "2026-09-08", wokeAtIso: now.toISOString() });
+  });
+});
+
+describe("goals.goal handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("create REJECTS an invalid rank", async () => {
+    const action = getWriteAction("goals", "goal", "create")!;
+    const client = makeTableClient({ goals: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { month_start: "2026-09-01", title: "x", reason: "y", rank: 6 }),
+    ).rejects.toThrow(/patch\.rank/i);
+  });
+
+  it("create inserts with the given fields", async () => {
+    const action = getWriteAction("goals", "goal", "create")!;
+    const client = makeTableClient({
+      goals: makeChain({ data: { id: "g-1", month_start: "2026-09-01", domain: null, title: "Ship it", reason: "y", rank: 1, status: "active", completed_at: null }, error: null }),
+    });
+    const outcome = await action.handler(
+      { userClient: client, userId: "user-1", timezone: "UTC", now },
+      { month_start: "2026-09-01", title: "Ship it", reason: "y", rank: 1 },
+    );
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toMatchObject({ id: "g-1", title: "Ship it" });
+  });
+
+  it("set_status REQUIRES the top-level id", async () => {
+    const action = getWriteAction("goals", "goal", "set_status")!;
+    const client = makeTableClient({ goals: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { status: "done" })).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("set_status REJECTS a status other than done/dropped", async () => {
+    const action = getWriteAction("goals", "goal", "set_status")!;
+    const client = makeTableClient({ goals: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "g-1" }, { status: "active" }),
+    ).rejects.toThrow(/patch\.status/i);
+  });
+
+  it("set_status does NOT throw ToolNotFoundError on 0 rows -- a deliberate no-op, matching the core's own design", async () => {
+    const action = getWriteAction("goals", "goal", "set_status")!;
+    const client = makeTableClient({ goals: makeChain({ data: null, error: null }) }); // update matches 0 rows, no error surfaced by the mock
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-done-or-missing" }, { status: "done" });
+    expect(outcome.summary).toMatch(/already-done-or-missing/);
+  });
+});
+
+describe("goals.milestone handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("add inserts a milestone under the given goal", async () => {
+    const action = getWriteAction("goals", "milestone", "add")!;
+    const client = makeTableClient({
+      goal_milestones: makeChain({ data: { id: "m-1", goal_id: "g-1", month_start: "2026-09-01", title: "Draft v1", done_at: null }, error: null }),
+    });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { goal_id: "g-1", month_start: "2026-09-01", title: "Draft v1" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toMatchObject({ id: "m-1", goalId: "g-1" });
+  });
+
+  it("add translates a composite-FK violation (bad goal_id) into ToolNotFoundError", async () => {
+    const action = getWriteAction("goals", "milestone", "add")!;
+    const client = makeTableClient({
+      goal_milestones: makeChain({ data: null, error: { code: "23503", message: "fk violation" } }),
+    });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { goal_id: "not-real", month_start: "2026-09-01", title: "x" }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("set_done REQUIRES the top-level id", async () => {
+    const action = getWriteAction("goals", "milestone", "set_done")!;
+    const client = makeTableClient({ goal_milestones: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { done: true })).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("set_done throws ToolNotFoundError when the milestone doesn't exist for this user (unlike goal.set_status, no ambiguous no-op here)", async () => {
+    const action = getWriteAction("goals", "milestone", "set_done")!;
+    const client = makeTableClient({ goal_milestones: makeChain({ data: null, error: null }) }); // existence check's maybeSingle -> null
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "bad-id" }, { done: true }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("set_done REJECTS a missing done", async () => {
+    const action = getWriteAction("goals", "milestone", "set_done")!;
+    const client = makeTableClient({ goal_milestones: makeChain({ data: { id: "m-1" }, error: null }) });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "m-1" }, {})).rejects.toThrow(/patch\.done/i);
+  });
+});
+
+describe("habits.identity_habit handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("create REJECTS a missing identity_statement", async () => {
+    const action = getWriteAction("habits", "identity_habit", "create")!;
+    const client = makeTableClient({ identity_habits: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/patch\.identity_statement/i);
+  });
+
+  it("create inserts at the lowest free rank", async () => {
+    const action = getWriteAction("habits", "identity_habit", "create")!;
+    const chain: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "insert"]) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null }); // no active habits -> rank 1 free
+    chain.single = vi.fn(async () => ({ data: { id: "h-1", identity_statement: "I am disciplined", rank: 1, created_at: now.toISOString() }, error: null }));
+    const client = makeTableClient({ identity_habits: chain as unknown as ReturnType<typeof makeChain> });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { identity_statement: "I am disciplined" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toMatchObject({ id: "h-1" });
+  });
+
+  it("archive REQUIRES the top-level id", async () => {
+    const action = getWriteAction("habits", "identity_habit", "archive")!;
+    const client = makeTableClient({ identity_habits: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("archive does NOT throw on 0 rows -- deliberate no-op matching the core's own design", async () => {
+    const action = getWriteAction("habits", "identity_habit", "archive")!;
+    const client = makeTableClient({ identity_habits: makeChain({ data: null, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived-or-missing" }, {});
+    expect(outcome.summary).toMatch(/already-archived-or-missing/);
+  });
+});
+
+describe("habits.vote handlers", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("cast REJECTS a missing patch.date", async () => {
+    const action = getWriteAction("habits", "vote", "cast")!;
+    const client = makeTableClient({ habit_votes: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, {})).rejects.toThrow(/patch\.date/i);
+  });
+
+  it("cast REJECTS a date other than local today", async () => {
+    const action = getWriteAction("habits", "vote", "cast")!;
+    const client = makeTableClient({ habit_votes: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2020-01-01" }),
+    ).rejects.toThrow(/today/i);
+  });
+
+  it("cast REQUIRES the top-level id", async () => {
+    const action = getWriteAction("habits", "vote", "cast")!;
+    const client = makeTableClient({ habit_votes: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { date: "2026-09-08" })).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("cast upserts for local today when the date matches", async () => {
+    const action = getWriteAction("habits", "vote", "cast")!;
+    const client = makeTableClient({ habit_votes: makeChain({ data: null, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2026-09-08" });
+    expect(outcome.summary).toMatch(/h-1/);
+  });
+
+  it("cast translates a composite-FK violation (bad habit id) into ToolNotFoundError", async () => {
+    const action = getWriteAction("habits", "vote", "cast")!;
+    const client = makeTableClient({ habit_votes: makeChain({ data: null, error: { code: "23503", message: "fk violation" } }) });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "not-real" }, { date: "2026-09-08" }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("retract REJECTS a date other than local today", async () => {
+    const action = getWriteAction("habits", "vote", "retract")!;
+    const client = makeTableClient({ habit_votes: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2020-01-01" }),
+    ).rejects.toThrow(/today/i);
+  });
+
+  it("retract deletes today's vote when it exists (a no-op on 0 rows, not an error)", async () => {
+    const action = getWriteAction("habits", "vote", "retract")!;
+    const client = makeTableClient({ habit_votes: makeChain({ data: null, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2026-09-08" });
+    expect(outcome.summary).toMatch(/h-1/);
   });
 });
