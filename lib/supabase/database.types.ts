@@ -1847,6 +1847,7 @@ export type Database = {
           core_claim: string | null
           created_at: string
           embedding: string | null
+          embedding_model: string | null
           evidence_strength:
             | Database["public"]["Enums"]["evidence_strength"]
             | null
@@ -1869,6 +1870,7 @@ export type Database = {
           core_claim?: string | null
           created_at?: string
           embedding?: string | null
+          embedding_model?: string | null
           evidence_strength?:
             | Database["public"]["Enums"]["evidence_strength"]
             | null
@@ -1891,6 +1893,7 @@ export type Database = {
           core_claim?: string | null
           created_at?: string
           embedding?: string | null
+          embedding_model?: string | null
           evidence_strength?:
             | Database["public"]["Enums"]["evidence_strength"]
             | null
@@ -3387,6 +3390,7 @@ export type Database = {
         Row: {
           book_id: string
           embedding: string | null
+          embedding_model: string | null
           id: string
           page_end: number | null
           page_start: number | null
@@ -3399,6 +3403,7 @@ export type Database = {
         Insert: {
           book_id: string
           embedding?: string | null
+          embedding_model?: string | null
           id?: string
           page_end?: number | null
           page_start?: number | null
@@ -3411,6 +3416,7 @@ export type Database = {
         Update: {
           book_id?: string
           embedding?: string | null
+          embedding_model?: string | null
           id?: string
           page_end?: number | null
           page_start?: number | null
