@@ -89,19 +89,19 @@ test("a distraction logged during a Lock-In session shows a live '1 this session
     const view = overlay(page);
 
     await view.getByRole("button", { name: "Distractions" }).click();
-    const capture = page.getByRole("dialog");
+    // MUST be scoped by name, not a bare page.getByRole("dialog") — the
+    // Lock-In overlay itself is ALSO role="dialog" (name "Deep Work —
+    // locked in") and stays legitimately visible the whole time this
+    // nested dialog is open, so an unscoped locator matches both and a
+    // later .toBeHidden() on it can never pass while the session is
+    // running (found live against production, 2026-09-14: this exact bug
+    // shape). Deep Work infers the "business" domain and opens directly to
+    // the trigger-list step (distraction-capture-dialog.tsx's own
+    // inferDomainFromSession) — confirmed live on SEED ("Business —
+    // Inferred from your Deep Work session", "No triggers yet"), not a
+    // domain picker, so there is no domain button to click here.
+    const capture = page.getByRole("dialog", { name: /business/i });
     await expect(capture).toBeVisible();
-
-    // Deep Work is supposed to infer the "business" domain and skip
-    // straight to the trigger-list step (distraction-capture-dialog.tsx's
-    // own inferDomainFromSession) — but this is asserted defensively
-    // rather than assumed: if the domain step is showing anyway, pick
-    // Business explicitly rather than fail on an inference detail that
-    // isn't this spec's own subject.
-    const businessDomainButton = capture.getByRole("button", { name: "Business", exact: true });
-    if (await businessDomainButton.isVisible().catch(() => false)) {
-      await businessDomainButton.click();
-    }
     await expect(capture.getByRole("button", { name: /new trigger/i })).toBeVisible();
 
     await capture.getByRole("button", { name: /new trigger/i }).click();
