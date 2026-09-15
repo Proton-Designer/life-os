@@ -90,6 +90,7 @@ the point is to make a number unavailable the moment it is promised.
 | `212` | Team B lead tracking-app-a9 (P4-10), 2026-09-15 | Re-scope `mcp_audit_log_token_same_user` (150) to `ON DELETE SET NULL (token_id)`. The unscoped composite SET NULL nulls user_id (NOT NULL) too, so deleting a token that has audit rows is impossible. Production sweep: this is the ONLY unscoped composite SET NULL left | allocated |
 | `213` | Team B / tracking-app-1e (P2-22), allocated by tracking-app-a9, 2026-09-15 | Canvas token expiry handling + sync status (reserved in case columns/tables are needed; withdrawn if P2-22 needs no schema) | allocated |
 | `214` | Team B / tracking-app-4b (P3-15), allocated by tracking-app-a9, 2026-09-15 | Lecture transcription: `lecture_transcripts` (FK to lecture_recordings, composite tenancy) + async job status | allocated |
+| `215` | Team B / p4-b-tokens (P4-12), allocated by tracking-app-a9, 2026-09-15 | Token lifecycle: `mcp_access_tokens.expires_at` + `client_kind`; `mcp_audit_log.transport` | allocated |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
 | `250`+ | — | next free | — |
 
