@@ -29,9 +29,24 @@ async function deletePlanRowIfPresent(page: Page, planName: string) {
   // function return WITHOUT deleting — silently, with no failed assertion.
   // It surfaced only later, as a residue-reconciliation mismatch at teardown
   // (a leftover active plan), which is a long way from the actual cause.
+  //
+  // settleRoute alone wasn't the whole fix: a single isVisible() snapshot
+  // still races a SECOND, later re-suspend of the same boundary — e.g. the
+  // router.refresh() a Save/Delete/Activate server action triggers can
+  // remount the Suspense boundary and its skeleton again, transiently
+  // unmounting the row right as this reads it, a beat after settleRoute's
+  // own check already passed. Found live 2026-09-15 (Mobile Chrome only,
+  // presumably the slower render path): create-from-scratch's own teardown
+  // call landed on this false negative right after Save, silently skipping
+  // the delete and leaking the plan + its micro-exercise row as permanent
+  // residue on SEED. `waitFor` retries instead of taking one snapshot.
   await settleRoute(page);
   const li = page.locator("li").filter({ hasText: planName });
-  if (!(await li.isVisible().catch(() => false))) return;
+  const present = await li
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!present) return;
   await li.getByRole("button", { name: "Delete" }).click();
   // Two possible confirm strings depending on whether it's the active plan
   // (plan-list.tsx) — click whichever "Delete" appears in the confirm row.

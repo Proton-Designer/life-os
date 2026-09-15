@@ -152,7 +152,23 @@ test.describe("onboarding", () => {
 
       const terminal = page.getByTestId("fitness-style-adhoc");
       if (await terminal.count()) {
-        await terminal.click();
+        // Selecting this finishes the whole walk (finishCurrentDomain calls
+        // completeOnboarding and flips phase to "submitting" synchronously
+        // in the same handler), so the click races its own consequence —
+        // the wizard can start tearing this step down a beat after the
+        // click fires. Seen once live (Mobile Chrome, full-suite triage
+        // 2026-09-15): "element was detached from the DOM, retrying" for
+        // the full 30s. Not reproducible in isolation (4/4 clean runs) —
+        // logged as a pre-existing intermittent flake, same class as the
+        // already-known lock-in-overlay one. One retry after a brief
+        // stabilization pause is cheap insurance, not a weaker assertion:
+        // if the button is genuinely gone (real navigation already
+        // completed), the retry's own click throws for real instead of
+        // silently passing.
+        await terminal.click().catch(async () => {
+          await page.waitForTimeout(300);
+          await page.getByTestId("fitness-style-adhoc").click();
+        });
       } else {
         const next = page.getByTestId("onboarding-next");
         if (!(await next.count()) || (await next.isDisabled())) {
