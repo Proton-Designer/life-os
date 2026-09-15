@@ -30,6 +30,11 @@ vi.mock("@/lib/ai/gateway", () => ({
   gatewayChat: vi.fn(),
 }));
 
+const getUserEmbeddingsMock = vi.fn();
+vi.mock("@/lib/ai/embeddings", () => ({
+  getUserEmbeddings: (...args: unknown[]) => getUserEmbeddingsMock(...args),
+}));
+
 function makeSupabaseWithLessons(
   lessons: { id: string; core_claim: string | null; provenance_quote: string }[],
   notSpy?: (column: string, operator: string, value: unknown) => void,
@@ -793,5 +798,114 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
         supabase: supabase as never,
       }),
     ).rejects.toThrow(/card_states_card_user_key/);
+  });
+});
+
+/**
+ * P2-13: `mergingStage` now passes a real `Embedder` (lib/ai/embeddings.ts's
+ * `getUserEmbeddings`) into `HeuristicProvider` instead of always
+ * constructing one with no `embed` at all. `getUserEmbeddings` itself is
+ * mocked (it has its own full unit-test suite, lib/ai/__tests__/embeddings.test.ts)
+ * -- these tests only prove the WIRING: the right user id reaches it, and a
+ * failure of ANY kind degrades to the pipeline's pre-existing embedding-less
+ * behavior (empty vectors) rather than throwing and failing the whole
+ * ingestion job.
+ */
+describe("merging stage — P2-13 embedder wiring", () => {
+  function makeMergingSupabase(
+    lessons: { id: string; title: string; core_claim: string | null; mechanism: string | null; action_template: string | null; evidence_strength: string | null; provenance_quote: string; page_ref: number | null; source_chunk_id: string | null }[],
+    pageCount = 80,
+  ) {
+    const rankUpdates: { id: string; rank: number | null }[] = [];
+    const supabase = {
+      from(table: string) {
+        if (table === "books") {
+          return { select: () => ({ eq: () => ({ single: async () => ({ data: { page_count: pageCount }, error: null }) }) }) };
+        }
+        if (table === "lessons") {
+          return {
+            update(vals: Record<string, unknown>) {
+              const builder = {
+                eq(col: string, val: unknown) {
+                  if (col === "id") rankUpdates.push({ id: val as string, rank: vals.rank as number | null });
+                  return builder;
+                },
+                then(resolve: (v: { error: null }) => void) {
+                  resolve({ error: null });
+                },
+              };
+              return builder;
+            },
+            select() {
+              return { eq: () => ({ eq: async () => ({ data: lessons, error: null }) }) };
+            },
+          };
+        }
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+    return { supabase, rankUpdates };
+  }
+
+  function lesson(id: string, claim: string) {
+    return {
+      id,
+      title: claim,
+      core_claim: claim,
+      mechanism: "because reasons",
+      action_template: "try this",
+      evidence_strength: "single_study",
+      provenance_quote: `"${claim}" -- p.1`,
+      page_ref: 1,
+      source_chunk_id: "chunk-1",
+    };
+  }
+
+  beforeEach(() => {
+    getUserEmbeddingsMock.mockReset();
+  });
+
+  it("calls getUserEmbeddings with this job's own user id", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "no_key" });
+    const { supabase } = makeMergingSupabase([lesson("l1", "Claim one"), lesson("l2", "Claim two")]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    await STAGE_HANDLERS.merging!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-77", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    expect(getUserEmbeddingsMock).toHaveBeenCalled();
+    const call = getUserEmbeddingsMock.mock.calls[0]!;
+    expect(call[1]).toBe("owner-77");
+  });
+
+  it("status: no_key degrades to empty vectors, and the stage still completes (ranks assigned, no throw) -- the pre-existing embedding-less behavior, unchanged", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "no_key" });
+    const { supabase, rankUpdates } = makeMergingSupabase([lesson("l1", "Claim one"), lesson("l2", "Claim two")]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const result = await STAGE_HANDLERS.merging!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    expect(result.nextStage).toBe("verifying_grounding");
+    expect(rankUpdates.map((r) => r.id).sort()).toEqual(["l1", "l2"]);
+  });
+
+  it("a provider error (status: unavailable) ALSO degrades gracefully rather than failing the whole merging stage -- an ingestion job must not hard-fail on a transient embeddings problem", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "unavailable", message: "OpenAI rejected that key." });
+    const { supabase, rankUpdates } = makeMergingSupabase([lesson("l1", "Claim one"), lesson("l2", "Claim two")]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const result = await STAGE_HANDLERS.merging!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    expect(result.nextStage).toBe("verifying_grounding");
+    expect(rankUpdates.length).toBeGreaterThan(0);
+  });
+
+  it("a successful embedding result feeds real vectors through -- both survivors still get ranked", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "ok", provider: "openai", embeddings: [[1, 0], [0, 1]] });
+    const { supabase, rankUpdates } = makeMergingSupabase([lesson("l1", "Claim one"), lesson("l2", "Claim two")]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    await STAGE_HANDLERS.merging!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    expect(rankUpdates.map((r) => r.id).sort()).toEqual(["l1", "l2"]);
   });
 });

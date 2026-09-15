@@ -49,8 +49,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { DevShimProvider } from "./llm/dev-shim-provider";
 import { DeepSeekProvider } from "./llm/deepseek-provider";
-import { HeuristicProvider } from "./llm/heuristic-provider";
+import { HeuristicProvider, type Embedder } from "./llm/heuristic-provider";
 import type { CandidateLesson } from "./llm/types";
+import { getUserEmbeddings } from "@/lib/ai/embeddings";
 import { loadPdf, extractPages, extractOutline } from "./pdf";
 import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
@@ -431,7 +432,20 @@ async function mergingStage(ctx: StageContext): Promise<StageWorkResult> {
   }));
 
   const targetCount = computeTargetLessonCount(book.page_count ?? pairs.length * 8);
-  const heuristic = new HeuristicProvider(); // no `embed` -- the deliberate no-embedder path
+  // P2-13: a REAL embedder when the user has an embeddings-capable key
+  // (lib/ai/embeddings.ts, BYOK OpenAI/Google) -- degrades to the exact
+  // SAME embedding-less behavior this file's own header already documents
+  // ("DEDUPLICATION does not [work]... a defined, expected degradation")
+  // on ANY failure (no key, monthly spend cap hit, provider error/timeout),
+  // not just "no key" specifically: an ingestion job must never hard-fail
+  // merely because embeddings hit a transient problem, the same
+  // "degradation behaving as designed" posture this stage already commits
+  // to for the pre-P2-13 no-embedder case.
+  const embed: Embedder = async (texts) => {
+    const result = await getUserEmbeddings(ctx.supabase, ctx.job.user_id, texts);
+    return result.status === "ok" ? result.embeddings : texts.map(() => []);
+  };
+  const heuristic = new HeuristicProvider(embed);
   const survivors = await heuristic.mergeLessons({
     candidates: pairs.map((p) => p.candidate),
     targetCount: { min: targetCount, max: targetCount }, // merge.ts: a single target count, not a real range
