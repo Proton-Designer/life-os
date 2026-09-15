@@ -192,6 +192,13 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/habits/actions.ts#castHabitVoteAction": { mcp: "habits.vote.cast" },
   "app/(app)/habits/actions.ts#retractHabitVoteAction": { mcp: "habits.vote.retract" },
 
+  // ── Morning routine (P3-01) ─────────────────────────────────────────────
+  "app/(app)/morning-routine/actions.ts#getMyMorningRoutineChecklist": { read_only: true },
+  "app/(app)/morning-routine/actions.ts#createMorningRoutineItem": { mcp: "day.item.create" },
+  "app/(app)/morning-routine/actions.ts#archiveMorningRoutineItem": { mcp: "day.item.archive" },
+  "app/(app)/morning-routine/actions.ts#checkMorningRoutineItem": { mcp: "day.item.check" },
+  "app/(app)/morning-routine/actions.ts#uncheckMorningRoutineItem": { mcp: "day.item.uncheck", note: "undo-shaped delete of today's own check only" },
+
   // ── Onboarding ──────────────────────────────────────────────────────────
   "app/(app)/onboarding/actions.ts#saveDomainSelection": { excluded: "onboarding_wizard: step 1 domain picker" },
   "app/(app)/onboarding/actions.ts#saveSubdomains": { excluded: "onboarding_wizard: subdomain step" },
