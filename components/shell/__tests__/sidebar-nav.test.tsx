@@ -38,7 +38,7 @@ describe("SidebarNav", () => {
     expect(screen.getByText("SYSTEM")).toBeInTheDocument();
   });
 
-  it("renders every one of the 11 routes with an icon", () => {
+  it("renders every one of the 12 routes with an icon", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
@@ -51,6 +51,7 @@ describe("SidebarNav", () => {
       "Insights",
       "Worries",
       "Goals",
+      "Habits",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -125,6 +126,7 @@ describe("SidebarNav", () => {
       "Insights",
       "Worries",
       "Goals",
+      "Habits",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -155,33 +157,43 @@ describe("SidebarNav", () => {
     expect(screen.getByRole("link", { name: "Goals" })).toHaveAttribute("href", "/goals");
   });
 
+  // Phase 1 #39/#40, 2026-09-14: /habits existed but worked by direct URL
+  // only — the exact same gap Worries/Goals had, fixed the same way.
+  it("links Habits to /habits", () => {
+    render(<SidebarNav variant="expanded" />);
+    expect(screen.getByRole("link", { name: "Habits" })).toHaveAttribute("href", "/habits");
+  });
+
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
     it("omits the matching destination, leaves everything else untouched", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["business"]} />);
       expect(screen.queryByRole("link", { name: "Business" })).not.toBeInTheDocument();
-      for (const label of ["Home", "Deen", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Goals", "Settings"]) {
+      for (const label of ["Home", "Deen", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Goals", "Habits", "Settings"]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });
 
-    // REVIEW now carries three items (Insights, Worries, Goals — Phase 1
-    // #43/#44 added the third). Hiding only "insights" (the sole real
-    // FeatureId of the three — Worries/Goals aren't toggleable features,
-    // same as before) must leave the section standing with the other two.
+    // REVIEW now carries four items (Insights, Worries, Goals, Habits —
+    // Phase 1 #39/#40 added the fourth). Hiding only "insights" (the sole
+    // real FeatureId of the four — Worries/Goals/Habits aren't toggleable
+    // features, same as before) must leave the section standing with the
+    // other three.
     it("hiding one of REVIEW's items leaves the section standing with the others", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["insights"]} />);
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
       expect(screen.getByText("REVIEW")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Worries" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Goals" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Habits" })).toBeInTheDocument();
     });
 
     it("drops the whole REVIEW section once every item in it is hidden", () => {
-      render(<SidebarNav variant="expanded" hiddenFeatures={["insights", "worries", "goals"] as never} />);
+      render(<SidebarNav variant="expanded" hiddenFeatures={["insights", "worries", "goals", "habits"] as never} />);
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Worries" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Goals" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Habits" })).not.toBeInTheDocument();
       expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
     });
 
@@ -192,7 +204,7 @@ describe("SidebarNav", () => {
 
     it("defaults to hiding nothing when the prop is omitted", () => {
       render(<SidebarNav variant="expanded" />);
-      for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Goals", "Settings"]) {
+      for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Goals", "Habits", "Settings"]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });

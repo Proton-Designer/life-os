@@ -46,6 +46,18 @@ describe("MobileIsland", () => {
     expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
   });
 
+  // Phase 1 #39/#40, 2026-09-14: /habits joined the SECTIONS-derived
+  // MORE_ITEMS allowlist (same fix Worries/Goals got before it) — this is
+  // the proof it's actually reachable on legacy mobile, not just added to
+  // sidebar-nav.tsx's SECTIONS and silently dropped by this file's own
+  // explicit href filter.
+  it("also reveals Habits under More, linked to /habits", async () => {
+    const user = userEvent.setup();
+    render(<MobileIsland />);
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: /^habits$/i })).toHaveAttribute("href", "/habits");
+  });
+
   it("also reveals the Ask AI platform links under More, without growing the fixed icon row", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);

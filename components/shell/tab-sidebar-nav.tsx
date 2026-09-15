@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag } from "lucide-react";
+import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
@@ -32,6 +32,9 @@ const MORE_ITEMS: NavItem[] = [
   // tab-mobile-island.tsx per this const's own doc comment above.
   { href: "/worries", label: "Worries", icon: AlertCircle, accent: "warning" },
   { href: "/goals", label: "Goals", icon: Flag, accent: "info" },
+  // Phase 1 #39/#40, 2026-09-14: kept in step with tab-mobile-island.tsx's
+  // own MORE_ITEMS — see that file's comment on this addition.
+  { href: "/habits", label: "Habits", icon: Repeat, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

@@ -44,8 +44,13 @@ const PRIMARY_ITEMS: {
 // (legacy desktop, both domains-mode renderers) but not this one — a real
 // legacy-mobile gap, found while wiring /goals into all four renderers.
 // Fixed here rather than repeated: /goals joins /worries in the same fix.
+//
+// Phase 1 #39/#40, 2026-09-14: /habits joins the allowlist for the same
+// reason — SECTIONS gained the entry in sidebar-nav.tsx, and this filter is
+// explicit rather than "every SECTIONS item," so it needed its own line.
 const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
-  (item) => item.href === "/insights" || item.href === "/settings" || item.href === "/worries" || item.href === "/goals"
+  (item) =>
+    item.href === "/insights" || item.href === "/settings" || item.href === "/worries" || item.href === "/goals" || item.href === "/habits"
 );
 
 function isActive(pathname: string, href: string) {

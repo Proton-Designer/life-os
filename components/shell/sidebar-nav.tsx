@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { Home, TrendingUp, Settings, BookOpen, AlertCircle, Flag, type LucideIcon } from "lucide-react";
+import { Home, TrendingUp, Settings, BookOpen, AlertCircle, Flag, Repeat, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -51,6 +51,11 @@ export const SECTIONS: NavSection[] = [
       // existed and worked by direct URL only — the exact same gap Worries
       // had above before S6 fixed it. This is that entry, same posture.
       { href: "/goals", label: "Goals", icon: Flag, accent: "info" },
+      // Phase 1 #39/#40, 2026-09-14: /habits (app/(app)/habits/page.tsx)
+      // existed and worked by direct URL only — same gap, same posture as
+      // Worries/Goals above. mobile-island.tsx's MORE_ITEMS allowlist reads
+      // SECTIONS by href, so it needed the matching addition there too.
+      { href: "/habits", label: "Habits", icon: Repeat, accent: "info" },
     ],
   },
   {
