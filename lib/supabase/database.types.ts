@@ -1569,6 +1569,52 @@ export type Database = {
         }
         Relationships: []
       }
+      lecture_recordings: {
+        Row: {
+          class_id: string
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          mime_type: string
+          original_filename: string
+          recorded_at: string | null
+          size_bytes: number
+          storage_path: string
+          user_id: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          mime_type: string
+          original_filename: string
+          recorded_at?: string | null
+          size_bytes: number
+          storage_path: string
+          user_id?: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          mime_type?: string
+          original_filename?: string
+          recorded_at?: string | null
+          size_bytes?: number
+          storage_path?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lecture_recordings_class_same_user"
+            columns: ["user_id", "class_id"]
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       lesson_promotions: {
         Row: {
           accepted_text: string
