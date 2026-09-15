@@ -18,12 +18,22 @@ import type { HabitWeeklySummary } from "@/lib/weekly-review/habit-summary";
  * this feature independently ran into from the other direction (this
  * screen could not be called "/review" for exactly that same collision).
  *
+ * "Hours" CORRECTED 2026-09-15: the bars are ONLY the counting kinds
+ * (deep_work/deep_study — `hours.byKind` is already `counts_toward_hours`-
+ * filtered at the query, lib/evening-close/hours-today.ts's
+ * getHoursByKindForRange). 'learn' does NOT get a bar inside Hours; its
+ * time is a separate, clearly-labelled "Recall" line below the headline
+ * (`recallMinutes`, from that file's `getEndedRecallMinutesForRange`,
+ * which itself excludes any still-open session — an abandoned review must
+ * never display as hours of study, the exact production bug this
+ * correction exists to prevent).
+ *
  * Scope guard (ruled 2026-09-14): Phase 1 is #46-48 only. No
  * efficiency-by-day, load forecast, weekly narrative, or habit pause/
  * freeze/kill-habit UI here — those are Phase 2+.
  */
 
-const KIND_ORDER: WorkSessionKind[] = ["deep_work", "deep_study", "learn"];
+const COUNTING_KIND_ORDER: WorkSessionKind[] = ["deep_work", "deep_study"];
 
 function Bar({ pct, className }: { pct: number; className: string }) {
   return (
@@ -33,8 +43,16 @@ function Bar({ pct, className }: { pct: number; className: string }) {
   );
 }
 
-function HoursSection({ totalMinutes, byKind }: { totalMinutes: number; byKind: HoursByKind }) {
-  const max = Math.max(1, ...KIND_ORDER.map((k) => byKind[k] ?? 0));
+function HoursSection({
+  totalMinutes,
+  byKind,
+  recallMinutes,
+}: {
+  totalMinutes: number;
+  byKind: HoursByKind;
+  recallMinutes: number;
+}) {
+  const max = Math.max(1, ...COUNTING_KIND_ORDER.map((k) => byKind[k] ?? 0));
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
       <div className="flex items-baseline justify-between">
@@ -42,7 +60,7 @@ function HoursSection({ totalMinutes, byKind }: { totalMinutes: number; byKind: 
         <span className="text-2xl font-semibold tabular-nums">{formatHoursMinutes(totalMinutes)}</span>
       </div>
       <div className="flex flex-col gap-2">
-        {KIND_ORDER.map((kind) => {
+        {COUNTING_KIND_ORDER.map((kind) => {
           const minutes = byKind[kind] ?? 0;
           return (
             <div key={kind} className="flex flex-col gap-1">
@@ -54,6 +72,15 @@ function HoursSection({ totalMinutes, byKind }: { totalMinutes: number; byKind: 
             </div>
           );
         })}
+      </div>
+      {/* Deliberately OUTSIDE the Hours total above -- retrieval review is
+          not deep-work-class time (lib/business/work-session-kind.ts's own
+          KIND_LABEL comment), and a still-running review is excluded
+          entirely from this figure (getEndedRecallMinutesForRange), not
+          just capped, so an abandoned session can never inflate it. */}
+      <div className="flex items-center justify-between border-t border-border/40 pt-2 text-xs text-muted-foreground">
+        <span>{KIND_LABEL.learn} time (not counted toward Hours)</span>
+        <span className="font-medium tabular-nums text-foreground">{formatHoursMinutes(recallMinutes)}</span>
       </div>
     </section>
   );
@@ -112,12 +139,14 @@ export function WeeklyReviewView({
   soFar,
   weekDayCount,
   hours,
+  recallMinutes,
   pareto,
   habitSummaries,
 }: {
   soFar: boolean;
   weekDayCount: number;
   hours: { totalMinutes: number; byKind: HoursByKind };
+  recallMinutes: number;
   pareto: ParetoBar[];
   habitSummaries: HabitWeeklySummary[];
 }) {
@@ -140,7 +169,7 @@ export function WeeklyReviewView({
           This week so far
         </Link>
       </div>
-      <HoursSection totalMinutes={hours.totalMinutes} byKind={hours.byKind} />
+      <HoursSection totalMinutes={hours.totalMinutes} byKind={hours.byKind} recallMinutes={recallMinutes} />
       <ParetoSection bars={pareto} />
       <HabitScoreSection summaries={habitSummaries} weekDayCount={weekDayCount} />
     </div>

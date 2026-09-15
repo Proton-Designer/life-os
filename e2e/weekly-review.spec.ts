@@ -10,9 +10,20 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
  * (headline is genuinely h:mm-formatted, not a placeholder string), not
  * just "the heading exists" — and that "This week so far" actually changes
  * which week is being measured, not merely its own link styling.
+ *
+ * HOURS, CORRECTED 2026-09-15: production briefly showed "Hours 4:07" as
+ * almost entirely one abandoned 247-minute retrieval-review session — the
+ * bars are now ONLY Deep Work/Deep Study (`counts_toward_hours`-filtered,
+ * matching "Hours today" on /close), and Recall time renders as its own
+ * separate line explicitly marked "not counted toward Hours," structurally
+ * outside the bars the headline sums. This spec proves that SHAPE (a real
+ * learn session isn't something this spec can seed against a live account,
+ * so it can't assert the headline number itself excludes one the way
+ * lib/evening-close/__tests__/hours-today.test.ts's unit tests do — it
+ * proves the UI never has a "Recall" bar to sum in the first place).
  */
 test.describe("Weekly Review", () => {
-  test("renders Hours + by-kind bars, the Distraction Pareto, and the habit-score summary", async ({ page }) => {
+  test("renders Hours + by-kind bars (no Recall bar), the Distraction Pareto, and the habit-score summary", async ({ page }) => {
     await page.goto("/weekly-review");
     await dismissCheckinDialogIfPresent(page);
 
@@ -22,12 +33,16 @@ test.describe("Weekly Review", () => {
     // accidentally match an unrelated number elsewhere on the page.
     const hoursSection = page.locator("section", { has: page.getByRole("heading", { name: "Hours" }) });
     await expect(hoursSection).toBeVisible();
-    for (const label of ["Deep Work", "Deep Study", "Recall"]) {
+    for (const label of ["Deep Work", "Deep Study"]) {
       await expect(hoursSection.getByText(label, { exact: true })).toBeVisible();
     }
     // The headline is a real "H:MM" figure (lib/evening-close/format-
     // hours.ts's formatHoursMinutes) — not zero-state placeholder text.
-    await expect(hoursSection.getByText(/^\d+:\d{2}$/)).toBeVisible();
+    await expect(hoursSection.getByText(/^\d+:\d{2}$/).first()).toBeVisible();
+
+    // Recall renders as its own line, explicitly marked as excluded from
+    // Hours — never as a fourth bar next to Deep Work/Deep Study.
+    await expect(hoursSection.getByText(/Recall time \(not counted toward Hours\)/)).toBeVisible();
 
     // Distraction Pareto — all-time, so either a real bar or the explicit
     // empty state renders; either is a legitimate real answer for a real

@@ -48,30 +48,32 @@ export async function getHoursTodayMinutes(
   );
 }
 
-/** Minutes per `work_sessions.kind` ('deep_work' / 'deep_study' / 'learn' / ...), whatever kinds actually occurred in the range. */
+/** Minutes per `work_sessions.kind`, restricted to the counting kinds ('deep_work' / 'deep_study' / 'exam_prep' — whatever of those actually occurred in the range). Never 'learn': see getHoursByKindForRange's own comment for why. */
 export type HoursByKind = Record<string, number>;
 
 /**
- * #46's Weekly Review "Total Hours + by-category" (ruled 2026-09-14: reuse
- * `work_sessions`, not `checkin_allocations`/`getFocusMap` — "Hours"
- * everywhere else in the ritual layer means timed Lock-In sessions, so a
- * Weekly Review number built on self-reported check-in time would disagree
- * with "Hours today" on /close and /open/today under the same word).
+ * #46's Weekly Review "Total Hours + by-category" — CORRECTED 2026-09-15
+ * (Opus Lead's own correction of the 2026-09-14 ruling, found by browser-
+ * verifying production: a single abandoned 247-minute 'learn' session made
+ * "Hours 4:07" read as almost entirely retrieval review, not deep work).
  *
- * Extends `getHoursTodayMinutes` above to an arbitrary `[startIso, endIso)`
- * range and breaks it down by `kind` — same duration math
- * (`computeFocusTimeMinutes`), same day-bound discipline (the caller passes
- * already-`resolveLocalTime`-derived instants, never a raw `${date}T00:00:00Z`
- * slice), extended rather than duplicated, per the ruling's own instruction.
+ * The original ruling asked for two things that turn out to contradict
+ * each other: "Hours" must mean the same thing it does everywhere else in
+ * the ritual layer (`counts_toward_hours = true` — `getHoursTodayMinutes`
+ * above, "Hours today" on /close and /open/today, the Efficiency metric),
+ * AND the bars must include 'learn'. `counts_toward_hours` resolves to
+ * `false` for 'learn' BY CONSTRUCTION (migrations 057/077) — there is no
+ * way to satisfy both at once, and the first version of this function
+ * resolved it by dropping the filter, which is exactly the disagreement
+ * the ruling was written to prevent.
  *
- * DELIBERATELY NOT `counts_toward_hours`-filtered, unlike
- * `getHoursTodayMinutes`: the ruling names deep_work/deep_study/learn as the
- * three bar categories, and `'learn'` (retrieval review) resolves
- * `counts_toward_hours` to `false` by construction (migrations 057/077) —
- * filtering on it here would silently drop the `'learn'` bar the ruling
- * asked for. `totalMinutes` is the sum of every `byKind` entry, so the
- * Weekly Review's headline and the bars underneath it reconcile by
- * construction, not by coincidence.
+ * This version keeps the filter (same day-bound discipline as
+ * `getHoursTodayMinutes`: the caller passes already-`resolveLocalTime`-
+ * derived instants, never a raw `${date}T00:00:00Z` slice) and the bars
+ * are only ever the kinds that filter admits — `totalMinutes` is still
+ * exactly the sum of every `byKind` entry, so the headline and the bars
+ * still reconcile by construction. 'learn' time is a SEPARATE concern —
+ * see `getEndedRecallMinutesForRange` below — never folded back in here.
  */
 export async function getHoursByKindForRange(
   supabase: SupabaseClient,
@@ -84,6 +86,7 @@ export async function getHoursByKindForRange(
     .from("work_sessions")
     .select("started_at, ended_at, kind")
     .eq("user_id", userId)
+    .eq("counts_toward_hours", true)
     .gte("started_at", startIso)
     .lt("started_at", endIso);
 
@@ -98,4 +101,42 @@ export async function getHoursByKindForRange(
 
   const totalMinutes = Object.values(byKind).reduce((a, b) => a + b, 0);
   return { totalMinutes, byKind };
+}
+
+/**
+ * #46's separate "Recall" (retrieval review) line — shown OUTSIDE the
+ * Hours headline, per the correction above, never summed into it.
+ *
+ * ENDED SESSIONS ONLY (`ended_at IS NOT NULL`) — the specific, live data-
+ * quality problem the correction named: abandoning a review mid-way never
+ * closes its `work_sessions` row (production had 8 open 'learn' sessions
+ * at correction time, one 4+ hours old), so an open session is EXCLUDED
+ * outright rather than capped or counted-to-`now`. A still-running review
+ * simply isn't finished reviewing yet; it has no honest duration to report
+ * here until it is. This is also why the duration math here does NOT reuse
+ * `computeFocusTimeMinutes` (which treats a null `ended_at` as "running
+ * until `now`", the exact behavior this function must not have for
+ * 'learn') — the query itself filters those rows out before any duration
+ * is computed.
+ */
+export async function getEndedRecallMinutesForRange(
+  supabase: SupabaseClient,
+  userId: string,
+  startIso: string,
+  endIso: string
+): Promise<number> {
+  const { data } = await supabase
+    .from("work_sessions")
+    .select("started_at, ended_at")
+    .eq("user_id", userId)
+    .eq("kind", "learn")
+    .not("ended_at", "is", null)
+    .gte("started_at", startIso)
+    .lt("started_at", endIso);
+
+  return (data ?? []).reduce((total, row) => {
+    const startedAt = new Date(row.started_at as string).getTime();
+    const endedAt = new Date(row.ended_at as string).getTime();
+    return total + (endedAt - startedAt) / 60_000;
+  }, 0);
 }
