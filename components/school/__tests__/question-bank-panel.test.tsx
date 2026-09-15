@@ -31,6 +31,17 @@ vi.mock("@/app/(app)/school/question-actions", () => ({
   setQuestionActive: (id: string, active: boolean) => setQuestionActive(id, active),
 }));
 
+type DraftOutcome =
+  | { status: "drafted"; drafts: { prompt: string; answer: string; topic: string | null; sourceSnippet: string | null }[]; truncated: boolean }
+  | { status: "no_key" }
+  | { status: "unavailable" }
+  | { status: "parse_failed" };
+const draftQuestionsFromNotes = vi.fn(async (_notes: string): Promise<DraftOutcome> => ({ status: "drafted", drafts: [], truncated: false }));
+
+vi.mock("@/app/(app)/school/question-draft-actions", () => ({
+  draftQuestionsFromNotes: (notes: string) => draftQuestionsFromNotes(notes),
+}));
+
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
@@ -52,6 +63,7 @@ beforeEach(() => {
   createQuestion.mockClear();
   updateQuestion.mockClear();
   setQuestionActive.mockClear();
+  draftQuestionsFromNotes.mockClear();
   refresh.mockClear();
 });
 
@@ -209,5 +221,167 @@ describe("QuestionBankPanel", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByPlaceholderText("Prompt")).not.toBeInTheDocument();
     expect(createQuestion).not.toHaveBeenCalled();
+  });
+
+  // Phase 1 #23: AI-drafted questions from pasted notes.
+  describe("AI drafting from pasted notes", () => {
+    it("shows the paste form when 'Draft with AI' is clicked even on an empty bank -- drafting has no empty-state equivalent", async () => {
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      expect(screen.getByPlaceholderText(/Paste lecture notes/)).toBeInTheDocument();
+    });
+
+    it("submits pasted notes and shows an editable review row per draft", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [{ prompt: "What is FSRS?", answer: "A spaced-repetition scheduler", topic: "Study techniques", sourceSnippet: "FSRS is a scheduler" }],
+        truncated: false,
+      });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "Some notes about FSRS");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+
+      expect(draftQuestionsFromNotes).toHaveBeenCalledWith("Some notes about FSRS");
+      await waitFor(() => expect(screen.getByDisplayValue("What is FSRS?")).toBeInTheDocument());
+      expect(screen.getByDisplayValue("A spaced-repetition scheduler")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Study techniques")).toBeInTheDocument();
+      // The model's own quoted snippet pre-fills the source anchor.
+      expect(screen.getByDisplayValue("FSRS is a scheduler")).toBeInTheDocument();
+    });
+
+    it("adding one draft calls createQuestion with origin 'ai' and removes only that row", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [
+          { prompt: "Q1", answer: "A1", topic: null, sourceSnippet: null },
+          { prompt: "Q2", answer: "A2", topic: null, sourceSnippet: null },
+        ],
+        truncated: false,
+      });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "notes");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+      await waitFor(() => expect(screen.getByDisplayValue("Q1")).toBeInTheDocument());
+
+      const addButtons = screen.getAllByRole("button", { name: "Add" });
+      await user.click(addButtons[0]!);
+
+      await waitFor(() =>
+        expect(createQuestion).toHaveBeenCalledWith(
+          expect.objectContaining({ classId: "c1", prompt: "Q1", answer: "A1", origin: "ai", sourceSkipped: true })
+        )
+      );
+      await waitFor(() => expect(screen.queryByDisplayValue("Q1")).not.toBeInTheDocument());
+      expect(screen.getByDisplayValue("Q2")).toBeInTheDocument(); // the sibling row survives
+    });
+
+    it("a failed add keeps that row's edits and error visible without dropping the other rows", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [
+          { prompt: "Bad row", answer: "A1", topic: null, sourceSnippet: null },
+          { prompt: "Good row", answer: "A2", topic: null, sourceSnippet: null },
+        ],
+        truncated: false,
+      });
+      createQuestion.mockRejectedValueOnce(new Error("Provide a source anchor, or mark it skipped"));
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "notes");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+      await waitFor(() => expect(screen.getByDisplayValue("Bad row")).toBeInTheDocument());
+
+      await user.click(screen.getAllByRole("button", { name: "Add" })[0]!);
+
+      expect(await screen.findByText("Provide a source anchor, or mark it skipped")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Bad row")).toBeInTheDocument(); // not dropped
+      expect(screen.getByDisplayValue("Good row")).toBeInTheDocument(); // sibling untouched
+    });
+
+    it("Add all adds every remaining draft", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [
+          { prompt: "Q1", answer: "A1", topic: null, sourceSnippet: null },
+          { prompt: "Q2", answer: "A2", topic: null, sourceSnippet: null },
+        ],
+        truncated: false,
+      });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "notes");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+      await waitFor(() => expect(screen.getByDisplayValue("Q1")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: "Add all 2" }));
+
+      await waitFor(() => expect(createQuestion).toHaveBeenCalledTimes(2));
+      expect(createQuestion).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Q1", origin: "ai" }));
+      expect(createQuestion).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Q2", origin: "ai" }));
+      await waitFor(() => expect(screen.queryByDisplayValue("Q1")).not.toBeInTheDocument());
+    });
+
+    it("discarding a draft removes only that row, without calling createQuestion", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [{ prompt: "Discard me", answer: "A1", topic: null, sourceSnippet: null }],
+        truncated: false,
+      });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "notes");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+      await waitFor(() => expect(screen.getByDisplayValue("Discard me")).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: "Discard this draft" }));
+
+      expect(screen.queryByDisplayValue("Discard me")).not.toBeInTheDocument();
+      expect(createQuestion).not.toHaveBeenCalled();
+    });
+
+    it("a no_key outcome shows the actionable message and keeps the pasted notes for retry", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({ status: "no_key" });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "Some notes");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+
+      expect(await screen.findByText(/Add an API key in Settings to draft questions automatically/)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Paste lecture notes/)).toHaveValue("Some notes");
+    });
+
+    it("manual entry still works after a no_key outcome -- cancelling the AI flow reaches the ordinary Add form", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({ status: "no_key" });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "Some notes");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+      await screen.findByText(/Add an API key/);
+
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      await user.click(screen.getByRole("button", { name: "Add question" }));
+      expect(screen.getByPlaceholderText("Prompt")).toBeInTheDocument();
+    });
+
+    it("an empty draft result shows a friendly, non-error message", async () => {
+      draftQuestionsFromNotes.mockResolvedValueOnce({ status: "drafted", drafts: [], truncated: false });
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+      await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "Just logistics, nothing to quiz");
+      await user.click(screen.getByRole("button", { name: "Draft questions" }));
+
+      expect(await screen.findByText(/No questions could be drafted/)).toBeInTheDocument();
+    });
   });
 });
