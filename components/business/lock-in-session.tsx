@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { resolveSessionHours, pendingSessionHour } from "@/lib/checkins/session-hour-status";
 import { setSessionHourStatus } from "@/app/(app)/checkin/session-hour-actions";
-import { formatElapsedDuration } from "@/lib/business/format-elapsed";
+import { formatElapsedDuration, elapsedMinutesSince } from "@/lib/business/format-elapsed";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { SessionHourConfirm } from "./session-hour-confirm";
 import { SessionHourList } from "./session-hour-list";
+import { HourCompleteBanner } from "./hour-complete-banner";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
@@ -83,6 +84,7 @@ export function LockInSession({
     sessionSignalMinutes + sessionNoiseMinutes > 0
   );
   const elapsed = formatElapsedDuration(now.getTime() - startedAt.getTime());
+  const elapsedMinutes = elapsedMinutesSince(startedAtIso, now);
 
   async function handleEndSession() {
     setIsEnding(true);
@@ -137,6 +139,8 @@ export function LockInSession({
           )}
         </div>
       </div>
+
+      <HourCompleteBanner elapsedMinutes={elapsedMinutes} />
 
       <SessionHourList hours={resolved} onEdit={editHour} timezone={timezone} disabled={isConfirming} />
 

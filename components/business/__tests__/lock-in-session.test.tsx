@@ -167,4 +167,16 @@ describe("LockInSession", () => {
       []
     );
   });
+
+  describe("Hour-completion banner (Phase 2 #P2-04)", () => {
+    it("shows once the session has run 60+ minutes (the default fixture's startedAtIso is long past that)", () => {
+      renderSession();
+      expect(screen.getByTestId("hour-complete-banner")).toBeInTheDocument();
+    });
+
+    it("does not show for a freshly started session", () => {
+      renderSession({ startedAtIso: new Date().toISOString() });
+      expect(screen.queryByTestId("hour-complete-banner")).not.toBeInTheDocument();
+    });
+  });
 });

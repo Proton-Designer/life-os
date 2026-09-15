@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatHoursMinutes } from "../format-hours";
+import { formatHoursMinutes, hoursOfDailyTarget } from "../format-hours";
 
 /**
  * R58 specifies h:mm for the close's Hours line. Deliberately NOT reusing
@@ -38,5 +38,26 @@ describe("formatHoursMinutes — h:mm", () => {
 
   it("floors partial minutes, matching every other duration in the app", () => {
     expect(formatHoursMinutes(90.9)).toBe("1:30");
+  });
+});
+
+describe("hoursOfDailyTarget -- Phase 2 #P2-04's 'N of 4 Hours today' framing", () => {
+  it("floors to the nearest whole 60-minute Hour, against the default target of 4", () => {
+    expect(hoursOfDailyTarget(0)).toBe("0 of 4");
+    expect(hoursOfDailyTarget(59)).toBe("0 of 4");
+    expect(hoursOfDailyTarget(60)).toBe("1 of 4");
+    expect(hoursOfDailyTarget(125)).toBe("2 of 4");
+  });
+
+  it("does not cap N at the target -- exceeding the goal is a real, visible state, not clamped to the denominator", () => {
+    expect(hoursOfDailyTarget(300)).toBe("5 of 4");
+  });
+
+  it("clamps a negative input to zero rather than rendering nonsense", () => {
+    expect(hoursOfDailyTarget(-30)).toBe("0 of 4");
+  });
+
+  it("accepts a non-default target", () => {
+    expect(hoursOfDailyTarget(120, 6)).toBe("2 of 6");
   });
 });

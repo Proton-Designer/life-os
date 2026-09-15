@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { processScheduledActions } from "@/lib/mcp/scheduler-runner";
+import { processHourCompletions } from "@/lib/business/hour-completion";
 
 /**
  * L7's poll target — hit by a pg_cron + pg_net job every 5 minutes (the
@@ -39,5 +40,8 @@ export async function POST(request: Request) {
 
   const serviceClient = createServiceRoleClient();
   const result = await processScheduledActions(serviceClient);
-  return NextResponse.json({ success: true, at: new Date().toISOString(), ...result });
+  // Piggybacked, not a separate cron registration -- see hour-completion.ts's
+  // own header for why the existing 5-minute poll is the right home for this.
+  const hourCompletions = await processHourCompletions(serviceClient);
+  return NextResponse.json({ success: true, at: new Date().toISOString(), ...result, hourCompletions });
 }

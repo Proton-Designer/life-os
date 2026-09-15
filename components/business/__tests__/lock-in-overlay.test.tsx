@@ -253,4 +253,28 @@ describe("LockInOverlay", () => {
       expect(screen.getByRole("button", { name: "End Session" })).toBeInTheDocument();
     });
   });
+
+  describe("Hour-completion banner (Phase 2 #P2-04)", () => {
+    it("does not show for a freshly started session", () => {
+      renderOverlay({
+        id: "s-fresh",
+        startedAtIso: new Date().toISOString(),
+        kind: "deep_work",
+        goalMinutes: null,
+        objectives: [],
+      });
+      expect(screen.queryByTestId("hour-complete-banner")).not.toBeInTheDocument();
+    });
+
+    it("shows once the session has run 60+ minutes", () => {
+      renderOverlay({
+        id: "s-long",
+        startedAtIso: new Date(Date.now() - 65 * 60_000).toISOString(),
+        kind: "deep_study",
+        goalMinutes: null,
+        objectives: [],
+      });
+      expect(screen.getByTestId("hour-complete-banner")).toBeInTheDocument();
+    });
+  });
 });

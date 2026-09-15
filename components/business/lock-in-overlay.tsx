@@ -8,6 +8,7 @@ import { elapsedMinutesSince } from "@/lib/business/format-elapsed";
 import { goalProgress } from "@/lib/business/session-goal";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
+import { HourCompleteBanner } from "./hour-complete-banner";
 import { LockInKillList } from "./lock-in-kill-list";
 import { LockInObjectives } from "./lock-in-objectives";
 import { LockInCheckin } from "./lock-in-checkin";
@@ -245,6 +246,7 @@ export function LockInOverlay({
                 renders here for a legacy one. */}
             {isGoalBased && progress && <GoalProgressBar fraction={progress.fraction} />}
             <p className="font-mono text-lg tabular-nums text-foreground/70">{clockLabel}</p>
+            <HourCompleteBanner elapsedMinutes={minutes} />
 
             {session.kind === "deep_work" && !isGoalBased && (
               <LockInKillList

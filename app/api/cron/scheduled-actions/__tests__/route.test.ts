@@ -5,6 +5,9 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn((
 const processScheduledActionsMock = vi.fn(async (..._args: unknown[]) => ({ processed: 2, ok: 1, error: 1, denied: 0 }));
 vi.mock("@/lib/mcp/scheduler-runner", () => ({ processScheduledActions: (...args: unknown[]) => processScheduledActionsMock(...args) }));
 
+const processHourCompletionsMock = vi.fn(async (..._args: unknown[]) => ({ candidates: 0, notified: 0 }));
+vi.mock("@/lib/business/hour-completion", () => ({ processHourCompletions: (...args: unknown[]) => processHourCompletionsMock(...args) }));
+
 const { POST } = await import("../route");
 
 const ORIGINAL_SECRET = process.env.CRON_SECRET;
@@ -12,6 +15,7 @@ const ORIGINAL_SECRET = process.env.CRON_SECRET;
 afterEach(() => {
   process.env.CRON_SECRET = ORIGINAL_SECRET;
   processScheduledActionsMock.mockClear();
+  processHourCompletionsMock.mockClear();
 });
 
 function req(authHeader?: string) {
@@ -48,5 +52,21 @@ describe("POST /api/cron/scheduled-actions", () => {
     const body = await res.json();
     expect(body).toMatchObject({ success: true, processed: 2, ok: 1, error: 1, denied: 0 });
     expect(processScheduledActionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("also runs the piggybacked Hour-completion poll (P2-04) and includes its counts", async () => {
+    process.env.CRON_SECRET = "s3cr3t";
+    processHourCompletionsMock.mockResolvedValueOnce({ candidates: 3, notified: 2 });
+    const res = await POST(req("Bearer s3cr3t"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.hourCompletions).toEqual({ candidates: 3, notified: 2 });
+    expect(processHourCompletionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run the Hour-completion poll when auth fails -- no side effect from an unauthenticated hit", async () => {
+    process.env.CRON_SECRET = "s3cr3t";
+    await POST(req("Bearer wrong"));
+    expect(processHourCompletionsMock).not.toHaveBeenCalled();
   });
 });

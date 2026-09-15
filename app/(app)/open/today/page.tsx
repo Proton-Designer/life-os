@@ -11,7 +11,7 @@ import { getTodayDayStart } from "@/lib/day-structure/day-start";
 import { computeDeltaMinutes, computeDeltaSeconds } from "@/lib/day-structure/delta-clock";
 import { computeEfficiency } from "@/lib/day-structure/efficiency";
 import { getHoursTodayMinutes } from "@/lib/evening-close/hours-today";
-import { formatHoursMinutes } from "@/lib/evening-close/format-hours";
+import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
 import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
 
 /**
@@ -77,7 +77,13 @@ export default async function MergedTodayPage() {
           label="Delta — awake for"
           value={<DeltaClockDisplay wokeAtIso={wakeMark.wokeAtIso} initialSeconds={deltaSeconds} />}
         />
-        <StatTile icon={Clock} accent="info" label="Hours today" value={formatHoursMinutes(hoursTodayMinutes)} />
+        <StatTile
+          icon={Clock}
+          accent="info"
+          label="Hours today"
+          value={hoursOfDailyTarget(hoursTodayMinutes)}
+          delta={{ direction: "flat", text: formatHoursMinutes(hoursTodayMinutes) }}
+        />
         <StatTile
           icon={Gauge}
           accent="info"
