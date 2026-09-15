@@ -99,19 +99,26 @@ function isBlockedIPv6(addr: string): boolean {
 export async function resolveSafeOutboundUrl(rawUrl: string): Promise<SafeUrlCheck> {
   const syntax = checkUrlSyntax(rawUrl);
   if (!syntax.ok) return syntax;
+  // ONE shared message for every DNS-stage rejection below (unreachable,
+  // no records, AND blocked-as-private) — deliberately NOT distinguishable
+  // from each other. Review finding (tracking-app-4b): a caller that surfaces
+  // this message to a signed-in user (e.g. connectCanvas) would otherwise let
+  // them use it as an internal-DNS oracle, probing arbitrary hostnames and
+  // learning from the wording alone whether each one resolves to something
+  // internal. checkUrlSyntax's messages stay distinct — those are about input
+  // syntax the caller typed, not information about network topology.
+  const REJECTED = "That host can't be used.";
   const { hostname } = new URL(rawUrl);
   let addresses: { address: string; family: number }[];
   try {
     addresses = await dns.lookup(hostname, { all: true });
   } catch {
-    return { ok: false, message: "Couldn't resolve that host." };
+    return { ok: false, message: REJECTED };
   }
-  if (addresses.length === 0) return { ok: false, message: "Couldn't resolve that host." };
+  if (addresses.length === 0) return { ok: false, message: REJECTED };
   for (const { address, family } of addresses) {
     const blocked = family === 4 ? isBlockedIPv4(address) : isBlockedIPv6(address);
-    if (blocked) {
-      return { ok: false, message: "That host resolves to a private or internal address, which isn't allowed." };
-    }
+    if (blocked) return { ok: false, message: REJECTED };
   }
   return { ok: true };
 }

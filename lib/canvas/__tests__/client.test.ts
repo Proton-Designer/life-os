@@ -41,12 +41,10 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
   });
 
   it("surfaces a safeFetch rejection (SSRF-blocked target) as a clean {ok:false} result, never throws to the caller", async () => {
-    safeFetchMock.mockImplementationOnce(() =>
-      Promise.reject(new Error("That host resolves to a private or internal address, which isn't allowed.")),
-    );
+    safeFetchMock.mockImplementationOnce(() => Promise.reject(new Error("That host can't be used.")));
     const res = await verifyCanvasToken("https://internal.example.com", "tok");
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.message).toContain("private or internal address");
+    if (!res.ok) expect(res.message).toBe("That host can't be used.");
   });
 
   it("sets authExpired:true on a 401/403, so callers can distinguish it from a network failure (P2-22)", async () => {

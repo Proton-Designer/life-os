@@ -79,6 +79,19 @@ describe("resolveSafeOutboundUrl", () => {
     expect(res.ok).toBe(true);
   });
 
+  it("gives an identical message for 'unresolvable' and 'resolves to a private address' — not an internal-DNS oracle (review finding)", async () => {
+    lookupMock.mockRejectedValueOnce(new Error("ENOTFOUND"));
+    const unresolvable = await resolveSafeOutboundUrl("https://nowhere.example.com");
+    lookupMock.mockResolvedValueOnce([{ address: "10.0.0.5", family: 4 }]);
+    const private_ = await resolveSafeOutboundUrl("https://internal.example.com");
+
+    expect(unresolvable.ok).toBe(false);
+    expect(private_.ok).toBe(false);
+    if (!unresolvable.ok && !private_.ok) {
+      expect(unresolvable.message).toBe(private_.message);
+    }
+  });
+
   it("re-resolves on every call — DNS rebinding: public at 'save' time, private at 'fetch' time, must reject the second call", async () => {
     lookupMock.mockResolvedValueOnce([{ address: "104.16.132.1", family: 4 }]); // save-time lookup
     const saveTime = await resolveSafeOutboundUrl("https://rebinder.example.com");
