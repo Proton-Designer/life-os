@@ -96,13 +96,24 @@ async function startSession(page: Page, kind: "Deep Work" | "Deep Study") {
   const objectiveText = `e2e-lockin-${Date.now()}`;
   if (kind === "Deep Study") {
     await expect(setupDialog.getByText("Loading classes…")).toHaveCount(0);
-    if (await setupDialog.getByText("No classes yet").count()) {
-      test.skip(true, "SEED has no classes — #37's Deep Study gate (a class selection) cannot be exercised without one.");
-    }
+    const noClasses = setupDialog.getByText("No classes yet");
     // The class list's own ObjectiveRow buttons — queried before any class
     // is picked, so this can only match class rows, not the task list
     // (which doesn't exist in the DOM yet).
-    await setupDialog.locator("button[aria-pressed]").first().click();
+    const firstClassRow = setupDialog.locator("button[aria-pressed]").first();
+    // Wait for the dialog to settle into ONE of its two real terminal
+    // states (SEED has 6 classes today, so the empty state should never
+    // actually win) rather than deciding off an instant `.count()`
+    // snapshot the moment "Loading classes…" disappears — that snapshot
+    // can race the very next render tick and read zero for BOTH locators,
+    // which would have skipped this test even though classes genuinely
+    // exist (the same false-skip shape the Lead found live in
+    // goals.spec.ts, applied here to `.count()` instead of `isVisible()`).
+    await expect(noClasses.or(firstClassRow)).toBeVisible();
+    if (await noClasses.isVisible()) {
+      test.skip(true, "SEED has no classes — #37's Deep Study gate (a class selection) cannot be exercised without one.");
+    }
+    await firstClassRow.click();
     await setupDialog.getByRole("button", { name: "Study Material" }).click();
     await fillReliably(setupDialog.getByLabel("Study material"), objectiveText);
   } else {

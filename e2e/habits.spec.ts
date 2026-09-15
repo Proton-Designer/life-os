@@ -35,14 +35,32 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
     await page.goto("/habits");
     await dismissCheckinDialogIfPresent(page);
 
+    // Wait for the page to actually settle into its real state before
+    // deciding anything off it. An instant isVisible()/textContent() read
+    // right after goto() can race a not-yet-rendered page and read "not
+    // there" for a button/text that WILL be there a moment later — the
+    // exact false-skip bug the Lead found live in goals.spec.ts (a
+    // slots-full guard that skipped, and reported GREEN, before the page
+    // had actually rendered). This waiting `expect` is the settle point
+    // every decision below is anchored to.
+    const countLabel = page.getByText(/^\d\/7$/);
+    await expect(countLabel).toBeVisible();
+
     const addButton = page.getByRole("button", { name: "+ Add an identity habit" });
-    if (!(await addButton.isVisible())) {
+    const ceilingButton = page.getByRole("button", { name: /Ceiling reached/ });
+    // SEED has 0 habits today, so this should never actually fire — kept as
+    // a real guard, not an instant snapshot: `countLabel` above already
+    // proved the page rendered, so `isVisible()` here reads the REAL state
+    // rather than racing hydration. A POSITIVE check for the ceiling
+    // button, not "the add button is absent" — a stronger, more specific
+    // signal for why the add button might not be there.
+    if (await ceilingButton.isVisible()) {
       test.skip(true, "This account's 7 active habits are already full — no room to add a test habit without archiving a real one first.");
     }
+    await expect(addButton).toBeVisible();
 
     // Baseline count BEFORE adding, so "N/7" is checked as a real increment
     // rather than assuming this real account starts at 0/7.
-    const countLabel = page.getByText(/^\d\/7$/);
     const beforeText = await countLabel.textContent();
     const beforeCount = Number(beforeText?.split("/")[0]);
     expect(Number.isFinite(beforeCount), `could not parse a baseline count from "${beforeText}"`).toBe(true);
