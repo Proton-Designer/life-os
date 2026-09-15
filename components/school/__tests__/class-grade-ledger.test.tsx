@@ -59,6 +59,18 @@ describe("ClassGradeLedger — a real graded assessment", () => {
   });
 });
 
+describe("ClassGradeLedger — P2-10 review fix: 'ungraded' is pointsEarned, not pointsPossible", () => {
+  it("a row with pointsPossible SET but pointsEarned still null (Canvas sync sets points_possible before grading) reads as 'Not graded yet', not a fabricated score", () => {
+    render(
+      <ClassGradeLedger
+        assessments={[assessment({ id: "a1", name: "Synced Quiz", weightPct: 100, pointsEarned: null, pointsPossible: 20 })]}
+        targetGradePct={null}
+      />
+    );
+    expect(screen.getByText("Not graded yet")).toBeInTheDocument();
+  });
+});
+
 describe("ClassGradeLedger — excused and unweighted rows read distinctly", () => {
   it("labels an excused row 'Excused' rather than a score, and an unweighted row 'No weight set'", () => {
     render(

@@ -68,7 +68,12 @@ export function ClassGradeLedger({
   function statusFor(a: GradeLedgerAssessment): string {
     if (a.isExcused) return "Excused";
     if (a.weightPct == null) return "No weight set";
-    if (a.pointsPossible == null) return "Not graded yet";
+    // Canonical "ungraded" check is pointsEarned, not pointsPossible (P2-10
+    // review, Opus Lead): Canvas grade sync sets points_possible as soon as
+    // an assessment is known (before it's actually graded), so a null
+    // pointsPossible can no longer be assumed to imply an ungraded row --
+    // pointsEarned is the one column that's null until a real grade posts.
+    if (a.pointsEarned == null) return "Not graded yet";
     const pct = byAssessmentId.get(a.id)?.categoryPct;
     // pct is only null here if this assessment's own item somehow failed to
     // resolve despite pointsPossible being present (e.g. pointsPossible <= 0)
