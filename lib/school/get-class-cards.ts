@@ -139,9 +139,7 @@ export type ClassCardData = {
       sourceSnippet: string | null;
     }[];
   } | null;
-  /** P3-14 -- this class's lecture recordings, most recent first. Reads via
-   * `untypedFrom` (lib/school/untyped-from.ts) until `lecture_recordings`
-   * (migration 211) is applied and `database.types.ts` regenerated. Actual
+  /** P3-14 -- this class's lecture recordings, most recent first. Actual
    * audio bytes are never here -- only lecture-actions.ts's
    * `getLectureRecordingUrl` mints a signed URL, on demand, per play. */
   lectures: {
