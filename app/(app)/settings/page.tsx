@@ -8,6 +8,8 @@ import { ApiKeySettings } from "@/components/settings/api-key-settings";
 import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
 import { AiPreferenceSettings, type AiProviderCatalogInfo } from "@/components/settings/ai-preference-settings";
 import { getMyAiPreference } from "@/app/(app)/settings/ai-preference-actions";
+import { AiSpendCeilingSettings } from "@/components/settings/ai-spend-ceiling-settings";
+import { getMyMonthlySpendStatus } from "@/app/(app)/settings/ai-spend-actions";
 import { MODEL_CATALOG } from "@/lib/ai/model-catalog";
 import { ConnectorSettings } from "@/components/settings/connector-settings";
 import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
@@ -94,6 +96,7 @@ export default async function SettingsPage() {
     };
   });
   const aiPreference = await getMyAiPreference();
+  const monthlySpendStatus = await getMyMonthlySpendStatus();
 
   return (
     <PageContainer>
@@ -159,6 +162,11 @@ export default async function SettingsPage() {
                 catalog={aiPreferenceCatalog}
                 initialProvider={aiPreference.provider}
                 initialModelTier={aiPreference.modelTier}
+              />
+              <AiSpendCeilingSettings
+                initialSpentUsd={monthlySpendStatus.spentUsd}
+                initialCapUsd={monthlySpendStatus.capUsd}
+                monthKey={monthlySpendStatus.monthKey}
               />
               <ApiKeySettings
                 providers={providers}

@@ -143,4 +143,36 @@ describe("updateProfile", () => {
       expect(chain.upsert).not.toHaveBeenCalled();
     });
   });
+
+  describe("ai_monthly_spend_cap_usd (P2-01, migration 181)", () => {
+    it("accepts a positive cap and writes it through", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ ai_monthly_spend_cap_usd: 25 });
+
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ ai_monthly_spend_cap_usd: 25 }), expect.anything());
+    });
+
+    it("accepts null (revert to the system default) and writes it through", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ ai_monthly_spend_cap_usd: null });
+
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ ai_monthly_spend_cap_usd: null }), expect.anything());
+    });
+
+    it("rejects a zero or negative cap before ever calling upsert", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await expect(updateProfile({ ai_monthly_spend_cap_usd: 0 })).rejects.toThrow(/ai_monthly_spend_cap_usd/);
+      await expect(updateProfile({ ai_monthly_spend_cap_usd: -5 })).rejects.toThrow(/ai_monthly_spend_cap_usd/);
+      expect(chain.upsert).not.toHaveBeenCalled();
+    });
+  });
 });

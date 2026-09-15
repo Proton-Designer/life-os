@@ -64,6 +64,9 @@ describe("checkSpendCap()", () => {
       async totalServerKeySpendUsd() {
         return Number.POSITIVE_INFINITY; // SupabaseUsageStore's own documented failure value
       },
+      async monthlySpendUsdForUser() {
+        return Number.POSITIVE_INFINITY;
+      },
     };
     const result = await checkSpendCap("server", "deepseek-flash", 100, 20, { store: brokenStore, capUsdOverride: 1.0, at: OFF_PEAK });
     expect(result.allowed).toBe(false);

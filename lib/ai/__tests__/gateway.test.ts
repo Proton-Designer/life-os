@@ -23,6 +23,18 @@ vi.mock("@/lib/ai/preferences", () => ({
   getAiPreference: (...args: unknown[]) => getAiPreferenceMock(...args),
 }));
 
+// P2-01 (2026-09-15 overnight run): a second, independent cap gatewayChat
+// now consults on every call, same reasoning as getAiPreferenceMock above --
+// `fakeClient` has no `.from`, so an unmocked checkMonthlySpendCap would fail
+// closed for real (see monthly-spend-cap.ts's own header) and block every
+// pre-existing test below. Defaults to "allowed" so nothing above this line
+// changes behavior; the "monthly spend cap" describe block below overrides
+// it per-test to exercise the new gate itself.
+const checkMonthlySpendCapMock = vi.fn();
+vi.mock("@/lib/ai/monthly-spend-cap", () => ({
+  checkMonthlySpendCap: (...args: unknown[]) => checkMonthlySpendCapMock(...args),
+}));
+
 // Imported AFTER the mocks are registered (vi.mock is hoisted by vitest regardless of
 // literal position, but importing here keeps the file readable top-to-bottom).
 const { gatewayChat, hasUsableIngestionKey, ingestionNoKeyMessage } = await import("../gateway");
@@ -43,6 +55,8 @@ describe("gatewayChat()", () => {
     resolveApiKeyWithSourceMock.mockReset();
     getAiPreferenceMock.mockReset();
     getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "deepseek", modelTier: "cheap" } });
+    checkMonthlySpendCapMock.mockReset();
+    checkMonthlySpendCapMock.mockResolvedValue({ allowed: true, capUsd: 10, spentUsd: 0, monthKey: "2026-09" });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -412,6 +426,99 @@ describe("gatewayChat()", () => {
 
       expect(result).toEqual({ usable: false });
       expect(resolveApiKeyWithSourceMock).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * P2-01 (2026-09-15 overnight run): a SECOND cap, independent of the
+   * existing global `checkSpendCap` (spend-cap.ts) -- see gateway.ts's own
+   * comment at the call site. Enforced BEFORE any provider call, same as
+   * the global cap.
+   */
+  describe("monthly spend cap (P2-01)", () => {
+    it("blocks before any provider call when the monthly cap is exceeded, and surfaces monthlyCapBlocked", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
+      checkMonthlySpendCapMock.mockResolvedValue({
+        allowed: false,
+        reason: "You've reached your AI budget for 2026-09 ($10.00 of $10.00 spent; this call could cost up to ~$0.0010 more).",
+        capUsd: 10,
+        spentUsd: 10,
+        monthKey: "2026-09",
+      });
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("2026-09");
+      expect(result.monthlyCapBlocked).toBe(true);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(store.entries).toHaveLength(0);
+    });
+
+    it("THE REGRESSION GUARD: a monthly-cap context read failure fails closed -- no adapter called, but NOT reported as monthlyCapBlocked (it's an unresolved check, not a resolved-and-exceeded one)", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
+      checkMonthlySpendCapMock.mockResolvedValue({ allowed: false, reason: "Couldn't read your AI spend settings: connection reset", contextFailure: true });
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("connection reset");
+      expect(result.monthlyCapBlocked).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(store.entries).toHaveLength(0);
+    });
+
+    it("is checked independently of the global spend cap -- a huge global cap override does not bypass it", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
+      checkMonthlySpendCapMock.mockResolvedValue({ allowed: false, reason: "monthly cap hit", capUsd: 10, spentUsd: 10, monthKey: "2026-09" });
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], {
+        usageStore: store,
+        capUsdOverride: 1_000_000, // clears the global cap entirely
+        now: OFF_PEAK,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.monthlyCapBlocked).toBe(true);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("a BYO ('user') key is still subject to the monthly cap -- unlike the global server-key-only cap, this one is key-source-agnostic", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-user-key", source: "user" });
+      checkMonthlySpendCapMock.mockResolvedValue({ allowed: false, reason: "monthly cap hit", capUsd: 10, spentUsd: 10, monthKey: "2026-09" });
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok).toBe(false);
+      expect(result.monthlyCapBlocked).toBe(true);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("passes the RESOLVED provider/model/promptChars/maxTokens through, not the caller's raw opts", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
+      fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      const store = new FakeUsageStore();
+      await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { tier: "capable", usageStore: store, now: OFF_PEAK });
+
+      expect(checkMonthlySpendCapMock).toHaveBeenCalledWith(
+        fakeClient,
+        "u1",
+        "deepseek",
+        "deepseek-v4-pro",
+        expect.any(Number),
+        expect.any(Number),
+        expect.objectContaining({ store, at: OFF_PEAK }),
+      );
+    });
+
+    it("allowed:true lets the call through and does not set monthlyCapBlocked on success", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
+      fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok).toBe(true);
+      expect(result.monthlyCapBlocked).toBeUndefined();
     });
   });
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "insert"]) {
+  for (const method of ["select", "eq", "insert", "gte", "lt"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
@@ -94,6 +94,27 @@ describe("SupabaseUsageStore", () => {
     chain = makeChain({ data: null, error: { message: "connection refused" } });
     const store = new SupabaseUsageStore();
     const total = await store.totalServerKeySpendUsd();
+    expect(total).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("monthlySpendUsdForUser() sums cost_usd for that user within the given window, across every key source", async () => {
+    chain = makeChain({ data: [{ cost_usd: "0.10" }, { cost_usd: "0.05" }], error: null });
+    const store = new SupabaseUsageStore();
+    const start = new Date("2026-09-01T00:00:00Z");
+    const end = new Date("2026-10-01T00:00:00Z");
+    const total = await store.monthlySpendUsdForUser("u1", start, end);
+    expect(total).toBeCloseTo(0.15, 10);
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "u1");
+    expect(chain.gte).toHaveBeenCalledWith("created_at", start.toISOString());
+    expect(chain.lt).toHaveBeenCalledWith("created_at", end.toISOString());
+    // NOT filtered by key_source -- a user's own key spend counts against their own cap too.
+    expect(chain.eq).not.toHaveBeenCalledWith("key_source", expect.anything());
+  });
+
+  it("monthlySpendUsdForUser() fails CLOSED (returns Infinity) when the query errors, never zero", async () => {
+    chain = makeChain({ data: null, error: { message: "connection refused" } });
+    const store = new SupabaseUsageStore();
+    const total = await store.monthlySpendUsdForUser("u1", new Date("2026-09-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z"));
     expect(total).toBe(Number.POSITIVE_INFINITY);
   });
 });

@@ -47,6 +47,17 @@ export interface UsageStore {
    * its own header for why this is a lifetime total, not a daily window.
    */
   totalServerKeySpendUsd(): Promise<number>;
+  /**
+   * Sum of `cost_usd` for ONE user, across EVERY key source, within
+   * `[startUtc, endUtc)` -- the number `lib/ai/monthly-spend-cap.ts` gates
+   * on. Unlike `totalServerKeySpendUsd`, this deliberately does NOT filter
+   * by `key_source`: the monthly cap is a personal budget control, not
+   * operator-balance protection, so a user's own key spend counts against
+   * their own ceiling too. The caller (monthly-spend-cap.ts) computes
+   * `[startUtc, endUtc)` from the user's OWN timezone's calendar month, not
+   * a UTC one -- this method just sums whatever window it's given.
+   */
+  monthlySpendUsdForUser(userId: string, startUtc: Date, endUtc: Date): Promise<number>;
 }
 
 export class SupabaseUsageStore implements UsageStore {
@@ -92,6 +103,29 @@ export class SupabaseUsageStore implements UsageStore {
       // table it depends on. Fail toward the safer assumption: report
       // Infinity so the cap refuses everything until this is readable again.
       console.error("ai_usage_log spend total unreadable; failing closed on the spend cap:", error?.message);
+      return Number.POSITIVE_INFINITY;
+    }
+    return data.reduce((sum, row) => sum + Number(row.cost_usd ?? 0), 0);
+  }
+
+  async monthlySpendUsdForUser(userId: string, startUtc: Date, endUtc: Date): Promise<number> {
+    const client = createServiceRoleClient();
+    // Client-side sum, same reasoning as totalServerKeySpendUsd: a single
+    // user's ONE calendar month, under a cap in the tens of dollars at most,
+    // can never produce enough rows to make a second Postgres function worth
+    // the migration surface.
+    const { data, error } = await client
+      .from("ai_usage_log")
+      .select("cost_usd")
+      .eq("user_id", userId)
+      .gte("created_at", startUtc.toISOString())
+      .lt("created_at", endUtc.toISOString());
+    if (error || !data) {
+      // CANNOT MEASURE must never read as "spent nothing" -- same fail-
+      // closed posture as totalServerKeySpendUsd, for the same reason: this
+      // number gates a spend cap, and an outage of the table it depends on
+      // must never look like a clean $0 month.
+      console.error("ai_usage_log monthly spend unreadable; failing closed on the monthly spend cap:", error?.message);
       return Number.POSITIVE_INFINITY;
     }
     return data.reduce((sum, row) => sum + Number(row.cost_usd ?? 0), 0);

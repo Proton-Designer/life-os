@@ -8,6 +8,7 @@ import { checkSpendCap } from "./spend-cap";
 import { estimateMultiProviderCostUsd } from "./pricing";
 import { recordUsage, type UsageStore } from "./usage-log";
 import { getAiPreference } from "./preferences";
+import { checkMonthlySpendCap } from "./monthly-spend-cap";
 
 /**
  * THE gateway. Every AI-backed feature should call `gatewayChat()` instead
@@ -89,6 +90,8 @@ export interface GatewayChatResult extends ChatResult {
   costUsd?: number;
   /** True only when the spend cap itself is why this call didn't happen — lets a caller distinguish "AI is off" from "AI ran out of shared budget" if it ever wants to. */
   capBlocked?: boolean;
+  /** True only when THIS user's own monthly budget (lib/ai/monthly-spend-cap.ts) — separate from the shared-key `capBlocked` above — is why this call didn't happen. */
+  monthlyCapBlocked?: boolean;
 }
 
 export async function gatewayChat(
@@ -148,6 +151,23 @@ export async function gatewayChat(
     // for a call that never reached the provider. The cap having refused IS
     // the fact worth knowing; `capBlocked` carries it without needing a log row.
     return { ok: false, message: capCheck.reason, keySource: resolved.source, capBlocked: true };
+  }
+
+  // SEPARATE from the global cap just above: this user's OWN monthly
+  // budget, regardless of key source (their own key still spends their own
+  // money). See lib/ai/monthly-spend-cap.ts's own header for why this is a
+  // distinct check rather than folded into checkSpendCap.
+  const monthlyCheck = await checkMonthlySpendCap(supabase, userId, provider, model, promptChars, maxTokens, {
+    store: opts.usageStore,
+    at: opts.now,
+  });
+  if (!monthlyCheck.allowed) {
+    return {
+      ok: false,
+      message: monthlyCheck.reason,
+      keySource: resolved.source,
+      monthlyCapBlocked: !monthlyCheck.contextFailure,
+    };
   }
 
   const { result, attempts } = await withRetry(

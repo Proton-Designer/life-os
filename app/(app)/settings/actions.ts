@@ -40,6 +40,12 @@ export type ProfileUpdatable = Partial<{
   onboarding_completed: boolean;
   theme_preset: ThemePresetId;
   hidden_features: FeatureId[];
+  // Migration 181 (P2-01, overnight run 2026-09-15). null = use the system
+  // default (lib/ai/monthly-spend-cap.ts's DEFAULT_MONTHLY_SPEND_CAP_USD),
+  // not "no cap" -- see that file's header. Validated below (positive-only)
+  // before the upsert, same posture as theme_preset/hidden_features above;
+  // the DB's own CHECK constraint is defense in depth, not the primary guard.
+  ai_monthly_spend_cap_usd: number | null;
 }>;
 
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;
@@ -72,6 +78,12 @@ export async function updateProfile(fields: ProfileUpdatable): Promise<void> {
     const bad = values.filter((v) => !isFeatureId(v));
     if (bad.length > 0) {
       throw new Error(`Unknown feature id(s) in hidden_features: ${bad.join(", ")}.`);
+    }
+  }
+  if ("ai_monthly_spend_cap_usd" in update) {
+    const cap = update.ai_monthly_spend_cap_usd as number | null;
+    if (cap !== null && (!Number.isFinite(cap) || cap <= 0)) {
+      throw new Error("ai_monthly_spend_cap_usd must be a positive number, or null to use the default.");
     }
   }
 
