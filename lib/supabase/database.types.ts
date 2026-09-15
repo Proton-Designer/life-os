@@ -3289,6 +3289,7 @@ export type Database = {
           class_id: string
           created_at: string
           id: string
+          raw_text: string | null
           source: string
           status: string
           user_id: string
@@ -3297,6 +3298,7 @@ export type Database = {
           class_id: string
           created_at?: string
           id?: string
+          raw_text?: string | null
           source: string
           status?: string
           user_id?: string
@@ -3305,6 +3307,7 @@ export type Database = {
           class_id?: string
           created_at?: string
           id?: string
+          raw_text?: string | null
           source?: string
           status?: string
           user_id?: string
