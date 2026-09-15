@@ -91,8 +91,30 @@ describe("lecture-actions", () => {
     it("rejects an oversize file at prepare time, without minting an upload url", async () => {
       const { prepareLectureUpload } = await import("../lecture-actions");
 
-      await expect(prepareLectureUpload("class-1", "lecture.mp3", "audio/mpeg", 600 * 1024 * 1024)).rejects.toThrow(/too large/);
+      await expect(prepareLectureUpload("class-1", "lecture.mp3", "audio/mpeg", 600 * 1024 * 1024)).rejects.toThrow(/50 MB/);
       expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+    });
+
+    // P3-14 04-verification (tracking-app-a9): production measured a HARD
+    // project-wide Supabase Storage limit of 50 MiB that overrides the
+    // bucket's own (higher) file_size_limit -- 50MiB-1-byte accepted,
+    // 51MiB rejected. These two pin the exact boundary lib/school/
+    // lecture-limits.ts's LECTURE_MAX_BYTES (52428800) enforces, matching
+    // production's own measured line, not the old 500 MiB assumption.
+    it("rejects a 51MB file with the friendly, actionable size message", async () => {
+      const { prepareLectureUpload } = await import("../lecture-actions");
+
+      await expect(
+        prepareLectureUpload("class-1", "lecture.mp3", "audio/mpeg", 51 * 1024 * 1024)
+      ).rejects.toThrow("Recordings can be up to 50 MB. A 90-minute lecture at 64 kbps mono is about 43 MB; compress it or split it into parts.");
+      expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+    });
+
+    it("accepts a 49MB file", async () => {
+      const { prepareLectureUpload } = await import("../lecture-actions");
+
+      await expect(prepareLectureUpload("class-1", "lecture.mp3", "audio/mpeg", 49 * 1024 * 1024)).resolves.toBeDefined();
+      expect(createSignedUploadUrlMock).toHaveBeenCalledTimes(1);
     });
   });
 

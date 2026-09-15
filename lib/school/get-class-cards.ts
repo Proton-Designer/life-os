@@ -130,6 +130,8 @@ export type ClassCardData = {
    * while one is still pending isn't part of this pass's scope. */
   pendingStagingBatch: {
     id: string;
+    /** P2-07: "syllabus" or "announcement" -- which upload/paste this batch came from, so the review panel can show the right heading. */
+    source: string;
     deliverables: {
       id: string;
       name: string;
@@ -141,7 +143,10 @@ export type ClassCardData = {
   } | null;
   /** P3-14 -- this class's lecture recordings, most recent first. Actual
    * audio bytes are never here -- only lecture-actions.ts's
-   * `getLectureRecordingUrl` mints a signed URL, on demand, per play. */
+   * `getLectureRecordingUrl` mints a signed URL, on demand, per play.
+   * P3-15 adds transcriptStatus/transcriptText/transcriptError -- 'none'
+   * means no transcription has ever been requested for this recording, the
+   * normal starting state, not an error. */
   lectures: {
     id: string;
     originalFilename: string;
@@ -149,6 +154,9 @@ export type ClassCardData = {
     sizeBytes: number;
     durationSeconds: number | null;
     createdAt: string;
+    transcriptStatus: "none" | "queued" | "processing" | "completed" | "failed";
+    transcriptText: string | null;
+    transcriptError: string | null;
   }[];
 };
 
@@ -232,7 +240,7 @@ export async function getClassCards(
     // first per class below is enough, no LIMIT-per-group query needed for this scale.
     supabase
       .from("staging_batches")
-      .select("id, class_id")
+      .select("id, class_id, source")
       .eq("user_id", userId)
       .in("class_id", classIds)
       .neq("status", "confirmed")
@@ -258,8 +266,15 @@ export async function getClassCards(
   // the Promise.all wave above — same "the next query needs the prior one's ids" shape
   // schedule_events/cancelledDates already has in app/(app)/school/page.tsx.
   const pendingBatchIdByClass = new Map<string, string>();
+  // P2-07: threaded through alongside the id so the review panel can show
+  // the right heading ("Syllabus" vs "Announcement") -- which batch is
+  // picked as "pending" is completely unchanged.
+  const pendingBatchSourceByClass = new Map<string, string>();
   for (const b of batchRows ?? []) {
-    if (!pendingBatchIdByClass.has(b.class_id)) pendingBatchIdByClass.set(b.class_id, b.id); // desc order -> first seen is most recent
+    if (!pendingBatchIdByClass.has(b.class_id)) {
+      pendingBatchIdByClass.set(b.class_id, b.id); // desc order -> first seen is most recent
+      pendingBatchSourceByClass.set(b.class_id, b.source);
+    }
   }
   const pendingBatchIds = [...pendingBatchIdByClass.values()];
   const { data: deliverableRows, error: deliverableError } =
@@ -287,6 +302,30 @@ export async function getClassCards(
       sourceSnippet: d.source_snippet,
     });
     deliverablesByBatch.set(d.batch_id, list);
+  }
+
+  // P3-15 -- dependent on lectureRows resolving first (which recording ids
+  // exist), same "next query needs the prior one's ids" shape as the
+  // staging-batch/deliverables pair above.
+  const lectureIds = (lectureRows ?? []).map((l) => l.id);
+  const { data: transcriptRows, error: transcriptError } =
+    lectureIds.length === 0
+      ? { data: [] as { recording_id: string; status: string; transcript_text: string | null; error_message: string | null }[], error: null }
+      : await supabase
+          .from("lecture_transcripts")
+          .select("recording_id, status, transcript_text, error_message")
+          .eq("user_id", userId)
+          .in("recording_id", lectureIds);
+  if (transcriptError) throw transcriptError;
+
+  type TranscriptStatus = ClassCardData["lectures"][number]["transcriptStatus"];
+  const transcriptByRecording = new Map<string, { status: TranscriptStatus; text: string | null; error: string | null }>();
+  for (const t of transcriptRows) {
+    transcriptByRecording.set(t.recording_id, {
+      status: t.status as TranscriptStatus,
+      text: t.transcript_text,
+      error: t.error_message,
+    });
   }
 
   const tasksByClass = new Map<string, ClassCardData["tasks"]>();
@@ -379,6 +418,7 @@ export async function getClassCards(
   const lecturesByClass = new Map<string, ClassCardData["lectures"]>();
   for (const l of lectureRows ?? []) {
     const list = lecturesByClass.get(l.class_id) ?? [];
+    const transcript = transcriptByRecording.get(l.id);
     list.push({
       id: l.id,
       originalFilename: l.original_filename,
@@ -386,6 +426,9 @@ export async function getClassCards(
       sizeBytes: l.size_bytes,
       durationSeconds: l.duration_seconds,
       createdAt: l.created_at,
+      transcriptStatus: transcript?.status ?? "none",
+      transcriptText: transcript?.text ?? null,
+      transcriptError: transcript?.error ?? null,
     });
     lecturesByClass.set(l.class_id, list);
   }
@@ -446,7 +489,11 @@ export async function getClassCards(
       tasks,
       questions: questionsByClass.get(c.id) ?? [],
       pendingStagingBatch: pendingBatchIdByClass.has(c.id)
-        ? { id: pendingBatchIdByClass.get(c.id)!, deliverables: deliverablesByBatch.get(pendingBatchIdByClass.get(c.id)!) ?? [] }
+        ? {
+            id: pendingBatchIdByClass.get(c.id)!,
+            source: pendingBatchSourceByClass.get(c.id)!,
+            deliverables: deliverablesByBatch.get(pendingBatchIdByClass.get(c.id)!) ?? [],
+          }
         : null,
       lectures: lecturesByClass.get(c.id) ?? [],
     };

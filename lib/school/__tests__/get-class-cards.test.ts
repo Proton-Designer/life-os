@@ -192,9 +192,38 @@ describe("getClassCards", () => {
     const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
 
     expect(result[0]!.lectures).toEqual([
-      { id: "l2", originalFilename: "lec2.m4a", mimeType: "audio/x-m4a", sizeBytes: 2048, durationSeconds: null, createdAt: "2026-09-10T00:00:00Z" },
-      { id: "l1", originalFilename: "lec1.mp3", mimeType: "audio/mpeg", sizeBytes: 1024, durationSeconds: 1800, createdAt: "2026-09-01T00:00:00Z" },
+      { id: "l2", originalFilename: "lec2.m4a", mimeType: "audio/x-m4a", sizeBytes: 2048, durationSeconds: null, createdAt: "2026-09-10T00:00:00Z", transcriptStatus: "none", transcriptText: null, transcriptError: null },
+      { id: "l1", originalFilename: "lec1.mp3", mimeType: "audio/mpeg", sizeBytes: 1024, durationSeconds: 1800, createdAt: "2026-09-01T00:00:00Z", transcriptStatus: "none", transcriptText: null, transcriptError: null },
     ]);
+  });
+
+  // P3-15 — mirrors the shape of the P3-14 lecture-shaping test above:
+  // camelCase, joined by recording_id, and a recording with no
+  // lecture_transcripts row at all reads as 'none' (the normal starting
+  // state), not an error or a missing field.
+  it("joins each lecture recording to its transcript status/text/error, and shows 'none' for a recording never transcribed", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
+      tasks: [],
+      class_assessments: [],
+      lecture_recordings: [
+        { id: "l1", class_id: "c1", original_filename: "lec1.mp3", mime_type: "audio/mpeg", size_bytes: 1024, duration_seconds: null, created_at: "2026-09-01T00:00:00Z" },
+        { id: "l2", class_id: "c1", original_filename: "lec2.mp3", mime_type: "audio/mpeg", size_bytes: 1024, duration_seconds: null, created_at: "2026-09-02T00:00:00Z" },
+        { id: "l3", class_id: "c1", original_filename: "lec3.mp3", mime_type: "audio/mpeg", size_bytes: 1024, duration_seconds: null, created_at: "2026-09-03T00:00:00Z" },
+      ],
+      lecture_transcripts: [
+        { recording_id: "l1", status: "completed", transcript_text: "hello lecture one", error_message: null },
+        { recording_id: "l2", status: "failed", transcript_text: null, error_message: "OpenAI rejected that key." },
+        // l3 has no row at all.
+      ],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+    const byId = new Map(result[0]!.lectures.map((l) => [l.id, l]));
+
+    expect(byId.get("l1")).toMatchObject({ transcriptStatus: "completed", transcriptText: "hello lecture one", transcriptError: null });
+    expect(byId.get("l2")).toMatchObject({ transcriptStatus: "failed", transcriptText: null, transcriptError: "OpenAI rejected that key." });
+    expect(byId.get("l3")).toMatchObject({ transcriptStatus: "none", transcriptText: null, transcriptError: null });
   });
 
   it("never attributes another class's lecture recordings to a class with none of its own", async () => {
@@ -302,7 +331,7 @@ describe("getClassCards", () => {
         classes: [classRow("c1")],
         tasks: [],
         class_assessments: [],
-        staging_batches: [{ id: "b1", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staging_batches: [{ id: "b1", class_id: "c1", source: "syllabus", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
         staged_deliverables: [
           { id: "d1", batch_id: "b1", name: "Midterm", type: "exam", date: "2026-10-01", confidence: 0.9, source_snippet: "Midterm: Oct 1", committed_assessment_id: null },
         ],
@@ -310,8 +339,23 @@ describe("getClassCards", () => {
       const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
       expect(result[0]!.pendingStagingBatch).toEqual({
         id: "b1",
+        source: "syllabus",
         deliverables: [{ id: "d1", name: "Midterm", type: "exam", date: "2026-10-01", confidence: 0.9, sourceSnippet: "Midterm: Oct 1" }],
       });
+    });
+
+    it("P2-07 — surfaces an announcement-sourced pending batch's source field", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        staging_batches: [{ id: "b1", class_id: "c1", source: "announcement", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staged_deliverables: [
+          { id: "d1", batch_id: "b1", name: "Pop quiz", type: "quiz", date: "2026-10-01", confidence: 0.8, source_snippet: "added a pop quiz", committed_assessment_id: null },
+        ],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch!.source).toBe("announcement");
     });
 
     // The real query's own `.neq("status", "confirmed")` filters a confirmed batch out
@@ -336,11 +380,11 @@ describe("getClassCards", () => {
         classes: [classRow("c1")],
         tasks: [],
         class_assessments: [],
-        staging_batches: [{ id: "b1", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staging_batches: [{ id: "b1", class_id: "c1", source: "syllabus", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
         staged_deliverables: [],
       });
       const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
-      expect(result[0]!.pendingStagingBatch).toEqual({ id: "b1", deliverables: [] });
+      expect(result[0]!.pendingStagingBatch).toEqual({ id: "b1", source: "syllabus", deliverables: [] });
     });
 
     it("picks only the MOST RECENT pending batch when a class somehow has more than one", async () => {
@@ -352,8 +396,8 @@ describe("getClassCards", () => {
         // ascending: false }) would return (this mock, like the rest of this file,
         // trusts the fixture is already ordered/filtered the way a real query would).
         staging_batches: [
-          { id: "newer", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" },
-          { id: "older", class_id: "c1", status: "pending", created_at: "2026-08-01T00:00:00Z" },
+          { id: "newer", class_id: "c1", source: "syllabus", status: "pending", created_at: "2026-08-20T00:00:00Z" },
+          { id: "older", class_id: "c1", source: "syllabus", status: "pending", created_at: "2026-08-01T00:00:00Z" },
         ],
         staged_deliverables: [
           { id: "d-older", batch_id: "older", name: "Old", type: "quiz", date: null, confidence: 0.5, source_snippet: null, committed_assessment_id: null },
@@ -370,7 +414,7 @@ describe("getClassCards", () => {
         classes: [classRow("c1"), { ...classRow("c2"), id: "c2" }],
         tasks: [],
         class_assessments: [],
-        staging_batches: [{ id: "b1", class_id: "c1", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staging_batches: [{ id: "b1", class_id: "c1", source: "syllabus", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
         staged_deliverables: [{ id: "d1", batch_id: "b1", name: "Midterm", type: "exam", date: null, confidence: 0.5, source_snippet: null, committed_assessment_id: null }],
       });
       const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");

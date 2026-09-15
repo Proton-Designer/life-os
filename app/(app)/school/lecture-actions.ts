@@ -2,16 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
+import { LECTURE_MAX_BYTES, LECTURE_MAX_SIZE_MESSAGE } from "@/lib/school/lecture-limits";
 
 const LECTURES_BUCKET = "lectures";
 const LECTURE_SIGNED_URL_TTL_SECONDS = 3600; // 1 hour -- longer than syllabi's 5 min: scrubbing through a recording takes longer than glancing at a PDF.
 
-// Keep in sync with migration 211's bucket file_size_limit/allowed_mime_types
+// Keep in sync with migration 216's bucket file_size_limit/allowed_mime_types
 // -- the bucket itself is the real enforcement (Storage rejects the raw PUT
 // server-side, can't be bypassed by a client that skips this action), this
 // is a cheap up-front check so prepareLectureUpload can reject before ever
 // minting a signed upload URL for a request that's going to fail anyway.
-const LECTURE_MAX_SIZE_BYTES = 524288000; // 500 MiB
+// Size comes from lib/school/lecture-limits.ts, not a local constant -- see
+// that file's header: P3-14 04-verification found a project-wide 50 MiB
+// Supabase Storage ceiling that overrides the bucket's own (higher) limit.
 const LECTURE_ALLOWED_MIME_TYPES = new Set([
   "audio/mpeg",
   "audio/mp4",
@@ -61,8 +64,8 @@ export async function prepareLectureUpload(
   if (!LECTURE_ALLOWED_MIME_TYPES.has(mimeType)) {
     throw new Error(`Unsupported file type: ${mimeType || "unknown"}`);
   }
-  if (!(sizeBytes > 0) || sizeBytes > LECTURE_MAX_SIZE_BYTES) {
-    throw new Error("File is too large");
+  if (!(sizeBytes > 0) || sizeBytes > LECTURE_MAX_BYTES) {
+    throw new Error(LECTURE_MAX_SIZE_MESSAGE);
   }
 
   const path = `${userId}/${classId}/${Date.now()}-${sanitizeFilenameSegment(filename)}`;
@@ -108,7 +111,7 @@ export async function finalizeLectureUpload(classId: string, path: string) {
   // allowed_mime_types (which already gate what CAN exist at this path) --
   // cheap, and doesn't assume the bucket's config can never drift from
   // this file's constants.
-  if (!LECTURE_ALLOWED_MIME_TYPES.has(mimeType) || sizeBytes <= 0 || sizeBytes > LECTURE_MAX_SIZE_BYTES) {
+  if (!LECTURE_ALLOWED_MIME_TYPES.has(mimeType) || sizeBytes <= 0 || sizeBytes > LECTURE_MAX_BYTES) {
     await supabase.storage.from(LECTURES_BUCKET).remove([path]);
     throw new Error("Uploaded file failed validation");
   }

@@ -38,6 +38,8 @@ export function ClassCard({
   data,
   timezone,
   todayStr,
+  hasOpenAiKey = false,
+  hasGoogleKey = false,
 }: {
   data: ClassCardData;
   timezone: string;
@@ -47,6 +49,9 @@ export function ClassCard({
    * — identical on all but one day of the year, which is exactly the kind
    * of "works until it doesn't" this app has been bitten by. */
   todayStr: string;
+  /** P3-15 — account-wide (not per-class), threaded through to LecturePanel. */
+  hasOpenAiKey?: boolean;
+  hasGoogleKey?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const displayName = data.shortName ?? data.code;
@@ -114,7 +119,14 @@ export function ClassCard({
         </div>
       </div>
 
-      <ClassDetailDialog open={open} onOpenChange={setOpen} classData={data} timezone={timezone} />
+      <ClassDetailDialog
+        open={open}
+        onOpenChange={setOpen}
+        classData={data}
+        timezone={timezone}
+        hasOpenAiKey={hasOpenAiKey}
+        hasGoogleKey={hasGoogleKey}
+      />
     </>
   );
 }

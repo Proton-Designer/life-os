@@ -14,6 +14,11 @@ vi.mock("@/app/(app)/school/lecture-actions", () => ({
   getLectureRecordingUrl: (...args: unknown[]) => getLectureRecordingUrlMock(...args),
 }));
 
+const requestTranscriptionMock = vi.fn(async (..._args: unknown[]) => {});
+vi.mock("@/app/(app)/school/transcript-actions", () => ({
+  requestTranscription: (...args: unknown[]) => requestTranscriptionMock(...args),
+}));
+
 const uploadToSignedUrlMock = vi.fn(async (..._args: unknown[]) => ({ data: {} as {} | null, error: null as { message: string } | null }));
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({ storage: { from: () => ({ uploadToSignedUrl: uploadToSignedUrlMock }) } }),
@@ -26,6 +31,14 @@ function audioFile(name = "lecture.mp3") {
   return new File(["audio-bytes"], name, { type: "audio/mpeg" });
 }
 
+/** Overrides `.size` rather than allocating a real N-byte blob -- cheap,
+ * and all this panel ever reads off the File is `.size`/`.type`/`.name`. */
+function sizedAudioFile(sizeBytes: number, name = "lecture.mp3") {
+  const file = audioFile(name);
+  Object.defineProperty(file, "size", { value: sizeBytes });
+  return file;
+}
+
 function recording(overrides: Partial<LectureRecording> = {}): LectureRecording {
   return {
     id: "rec-1",
@@ -34,6 +47,9 @@ function recording(overrides: Partial<LectureRecording> = {}): LectureRecording 
     sizeBytes: 1024,
     durationSeconds: null,
     createdAt: "2026-09-01T00:00:00Z",
+    transcriptStatus: "none",
+    transcriptText: null,
+    transcriptError: null,
     ...overrides,
   };
 }
@@ -87,6 +103,32 @@ describe("LecturePanel", () => {
     expect(finalizeLectureUploadMock).not.toHaveBeenCalled();
   });
 
+  // P3-14 04-verification (tracking-app-a9): production's real limit is 50MB
+  // (project-wide Supabase Storage ceiling, overriding the bucket's own
+  // higher limit). These pin the client-side pre-check that stops an
+  // over-limit upload before it ever starts.
+  it("rejects a file over 50MB client-side, before calling prepare at all", async () => {
+    const user = userEvent.setup();
+    render(<LecturePanel classId="class-1" lectures={[]} editing />);
+
+    const input = document.querySelector('input[type="file"][accept="audio/*"]') as HTMLInputElement;
+    await user.upload(input, sizedAudioFile(51 * 1024 * 1024));
+
+    expect(await screen.findByText(/Recordings can be up to 50 MB/)).toBeInTheDocument();
+    expect(prepareLectureUploadMock).not.toHaveBeenCalled();
+  });
+
+  it("maps Storage's raw 'exceeded the maximum allowed size' rejection to the same friendly message", async () => {
+    uploadToSignedUrlMock.mockResolvedValueOnce({ data: null, error: new Error("The object exceeded the maximum allowed size") });
+    const user = userEvent.setup();
+    render(<LecturePanel classId="class-1" lectures={[]} editing />);
+
+    const input = document.querySelector('input[type="file"][accept="audio/*"]') as HTMLInputElement;
+    await user.upload(input, sizedAudioFile(40 * 1024 * 1024)); // under the client-side check, so this exercises the mapping, not the pre-check
+
+    expect(await screen.findByText(/Recordings can be up to 50 MB/)).toBeInTheDocument();
+  });
+
   it("shows an error and never finalizes when the direct-to-storage upload itself fails", async () => {
     // Real supabase-js storage errors are Error instances (StorageApiError extends
     // Error) -- mirror that shape rather than a plain {message} object, matching
@@ -129,5 +171,96 @@ describe("LecturePanel", () => {
     render(<LecturePanel classId="class-1" lectures={[recording()]} editing={false} />);
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+  });
+
+  describe("transcription (P3-15)", () => {
+    it("clicking Transcribe calls requestTranscription and refreshes", async () => {
+      const user = userEvent.setup();
+      render(<LecturePanel classId="class-1" lectures={[recording()]} editing hasOpenAiKey />);
+
+      await user.click(screen.getByRole("button", { name: "Transcribe" }));
+
+      expect(requestTranscriptionMock).toHaveBeenCalledWith("rec-1");
+      await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    });
+
+    it("disables Transcribe with a clear reason when the user has neither an OpenAI nor a Gemini key", () => {
+      render(<LecturePanel classId="class-1" lectures={[recording()]} editing hasOpenAiKey={false} hasGoogleKey={false} />);
+      const button = screen.getByRole("button", { name: "Transcribe" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "Needs an OpenAI or Gemini key in Settings");
+    });
+
+    it("disables Transcribe for a file too large for OpenAI when only an OpenAI key exists", () => {
+      render(
+        <LecturePanel
+          classId="class-1"
+          lectures={[recording({ sizeBytes: 26 * 1024 * 1024 })]}
+          editing
+          hasOpenAiKey
+          hasGoogleKey={false}
+        />
+      );
+      expect(screen.getByRole("button", { name: "Transcribe" })).toBeDisabled();
+    });
+
+    it("allows a large file when a Gemini key exists, even without an OpenAI key", () => {
+      render(
+        <LecturePanel
+          classId="class-1"
+          lectures={[recording({ sizeBytes: 26 * 1024 * 1024 })]}
+          editing
+          hasOpenAiKey={false}
+          hasGoogleKey
+        />
+      );
+      expect(screen.getByRole("button", { name: "Transcribe" })).toBeEnabled();
+    });
+
+    it("hides Transcribe entirely outside edit mode", () => {
+      render(<LecturePanel classId="class-1" lectures={[recording()]} editing={false} hasOpenAiKey />);
+      expect(screen.queryByRole("button", { name: "Transcribe" })).not.toBeInTheDocument();
+    });
+
+    it("shows a pending label, no button, while queued or processing", () => {
+      render(<LecturePanel classId="class-1" lectures={[recording({ transcriptStatus: "processing" })]} editing hasOpenAiKey />);
+      expect(screen.getByText(/Transcribing/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Transcribe" })).not.toBeInTheDocument();
+    });
+
+    it("shows the error and a Retry transcription button when failed", async () => {
+      const user = userEvent.setup();
+      render(
+        <LecturePanel
+          classId="class-1"
+          lectures={[recording({ transcriptStatus: "failed", transcriptError: "OpenAI rejected that key." })]}
+          editing
+          hasOpenAiKey
+        />
+      );
+
+      expect(screen.getByText("OpenAI rejected that key.")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Retry transcription" }));
+      expect(requestTranscriptionMock).toHaveBeenCalledWith("rec-1");
+    });
+
+    it("shows a View transcript toggle when completed, revealing the text only once expanded", async () => {
+      const user = userEvent.setup();
+      render(
+        <LecturePanel
+          classId="class-1"
+          lectures={[recording({ transcriptStatus: "completed", transcriptText: "the whole lecture, verbatim" })]}
+          editing
+          hasOpenAiKey
+        />
+      );
+
+      expect(screen.queryByText("the whole lecture, verbatim")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "View transcript" }));
+      expect(screen.getByText("the whole lecture, verbatim")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Hide transcript" }));
+      expect(screen.queryByText("the whole lecture, verbatim")).not.toBeInTheDocument();
+    });
   });
 });

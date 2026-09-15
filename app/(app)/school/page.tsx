@@ -20,6 +20,7 @@ import {
   uncancelScheduleOccurrence,
 } from "./actions";
 import { createClass } from "./class-actions";
+import { getTranscriptionAvailability } from "./transcript-actions";
 import type { TaskRowItem } from "@/components/shared/task-row-list";
 import { ClassScheduleWeek, type ClassScheduleEvent } from "@/components/school/class-schedule-week";
 import { ClassEditorDialog, type ClassGroup } from "@/components/school/class-editor-dialog";
@@ -72,7 +73,7 @@ export default async function SchoolPage() {
   // getClassCards/getSchoolTodayFeed depend only on userId/weekStart/dateStr (known
   // before any of the three queries below resolve), so both join this wave instead of
   // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems, transcriptionAvailability] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -91,6 +92,9 @@ export default async function SchoolPage() {
     // here; #28 (Night Plan, an evening ritual planning tomorrow) will pass a different
     // targetDate than todayStr when it becomes this function's second caller.
     getSchoolTodayFeed(supabase, userId, dateStr, dateStr),
+    // P3-15 — account-wide (not per-class), fetched once here and threaded down through
+    // ClassCard -> ClassDetailDialog -> LecturePanel rather than re-fetched per class.
+    getTranscriptionAvailability(),
   ]);
 
   const cancelledDates = await getCancelledDatesByEvent(
@@ -389,7 +393,14 @@ export default async function SchoolPage() {
       {classCards.length > 0 && (
         <div data-testid="class-cards-grid" className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {classCards.map((c) => (
-            <ClassCard key={c.id} data={c} timezone={timezone} todayStr={dateStr} />
+            <ClassCard
+              key={c.id}
+              data={c}
+              timezone={timezone}
+              todayStr={dateStr}
+              hasOpenAiKey={transcriptionAvailability.hasOpenAi}
+              hasGoogleKey={transcriptionAvailability.hasGoogle}
+            />
           ))}
         </div>
       )}

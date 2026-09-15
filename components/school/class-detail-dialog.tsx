@@ -20,6 +20,7 @@ import { GradeScenarioPanel } from "@/components/school/grade-scenario-panel";
 import { GradeCategoriesPanel } from "@/components/school/grade-categories-panel";
 import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
+import { AnnouncementPanel } from "@/components/school/announcement-panel";
 import { LecturePanel } from "@/components/school/lecture-panel";
 import { SyllabusReviewPanel } from "@/components/school/syllabus-review-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
@@ -98,6 +99,8 @@ export function ClassDetailDialog({
   onOpenChange,
   classData,
   timezone,
+  hasOpenAiKey = false,
+  hasGoogleKey = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -105,6 +108,9 @@ export function ClassDetailDialog({
   /** IANA timezone — "today"/"this week" for the class task list are
    * derived through this (AGENTS.md), never a bare `new Date()` day. */
   timezone: string;
+  /** P3-15 — threaded through to LecturePanel. */
+  hasOpenAiKey?: boolean;
+  hasGoogleKey?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -541,6 +547,9 @@ export function ClassDetailDialog({
           <div className="rounded-2xl border border-border/40 bg-card p-4">
             <SyllabusPanel classId={classData.id} hasSyllabus={classData.hasSyllabus} editing={editing} />
           </div>
+          <div className="rounded-2xl border border-border/40 bg-card p-4">
+            <AnnouncementPanel classId={classData.id} editing={editing} />
+          </div>
         </div>
 
         {/* Phase 1 #16/#17/#19 — reads straight from classData.pendingStagingBatch
@@ -560,7 +569,13 @@ export function ClassDetailDialog({
             SyllabusPanel/QuestionBankPanel: reads straight from
             classData.lectures (server props), nothing staged here. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
-          <LecturePanel classId={classData.id} lectures={classData.lectures} editing={editing} />
+          <LecturePanel
+            classId={classData.id}
+            lectures={classData.lectures}
+            editing={editing}
+            hasOpenAiKey={hasOpenAiKey}
+            hasGoogleKey={hasGoogleKey}
+          />
         </div>
 
         {/* Reads straight from classData.assessments (server props), not the
