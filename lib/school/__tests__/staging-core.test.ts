@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmStagingBatchCore, updateStagedDeliverableCore, deleteStagedDeliverableCore } from "../staging-core";
+import { confirmStagingBatchCore, updateStagedDeliverableCore, deleteStagedDeliverableCore, createStagingBatchCore } from "../staging-core";
 
 type Row = Record<string, unknown>;
 
@@ -319,5 +319,23 @@ describe("deleteStagedDeliverableCore", () => {
     await deleteStagedDeliverableCore(client as never, "user-1", "sd-1");
 
     expect(tables.staged_deliverables).toHaveLength(1);
+  });
+});
+
+describe("createStagingBatchCore (P2-07)", () => {
+  it("a syllabus batch omits rawText -- raw_text stays null", async () => {
+    const { client, tables } = createFakeDb();
+    const batchId = await createStagingBatchCore(client as never, "user-1", "class-1", "syllabus");
+    const row = tables.staging_batches.find((b) => b.id === batchId)!;
+    expect(row.source).toBe("syllabus");
+    expect(row.raw_text).toBeNull();
+  });
+
+  it("an announcement batch stores the given rawText", async () => {
+    const { client, tables } = createFakeDb();
+    const batchId = await createStagingBatchCore(client as never, "user-1", "class-1", "announcement", "Quiz moved to Friday.");
+    const row = tables.staging_batches.find((b) => b.id === batchId)!;
+    expect(row.source).toBe("announcement");
+    expect(row.raw_text).toBe("Quiz moved to Friday.");
   });
 });

@@ -32,8 +32,18 @@ const TYPE_LABEL: Record<AssessmentType, string> = {
  * uses for its own course-detail fields, chosen here so a short review list
  * doesn't fire a Server Action on every character typed.
  */
+/** P2-07: this panel is fully source-agnostic already (confirm/edit/reject
+ * all operate on batch/deliverable ids, never on `source`) -- only the
+ * heading text needs to say the right thing for an announcement-sourced
+ * batch instead of always saying "Syllabus". */
+const SOURCE_LABEL: Record<string, string> = {
+  syllabus: "Syllabus",
+  announcement: "Announcement",
+};
+
 export function SyllabusReviewPanel({ batch }: { batch: PendingBatch }) {
   const router = useRouter();
+  const sourceLabel = SOURCE_LABEL[batch.source] ?? "Extraction";
   const [isPending, startTransition] = useTransition();
   const [drafts, setDrafts] = useState<DraftDeliverable[]>(() =>
     batch.deliverables.map((d) => ({ id: d.id, name: d.name, type: d.type as AssessmentType, date: d.date ?? "" }))
@@ -85,9 +95,11 @@ export function SyllabusReviewPanel({ batch }: { batch: PendingBatch }) {
     // #19 — a genuine, confident success state, never an error or a stuck spinner.
     return (
       <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">
-        <h3 className="text-sm font-medium">Syllabus extraction</h3>
+        <h3 className="text-sm font-medium">{sourceLabel} extraction</h3>
         <p className="text-xs text-muted-foreground">
-          Nothing schedulable found in this syllabus. Add deliverables manually below, or try a different file.
+          {batch.source === "announcement"
+            ? "Nothing schedulable found in this announcement."
+            : "Nothing schedulable found in this syllabus. Add deliverables manually below, or try a different file."}
         </p>
         <Button type="button" size="sm" className="self-start" disabled={isPending} onClick={handleConfirm}>
           Dismiss
@@ -98,7 +110,7 @@ export function SyllabusReviewPanel({ batch }: { batch: PendingBatch }) {
 
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">
-      <h3 className="text-sm font-medium">Review extracted deliverables</h3>
+      <h3 className="text-sm font-medium">Review extracted deliverables ({sourceLabel})</h3>
       <p className="text-xs text-muted-foreground">
         Check each item before confirming — nothing is added to your class until you confirm.
       </p>

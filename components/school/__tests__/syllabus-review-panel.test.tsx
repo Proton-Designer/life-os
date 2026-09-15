@@ -21,8 +21,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) 
 
 type PendingBatch = NonNullable<ClassCardData["pendingStagingBatch"]>;
 
-function batch(deliverables: PendingBatch["deliverables"]): PendingBatch {
-  return { id: "batch-1", deliverables };
+function batch(deliverables: PendingBatch["deliverables"], source: string = "syllabus"): PendingBatch {
+  return { id: "batch-1", source, deliverables };
 }
 
 function deliverable(overrides: Partial<PendingBatch["deliverables"][number]> = {}): PendingBatch["deliverables"][number] {
@@ -45,6 +45,24 @@ describe("SyllabusReviewPanel", () => {
     render(<SyllabusReviewPanel batch={batch([])} />);
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(confirmStagingBatchMock).toHaveBeenCalledWith("batch-1");
+  });
+
+  describe("P2-07 — source-aware heading (syllabus vs announcement)", () => {
+    it("shows an Announcement heading and empty-state copy for an announcement-sourced batch", () => {
+      render(<SyllabusReviewPanel batch={batch([], "announcement")} />);
+      expect(screen.getByText(/announcement extraction/i)).toBeInTheDocument();
+      expect(screen.getByText(/nothing schedulable found in this announcement/i)).toBeInTheDocument();
+    });
+
+    it("shows a Syllabus heading for a syllabus-sourced batch (the pre-existing behavior, unchanged)", () => {
+      render(<SyllabusReviewPanel batch={batch([], "syllabus")} />);
+      expect(screen.getByText(/syllabus extraction/i)).toBeInTheDocument();
+    });
+
+    it("the review heading (non-empty batch) names the source too", () => {
+      render(<SyllabusReviewPanel batch={batch([deliverable()], "announcement")} />);
+      expect(screen.getByText(/review extracted deliverables \(announcement\)/i)).toBeInTheDocument();
+    });
   });
 
   it("renders each deliverable's name, type, date, and source snippet", () => {

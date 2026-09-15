@@ -161,11 +161,15 @@ export async function createStagingBatchCore(
   supabase: SupabaseClient,
   userId: string,
   classId: string,
-  source: StagingBatchSource
+  source: StagingBatchSource,
+  /** P2-07: the pasted announcement text (migration 184's `raw_text`), for the
+   * per-course history list. Omitted (undefined) for a syllabus batch -- there
+   * is no raw text to store, same as before this parameter existed. */
+  rawText?: string
 ): Promise<string> {
   const { data, error } = await supabase
     .from("staging_batches")
-    .insert({ user_id: userId, class_id: classId, source })
+    .insert({ user_id: userId, class_id: classId, source, raw_text: rawText ?? null })
     .select("id")
     .single();
   if (error) throw error;

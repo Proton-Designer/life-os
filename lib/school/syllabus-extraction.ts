@@ -48,7 +48,10 @@ export type ExtractionOutcome =
    * schema below — never crashes the caller, degrades to "nothing extracted." */
   | { status: "parse_failed" };
 
-const RawItemSchema = z.object({
+/** Exported for lib/school/announcement-extraction.ts (P2-07) to reuse rather than
+ * reimplement -- same validation/normalization for the same underlying shape,
+ * only the system prompt differs between a syllabus and a pasted announcement. */
+export const RawItemSchema = z.object({
   name: z.string().min(1).max(200),
   type: z.string(),
   date: z.string().nullable(),
@@ -98,7 +101,7 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  *   parseable start/end date, so ±12 months of today is the only honest plausibility
  *   window available — an ISO-shaped date from 1970 or 2099 is still a fabrication.
  */
-function normalizeItem(raw: z.infer<typeof RawItemSchema>, todayStr: string): ExtractedItem {
+export function normalizeItem(raw: z.infer<typeof RawItemSchema>, todayStr: string): ExtractedItem {
   const isValidType = (ASSESSMENT_TYPES as readonly string[]).includes(raw.type);
   const datePlausible = raw.date !== null && ISO_DATE_RE.test(raw.date) && isPlausibleDate(raw.date, todayStr);
 
@@ -115,7 +118,7 @@ function normalizeItem(raw: z.infer<typeof RawItemSchema>, todayStr: string): Ex
  * being told not to — a response-shape tolerance, not a provider-specific quirk
  * (every provider occasionally wraps JSON in ```json fences regardless of
  * instructions telling it not to). */
-function stripCodeFence(text: string): string {
+export function stripCodeFence(text: string): string {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   return fenced ? fenced[1]!.trim() : trimmed;
