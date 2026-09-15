@@ -1456,6 +1456,7 @@ export type Database = {
           created_at: string
           id: string
           identity_statement: string
+          kill_reason: string | null
           rank: number
           status: string
           updated_at: string
@@ -1466,6 +1467,7 @@ export type Database = {
           created_at?: string
           id?: string
           identity_statement: string
+          kill_reason?: string | null
           rank: number
           status?: string
           updated_at?: string
@@ -1476,6 +1478,7 @@ export type Database = {
           created_at?: string
           id?: string
           identity_statement?: string
+          kill_reason?: string | null
           rank?: number
           status?: string
           updated_at?: string
