@@ -3,6 +3,8 @@ import { formatHoursMinutes } from "@/lib/evening-close/format-hours";
 import { dayWonVerdict } from "@/lib/evening-close/day-won";
 import { formatDurationMagnitude } from "@/lib/date-utils";
 import { computeEfficiency } from "@/lib/day-structure/efficiency";
+import type { HabitWithStatus } from "@/lib/habits/queries";
+import { cn } from "@/lib/utils";
 
 /**
  * Stage (b) of the evening close: reflect.
@@ -37,6 +39,7 @@ export function CloseReflectStage({
   weekdayBaselines,
   weekdayIndex,
   deltaMinutes,
+  activeHabits,
 }: {
   todaysThree: PlannedItem[];
   hoursTodayMinutes: number;
@@ -44,6 +47,8 @@ export function CloseReflectStage({
   weekdayIndex: number;
   /** Minutes since today's Start Day tap (#33/#34). Null = not tapped today. */
   deltaMinutes: number | null;
+  /** P3-04 — this user's active identity habits, each with today's vote state. */
+  activeHabits: HabitWithStatus[];
 }) {
   const done = todaysThree.filter((t) => t.completed).length;
   const verdict = dayWonVerdict(hoursTodayMinutes, weekdayBaselines, weekdayIndex);
@@ -122,6 +127,35 @@ export function CloseReflectStage({
           </ul>
         </div>
       )}
+
+      {/* P3-04 — TODAY's habit-vote state, distinct from the Weekly Review's
+          own "N this week" habit-score section (lib/weekly-review/
+          habit-summary.ts) -- the close-out is a daily ritual, so this
+          reports the one thing a daily reflection can honestly ask: did
+          you vote for each identity habit today. Absent (no section at
+          all), not a "0 of 0", when there are genuinely no active habits
+          yet -- same "empty is a real answer" rule this whole stage
+          already follows for todaysThree/weekdayBaselines/deltaMinutes. */}
+      {activeHabits.length > 0 ? (
+        <div className="rounded-lg border p-4 space-y-3">
+          <p className="text-sm">
+            Habits{" "}
+            <span className="font-medium tabular-nums">
+              {activeHabits.filter((h) => h.votedToday).length}/{activeHabits.length} today
+            </span>
+          </p>
+          <ul className="space-y-1.5">
+            {activeHabits.map((h) => (
+              <li key={h.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate">{h.identityStatement}</span>
+                <span className={cn("shrink-0 text-xs", h.votedToday ? "text-accent-business" : "text-muted-foreground")}>
+                  {h.votedToday ? "Voted" : "Not yet"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }

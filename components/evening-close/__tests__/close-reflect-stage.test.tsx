@@ -1,8 +1,22 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CloseReflectStage } from "../close-reflect-stage";
+import type { HabitWithStatus } from "@/lib/habits/queries";
 
-const NO_PLAN = { todaysThree: [], hoursTodayMinutes: 90, weekdayBaselines: null, weekdayIndex: 1 };
+const NO_PLAN = { todaysThree: [], hoursTodayMinutes: 90, weekdayBaselines: null, weekdayIndex: 1, activeHabits: [] as HabitWithStatus[] };
+
+function habit(overrides: Partial<HabitWithStatus> = {}): HabitWithStatus {
+  return {
+    id: "h1",
+    identityStatement: "the reader",
+    rank: 1,
+    votedToday: false,
+    isNew: false,
+    score: 0.6,
+    voteCount: 10,
+    ...overrides,
+  };
+}
 
 describe("CloseReflectStage — Delta/Efficiency close-out stats (#38)", () => {
   it("omits Delta/Efficiency entirely when Start Day was never tapped today", () => {
@@ -26,10 +40,50 @@ describe("CloseReflectStage — Delta/Efficiency close-out stats (#38)", () => {
         weekdayBaselines={[0, 4, 4, 4, 4, 4, 2]}
         weekdayIndex={1}
         deltaMinutes={300}
+        activeHabits={[]}
       />
     );
     expect(screen.getByText("4:00")).toBeInTheDocument(); // formatHoursMinutes(240)
     expect(screen.getByText(/Day won/)).toBeInTheDocument();
     expect(screen.getByText("80%")).toBeInTheDocument(); // 240/300
+  });
+});
+
+// P3-04: today's habit-vote display, distinct from the Weekly Review's own
+// "N this week" habit-score section.
+describe("CloseReflectStage — habit-vote display (P3-04)", () => {
+  it("renders nothing at all when there are no active habits -- absent, not a '0 of 0'", () => {
+    render(<CloseReflectStage {...NO_PLAN} deltaMinutes={null} />);
+    expect(screen.queryByText(/Habits/)).not.toBeInTheDocument();
+  });
+
+  it("shows the today X/Y count and Voted/Not yet per habit", () => {
+    render(
+      <CloseReflectStage
+        {...NO_PLAN}
+        deltaMinutes={null}
+        activeHabits={[
+          habit({ id: "h1", identityStatement: "the reader", votedToday: true }),
+          habit({ id: "h2", identityStatement: "the early riser", votedToday: false }),
+        ]}
+      />
+    );
+    expect(screen.getByText("1/2 today")).toBeInTheDocument();
+    expect(screen.getByText("the reader")).toBeInTheDocument();
+    expect(screen.getByText("the early riser")).toBeInTheDocument();
+    expect(screen.getByText("Voted")).toBeInTheDocument();
+    expect(screen.getByText("Not yet")).toBeInTheDocument();
+  });
+
+  it("counts every active habit toward the total even while isNew (a new habit still gets a vote-today state)", () => {
+    render(
+      <CloseReflectStage
+        {...NO_PLAN}
+        deltaMinutes={null}
+        activeHabits={[habit({ isNew: true, score: null, votedToday: true })]}
+      />
+    );
+    expect(screen.getByText("1/1 today")).toBeInTheDocument();
+    expect(screen.getByText("Voted")).toBeInTheDocument();
   });
 });

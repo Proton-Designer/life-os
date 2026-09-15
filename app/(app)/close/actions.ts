@@ -13,6 +13,7 @@ import { composeDump, type DumpItem } from "@/lib/night-plan/night-plan";
 import { getOpenWorries, worriesToDumpItems } from "@/lib/night-plan/worries";
 import { getUnfinishedMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
+import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -72,6 +73,18 @@ export type EveningCloseData = {
    * Day tap (app/(app)/open/actions.ts) only.
    */
   deltaMinutes: number | null;
+  /**
+   * P3-04 — this user's active identity habits (#39-41), each with today's
+   * vote state, for the close-out's own daily reflection. Empty array =
+   * genuinely zero active habits, a real state the reflect stage renders
+   * as an absence (a "start one" nudge), same "empty is a real answer"
+   * philosophy as `todaysThree` above — never a loading state, never an
+   * error. Reuses `lib/habits/queries.ts`'s own combined read (the exact
+   * same one the /habits page and the Weekly Review's habit-score section
+   * are built on) rather than a third copy of "active habits + today's
+   * vote."
+   */
+  activeHabits: HabitWithStatus[];
 };
 
 /**
@@ -160,7 +173,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   // calendar date; a noon UTC instant off that date cannot slip either way.
   const weekdayIndex = new Date(`${today}T12:00:00Z`).getUTCDay();
 
-  const [triggers, unplannedTodayCount, planned, hoursTodayMinutes, tomorrowRows, settings, wakeMark] = await Promise.all([
+  const [triggers, unplannedTodayCount, planned, hoursTodayMinutes, tomorrowRows, settings, wakeMark, activeHabits] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
     getTodayDistractionCount(supabase, user.id, today),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
@@ -183,6 +196,8 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     supabase.from("user_settings").select("weekday_baselines").eq("user_id", user.id).maybeSingle(),
     // #33/#34 (Day Structure), read-only.
     getTodayDayStart(supabase, user.id, timezone, new Date()),
+    // P3-04, read-only.
+    getActiveHabitsWithStatus(supabase, user.id, today, timezone),
   ]);
 
   const blockers = closeBlockers({ triggers, unplannedTodayCount });
@@ -220,6 +235,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       mitRank: t.mit_rank as number,
       completed: t.completed,
     })),
+    activeHabits,
   };
 }
 
