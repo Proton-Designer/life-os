@@ -9,11 +9,27 @@ import { isProviderId, type ProviderId, type ModelTier } from "./providers";
  * a feature silently keeps using a provider/tier the user just switched
  * away from.
  *
- * ABSENCE IS THE DEFAULT, NEVER A BROKEN STATE: no row means
- * deepseek/cheap, matching this app's founding rule that every opt-in AI
- * setting degrades to its safe default rather than erroring -- a user who
- * has never opened the AI settings page gets the exact behavior this app
+ * ABSENCE IS THE DEFAULT, NEVER A BROKEN STATE: no row means deepseek/
+ * cheap, matching this app's founding rule that every opt-in AI setting
+ * degrades to its safe default rather than erroring -- a user who has
+ * never opened the AI settings page gets the exact behavior this app
  * already had before multi-provider existed.
+ *
+ * A READ FAILURE IS NOT THE SAME THING AS "NO ROW", and this distinction
+ * is load-bearing, not pedantic (found live, 2026-09-15, the Lead): if a
+ * genuine read error or thrown exception silently degraded to deepseek/
+ * cheap the same way an absent row does, that would REOPEN the cross-
+ * provider fallback the whole multi-provider design makes impossible by
+ * construction -- just through a side door. Walk it through: a user chose
+ * Claude, the preferences read hits a transient DB error, "degrades
+ * safely" to deepseek/cheap, and their content goes to DeepSeek -- on
+ * Ayman's shared key if they're allowlisted, or their own DeepSeek key if
+ * they have one -- a provider they explicitly didn't choose. So the two
+ * cases return DIFFERENT shapes: `{ok:true, preference}` for a real
+ * choice OR a genuinely absent one (both legitimate), `{ok:false, reason}`
+ * for anything that actually failed to answer the question, which
+ * `gatewayChat` must treat as a hard stop (no adapter call at all), the
+ * same fail-closed posture the spend cap already uses.
  *
  * UNTYPED TABLE ACCESS: `user_ai_preferences` isn't in generated
  * database.types.ts yet (migration 173 not applied at the time this file
@@ -31,6 +47,8 @@ export interface AiPreference {
   modelTier: ModelTier;
 }
 
+export type AiPreferenceResult = { ok: true; preference: AiPreference } | { ok: false; reason: string };
+
 const DEFAULT_PREFERENCE: AiPreference = { provider: "deepseek", modelTier: "cheap" };
 
 interface AiPreferenceRow {
@@ -38,24 +56,35 @@ interface AiPreferenceRow {
   model_tier: string;
 }
 
-export async function getAiPreference(supabase: SupabaseClient, userId: string): Promise<AiPreference> {
-  const { data, error } = await untypedFrom(supabase, "user_ai_preferences")
-    .select("provider, model_tier")
-    .eq("user_id", userId)
-    .maybeSingle()
-    .returns<AiPreferenceRow | null>();
-  // Fails CLOSED to the default, never throws -- a query error (including
-  // "table doesn't exist yet" before 173 is applied) must never break a
-  // caller that just wants to know which provider to use; the safe default
-  // is a completely normal answer, not a degraded one.
-  if (error || !data) return DEFAULT_PREFERENCE;
-  if (!isProviderId(data.provider) || (data.model_tier !== "cheap" && data.model_tier !== "capable")) {
-    // A row exists but fails validation (a hand-edited row, a future
-    // provider this deployed code doesn't know about yet) -- same
-    // fail-closed posture, not a thrown error a page would have to catch.
-    return DEFAULT_PREFERENCE;
+export async function getAiPreference(supabase: SupabaseClient, userId: string): Promise<AiPreferenceResult> {
+  try {
+    const { data, error } = await untypedFrom(supabase, "user_ai_preferences")
+      .select("provider, model_tier")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .returns<AiPreferenceRow | null>();
+    if (error) {
+      // A genuine read failure -- fail CLOSED, not to a default. See this
+      // file's own header for why a silent default here would reopen
+      // cross-provider fallback through a side door.
+      return { ok: false, reason: `Couldn't read your AI preference: ${error.message}` };
+    }
+    if (!data) {
+      // Genuinely no row -- the user has never chosen. This IS the safe
+      // default, not a failure.
+      return { ok: true, preference: DEFAULT_PREFERENCE };
+    }
+    if (!isProviderId(data.provider) || (data.model_tier !== "cheap" && data.model_tier !== "capable")) {
+      // A row EXISTS but doesn't parse (a hand-edited row, a provider this
+      // deployed code doesn't recognize yet) -- this is a failure to
+      // answer the question, not an absence, so it fails closed too rather
+      // than silently substituting deepseek for whatever was actually there.
+      return { ok: false, reason: "Your saved AI preference couldn't be read." };
+    }
+    return { ok: true, preference: { provider: data.provider, modelTier: data.model_tier } };
+  } catch (e) {
+    return { ok: false, reason: `Couldn't read your AI preference: ${e instanceof Error ? e.message : "unknown error"}` };
   }
-  return { provider: data.provider, modelTier: data.model_tier };
 }
 
 export async function setAiPreference(supabase: SupabaseClient, userId: string, preference: AiPreference): Promise<{ ok: boolean; error?: string }> {

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom } from "@/lib/self-mastery/untyped-from";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
+import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
 
 /**
  * The provenance drill-down's second block ("In context, from the book") —
@@ -55,12 +56,26 @@ function validateBookFile(file: File): string | null {
  * the upload step will fail until the bucket is provisioned).
  */
 export async function uploadBook(formData: FormData): Promise<UploadBookResult | UploadBookError> {
+  const { supabase, userId } = await requireUser();
+
   // Refuse on the SERVER, not only by hiding the button. Without a worker to
   // consume `ingestion_jobs`, a successful upload strands the book at
   // "processing" forever with no failure path — so accepting the file is the
   // harm, and a hidden trigger is not a guard. See
   // lib/self-mastery/ingestion-availability.ts.
   if (!(await isIngestionAvailable())) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
+
+  // SAME SERVER-SIDE-REFUSAL POSTURE, for the key side (2026-09-15, the
+  // Lead's fix): the driver being alive says nothing about whether THIS
+  // user's own resolved AI provider has a usable key behind it — see
+  // hasUsableIngestionKey's own header in lib/ai/gateway.ts. Checked here,
+  // not just in self-mastery-library.tsx's button visibility, for the exact
+  // reason the driver check above already is: a hidden button is a UI
+  // convenience, not the actual guard.
+  const keyCheck = await hasUsableIngestionKey(supabase, userId);
+  if (!keyCheck.usable) {
+    return { ok: false, message: ingestionNoKeyMessage(keyCheck.providerLabel) };
+  }
 
   const file = formData.get("file");
   const title = String(formData.get("title") ?? "").trim();
@@ -70,8 +85,6 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
   const validationError = validateBookFile(file);
   if (validationError) return { ok: false, message: validationError };
   if (!title) return { ok: false, message: "Give this book a title." };
-
-  const { supabase, userId } = await requireUser();
 
   const { data: inserted, error: insertError } = await untypedFrom(supabase, "books")
     .insert({

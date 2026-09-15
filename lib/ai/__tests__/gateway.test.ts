@@ -8,9 +8,24 @@ vi.mock("@/lib/ai/resolve-key", () => ({
   resolveApiKeyWithSource: (...args: unknown[]) => resolveApiKeyWithSourceMock(...args),
 }));
 
-// Imported AFTER the mock is registered (vi.mock is hoisted by vitest regardless of
+// gatewayChat now resolves an omitted provider/tier from lib/ai/preferences
+// itself (2026-09-15 reversal — see gateway.ts's own header). Mocked here,
+// not left to hit the fake `{}` supabase client for real: `fakeClient` below
+// has no `.from`, so an unmocked call would throw inside getAiPreference and
+// every existing test that omits provider/tier would see gatewayChat fail
+// closed instead of falling through to its old deepseek/cheap behavior.
+// Default resolves to "no row" (deepseek/cheap) so every pre-existing test
+// below keeps behaving exactly as it did before this reversal — the Lead's
+// own instruction ("Updating those call sites is the right cost") is
+// satisfied by this one shared default rather than editing every call site.
+const getAiPreferenceMock = vi.fn();
+vi.mock("@/lib/ai/preferences", () => ({
+  getAiPreference: (...args: unknown[]) => getAiPreferenceMock(...args),
+}));
+
+// Imported AFTER the mocks are registered (vi.mock is hoisted by vitest regardless of
 // literal position, but importing here keeps the file readable top-to-bottom).
-const { gatewayChat } = await import("../gateway");
+const { gatewayChat, hasUsableIngestionKey, ingestionNoKeyMessage } = await import("../gateway");
 
 const OFF_PEAK = new Date("2026-09-16T12:00:00Z");
 const fakeClient = {} as unknown as SupabaseClient;
@@ -26,6 +41,8 @@ describe("gatewayChat()", () => {
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     resolveApiKeyWithSourceMock.mockReset();
+    getAiPreferenceMock.mockReset();
+    getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "deepseek", modelTier: "cheap" } });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -198,11 +215,14 @@ describe("gatewayChat()", () => {
   });
 
   /**
-   * Multi-provider (2026-09-14). Every test above omits `opts.provider` and
-   * still passes unchanged -- proving DEFAULT_PROVIDER's own backward-compat
-   * guarantee empirically, not just by reading the code. These tests are
-   * the NEW behavior: an explicit `provider` actually resolves that
-   * provider's own key, model, and adapter -- not silently still DeepSeek.
+   * Multi-provider, REVERSED 2026-09-15 (the Lead's fix). Every test above
+   * omits `opts.provider` and still passes unchanged -- but now because
+   * `getAiPreferenceMock` defaults to "no row" (deepseek/cheap), not because
+   * of a caller-side DEFAULT_PROVIDER fallback the way it worked before this
+   * date (that theory failed 3-for-3 against real callers -- see gateway.ts's
+   * own header). These tests are the NEW behavior: an explicit `provider`
+   * still wins outright and skips the lookup; an omitted one is now resolved
+   * from the caller's OWN saved preference, not silently still DeepSeek.
    */
   describe("provider selection", () => {
     it("an explicit non-deepseek provider resolves ITS OWN key, not DeepSeek's -- proven by resolveApiKeyWithSource's own call args", async () => {
@@ -264,6 +284,144 @@ describe("gatewayChat()", () => {
       });
       const budget = MODEL_CATALOG.openai.budget;
       expect(result.costUsd).toBeCloseTo(budget.inputUsdPer1M + budget.outputUsdPer1M, 5);
+    });
+  });
+
+  /**
+   * Multi-provider, REVERSED 2026-09-15 (the Lead's fix). These are the
+   * exact behaviors the reversal exists to deliver: a caller (like
+   * answer-feedback-actions.ts) that never passes `provider`/`tier` at all
+   * now genuinely routes through the user's own saved preference, and a
+   * preference READ FAILURE fails closed (no adapter called) rather than
+   * quietly reopening cross-provider fallback via the deepseek default --
+   * see preferences.ts's own header for why that distinction is load-bearing.
+   */
+  describe("preference resolution (provider/tier omitted)", () => {
+    it("a caller that omits both provider and tier routes to the user's own saved preference, not deepseek", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "anthropic", modelTier: "capable" } });
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-ant-user-key", source: "user" });
+      vi.stubGlobal("navigator", undefined);
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "answer_feedback", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok, result.message ?? "").toBe(true);
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "anthropic");
+      expect(store.entries[0].provider).toBe("anthropic");
+    });
+
+    it("an explicit provider still wins outright over a saved preference for a different provider", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "openai", modelTier: "capable" } });
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-ant-key", source: "server" });
+      vi.stubGlobal("navigator", undefined);
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const store = new FakeUsageStore();
+      await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { provider: "anthropic", tier: "cheap", usageStore: store, now: OFF_PEAK });
+
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "anthropic");
+      // Both provider and tier were explicit, so the preference lookup is
+      // never consulted at all -- not merely overridden.
+      expect(getAiPreferenceMock).not.toHaveBeenCalled();
+    });
+
+    it("ingestion's explicit tier:'cheap' still resolves PROVIDER from the book owner's own preference", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "openai", modelTier: "capable" } });
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-openai-key", source: "server" });
+      vi.stubGlobal("navigator", undefined);
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200, headers: { "content-type": "application/json" } }),
+      );
+      const { PROVIDERS } = await import("../providers");
+      const store = new FakeUsageStore();
+      await gatewayChat(fakeClient, "u1", "self_mastery_ingestion", [{ role: "user", content: "hi" }], { tier: "cheap", usageStore: store, now: OFF_PEAK });
+
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "openai");
+      // tier stayed "cheap" (ingestion's forced tier) despite the saved
+      // preference being "capable" -- Addition A must never be overridden.
+      expect(store.entries[0].model).toBe(PROVIDERS.openai.models.cheap);
+    });
+
+    it("THE REGRESSION GUARD: a preference READ ERROR fails closed -- no adapter called, ok:false, nothing logged", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: false, reason: "Couldn't read your AI preference: connection reset" });
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "answer_feedback", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("connection reset");
+      expect(resolveApiKeyWithSourceMock).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(store.entries).toHaveLength(0);
+    });
+
+    it("a non-allowlisted user with a saved preference but no key for that provider: no adapter call, clear no-key result", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "anthropic", modelTier: "cheap" } });
+      resolveApiKeyWithSourceMock.mockResolvedValue(null); // no BYO key, not allowlisted for a shared one
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "answer_feedback", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok).toBe(false);
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "anthropic");
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(store.entries).toHaveLength(0);
+    });
+  });
+
+  /**
+   * `hasUsableIngestionKey` is the upload gate's own check (2026-09-15, the
+   * Lead's fix) -- it must resolve the SAME provider a real ingestion
+   * `gatewayChat` call would (the book owner's saved preference), not
+   * assume deepseek, and must fail closed (not "usable") on a preference
+   * read failure rather than optimistically letting an upload through that
+   * gatewayChat itself would then refuse.
+   */
+  describe("hasUsableIngestionKey", () => {
+    it("resolves the SAME provider the preference names, and reports usable when a key exists for it", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "anthropic", modelTier: "cheap" } });
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-ant", source: "user" });
+
+      const result = await hasUsableIngestionKey(fakeClient, "u1");
+
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "anthropic");
+      expect(result).toEqual({ usable: true, providerLabel: expect.any(String) });
+    });
+
+    it("not usable when the resolved provider has no key -- the exact case that used to strand a book at 'processing' forever", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: true, preference: { provider: "openai", modelTier: "cheap" } });
+      resolveApiKeyWithSourceMock.mockResolvedValue(null);
+
+      const result = await hasUsableIngestionKey(fakeClient, "u1");
+
+      expect(result.usable).toBe(false);
+      expect(result.providerLabel).toBeDefined(); // still names the provider, for a precise message
+    });
+
+    it("THE REGRESSION GUARD: fails closed on a preference read failure -- not usable, no providerLabel to guess with", async () => {
+      getAiPreferenceMock.mockResolvedValue({ ok: false, reason: "connection reset" });
+
+      const result = await hasUsableIngestionKey(fakeClient, "u1");
+
+      expect(result).toEqual({ usable: false });
+      expect(resolveApiKeyWithSourceMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("ingestionNoKeyMessage", () => {
+    it("names the resolved provider when one is known", () => {
+      expect(ingestionNoKeyMessage("Claude")).toBe("Add an API key for Claude in Settings to process books.");
+    });
+
+    it("falls back to a generic message when no provider could be resolved", () => {
+      expect(ingestionNoKeyMessage(undefined)).toBe("Add an AI provider key in Settings to process books.");
     });
   });
 });

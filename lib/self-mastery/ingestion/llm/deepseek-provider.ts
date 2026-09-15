@@ -45,6 +45,18 @@
  * from a syntactically-valid-but-substantively-rejected model answer (a
  * copied-not-restated claim, a title that drifted topic), which no amount
  * of network-level retry can fix.
+ *
+ * PROVIDER-AGNOSTIC DESPITE THE NAME, as of the multi-provider gateway
+ * reversal (2026-09-15, the Lead): this class no longer picks DeepSeek by
+ * being called -- `gatewayChat` resolves the book owner's own saved
+ * provider preference itself (lib/ai/preferences.ts) whenever a call site
+ * here omits `provider`, which every call site in this file does. `tier` is
+ * the one thing still pinned explicitly, to `"cheap"` (Addition A, below) --
+ * the PROVIDER a book gets processed on follows its owner's own choice.
+ * The class keeps its original name because renaming it is a bigger,
+ * separate change than this reversal needs (confirmed with the Lead as
+ * sufficient); read it as "the ingestion LLM provider adapter," not "the
+ * adapter that only talks to DeepSeek."
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {

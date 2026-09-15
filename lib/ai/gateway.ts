@@ -1,12 +1,13 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { chat, type ChatResult } from "./client";
-import { DEFAULT_PROVIDER, resolveApiKeyWithSource } from "./resolve-key";
+import { resolveApiKeyWithSource } from "./resolve-key";
 import { PROVIDERS, type ModelTier, type ProviderId } from "./providers";
 import { withRetry, type RetryOptions } from "./retry";
 import { checkSpendCap } from "./spend-cap";
 import { estimateMultiProviderCostUsd } from "./pricing";
 import { recordUsage, type UsageStore } from "./usage-log";
+import { getAiPreference } from "./preferences";
 
 /**
  * THE gateway. Every AI-backed feature should call `gatewayChat()` instead
@@ -26,19 +27,33 @@ import { recordUsage, type UsageStore } from "./usage-log";
 
 export interface GatewayChatOptions {
   /**
-   * Multi-provider (2026-09-14). Defaults to DEFAULT_PROVIDER (deepseek) --
-   * every pre-existing caller that omits this gets its EXACT prior
-   * behavior, unchanged: same provider, same key resolution, same pricing
-   * function underneath (estimateMultiProviderCostUsd("deepseek", ...)
-   * delegates straight to the untouched DeepSeek-only arithmetic). A
-   * caller that wants a user's chosen provider passes it explicitly --
-   * this file does not read user_ai_preferences itself; resolving "which
-   * provider did this user pick" is the caller's job (e.g. a Settings-
-   * aware wrapper), keeping the gateway itself free of a preferences-table
-   * dependency.
+   * MULTI-PROVIDER, REVERSED 2026-09-15 (the Lead's fix): earlier same-day
+   * versions of this file left "which provider did this user pick" to the
+   * caller, on the theory that it kept the gateway free of a preferences-
+   * table dependency. That theory failed 3 for 3 against real callers
+   * (answer-feedback-actions.ts, syllabus-extraction.ts, deepseek-
+   * provider.ts) -- none of them passed `provider`, so the whole
+   * preference picker wrote a row nothing ever consumed. Correct by
+   * construction now instead: when this is omitted, gatewayChat resolves
+   * THIS CALL'S OWN userId's saved preference itself (getAiPreference,
+   * lib/ai/preferences.ts) -- it already has `supabase`+`userId` in scope,
+   * which is the one place every call already passes through. An explicit
+   * `provider` still wins outright and skips the lookup (ingestion, which
+   * must stay pinned to the book owner's preference at a FORCED tier
+   * regardless of what tier they picked, still passes tier explicitly;
+   * see `tier`'s own doc below).
    */
   provider?: ProviderId;
-  /** 'cheap' (default) = each provider's own budget model, thinking off. 'capable' = its flagship, thinking on. Either can be overridden below. */
+  /**
+   * Same reversal as `provider` above, resolved from the SAME preference
+   * lookup when omitted (one query serves both, not two). 'cheap' = the
+   * resolved provider's own budget model; 'capable' = its flagship.
+   * Ingestion (deepseek-provider.ts) passes this explicitly as "cheap" —
+   * Addition A, the Lead: bulk book processing must NEVER ride a user's
+   * chosen flagship tier, which would spend real money per book. That
+   * explicit override wins regardless of what the user's own tier
+   * preference says.
+   */
   tier?: ModelTier;
   maxTokens?: number;
   temperature?: number;
@@ -83,7 +98,26 @@ export async function gatewayChat(
   messages: { role: "system" | "user"; content: string }[],
   opts: GatewayChatOptions = {},
 ): Promise<GatewayChatResult> {
-  const provider = opts.provider ?? DEFAULT_PROVIDER;
+  let provider = opts.provider;
+  let tier = opts.tier;
+  if (provider === undefined || tier === undefined) {
+    // Only hit the preferences table when at least one of the two is
+    // omitted — an explicit (provider, tier) pair (ingestion's forced
+    // "cheap" alongside its book-owner-resolved provider, for example)
+    // never needs this lookup at all, and never risks failing on it.
+    const pref = await getAiPreference(supabase, userId);
+    if (!pref.ok) {
+      // FAIL CLOSED — see preferences.ts's own header. A failed read must
+      // not quietly resolve to deepseek/cheap the way a genuinely absent
+      // row does; that would reopen cross-provider fallback through a
+      // side door. No adapter is called, nothing is logged (there is no
+      // usage to record for a call that never had a provider to attempt).
+      return { ok: false, message: pref.reason };
+    }
+    provider = provider ?? pref.preference.provider;
+    tier = tier ?? pref.preference.modelTier;
+  }
+
   const resolved = await resolveApiKeyWithSource(supabase, userId, provider);
   if (!resolved) {
     // NULL IS THE NORMAL RESULT (resolve-key.ts's own rule) — no key
@@ -91,7 +125,6 @@ export async function gatewayChat(
     return { ok: false, message: "AI features aren't enabled for this account." };
   }
 
-  const tier = opts.tier ?? "cheap";
   const model = PROVIDERS[provider].models[tier];
   const thinking = opts.thinking ?? tier === "capable";
   // Same tier-driven default posture as `thinking` above, generalized to
@@ -154,4 +187,61 @@ export async function gatewayChat(
   );
 
   return { ...result, keySource: resolved.source, attempts, costUsd };
+}
+
+export interface IngestionKeyCheck {
+  /** Whether a real gatewayChat() call for this user's ingestion work would actually find a usable key. */
+  usable: boolean;
+  /**
+   * The resolved provider's display label (PROVIDERS[x].label), for a
+   * precise "no key" message ("Add a key for Claude..."). Absent only when
+   * the preference read itself failed -- there is then no provider to name,
+   * so the caller should show a generic message instead of guessing deepseek.
+   */
+  providerLabel?: string;
+}
+
+/**
+ * Book ingestion's own upload-gate check (2026-09-15, the Lead's fix,
+ * Addition A's sibling): `deepseek-provider.ts`'s `chatJson` omits
+ * `provider` on every call, so it now resolves to the book OWNER's saved
+ * preference (this file's own reversal, above) -- which means the upload
+ * gate must check THAT SAME resolution, not assume DeepSeek. Before this,
+ * `isIngestionAvailable()` (the driver-heartbeat check) was the only gate:
+ * true whenever the poller was alive, regardless of whether the uploading
+ * user actually had a usable key for whatever provider they'd chosen. A
+ * user who switched their preference to Claude but never added a Claude key
+ * could upload a book that would strand at every ingestion step forever --
+ * the exact "processing forever" failure mode ingestion-availability.ts's
+ * own header describes, just reached through the key side instead of the
+ * driver side.
+ *
+ * Reuses `resolveApiKeyWithSource` (not a hand-rolled key lookup) so the
+ * allowlist (`resolve-key.ts`'s `sharedKeyAllowed`) applies exactly as it
+ * would on the real ingestion call -- a non-allowlisted user with no
+ * DeepSeek key of their own must see "no key," never a false "usable"
+ * because this check forgot the allowlist exists.
+ *
+ * FAILS CLOSED on a preference read failure, same posture as gatewayChat
+ * itself: `usable: false` with no `providerLabel` (there is no resolved
+ * provider to name), rather than guessing deepseek and telling a user their
+ * upload will work when the actual gatewayChat call would refuse it too.
+ */
+export async function hasUsableIngestionKey(supabase: SupabaseClient, userId: string): Promise<IngestionKeyCheck> {
+  const pref = await getAiPreference(supabase, userId);
+  if (!pref.ok) return { usable: false };
+  const resolved = await resolveApiKeyWithSource(supabase, userId, pref.preference.provider);
+  return { usable: resolved !== null, providerLabel: PROVIDERS[pref.preference.provider].label };
+}
+
+/**
+ * One shared wording for `hasUsableIngestionKey`'s two call sites
+ * (self-mastery-library.tsx's button-hiding read, self-mastery-actions.ts's
+ * `uploadBook` server refusal) — kept here rather than duplicated at each
+ * site so the two can never drift apart.
+ */
+export function ingestionNoKeyMessage(providerLabel: string | undefined): string {
+  return providerLabel
+    ? `Add an API key for ${providerLabel} in Settings to process books.`
+    : "Add an AI provider key in Settings to process books.";
 }

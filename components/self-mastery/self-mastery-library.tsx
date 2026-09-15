@@ -9,6 +9,8 @@ import { UploadBookDialog } from "./upload-book-dialog";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
 import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
+import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
+import { requireUser } from "@/lib/supabase/auth";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -29,11 +31,18 @@ function statusLine(book: LibraryBook, now: Date): string {
 export async function SelfMasteryLibrary() {
   const books = await getSelfMasteryLibrary();
   const now = new Date();
+  const { supabase, userId } = await requireUser();
   const ingestionAvailable = await isIngestionAvailable();
+  // Only worth checking once the driver itself is alive -- no point resolving
+  // a key for a feature that's unavailable for an unrelated reason, and it
+  // keeps the "driver down" message (the more fundamental gap) taking
+  // priority over "no key" when both happen to be true at once.
+  const keyCheck = ingestionAvailable ? await hasUsableIngestionKey(supabase, userId) : null;
+  const canUpload = ingestionAvailable && (keyCheck?.usable ?? false);
 
   return (
     <PageContainer>
-      <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && ingestionAvailable ? <UploadBookDialog /> : null} />
+      <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && canUpload ? <UploadBookDialog /> : null} />
 
       {books.length === 0 ? (
         // Not the generic EmptyState primitive — its action contract is a
@@ -43,7 +52,7 @@ export async function SelfMasteryLibrary() {
         // centered action), just with UploadBookDialog's real trigger.
         <div className="flex flex-col items-center gap-3 py-8 text-center">
           <BookOpen className="size-8 text-muted-foreground/50" strokeWidth={1.5} />
-          {ingestionAvailable ? (
+          {canUpload ? (
             <>
               <p className="max-w-xs text-sm text-muted-foreground">
                 Upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.
@@ -55,7 +64,9 @@ export async function SelfMasteryLibrary() {
             // at "processing" forever. Say so plainly rather than offering a
             // button that eats the file — an absent feature is a gap, a broken
             // promise reads as a broken app.
-            <p className="max-w-xs text-sm text-muted-foreground">{INGESTION_UNAVAILABLE_MESSAGE}</p>
+            <p className="max-w-xs text-sm text-muted-foreground">
+              {ingestionAvailable ? ingestionNoKeyMessage(keyCheck?.providerLabel) : INGESTION_UNAVAILABLE_MESSAGE}
+            </p>
           )}
         </div>
       ) : (
