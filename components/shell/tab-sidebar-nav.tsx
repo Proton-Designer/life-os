@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat } from "lucide-react";
+import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat, CalendarCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
@@ -35,6 +35,10 @@ const MORE_ITEMS: NavItem[] = [
   // Phase 1 #39/#40, 2026-09-14: kept in step with tab-mobile-island.tsx's
   // own MORE_ITEMS — see that file's comment on this addition.
   { href: "/habits", label: "Habits", icon: Repeat, accent: "info" },
+  // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review — NOT /review (that
+  // route redirects into /close's own review stage). Kept in step with
+  // tab-mobile-island.tsx.
+  { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

@@ -48,9 +48,16 @@ const PRIMARY_ITEMS: {
 // Phase 1 #39/#40, 2026-09-14: /habits joins the allowlist for the same
 // reason — SECTIONS gained the entry in sidebar-nav.tsx, and this filter is
 // explicit rather than "every SECTIONS item," so it needed its own line.
+//
+// Phase 1 #46/#47/#48, 2026-09-14: /weekly-review, same reason again.
 const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
   (item) =>
-    item.href === "/insights" || item.href === "/settings" || item.href === "/worries" || item.href === "/goals" || item.href === "/habits"
+    item.href === "/insights" ||
+    item.href === "/settings" ||
+    item.href === "/worries" ||
+    item.href === "/goals" ||
+    item.href === "/habits" ||
+    item.href === "/weekly-review"
 );
 
 function isActive(pathname: string, href: string) {

@@ -38,7 +38,7 @@ describe("SidebarNav", () => {
     expect(screen.getByText("SYSTEM")).toBeInTheDocument();
   });
 
-  it("renders every one of the 12 routes with an icon", () => {
+  it("renders every one of the 13 routes with an icon", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
@@ -52,6 +52,7 @@ describe("SidebarNav", () => {
       "Worries",
       "Goals",
       "Habits",
+      "Weekly Review",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -127,6 +128,7 @@ describe("SidebarNav", () => {
       "Worries",
       "Goals",
       "Habits",
+      "Weekly Review",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -164,21 +166,42 @@ describe("SidebarNav", () => {
     expect(screen.getByRole("link", { name: "Habits" })).toHaveAttribute("href", "/habits");
   });
 
+  // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review is a NEW route, not
+  // /review (see app/(app)/weekly-review/page.tsx's header for why that
+  // route was unavailable).
+  it("links Weekly Review to /weekly-review", () => {
+    render(<SidebarNav variant="expanded" />);
+    expect(screen.getByRole("link", { name: "Weekly Review" })).toHaveAttribute("href", "/weekly-review");
+  });
+
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
     it("omits the matching destination, leaves everything else untouched", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["business"]} />);
       expect(screen.queryByRole("link", { name: "Business" })).not.toBeInTheDocument();
-      for (const label of ["Home", "Deen", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Goals", "Habits", "Settings"]) {
+      for (const label of [
+        "Home",
+        "Deen",
+        "Fitness",
+        "School",
+        "Work",
+        "Self-Mastery",
+        "Insights",
+        "Worries",
+        "Goals",
+        "Habits",
+        "Weekly Review",
+        "Settings",
+      ]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });
 
-    // REVIEW now carries four items (Insights, Worries, Goals, Habits —
-    // Phase 1 #39/#40 added the fourth). Hiding only "insights" (the sole
-    // real FeatureId of the four — Worries/Goals/Habits aren't toggleable
-    // features, same as before) must leave the section standing with the
-    // other three.
+    // REVIEW now carries five items (Insights, Worries, Goals, Habits,
+    // Weekly Review — Phase 1 #46/#47/#48 added the fifth). Hiding only
+    // "insights" (the sole real FeatureId of the five — the other four
+    // aren't toggleable features, same as before) must leave the section
+    // standing with the other four.
     it("hiding one of REVIEW's items leaves the section standing with the others", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["insights"]} />);
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
@@ -186,14 +209,18 @@ describe("SidebarNav", () => {
       expect(screen.getByRole("link", { name: "Worries" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Goals" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Habits" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Weekly Review" })).toBeInTheDocument();
     });
 
     it("drops the whole REVIEW section once every item in it is hidden", () => {
-      render(<SidebarNav variant="expanded" hiddenFeatures={["insights", "worries", "goals", "habits"] as never} />);
+      render(
+        <SidebarNav variant="expanded" hiddenFeatures={["insights", "worries", "goals", "habits", "weekly-review"] as never} />
+      );
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Worries" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Goals" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Habits" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Weekly Review" })).not.toBeInTheDocument();
       expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
     });
 
@@ -204,7 +231,21 @@ describe("SidebarNav", () => {
 
     it("defaults to hiding nothing when the prop is omitted", () => {
       render(<SidebarNav variant="expanded" />);
-      for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work", "Self-Mastery", "Insights", "Worries", "Goals", "Habits", "Settings"]) {
+      for (const label of [
+        "Home",
+        "Deen",
+        "Business",
+        "Fitness",
+        "School",
+        "Work",
+        "Self-Mastery",
+        "Insights",
+        "Worries",
+        "Goals",
+        "Habits",
+        "Weekly Review",
+        "Settings",
+      ]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });

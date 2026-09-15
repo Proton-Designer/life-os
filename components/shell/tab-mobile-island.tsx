@@ -2,7 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MoreHorizontal, TrendingUp, Settings, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat, type LucideIcon } from "lucide-react";
+import {
+  MoreHorizontal,
+  TrendingUp,
+  Settings,
+  CalendarDays,
+  ClipboardCheck,
+  AlertCircle,
+  Flag,
+  Repeat,
+  CalendarCheck,
+  type LucideIcon,
+} from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
@@ -39,6 +50,9 @@ const MORE_ITEMS: NavItem[] = [
   // Phase 1 #39/#40, 2026-09-14: kept in step with tab-sidebar-nav.tsx's own
   // MORE_ITEMS — see that file's comment on this addition.
   { href: "/habits", label: "Habits", icon: Repeat, accent: "info" },
+  // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review — NOT /review. Kept in
+  // step with tab-sidebar-nav.tsx.
+  { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

@@ -58,6 +58,15 @@ describe("MobileIsland", () => {
     expect(screen.getByRole("link", { name: /^habits$/i })).toHaveAttribute("href", "/habits");
   });
 
+  // Phase 1 #46/#47/#48, 2026-09-14: same reachability proof as Habits
+  // above, for /weekly-review's own allowlist addition.
+  it("also reveals Weekly Review under More, linked to /weekly-review", async () => {
+    const user = userEvent.setup();
+    render(<MobileIsland />);
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: /^weekly review$/i })).toHaveAttribute("href", "/weekly-review");
+  });
+
   it("also reveals the Ask AI platform links under More, without growing the fixed icon row", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);
