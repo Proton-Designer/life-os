@@ -9,7 +9,7 @@ import {
   getOAuthClient,
   formatOAuthTokenLabel,
 } from "@/lib/mcp/oauth";
-import { createAccessToken, revokeAccessToken, getTokenScopesById } from "@/lib/mcp/tokens";
+import { createAccessToken, revokeAccessToken, getTokenScopesById, OAUTH_ACCESS_TOKEN_TTL_SECONDS } from "@/lib/mcp/tokens";
 import { repointScheduledActionsToken } from "@/lib/scheduling/token-handoff";
 
 /**
@@ -31,16 +31,23 @@ import { repointScheduledActionsToken } from "@/lib/scheduling/token-handoff";
  * this label was a real bug, not a cosmetic choice), with the same
  * one-click revocation.
  *
- * NO `expires_in` IN THE RESPONSE — DELIBERATE, NOT AN OMISSION. This
- * access token does not carry a clock-based expiry (mcp_access_tokens has no
- * `expires_at` column, and this design doesn't add one — see
- * lib/mcp/oauth.ts's mintRefreshToken doc comment). Claiming an expiry we
- * don't enforce would be worse than naming none. The refresh_token this
- * endpoint DOES issue still earns its place independent of any clock: its
- * rotation is single-use, and a REPLAYED (already-rotated) refresh token is
- * treated as a theft signal that revokes the whole token family — a real
- * security property even for a token that never expires on its own.
+ * ACCESS TOKENS EXPIRE AFTER 30 DAYS, AND THE RESPONSE SAYS SO (P4-12,
+ * migration 215). Before 215 there was no `expires_at` column, so this route
+ * deliberately returned no `expires_in` rather than claim an expiry nothing
+ * enforced -- which also meant no client ever refreshed on a timer. Now every
+ * token minted here (both grants) is `client_kind='mcp_oauth'` with
+ * `expires_at = now + OAUTH_ACCESS_TOKEN_TTL_SECONDS`, enforced by
+ * verifyAccessToken / getLiveTokenById, and `expires_in` reports that TTL.
+ * The refresh_token stays clock-free: single-use rotation, and a REPLAYED
+ * (already-rotated) refresh token is a theft signal that revokes the family.
+ * Refreshing an EXPIRED access token is the normal path and is allowed --
+ * getTokenScopesById reads scopes regardless of expiry.
  */
+
+/** P4-12: every OAuth-minted access token is a 30-day mcp_oauth token. An instant (now + TTL), never a calendar date. */
+function oauthTokenOptions() {
+  return { clientKind: "mcp_oauth" as const, expiresAt: new Date(Date.now() + OAUTH_ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString() };
+}
 
 function tokenError(error: string, description: string, status = 400) {
   return NextResponse.json({ error, error_description: description }, { status });
@@ -89,7 +96,7 @@ export async function POST(request: Request) {
     // client_id (a ~50-char random string) — see formatOAuthTokenLabel's
     // own header for why this is a fix, not a cosmetic choice.
     const client = await getOAuthClient(supabase, clientId);
-    const minted = await createAccessToken(supabase, consumed.userId, formatOAuthTokenLabel(client), consumed.scopes);
+    const minted = await createAccessToken(supabase, consumed.userId, formatOAuthTokenLabel(client), consumed.scopes, oauthTokenOptions());
     if (!minted.ok || !minted.token || !minted.status) {
       return tokenError("server_error", minted.message, 500);
     }
@@ -100,6 +107,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       access_token: minted.token,
       token_type: "Bearer",
+      expires_in: OAUTH_ACCESS_TOKEN_TTL_SECONDS,
       scope: consumed.scopes.join(" "),
       refresh_token: refresh.refreshToken,
     });
@@ -137,13 +145,11 @@ export async function POST(request: Request) {
       return tokenError(rotated.error, rotated.message);
     }
 
-    // Rotate the ACCESS token too, not just the refresh token: this is the
-    // only mechanism that makes "refreshing" mean anything for a credential
-    // with no clock-based expiry (see this file's header) — the old access
-    // token is revoked the moment a new one is issued, so a client that
-    // never refreshes keeps working forever (fine — that's the accepted,
-    // revocation-only model), but a client that DOES refresh genuinely
-    // rotates its live credential rather than just its refresh token.
+    // Rotate the ACCESS token too, not just the refresh token: the old access
+    // token is revoked the moment a new one is issued, so a refresh genuinely
+    // rotates the live credential. Since P4-12 the old token would also die
+    // on its own at its 30-day expires_at; a client that never refreshes
+    // stops working then (see this file's header).
     //
     // SCOPES ARE CARRIED FORWARD FROM THE TOKEN BEING REPLACED, never
     // widened to full access by default — a read-only OAuth-issued token
@@ -158,7 +164,7 @@ export async function POST(request: Request) {
     }
 
     const rotatedClient = await getOAuthClient(supabase, rotated.clientId);
-    const minted = await createAccessToken(supabase, rotated.userId, formatOAuthTokenLabel(rotatedClient), priorScopes);
+    const minted = await createAccessToken(supabase, rotated.userId, formatOAuthTokenLabel(rotatedClient), priorScopes, oauthTokenOptions());
     if (!minted.ok || !minted.token || !minted.status) {
       return tokenError("server_error", minted.message, 500);
     }
@@ -185,6 +191,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       access_token: minted.token,
       token_type: "Bearer",
+      expires_in: OAUTH_ACCESS_TOKEN_TTL_SECONDS,
       scope: minted.status.scopes.join(" "),
       refresh_token: nextRefresh.refreshToken,
     });

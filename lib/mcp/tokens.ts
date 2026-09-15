@@ -25,6 +25,25 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const MCP_SCOPES = ["read", "write"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
+/** What minted a token (migration 215's CHECK). Descriptive only -- scopes still decide what a token may do. */
+export const MCP_CLIENT_KINDS = ["pat", "mcp_oauth", "agent"] as const;
+export type McpClientKind = (typeof MCP_CLIENT_KINDS)[number];
+
+/**
+ * P4-12: at most this many LIVE (not revoked, not expired) tokens per user.
+ * Duplicated in migration 215's `mcp_access_tokens_enforce_live_cap` trigger,
+ * which is the real guarantee (it also covers direct PostgREST inserts and
+ * concurrent creates); this constant only lets createAccessToken refuse
+ * early with a friendly message. Change both together.
+ */
+export const MAX_LIVE_TOKENS_PER_USER = 20;
+/** The trigger's RAISE message prefix (migration 215). Change both together. */
+const TOKEN_CAP_DB_ERROR_PREFIX = "mcp_token_cap:";
+const TOKEN_CAP_MESSAGE = `You already have ${MAX_LIVE_TOKENS_PER_USER} active tokens, which is the limit. Revoke one you no longer use in Settings, then try again.`;
+
+/** P4-12: lifetime of an OAuth-minted access token. The token endpoint reports it as `expires_in`. */
+export const OAUTH_ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 export interface McpTokenStatus {
   id: string;
   label: string | null;
@@ -33,6 +52,21 @@ export interface McpTokenStatus {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  /** Null = never expires (migration 215). */
+  expiresAt: string | null;
+  clientKind: McpClientKind;
+}
+
+/**
+ * A token whose `expires_at` is at or before `now` is dead, exactly like a
+ * revoked one. NULL never expires. An instant comparison, never a calendar
+ * date, so there is no timezone question here.
+ */
+export function isTokenExpired(expiresAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!expiresAt) return false;
+  const t = Date.parse(expiresAt);
+  // An unparseable value is treated as expired: fail closed on an auth check.
+  return Number.isNaN(t) || t <= now.getTime();
 }
 
 const TOKEN_PREFIX = "lifeos_pat_";
@@ -110,6 +144,14 @@ interface TokenRow {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  expires_at: string | null;
+  client_kind: string | null;
+}
+
+const TOKEN_COLUMNS = "id, user_id, token_hash, token_last4, label, scopes, created_at, last_used_at, revoked_at, expires_at, client_kind";
+
+function toClientKind(value: string | null | undefined): McpClientKind {
+  return (MCP_CLIENT_KINDS as readonly string[]).includes(value ?? "") ? (value as McpClientKind) : "pat";
 }
 
 function toStatus(row: TokenRow): McpTokenStatus {
@@ -121,6 +163,8 @@ function toStatus(row: TokenRow): McpTokenStatus {
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
     revokedAt: row.revoked_at,
+    expiresAt: row.expires_at ?? null,
+    clientKind: toClientKind(row.client_kind),
   };
 }
 
@@ -130,6 +174,13 @@ export interface CreateTokenResult {
   /** Present only on success. The ONLY time the raw token exists outside this function's own stack frame. */
   token?: string;
   status?: McpTokenStatus;
+}
+
+export interface CreateTokenOptions {
+  /** ISO instant; must be in the future. Omitted/null = never expires. */
+  expiresAt?: string | null;
+  /** Defaults to "pat" (a Settings-created token). */
+  clientKind?: McpClientKind;
 }
 
 /**
@@ -142,9 +193,23 @@ export async function createAccessToken(
   userId: string,
   label: string | undefined,
   scopes: McpScope[],
+  options: CreateTokenOptions = {},
 ): Promise<CreateTokenResult> {
   const scopeError = validateScopes(scopes);
   if (scopeError) return { ok: false, message: scopeError };
+
+  const expiresAt = options.expiresAt ?? null;
+  if (expiresAt !== null && isTokenExpired(expiresAt)) {
+    return { ok: false, message: "A token's expiry has to be in the future." };
+  }
+  const clientKind = options.clientKind ?? "pat";
+
+  // Friendly early refusal. The migration-215 trigger is the real guarantee
+  // (covers concurrent creates and direct PostgREST inserts); its error is
+  // mapped to the same message below.
+  const liveCount = await countLiveTokens(supabase, userId);
+  if (liveCount === null) return { ok: false, message: "Couldn't create a token. Try again." };
+  if (liveCount >= MAX_LIVE_TOKENS_PER_USER) return { ok: false, message: TOKEN_CAP_MESSAGE };
 
   const rawToken = generateRawToken();
   const { data, error } = await supabase
@@ -155,19 +220,32 @@ export async function createAccessToken(
       token_last4: last4(rawToken),
       label: label?.trim() || null,
       scopes,
+      expires_at: expiresAt,
+      client_kind: clientKind,
     })
-    .select("id, user_id, token_hash, token_last4, label, scopes, created_at, last_used_at, revoked_at")
+    .select(TOKEN_COLUMNS)
     .single();
+  if (error && typeof error.message === "string" && error.message.includes(TOKEN_CAP_DB_ERROR_PREFIX)) {
+    return { ok: false, message: TOKEN_CAP_MESSAGE };
+  }
   if (error || !data) return { ok: false, message: "Couldn't create a token. Try again." };
 
   return { ok: true, message: "Token created.", token: rawToken, status: toStatus(data as TokenRow) };
+}
+
+/** Live = not revoked and not expired. Null on a query error (the caller refuses rather than guessing). Per-user counts are tiny, so expiry is filtered here rather than in a PostgREST `or` filter. */
+async function countLiveTokens(supabase: SupabaseClient, userId: string): Promise<number | null> {
+  const { data, error } = await supabase.from("mcp_access_tokens").select("id, expires_at").eq("user_id", userId).is("revoked_at", null);
+  if (error || !Array.isArray(data)) return null;
+  const now = new Date();
+  return (data as { expires_at: string | null }[]).filter((r) => !isTokenExpired(r.expires_at, now)).length;
 }
 
 /** Every token this user has ever created, revoked ones included — see migration 130's header on why revoked rows stay listed. */
 export async function listAccessTokens(supabase: SupabaseClient, userId: string): Promise<McpTokenStatus[]> {
   const { data, error } = await supabase
     .from("mcp_access_tokens")
-    .select("id, user_id, token_hash, token_last4, label, scopes, created_at, last_used_at, revoked_at")
+    .select(TOKEN_COLUMNS)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (error || !data) return [];
@@ -232,7 +310,7 @@ export async function verifyAccessToken(
   const hash = hashToken(rawToken);
   const { data, error } = await supabase
     .from("mcp_access_tokens")
-    .select("id, user_id, token_hash, token_last4, label, scopes, created_at, last_used_at, revoked_at")
+    .select(TOKEN_COLUMNS)
     .eq("token_hash", hash)
     .maybeSingle();
   if (error || !data) return null;
@@ -243,6 +321,7 @@ export async function verifyAccessToken(
   // guards future callers, not today's query.
   if (!timingSafeEqualStrings(hash, row.token_hash)) return null;
   if (row.revoked_at) return null;
+  if (isTokenExpired(row.expires_at)) return null; // P4-12: expired is as dead as revoked
 
   const scopes = row.scopes.filter(isMcpScope);
   if (requiredScope && !tokenHasScope(scopes, requiredScope)) return null;
@@ -286,10 +365,11 @@ export async function getTokenScopesById(supabase: SupabaseClient, tokenId: stri
  * userId is known yet.
  */
 export async function getLiveTokenById(supabase: SupabaseClient, tokenId: string): Promise<{ userId: string; scopes: McpScope[] } | null> {
-  const { data, error } = await supabase.from("mcp_access_tokens").select("user_id, scopes, revoked_at").eq("id", tokenId).maybeSingle();
+  const { data, error } = await supabase.from("mcp_access_tokens").select("user_id, scopes, revoked_at, expires_at").eq("id", tokenId).maybeSingle();
   if (error || !data) return null;
-  const row = data as { user_id: string; scopes: string[]; revoked_at: string | null };
+  const row = data as { user_id: string; scopes: string[]; revoked_at: string | null; expires_at?: string | null };
   if (row.revoked_at) return null;
+  if (isTokenExpired(row.expires_at)) return null; // P4-12: an expired token stops authorizing its scheduled actions too
   return { userId: row.user_id, scopes: row.scopes.filter(isMcpScope) };
 }
 

@@ -163,6 +163,8 @@ describe("createAccessToken", () => {
 
   it("stores only the hash and last4 — never the raw token — and returns the raw token exactly once", async () => {
     const chain = makeChain({ data: ROW({ scopes: ["read", "write"] }), error: null });
+    // P4-12: createAccessToken first counts live tokens (a plain awaited select) -- none yet.
+    (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
     const client = clientReturning(chain);
 
     const result = await createAccessToken(client, "user-1", "My CLI", ["read", "write"]);

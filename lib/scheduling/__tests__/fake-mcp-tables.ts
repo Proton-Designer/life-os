@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * Supported shape (all the scheduler/token code under test needs):
  *   from(t).select(cols)            .eq/.is/.lte/.order/.limit   → await | .maybeSingle()
  *   from(t).update(patch)           .eq/.is/.lte/.order/.limit   → await | .select(cols)
- *   from(t).insert(row | rows)                                   → await
+ *   from(t).insert(row | rows)      [.select(cols)]              → await | .single()
  *
  * Semantics that matter: an UPDATE matching 0 rows resolves `{data: [], error: null}`
  * exactly like PostgREST (no error). `failOn` lets a test force an error for
@@ -22,12 +22,15 @@ export interface FakeMcpDb {
   client: SupabaseClient;
   tables: Record<string, Row[]>;
   failOn: Set<string>; // e.g. "mcp_scheduled_actions:update"
+  /** Optional error text per failOn key (default: "forced <op> failure on <table>"), e.g. to mimic a trigger's RAISE. */
+  failMessage: Record<string, string>;
 }
 
 export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
   const tables: Record<string, Row[]> = {};
   for (const [t, rows] of Object.entries(seed)) tables[t] = rows.map((r) => ({ ...r }));
   const failOn = new Set<string>();
+  const failMessage: Record<string, string> = {};
 
   function builder(table: string, op: "select" | "update" | "insert", payload?: Row | Row[]) {
     const filters: Filter[] = [];
@@ -39,7 +42,7 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
       !returning || returning === "*" ? { ...r } : Object.fromEntries(returning.split(",").map((c) => [c.trim(), r[c.trim()]]));
 
     const execute = (): { data: Row[] | null; error: { message: string } | null } => {
-      if (failOn.has(`${table}:${op}`)) return { data: null, error: { message: `forced ${op} failure on ${table}` } };
+      if (failOn.has(`${table}:${op}`)) return { data: null, error: { message: failMessage[`${table}:${op}`] ?? `forced ${op} failure on ${table}` } };
       const rows = (tables[table] ??= []);
       if (op === "insert") {
         const list = Array.isArray(payload) ? payload : [payload as Row];
@@ -91,6 +94,12 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
         returning = cols;
         return b;
       },
+      single() {
+        const { data, error } = run();
+        if (error) return Promise.resolve({ data: null, error });
+        if ((data?.length ?? 0) !== 1) return Promise.resolve({ data: null, error: { message: "expected exactly one row" } });
+        return Promise.resolve({ data: data![0], error: null });
+      },
       maybeSingle() {
         const { data, error } = run();
         if (error) return Promise.resolve({ data: null, error });
@@ -110,5 +119,5 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
     insert: (row: Row | Row[]) => builder(table, "insert", row),
   });
 
-  return { client: { from } as unknown as SupabaseClient, tables, failOn };
+  return { client: { from } as unknown as SupabaseClient, tables, failOn, failMessage };
 }

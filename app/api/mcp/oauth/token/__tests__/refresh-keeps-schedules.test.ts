@@ -40,8 +40,8 @@ vi.mock("@/lib/mcp/tokens", async (importActual) => {
     ...actual,
     // Stubbed only because the real one generates + hashes a secret; it
     // still writes a real row the rest of the flow reads back.
-    createAccessToken: vi.fn(async (_s: unknown, userId: string, label: string, scopes: string[]) => {
-      db.tables.mcp_access_tokens.push({ id: nextTokenId, user_id: userId, label, scopes, revoked_at: null });
+    createAccessToken: vi.fn(async (_s: unknown, userId: string, label: string, scopes: string[], opts?: { expiresAt?: string | null; clientKind?: string }) => {
+      db.tables.mcp_access_tokens.push({ id: nextTokenId, user_id: userId, label, scopes, revoked_at: null, expires_at: opts?.expiresAt ?? null, client_kind: opts?.clientKind ?? "pat" });
       return { ok: true, message: "ok", token: `lifeos_pat_${nextTokenId}`, status: { id: nextTokenId, scopes } };
     }),
   };
@@ -51,6 +51,13 @@ vi.mock("@/lib/mcp/active-user", () => ({ isUserActive: vi.fn(async () => true) 
 vi.mock("@/lib/mcp/audit", () => ({ writeAuditRow: vi.fn(async () => {}) }));
 const runMcpTool = vi.fn<(...a: unknown[]) => Promise<CallToolResult>>();
 vi.mock("@/lib/mcp/tool-wrapper", () => ({ runMcpTool: (...a: unknown[]) => runMcpTool(...a) }));
+// The runner dispatches via executeOperation (P4-12, transport "scheduler"); adapt it to runMcpTool's positional shape.
+vi.mock("@/lib/agent-api/execute", () => ({
+  executeOperation: async (s: unknown, auth: unknown, op: { toolName: string; operation: string; requiredScope: string; args: unknown; run: unknown }) => {
+    const r = await runMcpTool(s, auth, op.toolName, op.operation, op.requiredScope, op.args, op.run);
+    return r.isError ? { ok: false, code: "internal", status: 500, message: "error" } : { ok: true, data: null, text: "", summary: "", toolResult: r };
+  },
+}));
 vi.mock("@/lib/notifications/notify-core", () => ({ sendScheduledNotificationCore: vi.fn() }));
 
 const { POST } = await import("../route");
@@ -144,6 +151,25 @@ describe("P4-11: scheduled actions survive a legitimate OAuth refresh", () => {
     expect(db.tables.mcp_access_tokens.find((t) => t.id === "tok-B")!.revoked_at).not.toBeNull();
 
     db.failOn.delete("mcp_scheduled_actions:update");
+    expect(await fire()).toBe("ok");
+  });
+});
+
+describe("P4-12: expiry reaches scheduled fires", () => {
+  it("a schedule whose token has EXPIRED is denied at fire time, exactly like a revoked one", async () => {
+    // getLiveTokenById compares against the real wall clock (not this file's fixed `now`).
+    db.tables.mcp_access_tokens[0].expires_at = new Date(Date.now() - 60_000).toISOString();
+    expect(await fire()).toBe("denied");
+    expect(runMcpTool).not.toHaveBeenCalled();
+  });
+
+  it("the token minted by a refresh carries a 30-day expiry and kind mcp_oauth, and schedules fire under it", async () => {
+    rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-A" });
+    const res = await POST(refreshRequest("rt-live"));
+    expect((await res.json()).expires_in).toBe(2_592_000);
+    const tokB = db.tables.mcp_access_tokens.find((t) => t.id === "tok-B")!;
+    expect(tokB.client_kind).toBe("mcp_oauth");
+    expect(Date.parse(tokB.expires_at as string)).toBeGreaterThan(Date.now() + 29 * 86_400_000);
     expect(await fire()).toBe("ok");
   });
 });

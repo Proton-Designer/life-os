@@ -70,6 +70,8 @@ describe("createMcpToken", () => {
 
   it("on success, returns the raw token once and the insert carries only its hash", async () => {
     const chain = makeChain({ data: ROW({ scopes: ["read", "write"] }), error: null });
+    // P4-12: createAccessToken first counts live tokens (a plain awaited select) -- none yet.
+    (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
     fromImpl = () => chain;
     const { createMcpToken } = await import("../mcp-token-actions");
 
@@ -81,6 +83,60 @@ describe("createMcpToken", () => {
     expect(insertArg.token_hash).toBe(hashToken(result.token!));
     expect(insertArg.user_id).toBe("user-1");
     expect(JSON.stringify(insertArg)).not.toContain(result.token);
+  });
+});
+
+describe("createMcpToken — P4-12 expiry choice (7/30/90 days or never, default 90)", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  function successChain() {
+    const chain = makeChain({ data: ROW({ scopes: ["read"] }), error: null });
+    (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
+    fromImpl = () => chain;
+    return chain;
+  }
+  const DAY = 86_400_000;
+  function daysFromNow(iso: unknown) {
+    return (Date.parse(iso as string) - Date.now()) / DAY;
+  }
+
+  it("defaults to 90 days when no choice is given", async () => {
+    const chain = successChain();
+    const { createMcpToken } = await import("../mcp-token-actions");
+    expect((await createMcpToken("CLI", ["read"])).ok).toBe(true);
+    const days = daysFromNow((chain.insert.mock.calls[0][0] as Record<string, unknown>).expires_at);
+    expect(days).toBeGreaterThan(89.99);
+    expect(days).toBeLessThanOrEqual(90);
+  });
+
+  it.each([["7", 7], ["30", 30], ["90", 90]] as const)("choice %s stores an expiry %i days out, as a Settings 'pat'", async (choice, n) => {
+    const chain = successChain();
+    const { createMcpToken } = await import("../mcp-token-actions");
+    expect((await createMcpToken("CLI", ["read"], choice)).ok).toBe(true);
+    const inserted = chain.insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(daysFromNow(inserted.expires_at)).toBeGreaterThan(n - 0.01);
+    expect(daysFromNow(inserted.expires_at)).toBeLessThanOrEqual(n);
+    expect(inserted.client_kind).toBe("pat");
+  });
+
+  it("'never' stores no expiry", async () => {
+    const chain = successChain();
+    const { createMcpToken } = await import("../mcp-token-actions");
+    expect((await createMcpToken("CLI", ["read"], "never")).ok).toBe(true);
+    expect((chain.insert.mock.calls[0][0] as Record<string, unknown>).expires_at).toBeNull();
+  });
+
+  it("refuses any other value before authenticating or touching the database", async () => {
+    const chain = successChain();
+    const { createMcpToken } = await import("../mcp-token-actions");
+    const res = await createMcpToken("CLI", ["read"], "365");
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/7, 30 or 90 days, or never/i);
+    expect(chain.insert).not.toHaveBeenCalled();
+    expect(getClaimsMock).not.toHaveBeenCalled();
   });
 });
 

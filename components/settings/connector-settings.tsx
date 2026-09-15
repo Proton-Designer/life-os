@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createMcpToken, revokeMcpToken, type McpTokenStatus } from "@/app/(app)/settings/mcp-token-actions";
+import { DEFAULT_TOKEN_EXPIRY, TOKEN_EXPIRY_CHOICES, TOKEN_EXPIRY_LABELS, isTokenExpiryChoice, type TokenExpiryChoice } from "@/lib/mcp/token-expiry";
+
+/** "expires Oct 3" / "expired" / "never expires" — an instant compared to now, shown in the viewer's locale like createdAt. */
+function expiryText(expiresAt: string | null): string {
+  if (!expiresAt) return "never expires";
+  const t = Date.parse(expiresAt);
+  if (Number.isNaN(t) || t <= Date.now()) return "expired";
+  return `expires ${new Date(t).toLocaleDateString()}`;
+}
 
 /**
  * Personal-access-token management for the MCP connector (L2,
@@ -28,6 +37,7 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
   const [label, setLabel] = useState("");
   const [wantsRead, setWantsRead] = useState(true);
   const [wantsWrite, setWantsWrite] = useState(false);
+  const [expiry, setExpiry] = useState<TokenExpiryChoice>(DEFAULT_TOKEN_EXPIRY);
   const [justCreated, setJustCreated] = useState<{ token: string; status: McpTokenStatus } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +47,7 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
     setError(null);
     const scopes = [...(wantsRead ? ["read"] : []), ...(wantsWrite ? ["write"] : [])];
     startTransition(async () => {
-      const res = await createMcpToken(label, scopes);
+      const res = await createMcpToken(label, scopes, expiry);
       if (!res.ok || !res.token || !res.status) {
         setError(res.message);
         return;
@@ -127,6 +137,30 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
           </label>
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="mcp-token-expiry" className="text-xs text-muted-foreground">
+            Expires after
+          </Label>
+          <select
+            id="mcp-token-expiry"
+            value={expiry}
+            onChange={(e) => {
+              if (isTokenExpiryChoice(e.target.value)) setExpiry(e.target.value);
+            }}
+            disabled={isPending}
+            className="h-9 w-full max-w-[12rem] rounded-md border border-input bg-transparent px-2 text-sm"
+          >
+            {TOKEN_EXPIRY_CHOICES.map((c) => (
+              <option key={c} value={c}>
+                {TOKEN_EXPIRY_LABELS[c]}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground">
+            An expired token simply stops working. You can have up to 20 active tokens.
+          </span>
+        </div>
+
         <Button
           size="sm"
           className="self-start"
@@ -161,6 +195,7 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
                 <span className="font-mono text-xs text-muted-foreground break-all">
                   ····{t.last4} · {t.scopes.join(" + ")} · created {new Date(t.createdAt).toLocaleDateString()}
                   {t.lastUsedAt ? ` · last used ${new Date(t.lastUsedAt).toLocaleDateString()}` : " · never used"}
+                  {t.revokedAt ? null : ` · ${expiryText(t.expiresAt)}`}
                 </span>
               </div>
               {t.revokedAt ? (

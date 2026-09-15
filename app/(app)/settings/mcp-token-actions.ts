@@ -10,6 +10,7 @@ import {
   type McpScope,
   type McpTokenStatus,
 } from "@/lib/mcp/tokens";
+import { DEFAULT_TOKEN_EXPIRY, expiresAtForChoice, isTokenExpiryChoice } from "@/lib/mcp/token-expiry";
 
 /**
  * MCP personal-access-token management (L2, docs/ai-connector/PROGRAM-PLAN.md).
@@ -45,12 +46,21 @@ export async function getMcpTokenStatuses(): Promise<McpTokenStatus[]> {
   return listAccessTokens(supabase, userId);
 }
 
-export async function createMcpToken(label: string, scopes: string[]): Promise<CreateMcpTokenResult> {
+/**
+ * `expiry` (P4-12): "7" | "30" | "90" | "never", default "90". Validated here
+ * because a Server Action is a public endpoint -- the form's own select is
+ * not a guarantee. Stored as a Settings "pat".
+ */
+export async function createMcpToken(label: string, scopes: string[], expiry: string = DEFAULT_TOKEN_EXPIRY): Promise<CreateMcpTokenResult> {
   const scopeError = validateScopes(scopes);
   if (scopeError) return { ok: false, message: scopeError };
+  if (!isTokenExpiryChoice(expiry)) return { ok: false, message: "Pick an expiry: 7, 30 or 90 days, or never." };
 
   const { supabase, userId } = await requireUser();
-  const result = await createAccessToken(supabase, userId, label, scopes as McpScope[]);
+  const result = await createAccessToken(supabase, userId, label, scopes as McpScope[], {
+    expiresAt: expiresAtForChoice(expiry),
+    clientKind: "pat",
+  });
   if (result.ok) {
     revalidatePath("/settings");
   }

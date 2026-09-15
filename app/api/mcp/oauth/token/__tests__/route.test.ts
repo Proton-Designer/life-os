@@ -27,7 +27,9 @@ vi.mock("@/lib/mcp/oauth", async (importActual) => {
 const createAccessToken = vi.fn();
 const revokeAccessToken = vi.fn();
 const getTokenScopesById = vi.fn();
-vi.mock("@/lib/mcp/tokens", () => ({
+vi.mock("@/lib/mcp/tokens", async (importActual) => ({
+  // Real constants (OAUTH_ACCESS_TOKEN_TTL_SECONDS), so expires_in is asserted against the shipped value, not a mock's.
+  ...(await importActual<typeof import("@/lib/mcp/tokens")>()),
   createAccessToken: (...args: unknown[]) => createAccessToken(...args),
   revokeAccessToken: (...args: unknown[]) => revokeAccessToken(...args),
   getTokenScopesById: (...args: unknown[]) => getTokenScopesById(...args),
@@ -89,7 +91,7 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(createAccessToken).not.toHaveBeenCalled();
     });
 
-    it("on success: mints an access token AND a refresh token, and NEVER returns expires_in (no clock-based expiry — see route header)", async () => {
+    it("on success: mints an access token AND a refresh token (P4-12: a 30-day mcp_oauth token, reported as expires_in)", async () => {
       consumeAuthorizationCode.mockResolvedValueOnce({ ok: true, userId: "user-1", scopes: ["read", "write"], resource: null });
       createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_new", status: { id: "tok-1", scopes: ["read", "write"] } });
       mintRefreshToken.mockResolvedValueOnce({ ok: true, refreshToken: "lifeos_oauthrefresh_new" });
@@ -104,9 +106,16 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(body.token_type).toBe("Bearer");
       expect(body.refresh_token).toBe("lifeos_oauthrefresh_new");
       expect(body.scope).toBe("read write");
-      expect(body).not.toHaveProperty("expires_in");
+      expect(body.expires_in).toBe(30 * 24 * 60 * 60);
       // No client_name on record (default mock) -> the honest fallback label, never the raw client_id.
-      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read", "write"]);
+      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read", "write"], {
+        clientKind: "mcp_oauth",
+        expiresAt: expect.any(String),
+      });
+      const { expiresAt } = createAccessToken.mock.calls[0][4] as { expiresAt: string };
+      const msFromNow = Date.parse(expiresAt) - Date.now();
+      expect(msFromNow).toBeGreaterThan(30 * 86_400_000 - 60_000);
+      expect(msFromNow).toBeLessThanOrEqual(30 * 86_400_000);
     });
 
     it("labels the minted token with the client's registered name, never the raw client_id — the actual /settings overflow + unreadable-label bug", async () => {
@@ -185,13 +194,30 @@ describe("POST /api/mcp/oauth/token", () => {
 
       const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
 
-      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read"]);
+      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read"], {
+        clientKind: "mcp_oauth",
+        expiresAt: expect.any(String),
+      });
       expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old");
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.access_token).toBe("lifeos_pat_rotated");
       expect(body.scope).toBe("read"); // NOT widened to "read write"
       expect(body.refresh_token).toBe("lifeos_oauthrefresh_rotated");
+      expect(body.expires_in).toBe(30 * 24 * 60 * 60); // P4-12: the refreshed token is also a 30-day token
+    });
+
+    it("P4-12: a refresh that hits the live-token cap returns the clear cap message and leaves the old token alone", async () => {
+      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
+      getTokenScopesById.mockResolvedValueOnce(["read"]);
+      createAccessToken.mockResolvedValueOnce({ ok: false, message: "You already have 20 active tokens, which is the limit. Revoke one you no longer use in Settings, then try again." });
+
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
+
+      expect(response.status).toBe(500);
+      expect((await response.json()).error_description).toMatch(/20 active tokens/);
+      expect(revokeAccessToken).not.toHaveBeenCalled();
+      expect(repointScheduledActionsToken).not.toHaveBeenCalled();
     });
 
     it("P4-11: re-points the user's scheduled actions old->new BEFORE revoking the old token", async () => {

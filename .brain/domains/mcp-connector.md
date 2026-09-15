@@ -74,7 +74,7 @@ OAuth: RFC 6749 §4.1 + PKCE (mandatory) + RFC 7591 DCR + RFC 8414/9728 metadata
 - **Vercel bot protection can silently kill the connector** — an MCP client can't solve a JS challenge; excluding `/api/mcp` and `/.well-known/*` from Attack Challenge Mode is a pending, non-blocking operator action.
 - **No hard deletes anywhere on the write path** — every "remove" archives, enforced by convention per-entity, not by one mechanism.
 - **Prompt injection is an accepted, undefended risk** — contained (audit, revocation, rate ceiling, no hard deletes), not prevented; a deliberate, owner-approved tradeoff.
-- **Access tokens have no clock-based expiry** — revocation is the only lifecycle mechanism.
+- **Access tokens can expire (migration 215, P4-12).** `mcp_access_tokens.expires_at` (NULL = never) is enforced like `revoked_at` in `verifyAccessToken` and `getLiveTokenById`, so an expired token also denies its scheduled fires. OAuth tokens are 30-day `client_kind='mcp_oauth'` and the token response returns `expires_in`. Settings PATs let you pick 7/30/90 days or never (default 90). A DB trigger caps live tokens at 20 per user. `mcp_audit_log.transport` records mcp/rest/scheduler.
 - `docs/ai-connector/PROGRAM-PLAN.md`'s and `docs/ai-connector/CAPABILITIES.md`'s widget-CHECK-constraint status is **stale** — migration 149 already resolved it (see `domain.widgets`).
 
 ## Not covered here
