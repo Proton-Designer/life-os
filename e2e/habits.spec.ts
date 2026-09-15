@@ -1,5 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably, clickAndSettle } from "./helpers";
+
+/** Cold serverless starts can exceed the default 5s expect timeout — found live (2026-09-15) as a Mobile flake: the form still held the typed statement with "Add habit" disabled when the default timeout expired. Not a loosened assertion, a longer one for a real slow-but-correct path. */
+const MUTATION_TIMEOUT = { timeout: 15_000 };
 
 /**
  * Habits (#39/#40/#41): creates a real identity habit, confirms the N/7
@@ -48,25 +51,32 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
     await addButton.click();
     await fillReliably(page.getByPlaceholder(/Identity statement/i), statement);
     await dismissCheckinToastIfPresent(page);
-    await page.getByRole("button", { name: "Add habit" }).click();
+    // clickAndSettle, not a bare click: createIdentityHabitAction is a
+    // server round trip (createIdentityHabitCore's rank pre-check query
+    // plus the insert), and the form only unmounts once it resolves — a
+    // cold serverless start can exceed the default 5s expect timeout on
+    // the row assertions below (found live on Mobile, 2026-09-15) while
+    // the write is still correctly in flight, not actually stuck.
+    await clickAndSettle(page, page.getByRole("button", { name: "Add habit" }));
 
     const row = page.getByRole("listitem").filter({ hasText: statement });
-    await expect(row).toBeVisible();
-    await expect(row.getByText("New", { exact: true })).toBeVisible();
-    await expect(countLabel).toHaveText(`${beforeCount + 1}/7`);
+    await expect(row).toBeVisible(MUTATION_TIMEOUT);
+    await expect(row.getByText("New", { exact: true })).toBeVisible(MUTATION_TIMEOUT);
+    await expect(countLabel).toHaveText(`${beforeCount + 1}/7`, MUTATION_TIMEOUT);
 
-    // Vote — cast, via the toggle button's "not yet voted" state.
+    // Vote — cast, via the toggle button's "not yet voted" state. Same
+    // clickAndSettle reasoning: castHabitVoteAction is its own round trip.
     const voteButton = row.getByRole("button", { name: "Vote for this identity today" });
     await expect(voteButton).toBeVisible();
     await dismissCheckinToastIfPresent(page);
-    await voteButton.click();
+    await clickAndSettle(page, voteButton);
     const retractButton = row.getByRole("button", { name: "Retract today's vote" });
-    await expect(retractButton).toBeVisible();
+    await expect(retractButton).toBeVisible(MUTATION_TIMEOUT);
 
     // Retract — same button, now in its "voted" state.
     await dismissCheckinToastIfPresent(page);
-    await retractButton.click();
-    await expect(row.getByRole("button", { name: "Vote for this identity today" })).toBeVisible();
+    await clickAndSettle(page, retractButton);
+    await expect(row.getByRole("button", { name: "Vote for this identity today" })).toBeVisible(MUTATION_TIMEOUT);
   } finally {
     await page.request
       .delete(`${baseURL}/api/test/clear-habit`, { headers: { "x-e2e-secret": secret! }, data: { identityStatement: statement } })

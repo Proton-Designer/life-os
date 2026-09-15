@@ -1,5 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably, clickAndSettle } from "./helpers";
+
+/** Cold serverless starts can exceed the default 5s expect timeout (found live as a habits.spec.ts Mobile flake, 2026-09-15, same class of risk here). Not a loosened assertion, a longer one for a real slow-but-correct path. */
+const MUTATION_TIMEOUT = { timeout: 15_000 };
 
 /**
  * Worries (#42): parks one through the Global Capture Sheet (components/
@@ -41,8 +44,13 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
 
     await page.getByRole("button", { name: "Worry", exact: true }).click();
     await fillReliably(page.getByLabel("Capture input"), title);
-    await page.getByRole("button", { name: "Confirm" }).click();
-    await expect(captureDialog).toBeHidden();
+    // clickAndSettle, not a bare click: captureDump is a server round trip,
+    // and handleClose() (which is what actually hides the dialog) only
+    // runs after it resolves — the button itself shows "Saving…" while
+    // pending (components/capture/global-capture-sheet.tsx), so a cold
+    // serverless start can outlast the default 5s expect timeout below.
+    await clickAndSettle(page, page.getByRole("button", { name: "Confirm" }));
+    await expect(captureDialog).toBeHidden(MUTATION_TIMEOUT);
 
     await page.goto("/worries");
     await dismissCheckinDialogIfPresent(page);
@@ -51,8 +59,13 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
     const openRow = page.getByRole("listitem").filter({ hasText: title });
     await expect(openRow).toBeVisible();
 
+    // markWorryHandled is OPTIMISTIC (components/worries/worry-list.tsx's
+    // handle()) — the row moves before the server round trip even starts —
+    // so this one is not the flake risk the others are. clickAndSettle
+    // applied anyway per the Lead's instruction, for consistency with every
+    // other mutating click in this file rather than leaving one bare.
     await dismissCheckinToastIfPresent(page);
-    await openRow.getByRole("button", { name: "Handled" }).click();
+    await clickAndSettle(page, openRow.getByRole("button", { name: "Handled" }));
     await expect(openRow).toBeHidden();
 
     // Reveal the handled list (its own toggle, distinct from any per-row
