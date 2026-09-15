@@ -4,7 +4,12 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { HelpCircle, Pencil, RotateCcw, Sparkles, Trash2, User } from "lucide-react";
 import { createQuestion, updateQuestion, setQuestionActive, type QuestionOrigin } from "@/app/(app)/school/question-actions";
-import { draftQuestionsFromNotes, type QuestionDraftOutcome } from "@/app/(app)/school/question-draft-actions";
+import {
+  draftQuestionsFromNotes,
+  draftQuestionsFromTranscript,
+  type QuestionDraftOutcome,
+  type TranscriptQuestionDraftOutcome,
+} from "@/app/(app)/school/question-draft-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,6 +98,22 @@ const DRAFT_OUTCOME_MESSAGE: Partial<Record<QuestionDraftOutcome["status"], stri
   parse_failed: "Couldn't make sense of the draft result — try again, or add a question manually.",
 };
 
+/** P3-16 — same messages, plus "not_ready" (the picked transcript isn't
+ * `completed` — can happen if it was still processing when the picker
+ * opened and finished/failed in between). */
+const TRANSCRIPT_DRAFT_OUTCOME_MESSAGE: Partial<Record<TranscriptQuestionDraftOutcome["status"] | "not_ready", string>> = {
+  no_key: "Add an API key in Settings to draft questions automatically, or add them manually below.",
+  unavailable: "AI drafting isn't available right now — try again shortly, or add questions manually below.",
+  parse_failed: "Couldn't make sense of the draft result — try again, or add a question manually.",
+  not_ready: "This transcript isn't ready yet — try again once it finishes.",
+};
+
+/** P3-16 — the lean subset of a lecture recording this panel actually
+ * needs (filename to label the picker, id to request drafting, and status
+ * to filter to only completed transcripts) rather than the full
+ * LectureRecording shape lecture-panel.tsx owns. */
+export type QuestionBankLecture = { id: string; originalFilename: string; transcriptStatus: "none" | "queued" | "processing" | "completed" | "failed" };
+
 /**
  * Per-course question bank (Phase 1 #20/#21/#22/#23) — manual create, edit,
  * retire (never a hard delete, see lib/school/questions-core.ts's own
@@ -115,17 +136,30 @@ const DRAFT_OUTCOME_MESSAGE: Partial<Record<QuestionDraftOutcome["status"], stri
  * Confidence self-rating (#26) lives in the retrieval session overlay, not
  * here — this panel only ever manages the bank itself.
  */
-export function QuestionBankPanel({ classId, questions }: { classId: string; questions: QuestionBankQuestion[] }) {
+export function QuestionBankPanel({
+  classId,
+  questions,
+  lectures = [],
+}: {
+  classId: string;
+  questions: QuestionBankQuestion[];
+  /** P3-16 — this class's lecture recordings (any transcript status); the
+   * picker filters to `completed` itself, so callers can pass the same
+   * array LecturePanel already receives with no filtering of their own. */
+  lectures?: QuestionBankLecture[];
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isDrafting, startDrafting] = useTransition();
   const [showRetired, setShowRetired] = useState(false);
-  const [formMode, setFormMode] = useState<"closed" | "add" | { editingId: string } | "ai_paste" | "ai_review">("closed");
+  const [formMode, setFormMode] = useState<"closed" | "add" | { editingId: string } | "ai_paste" | "ai_review" | "transcript_pick">("closed");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [error, setError] = useState<string | null>(null);
   const [notesText, setNotesText] = useState("");
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiDrafts, setAiDrafts] = useState<AiDraftRow[]>([]);
+
+  const completedTranscripts = useMemo(() => lectures.filter((l) => l.transcriptStatus === "completed"), [lectures]);
 
   const active = useMemo(() => questions.filter((q) => q.active), [questions]);
   const retired = useMemo(() => questions.filter((q) => !q.active), [questions]);
@@ -149,7 +183,7 @@ export function QuestionBankPanel({ classId, questions }: { classId: string; que
 
   function submitForm(e: React.FormEvent) {
     e.preventDefault();
-    if (formMode === "closed" || formMode === "ai_paste" || formMode === "ai_review") return;
+    if (formMode === "closed" || formMode === "ai_paste" || formMode === "ai_review" || formMode === "transcript_pick") return;
     setError(null);
     startTransition(async () => {
       try {
@@ -198,6 +232,33 @@ export function QuestionBankPanel({ classId, questions }: { classId: string; que
     setFormMode("closed");
     setAiMessage(null);
     setAiDrafts([]);
+  }
+
+  function openTranscriptPick() {
+    setAiMessage(null);
+    setError(null);
+    setFormMode("transcript_pick");
+  }
+
+  /** P3-16 — same review-list contract as submitNotes: nothing lands in the
+   * bank until the user reviews and explicitly adds it, through the exact
+   * same aiDrafts/AiDraftRow machinery notes-based drafting already uses. */
+  function submitTranscriptDraft(recordingId: string) {
+    setAiMessage(null);
+    startDrafting(async () => {
+      const result = await draftQuestionsFromTranscript(recordingId);
+      if (result.status !== "drafted") {
+        setAiMessage(TRANSCRIPT_DRAFT_OUTCOME_MESSAGE[result.status] ?? "Drafting didn't work — try again or add a question manually.");
+        return;
+      }
+      if (result.drafts.length === 0) {
+        setAiMessage("No questions could be drafted from that transcript — try adding one manually.");
+        return;
+      }
+      setAiDrafts(result.drafts.map(draftRowFromAiDraft));
+      setAiMessage(result.partial ? "This transcript was long, so only part of it was read. Check for anything missing." : null);
+      setFormMode("ai_review");
+    });
   }
 
   function submitNotes(e: React.FormEvent) {
@@ -319,6 +380,16 @@ export function QuestionBankPanel({ classId, questions }: { classId: string; que
               <Button type="button" variant="outline" size="sm" onClick={openAiPaste}>
                 <Sparkles className="size-3.5" aria-hidden /> Draft with AI
               </Button>
+              {/* P3-16 — only offered once at least one recording actually has
+                  a completed transcript to draft from; "no completed
+                  transcripts yet" is the normal starting state, not an error,
+                  so this button simply doesn't appear rather than appearing
+                  disabled with an explanation. */}
+              {completedTranscripts.length > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={openTranscriptPick}>
+                  <Sparkles className="size-3.5" aria-hidden /> Draft from transcript
+                </Button>
+              )}
               {visible.length > 0 && (
                 <Button type="button" variant="outline" size="sm" onClick={openAdd}>
                   Add question
@@ -399,6 +470,34 @@ export function QuestionBankPanel({ classId, questions }: { classId: string; que
             </Button>
           </div>
         </form>
+      )}
+
+      {formMode === "transcript_pick" && (
+        <div className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Draft from which recording?</p>
+          {aiMessage && <p className="text-xs text-accent-warning">{aiMessage}</p>}
+          <ul className="flex flex-col gap-1.5">
+            {completedTranscripts.map((l) => (
+              <li key={l.id} className="flex items-center justify-between gap-2 rounded-md border border-border/30 p-2">
+                <span className="truncate text-sm" title={l.originalFilename}>
+                  {l.originalFilename}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isDrafting}
+                  onClick={() => submitTranscriptDraft(l.id)}
+                >
+                  {isDrafting ? "Drafting…" : "Draft"}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="ghost" size="sm" className="self-start" disabled={isDrafting} onClick={closeAiFlow}>
+            Cancel
+          </Button>
+        </div>
       )}
 
       {formMode === "ai_review" && (

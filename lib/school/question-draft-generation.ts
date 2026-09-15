@@ -59,7 +59,10 @@ export type QuestionDraftOutcome =
    * drafted," the same as syllabus extraction's own `parse_failed`. */
   | { status: "parse_failed" };
 
-const RawDraftSchema = z.object({
+// Exported (P3-16): lib/school/question-draft-from-transcript.ts reuses this
+// exact schema/shape rather than redefining an equivalent one -- one
+// question-draft response contract for both input sources.
+export const RawDraftSchema = z.object({
   prompt: z.string().min(1).max(500),
   answer: z.string().min(1).max(2000),
   topic: z.string().max(100).nullable().optional(),
@@ -68,7 +71,7 @@ const RawDraftSchema = z.object({
 // At most 20 per call (also instructed in the system prompt) -- a casual
 // notes paste is a lecture or a reading, not a textbook; unbounded output
 // here would be an unbounded cost per click.
-const RawResponseSchema = z.array(RawDraftSchema).max(20);
+export const RawResponseSchema = z.array(RawDraftSchema).max(20);
 
 const SYSTEM_PROMPT = `You write retrieval-practice question/answer pairs from a student's own notes, for spaced-repetition review (the generation effect: recalling from memory, not re-reading).
 
@@ -87,14 +90,16 @@ material worth quizzing (e.g. they're empty, or pure logistics with no
 content), return [].`;
 
 /** Same tolerance as syllabus-extraction.ts's own stripCodeFence — a
- * response-shape allowance, not a provider-specific quirk. */
-function stripCodeFence(text: string): string {
+ * response-shape allowance, not a provider-specific quirk. Exported (P3-16)
+ * for reuse by question-draft-from-transcript.ts. */
+export function stripCodeFence(text: string): string {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   return fenced ? fenced[1]!.trim() : trimmed;
 }
 
-function normalizeDraft(raw: z.infer<typeof RawDraftSchema>): QuestionDraft {
+/** Exported (P3-16) for reuse by question-draft-from-transcript.ts. */
+export function normalizeDraft(raw: z.infer<typeof RawDraftSchema>): QuestionDraft {
   return {
     prompt: raw.prompt.trim(),
     answer: raw.answer.trim(),

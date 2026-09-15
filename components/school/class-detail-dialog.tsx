@@ -616,7 +616,7 @@ export function ClassDetailDialog({
             self-contained (immediate-commit CRUD via its own Server Actions,
             like SyllabusPanel), so it needs nothing staged here. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
-          <QuestionBankPanel classId={classData.id} questions={classData.questions} />
+          <QuestionBankPanel classId={classData.id} questions={classData.questions} lectures={classData.lectures} />
         </div>
 
         <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">

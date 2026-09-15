@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { QuestionBankPanel, type QuestionBankQuestion } from "../question-bank-panel";
+import { QuestionBankPanel, type QuestionBankQuestion, type QuestionBankLecture } from "../question-bank-panel";
 
 // jsdom has no ResizeObserver, and this form is the first school test to
 // render components/ui/switch.tsx (Radix Switch -> @radix-ui/react-use-size
@@ -38,8 +38,19 @@ type DraftOutcome =
   | { status: "parse_failed" };
 const draftQuestionsFromNotes = vi.fn(async (_notes: string): Promise<DraftOutcome> => ({ status: "drafted", drafts: [], truncated: false }));
 
+type TranscriptDraftOutcome =
+  | { status: "drafted"; drafts: { prompt: string; answer: string; topic: string | null; sourceSnippet: string | null }[]; partial: boolean }
+  | { status: "no_key" }
+  | { status: "unavailable" }
+  | { status: "parse_failed" }
+  | { status: "not_ready" };
+const draftQuestionsFromTranscript = vi.fn(
+  async (_recordingId: string): Promise<TranscriptDraftOutcome> => ({ status: "drafted", drafts: [], partial: false }),
+);
+
 vi.mock("@/app/(app)/school/question-draft-actions", () => ({
   draftQuestionsFromNotes: (notes: string) => draftQuestionsFromNotes(notes),
+  draftQuestionsFromTranscript: (recordingId: string) => draftQuestionsFromTranscript(recordingId),
 }));
 
 const refresh = vi.fn();
@@ -59,11 +70,16 @@ function question(overrides: Partial<QuestionBankQuestion> = {}): QuestionBankQu
   };
 }
 
+function lecture(overrides: Partial<QuestionBankLecture> = {}): QuestionBankLecture {
+  return { id: "l1", originalFilename: "lecture1.mp3", transcriptStatus: "completed", ...overrides };
+}
+
 beforeEach(() => {
   createQuestion.mockClear();
   updateQuestion.mockClear();
   setQuestionActive.mockClear();
   draftQuestionsFromNotes.mockClear();
+  draftQuestionsFromTranscript.mockClear();
   refresh.mockClear();
 });
 
@@ -382,6 +398,93 @@ describe("QuestionBankPanel", () => {
       await user.click(screen.getByRole("button", { name: "Draft questions" }));
 
       expect(await screen.findByText(/No questions could be drafted/)).toBeInTheDocument();
+    });
+  });
+
+  describe("Draft from transcript (P3-16)", () => {
+    it("hides the 'Draft from transcript' trigger when no lecture has a completed transcript", () => {
+      render(<QuestionBankPanel classId="c1" questions={[]} lectures={[lecture({ transcriptStatus: "processing" })]} />);
+      expect(screen.queryByRole("button", { name: /Draft from transcript/ })).not.toBeInTheDocument();
+    });
+
+    it("hides the trigger entirely when no lectures prop is passed at all", () => {
+      render(<QuestionBankPanel classId="c1" questions={[]} />);
+      expect(screen.queryByRole("button", { name: /Draft from transcript/ })).not.toBeInTheDocument();
+    });
+
+    it("lists only completed transcripts in the picker, by filename", async () => {
+      const user = userEvent.setup();
+      render(
+        <QuestionBankPanel
+          classId="c1"
+          questions={[]}
+          lectures={[
+            lecture({ id: "l1", originalFilename: "week1.mp3", transcriptStatus: "completed" }),
+            lecture({ id: "l2", originalFilename: "week2.mp3", transcriptStatus: "processing" }),
+          ]}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: /Draft from transcript/ }));
+
+      expect(screen.getByText("week1.mp3")).toBeInTheDocument();
+      expect(screen.queryByText("week2.mp3")).not.toBeInTheDocument();
+    });
+
+    it("picking a recording drafts from it and opens the SAME review flow notes-based drafting uses", async () => {
+      draftQuestionsFromTranscript.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [{ prompt: "What is X?", answer: "Y", topic: null, sourceSnippet: "as mentioned in the recording" }],
+        partial: false,
+      });
+      const user = userEvent.setup();
+      render(<QuestionBankPanel classId="c1" questions={[]} lectures={[lecture({ id: "rec-1", originalFilename: "week1.mp3" })]} />);
+
+      await user.click(screen.getByRole("button", { name: /Draft from transcript/ }));
+      await user.click(screen.getByRole("button", { name: "Draft" }));
+
+      expect(draftQuestionsFromTranscript).toHaveBeenCalledWith("rec-1");
+      // Drafts render as editable inputs (review-before-add), not static text.
+      expect(await screen.findByDisplayValue("What is X?")).toBeInTheDocument();
+      // Same review UI as notes-based drafting -- an Add button per row.
+      expect(screen.getByRole("button", { name: "Add" })).toBeInTheDocument();
+    });
+
+    it("shows the partial-transcript notice distinct from the notes-truncation one", async () => {
+      draftQuestionsFromTranscript.mockResolvedValueOnce({
+        status: "drafted",
+        drafts: [{ prompt: "Q", answer: "A", topic: null, sourceSnippet: null }],
+        partial: true,
+      });
+      const user = userEvent.setup();
+      render(<QuestionBankPanel classId="c1" questions={[]} lectures={[lecture({ id: "rec-1" })]} />);
+
+      await user.click(screen.getByRole("button", { name: /Draft from transcript/ }));
+      await user.click(screen.getByRole("button", { name: "Draft" }));
+
+      expect(await screen.findByText(/only part of it was read/)).toBeInTheDocument();
+    });
+
+    it("a no_key outcome shows the same actionable message as the notes-based flow", async () => {
+      draftQuestionsFromTranscript.mockResolvedValueOnce({ status: "no_key" });
+      const user = userEvent.setup();
+      render(<QuestionBankPanel classId="c1" questions={[]} lectures={[lecture({ id: "rec-1" })]} />);
+
+      await user.click(screen.getByRole("button", { name: /Draft from transcript/ }));
+      await user.click(screen.getByRole("button", { name: "Draft" }));
+
+      expect(await screen.findByText(/Add an API key in Settings to draft questions automatically/)).toBeInTheDocument();
+    });
+
+    it("Cancel from the picker returns to the closed state without calling the drafter", async () => {
+      const user = userEvent.setup();
+      render(<QuestionBankPanel classId="c1" questions={[]} lectures={[lecture({ id: "rec-1" })]} />);
+
+      await user.click(screen.getByRole("button", { name: /Draft from transcript/ }));
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(draftQuestionsFromTranscript).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: /Draft from transcript/ })).toBeInTheDocument();
     });
   });
 });
