@@ -95,6 +95,39 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_morning_briefs: {
+        Row: {
+          brief_date: string
+          brief_text: string | null
+          created_at: string
+          generated_at: string | null
+          id: string
+          model: string | null
+          provider: string | null
+          user_id: string
+        }
+        Insert: {
+          brief_date: string
+          brief_text?: string | null
+          created_at?: string
+          generated_at?: string | null
+          id?: string
+          model?: string | null
+          provider?: string | null
+          user_id?: string
+        }
+        Update: {
+          brief_date?: string
+          brief_text?: string | null
+          created_at?: string
+          generated_at?: string | null
+          id?: string
+          model?: string | null
+          provider?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_usage_log: {
         Row: {
           cached_input_tokens: number
@@ -2444,6 +2477,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          ai_monthly_spend_cap_usd: number | null
           asr_madhab: string
           checkin_interval_minutes: number
           checkin_window_end: string
@@ -2469,6 +2503,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          ai_monthly_spend_cap_usd?: number | null
           asr_madhab?: string
           checkin_interval_minutes?: number
           checkin_window_end?: string
@@ -2494,6 +2529,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          ai_monthly_spend_cap_usd?: number | null
           asr_madhab?: string
           checkin_interval_minutes?: number
           checkin_window_end?: string

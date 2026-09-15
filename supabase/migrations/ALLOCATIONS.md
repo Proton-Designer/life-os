@@ -91,6 +91,8 @@ the point is to make a number unavailable the moment it is promised.
 | `213` | Team B / tracking-app-1e (P2-22), allocated by tracking-app-a9, 2026-09-15 | Canvas token expiry handling + sync status (reserved in case columns/tables are needed; withdrawn if P2-22 needs no schema) | allocated |
 | `214` | Team B / tracking-app-4b (P3-15), allocated by tracking-app-a9, 2026-09-15 | Lecture transcription: `lecture_transcripts` (FK to lecture_recordings, composite tenancy) + async job status | allocated |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
+| `181` | Sonnet ENG 1 (Team A, P2-01) | profiles.ai_monthly_spend_cap_usd numeric(10,2) null, CHECK > 0; NULL = system default $10 | APPLIED 2026-09-15 |
+| `182` | Sonnet ENG 1 (Team A, P2-02) | ai_morning_briefs (one row per user per local day, claim-first unique lock, RLS select-only own) | APPLIED 2026-09-15 |
 | `250`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
