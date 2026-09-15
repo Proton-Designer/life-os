@@ -100,6 +100,9 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/close/plan-actions.ts#dumpLine": { pending: "P4-07", note: "review.night_plan_task.dump" },
   "app/(app)/close/plan-actions.ts#claimSeedLines": { pending: "P4-07", note: "review.night_plan_task.claim_seeds" },
   "app/(app)/close/plan-actions.ts#savePlanRanks": { pending: "P4-07", note: "review.night_plan_task.save_ranks" },
+  "app/(app)/close/sleep-intent-actions.ts#getMySleepIntentForToday": { read_only: true },
+  "app/(app)/close/sleep-intent-actions.ts#saveMySleepIntent": { pending: "P4-07", note: "P2-05 sleep intent capture" },
+  "app/(app)/close/sleep-intent-actions.ts#clearMySleepIntent": { pending: "P4-07", note: "P2-05 sleep intent capture; a same-day own-row delete, not a hard_delete in the destructive sense (habits.vote.retract precedent, P4-undo)" },
 
   // ── Deen ────────────────────────────────────────────────────────────────
   "app/(app)/deen/actions.ts#markPrayer": { mcp: "deen.prayer.log" },
