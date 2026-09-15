@@ -13,6 +13,8 @@ import { getMyMonthlySpendStatus } from "@/app/(app)/settings/ai-spend-actions";
 import { MODEL_CATALOG } from "@/lib/ai/model-catalog";
 import { ConnectorSettings } from "@/components/settings/connector-settings";
 import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
+import { CanvasSettings } from "@/components/settings/canvas-settings";
+import { getCanvasConnectionStatus, getCanvasCourseMappings, getLocalClassOptions } from "@/app/(app)/settings/canvas-actions";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
 import { resolveThemePreset } from "@/lib/theme-presets";
@@ -32,6 +34,7 @@ const SECTIONS = [
   { id: "checkins", label: "Check-ins" },
   { id: "notifications", label: "Notifications" },
   { id: "ai", label: "AI features" },
+  { id: "canvas", label: "Canvas" },
   { id: "connectors", label: "Connectors" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
@@ -97,6 +100,9 @@ export default async function SettingsPage() {
   });
   const aiPreference = await getMyAiPreference();
   const monthlySpendStatus = await getMyMonthlySpendStatus();
+  const canvasStatus = await getCanvasConnectionStatus();
+  const canvasMappings = await getCanvasCourseMappings();
+  const localClasses = await getLocalClassOptions();
 
   return (
     <PageContainer>
@@ -174,6 +180,14 @@ export default async function SettingsPage() {
                 storageConfigured={storageConfigured}
               />
             </div>
+          </Panel>
+          <Panel id="canvas" className="scroll-mt-24" title="Canvas">
+            <CanvasSettings
+              initialStatus={canvasStatus}
+              initialMappings={canvasMappings}
+              localClasses={localClasses}
+              storageConfigured={storageConfigured}
+            />
           </Panel>
           <Panel id="connectors" className="scroll-mt-24" title="Connectors">
             <ConnectorSettings initialTokens={mcpTokens} />
