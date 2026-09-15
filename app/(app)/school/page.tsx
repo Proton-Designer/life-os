@@ -37,6 +37,8 @@ import { Panel } from "@/components/ui/panel";
 import { getClassCards } from "@/lib/school/get-class-cards";
 import { ClassCard } from "@/components/school/class-card";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
+import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
+import { computeCourseLoadForecast, type ForecastableAssessment } from "@/lib/school/course-load-forecast";
 import { SchoolTodayPanel } from "@/components/school/school-today-panel";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 
@@ -124,6 +126,23 @@ export default async function SchoolPage() {
   // Panel's own one-metric-rule convention (its header comment): the number that
   // summarizes this panel, not a separate KPI card duplicating it.
   const highRiskCount = deadlineRiskRows.filter((r) => r.risk.band === "high" || r.risk.band === "critical").length;
+
+  // Phase 2 #P2-10 — course-load forecast. Reuses classCards' assessments
+  // (the SAME data deadlineRiskRows above is built from), not a second
+  // query — see lib/school/course-load-forecast.ts's own header.
+  const forecastableAssessments: ForecastableAssessment[] = classCards.flatMap((c) =>
+    c.assessments.map((a) => ({
+      id: a.id,
+      name: a.name,
+      className: c.shortName ?? c.code,
+      date: a.date,
+      weightPct: a.weightPct,
+      pointsEarned: a.pointsEarned,
+      isExcused: a.isExcused,
+    }))
+  );
+  const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, dateStr);
+  const overflowWeekCount = courseLoadForecast.weeks.filter((w) => w.overflow).length;
 
   const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
     id: c.id,
@@ -383,6 +402,19 @@ export default async function SchoolPage() {
           nextWeekDates={nextWeekDates}
           horizonStr={horizonStr}
         />
+      </Panel>
+
+      {/* Phase 2 #P2-10 — course-load forecast. Sits beside Deadline risk:
+          that panel ranks INDIVIDUAL items by risk within a short window;
+          this one shows the SHAPE of the next six weeks so a cluster of
+          assessments is visible before any one of them is individually
+          "at risk." */}
+      <Panel
+        title="Course load"
+        heroValue={`${overflowWeekCount}`}
+        caption={overflowWeekCount === 0 ? "no overloaded weeks ahead" : `overloaded week${overflowWeekCount === 1 ? "" : "s"} ahead`}
+      >
+        <CourseLoadForecastPanel forecast={courseLoadForecast} todayStr={dateStr} />
       </Panel>
 
       {/* Item 6b (Ayman, verbatim): "a module card for every single class
