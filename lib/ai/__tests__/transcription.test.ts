@@ -104,6 +104,39 @@ describe("transcribeWithGemini", () => {
     if (!res.ok) expect(res.message).toMatch(/rejected/i);
   });
 
+  // P3-15 review (tracking-app-a9): generateContent gets a CALLER-supplied
+  // timeout (derived from the worker's own remaining function-time budget),
+  // distinct from the fixed upload-step timeout -- a long lecture can
+  // legitimately need more than the default 90s, but must still abort
+  // before Vercel's own maxDuration kills the whole function.
+  it("respects a caller-supplied generateContentTimeoutMs, distinct from the upload steps' fixed timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 200, headers: { "x-goog-upload-url": "https://upload.example/abc" } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ file: { uri: "files/abc123" } }), { status: 200 }))
+        // generateContent never resolves on its own -- only the custom timeout's own abort ends it.
+        .mockImplementationOnce(
+          (_url: string, init: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+            }),
+        );
+
+      const promise = transcribeWithGemini("key", new Uint8Array([1]), "audio/mpeg", 5_000);
+      // Well under the default 90s -- if the custom timeout weren't wired
+      // in, this wouldn't have fired yet and the assertions below would
+      // hang/fail against a still-pending promise.
+      await vi.advanceTimersByTimeAsync(5_000);
+      const res = await promise;
+
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.message).toMatch(/took too long/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects a response with no transcript text instead of returning an empty string", async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(null, { status: 200, headers: { "x-goog-upload-url": "https://upload.example/abc" } }))

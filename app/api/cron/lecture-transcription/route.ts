@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { processOneTranscriptionJob } from "@/lib/school/lecture-transcription-worker";
 
@@ -18,11 +19,31 @@ import { processOneTranscriptionJob } from "@/lib/school/lecture-transcription-w
  * processOneTranscriptionJob until it returns {processed:false} or a time
  * budget is spent) if a future pass needs more throughput.
  *
+ * BACKGROUNDED VIA after() (tracking-app-a9 + Opus Lead review): this route
+ * is invoked by pg_net (jobid 1, dispatch-notifications-every-15min), whose
+ * own HTTP client times out around 5s. A real transcription call can take
+ * far longer than that, so the actual work must never happen inline before
+ * the response -- it would look like a timeout from pg_net's side and risks
+ * the connection (and the function) being torn down mid-job. Instead: this
+ * handler authenticates, schedules the job via `after()`, and returns 202
+ * immediately. `after()` then runs `processOneTranscriptionJob` within this
+ * route's own `maxDuration` (below), independent of pg_net's response wait.
+ * The job's outcome can't ride the (already-sent) response, so it's
+ * console.log'd instead -- visible in Vercel's function logs.
+ *
+ * `maxDuration = 280`: the real ceiling `processOneTranscriptionJob`
+ * budgets Gemini's own generateContent timeout against (see
+ * lib/school/lecture-transcription-worker.ts's FUNCTION_MAX_DURATION_MS,
+ * which MUST match this number) -- comfortably under Vercel's own hard
+ * function limit, leaving room for our own abort to fire and write a clean
+ * 'failed' status before Vercel kills the invocation outright.
+ *
  * Registering this into pg_cron (a NEW schedule, or a second net.http_post
  * added to an existing one) is the lead's operator-state work, same as
  * daily-due-card's own header notes -- not this route's concern.
  */
 export const dynamic = "force-dynamic";
+export const maxDuration = 280;
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -42,7 +63,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  const serviceClient = createServiceRoleClient();
-  const result = await processOneTranscriptionJob(serviceClient);
-  return NextResponse.json({ success: true, at: new Date().toISOString(), result });
+  // Scheduled, NOT awaited -- the response below is what pg_net actually
+  // waits on, and it must return well inside its ~5s timeout. after()'s own
+  // callback runs post-response, budgeted by this route's `maxDuration`.
+  after(async () => {
+    try {
+      const serviceClient = createServiceRoleClient();
+      const result = await processOneTranscriptionJob(serviceClient);
+      console.log(`[lecture-transcription] ${new Date().toISOString()}`, result);
+    } catch (err) {
+      console.error(`[lecture-transcription] unhandled error`, err);
+    }
+  });
+
+  return NextResponse.json({ accepted: true }, { status: 202 });
 }

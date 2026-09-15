@@ -147,6 +147,16 @@ async function finishGeminiUpload(uploadUrl: string, audioBytes: Uint8Array, sig
   return { fileUri: data.file.uri, fileMimeType: data.file.mimeType ?? "application/octet-stream" };
 }
 
+async function withTimeoutMs<T>(timeoutMs: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Files API two-step (upload, then reference the file in a generateContent
  * call) -- the only Gemini path that handles genuinely long lecture audio,
@@ -155,13 +165,40 @@ async function finishGeminiUpload(uploadUrl: string, audioBytes: Uint8Array, sig
  * verbose_json -- the caller falls back to the same size-based estimate
  * used for the pre-flight gate (documented gap, see this file's own
  * header and OPEN_QUESTIONS.md).
+ *
+ * TWO SEPARATE TIMEOUT BUDGETS (tracking-app-a9 review, P3-15): upload
+ * (start+finish) stays on the fixed REQUEST_TIMEOUT_MS -- it's a file
+ * transfer, not AI processing, and doesn't scale with audio length the way
+ * generateContent's actual transcription work does. `generateContentTimeoutMs`
+ * is the caller's job to compute from the Vercel function's OWN remaining
+ * time budget (lecture-transcription-worker.ts) -- a lecture can be up to an
+ * hour of audio at the 50MB upload ceiling (P3-14's own fix), which can
+ * genuinely need more than 90s, but must still abort comfortably before the
+ * route's `maxDuration` kills the whole function -- an abort we catch and
+ * turn into a clean, terminal 'failed' write beats a hard kill that leaves
+ * the job stuck in 'processing' for the stuck-job reclaim to retry (and
+ * potentially re-bill) later.
  */
-export async function transcribeWithGemini(apiKey: string, audioBytes: Uint8Array, mimeType: string): Promise<TranscriptionClientResult> {
+export async function transcribeWithGemini(
+  apiKey: string,
+  audioBytes: Uint8Array,
+  mimeType: string,
+  generateContentTimeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<TranscriptionClientResult> {
+  let uploaded: { fileUri: string; fileMimeType: string };
   try {
-    return await withAbort(async (signal) => {
+    uploaded = await withAbort(async (signal) => {
       const { uploadUrl } = await startGeminiUpload(apiKey, audioBytes.byteLength, mimeType, signal);
-      const { fileUri, fileMimeType } = await finishGeminiUpload(uploadUrl, audioBytes, signal);
+      return finishGeminiUpload(uploadUrl, audioBytes, signal);
+    });
+  } catch (err) {
+    if (isAbortError(err)) return { ok: false, message: "Gemini didn't respond in time." };
+    if (err instanceof Error) return { ok: false, message: err.message };
+    return { ok: false, message: "Couldn't reach Gemini." };
+  }
 
+  try {
+    return await withTimeoutMs(generateContentTimeoutMs, async (signal) => {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
@@ -171,7 +208,7 @@ export async function transcribeWithGemini(apiKey: string, audioBytes: Uint8Arra
             contents: [
               {
                 parts: [
-                  { file_data: { mime_type: fileMimeType, file_uri: fileUri } },
+                  { file_data: { mime_type: uploaded.fileMimeType, file_uri: uploaded.fileUri } },
                   { text: "Transcribe this audio verbatim. Return only the transcript text, no commentary." },
                 ],
               },
@@ -197,7 +234,10 @@ export async function transcribeWithGemini(apiKey: string, audioBytes: Uint8Arra
       return { ok: true, data: { text, durationSeconds: null } };
     });
   } catch (err) {
-    if (isAbortError(err)) return { ok: false, message: "Gemini didn't respond in time." };
+    // Terminal, not retryable by this function -- the worker's own fail()
+    // write (CAS-protected) is what makes this actually terminal in the DB;
+    // this message is what the user sees either way.
+    if (isAbortError(err)) return { ok: false, message: "Transcription took too long -- try again." };
     if (err instanceof Error) return { ok: false, message: err.message };
     return { ok: false, message: "Couldn't reach Gemini." };
   }

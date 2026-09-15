@@ -4,8 +4,23 @@ import type { Database } from "@/lib/supabase/database.types";
 import { resolveStoredUserKey } from "@/lib/ai/resolve-key";
 import { checkTranscriptionSpendCap } from "@/lib/ai/transcription-spend";
 import { computeActualTranscriptionCostUsd } from "@/lib/ai/transcription-pricing";
-import { transcribeWithOpenAI, transcribeWithGemini, OPENAI_MAX_FILE_SIZE_BYTES } from "@/lib/ai/transcription";
+import { transcribeWithOpenAI, transcribeWithGemini, OPENAI_MAX_FILE_SIZE_BYTES, type TranscriptionClientResult } from "@/lib/ai/transcription";
 import { recordUsage } from "@/lib/ai/usage-log";
+
+// Must match app/api/cron/lecture-transcription/route.ts's own `maxDuration`
+// route-segment config -- this is the SAME 280s Vercel enforces on the whole
+// function, referenced here so Gemini's own internal timeout can be derived
+// from it (tracking-app-a9 review). SAFETY_BUFFER_MS reserves time after
+// generateContent returns for the completion/failure DB write and
+// recordUsage() -- without it, a generateContent call that used its full
+// budget would leave no time to write the result before Vercel's own kill.
+const FUNCTION_MAX_DURATION_MS = 280_000;
+const SAFETY_BUFFER_MS = 30_000;
+// Below this much remaining budget, don't even attempt the call -- a doomed
+// attempt that Vercel kills before our own abort fires is exactly the stuck-
+// 'processing'-row-that-gets-reclaimed-and-rebilled scenario this whole fix
+// exists to avoid.
+const MIN_VIABLE_GEMINI_TIMEOUT_MS = 20_000;
 
 /**
  * Core cron-worker logic for P3-15 (lecture transcription). Called by
@@ -28,6 +43,7 @@ export type ProcessJobResult =
   | { processed: true; status: "failed"; recordingId: string; reason: string };
 
 export async function processOneTranscriptionJob(serviceClient: SupabaseClient<Database>): Promise<ProcessJobResult> {
+  const startedAt = Date.now();
   const { data: job, error: claimError } = await serviceClient.rpc("claim_lecture_transcription_job");
   if (claimError) throw claimError;
   if (!job) return { processed: false };
@@ -106,10 +122,33 @@ export async function processOneTranscriptionJob(serviceClient: SupabaseClient<D
   }
   const audioBytes = new Uint8Array(await audioBlob.arrayBuffer());
 
-  const result =
-    provider === "openai"
-      ? await transcribeWithOpenAI(apiKey, audioBytes, recording.storage_path.split("/").pop() ?? "recording", audioBlob.type)
-      : await transcribeWithGemini(apiKey, audioBytes, audioBlob.type);
+  // Only meaningful for the Gemini path -- see this constant's own header
+  // and transcribeWithGemini's own doc comment (lib/ai/transcription.ts).
+  const elapsedMs = Date.now() - startedAt;
+  const geminiTimeoutMs = FUNCTION_MAX_DURATION_MS - elapsedMs - SAFETY_BUFFER_MS;
+  if (provider === "google" && geminiTimeoutMs < MIN_VIABLE_GEMINI_TIMEOUT_MS) {
+    return fail("Not enough time left in this run to transcribe -- try again.");
+  }
+
+  // Defense-in-depth (tracking-app-a9 review): transcribeWithOpenAI/
+  // transcribeWithGemini are designed to never throw (they catch
+  // internally), but if something unexpected still does -- a bug, a truly
+  // unhandled rejection -- it must become a clean, terminal fail() write
+  // through the same CAS path as every other failure, not an uncaught
+  // exception that crashes this invocation and leaves the row stuck in
+  // 'processing' for the stuck-job reclaim to retry (and potentially
+  // re-bill) later. Scoped to ONLY the provider call -- a DB error below
+  // this block still throws and crashes the invocation loudly, which is
+  // correct for an unexpected DB failure.
+  let result: TranscriptionClientResult;
+  try {
+    result =
+      provider === "openai"
+        ? await transcribeWithOpenAI(apiKey, audioBytes, recording.storage_path.split("/").pop() ?? "recording", audioBlob.type)
+        : await transcribeWithGemini(apiKey, audioBytes, audioBlob.type, geminiTimeoutMs);
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Transcription failed unexpectedly.");
+  }
 
   if (!result.ok) {
     return fail(result.message);
