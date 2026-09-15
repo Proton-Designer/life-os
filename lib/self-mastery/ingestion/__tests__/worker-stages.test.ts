@@ -334,11 +334,26 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
 
   function makeSupabase(opts: {
     chunk: { id: string; text: string; page_start: number; page_end: number; section_id?: string | null } | null;
+    /** P2-14: the array-response arm of `.range()`, for batch mode. */
+    chunks?: { id: string; text: string; page_start: number; page_end: number; section_id?: string | null }[];
+    /** P2-14: `books.ingestion_mode` -- defaults to 'standard' so every existing test (which never sets this) keeps exercising the pre-P2-14 code path with zero changes. */
+    ingestionMode?: "standard" | "batch";
     onDelete?: (eqCalls: [string, unknown][]) => void;
     onInsert?: (rows: unknown[]) => void;
   }) {
     return {
       from(table: string) {
+        if (table === "books") {
+          return {
+            select() {
+              return {
+                eq() {
+                  return { single: async () => ({ data: { ingestion_mode: opts.ingestionMode ?? "standard" }, error: null }) };
+                },
+              };
+            },
+          };
+        }
         if (table === "source_chunks") {
           return {
             select() {
@@ -348,7 +363,11 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
                     order() {
                       return {
                         range() {
-                          return { maybeSingle: async () => ({ data: opts.chunk, error: null }) };
+                          return {
+                            maybeSingle: async () => ({ data: opts.chunk, error: null }),
+                            // P2-14 batch mode: `await`ed directly (no `.maybeSingle()`) for an array response.
+                            then: (resolve: (v: { data: unknown; error: null }) => void) => resolve({ data: opts.chunks ?? [], error: null }),
+                          };
                         },
                       };
                     },
@@ -527,6 +546,161 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
 
     expect((insertedRows[0] as Record<string, unknown>)["section_id"]).toBeNull();
   });
+
+  // P2-14 batch mode -- shares this describe block's own `makeSupabase`,
+  // `beforeEach`/`afterEach` above (module-scoped `DevShimProvider`/
+  // `gatewayChat` mocks reset the same way every other test here relies on).
+  const CHUNK_A = {
+    id: "c1",
+    text: "The two-minute rule states that when you start a new habit, it should take less than two minutes to do. This works because almost any habit can be scaled down into a two-minute version.",
+    page_start: 1,
+    page_end: 1,
+  };
+  const CHUNK_B = {
+    id: "c2",
+    text: "Deep work is the ability to focus without distraction on a cognitively demanding task. This skill is becoming increasingly rare and increasingly valuable in our economy.",
+    page_start: 5,
+    page_end: 5,
+  };
+
+  function insertTracker() {
+    const byChunk: Record<string, unknown[]> = {};
+    return {
+      byChunk,
+      onInsert: (rows: unknown[]) => {
+        for (const row of rows as Record<string, unknown>[]) {
+          const key = row["source_chunk_id"] as string;
+          (byChunk[key] ??= []).push(row);
+        }
+      },
+    };
+  }
+
+  it("a book in batch mode with 2 available chunks makes ONE combined gatewayChat call and advances the cursor by 2, not 1", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // forces the real DeepSeekProvider, so `instanceof DeepSeekProvider` is true and the batch branch actually engages
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    vi.mocked(gatewayChat).mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        results: [
+          {
+            lessons: [
+              {
+                title: "Shrink new habits to two minutes",
+                core_claim: "Beginning any new routine works best when kept trivially quick to complete.",
+                mechanism: "A tiny starting version removes the friction that normally stops a habit before it forms.",
+                action_template: "Define a two-minute version of one habit.",
+                provenance_quote:
+                  "The two-minute rule states that when you start a new habit, it should take less than two minutes to do.",
+              },
+            ],
+          },
+          {
+            lessons: [
+              {
+                title: "Protect blocks of undistracted focus",
+                core_claim: "Sustained concentration on hard problems, free of interruption, is a distinct valuable skill.",
+                mechanism: "Demanding cognitive work degrades sharply under fragmented attention.",
+                action_template: "Schedule a distraction-free block for your hardest task.",
+                provenance_quote: "Deep work is the ability to focus without distraction on a cognitively demanding task.",
+              },
+            ],
+          },
+        ],
+      }),
+      usage: { promptTokens: 900, cachedPromptTokens: 0, completionTokens: 300, reasoningTokens: 0 },
+      costUsd: 0.001,
+      keySource: "server",
+      attempts: 1,
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const { byChunk, onInsert } = insertTracker();
+    const supabase = makeSupabase({ chunk: null, chunks: [CHUNK_A, CHUNK_B], ingestionMode: "batch", onInsert });
+
+    const result = await STAGE_HANDLERS.extracting_lessons!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(gatewayChat).toHaveBeenCalledTimes(1); // ONE combined call for both chunks -- the entire point of batching
+    expect(result.nextStage).toBe("extracting_lessons");
+    expect(result.nextChunkIndex).toBe(2); // advanced by the batch count, not +1
+    expect(byChunk["c1"]).toHaveLength(1);
+    expect(byChunk["c2"]).toHaveLength(1);
+  });
+
+  it("THE REGRESSION GUARD: a malformed batch response falls back to per-chunk calls and still writes lessons for EVERY chunk in the batch -- never skips content silently", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    const okSingle = (quote: string) => ({
+      ok: true,
+      content: JSON.stringify({
+        lessons: [
+          {
+            title: "t",
+            core_claim: "A restated claim expressed in entirely different words than the source passage itself.",
+            mechanism: "m",
+            action_template: "a",
+            provenance_quote: quote,
+          },
+        ],
+      }),
+      usage: { promptTokens: 400, cachedPromptTokens: 0, completionTokens: 150, reasoningTokens: 0 },
+      costUsd: 0.0005,
+      keySource: "server",
+      attempts: 1,
+    });
+    vi.mocked(gatewayChat)
+      .mockResolvedValueOnce({
+        ok: true,
+        content: "not json at all",
+        usage: { promptTokens: 900, cachedPromptTokens: 0, completionTokens: 10, reasoningTokens: 0 },
+        costUsd: 0.001,
+        keySource: "server",
+        attempts: 1,
+      } as never) // the batch call itself -- malformed
+      .mockResolvedValueOnce(okSingle(CHUNK_A.text) as never) // fallback for chunk A
+      .mockResolvedValueOnce(okSingle(CHUNK_B.text) as never); // fallback for chunk B
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const { byChunk, onInsert } = insertTracker();
+    const supabase = makeSupabase({ chunk: null, chunks: [CHUNK_A, CHUNK_B], ingestionMode: "batch", onInsert });
+
+    const result = await STAGE_HANDLERS.extracting_lessons!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(gatewayChat).toHaveBeenCalledTimes(3); // 1 batch attempt + 2 per-chunk fallback calls
+    expect(byChunk["c1"]).toHaveLength(1); // neither chunk's content was silently dropped
+    expect(byChunk["c2"]).toHaveLength(1);
+    expect(result.nextChunkIndex).toBe(2);
+  });
+
+  it("Condition 1 regression guard: standard mode (default) with multiple chunks available still processes ONE at a time", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      extractLessons: vi.fn().mockResolvedValue([]),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const supabase = makeSupabase({
+      chunk: CHUNK_A,
+      chunks: [CHUNK_A, CHUNK_B], // present in the mock, but must be ignored in standard mode
+      ingestionMode: "standard",
+    });
+
+    const result = await STAGE_HANDLERS.extracting_lessons!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(result.nextChunkIndex).toBe(1); // +1, not +2 -- unaffected by chunks[] being present in the mock
+  });
 });
 
 describe("generating_cards stage — fail-closed on no real provider, per-lesson promotion (D-018)", () => {
@@ -539,6 +713,10 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
 
   function makeSupabase(opts: {
     lesson: Record<string, unknown> | null;
+    /** P2-14: the array-response arm of `.range()`, for batch mode. */
+    lessons?: Record<string, unknown>[];
+    /** P2-14: `books.ingestion_mode` -- defaults to 'standard' so every existing test (which never sets this) keeps exercising the pre-P2-14 code path with zero changes. */
+    ingestionMode?: "standard" | "batch";
     onCardsInsert?: (rows: unknown[]) => void;
     onPromote?: (status: string) => void;
     onCardStatesInsert?: (rows: unknown[]) => void;
@@ -554,6 +732,17 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
     let nextCardId = 0;
     return {
       from(table: string) {
+        if (table === "books") {
+          return {
+            select() {
+              return {
+                eq() {
+                  return { single: async () => ({ data: { ingestion_mode: opts.ingestionMode ?? "standard" }, error: null }) };
+                },
+              };
+            },
+          };
+        }
         if (table === "lessons") {
           return {
             select() {
@@ -565,7 +754,11 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
                         order() {
                           return {
                             range() {
-                              return { maybeSingle: async () => ({ data: opts.lesson, error: null }) };
+                              return {
+                                maybeSingle: async () => ({ data: opts.lesson, error: null }),
+                                // P2-14 batch mode: `await`ed directly (no `.maybeSingle()`) for an array response.
+                                then: (resolve: (v: { data: unknown; error: null }) => void) => resolve({ data: opts.lessons ?? [], error: null }),
+                              };
                             },
                           };
                         },
@@ -798,6 +991,146 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
         supabase: supabase as never,
       }),
     ).rejects.toThrow(/card_states_card_user_key/);
+  });
+
+  // P2-14 batch mode -- shares this describe block's own `makeSupabase`,
+  // `beforeEach`/`afterEach` above.
+  const LESSON_1 = {
+    id: "l1",
+    title: "Shrink new habits to two minutes",
+    core_claim: "Beginning any new routine works best when kept trivially quick to complete.",
+    mechanism: "A tiny starting version removes friction that normally stops a habit before it forms.",
+    action_template: "Define a two-minute version of one habit.",
+    evidence_strength: "author_anecdote",
+    provenance_quote: "quote1",
+    page_ref: 1,
+    source_chunk_id: "c1",
+  };
+  const LESSON_2 = {
+    id: "l2",
+    title: "Protect blocks of undistracted focus",
+    core_claim: "Sustained concentration on hard problems, free of interruption, is a distinct valuable skill.",
+    mechanism: "Demanding cognitive work degrades sharply under fragmented attention.",
+    action_template: "Schedule a distraction-free block for your hardest task.",
+    evidence_strength: "author_anecdote",
+    provenance_quote: "quote2",
+    page_ref: 2,
+    source_chunk_id: "c2",
+  };
+
+  function cardFields(overrides: Partial<Record<string, string>> = {}) {
+    return {
+      free_recall_prompt: "What does this lesson claim about the ideal length of a new habit's first version?",
+      application_prompt: "You want to start flossing every night but keep skipping it -- what's the two-minute version?",
+      application_answer: "Floss just one tooth for the first week, so the habit takes under two minutes to complete.",
+      why_prompt: "In your own words, why does a tiny starting version make a new habit more likely to stick?",
+      ...overrides,
+    };
+  }
+
+  function cardsInsertTracker() {
+    const byLesson: Record<string, unknown[]> = {};
+    return {
+      byLesson,
+      onCardsInsert: (rows: unknown[]) => {
+        for (const row of rows as Record<string, unknown>[]) {
+          const key = row["lesson_id"] as string;
+          (byLesson[key] ??= []).push(row);
+        }
+      },
+    };
+  }
+
+  it("a book in batch mode with 2 available lessons makes ONE combined gatewayChat call and advances the cursor by 2, not 1", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // forces the real DeepSeekProvider so `instanceof DeepSeekProvider` is true
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    vi.mocked(gatewayChat).mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        results: [cardFields(), cardFields({ free_recall_prompt: "What skill does this lesson say is worth protecting?" })],
+      }),
+      usage: { promptTokens: 900, cachedPromptTokens: 0, completionTokens: 300, reasoningTokens: 0 },
+      costUsd: 0.001,
+      keySource: "server",
+      attempts: 1,
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const { byLesson, onCardsInsert } = cardsInsertTracker();
+    const supabase = makeSupabase({ lesson: null, lessons: [LESSON_1, LESSON_2], ingestionMode: "batch", onCardsInsert });
+
+    const result = await STAGE_HANDLERS.generating_cards!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(gatewayChat).toHaveBeenCalledTimes(1); // ONE combined call for both lessons
+    expect(result.nextStage).toBe("generating_cards");
+    expect(result.nextChunkIndex).toBe(2); // advanced by the batch count, not +1
+    expect(byLesson["l1"]!.length).toBeGreaterThan(0);
+    expect(byLesson["l2"]!.length).toBeGreaterThan(0);
+  });
+
+  it("THE REGRESSION GUARD: a malformed batch response falls back to per-lesson calls and still creates cards for EVERY lesson in the batch -- never skips content silently", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    const okSingle = (overrides: Partial<Record<string, string>> = {}) => ({
+      ok: true,
+      content: JSON.stringify(cardFields(overrides)),
+      usage: { promptTokens: 400, cachedPromptTokens: 0, completionTokens: 150, reasoningTokens: 0 },
+      costUsd: 0.0005,
+      keySource: "server",
+      attempts: 1,
+    });
+    vi.mocked(gatewayChat)
+      .mockResolvedValueOnce({
+        ok: true,
+        content: "not json at all",
+        usage: { promptTokens: 900, cachedPromptTokens: 0, completionTokens: 10, reasoningTokens: 0 },
+        costUsd: 0.001,
+        keySource: "server",
+        attempts: 1,
+      } as never) // the batch call itself -- malformed
+      .mockResolvedValueOnce(okSingle() as never) // fallback for lesson 1
+      .mockResolvedValueOnce(okSingle() as never); // fallback for lesson 2
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const { byLesson, onCardsInsert } = cardsInsertTracker();
+    const supabase = makeSupabase({ lesson: null, lessons: [LESSON_1, LESSON_2], ingestionMode: "batch", onCardsInsert });
+
+    const result = await STAGE_HANDLERS.generating_cards!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(gatewayChat).toHaveBeenCalledTimes(3); // 1 batch attempt + 2 per-lesson fallback calls
+    expect(byLesson["l1"]!.length).toBeGreaterThan(0); // neither lesson's cards were silently dropped
+    expect(byLesson["l2"]!.length).toBeGreaterThan(0);
+    expect(result.nextChunkIndex).toBe(2);
+  });
+
+  it("Condition 1 regression guard: standard mode (default) with multiple lessons available still processes ONE at a time", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue({
+      generateCards: vi.fn().mockResolvedValue([{ promptType: "free_recall", prompt: "p", answer: "a" }]),
+      lastUsage: { promptTokens: 1, completionTokens: 1 },
+    } as never);
+
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const supabase = makeSupabase({
+      lesson: LESSON_1,
+      lessons: [LESSON_1, LESSON_2], // present in the mock, but must be ignored in standard mode
+      ingestionMode: "standard",
+    });
+
+    const result = await STAGE_HANDLERS.generating_cards!({
+      job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(result.nextChunkIndex).toBe(1); // +1, not +2 -- unaffected by lessons[] being present in the mock
   });
 });
 

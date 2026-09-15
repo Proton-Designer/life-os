@@ -48,9 +48,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { DevShimProvider } from "./llm/dev-shim-provider";
-import { DeepSeekProvider } from "./llm/deepseek-provider";
+import { DeepSeekProvider, BATCH_SIZE_EXTRACT, BATCH_SIZE_CARDS } from "./llm/deepseek-provider";
 import { HeuristicProvider, type Embedder } from "./llm/heuristic-provider";
-import type { CandidateLesson } from "./llm/types";
+import type { CandidateLesson, GeneratedCard, EvidenceStrength } from "./llm/types";
 import { getUserEmbeddings } from "@/lib/ai/embeddings";
 import { loadPdf, extractPages, extractOutline } from "./pdf";
 import { parseStructure } from "./structure";
@@ -103,6 +103,21 @@ export type StageHandler = (ctx: StageContext) => Promise<StageWorkResult>;
  */
 function resolveIngestionProvider(ctx: StageContext): DevShimProvider | DeepSeekProvider {
   return DevShimProvider.fromEnv() ?? new DeepSeekProvider(ctx.supabase, ctx.job.user_id);
+}
+
+/**
+ * P2-14: per-book batch-mode selector (migration 187, `books.ingestion_mode`).
+ * Read fresh every invocation, never cached on `ctx.job` -- each stage
+ * handler is its own HTTP request, and the column is a plain `text` CHECK,
+ * not a Postgres enum, so the generated type is `string`; narrowed
+ * defensively here rather than trusted verbatim -- anything other than the
+ * literal `'batch'` degrades to `'standard'`, today's unchanged behavior,
+ * never the other way around.
+ */
+async function getIngestionMode(ctx: StageContext): Promise<"standard" | "batch"> {
+  const { data, error } = await ctx.supabase.from("books").select("ingestion_mode").eq("id", ctx.job.book_id).single();
+  if (error) throw error;
+  return data.ingestion_mode === "batch" ? "batch" : "standard";
 }
 
 /**
@@ -290,6 +305,8 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
  */
 async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResult> {
   const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
+  const mode = await getIngestionMode(ctx);
+  const batchSize = mode === "batch" ? BATCH_SIZE_EXTRACT : 1;
 
   // section_id selected alongside the rest (item 8): chunkingStage already
   // writes it onto every source_chunks row (see buildSectionInsertPlan
@@ -297,68 +314,126 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
   // extracted from a chunk lost its chapter/section provenance the moment
   // it was written, even though the FK to book_sections was there from
   // migration 064 onward.
-  const { data: chunkRow, error: chunkError } = await ctx.supabase
-    .from("source_chunks")
-    .select("id, text, page_start, page_end, section_id")
-    .eq("book_id", ctx.job.book_id)
-    .order("sort_order", { ascending: true })
-    .range(chunkIndex, chunkIndex)
-    .maybeSingle();
-  if (chunkError) throw chunkError;
+  type ChunkRow = { id: string; text: string; page_start: number | null; page_end: number | null; section_id: string | null };
+  let chunkRows: ChunkRow[];
+  if (batchSize === 1) {
+    // EXACT original query/shape (standard mode) -- byte-for-byte
+    // unchanged so an existing book's cost/call pattern never moves.
+    const { data: chunkRow, error: chunkError } = await ctx.supabase
+      .from("source_chunks")
+      .select("id, text, page_start, page_end, section_id")
+      .eq("book_id", ctx.job.book_id)
+      .order("sort_order", { ascending: true })
+      .range(chunkIndex, chunkIndex)
+      .maybeSingle();
+    if (chunkError) throw chunkError;
+    chunkRows = chunkRow ? [chunkRow] : [];
+  } else {
+    // P2-14 batch mode: fetch up to BATCH_SIZE_EXTRACT rows at once.
+    const { data, error: chunkError } = await ctx.supabase
+      .from("source_chunks")
+      .select("id, text, page_start, page_end, section_id")
+      .eq("book_id", ctx.job.book_id)
+      .order("sort_order", { ascending: true })
+      .range(chunkIndex, chunkIndex + batchSize - 1);
+    if (chunkError) throw chunkError;
+    chunkRows = data ?? [];
+  }
 
-  if (!chunkRow) {
+  if (chunkRows.length === 0) {
     // MAP exhausted -- every chunk has been offered to extraction.
     return { nextStage: "merging", nextChunkIndex: null };
   }
 
   const provider = resolveIngestionProvider(ctx);
+  let tokensIn = 0;
+  let tokensOut = 0;
+  const recordUsage = () => {
+    if (provider.lastUsage) {
+      tokensIn += provider.lastUsage.promptTokens;
+      tokensOut += provider.lastUsage.completionTokens;
+    }
+  };
 
-  const candidates = await provider.extractLessons({
-    chunkText: chunkRow.text,
-    pageStart: chunkRow.page_start ?? 0,
-    pageEnd: chunkRow.page_end ?? chunkRow.page_start ?? 0,
-    sourceChunkId: chunkRow.id,
-  });
+  const inputs = chunkRows.map((c) => ({
+    chunkText: c.text,
+    pageStart: c.page_start ?? 0,
+    pageEnd: c.page_end ?? c.page_start ?? 0,
+    sourceChunkId: c.id,
+  }));
 
-  const { error: deleteError } = await ctx.supabase
-    .from("lessons")
-    .delete()
-    .eq("source_chunk_id", chunkRow.id)
-    .eq("status", "archived");
-  if (deleteError) throw deleteError;
+  const perChunkCandidates: CandidateLesson[][] = [];
+  if (batchSize > 1 && chunkRows.length > 1 && provider instanceof DeepSeekProvider) {
+    // P2-14: ONE combined call for the whole batch. A `null` slot (a
+    // malformed or wrong-length response, per extractLessonsBatch's own
+    // header) falls back to the single-item call for exactly that chunk --
+    // never silently dropped.
+    const batchResult = await provider.extractLessonsBatch(inputs);
+    recordUsage();
+    for (let i = 0; i < inputs.length; i++) {
+      const result = batchResult.perChunk[i];
+      if (result !== null && result !== undefined) {
+        perChunkCandidates.push(result);
+      } else {
+        const single = await provider.extractLessons(inputs[i]!);
+        recordUsage();
+        perChunkCandidates.push(single);
+      }
+    }
+  } else {
+    // Standard mode (or a lone leftover chunk at the tail of a book) --
+    // same one-call-per-chunk shape as before batch mode existed.
+    for (const input of inputs) {
+      const candidates = await provider.extractLessons(input);
+      recordUsage();
+      perChunkCandidates.push(candidates);
+    }
+  }
 
-  if (candidates.length > 0) {
-    const { error: insertError } = await ctx.supabase.from("lessons").insert(
-      candidates.map((c) => ({
-        book_id: ctx.job.book_id,
-        user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 064)
-        source_chunk_id: c.sourceChunkId,
-        // Every candidate extracted here comes from this ONE chunkRow
-        // (extractLessons is called once per chunk, above) -- so all of
-        // them inherit that chunk's section_id, not a per-candidate value.
-        // Nullable by the same FK (064) that made source_chunk_id nullable:
-        // a chunk with no detected section carries section_id: null, and a
-        // lesson from it should too, not a guessed value.
-        section_id: chunkRow.section_id,
-        title: c.title,
-        core_claim: c.coreClaim,
-        mechanism: c.mechanism,
-        action_template: c.actionTemplate,
-        evidence_strength: c.evidenceStrength,
-        provenance_quote: c.provenanceQuote,
-        page_ref: c.pageRef,
-        status: "archived" as const,
-        extracted_by: "model" as const, // 084: a real provider call, not the heuristic or seed paths
-      })),
-    );
-    if (insertError) throw insertError;
+  for (let i = 0; i < chunkRows.length; i++) {
+    const chunkRow = chunkRows[i]!;
+    const candidates = perChunkCandidates[i]!;
+
+    const { error: deleteError } = await ctx.supabase
+      .from("lessons")
+      .delete()
+      .eq("source_chunk_id", chunkRow.id)
+      .eq("status", "archived");
+    if (deleteError) throw deleteError;
+
+    if (candidates.length > 0) {
+      const { error: insertError } = await ctx.supabase.from("lessons").insert(
+        candidates.map((c) => ({
+          book_id: ctx.job.book_id,
+          user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 064)
+          source_chunk_id: c.sourceChunkId,
+          // Every candidate extracted here comes from this ONE chunkRow
+          // (extractLessons is called once per chunk, above) -- so all of
+          // them inherit that chunk's section_id, not a per-candidate value.
+          // Nullable by the same FK (064) that made source_chunk_id nullable:
+          // a chunk with no detected section carries section_id: null, and a
+          // lesson from it should too, not a guessed value.
+          section_id: chunkRow.section_id,
+          title: c.title,
+          core_claim: c.coreClaim,
+          mechanism: c.mechanism,
+          action_template: c.actionTemplate,
+          evidence_strength: c.evidenceStrength,
+          provenance_quote: c.provenanceQuote,
+          page_ref: c.pageRef,
+          status: "archived" as const,
+          extracted_by: "model" as const, // 084: a real provider call, not the heuristic or seed paths
+        })),
+      );
+      if (insertError) throw insertError;
+    }
   }
 
   return {
     nextStage: "extracting_lessons",
-    nextChunkIndex: chunkIndex + 1,
-    tokensIn: provider.lastUsage?.promptTokens,
-    tokensOut: provider.lastUsage?.completionTokens,
+    nextChunkIndex: chunkIndex + chunkRows.length,
+    tokensIn,
+    tokensOut,
   };
 }
 
@@ -489,24 +564,62 @@ async function mergingStage(ctx: StageContext): Promise<StageWorkResult> {
  */
 async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult> {
   const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
+  const mode = await getIngestionMode(ctx);
+  const batchSize = mode === "batch" ? BATCH_SIZE_CARDS : 1;
 
-  const { data: lessonRow, error: lessonError } = await ctx.supabase
-    .from("lessons")
-    .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id")
-    .eq("book_id", ctx.job.book_id)
-    .not("rank", "is", null)
-    .order("rank", { ascending: true })
-    .range(chunkIndex, chunkIndex)
-    .maybeSingle();
-  if (lessonError) throw lessonError;
+  type LessonRow = {
+    id: string;
+    title: string;
+    core_claim: string | null;
+    mechanism: string | null;
+    action_template: string | null;
+    evidence_strength: EvidenceStrength | null;
+    provenance_quote: string;
+    page_ref: number | null;
+    source_chunk_id: string | null;
+  };
+  let lessonRows: LessonRow[];
+  if (batchSize === 1) {
+    // EXACT original query/shape (standard mode) -- byte-for-byte
+    // unchanged so an existing book's cost/call pattern never moves.
+    const { data: lessonRow, error: lessonError } = await ctx.supabase
+      .from("lessons")
+      .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id")
+      .eq("book_id", ctx.job.book_id)
+      .not("rank", "is", null)
+      .order("rank", { ascending: true })
+      .range(chunkIndex, chunkIndex)
+      .maybeSingle();
+    if (lessonError) throw lessonError;
+    lessonRows = lessonRow ? [lessonRow] : [];
+  } else {
+    // P2-14 batch mode: fetch up to BATCH_SIZE_CARDS rank-ordered lessons.
+    const { data, error: lessonError } = await ctx.supabase
+      .from("lessons")
+      .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id")
+      .eq("book_id", ctx.job.book_id)
+      .not("rank", "is", null)
+      .order("rank", { ascending: true })
+      .range(chunkIndex, chunkIndex + batchSize - 1);
+    if (lessonError) throw lessonError;
+    lessonRows = data ?? [];
+  }
 
-  if (!lessonRow) {
+  if (lessonRows.length === 0) {
     return { nextStage: "finalizing", nextChunkIndex: null };
   }
 
   const provider = resolveIngestionProvider(ctx);
+  let tokensIn = 0;
+  let tokensOut = 0;
+  const recordUsage = () => {
+    if (provider.lastUsage) {
+      tokensIn += provider.lastUsage.promptTokens;
+      tokensOut += provider.lastUsage.completionTokens;
+    }
+  };
 
-  const candidate: CandidateLesson = {
+  const candidates: CandidateLesson[] = lessonRows.map((lessonRow) => ({
     title: lessonRow.title,
     coreClaim: lessonRow.core_claim ?? "",
     mechanism: lessonRow.mechanism ?? "",
@@ -515,108 +628,139 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
     provenanceQuote: lessonRow.provenance_quote,
     pageRef: lessonRow.page_ref ?? 0,
     sourceChunkId: lessonRow.source_chunk_id ?? "",
-  };
-  const cards = await provider.generateCards({ lesson: candidate });
+  }));
 
-  const { error: deleteError } = await ctx.supabase.from("cards").delete().eq("lesson_id", lessonRow.id);
-  if (deleteError) throw deleteError;
-
-  if (cards.length > 0) {
-    const { data: insertedCards, error: insertError } = await ctx.supabase
-      .from("cards")
-      .insert(
-        cards.map((c, i) => ({
-          lesson_id: lessonRow.id,
-          book_id: ctx.job.book_id,
-          user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 065)
-          prompt_type: c.promptType,
-          prompt: c.prompt,
-          answer: c.answer,
-          sort_order: i,
-        })),
-      )
-      .select("id");
-    if (insertError) throw insertError;
-
-    // THE BUG THIS CLOSES (post-deploy finding, item 5 follow-up): a card
-    // with no `card_states` row can never enter `get_session_queue` --
-    // BOTH arms (071/126) select FROM card_states, never from cards, so a
-    // card this stage creates and never gives a scheduler row to is
-    // permanently unstudyable, readable only as inert lesson content.
-    // `seed_meditations_deck` (103) has always done this
-    // (`insert into card_states (card_id, user_id, book_id, state) values
-    // (v_card_id, v_caller, v_book_id, 'new')`) for its seeded decks; this
-    // is the real-ingestion path's own version of that exact insert,
-    // mirrored column-for-column -- same four columns, same literal 'new'
-    // state, no other column touched, so a real-ingested card and a seeded
-    // one start scheduling from an identical, verified-correct row shape.
-    //
-    // WHY HERE, NOT A `finalizingStage` SWEEP: this stage's own delete-
-    // then-insert of `cards` (keyed by `lesson_id`, see this function's own
-    // header) already makes every card born here CASCADE-fresh on every
-    // entry, including a retry of this exact lesson -- `cards`'s FK to
-    // `card_states` is `ON DELETE CASCADE` (070), so the delete above has
-    // already removed any card_states row a prior, incomplete attempt at
-    // THIS lesson may have left behind, before a single new card id exists
-    // to collide with. A plain (not upsert) insert is therefore correct,
-    // not merely convenient: on the ONLY path that can re-run this stage
-    // for an already-advanced lesson (a whole-book `reingest`), the cards
-    // above were just deleted and given brand-new ids, so there is no
-    // existing card_states row for those ids to conflict with, and no
-    // already-reviewed card's row is ever touched -- a reviewed card's
-    // history lives under a DIFFERENT card id than whatever this insert
-    // just created. Silently upserting here would hide a genuine bug (a
-    // stale id somehow reappearing) behind a swallowed conflict; this
-    // insert is left to throw, on purpose, matching every other write in
-    // this file's fail-closed posture (see `resolveIngestionProvider`'s own
-    // header) rather than adding an `ON CONFLICT` this design never needs.
-    //
-    // `user_id` must be `ctx.job.user_id`, explicitly and correctly, not
-    // the `cards` insert's zero-UUID placeholder above: `card_states`' own
-    // trigger (`card_states_derive_and_check`, 070) derives `book_id` from
-    // `card_id` unconditionally, but only OVERWRITES `user_id` when
-    // `auth.uid()` is non-null (a real end-user session). Under this
-    // worker's service-role client `auth.uid()` is null, so the trigger
-    // instead VALIDATES the supplied `user_id` against the card's real
-    // owner and raises if it does not match -- a placeholder here would
-    // fail closed immediately, not silently misattribute the row.
-    if (insertedCards && insertedCards.length > 0) {
-      const { error: cardStatesError } = await ctx.supabase.from("card_states").insert(
-        insertedCards.map((row) => ({
-          card_id: row.id,
-          user_id: ctx.job.user_id,
-          book_id: ctx.job.book_id,
-          state: "new" as const,
-        })),
-      );
-      if (cardStatesError) throw cardStatesError;
+  const perLessonCards: GeneratedCard[][] = [];
+  if (batchSize > 1 && lessonRows.length > 1 && provider instanceof DeepSeekProvider) {
+    // P2-14: ONE combined call for the whole batch. A `null` slot falls
+    // back to the single-item call (with its own free_recall/cloze
+    // guarantee) for exactly that lesson -- never silently dropped.
+    const batchResult = await provider.generateCardsBatch(candidates.map((lesson) => ({ lesson })));
+    recordUsage();
+    for (let i = 0; i < candidates.length; i++) {
+      const result = batchResult.perLesson[i];
+      if (result !== null && result !== undefined) {
+        perLessonCards.push(result);
+      } else {
+        const single = await provider.generateCards({ lesson: candidates[i]! });
+        recordUsage();
+        perLessonCards.push(single);
+      }
+    }
+  } else {
+    // Standard mode (or a lone leftover lesson at the tail of a book) --
+    // same one-call-per-lesson shape as before batch mode existed.
+    for (const lesson of candidates) {
+      const cards = await provider.generateCards({ lesson });
+      recordUsage();
+      perLessonCards.push(cards);
     }
   }
 
-  // D-018: promote iff at least one card survived; a denied lesson keeps
-  // its pre-promotion ('archived') status, never touched further here.
-  //
-  // SCOPING FIX (the Boss's finding): this update was unconditional on
-  // `id` alone -- every other write in this file that touches a specific
-  // lesson row scopes by `status='archived'` too (extractingLessonsStage's
-  // delete, mergingStage's reset), so a promotion here that isn't similarly
-  // scoped is the one write in the pipeline that would blindly overwrite
-  // whatever state the row is actually in, rather than only ever moving it
-  // from the one state this stage is entitled to promote out of.
-  if (cards.length > 0) {
-    const { error: promoteError } = await ctx.supabase
-      .from("lessons")
-      .update({ status: "active" })
-      .eq("id", lessonRow.id)
-      .eq("status", "archived");
-    if (promoteError) throw promoteError;
+  for (let i = 0; i < lessonRows.length; i++) {
+    const lessonRow = lessonRows[i]!;
+    const cards = perLessonCards[i]!;
+
+    const { error: deleteError } = await ctx.supabase.from("cards").delete().eq("lesson_id", lessonRow.id);
+    if (deleteError) throw deleteError;
+
+    if (cards.length > 0) {
+      const { data: insertedCards, error: insertError } = await ctx.supabase
+        .from("cards")
+        .insert(
+          cards.map((c, i) => ({
+            lesson_id: lessonRow.id,
+            book_id: ctx.job.book_id,
+            user_id: "00000000-0000-0000-0000-000000000000", // trigger-derived (set_user_id_from_book, 065)
+            prompt_type: c.promptType,
+            prompt: c.prompt,
+            answer: c.answer,
+            sort_order: i,
+          })),
+        )
+        .select("id");
+      if (insertError) throw insertError;
+
+      // THE BUG THIS CLOSES (post-deploy finding, item 5 follow-up): a card
+      // with no `card_states` row can never enter `get_session_queue` --
+      // BOTH arms (071/126) select FROM card_states, never from cards, so a
+      // card this stage creates and never gives a scheduler row to is
+      // permanently unstudyable, readable only as inert lesson content.
+      // `seed_meditations_deck` (103) has always done this
+      // (`insert into card_states (card_id, user_id, book_id, state) values
+      // (v_card_id, v_caller, v_book_id, 'new')`) for its seeded decks; this
+      // is the real-ingestion path's own version of that exact insert,
+      // mirrored column-for-column -- same four columns, same literal 'new'
+      // state, no other column touched, so a real-ingested card and a seeded
+      // one start scheduling from an identical, verified-correct row shape.
+      //
+      // WHY HERE, NOT A `finalizingStage` SWEEP: this stage's own delete-
+      // then-insert of `cards` (keyed by `lesson_id`, see this function's own
+      // header) already makes every card born here CASCADE-fresh on every
+      // entry, including a retry of this exact lesson -- `cards`'s FK to
+      // `card_states` is `ON DELETE CASCADE` (070), so the delete above has
+      // already removed any card_states row a prior, incomplete attempt at
+      // THIS lesson may have left behind, before a single new card id exists
+      // to collide with. A plain (not upsert) insert is therefore correct,
+      // not merely convenient: on the ONLY path that can re-run this stage
+      // for an already-advanced lesson (a whole-book `reingest`), the cards
+      // above were just deleted and given brand-new ids, so there is no
+      // existing card_states row for those ids to conflict with, and no
+      // already-reviewed card's row is ever touched -- a reviewed card's
+      // history lives under a DIFFERENT card id than whatever this insert
+      // just created. Silently upserting here would hide a genuine bug (a
+      // stale id somehow reappearing) behind a swallowed conflict; this
+      // insert is left to throw, on purpose, matching every other write in
+      // this file's fail-closed posture (see `resolveIngestionProvider`'s own
+      // header) rather than adding an `ON CONFLICT` this design never needs.
+      //
+      // `user_id` must be `ctx.job.user_id`, explicitly and correctly, not
+      // the `cards` insert's zero-UUID placeholder above: `card_states`' own
+      // trigger (`card_states_derive_and_check`, 070) derives `book_id` from
+      // `card_id` unconditionally, but only OVERWRITES `user_id` when
+      // `auth.uid()` is non-null (a real end-user session). Under this
+      // worker's service-role client `auth.uid()` is null, so the trigger
+      // instead VALIDATES the supplied `user_id` against the card's real
+      // owner and raises if it does not match -- a placeholder here would
+      // fail closed immediately, not silently misattribute the row.
+      if (insertedCards && insertedCards.length > 0) {
+        const { error: cardStatesError } = await ctx.supabase.from("card_states").insert(
+          insertedCards.map((row) => ({
+            card_id: row.id,
+            user_id: ctx.job.user_id,
+            book_id: ctx.job.book_id,
+            state: "new" as const,
+          })),
+        );
+        if (cardStatesError) throw cardStatesError;
+      }
+    }
+
+    // D-018: promote iff at least one card survived; a denied lesson keeps
+    // its pre-promotion ('archived') status, never touched further here.
+    //
+    // SCOPING FIX (the Boss's finding): this update was unconditional on
+    // `id` alone -- every other write in this file that touches a specific
+    // lesson row scopes by `status='archived'` too (extractingLessonsStage's
+    // delete, mergingStage's reset), so a promotion here that isn't similarly
+    // scoped is the one write in the pipeline that would blindly overwrite
+    // whatever state the row is actually in, rather than only ever moving it
+    // from the one state this stage is entitled to promote out of.
+    if (cards.length > 0) {
+      const { error: promoteError } = await ctx.supabase
+        .from("lessons")
+        .update({ status: "active" })
+        .eq("id", lessonRow.id)
+        .eq("status", "archived");
+      if (promoteError) throw promoteError;
+    }
   }
 
   return {
     nextStage: "generating_cards",
-    nextChunkIndex: chunkIndex + 1,
-    tokensIn: provider.lastUsage?.promptTokens,
-    tokensOut: provider.lastUsage?.completionTokens,
+    nextChunkIndex: chunkIndex + lessonRows.length,
+    tokensIn,
+    tokensOut,
   };
 }
 
