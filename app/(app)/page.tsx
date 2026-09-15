@@ -34,6 +34,7 @@ import { resolveAreaWeights } from "@/lib/home/resolve-area-weights";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate } from "@/lib/home/build-candidates";
 import { rankCandidates } from "@/lib/home/arbiter";
+import { getMorningBriefForToday } from "@/lib/ai/morning-brief";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -59,7 +60,7 @@ export default async function HomePage() {
   // getUserDomains() is called again below for hasSelfMastery/visibility.
   const domainsState = await getUserDomains();
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, mcpWidgets] =
+  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, mcpWidgets, morningBrief] =
     await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -90,6 +91,12 @@ export default async function HomePage() {
       // now/timezone threaded through for the sparkline kind's local-day
       // bucketing (R12/AGENTS.md) — never a raw Date or a UTC slice.
       renderWidgets(supabase, userId, "home", now, timezone),
+      // P2-02: null for every indistinguishable-by-design reason (not yet
+      // generated today, no key, cap hit, provider failure) -- see
+      // lib/ai/morning-brief.ts's own header. Home renders nothing in all
+      // of them, matching gatewayChat's own "degrade to nothing broken"
+      // posture rather than surfacing an error for an optional feature.
+      getMorningBriefForToday(supabase, userId, now, timezone),
     ]);
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
@@ -201,6 +208,12 @@ export default async function HomePage() {
       <PageHeader title="Home" />
 
       <InProgressBanner items={inProgressItems} />
+
+      {morningBrief ? (
+        <Panel title="Your morning brief">
+          <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
+        </Panel>
+      ) : null}
 
       {/* Position responds to the real arbiter ranking (A2 wiring), not
           a fixed layout slot -- Self-Mastery only renders first when it
