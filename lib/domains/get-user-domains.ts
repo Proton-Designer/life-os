@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getUserDomainsForUser } from "./user-domains-core";
 import type { DomainKey } from "@/app/(app)/onboarding/actions";
 import type { WeightTier } from "@/lib/home/arbiter";
 
@@ -56,48 +58,7 @@ export const getUserDomains = cache(async (): Promise<UserDomainsState> => {
 
   const [profile, supabase] = await Promise.all([getProfile(), createClient()]);
 
-  const { data: domainRows, error: domainsError } = await supabase
-    .from("user_domains")
-    .select("id, key, position, weight")
-    .eq("user_id", user.id)
-    .is("archived_at", null)
-    .order("position", { ascending: true });
-  if (domainsError) throw domainsError;
-
-  const domains = (domainRows ?? []) as { id: string; key: DomainKey; position: number; weight: WeightTier }[];
-
-  if ((profile?.onboarding_completed ?? false) && domains.length === 0) {
-    return { mode: "legacy" };
-  }
-
-  if (domains.length === 0) {
-    return { mode: "domains", domains: [], subdomains: [] };
-  }
-
-  const domainIdToKey = new Map(domains.map((d) => [d.id, d.key]));
-  const { data: subdomainRows, error: subdomainsError } = await supabase
-    .from("user_subdomains")
-    .select("domain_id, key, label, kind, widgets, config, position")
-    .eq("user_id", user.id)
-    .in(
-      "domain_id",
-      domains.map((d) => d.id)
-    )
-    .is("archived_at", null)
-    .order("position", { ascending: true });
-  if (subdomainsError) throw subdomainsError;
-
-  return {
-    mode: "domains",
-    domains: domains.map((d) => ({ key: d.key, position: d.position, weight: d.weight })),
-    subdomains: (subdomainRows ?? []).map((s) => ({
-      domainKey: domainIdToKey.get(s.domain_id) as DomainKey,
-      key: s.key,
-      label: s.label,
-      kind: (s.kind as "job" | "business" | null) ?? null,
-      widgets: (s.widgets ?? []) as string[],
-      config: (s.config ?? {}) as Record<string, unknown>,
-      position: s.position,
-    })),
-  };
+  // The decision itself lives in the cookie-free core so bearer-token callers
+  // (the MCP account map) get the identical answer — one implementation.
+  return getUserDomainsForUser(supabase as unknown as SupabaseClient, user.id, { onboardingCompleted: profile?.onboarding_completed ?? false });
 });

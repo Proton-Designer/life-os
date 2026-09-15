@@ -4,6 +4,8 @@ import { fetchTimezone } from "@/lib/deen/actions-core";
 import { getWriteAction, listWriteEntities, listWriteActions, type WritePatch } from "../write-registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError } from "../tool-input-error";
+import { localDateString } from "@/lib/date-utils";
+import { DATE_DEFAULTS_TO_TODAY, writeActionKey } from "@/lib/agent-api/write-action-meta";
 
 export interface WriteArgs {
   domain: string;
@@ -45,5 +47,21 @@ export async function writeTool(supabase: SupabaseClient, userId: string, args: 
 
   const timezone = await fetchTimezone(supabase, userId);
   const now = new Date();
-  return actionDef.handler({ userClient: supabase, userId, timezone, now, id: args.id }, args.patch ?? {});
+  return actionDef.handler({ userClient: supabase, userId, timezone, now, id: args.id }, withDateDefault(args, timezone, now));
+}
+
+/**
+ * P4-03: a log-shaped action whose `patch.date` is omitted gets the ACCOUNT'S
+ * local today — never the raw Date's UTC day, which is tomorrow for a user in
+ * the Americas every evening. Only for actions listed in DATE_DEFAULTS_TO_TODAY
+ * (lib/agent-api/write-action-meta.ts, drift-guarded against write-registry.ts);
+ * actions where a guessed date could change the wrong row still require it.
+ * An explicitly sent date, even an invalid one, is passed through untouched
+ * for the handler's own validation.
+ */
+function withDateDefault(args: WriteArgs, timezone: string, now: Date): WritePatch {
+  const patch = args.patch ?? {};
+  if (patch.date !== undefined) return patch;
+  if (!DATE_DEFAULTS_TO_TODAY.has(writeActionKey(args.domain, args.entity, args.action))) return patch;
+  return { ...patch, date: localDateString(now, timezone) };
 }

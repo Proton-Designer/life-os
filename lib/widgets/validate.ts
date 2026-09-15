@@ -24,6 +24,23 @@ import { ToolInputError } from "@/lib/mcp/tool-input-error";
 export const WIDGET_KINDS = ["metric_card", "list", "progress_against_goal", "sparkline", "streak"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
+/**
+ * What `validateDisplay` below accepts per kind, written for an agent
+ * (list_capabilities("widgets"), P4-03). Kept beside the validators so a
+ * change to one is a visible diff to the other; a test pins the keys to
+ * WIDGET_KINDS. Field names must be columns of the data source entity.
+ */
+export const WIDGET_DISPLAY_SCHEMA: Record<WidgetKind, string> = {
+  metric_card: "{ aggregate: 'count' } | { aggregate: 'field', field: column }",
+  list: "{ titleField: column, subtitleField?: column, limit?: 1-10 (default 5) }",
+  progress_against_goal: "{ aggregate: { type: 'count' } | { type: 'sum', field: column }, goal: number > 0 }",
+  sparkline: "{ dateField: the entity's primary descending sort column, valueField?: column, days?: 7-60 (default 14) }",
+  streak: "{ dateField: the entity's primary descending sort column }",
+};
+
+export const WIDGET_DATA_SOURCE_SCHEMA =
+  "{ domain, entity, filter?: { filterable_column: string|number|boolean } } — any readable entity from list_capabilities; parent-scoped entities must filter on their parent column.";
+
 export const WIDGET_SLOTS = ["home"] as const;
 export type WidgetSlot = (typeof WIDGET_SLOTS)[number];
 

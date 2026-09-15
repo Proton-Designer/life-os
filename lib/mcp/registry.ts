@@ -1246,6 +1246,44 @@ export const REGISTRY: Record<string, DomainDef> = {
         filterableColumns: ["provider"],
         orderBy: [{ column: "provider", ascending: true }],
       },
+      // P4-03: the account's own domain structure. Without these a
+      // domains-mode account (most accounts) is opaque to an agent -- it can't
+      // tell which areas the user actually tracks. list_capabilities()'s
+      // account map summarizes the same rows; these give the detail.
+      area: {
+        entity: "area",
+        table: "user_domains",
+        description:
+          "A life area the user selected (faith, body, learning, work, business, school; pre-2026-09 accounts may still carry a personal_growth group). archived_at set = deselected. An account with zero rows and onboarding complete is legacy mode (every area shown).",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "App-set, not trigger-backed (read-only pg_trigger query 2026-09-15: no trigger on user_domains). Every live writer sets it: saveDomainSelection's archive/insert/reposition (app/(app)/onboarding/actions.ts:84,114,125). No DB function updates this table (pg_proc scan). One-off migrations 110 (weight backfill) and 115 (position renumber) did not bump it -- historical only.",
+        summaryColumns: ["key", "position", "weight", "archived_at"],
+        fullColumns: ["key", "position", "weight", "depth", "archived_at", "created_at", "updated_at"],
+        filterableColumns: ["key"],
+        orderBy: [
+          { column: "position", ascending: true },
+          { column: "id", ascending: true },
+        ],
+      },
+      subdomain: {
+        entity: "subdomain",
+        table: "user_subdomains",
+        description:
+          "A sub-area under an area: user-named work/business subdomains (kind job|business), or a pre-2026-09 personal_growth child. domain_id is the parent area's id. archived_at set = removed.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "App-set, not trigger-backed (read-only pg_trigger query 2026-09-15: no trigger on user_subdomains). Every live writer sets it: onboarding/actions.ts:175 (archive), :195 (upsert rows carry updated_at), work/subdomain-actions.ts:86 (insert), :119 (rename), :134 (archive), :159 (reorder); the only DB-side writer, RPC merge_subdomain_config (000_baseline.sql:291, found by pg_proc scan), sets updated_at = now().",
+        summaryColumns: ["domain_id", "key", "label", "kind", "archived_at"],
+        fullColumns: ["domain_id", "key", "label", "kind", "position", "widgets", "config", "archived_at", "created_at", "updated_at"],
+        filterableColumns: ["domain_id", "key", "kind"],
+        orderBy: [
+          { column: "position", ascending: true },
+          { column: "id", ascending: true },
+        ],
+      },
     },
   },
   checkins: {

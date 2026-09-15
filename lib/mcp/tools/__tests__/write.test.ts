@@ -73,8 +73,56 @@ describe("writeTool — dispatch + error shape", () => {
   });
 
   it("defaults patch to {} when omitted, so the handler's own validation (not a crash here) reports the missing fields", async () => {
+    // P4-03: prayer.log's `date` now defaults to the account's local today,
+    // so the first missing field the handler reports is prayer_name.
     const client = makeClient();
-    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "log" })).rejects.toThrow(/patch\.date/i);
+    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "log" })).rejects.toThrow(/patch\.prayer_name/i);
+  });
+});
+
+describe("writeTool — P4-03 patch.date defaults to the account's LOCAL today", () => {
+  function capturingClient(timezone: string) {
+    const upserts: Record<string, unknown>[] = [];
+    const from = vi.fn((table: string) => {
+      const chain: Record<string, unknown> = {};
+      for (const m of ["select", "eq"]) chain[m] = vi.fn(() => chain);
+      chain.maybeSingle = vi.fn(async () =>
+        table === "profiles" ? { data: { timezone }, error: null } : table === "schedule_events" ? { data: { domain: "school" }, error: null } : { data: null, error: null },
+      );
+      chain.upsert = vi.fn((row: Record<string, unknown>) => {
+        upserts.push(row);
+        return chain;
+      });
+      chain.single = vi.fn(async () => ({ data: { id: "p-1", logged_at: "2026-09-15T03:30:00.000Z" }, error: null }));
+      return chain;
+    });
+    return { client: { from } as unknown as SupabaseClient, upserts };
+  }
+
+  it("omitted date on a log-shaped action becomes localDateString(now, tz) — 22:30 Chicago is still the 14th, not UTC's 15th", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T03:30:00.000Z"));
+    try {
+      const { client, upserts } = capturingClient("America/Chicago");
+      const outcome = await writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "log", patch: { prayer_name: "isha", status: "on_time" } });
+      expect(upserts[0]).toMatchObject({ date: "2026-09-14", prayer_name: "isha" });
+      const block = outcome.result.content[0];
+      if (block.type !== "text") throw new Error("expected text");
+      expect(JSON.parse(block.text)).toMatchObject({ date: "2026-09-14" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an explicit date is never overridden", async () => {
+    const { client, upserts } = capturingClient("America/Chicago");
+    await writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "log", patch: { date: "2026-09-01", prayer_name: "fajr", status: "on_time" } });
+    expect(upserts[0]).toMatchObject({ date: "2026-09-01" });
+  });
+
+  it("is NEVER applied where a silent 'today' could change the wrong row (school.schedule_event.cancel_occurrence still requires date)", async () => {
+    const { client } = capturingClient("America/Chicago");
+    await expect(writeTool(client, "user-1", { domain: "school", entity: "schedule_event", action: "cancel_occurrence", id: "e-1", patch: {} })).rejects.toThrow(/patch\.date/i);
   });
 });
 
@@ -94,8 +142,8 @@ describe("writeTool — deen.prayer.unlog (R9)", () => {
     expect(JSON.parse(block.text)).toMatchObject({ id: "p-9", date: "2026-09-08", status: "unlogged" });
   });
 
-  it("requires patch.date and patch.prayer_name, same as log", async () => {
+  it("requires patch.prayer_name, same as log (patch.date defaults to local today since P4-03)", async () => {
     const client = makeClient();
-    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "unlog" })).rejects.toThrow(/patch\.date/i);
+    await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "unlog" })).rejects.toThrow(/patch\.prayer_name/i);
   });
 });
