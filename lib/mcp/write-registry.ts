@@ -25,6 +25,12 @@ import { planningDateForCore, dumpLineCore, claimSeedLinesCore, savePlanRanksCor
 import { markWorryHandledCore, reopenWorryCore } from "@/lib/night-plan/worries";
 import { saveSleepIntentCore, clearSleepIntentCore } from "@/lib/night-plan/sleep-intent-core";
 import { markDayStarted } from "@/lib/day-structure/day-start";
+import {
+  createMorningRoutineItemCore,
+  archiveMorningRoutineItemCore,
+  checkMorningRoutineItemCore,
+  uncheckMorningRoutineItemCore,
+} from "@/lib/morning-routine/actions-core";
 import { createGoal, completeGoal, dropGoal, addMilestone, completeMilestone, reopenMilestone } from "@/lib/goals/actions-core";
 import { createIdentityHabitCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
@@ -2686,6 +2692,89 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: ctx.now.toISOString(), local_date: result.localDate, woke_at: result.wokeAtIso },
                 },
                 summary: `started day ${result.localDate}`,
+              };
+            },
+          },
+        },
+      },
+      // P3-01: nested under `day`, not a new top-level domain -- the
+      // source inventory groups "Start Day tap" and "Morning Routine
+      // checklist" together under one Day Structure ritual.
+      item: {
+        entity: "item",
+        actions: {
+          create: {
+            action: "create",
+            description: "Create a morning routine checklist item (up to a soft ceiling of MAX_ROUTINE_ITEMS active items -- an app-code pre-check, not a DB-enforced scarcity index, since a checklist has no rank/slot the way identity habits do).",
+            patchShape: "{ label: string }",
+            idempotent: false,
+            idempotencyVerification: "createMorningRoutineItemCore does a plain INSERT -- a retry creates a SECOND item with the same label, not a no-op.",
+            handler: async (ctx, patch) => {
+              const label = requireString(patch, "label");
+              const result = await createMorningRoutineItemCore(ctx.userClient, ctx.userId, label);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `created morning routine item "${label}"`,
+              };
+            },
+          },
+          archive: {
+            action: "archive",
+            description: "Archive a morning routine item -- NEVER a hard delete, so past checks survive. Scoped to archived_at IS NULL in the core: archiving an already-archived or foreign id is a DELIBERATE no-op (0 rows, not an error), same reasoning as habits.identity_habit.archive. Requires the top-level id.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "archiveMorningRoutineItemCore scopes its UPDATE to archived_at IS NULL -- once archived, a retry matches 0 rows and leaves the already-archived state untouched.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await archiveMorningRoutineItemCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, archived: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), archived: true } },
+                summary: `archived morning routine item ${id}`,
+              };
+            },
+          },
+          check: {
+            action: "check",
+            description: "Check off a routine item for the caller's own local today. Checks may only be applied to today -- missing date defaults to today; an explicit date that isn't today is rejected server-side. A cross-tenant item_id is rejected by the database's composite tenancy FK, surfaced as a clean not-found. Requires the top-level id (the item).",
+            patchShape: "{ date?: string }",
+            idempotent: true,
+            idempotencyVerification: "checkMorningRoutineItemCore upserts with ignoreDuplicates:true on the DB's own one-check-per-item-per-day unique constraint -- explicitly race-proof, not merely tolerant of a retry.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const date = requireString(patch, "date");
+              try {
+                await checkMorningRoutineItemCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No morning routine item found with id "${id}".`);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, date, checked: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), date, checked: true } },
+                summary: `checked off routine item ${id} for ${date}`,
+              };
+            },
+          },
+          uncheck: {
+            action: "uncheck",
+            description: "Uncheck today's check for a routine item, if one exists (undo-shaped -- deletes only today's own check row, never the item itself). Same today-only restriction as check. Requires the top-level id (the item).",
+            patchShape: "{ date?: string }",
+            idempotent: true,
+            idempotencyVerification: "uncheckMorningRoutineItemCore deletes matching (user_id,item_id,checked_date) -- 0 rows on retry (nothing to uncheck, or already unchecked) is a no-op, same SET-not-toggle reasoning as check.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const date = requireString(patch, "date");
+              try {
+                await uncheckMorningRoutineItemCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No morning routine item found with id "${id}".`);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, date, checked: false }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), date, checked: false } },
+                summary: `unchecked routine item ${id} for ${date}`,
               };
             },
           },

@@ -214,7 +214,11 @@ describe("WRITE_REGISTRY shape — the deliverable the team-lead asked for", () 
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "update", "insert", "upsert", "delete"]) chain[m] = vi.fn(() => chain);
+  // "is" alongside the rest: P3-01's archiveMorningRoutineItemCore scopes
+  // its UPDATE with `.is("archived_at", null)` (archived_at-only archive
+  // idiom, migration 188 -- no separate status column the way
+  // identity_habits has).
+  for (const m of ["select", "eq", "is", "update", "insert", "upsert", "delete"]) chain[m] = vi.fn(() => chain);
   chain.maybeSingle = vi.fn(async () => resolvedValue);
   chain.single = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
@@ -886,6 +890,86 @@ describe("habits.vote handlers", () => {
     const client = makeTableClient({ habit_votes: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/h-1/);
+  });
+});
+
+describe("day.item handlers (P3-01)", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z");
+
+  it("create REJECTS a missing label", async () => {
+    const action = getWriteAction("day", "item", "create")!;
+    const client = makeTableClient({ morning_routine_items: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/patch\.label/i);
+  });
+
+  it("create inserts a new item when under the ceiling", async () => {
+    const action = getWriteAction("day", "item", "create")!;
+    const chain: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "is", "insert"]) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: null, count: 2, error: null }); // 2 active items -> under the ceiling
+    chain.single = vi.fn(async () => ({ data: { id: "r-1", label: "Make the bed", created_at: now.toISOString() }, error: null }));
+    const client = makeTableClient({ morning_routine_items: chain as unknown as ReturnType<typeof makeChain> });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { label: "Make the bed" });
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    expect(JSON.parse(block.text)).toMatchObject({ id: "r-1" });
+  });
+
+  it("archive REQUIRES the top-level id", async () => {
+    const action = getWriteAction("day", "item", "archive")!;
+    const client = makeTableClient({ morning_routine_items: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("archive does NOT throw on 0 rows -- deliberate no-op matching the core's own design", async () => {
+    const action = getWriteAction("day", "item", "archive")!;
+    const client = makeTableClient({ morning_routine_items: makeChain({ data: null, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived-or-missing" }, {});
+    expect(outcome.summary).toMatch(/already-archived-or-missing/);
+  });
+
+  it("check REJECTS a missing patch.date", async () => {
+    const action = getWriteAction("day", "item", "check")!;
+    const client = makeTableClient({ morning_routine_checks: makeChain() });
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, {})).rejects.toThrow(/patch\.date/i);
+  });
+
+  it("check REJECTS a date other than local today", async () => {
+    const action = getWriteAction("day", "item", "check")!;
+    const client = makeTableClient({ morning_routine_checks: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2020-01-01" }),
+    ).rejects.toThrow(/today/i);
+  });
+
+  it("check upserts for local today when the date matches", async () => {
+    const action = getWriteAction("day", "item", "check")!;
+    const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2026-09-08" });
+    expect(outcome.summary).toMatch(/r-1/);
+  });
+
+  it("check translates a composite-FK violation (bad item id) into ToolNotFoundError", async () => {
+    const action = getWriteAction("day", "item", "check")!;
+    const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: { code: "23503", message: "fk violation" } }) });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "not-real" }, { date: "2026-09-08" }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("uncheck REJECTS a date other than local today", async () => {
+    const action = getWriteAction("day", "item", "uncheck")!;
+    const client = makeTableClient({ morning_routine_checks: makeChain() });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2020-01-01" }),
+    ).rejects.toThrow(/today/i);
+  });
+
+  it("uncheck deletes today's check when it exists (a no-op on 0 rows, not an error)", async () => {
+    const action = getWriteAction("day", "item", "uncheck")!;
+    const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: null }) });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2026-09-08" });
+    expect(outcome.summary).toMatch(/r-1/);
   });
 });
 

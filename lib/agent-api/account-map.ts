@@ -59,7 +59,7 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   // P4-07: write-only domains (no REGISTRY/read entry at all yet -- P4-05's
   // future territory). No `d.description` to fall back to for these (that
   // field only exists on a read DomainDef), so they need an explicit line.
-  day: "Morning day-start mark",
+  day: "Start + routine", // P3-01 added day.item; kept short for the wire budget
   goals: "Monthly goals + milestones",
   habits: "Identity habits + daily votes",
 };

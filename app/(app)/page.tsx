@@ -37,6 +37,8 @@ import { rankCandidates } from "@/lib/home/arbiter";
 import { getMorningBriefForToday } from "@/lib/ai/morning-brief";
 import { getMySleepIntentForToday } from "@/app/(app)/close/sleep-intent-actions";
 import { SleepIntentCard } from "@/components/home/sleep-intent-card";
+import { getMyMorningRoutineChecklist } from "@/app/(app)/morning-routine/actions";
+import { MorningRoutineCard } from "@/components/home/morning-routine-card";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -62,8 +64,22 @@ export default async function HomePage() {
   // getUserDomains() is called again below for hasSelfMastery/visibility.
   const domainsState = await getUserDomains();
 
-  const [items, completedToday, snapshots, extras, dayShape, weeklyGoalsResult, triggers, distractionsToday, inProgressItems, dueSummary, mcpWidgets, morningBrief, sleepIntent] =
-    await Promise.all([
+  const [
+    items,
+    completedToday,
+    snapshots,
+    extras,
+    dayShape,
+    weeklyGoalsResult,
+    triggers,
+    distractionsToday,
+    inProgressItems,
+    dueSummary,
+    mcpWidgets,
+    morningBrief,
+    sleepIntent,
+    morningRoutineItems,
+  ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
       getDomainSnapshots(userId, now),
@@ -102,6 +118,9 @@ export default async function HomePage() {
       // P2-05: decoupled from the evening close ritual entirely -- see
       // lib/night-plan/sleep-intent.ts's own header for why.
       getMySleepIntentForToday(),
+      // P3-01: user-defined checklist, tz-correct check-off -- see
+      // lib/morning-routine/actions-core.ts's own header for why.
+      getMyMorningRoutineChecklist(),
     ]);
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
@@ -219,6 +238,8 @@ export default async function HomePage() {
           <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
         </Panel>
       ) : null}
+
+      <MorningRoutineCard initialItems={morningRoutineItems} />
 
       <SleepIntentCard initialBedtime={sleepIntent} />
 
