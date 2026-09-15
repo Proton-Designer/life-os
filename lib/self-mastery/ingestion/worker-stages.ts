@@ -7,11 +7,14 @@
  * configuration table; app/api/self-mastery/ingestion/step/route.ts is the
  * one handler that reads it.
  *
- * Every `ingest_stage` except `embedding` has a handler below (`embedding`
- * is deliberately skipped -- no embedder exists in this repo, ADR-003/R43;
- * `chunkingStage` advances straight past it). A route hitting a genuinely
- * unhandled stage still returns 501 with the stage named, not a silent
- * no-op -- that discipline is unchanged, there's just nothing left to hit it.
+ * Every `ingest_stage` has a handler below. `embedding` (P2-13 Slice C) was
+ * the one exception until a real embedder existed (ADR-003/R43's local-
+ * model deferral) -- `embeddingStage` now persists real BYOK embeddings
+ * (`lib/ai/embeddings.ts`) into `source_chunks.embedding`, and
+ * `chunkingStage` transitions into it instead of skipping straight to
+ * `extracting_lessons`. A route hitting a genuinely unhandled stage still
+ * returns 501 with the stage named, not a silent no-op -- that discipline
+ * is unchanged, there's just nothing left to hit it.
  *
  * ⚠️ FAIL CLOSED WHEN NO REAL PROVIDER IS AVAILABLE — R43, and it reverses
  * this file's own earlier behaviour. The first version of this stage ran
@@ -274,7 +277,77 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
     .eq("id", ctx.job.book_id);
   if (pageCountError) throw pageCountError;
 
-  return { nextStage: "extracting_lessons", nextChunkIndex: 0 };
+  return { nextStage: "embedding", nextChunkIndex: 0 };
+}
+
+/**
+ * P2-13 Slice C: persist real embeddings for a book's chunks
+ * (`source_chunks.embedding`/`embedding_model`, migrations 063/193).
+ * CHUNK-scoped -- `IngestStage`'s own enum ordering places `embedding`
+ * between `chunking` and `extracting_lessons`, before any `lessons` row
+ * exists, so only `source_chunks` is touched here.
+ *
+ * Same MAP shape as `extractingLessonsStage`/`generatingCardsStage` (fetch
+ * a bounded batch ordered by `sort_order`, advance the cursor by the
+ * actual row count, exhausted when zero rows come back) -- deliberately
+ * NOT "every un-embedded chunk in one call": a real book can have 200+
+ * chunks (this run's own operator log records one at 201), and pushing
+ * them all into a single embeddings request risks a provider's per-call
+ * item limit or this route's own `maxDuration` for no reason -- embedding
+ * is exactly as boundable as extraction/card-generation already are.
+ * `EMBEDDING_BATCH_SIZE` is chosen conservatively: OpenAI's embeddings
+ * endpoint documents up to 2048 inputs per request, but Google's
+ * `batchEmbedContents` per-call ceiling was not stated plainly in the docs
+ * fetched for Slice A -- 20 stays well under either plausible limit while
+ * still cutting the call count meaningfully versus one chunk at a time.
+ *
+ * GRACEFUL DEGRADATION, same posture as `mergingStage`'s own `embed`
+ * closure (Slice B): `no_key`/`unavailable` writes NOTHING for this batch
+ * and the stage still advances -- embeddings are an enhancement (semantic
+ * dedupe/search), never a pipeline gate. A provider success writes
+ * `embedding` + `embedding_model` (`"provider:model"`, the SAME hardcoded
+ * mapping `lib/ai/embeddings.ts`'s own `getUserEmbeddings` uses for its
+ * usage-log entry, mirrored here since `GetUserEmbeddingsResult` doesn't
+ * return a model string directly) per row.
+ */
+const EMBEDDING_BATCH_SIZE = 20;
+
+async function embeddingStage(ctx: StageContext): Promise<StageWorkResult> {
+  const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
+
+  const { data, error } = await ctx.supabase
+    .from("source_chunks")
+    .select("id, text")
+    .eq("book_id", ctx.job.book_id)
+    .order("sort_order", { ascending: true })
+    .range(chunkIndex, chunkIndex + EMBEDDING_BATCH_SIZE - 1);
+  if (error) throw error;
+  const chunkRows = data ?? [];
+
+  if (chunkRows.length === 0) {
+    // MAP exhausted -- every chunk has been offered to embedding.
+    return { nextStage: "extracting_lessons", nextChunkIndex: 0 };
+  }
+
+  const result = await getUserEmbeddings(
+    ctx.supabase,
+    ctx.job.user_id,
+    chunkRows.map((c) => c.text),
+  );
+  if (result.status === "ok") {
+    const model = `${result.provider}:${result.provider === "openai" ? "text-embedding-3-small" : "gemini-embedding-001"}`;
+    for (let i = 0; i < chunkRows.length; i++) {
+      const { error: updateError } = await ctx.supabase
+        .from("source_chunks")
+        .update({ embedding: `[${result.embeddings[i]!.join(",")}]`, embedding_model: model })
+        .eq("id", chunkRows[i]!.id);
+      if (updateError) throw updateError;
+    }
+  }
+  // no_key/unavailable: write nothing for this batch, same graceful
+  // degradation as Slice B -- this stage never blocks the pipeline.
+
+  return { nextStage: "embedding", nextChunkIndex: chunkIndex + chunkRows.length };
 }
 
 /**
@@ -974,6 +1047,7 @@ export const STAGE_HANDLERS: Partial<Record<IngestStage, StageHandler>> = {
   extracting_text: chunkingStage,
   parsing_structure: chunkingStage,
   chunking: chunkingStage,
+  embedding: embeddingStage,
   extracting_lessons: extractingLessonsStage,
   merging: mergingStage,
   verifying_grounding: verifyGroundingStage,

@@ -73,10 +73,13 @@ import type { IngestStage } from "./types";
 // Where each stage's climb STARTS. Values are cumulative low-water marks,
 // not independent chunks — chosen so the number only ever goes up (matching
 // the documented STAGE_HANDLERS order in worker-stages.ts: chunking ->
-// extracting_lessons -> merging -> verifying_grounding -> generating_cards
-// -> finalizing -> done). `embedding` is unreachable in practice (no
-// embedder exists in this repo, ADR-003/R43) but kept for type completeness
-// — STAGE_HANDLERS never routes here for it.
+// embedding -> extracting_lessons -> merging -> verifying_grounding ->
+// generating_cards -> finalizing -> done). `embedding` (P2-13 Slice C)
+// is a flat-base, whole-run stage like chunking/merging/finalizing below,
+// not chunk-indexed here -- STAGE_SPAN_PCT has no entry for it, so progress
+// stays at its base (8) for the whole stage and jumps to extracting_lessons'
+// base (10) once it's done, even though embeddingStage itself processes
+// bounded batches under the hood (see that function's own header).
 const STAGE_BASE_PCT: Record<Exclude<IngestStage, "done" | "failed">, number> = {
   queued: 2,
   extracting_text: 2,

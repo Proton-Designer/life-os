@@ -1242,3 +1242,140 @@ describe("merging stage — P2-13 embedder wiring", () => {
     expect(rankUpdates.map((r) => r.id).sort()).toEqual(["l1", "l2"]);
   });
 });
+
+/**
+ * P2-13 Slice C: `embeddingStage` (CHUNK-scoped, `chunking` -> `embedding`
+ * -> `extracting_lessons`). `getUserEmbeddings` is mocked (same shared mock
+ * Slice B's tests above use, own full suite in
+ * lib/ai/__tests__/embeddings.test.ts) -- these tests only prove the
+ * WIRING: a bounded batch is fetched and offered to it, a real result
+ * writes embedding+embedding_model per row, any failure degrades to
+ * writing nothing rather than throwing, and the cursor/stage transitions
+ * match the same MAP shape extractingLessonsStage/generatingCardsStage use.
+ */
+describe("embedding stage — P2-13 Slice C", () => {
+  function makeEmbeddingSupabase(chunks: { id: string; text: string }[]) {
+    const updates: { id: string; embedding: unknown; embedding_model: unknown }[] = [];
+    const supabase = {
+      from(table: string) {
+        if (table === "source_chunks") {
+          return {
+            select() {
+              return {
+                eq() {
+                  return {
+                    order() {
+                      return {
+                        range(from: number, to: number) {
+                          return { then: (resolve: (v: { data: unknown; error: null }) => void) => resolve({ data: chunks.slice(from, to + 1), error: null }) };
+                        },
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            update(vals: Record<string, unknown>) {
+              const builder = {
+                eq(col: string, val: unknown) {
+                  if (col === "id") updates.push({ id: val as string, embedding: vals.embedding, embedding_model: vals.embedding_model });
+                  return builder;
+                },
+                then(resolve: (v: { error: null }) => void) {
+                  resolve({ error: null });
+                },
+              };
+              return builder;
+            },
+          };
+        }
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+    return { supabase, updates };
+  }
+
+  beforeEach(() => {
+    getUserEmbeddingsMock.mockReset();
+  });
+
+  it("calls getUserEmbeddings with this job's own user id and every fetched chunk's text", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "no_key" });
+    const { supabase } = makeEmbeddingSupabase([{ id: "c1", text: "passage one" }, { id: "c2", text: "passage two" }]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    await STAGE_HANDLERS.embedding!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-77", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    expect(getUserEmbeddingsMock).toHaveBeenCalled();
+    const call = getUserEmbeddingsMock.mock.calls[0]!;
+    expect(call[1]).toBe("owner-77");
+    expect(call[2]).toEqual(["passage one", "passage two"]);
+  });
+
+  it("a successful result writes embedding (as a pgvector literal) + embedding_model per chunk, and advances the cursor by the batch size", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "ok", provider: "openai", embeddings: [[0.1, 0.2], [0.3, 0.4]] });
+    const { supabase, updates } = makeEmbeddingSupabase([{ id: "c1", text: "passage one" }, { id: "c2", text: "passage two" }]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const result = await STAGE_HANDLERS.embedding!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(updates).toEqual([
+      { id: "c1", embedding: "[0.1,0.2]", embedding_model: "openai:text-embedding-3-small" },
+      { id: "c2", embedding: "[0.3,0.4]", embedding_model: "openai:text-embedding-3-small" },
+    ]);
+    expect(result).toEqual({ nextStage: "embedding", nextChunkIndex: 2 });
+  });
+
+  it("tags a Google result with the gemini model name", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "ok", provider: "google", embeddings: [[0.5, 0.6]] });
+    const { supabase, updates } = makeEmbeddingSupabase([{ id: "c1", text: "passage one" }]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    await STAGE_HANDLERS.embedding!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    expect(updates).toEqual([{ id: "c1", embedding: "[0.5,0.6]", embedding_model: "google:gemini-embedding-001" }]);
+  });
+
+  it("status: no_key writes NOTHING for this batch, and the stage still advances -- embeddings are an enhancement, never a pipeline gate", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "no_key" });
+    const { supabase, updates } = makeEmbeddingSupabase([{ id: "c1", text: "passage one" }]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const result = await STAGE_HANDLERS.embedding!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(updates).toHaveLength(0);
+    expect(result).toEqual({ nextStage: "embedding", nextChunkIndex: 1 });
+  });
+
+  it("status: unavailable (provider error/spend cap) ALSO degrades gracefully rather than failing the stage", async () => {
+    getUserEmbeddingsMock.mockResolvedValue({ status: "unavailable", message: "OpenAI rejected that key." });
+    const { supabase, updates } = makeEmbeddingSupabase([{ id: "c1", text: "passage one" }]);
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const result = await STAGE_HANDLERS.embedding!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never,
+      supabase: supabase as never,
+    });
+    expect(result).toEqual({ nextStage: "embedding", nextChunkIndex: 1 });
+    expect(updates).toHaveLength(0);
+  });
+
+  it("advances to extracting_lessons (cursor reset to 0) once every chunk has been offered", async () => {
+    const { supabase } = makeEmbeddingSupabase([]); // range() past the last chunk
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    const result = await STAGE_HANDLERS.embedding!({
+      job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 40 } as never,
+      supabase: supabase as never,
+    });
+
+    expect(result).toEqual({ nextStage: "extracting_lessons", nextChunkIndex: 0 });
+    expect(getUserEmbeddingsMock).not.toHaveBeenCalled();
+  });
+});
