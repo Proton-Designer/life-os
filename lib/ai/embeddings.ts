@@ -48,6 +48,24 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** Checked in this fixed order -- see this file's own header for why. */
 const PROVIDER_PREFERENCE: EmbeddingProvider[] = ["openai", "google"];
 
+/**
+ * The one place the provider->model-name mapping lives (P2-13D). Previously
+ * duplicated inline at this file's own recordUsage call AND at
+ * worker-stages.ts's embeddingStage -- a third call site (semantic-search.ts)
+ * made the duplication risk of the two independently drifting real enough
+ * to centralize. Combined with a provider tag via `embeddingModelTag` below
+ * to form the `source_chunks.embedding_model`/`lessons.embedding_model`
+ * "provider:model" convention migration 193 documents.
+ */
+export const EMBEDDING_MODEL_NAME: Record<EmbeddingProvider, string> = {
+  openai: "text-embedding-3-small",
+  google: "gemini-embedding-001",
+};
+
+export function embeddingModelTag(provider: EmbeddingProvider): string {
+  return `${provider}:${EMBEDDING_MODEL_NAME[provider]}`;
+}
+
 function isAbortError(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { name?: unknown }).name === "AbortError";
 }
@@ -191,7 +209,7 @@ export async function getUserEmbeddings(
         userId,
         feature: "self_mastery_embeddings",
         provider,
-        model: provider === "openai" ? "text-embedding-3-small" : "gemini-embedding-001",
+        model: EMBEDDING_MODEL_NAME[provider],
         keySource: "user",
         promptText: texts.join("\n").slice(0, 500), // hashed internally by recordUsage's own store, never persisted as-is -- see UsageLogEntry's own doc comment.
         tokens: { promptTokens, cachedPromptTokens: 0, completionTokens: 0, reasoningTokens: 0 },

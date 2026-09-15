@@ -54,7 +54,7 @@ import { DevShimProvider } from "./llm/dev-shim-provider";
 import { DeepSeekProvider, BATCH_SIZE_EXTRACT, BATCH_SIZE_CARDS } from "./llm/deepseek-provider";
 import { HeuristicProvider, type Embedder } from "./llm/heuristic-provider";
 import type { CandidateLesson, GeneratedCard, EvidenceStrength } from "./llm/types";
-import { getUserEmbeddings } from "@/lib/ai/embeddings";
+import { getUserEmbeddings, embeddingModelTag } from "@/lib/ai/embeddings";
 import { loadPdf, extractPages, extractOutline } from "./pdf";
 import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
@@ -335,7 +335,7 @@ async function embeddingStage(ctx: StageContext): Promise<StageWorkResult> {
     chunkRows.map((c) => c.text),
   );
   if (result.status === "ok") {
-    const model = `${result.provider}:${result.provider === "openai" ? "text-embedding-3-small" : "gemini-embedding-001"}`;
+    const model = embeddingModelTag(result.provider);
     for (let i = 0; i < chunkRows.length; i++) {
       const { error: updateError } = await ctx.supabase
         .from("source_chunks")

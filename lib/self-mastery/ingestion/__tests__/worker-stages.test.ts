@@ -31,8 +31,10 @@ vi.mock("@/lib/ai/gateway", () => ({
 }));
 
 const getUserEmbeddingsMock = vi.fn();
+const EMBEDDING_MODEL_NAME = { openai: "text-embedding-3-small", google: "gemini-embedding-001" } as const;
 vi.mock("@/lib/ai/embeddings", () => ({
   getUserEmbeddings: (...args: unknown[]) => getUserEmbeddingsMock(...args),
+  embeddingModelTag: (provider: "openai" | "google") => `${provider}:${EMBEDDING_MODEL_NAME[provider]}`,
 }));
 
 function makeSupabaseWithLessons(
