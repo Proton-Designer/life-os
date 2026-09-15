@@ -201,3 +201,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
   production *is* an apply (R32.2) — learned by demonstrating a gate on a real file and
   advancing production's state in the process.
 | `188` | Sonnet ENG 1 (P3-01), allocated by Opus Lead, 2026-09-15 | Morning routine checklist: morning_routine_items + morning_routine_checks | allocated |
+| `189` | Sonnet ENG 1 (P2-21), allocated by Opus Lead, 2026-09-15 | Canvas dedup columns: class_assessments.canvas_assignment_id + staging_batches.canvas_announcement_id (partial unique) | allocated |
