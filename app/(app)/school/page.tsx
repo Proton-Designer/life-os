@@ -39,6 +39,9 @@ import { ClassCard } from "@/components/school/class-card";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
 import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
 import { computeCourseLoadForecast, type ForecastableAssessment } from "@/lib/school/course-load-forecast";
+import { PracticeVsRealBenchmarkPanel } from "@/components/school/practice-vs-real-benchmark-panel";
+import { computePracticeVsRealBenchmark } from "@/lib/school/practice-vs-real-benchmark";
+import { getPracticeBenchmarkInputs } from "@/lib/school/get-practice-benchmark-inputs";
 import { SchoolTodayPanel } from "@/components/school/school-today-panel";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 
@@ -75,7 +78,7 @@ export default async function SchoolPage() {
   // getClassCards/getSchoolTodayFeed depend only on userId/weekStart/dateStr (known
   // before any of the three queries below resolve), so both join this wave instead of
   // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems, transcriptionAvailability] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems, transcriptionAvailability, practiceBenchmarkInputs] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -97,6 +100,10 @@ export default async function SchoolPage() {
     // P3-15 — account-wide (not per-class), fetched once here and threaded down through
     // ClassCard -> ClassDetailDialog -> LecturePanel rather than re-fetched per class.
     getTranscriptionAvailability(),
+    // P3-12 — its own lean classes+class_assessments+practice_tests read
+    // (not built from classCards, which doesn't fetch practice_tests at
+    // all) — see get-practice-benchmark-inputs.ts's own header.
+    getPracticeBenchmarkInputs(supabase, userId),
   ]);
 
   const cancelledDates = await getCancelledDatesByEvent(
@@ -143,6 +150,9 @@ export default async function SchoolPage() {
   );
   const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, dateStr);
   const overflowWeekCount = courseLoadForecast.weeks.filter((w) => w.overflow).length;
+
+  // P3-12 — practice-test vs real-grade benchmarking.
+  const practiceVsRealBenchmark = computePracticeVsRealBenchmark(practiceBenchmarkInputs);
 
   const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
     id: c.id,
@@ -415,6 +425,14 @@ export default async function SchoolPage() {
         caption={overflowWeekCount === 0 ? "no overloaded weeks ahead" : `overloaded week${overflowWeekCount === 1 ? "" : "s"} ahead`}
       >
         <CourseLoadForecastPanel forecast={courseLoadForecast} todayStr={dateStr} />
+      </Panel>
+
+      {/* P3-12 — practice-test vs real-grade benchmarking. Always rendered,
+          same as Course load/Deadline risk on this page -- the panel's own
+          !hasData branch shows an honest "not enough data yet" message
+          rather than this page hiding the panel outright. */}
+      <Panel title="Practice vs. real grade">
+        <PracticeVsRealBenchmarkPanel benchmark={practiceVsRealBenchmark} todayStr={dateStr} />
       </Panel>
 
       {/* Item 6b (Ayman, verbatim): "a module card for every single class
