@@ -131,3 +131,91 @@ export async function fetchCanvasCourses(instanceUrl: string, token: string): Pr
     }));
   return { ok: true, data: courses };
 }
+
+const ANNOUNCEMENTS_PER_PAGE = 50;
+const ASSIGNMENTS_PER_PAGE = 100;
+
+export interface CanvasAnnouncement {
+  canvasAnnouncementId: string;
+  title: string;
+  /** Raw HTML, exactly as Canvas stores it — the caller (P2-21's sync-core)
+   * strips tags before handing this to the LLM extraction step, same as
+   * any other untrusted free text this app parses. */
+  messageHtml: string;
+  postedAt: string | null;
+}
+
+/**
+ * P2-21 — announcements posted to a mapped course since `sinceIso`.
+ * `context_codes[]=course_<id>` is Canvas's own multi-context announcements
+ * endpoint (built for exactly this "what's new across my courses" use);
+ * scoped to one course per call here since the sync loop already iterates
+ * courses one at a time (same shape `fetchCanvasCourses` and
+ * `fetchCanvasGradedAssignments` both take). `start_date` bounds the
+ * window rather than tracking a per-course cursor — the caller re-polls a
+ * fixed recent window every run and relies on migration 189's own dedup
+ * index for idempotency, not on this call returning only-ever-new items.
+ */
+export async function fetchCanvasAnnouncements(instanceUrl: string, token: string, courseId: string, sinceIso: string): Promise<CanvasClientResult<CanvasAnnouncement[]>> {
+  const res = await canvasFetch(
+    instanceUrl,
+    token,
+    `/api/v1/announcements?context_codes[]=${encodeURIComponent(`course_${courseId}`)}&start_date=${encodeURIComponent(sinceIso)}&per_page=${ANNOUNCEMENTS_PER_PAGE}`,
+  );
+  if (!res.ok) return res;
+  const raw = res.data;
+  if (!Array.isArray(raw)) {
+    return { ok: false, message: "Canvas returned an unexpected announcement list shape." };
+  }
+  const announcements: CanvasAnnouncement[] = raw
+    .filter((a): a is { id: number | string; title?: string; message?: string; posted_at?: string } => Boolean(a) && typeof a === "object" && "id" in a)
+    .map((a) => ({
+      canvasAnnouncementId: String(a.id),
+      title: a.title ?? "(untitled announcement)",
+      messageHtml: a.message ?? "",
+      postedAt: a.posted_at ?? null,
+    }));
+  return { ok: true, data: announcements };
+}
+
+export interface CanvasGradedAssignment {
+  canvasAssignmentId: string;
+  name: string;
+  dueAt: string | null;
+  pointsPossible: number | null;
+  pointsEarned: number;
+}
+
+/**
+ * P2-21 — assignments the caller has a GRADED submission for, in a mapped
+ * course. `include[]=submission` embeds the current user's own submission
+ * on each assignment object in one call — Canvas's own idiom for "my
+ * grades in this course" — rather than a separate submissions endpoint.
+ * Filtered to `workflow_state === "graded"` with a real numeric `score`
+ * here (not left to the caller): an ungraded/excused/missing submission
+ * has no grade to sync, and P2-21's own scope is grade sync, not a general
+ * due-date/assignment sync (that reads as P3-13's ICS-reconciliation
+ * territory instead).
+ */
+export async function fetchCanvasGradedAssignments(instanceUrl: string, token: string, courseId: string): Promise<CanvasClientResult<CanvasGradedAssignment[]>> {
+  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses/${encodeURIComponent(courseId)}/assignments?include[]=submission&per_page=${ASSIGNMENTS_PER_PAGE}`);
+  if (!res.ok) return res;
+  const raw = res.data;
+  if (!Array.isArray(raw)) {
+    return { ok: false, message: "Canvas returned an unexpected assignment list shape." };
+  }
+  const graded: CanvasGradedAssignment[] = raw
+    .filter(
+      (a): a is { id: number | string; name?: string; due_at?: string; points_possible?: number; submission?: { workflow_state?: string; score?: number } } =>
+        Boolean(a) && typeof a === "object" && "id" in a,
+    )
+    .filter((a) => a.submission?.workflow_state === "graded" && typeof a.submission?.score === "number")
+    .map((a) => ({
+      canvasAssignmentId: String(a.id),
+      name: a.name ?? `Assignment ${a.id}`,
+      dueAt: a.due_at ?? null,
+      pointsPossible: typeof a.points_possible === "number" ? a.points_possible : null,
+      pointsEarned: a.submission!.score as number,
+    }));
+  return { ok: true, data: graded };
+}

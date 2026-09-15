@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
-import { encryptSecret, decryptSecret, isKeyStorageConfigured, last4 } from "@/lib/ai/encryption";
+import { encryptSecret, isKeyStorageConfigured, last4 } from "@/lib/ai/encryption";
 import { verifyCanvasToken, fetchCanvasCourses } from "@/lib/canvas/client";
+import { resolveCanvasConnectionCore, recordCanvasSyncOutcomeCore } from "@/lib/canvas/connection-core";
 import { checkUrlSyntax, resolveSafeOutboundUrl, safeOrigin } from "@/lib/net/safe-outbound-url";
 
 /**
@@ -137,25 +138,6 @@ export async function disconnectCanvas(): Promise<CanvasActionResult> {
 }
 
 /**
- * Server-only helper: resolves the stored connection's plaintext token.
- * Never exported — every caller in this file is itself a Server Action, so
- * the plaintext never leaves this module, same discipline as
- * api-key-actions.ts's `saveApiKey`/`testStoredKey`.
- */
-async function resolveStoredConnection(
-  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
-  userId: string,
-): Promise<{ instanceUrl: string; token: string } | null> {
-  const { data } = await supabase
-    .from("canvas_connections")
-    .select("instance_url, encrypted_token")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (!data) return null;
-  return { instanceUrl: data.instance_url, token: decryptSecret(data.encrypted_token) };
-}
-
-/**
  * Live-fetches the user's active Canvas courses and upserts them into
  * canvas_course_mappings. `class_id` is deliberately absent from the
  * upsert payload — PostgREST's upsert only sets columns present in the
@@ -170,8 +152,16 @@ async function resolveStoredConnection(
  * network blip or SSRF-guard rejection must not send the user down a
  * reconnect flow for a problem that isn't the credential).
  *
- * 04-verification finding (a9, live): `resolveStoredConnection`'s
- * `decryptSecret` (or, defensively, anything else in this function) can
+ * P2-21: the connection-resolve step and the sync-status write both now go
+ * through lib/canvas/connection-core.ts's `resolveCanvasConnectionCore`/
+ * `recordCanvasSyncOutcomeCore` (R5 extraction) — the new Canvas cron sync
+ * needs the identical decrypt-and-resolve step and the identical three-way
+ * status write, looped over many users with a service-role client instead
+ * of this file's single cookie-authed `requireUser()` call. Behavior here
+ * is unchanged; only where the logic lives moved.
+ *
+ * 04-verification finding (a9, live): the connection-resolve step's
+ * `decryptSecret` (or, defensively, anything else in that function) can
  * throw synchronously rather than return a `CanvasClientResult` — a stored
  * token that predates an `API_KEY_ENCRYPTION_SECRET` rotation is the real
  * case, but ANY unhandled throw here left the Server Action rejecting with
@@ -187,15 +177,12 @@ async function resolveStoredConnection(
 export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
   const { supabase, userId } = await requireUser();
 
-  let conn: Awaited<ReturnType<typeof resolveStoredConnection>>;
+  let conn: Awaited<ReturnType<typeof resolveCanvasConnectionCore>>;
   try {
-    conn = await resolveStoredConnection(supabase, userId);
+    conn = await resolveCanvasConnectionCore(supabase, userId);
   } catch {
     const message = "Your saved Canvas token can't be read anymore. Reconnect.";
-    await supabase
-      .from("canvas_connections")
-      .update({ token_status: "expired", last_sync_error: message, updated_at: new Date().toISOString() })
-      .eq("user_id", userId);
+    await recordCanvasSyncOutcomeCore(supabase, userId, { kind: "decrypt_failed" });
     revalidatePath("/settings");
     return { ok: false, message };
   }

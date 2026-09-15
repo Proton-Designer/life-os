@@ -17,7 +17,7 @@ vi.mock("@/lib/net/safe-outbound-url", () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }));
 
-const { verifyCanvasToken, fetchCanvasCourses } = await import("@/lib/canvas/client");
+const { verifyCanvasToken, fetchCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments } = await import("@/lib/canvas/client");
 
 describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
   beforeEach(() => safeFetchMock.mockReset());
@@ -59,5 +59,39 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     const res = await verifyCanvasToken("https://school.instructure.com", "tok");
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.authExpired).toBeUndefined();
+  });
+
+  it("fetchCanvasAnnouncements calls safeFetch with context_codes and start_date, maps the response", async () => {
+    safeFetchMock.mockResolvedValue(
+      new Response(JSON.stringify([{ id: 501, title: "Quiz moved", message: "<p>Moved to Friday</p>", posted_at: "2026-09-10T00:00:00Z" }]), { status: 200 }),
+    );
+    const res = await fetchCanvasAnnouncements("https://school.instructure.com", "tok", "123", "2026-09-01T00:00:00.000Z");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data).toEqual([{ canvasAnnouncementId: "501", title: "Quiz moved", messageHtml: "<p>Moved to Friday</p>", postedAt: "2026-09-10T00:00:00Z" }]);
+    const url = String(safeFetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/v1/announcements");
+    expect(url).toContain(encodeURIComponent("course_123"));
+    expect(url).toContain(encodeURIComponent("2026-09-01T00:00:00.000Z"));
+  });
+
+  it("fetchCanvasGradedAssignments keeps only graded submissions with a numeric score", async () => {
+    safeFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          { id: 1, name: "Essay 1", due_at: "2026-09-20T23:59:00Z", points_possible: 100, submission: { workflow_state: "graded", score: 92 } },
+          { id: 2, name: "Essay 2 (ungraded)", due_at: "2026-09-22T23:59:00Z", points_possible: 100, submission: { workflow_state: "unsubmitted" } },
+          { id: 3, name: "Essay 3 (graded, no score)", due_at: null, points_possible: 50, submission: { workflow_state: "graded" } },
+        ]),
+        { status: 200 },
+      ),
+    );
+    const res = await fetchCanvasGradedAssignments("https://school.instructure.com", "tok", "123");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data).toEqual([{ canvasAssignmentId: "1", name: "Essay 1", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 }]);
+    const url = String(safeFetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/v1/courses/123/assignments");
+    expect(url).toContain("include[]=submission");
   });
 });
