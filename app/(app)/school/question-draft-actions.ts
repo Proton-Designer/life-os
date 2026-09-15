@@ -35,7 +35,7 @@ export async function draftQuestionsFromNotes(notesText: string): Promise<Questi
  * `transcript_text` to draft from — `queued`/`processing`/`failed` all read
  * as "not ready yet," a normal state, not an error.
  */
-export async function draftQuestionsFromTranscript(recordingId: string): Promise<TranscriptQuestionDraftOutcome | { status: "not_ready" }> {
+export async function draftQuestionsFromTranscript(recordingId: string): Promise<TranscriptQuestionDraftOutcome | { status: "not_ready" } | { status: "error" }> {
   const { supabase, userId } = await requireUser();
   const { data: transcript, error } = await supabase
     .from("lecture_transcripts")
@@ -43,7 +43,10 @@ export async function draftQuestionsFromTranscript(recordingId: string): Promise
     .eq("recording_id", recordingId)
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) throw error;
+  // P3-16 FIX (HANDOFF-team-b.md §5 item 2): a Server Action must never
+  // throw (this codebase's own never-throw rule -- every other outcome
+  // here is already a returned status, not an exception).
+  if (error) return { status: "error" };
   if (!transcript || transcript.status !== "completed" || !transcript.transcript_text) {
     return { status: "not_ready" };
   }

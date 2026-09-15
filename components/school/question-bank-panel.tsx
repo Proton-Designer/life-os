@@ -100,12 +100,14 @@ const DRAFT_OUTCOME_MESSAGE: Partial<Record<QuestionDraftOutcome["status"], stri
 
 /** P3-16 — same messages, plus "not_ready" (the picked transcript isn't
  * `completed` — can happen if it was still processing when the picker
- * opened and finished/failed in between). */
-const TRANSCRIPT_DRAFT_OUTCOME_MESSAGE: Partial<Record<TranscriptQuestionDraftOutcome["status"] | "not_ready", string>> = {
+ * opened and finished/failed in between) and "error" (the transcript
+ * lookup itself failed — a DB error, never thrown from the Server Action). */
+const TRANSCRIPT_DRAFT_OUTCOME_MESSAGE: Partial<Record<TranscriptQuestionDraftOutcome["status"] | "not_ready" | "error", string>> = {
   no_key: "Add an API key in Settings to draft questions automatically, or add them manually below.",
   unavailable: "AI drafting isn't available right now — try again shortly, or add questions manually below.",
   parse_failed: "Couldn't make sense of the draft result — try again, or add a question manually.",
   not_ready: "This transcript isn't ready yet — try again once it finishes.",
+  error: "Couldn't check that transcript — try again, or add a question manually.",
 };
 
 /** P3-16 — the lean subset of a lecture recording this panel actually

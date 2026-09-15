@@ -69,10 +69,13 @@ describe("draftQuestionsFromTranscript (question-draft-actions.ts)", () => {
     expect(draftQuestionsFromTranscriptCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "the lecture, verbatim");
   });
 
-  it("throws on a real DB error rather than silently returning not_ready", async () => {
+  it("P3-16 FIX (HANDOFF-team-b.md §5 item 2): a real DB error returns {status:'error'}, never throws -- Server Actions must never throw (this codebase's own never-throw rule)", async () => {
     fromResult = { data: null, error: { message: "connection reset" } };
     const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
 
-    await expect(draftQuestionsFromTranscript("rec-1")).rejects.toEqual({ message: "connection reset" });
+    const result = await draftQuestionsFromTranscript("rec-1");
+
+    expect(result).toEqual({ status: "error" });
+    expect(draftQuestionsFromTranscriptCoreMock).not.toHaveBeenCalled();
   });
 });
