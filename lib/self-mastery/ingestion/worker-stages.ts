@@ -57,6 +57,7 @@ import { chunkBook } from "./chunk";
 import { computeTargetLessonCount } from "./merge";
 import { buildSectionInsertPlan } from "./persist-sections";
 import { repairExtractedPages } from "./text-repair";
+import { notifyBookReady } from "@/lib/notifications/book-ready-notification";
 
 type IngestStage = Database["public"]["Enums"]["ingest_stage"];
 type IngestionJobRow = Database["public"]["Tables"]["ingestion_jobs"]["Row"];
@@ -663,6 +664,17 @@ async function finalizingStage(ctx: StageContext): Promise<StageWorkResult> {
     .update({ status: "ready", ready_at: new Date().toISOString(), progress_pct: 100, lesson_count: count })
     .eq("id", ctx.job.book_id);
   if (updateError) throw updateError;
+
+  // #6: "your book is ready" push. NON-FATAL BY DESIGN (Opus Lead
+  // requirement, 2026-09-14) -- a book becoming ready matters more than the
+  // notification about it, so a push failure here must never fail or roll
+  // back this stage. See lib/notifications/book-ready-notification.ts for
+  // the claim-first exactly-once design (migration 177/178).
+  try {
+    await notifyBookReady(ctx.supabase, ctx.job.user_id, ctx.job.book_id);
+  } catch (notifyError) {
+    console.error(`notifyBookReady failed for book ${ctx.job.book_id}:`, notifyError);
+  }
 
   return { nextStage: "done", nextChunkIndex: null };
 }
