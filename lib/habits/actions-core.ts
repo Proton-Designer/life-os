@@ -30,13 +30,22 @@ function toHabit(row: HabitRow): Habit {
  * (lib/goals/actions-core.ts's createGoal takes an explicit user-chosen
  * rank 1-5) -- the spec is "up to 7 habits," nobody picks a slot number.
  *
- * THE CEILING IS `identity_habits_rank_per_user_idx` (migration 175), NOT
- * this function's pre-check -- same discipline as createGoal/165. The
- * pre-check below exists only to produce an honest "all 7 are full" error
- * instead of a raw 23505 in the common case; a genuine race between two
- * tabs still gets correctly refused by the database's partial unique index,
- * surfaced here as a normal Postgres error the caller can inspect (`code
- * === "23505"`).
+ * THE CEILING IS `identity_habits_rank_per_user_idx`, NOT this function's
+ * pre-check -- same discipline as createGoal/165. The pre-check below
+ * exists only to produce an honest "all 7 are full" error instead of a raw
+ * 23505 in the common case; a genuine race between two tabs still gets
+ * correctly refused by the database's partial unique index, surfaced here
+ * as a normal Postgres error the caller can inspect (`code === "23505"`).
+ *
+ * P3-07 (migration 202) widened that index to `where status in ('active',
+ * 'paused')` -- pausing keeps a habit's rank slot (it is not archiving), so
+ * a PAUSED habit's rank is just as occupied as an active one's. The
+ * pre-check below must read both statuses, or it can compute a "free" rank
+ * that is actually held by a paused habit and crash the insert on the DB's
+ * own unique violation instead of giving the honest ceiling message. Fixed
+ * as a P3-07 blocking finding from Sonnet ENG 1's own review of that task
+ * (mixed active+paused repro, red-first regression test in
+ * lib/habits/__tests__/actions-core.test.ts).
  */
 export async function createIdentityHabitCore(supabase: TypedClient, userId: string, identityStatement: string): Promise<Habit> {
   const trimmed = identityStatement.trim();
@@ -44,14 +53,14 @@ export async function createIdentityHabitCore(supabase: TypedClient, userId: str
     throw new Error("An identity habit needs a statement.");
   }
 
-  const { data: active, error: selectError } = await supabase
+  const { data: occupied, error: selectError } = await supabase
     .from("identity_habits")
     .select("rank")
     .eq("user_id", userId)
-    .eq("status", "active");
+    .in("status", ["active", "paused"]);
   if (selectError) throw selectError;
 
-  const usedRanks = new Set((active ?? []).map((r) => r.rank as number));
+  const usedRanks = new Set((occupied ?? []).map((r) => r.rank as number));
   let nextRank: number | null = null;
   for (let r = 1; r <= MAX_ACTIVE_HABITS; r++) {
     if (!usedRanks.has(r)) {
@@ -60,7 +69,7 @@ export async function createIdentityHabitCore(supabase: TypedClient, userId: str
     }
   }
   if (nextRank === null) {
-    throw new Error(`You already have ${MAX_ACTIVE_HABITS} active habits — archive one before adding another.`);
+    throw new Error(`You already have ${MAX_ACTIVE_HABITS} active or paused habits — archive one before adding another.`);
   }
 
   const { data, error } = await supabase

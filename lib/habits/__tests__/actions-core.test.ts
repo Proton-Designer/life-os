@@ -91,7 +91,7 @@ describe("createIdentityHabitCore", () => {
     const { client, calls } = makeClient({
       identity_habits: [{ data: fullRanks, error: null }],
     });
-    await expect(createIdentityHabitCore(client, "user-1", "the athlete")).rejects.toThrow(/already have 7 active habits/);
+    await expect(createIdentityHabitCore(client, "user-1", "the athlete")).rejects.toThrow(/already have 7/);
     expect(calls.identity_habits!.some((c) => c.method === "insert")).toBe(false);
   });
 
@@ -100,6 +100,88 @@ describe("createIdentityHabitCore", () => {
       identity_habits: [{ data: [], error: null }, { data: null, error: { code: "23505", message: "duplicate key" } }],
     });
     await expect(createIdentityHabitCore(client, "user-1", "the athlete")).rejects.toMatchObject({ code: "23505" });
+  });
+
+  /**
+   * P3-07 BLOCKING FINDING (Sonnet ENG 1's own P3-07 review, fixed here per
+   * Opus Lead's direct 13:54 assignment): migration 202 widened
+   * `identity_habits_rank_per_user_idx` to `where status in ('active',
+   * 'paused')` -- a paused habit keeps its rank slot (its own header:
+   * "pausing does not mean 'not one of my chosen identities anymore'").
+   * The pre-check here must therefore see paused ranks too, or it computes
+   * a "free" rank that the DB's own unique index then refuses with a raw
+   * 23505 instead of the friendly ceiling message.
+   *
+   * This fake client actually distinguishes `.eq("status","active")` from
+   * `.in("status", [...])` (unlike the shared per-table queue `makeClient`
+   * above, which is blind to filter args) -- it has to, precisely because
+   * the bug and the fix differ ONLY in which statuses the query asks for.
+   */
+  function makeStatusAwareRankClient(rows: { rank: number; status: "active" | "paused" }[]) {
+    const calls: Call[] = [];
+    let insertPayload: Record<string, unknown> | null = null;
+    const chain: Record<string, unknown> = {};
+    const record =
+      (method: string) =>
+      (...args: unknown[]) => {
+        calls.push({ method, args });
+        return chain;
+      };
+    chain.select = vi.fn(record("select"));
+    chain.eq = vi.fn(record("eq"));
+    chain.in = vi.fn(record("in"));
+    chain.insert = vi.fn((row: Record<string, unknown>) => {
+      insertPayload = row;
+      calls.push({ method: "insert", args: [row] });
+      return chain;
+    });
+    chain.single = vi.fn(async () => ({
+      data: { id: "h1", identity_statement: String(insertPayload?.identity_statement ?? ""), rank: insertPayload?.rank, created_at: "2026-09-14T00:00:00Z" },
+      error: null,
+    }));
+    chain.then = (resolve: (v: Resp) => void) => {
+      const inCall = calls.find((c) => c.method === "in" && c.args[0] === "status");
+      const eqCall = calls.find((c) => c.method === "eq" && c.args[0] === "status");
+      const statuses: string[] = inCall ? (inCall.args[1] as string[]) : eqCall ? [eqCall.args[1] as string] : [];
+      const data = rows.filter((r) => statuses.includes(r.status)).map((r) => ({ rank: r.rank }));
+      resolve({ data, error: null });
+    };
+    const from = vi.fn(() => chain);
+    return { client: { from } as unknown as SupabaseClient, insertPayload: () => insertPayload, calls };
+  }
+
+  it("treats a PAUSED habit as occupying its rank slot -- 5 active + 2 paused at 7 total refuses with the friendly message, never a raw unique-violation insert attempt", async () => {
+    const rows: { rank: number; status: "active" | "paused" }[] = [
+      { rank: 1, status: "active" },
+      { rank: 2, status: "active" },
+      { rank: 4, status: "active" },
+      { rank: 5, status: "active" },
+      { rank: 7, status: "active" },
+      { rank: 3, status: "paused" },
+      { rank: 6, status: "paused" },
+    ];
+    const { client, insertPayload } = makeStatusAwareRankClient(rows);
+
+    await expect(createIdentityHabitCore(client, "user-1", "the athlete")).rejects.toThrow(/already have 7/);
+    expect(insertPayload()).toBeNull();
+  });
+
+  it("a rank slot vacated only by archiving (not pausing) is still picked up as free", async () => {
+    // 6 active + 1 paused = 7 occupied ranks total is still full; but with
+    // only 5 active + 1 paused (6 occupied), rank 7 must be offered.
+    const rows: { rank: number; status: "active" | "paused" }[] = [
+      { rank: 1, status: "active" },
+      { rank: 2, status: "active" },
+      { rank: 3, status: "active" },
+      { rank: 4, status: "active" },
+      { rank: 5, status: "active" },
+      { rank: 6, status: "paused" },
+    ];
+    const { client, insertPayload } = makeStatusAwareRankClient(rows);
+
+    const habit = await createIdentityHabitCore(client, "user-1", "the athlete");
+    expect(habit.rank).toBe(7);
+    expect(insertPayload()).toMatchObject({ rank: 7 });
   });
 });
 
