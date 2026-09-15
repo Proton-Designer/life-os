@@ -91,6 +91,68 @@ describe("HabitBuilder", () => {
     expect(screen.getAllByText("None yet.").length).toBeGreaterThan(0);
   });
 
+  // P3-06: the "New" badge, additive on top of the existing Active Build/
+  // Stabilized/Locked staging windows -- age-only, independent of any
+  // stage override.
+  it("shows a New badge for a habit committed today, within Active Build's own first 7 days", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ committedDate: "2026-08-15" })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("New")).toBeInTheDocument();
+  });
+
+  it("still shows New on day 6, but not on day 7 -- both still inside Active Build's own Days 0-13 window", () => {
+    const { rerender } = render(
+      <HabitBuilder
+        todayStr="2026-08-21" // 6 days after 08-15
+        habits={[habit({ committedDate: "2026-08-15" })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("New")).toBeInTheDocument();
+
+    rerender(
+      <HabitBuilder
+        todayStr="2026-08-22" // 7 days after 08-15
+        habits={[habit({ committedDate: "2026-08-15" })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.queryByText("New")).not.toBeInTheDocument();
+  });
+
+  it("never shows New for a habit well into its own Active Build window (day 12) -- the badge covers only the first week, not the whole window", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-27" // 12 days after 08-15, still active_build (<=13)
+        habits={[habit({ committedDate: "2026-08-15" })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("Fajr on time")).toBeInTheDocument();
+    expect(screen.queryByText("New")).not.toBeInTheDocument();
+  });
+
+  it("New is about AGE, not stage -- still shows for a brand-new habit even when stageOverride pins it to Locked", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ committedDate: "2026-08-15", stageOverride: "locked" })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByText("New")).toBeInTheDocument();
+  });
+
   it("gives the current focus card a gradient wash and an icon chip", () => {
     render(
       <HabitBuilder

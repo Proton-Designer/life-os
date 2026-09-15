@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Repeat } from "lucide-react";
 import { toggleDeenHabitLog, setWeeklyFocus, createDeenHabit } from "@/app/(app)/deen/actions";
-import { habitStage, type StageOverride } from "@/lib/deen/habit-stage";
+import { habitStage, isNewHabit, type StageOverride } from "@/lib/deen/habit-stage";
 import { HabitEditorDialog } from "@/components/deen/habit-editor-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -111,7 +111,20 @@ function HabitRow({
       <HabitToggleButton habitId={habit.id} todayStr={todayStr} completed={habit.completedToday} onToggle={onToggle} />
       <span className="min-w-0 flex-1">
         <AnchorCueTag cue={habit.anchorCue} />
-        <span className="block truncate text-sm">{habit.name}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="block min-w-0 truncate text-sm">{habit.name}</span>
+          {/* P3-06: under 7 days old, independent of any stage override --
+              see lib/deen/habit-stage.ts's isNewHabit for why this is an
+              AGE question, not a "what stage is it in" one. */}
+          {isNewHabit(habit.committedDate, todayStr) && (
+            <span
+              className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              title="Under 7 days old"
+            >
+              New
+            </span>
+          )}
+        </span>
       </span>
       <div className="flex shrink-0 flex-col items-end gap-0.5">
         <span className="font-mono text-xs tabular-nums">
