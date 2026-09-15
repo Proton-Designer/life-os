@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
 
 /**
  * The full-screen Lock-In session view (2026-08-26 night batch 3). Written
@@ -54,11 +54,59 @@ function overlay(page: Page) {
   return page.getByRole("dialog", { name: /locked in/i });
 }
 
+/**
+ * #37 (2026-09-14, f042c80): clicking "Lock In — <kind>" no longer opens
+ * the full-screen session directly — it opens `session-setup-dialog.tsx`'s
+ * setup dialog, and the server (`startWorkSessionCore`) now REJECTS a
+ * start with no named deliverable, regardless of kind. This helper drives
+ * that dialog to a real "Start" click rather than assuming the old
+ * one-click flow; every test in this file goes through it.
+ *
+ * Deep Work: duration + the free-form "Custom objective" field satisfies
+ * `hasDeliverable` on its own — no class, no kill-list selection needed.
+ *
+ * Deep Study additionally requires picking a class (`canStart`'s
+ * `!isDeepStudy || classId !== null`). This picks whichever class is
+ * FIRST in the live list — deliberately not a specific name, since this
+ * spec does not own or seed SEED's class data — then satisfies the
+ * objective requirement via "Study Material" custom text rather than
+ * selecting a due-soon task, because task availability depends on live
+ * due-date data this spec has no control over and Study Material does not.
+ * If SEED has no classes at all, the Deep Study path cannot be exercised
+ * at all (Start stays disabled forever with no class selected) — skipped
+ * with a clear reason rather than hanging until the test timeout, same
+ * "don't measure what isn't there" discipline playwright.config.ts's own
+ * comment on the domains-mode specs documents for an empty table.
+ */
 async function startSession(page: Page, kind: "Deep Work" | "Deep Study") {
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
-  sessionMayBeRunning = true;
   await page.getByRole("button", { name: `Lock In — ${kind}` }).click();
+
+  const setupDialog = page.getByRole("dialog", { name: /set a goal/i });
+  await expect(setupDialog).toBeVisible();
+
+  await fillReliably(setupDialog.getByLabel("Duration in minutes"), "25");
+
+  const objectiveText = `e2e-lockin-${Date.now()}`;
+  if (kind === "Deep Study") {
+    await expect(setupDialog.getByText("Loading classes…")).toHaveCount(0);
+    if (await setupDialog.getByText("No classes yet").count()) {
+      test.skip(true, "SEED has no classes — #37's Deep Study gate (a class selection) cannot be exercised without one.");
+    }
+    // The class list's own ObjectiveRow buttons — queried before any class
+    // is picked, so this can only match class rows, not the task list
+    // (which doesn't exist in the DOM yet).
+    await setupDialog.locator("button[aria-pressed]").first().click();
+    await setupDialog.getByRole("button", { name: "Study Material" }).click();
+    await fillReliably(setupDialog.getByLabel("Study material"), objectiveText);
+  } else {
+    await fillReliably(setupDialog.getByLabel("Custom objective"), objectiveText);
+  }
+
+  sessionMayBeRunning = true;
+  await setupDialog.getByRole("button", { name: "Start" }).click();
+  await expect(setupDialog).toBeHidden();
 }
 
 test.describe("Lock-In full-screen session view", () => {
