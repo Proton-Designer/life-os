@@ -787,6 +787,39 @@ export type Database = {
         }
         Relationships: []
       }
+      collegeos_weekly_narratives: {
+        Row: {
+          created_at: string
+          generated_at: string | null
+          id: string
+          model: string | null
+          narrative_text: string | null
+          provider: string | null
+          user_id: string
+          week_start: string
+        }
+        Insert: {
+          created_at?: string
+          generated_at?: string | null
+          id?: string
+          model?: string | null
+          narrative_text?: string | null
+          provider?: string | null
+          user_id?: string
+          week_start: string
+        }
+        Update: {
+          created_at?: string
+          generated_at?: string | null
+          id?: string
+          model?: string | null
+          narrative_text?: string | null
+          provider?: string | null
+          user_id?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
       coop_targets: {
         Row: {
           completed_at: string | null
@@ -3467,6 +3500,58 @@ export type Database = {
             foreignKeyName: "trigger_plan_outcomes_trigger_same_user"
             columns: ["user_id", "trigger_id"]
             referencedRelation: "distraction_triggers"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      ulm_weekly_recaps: {
+        Row: {
+          created_at: string
+          id: string
+          overall_retention_pct: number
+          strongest_book_id: string | null
+          strongest_book_title: string | null
+          trend: string
+          user_id: string
+          weakest_book_id: string | null
+          weakest_book_title: string | null
+          week_start: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          overall_retention_pct: number
+          strongest_book_id?: string | null
+          strongest_book_title?: string | null
+          trend: string
+          user_id?: string
+          weakest_book_id?: string | null
+          weakest_book_title?: string | null
+          week_start: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          overall_retention_pct?: number
+          strongest_book_id?: string | null
+          strongest_book_title?: string | null
+          trend?: string
+          user_id?: string
+          weakest_book_id?: string | null
+          weakest_book_title?: string | null
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ulm_weekly_recaps_strongest_book_same_user"
+            columns: ["user_id", "strongest_book_id"]
+            referencedRelation: "books"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "ulm_weekly_recaps_weakest_book_same_user"
+            columns: ["user_id", "weakest_book_id"]
+            referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
         ]
