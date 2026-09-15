@@ -18,6 +18,20 @@ vi.mock("@/app/(app)/school/actions", () => ({
   addTask: vi.fn(async () => {}),
   toggleTask: vi.fn(async () => {}),
 }));
+// P2-09 -- ClassCard's "View" opens ClassDetailDialog, which mounts
+// PracticeTestPanel; unmocked, its on-mount fetch hits the real Server
+// Action and real Supabase env checks.
+vi.mock("@/app/(app)/school/practice-test-actions", () => ({
+  getMyPracticeTests: vi.fn(async () => []),
+  getPracticeTestQuestions: vi.fn(async () => []),
+  submitPracticeTestAnswer: vi.fn(async () => {}),
+  completePracticeTest: vi.fn(async () => ({ scorePct: 0, answeredCount: 0, questionCount: 0 })),
+}));
+// P2-07 -- same dialog also mounts AnnouncementPanel.
+vi.mock("@/app/(app)/school/announcement-actions", () => ({
+  extractAnnouncementDeliverables: vi.fn(async () => ({ outcome: "too_short" })),
+  getAnnouncementHistory: vi.fn(async () => []),
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 function classData(overrides: Partial<ClassCardData> = {}): ClassCardData {

@@ -26,6 +26,26 @@ vi.mock("@/app/(app)/school/actions", () => ({
   toggleTask: (...args: unknown[]) => toggleTaskMock(...args),
 }));
 
+// P2-09 -- PracticeTestPanel fetches on mount; unmocked, it hits the real
+// Server Action, which hits real Supabase env checks. Empty list = the
+// panel's own clean "no practice tests yet" state, nothing further to mock.
+vi.mock("@/app/(app)/school/practice-test-actions", () => ({
+  getMyPracticeTests: vi.fn(async () => []),
+  getPracticeTestQuestions: vi.fn(async () => []),
+  submitPracticeTestAnswer: vi.fn(async () => {}),
+  completePracticeTest: vi.fn(async () => ({ scorePct: 0, answeredCount: 0, questionCount: 0 })),
+}));
+
+// P2-07 -- AnnouncementPanel doesn't fetch on mount (history is fetched only
+// once opened), but its actions module is still imported by the tree, so a
+// real module load would still reach Supabase-touching code paths at import
+// time in some environments -- mocked for the same reason as above, and so
+// this test suite doesn't silently start exercising it if that ever changes.
+vi.mock("@/app/(app)/school/announcement-actions", () => ({
+  extractAnnouncementDeliverables: vi.fn(async () => ({ outcome: "too_short" })),
+  getAnnouncementHistory: vi.fn(async () => []),
+}));
+
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
 
