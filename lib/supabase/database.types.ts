@@ -978,6 +978,27 @@ export type Database = {
         }
         Relationships: []
       }
+      due_card_notification_log: {
+        Row: {
+          created_at: string
+          id: string
+          sent_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          sent_date: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          sent_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       exercises: {
         Row: {
           archived: boolean
