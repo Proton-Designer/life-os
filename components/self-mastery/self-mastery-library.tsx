@@ -15,6 +15,8 @@ import { localDateString } from "@/lib/date-utils";
 import { getMostRecentCompletedWeek } from "@/lib/weekly-review/week-range";
 import { getUlmWeeklyRecap } from "@/lib/self-mastery/weekly-retention-recap";
 import { WeeklyRecapCard } from "./weekly-recap-card";
+import { getOverconfidenceVerdict } from "@/lib/self-mastery/get-overconfidence-verdict";
+import { OverconfidenceCard } from "./overconfidence-card";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -57,11 +59,20 @@ export async function SelfMasteryLibrary() {
   const weekRange = getMostRecentCompletedWeek(todayStr);
   const weeklyRecap = await getUlmWeeklyRecap(supabase, userId, weekRange.startDate);
 
+  // Phase 2 #P2-08 — overconfidence detector. Cumulative (all-time), not
+  // week-scoped -- see lib/self-mastery/get-overconfidence-verdict.ts's
+  // own header. Reviews span both self-mastery book cards AND School's
+  // Question Bank (card_id vs question_id), so this lives here as the
+  // one cross-domain "how well-calibrated is my confidence" panel rather
+  // than being duplicated on the School page too.
+  const overconfidenceVerdict = await getOverconfidenceVerdict(supabase, userId);
+
   return (
     <PageContainer>
       <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && canUpload ? <UploadBookDialog /> : null} />
 
       <WeeklyRecapCard recap={weeklyRecap} />
+      <OverconfidenceCard verdict={overconfidenceVerdict} />
 
       {books.length === 0 ? (
         // Not the generic EmptyState primitive — its action contract is a
