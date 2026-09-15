@@ -45,6 +45,28 @@ vi.mock("../tool-wrapper", () => ({
   runMcpTool: (...args: unknown[]) => runMcpToolMock(...args),
 }));
 
+/**
+ * P4-12: the runner dispatches through `executeOperation` (the core runMcpTool
+ * wraps) so it can say transport "scheduler". This adapter keeps every
+ * assertion below written in runMcpTool's positional shape -- (client,
+ * authInfo, toolName, operation, requiredScope, args, fn) -- while recording
+ * the transport separately.
+ */
+const executeTransports: unknown[] = [];
+vi.mock("@/lib/agent-api/execute", () => ({
+  executeOperation: async (
+    serviceClient: unknown,
+    authInfo: unknown,
+    op: { toolName: string; operation: string; requiredScope: string; args: unknown; run: unknown },
+    transport: unknown,
+  ) => {
+    executeTransports.push(transport);
+    const r = await runMcpToolMock(serviceClient, authInfo, op.toolName, op.operation, op.requiredScope, op.args, op.run);
+    if (r.isError) return { ok: false, code: "internal", status: 500, message: r.content[0]?.type === "text" ? r.content[0].text : "error" };
+    return { ok: true, data: r.structuredContent ?? null, text: "", summary: "", toolResult: r };
+  },
+}));
+
 /** Mocked here too (not just in lib/notifications/__tests__/notify-core.test.ts) so notify-dispatch tests can verify the RUNNER wires it correctly (right client, right args) without depending on the real push-sending stack. */
 const sendScheduledNotificationCoreMock = vi.fn<(...args: unknown[]) => Promise<{ delivered: number; total: number; alreadySent: boolean }>>();
 vi.mock("@/lib/notifications/notify-core", () => ({
@@ -54,6 +76,7 @@ vi.mock("@/lib/notifications/notify-core", () => ({
 const { claimDueActions, processOneScheduledAction, processScheduledActions, MAX_CONSECUTIVE_FAILURES, NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS, CLAIM_BATCH_LIMIT } = await import("../scheduler-runner");
 
 beforeEach(() => {
+  executeTransports.length = 0;
   getLiveTokenByIdMock.mockReset();
   isUserActiveMock.mockReset();
   writeAuditRowMock.mockClear();
@@ -266,6 +289,33 @@ describe("processOneScheduledAction — P4-11 race: row claimed under token A, O
     const outcome = await processOneScheduledAction(db.client, makeRow({ token_id: "tok-1" }), now);
     expect(outcome).toBe("denied");
     expect(writeAuditRowMock).toHaveBeenCalledWith(db.client, expect.objectContaining({ outcome: "denied", tokenId: "tok-2" }));
+  });
+});
+
+describe("P4-12: scheduled fires are audited as transport 'scheduler'", () => {
+  it("a live fire dispatches with transport 'scheduler'", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockResolvedValue(okResult());
+    const { client } = makeServiceClient();
+    expect(await processOneScheduledAction(client, makeRow(), now)).toBe("ok");
+    expect(executeTransports).toEqual(["scheduler"]);
+  });
+
+  it("a fire-time denial's own audit row says transport 'scheduler'", async () => {
+    getLiveTokenByIdMock.mockResolvedValue(null);
+    const { client } = makeServiceClient();
+    expect(await processOneScheduledAction(client, makeRow(), now)).toBe("denied");
+    expect(writeAuditRowMock).toHaveBeenCalledWith(client, expect.objectContaining({ outcome: "denied", transport: "scheduler" }));
+  });
+
+  it("an error result's message is what the row records (same text runMcpTool used to surface)", async () => {
+    getLiveTokenByIdMock.mockResolvedValue({ userId: "user-1", scopes: ["write"] });
+    isUserActiveMock.mockResolvedValue(true);
+    runMcpToolMock.mockResolvedValue(errorResult("Something went wrong running that tool."));
+    const { client, updateCalls } = makeServiceClient();
+    expect(await processOneScheduledAction(client, makeRow({ cron_expression: "0 7 * * *", run_at: null }), now)).toBe("error");
+    expect(updateCalls.find((c) => c.row.last_error !== undefined)?.row.last_error).toBe("Something went wrong running that tool.");
   });
 });
 

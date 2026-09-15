@@ -3,6 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type McpAuditOutcome = "ok" | "error" | "denied";
 
+/** Which door the call came through (migration 215's CHECK). Same union as lib/agent-api/execute.ts's AgentTransport. */
+export type McpAuditTransport = "mcp" | "rest" | "scheduler";
+
 export interface McpAuditEntry {
   userId: string;
   /** Null only for a call that somehow reached here with no resolvable token — should not happen past verifyAccessToken, kept nullable to match the column (migration 130's ON DELETE SET NULL). */
@@ -23,6 +26,8 @@ export interface McpAuditEntry {
   args: unknown;
   outcome: McpAuditOutcome;
   resultSummary?: string | null;
+  /** P4-12: mcp (/api/mcp), rest (agent REST API), scheduler (scheduled fire). Omitted = "mcp", matching the column default. */
+  transport?: McpAuditTransport;
 }
 
 /**
@@ -47,6 +52,7 @@ export async function writeAuditRow(supabase: SupabaseClient, entry: McpAuditEnt
     args: entry.args ?? {},
     outcome: entry.outcome,
     result_summary: entry.resultSummary ?? null,
+    transport: entry.transport ?? "mcp",
   });
   if (error) {
     throw new Error(`mcp audit write failed (tool=${entry.toolName}, outcome=${entry.outcome}): ${error.message}`);

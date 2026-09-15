@@ -187,3 +187,20 @@ describe("runMcpTool is a thin adapter over executeOperation", () => {
     expect(result).toBe(TOOL_RESULT);
   });
 });
+
+describe("P4-12: the transport reaches the audit row", () => {
+  it("every audit row a call writes (ok and denied) carries the adapter's transport", async () => {
+    const { executeOperation } = await import("../execute");
+    const ok = makeServiceClient();
+    await executeOperation(ok.client, GOOD_AUTH, op(), "rest");
+    expect(ok.inserts.map((r) => r.transport)).toEqual(["rest"]);
+
+    const denied = makeServiceClient();
+    await executeOperation(denied.client, READ_ONLY_AUTH, op({ requiredScope: "write" }), "scheduler");
+    expect(denied.inserts.map((r) => [r.outcome, r.transport])).toEqual([["denied", "scheduler"]]);
+
+    const mcp = makeServiceClient();
+    await executeOperation(mcp.client, GOOD_AUTH, op(), "mcp");
+    expect(mcp.inserts[0].transport).toBe("mcp");
+  });
+});

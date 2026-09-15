@@ -31,7 +31,16 @@ describe("writeAuditRow", () => {
       args: { q: 1 },
       outcome: "ok",
       result_summary: "done",
+      transport: "mcp",
     });
+  });
+
+  it("P4-12: records the transport the call arrived on (migration 215), defaulting to mcp", async () => {
+    const { client, insert } = makeClient({ error: null });
+    await writeAuditRow(client, { userId: "u", tokenId: "t", toolName: "write", operation: "x.y.save", args: {}, outcome: "ok", transport: "scheduler" });
+    expect(insert).toHaveBeenLastCalledWith(expect.objectContaining({ transport: "scheduler" }));
+    await writeAuditRow(client, { userId: "u", tokenId: "t", toolName: "read", operation: "x.y.read", args: {}, outcome: "ok", transport: "rest" });
+    expect(insert).toHaveBeenLastCalledWith(expect.objectContaining({ transport: "rest" }));
   });
 
   it("defaults args to {} and result_summary to null when omitted", async () => {

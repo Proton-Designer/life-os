@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLiveTokenById } from "./tokens";
 import { isUserActive } from "./active-user";
 import { writeAuditRow } from "./audit";
-import { runMcpTool, type RunMcpToolOutcome } from "./tool-wrapper";
+import { executeOperation, type ToolOutcome } from "@/lib/agent-api/execute";
 import { writeTool, resolveWriteOperation, type WriteArgs } from "./tools/write";
 import { sendScheduledNotificationCore } from "@/lib/notifications/notify-core";
 import { computeNextRunAt } from "@/lib/scheduling/cron";
@@ -13,6 +13,12 @@ import type { AuthInfoLike } from "./auth-info";
  * L7's background runner — invoked by app/api/cron/scheduled-actions/route.ts,
  * itself invoked by a pg_cron + pg_net poll (the SAME proven idiom driving
  * production's `dispatch-notifications-every-15min`).
+ *
+ * P4-12 NOTE: "runMcpTool" below means the shared operation core it wraps.
+ * The runner calls `executeOperation` (lib/agent-api/execute.ts) directly --
+ * the exact function runMcpTool delegates to -- only so it can record
+ * transport "scheduler" on the audit row (mcp_audit_log.transport, migration
+ * 215). Same scope check, rate limit, session mint, audit write.
  *
  * REQUIREMENT #1 (non-negotiable, team-lead): "A scheduled action runs
  * through the identical code path and the identical audit logging as a
@@ -229,6 +235,7 @@ async function denyRow(serviceClient: SupabaseClient, row: ScheduledActionRow, n
     args: row.args,
     outcome: "denied",
     resultSummary: reason,
+    transport: "scheduler",
   });
   // A denial pauses IMMEDIATELY -- not a transient condition, see header.
   await finalizeRun(serviceClient, row.id, now, {
@@ -249,7 +256,7 @@ async function denyRow(serviceClient: SupabaseClient, row: ScheduledActionRow, n
  * this runner's OWN post-processing below is what then applies the
  * separate, more lenient notify-failure policy, not this function.
  */
-async function dispatchNotify(serviceClient: SupabaseClient, row: ScheduledActionRow, timezone: string, now: Date): Promise<RunMcpToolOutcome> {
+async function dispatchNotify(serviceClient: SupabaseClient, row: ScheduledActionRow, timezone: string, now: Date): Promise<ToolOutcome> {
   const args = row.args as { title: string; body: string };
   const result = await sendScheduledNotificationCore(serviceClient, row.user_id, timezone, now, row.id, args.title, args.body);
   if (result.delivered === 0 && !result.alreadySent) {
@@ -346,24 +353,23 @@ export async function processOneScheduledAction(serviceClient: SupabaseClient, c
   const authInfo: AuthInfoLike = { scopes: liveToken.scopes, extra: { userId: liveToken.userId, tokenId: row.token_id } };
   const operation = resolveOperation(row); // recomputed fresh, never trusted from the stored column
 
-  let result: RunMcpToolOutcome | Awaited<ReturnType<typeof runMcpTool>>;
+  let run: (userClient: SupabaseClient, userId: string) => Promise<ToolOutcome>;
   if (row.tool_name === "notify") {
     const timezone = await fetchTimezoneForUser(serviceClient, row.user_id);
-    result = await runMcpTool(serviceClient, authInfo, "notify", operation, "write", row.args, () => dispatchNotify(serviceClient, row, timezone, now));
+    run = () => dispatchNotify(serviceClient, row, timezone, now);
   } else {
-    result = await runMcpTool(serviceClient, authInfo, "write", operation, "write", row.args, (userClient, userId) => writeTool(userClient, userId, row.args as WriteArgs));
+    run = (userClient, userId) => writeTool(userClient, userId, row.args as WriteArgs);
   }
+  const result = await executeOperation(serviceClient, authInfo, { toolName: row.tool_name, operation, requiredScope: "write", args: row.args, run }, "scheduler");
 
-  // `runMcpTool`'s own return type carries only `isError` -- it does not
-  // distinguish its internal "denied" (scope check failed) from a genuine
-  // execution error, and widening its return shape for this one caller
-  // felt like the wrong lever (see this file's header). Both fold into
-  // "error" for THIS row's bounded-retry bookkeeping; the real, precise
-  // distinction is already correctly recorded in mcp_audit_log by
-  // runMcpTool itself, which is the source of truth requirement #1 cares
-  // about -- this column is a coarser convenience, not a second ledger.
-  const outcome: "ok" | "error" = result.isError ? "error" : "ok";
-  const errorText = result.isError ? (result.content[0]?.type === "text" ? result.content[0].text : "error") : null;
+  // The operation core's failure codes (insufficient_scope, rate_limited,
+  // internal, ...) all fold into "error" for THIS row's bounded-retry
+  // bookkeeping; the precise distinction is already recorded in
+  // mcp_audit_log by the core itself, which is the source of truth
+  // requirement #1 cares about -- this column is a coarser convenience, not a
+  // second ledger. `message` is the same caller-safe text runMcpTool surfaces.
+  const outcome: "ok" | "error" = result.ok ? "ok" : "error";
+  const errorText = result.ok ? null : result.message;
 
   if (outcome === "ok") {
     await finalizeSuccess(serviceClient, row, now);

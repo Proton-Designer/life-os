@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { tokenHasScope, touchLastUsed, type McpScope } from "@/lib/mcp/tokens";
 import { checkRateLimit } from "@/lib/mcp/rate-limit";
-import { writeAuditRow, type McpAuditOutcome } from "@/lib/mcp/audit";
+import { writeAuditRow, type McpAuditOutcome, type McpAuditTransport } from "@/lib/mcp/audit";
 import { mintSessionJwt, buildUserScopedClient } from "@/lib/mcp/session";
 import { readMcpAuth, type AuthInfoLike } from "@/lib/mcp/auth-info";
 import { ToolInputError, ToolNotFoundError } from "@/lib/mcp/tool-input-error";
@@ -30,8 +30,8 @@ import { ToolInputError, ToolNotFoundError } from "@/lib/mcp/tool-input-error";
  * round-trips through a rebuild that could drift.
  */
 
-/** Which adapter made the call. Threaded now so adapters are written against the final signature; the reader is the audit log's transport column, which lands with the token/audit migration (T3). */
-export type AgentTransport = "mcp" | "rest" | "scheduler";
+/** Which adapter made the call. Read by the audit log's `transport` column (migration 215, P4-12): every audit row this core writes records it. */
+export type AgentTransport = McpAuditTransport;
 
 /** One tool's result plus a short audit line — the shape every tool function returns. Re-exported by tool-wrapper.ts as `RunMcpToolOutcome`. */
 export interface ToolOutcome {
@@ -109,8 +109,8 @@ export async function executeOperation(
   serviceClient: SupabaseClient,
   authInfo: AuthInfoLike | undefined,
   op: OperationSpec,
-  // See AgentTransport — accepted now, read once the audit transport column exists.
-  _transport: AgentTransport,
+  // Recorded on every audit row below (mcp_audit_log.transport, migration 215).
+  transport: AgentTransport,
 ): Promise<OperationResult> {
   const { toolName, operation, requiredScope, args } = op;
   const auth = readMcpAuth(authInfo);
@@ -134,6 +134,7 @@ export async function executeOperation(
       args,
       outcome: "denied",
       resultSummary: message,
+      transport,
     });
     void touchLastUsed(serviceClient, auth.tokenId).catch(() => {});
     return failure(code, message);
@@ -186,7 +187,7 @@ export async function executeOperation(
   // a clean success without quietly giving that guarantee up the one time
   // it would have mattered.
   try {
-    await writeAuditRow(serviceClient, { userId: auth.userId, tokenId: auth.tokenId, toolName, operation, args, outcome, resultSummary });
+    await writeAuditRow(serviceClient, { userId: auth.userId, tokenId: auth.tokenId, toolName, operation, args, outcome, resultSummary, transport });
   } catch {
     return failure("audit_failed", AUDIT_FAILED_MESSAGE);
   }
