@@ -78,7 +78,8 @@ the point is to make a number unavailable the moment it is promised.
 | `177` | goals-builder (#6 book-ready notification) — allocated by Phase-1 lead 2026-09-14 | book_ready_notification_log, unique (book_id) — a book finishes once; claim-first lock. Reviewed, dry-run, APPLIED 2026-09-14 | applied |
 | `178` | Phase-1 lead correction, 2026-09-14 | book_ready_notification_log.book_id single-column FK (177) -> composite (user_id, book_id) -> books(user_id, id). The lead's review of 177 missed it; check-fk-tenancy.sh caught it on its first post-apply run. APPLIED; check re-run PASS | applied |
 | `179` | School engineer (#24) — allocated by Phase-1 lead 2026-09-14 | questions_create_card_state AFTER INSERT trigger on questions (mirrors 069/159 source-creation triggers) so every question gets its card_states row and can enter get_session_queue; plus idempotent backfill. Not security definer (card_states_own_row ALL check user_id=auth.uid() admits it). Reviewed, dry-run, APPLIED 2026-09-14, shape asserts passed | applied |
-| `180`+ | — | next free | — |
+| `180` | School engineer (#25 fix) — allocated by Phase-1 lead 2026-09-14 | get_session_queue NEW-item arm: round-robin by source like the due arm. Current body orders new items by row_number() over (order by state_id) (a random UUID) then LIMITs, so a lone new question starves behind a book's new-card backlog. Found by live verification: queue(20,20) for a user with 219 new cards + 1 new question returned 0 questions | allocated |
+| `181`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
