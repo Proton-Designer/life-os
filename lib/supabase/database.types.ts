@@ -3431,6 +3431,7 @@ export type Database = {
           id: string
           mit_rank: number | null
           planned_date: string | null
+          planned_start_time: string | null
           task_type: string | null
           task_type_other_label: string | null
           title: string
@@ -3449,6 +3450,7 @@ export type Database = {
           id?: string
           mit_rank?: number | null
           planned_date?: string | null
+          planned_start_time?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
           title: string
@@ -3467,6 +3469,7 @@ export type Database = {
           id?: string
           mit_rank?: number | null
           planned_date?: string | null
+          planned_start_time?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
           title?: string
