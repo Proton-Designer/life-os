@@ -83,6 +83,7 @@ the point is to make a number unavailable the moment it is promised.
 | `210`–`239` | BLOCK — Team B (overnight run 2026-09-15, lead tracking-app-a9) | Phase 4 AI/MCP + Canvas + Team B's Phase 3 migrations. Individual numbers are recorded as rows below when handed out | reserved |
 | `210` | Team B / tracking-app-1e (P2-20) — allocated by Team B lead tracking-app-a9, 2026-09-15 | Canvas integration: encrypted BYO Canvas token + instance URL per user, Canvas course <-> local class mapping. RLS + composite tenancy FKs | allocated |
 | `211` | Team B / tracking-app-4b (P3-14) — allocated by Team B lead tracking-app-a9, 2026-09-15 | Lecture capture: lecture/recording rows + private storage bucket and storage RLS, shaped so P3-15 can attach a transcript | allocated |
+| `212` | Team B lead tracking-app-a9 (P4-10), 2026-09-15 | Re-scope `mcp_audit_log_token_same_user` (150) to `ON DELETE SET NULL (token_id)`. The unscoped composite SET NULL nulls user_id (NOT NULL) too, so deleting a token that has audit rows is impossible. Production sweep: this is the ONLY unscoped composite SET NULL left | allocated |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
 | `250`+ | — | next free | — |
 
