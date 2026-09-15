@@ -21,15 +21,18 @@ import { markWorryHandled } from "@/app/(app)/worries/actions";
  * a queue". The star control is HIDDEN at the cap rather than left live, because
  * a control that accepts input and discards it is worse than one that isn't there.
  *
- * SEEDED LINES (#28/#45, `seeds` prop) are worries and unfinished goal
- * milestones — real candidates for tonight's dump that are NOT yet `tasks`
+ * SEEDED LINES (#28/#45, `seeds` prop) are worries, unfinished goal
+ * milestones, AND risk-ranked school deliverables due the planning date
+ * (school_risk, fixed 2026-09-14 — see `isSeedable`'s own comment for why
+ * this source was computed and passed here for a while before it actually
+ * rendered) — real candidates for tonight's dump that are NOT yet `tasks`
  * rows for this `plannedDate`. They render exactly like a typed line (star,
  * crown, or leave alone) with one extra action: "Not a worry anymore" /
- * "Not this month", which marks the underlying worry Handled (reusing
- * `/worries`' own action) or simply drops the milestone line from view. That
- * IS this ceremony's "removing a seeded line is a planning act" — a seed
- * left alone (neither starred nor dismissed) reappears next time, which is
- * correct for something still genuinely unresolved.
+ * "Not this month" / "Not tonight", which marks the underlying worry Handled
+ * (reusing `/worries`' own action) or simply drops the milestone/school line
+ * from view. That IS this ceremony's "removing a seeded line is a planning
+ * act" — a seed left alone (neither starred nor dismissed) reappears next
+ * time, which is correct for something still genuinely unresolved.
  *
  * Nothing about a seed is written to the database merely by being shown.
  * Every seed still present in `lines` at Finish is claimed
@@ -49,8 +52,13 @@ import { markWorryHandled } from "@/app/(app)/worries/actions";
 
 type Line = { id: string; title: string; seedSource?: SeedSource };
 
+// #28 fix (2026-09-14): school_risk was computed by computePlanSeeds and passed here as
+// props, then silently dropped by this exact filter — the "built, computed, and never
+// rendered" disease, one layer past where #28's original tests looked (they only ever
+// exercised computePlanSeeds, never this component). See plan-actions.ts's own
+// SCHOOL_RISK doc for the full mechanism.
 function isSeedable(item: DumpItem): item is DumpItem & { source: SeedSource } {
-  return item.source === "worry" || item.source === "goal_milestone";
+  return item.source === "worry" || item.source === "goal_milestone" || item.source === "school_risk";
 }
 
 export function ClosePlanStage({
@@ -115,6 +123,16 @@ export function ClosePlanStage({
 
   /** Seeded-milestone-only: purely local — nothing was ever claimed for it, so there is nothing to undo server-side. It simply isn't part of tonight's dump. */
   function dismissMilestoneSeed(line: Line) {
+    setLines((prev) => prev.filter((l) => l.id !== line.id));
+    setStarred((prev) => prev.filter((x) => x !== line.id));
+    if (crowned === line.id) setCrowned(null);
+  }
+
+  /** Seeded-school-risk-only: same purely-local shape as the milestone dismiss above —
+   * nothing is claimed for a school_risk seed until Finish, so there is nothing to undo
+   * server-side. It reappears next time getSchoolTodayFeed still finds it due, which is
+   * correct: dismissing it here is "not tonight," not "resolved." */
+  function dismissSchoolSeed(line: Line) {
     setLines((prev) => prev.filter((l) => l.id !== line.id));
     setStarred((prev) => prev.filter((x) => x !== line.id));
     if (crowned === line.id) setCrowned(null);
@@ -206,7 +224,7 @@ export function ClosePlanStage({
                 <span className="flex-1 text-sm">{l.title}</span>
                 {l.seedSource ? (
                   <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[0.65rem] text-muted-foreground">
-                    {l.seedSource === "worry" ? "worry" : "goal"}
+                    {l.seedSource === "worry" ? "worry" : l.seedSource === "goal_milestone" ? "goal" : "school"}
                   </span>
                 ) : null}
                 {/* The crown affordance exists ONLY for starred lines. That is
@@ -241,6 +259,15 @@ export function ClosePlanStage({
                     className="shrink-0 text-xs text-muted-foreground underline underline-offset-4"
                   >
                     Not this month
+                  </button>
+                ) : null}
+                {l.seedSource === "school_risk" ? (
+                  <button
+                    type="button"
+                    onClick={() => dismissSchoolSeed(l)}
+                    className="shrink-0 text-xs text-muted-foreground underline underline-offset-4"
+                  >
+                    Not tonight
                   </button>
                 ) : null}
               </li>

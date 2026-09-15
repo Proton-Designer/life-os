@@ -140,5 +140,26 @@ describe("plan-actions", () => {
       const res = await claimSeedLines([{ id: "worry-1", title: "Stale", source: "worry" }]);
       expect("claimed" in res && res.claimed).toEqual([]);
     });
+
+    // #28 fix (2026-09-14): school_risk was computed and rendered but this branch never
+    // existed — a Finish on a starred school seed had no way to persist it at all. Same
+    // INSERT shape as goal_milestone, different dump_source (this file's own mapping
+    // table: school_risk -> 'school').
+    it("claims a school_risk seed by INSERTING a new row with dump_source='school', and returns the new id remapped", async () => {
+      nextChain = () => makeChain({ data: { id: "new-task-id" }, error: null }, calls);
+      const { claimSeedLines } = await import("../plan-actions");
+      const res = await claimSeedLines([{ id: "assessment-1", title: "VERIFY-101 · Problem Set 3 · due Tue", source: "school_risk" }]);
+      expect("claimed" in res && res.claimed).toEqual([{ seedId: "assessment-1", taskId: "new-task-id" }]);
+      const insertCall = calls.find((c) => c.method === "insert");
+      expect(insertCall!.args[0]).toMatchObject({ dump_source: "school", title: "VERIFY-101 · Problem Set 3 · due Tue" });
+    });
+
+    it("targets TODAY, not tomorrow, when claiming a school_risk seed in replan mode — same planningDate rule as any other seed", async () => {
+      nextChain = () => makeChain({ data: { id: "new-task-id" }, error: null }, calls);
+      const { claimSeedLines } = await import("../plan-actions");
+      await claimSeedLines([{ id: "assessment-1", title: "Due today", source: "school_risk" }], "today");
+      const insertCall = calls.find((c) => c.method === "insert");
+      expect((insertCall!.args[0] as { planned_date: string }).planned_date).toBe("2026-09-14");
+    });
   });
 });

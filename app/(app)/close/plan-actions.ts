@@ -102,7 +102,7 @@ export async function dumpLine(title: string, mode: PlanMode = "tonight"): Promi
   return { id: data.id };
 }
 
-export type SeedSource = "worry" | "goal_milestone";
+export type SeedSource = "worry" | "goal_milestone" | "school_risk";
 export type SeedLine = { id: string; title: string; source: SeedSource };
 /** Maps a seed's ORIGINAL id (a worry's own tasks.id, or a goal_milestones.id) to the real tasks.id it now lives at. Identity for worries — see claimSeedLines. */
 export type ClaimedSeed = { seedId: string; taskId: string };
@@ -128,6 +128,17 @@ export type ClaimedSeed = { seedId: string; taskId: string };
  * That row's id is NEW, different from the milestone's own id, so the
  * caller must remap `starred`/`crowned` through the returned `claimed` list
  * before calling `savePlanRanks`.
+ *
+ * SCHOOL_RISK (#28, fixed 2026-09-14 — the engine computed this seed source
+ * and `getSchoolTodayFeed` fed it to `composeDump` since #28 first landed,
+ * but `isSeedable` in `ClosePlanStage` filtered every one of them out before
+ * render, and this function never had a branch for one — the seed was
+ * COMPUTED and PASSED AS PROPS and then silently dropped, one layer past
+ * where the original #28 tests looked). Same shape as GOAL MILESTONE: the
+ * seed's id is a `class_assessments` id, not a `tasks` row, so claiming it
+ * INSERTS a new dumped row (`dump_source='school'`, per this file's own
+ * mapping table above) and the caller remaps through `claimed` exactly like
+ * a milestone.
  *
  * NOT ATOMIC ACROSS SEEDS: each is its own statement. A mid-loop failure
  * here is recoverable (the ceremony has not committed ranks yet; the user
@@ -168,7 +179,10 @@ export async function claimSeedLines(
           user_id: ctx.userId,
           title: seed.title,
           domain: null,
-          dump_source: "milestone",
+          // "milestone" for a goal_milestone seed, "school" for a school_risk
+          // one — this file's own header names the full mapping. Both are
+          // fresh dumped rows, never an existing one to update (unlike worry).
+          dump_source: seed.source === "goal_milestone" ? "milestone" : "school",
           planned_date: ctx.plannedDate,
           mit_rank: null,
           completed: false,
