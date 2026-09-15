@@ -77,7 +77,8 @@ the point is to make a number unavailable the moment it is promised.
 | `176` | reserved spare for ritual-builder | — | reserved |
 | `177` | goals-builder (#6 book-ready notification) — allocated by Phase-1 lead 2026-09-14 | book_ready_notification_log, unique (book_id) — a book finishes once; claim-first lock. Reviewed, dry-run, APPLIED 2026-09-14 | applied |
 | `178` | Phase-1 lead correction, 2026-09-14 | book_ready_notification_log.book_id single-column FK (177) -> composite (user_id, book_id) -> books(user_id, id). The lead's review of 177 missed it; check-fk-tenancy.sh caught it on its first post-apply run. APPLIED; check re-run PASS | applied |
-| `179`+ | — | next free | — |
+| `179` | School engineer (#24) — allocated by Phase-1 lead 2026-09-14 | questions_create_card_state AFTER INSERT trigger on questions (mirrors 069/159 source-creation triggers) so every question gets its card_states row and can enter get_session_queue; plus idempotent backfill | allocated |
+| `180`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
