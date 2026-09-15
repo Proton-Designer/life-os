@@ -2545,6 +2545,98 @@ export type Database = {
           },
         ]
       }
+      practice_test_answers: {
+        Row: {
+          answered_at: string
+          id: string
+          practice_test_id: string
+          question_id: string
+          self_reported_correct: boolean
+          user_id: string
+        }
+        Insert: {
+          answered_at?: string
+          id?: string
+          practice_test_id: string
+          question_id: string
+          self_reported_correct: boolean
+          user_id?: string
+        }
+        Update: {
+          answered_at?: string
+          id?: string
+          practice_test_id?: string
+          question_id?: string
+          self_reported_correct?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_test_answers_question_same_user"
+            columns: ["user_id", "question_id"]
+            referencedRelation: "questions"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "practice_test_answers_test_same_user"
+            columns: ["user_id", "practice_test_id"]
+            referencedRelation: "practice_tests"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      practice_tests: {
+        Row: {
+          assessment_id: string
+          class_id: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          interval_label: string
+          question_ids: string[]
+          score_pct: number | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          assessment_id: string
+          class_id: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          interval_label: string
+          question_ids: string[]
+          score_pct?: number | null
+          status?: string
+          user_id?: string
+        }
+        Update: {
+          assessment_id?: string
+          class_id?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          interval_label?: string
+          question_ids?: string[]
+          score_pct?: number | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_tests_assessment_same_user"
+            columns: ["user_id", "assessment_id"]
+            referencedRelation: "class_assessments"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "practice_tests_class_same_user"
+            columns: ["user_id", "class_id"]
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       prayers: {
         Row: {
           date: string
