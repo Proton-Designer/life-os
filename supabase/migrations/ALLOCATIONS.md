@@ -200,3 +200,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 - **`--dry-run` prints the object manifest and exits.** Anything else run against
   production *is* an apply (R32.2) — learned by demonstrating a gate on a real file and
   advancing production's state in the process.
+| `188` | Sonnet ENG 1 (P3-01), allocated by Opus Lead, 2026-09-15 | Morning routine checklist: morning_routine_items + morning_routine_checks | allocated |
