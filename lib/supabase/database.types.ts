@@ -1453,6 +1453,40 @@ export type Database = {
           },
         ]
       }
+      identity_habit_pauses: {
+        Row: {
+          created_at: string
+          habit_id: string
+          id: string
+          paused_at: string
+          resumed_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          habit_id: string
+          id?: string
+          paused_at: string
+          resumed_at?: string | null
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          habit_id?: string
+          id?: string
+          paused_at?: string
+          resumed_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "identity_habit_pauses_user_id_habit_id_fkey"
+            columns: ["user_id", "habit_id"]
+            referencedRelation: "identity_habits"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       identity_habits: {
         Row: {
           archived_at: string | null
@@ -2174,6 +2208,24 @@ export type Database = {
             referencedColumns: ["user_id", "id"]
           },
         ]
+      }
+      mcp_rate_limit_buckets: {
+        Row: {
+          bucket_key: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          bucket_key: string
+          hits?: number
+          window_start: string
+        }
+        Update: {
+          bucket_key?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
       }
       mcp_scheduled_actions: {
         Row: {
@@ -4549,6 +4601,18 @@ export type Database = {
           p_refresh_token_hash: string
         }
         Returns: Json
+      }
+      mcp_rate_limit_consume: {
+        Args: { p_keys: string[]; p_limits: number[]; p_window_seconds: number }
+        Returns: Json
+      }
+      mcp_rate_limit_note_failure: {
+        Args: { p_key: string; p_limit: number; p_window_seconds: number }
+        Returns: Json
+      }
+      mcp_rate_limit_prune: {
+        Args: Record<PropertyKey, never>
+        Returns: number
       }
       merge_subdomain_config: {
         Args: { p_patch: Json; p_subdomain_id: string }
