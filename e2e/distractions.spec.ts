@@ -188,10 +188,30 @@ test.describe("Distractions", () => {
       await expect(page.getByText(TRIGGER_NAME)).not.toBeVisible();
       await page.keyboard.press("Escape");
 
-      // --- /review: a plan-less trigger requires a plan textbox, with no
-      //     follow/skip question (spec §5). ---
-      await page.goto("/review");
-      await dismissCheckinDialogIfPresent(page);
+      // --- Review: a plan-less trigger requires a plan textbox, with no
+      //     follow/skip question (spec §5).
+      //
+      //     REGRESSION-LOOKING, ACTUALLY PRE-EXISTING (found 2026-09-15,
+      //     full-suite triage against ad2da1d; verified via git log, not
+      //     guessed): this used to `page.goto("/review")`, but
+      //     app/(app)/review/page.tsx has redirected straight to /close
+      //     since 0aa53b5 (2026-09-02, "R61 corrected") — 12+ days before
+      //     any Phase 1 work landed. /close's own Account stage
+      //     (components/evening-close/close-account-stage.tsx) only
+      //     surfaces an interactive rewrite card for a genuine 3-skip
+      //     BLOCKER; a fresh plan-less trigger like this one gets a passive
+      //     "worth a look, but not required" sentence with no plan field at
+      //     all. The real reachable surface for exactly what this test
+      //     wants (ReviewClient, unrestricted to blockers) is the topbar's
+      //     "Review" POPUP (components/distractions/review-dialog-
+      //     trigger.tsx, added 2026-08-24 — its own comment claiming "the
+      //     /review route itself is untouched" went stale the moment the
+      //     Sept 2 redirect landed, a stale-doc case worth fixing there too
+      //     but out of scope for this test file). Confirmed ReviewItemCard
+      //     (data-testid="review-item-card", the "Plan of action"
+      //     placeholder, the exact follow/skip button text) is identical
+      //     either way — only the entry point changed. ---
+      await page.getByRole("button", { name: "Review", exact: true }).click();
       const card = page.getByTestId("review-item-card").filter({ hasText: TRIGGER_NAME });
       await expect(card.getByPlaceholder("Plan of action")).toBeVisible();
       await expect(card.getByRole("button", { name: /didn't follow it/i })).toHaveCount(0);
@@ -207,11 +227,16 @@ test.describe("Distractions", () => {
       // races the write and still reads the pre-save "no plan yet" state.
       await expect(card.getByPlaceholder("Plan of action")).not.toBeVisible();
 
-      // --- Reload for a fresh server read: the trigger now has a current
-      //     plan and is no longer "new," so it reappears with the follow/skip
-      //     choice — this is where "refuses an empty submission" is testable. ---
-      await page.reload();
-      await dismissCheckinDialogIfPresent(page);
+      // --- Close and reopen the popup for a fresh server read: review-
+      //     dialog-trigger.tsx's own header says it refetches on EVERY
+      //     open (never caches across the dialog's lifetime), so this is
+      //     the dialog-based equivalent of the page.reload() this replaced
+      //     — the trigger now has a current plan and is no longer "new,"
+      //     so it reappears with the follow/skip choice, which is where
+      //     "refuses an empty submission" is testable. ---
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog")).toBeHidden();
+      await page.getByRole("button", { name: "Review", exact: true }).click();
       const revisitedCard = page.getByTestId("review-item-card").filter({ hasText: TRIGGER_NAME });
       await expect(revisitedCard.getByRole("button", { name: /followed it, it happened anyway/i })).toBeVisible();
       await revisitedCard.getByRole("button", { name: /followed it, it happened anyway/i }).click();
