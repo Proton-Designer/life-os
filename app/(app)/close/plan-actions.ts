@@ -146,28 +146,26 @@ export async function claimSeedLines(
  *
  * CLEARS STALE RANKS FIRST, for this planned_date only. SPEC: CollegeOS's
  * `submitCheckin` clears rather than accumulates, "or a task starred on Monday
- * still carries rank 2 on Thursday". Doing it in one statement scoped to the
- * day also keeps `tasks_mit_rank_per_day_idx` satisfiable — re-crowning without
- * clearing would collide on rank 1 against the previous crown.
+ * still carries rank 2 on Thursday". Clearing first also keeps
+ * `tasks_mit_rank_per_day_idx` satisfiable — re-crowning without clearing
+ * would collide on rank 1 against the previous crown.
  *
- * THE SECOND STEP IS ONE STATEMENT, NOT A LOOP. The architect flagged the
- * previous version by name: "a non-transactional loop of individual UPDATEs
- * after a separate clear — a mid-loop failure leaves a half-plan with no
- * error surfaced." A `.upsert()` over all ranked ids in one call is a single
- * INSERT ... ON CONFLICT(id) DO UPDATE statement — one round trip, and
- * Postgres executes it as one atomic operation: every row's rank lands or
- * none does. (`onConflict: "id"` always resolves to the UPDATE branch here
- * because every id in `ranks` names a real existing task; if one doesn't —
- * a bug upstream — the INSERT branch is attempted instead and fails loudly
- * on `title`'s NOT NULL, which is the correct outcome: a clear error, not a
- * silently-invented row.)
+ * ONE UPDATE PER RANKED ID, NOT A SINGLE MULTI-ROW UPSERT (fixed after P4-07
+ * 04 live verification found the previous design failing in production on
+ * every real "Finish Plan" call). Full reasoning is on
+ * `savePlanRanksCore` (lib/night-plan/plan-actions-core.ts) — the short
+ * version: a partial-row `.upsert(..., {onConflict:"id"})` trips Postgres's
+ * NOT NULL check on the candidate row before conflict resolution runs,
+ * regardless of RLS. A per-id UPDATE only ever sets the column it names, so
+ * it never risks that, and stays collision-safe against
+ * `tasks_mit_rank_per_day_idx` because the clear above already freed every
+ * rank on this `plannedDate` first.
  *
- * THE ONE REMAINING GAP, NAMED RATHER THAN HIDDEN: the clear and the upsert
- * are still two separate network calls, so a crash BETWEEN them leaves today
- * cleared with no ranks yet reassigned. That window is far smaller than the
- * old N+1-statement loop, and the error path below says so explicitly rather
- * than returning a bare Postgres message, so a user who hits it knows to
- * retry rather than assuming their old plan is intact.
+ * THE REMAINING GAP, NAMED RATHER THAN HIDDEN: the clear and the per-id
+ * updates are still separate network calls, so a crash mid-sequence leaves
+ * today cleared with only some ranks reassigned. The error path below says
+ * so explicitly rather than returning a bare Postgres message, so a user who
+ * hits it knows to retry rather than assuming their old plan is intact.
  *
  * THIN WRAPPER over savePlanRanksCore (lib/night-plan/plan-actions-core.ts,
  * P4-07) — the MCP write tool calls the same core.

@@ -69,42 +69,70 @@ describe("plan-actions", () => {
     });
   });
 
-  describe("savePlanRanks — the atomicity fix", () => {
-    it("clears stale ranks with ONE update, then assigns new ranks with ONE upsert — never a per-id loop", async () => {
-      nextChain = () => makeChain({ data: null, error: null }, calls);
+  describe("savePlanRanks — per-id UPDATE, not a partial-row upsert (P4-07 04 live-verification finding)", () => {
+    // A partial-row `.upsert([{id,user_id,mit_rank}], {onConflict:"id"})`
+    // looked atomic but isn't real: Postgres validates NOT NULL constraints
+    // (title, planned_date, ...) on the candidate row BEFORE conflict
+    // resolution even runs, so it failed on every plan that already had a
+    // title -- i.e. always, in real use. Confirmed live in production on
+    // both teamb accounts (isError, "violates not-null constraint"),
+    // reproduced directly against Postgres with RLS and again with RLS
+    // bypassed (service role) -- core Postgres upsert semantics, not an RLS
+    // quirk. Fix: ranks are already cleared to null for this planned_date
+    // before this runs, so a per-id UPDATE scoped to
+    // (id, user_id, planned_date) can never collide with
+    // tasks_mit_rank_per_day_idx, and never risks the NOT NULL trap because
+    // an UPDATE's candidate row is only the columns actually being set.
+    it("clears stale ranks with ONE update, then assigns each rank with its OWN scoped update — never an upsert", async () => {
+      nextChain = () => makeChain({ data: [{ id: "row" }], error: null }, calls);
       const { savePlanRanks } = await import("../plan-actions");
       const res = await savePlanRanks(["a", "b", "c"], "b");
       expect(res).toEqual({ ok: true });
 
-      const updateCalls = calls.filter((c) => c.method === "update");
       const upsertCalls = calls.filter((c) => c.method === "upsert");
-      // Exactly one clearing update (mit_rank -> null) and exactly one upsert
-      // carrying ALL ranked rows -- not three separate update calls, which is
-      // the exact defect the architect named ("a mid-loop failure leaves a
-      // half-plan with no error surfaced").
-      expect(updateCalls).toHaveLength(1);
+      expect(upsertCalls).toHaveLength(0);
+
+      const updateCalls = calls.filter((c) => c.method === "update");
+      // 1 clearing update (mit_rank -> null) + 1 per ranked id.
+      expect(updateCalls).toHaveLength(4);
       expect(updateCalls[0]!.args[0]).toEqual({ mit_rank: null });
-      expect(upsertCalls).toHaveLength(1);
-      const rows = upsertCalls[0]!.args[0] as { id: string; mit_rank: number }[];
-      expect(rows).toHaveLength(3);
-      expect(rows.find((r) => r.id === "b")!.mit_rank).toBe(1); // crown is rank 1
-      expect(rows.find((r) => r.id === "a")!.mit_rank).toBe(2);
-      expect(rows.find((r) => r.id === "c")!.mit_rank).toBe(3);
+      const byRank = new Map(updateCalls.slice(1).map((c) => [(c.args[0] as { mit_rank: number }).mit_rank, c]));
+      expect(byRank.get(1)).toBeDefined(); // crown is rank 1
+      expect(byRank.size).toBe(3);
+
+      // Each per-id update is scoped to id + user_id + planned_date -- the
+      // scoping that makes a per-row UPDATE safe against
+      // tasks_mit_rank_per_day_idx and against writing another user's row.
+      const eqCallsAfterClear = calls.filter((c) => c.method === "eq").slice(2); // first 2 eq() calls belong to the clear
+      const idEqs = eqCallsAfterClear.filter((c) => c.args[0] === "id").map((c) => c.args[1]);
+      expect(idEqs.sort()).toEqual(["a", "b", "c"]);
     });
 
     it("revalidates /open — the previously-missing path a replan launched from /open needs", async () => {
-      nextChain = () => makeChain({ data: null, error: null }, calls);
+      nextChain = () => makeChain({ data: [{ id: "row" }], error: null }, calls);
       const { savePlanRanks } = await import("../plan-actions");
       await savePlanRanks(["a"], "a");
       expect(revalidatePathMock).toHaveBeenCalledWith("/open");
     });
 
-    it("surfaces a loud, specific error when the upsert step fails after the clear already ran", async () => {
+    it("surfaces a loud, specific error when a per-id update fails after the clear already ran", async () => {
       let call = 0;
       nextChain = () => {
         call += 1;
-        // First from() call in savePlanRanks is the clear (succeeds); second is the upsert (fails).
+        // 1st from() is the clear (succeeds); 2nd is the one ranked id's update (fails).
         return makeChain(call === 1 ? { data: null, error: null } : { data: null, error: { message: "boom" } }, calls);
+      };
+      const { savePlanRanks } = await import("../plan-actions");
+      const res = await savePlanRanks(["a"], "a");
+      expect(res).toEqual({ error: expect.stringContaining("Try Finish again") });
+    });
+
+    it("surfaces an error, not a silent drop, when a ranked id updates 0 rows (not actually on today's plan)", async () => {
+      let call = 0;
+      nextChain = () => {
+        call += 1;
+        // 1st from() is the clear; 2nd is the per-id update, which matches nothing.
+        return makeChain(call === 1 ? { data: null, error: null } : { data: [], error: null }, calls);
       };
       const { savePlanRanks } = await import("../plan-actions");
       const res = await savePlanRanks(["a"], "a");

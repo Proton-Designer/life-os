@@ -2,7 +2,6 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import { assignRanks } from "@/lib/evening-close/rank-assignment";
-import type { TablesInsert } from "@/lib/supabase/database.types";
 
 /**
  * The plan stage's writes — cores extracted from app/(app)/close/plan-actions.ts
@@ -121,9 +120,30 @@ export async function claimSeedLinesCore(
 
 /**
  * Write the ranks. See app/(app)/close/plan-actions.ts's own header for the
- * full "clear stale ranks first, one statement not a loop" reasoning — a
- * single `.upsert()` over all ranked ids, not a per-id loop, so a mid-write
- * failure never leaves a half-plan silently.
+ * full "clear stale ranks first" reasoning.
+ *
+ * ONE UPDATE PER RANKED ID, NOT A SINGLE MULTI-ROW UPSERT. The previous
+ * version upserted a PARTIAL row (`{id, user_id, mit_rank}`) with
+ * `onConflict: "id"`, believing that always resolves to the UPDATE branch
+ * for an existing id. It doesn't: Postgres validates NOT NULL constraints
+ * (title, planned_date, ...) on the CANDIDATE row before conflict
+ * resolution even runs, so it failed on every plan whose task already had a
+ * title — i.e. always, in real use. Found live in production (P4-07 04
+ * verification, both teamb accounts): every real "Finish Plan" call was
+ * failing with `null value in column "title" ... violates not-null
+ * constraint`. Reproduced 3 ways — the real MCP write tool, the account's
+ * own RLS-scoped client, and the service-role client with RLS bypassed
+ * entirely — identical error every time, so this is core Postgres upsert
+ * semantics, not an RLS quirk.
+ *
+ * A per-id UPDATE only ever sets the one column it names, so it can never
+ * trip a NOT NULL check on a column it isn't touching. It's still safe
+ * against `tasks_mit_rank_per_day_idx`: the clear above already nulled
+ * every rank for this `plannedDate`, so no ranked id can collide with a
+ * rank another row on this same day still holds. Each update is scoped to
+ * (id, user_id, plannedDate) — both an ownership guard and, if an id
+ * somehow doesn't belong to today's plan, the thing that makes a 0-row
+ * update detectable rather than a silent no-op.
  */
 export async function savePlanRanksCore(
   supabase: SupabaseClient,
@@ -148,10 +168,14 @@ export async function savePlanRanksCore(
     .not("mit_rank", "is", null);
   if (clearError) return { error: clearError.message };
 
-  const upsertRows = ranks.map(({ id, mitRank }) => ({ id, user_id: userId, mit_rank: mitRank })) as unknown as TablesInsert<"tasks">[];
-  const { error: upsertError } = await supabase.from("tasks").upsert(upsertRows, { onConflict: "id" });
-  if (upsertError) {
-    return { error: `Today's old ranks were cleared but the new plan didn't fully save (${upsertError.message}). Try Finish again.` };
+  for (const { id, mitRank } of ranks) {
+    const { data, error } = await supabase.from("tasks").update({ mit_rank: mitRank }).eq("id", id).eq("user_id", userId).eq("planned_date", plannedDate).select("id");
+    if (error) {
+      return { error: `Today's old ranks were cleared but the new plan didn't fully save (${error.message}). Try Finish again.` };
+    }
+    if (!data || data.length === 0) {
+      return { error: `Today's old ranks were cleared but the new plan didn't fully save (no task "${id}" found on today's plan). Try Finish again.` };
+    }
   }
 
   return { ok: true };
