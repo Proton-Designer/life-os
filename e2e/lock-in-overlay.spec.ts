@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
 
 /**
  * The full-screen Lock-In session view (2026-08-26 night batch 3). Written
@@ -81,6 +81,11 @@ function overlay(page: Page) {
 async function startSession(page: Page, kind: "Deep Work" | "Deep Study") {
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
+  // Guards the same class of flake found live in e2e/goals.spec.ts
+  // (2026-09-15): the allocation check-in toast fires on its own timer and
+  // can appear mid-test, unrelated to anything this spec does — see
+  // dismissCheckinToastIfPresent's own header.
+  await dismissCheckinToastIfPresent(page);
   await page.getByRole("button", { name: `Lock In — ${kind}` }).click();
 
   const setupDialog = page.getByRole("dialog", { name: /set a goal/i });
@@ -104,6 +109,7 @@ async function startSession(page: Page, kind: "Deep Work" | "Deep Study") {
     await fillReliably(setupDialog.getByLabel("Custom objective"), objectiveText);
   }
 
+  await dismissCheckinToastIfPresent(page);
   sessionMayBeRunning = true;
   await setupDialog.getByRole("button", { name: "Start" }).click();
   await expect(setupDialog).toBeHidden();
@@ -186,11 +192,15 @@ test.describe("Lock-In full-screen session view", () => {
     const view = overlay(page);
     await view.getByRole("button", { name: "Distractions" }).click();
 
-    // Anchored to the capture dialog's own first-step heading rather than
-    // the word "Distractions" — the trigger says that, the dialog itself
-    // never does, and matching on the trigger's label would have found the
-    // overlay it lives in and passed for the wrong reason.
-    const capture = page.getByRole("dialog", { name: "What's the domain?" });
+    // components/distractions/distraction-capture-dialog.tsx now INFERS the
+    // domain from the active session (2026-09-10, Ayman/Opus Lead: "one
+    // fewer tap inside a session") and jumps straight past the "What's the
+    // domain?" picker step to the triggers step, shown "silently but not
+    // hidden" via a DialogDescription — Deep Work infers "business"
+    // (inferDomainFromSession), so this anchors on that description text
+    // rather than the domain-picker heading, which a live session never
+    // shows at all anymore.
+    const capture = page.getByRole("dialog").filter({ hasText: "Inferred from your Deep Work session" });
     await expect(capture).toBeVisible();
 
     await page.keyboard.press("Escape");

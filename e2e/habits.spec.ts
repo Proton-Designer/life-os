@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
 
 /**
  * Habits (#39/#40/#41): creates a real identity habit, confirms the N/7
@@ -13,6 +13,12 @@ import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
  * delete UI (Phase 1 ships archive only, one-way — pause/freeze/resume is
  * ruled Phase 2+) — cleanup runs in `finally` via app/api/test/clear-habit
  * (its own header explains why it exists).
+ *
+ * `dismissCheckinToastIfPresent` guards every interaction that matters
+ * here, proactively — its own header explains why (found live as a real
+ * flaky failure in e2e/goals.spec.ts, 2026-09-15: the allocation check-in
+ * toast fires on its own timer and can appear mid-test, unrelated to
+ * anything this spec does).
  */
 test("create a habit, see N/7 and New, vote for today, then retract", async ({ page, baseURL }) => {
   const secret = process.env.E2E_TEST_SECRET;
@@ -38,8 +44,10 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
     const beforeCount = Number(beforeText?.split("/")[0]);
     expect(Number.isFinite(beforeCount), `could not parse a baseline count from "${beforeText}"`).toBe(true);
 
+    await dismissCheckinToastIfPresent(page);
     await addButton.click();
     await fillReliably(page.getByPlaceholder(/Identity statement/i), statement);
+    await dismissCheckinToastIfPresent(page);
     await page.getByRole("button", { name: "Add habit" }).click();
 
     const row = page.getByRole("listitem").filter({ hasText: statement });
@@ -50,11 +58,13 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
     // Vote — cast, via the toggle button's "not yet voted" state.
     const voteButton = row.getByRole("button", { name: "Vote for this identity today" });
     await expect(voteButton).toBeVisible();
+    await dismissCheckinToastIfPresent(page);
     await voteButton.click();
     const retractButton = row.getByRole("button", { name: "Retract today's vote" });
     await expect(retractButton).toBeVisible();
 
     // Retract — same button, now in its "voted" state.
+    await dismissCheckinToastIfPresent(page);
     await retractButton.click();
     await expect(row.getByRole("button", { name: "Vote for this identity today" })).toBeVisible();
   } finally {

@@ -50,6 +50,30 @@ export async function dismissCheckinDialogIfPresent(page: Page) {
 }
 
 /**
+ * Dismisses the allocation check-in TOAST (components/checkin/checkin-
+ * toast.tsx) if one is currently showing — a `role="status"` region, NOT a
+ * `role="dialog"` (dismissCheckinDialogIfPresent above only ever catches
+ * the latter, the full check-in sheet). This toast fires on its own
+ * check-in-window timer, independent of anything a spec does, so it can
+ * appear mid-test — found live 2026-09-15 as a real flaky failure in
+ * e2e/goals.spec.ts, fixed-right-top and on screen exactly when the Add
+ * form was being submitted.
+ *
+ * Unlike `dismissCheckinDialogIfPresent` (safe to call once per page load,
+ * since the sheet it targets only opens from a deliberate user action this
+ * suite never takes), THIS toast can appear at any point while a spec sits
+ * on one page — call it immediately before any click that matters (opening
+ * a form, submitting one), not just once after `page.goto()`.
+ */
+export async function dismissCheckinToastIfPresent(page: Page) {
+  const dismissButton = page.getByRole("button", { name: "Dismiss" });
+  if (await dismissButton.isVisible().catch(() => false)) {
+    await dismissButton.click();
+    await expect(dismissButton).toBeHidden();
+  }
+}
+
+/**
  * Waits until the route's loading.tsx skeleton has been replaced by real
  * content.
  *

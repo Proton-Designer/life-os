@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
 
 /**
  * Worries (#42): parks one through the Global Capture Sheet (components/
@@ -15,6 +15,12 @@ import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
  * app/api/test/clear-task, the same test-only route
  * e2e/task-row-list.spec.ts already uses (worries ARE tasks — see
  * lib/night-plan/worries.ts).
+ *
+ * `dismissCheckinToastIfPresent` guards every interaction that matters
+ * here, proactively — its own header explains why (found live as a real
+ * flaky failure in e2e/goals.spec.ts, 2026-09-15: the allocation check-in
+ * toast fires on its own timer and can appear mid-test, unrelated to
+ * anything this spec does).
  */
 test("park a worry from the capture sheet, see it open, mark it handled", async ({ page, baseURL }) => {
   const secret = process.env.E2E_TEST_SECRET;
@@ -28,6 +34,7 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
+    await dismissCheckinToastIfPresent(page);
     await page.getByRole("button", { name: "Capture", exact: true }).click();
     const captureDialog = page.getByRole("dialog", { name: "Capture" });
     await expect(captureDialog).toBeVisible();
@@ -39,10 +46,12 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
 
     await page.goto("/worries");
     await dismissCheckinDialogIfPresent(page);
+    await dismissCheckinToastIfPresent(page);
 
     const openRow = page.getByRole("listitem").filter({ hasText: title });
     await expect(openRow).toBeVisible();
 
+    await dismissCheckinToastIfPresent(page);
     await openRow.getByRole("button", { name: "Handled" }).click();
     await expect(openRow).toBeHidden();
 
@@ -55,6 +64,7 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
     // single click always reveals it.
     const handledToggle = page.getByRole("button", { name: /^Show \d+ handled$/i });
     await expect(handledToggle).toBeVisible();
+    await dismissCheckinToastIfPresent(page);
     await handledToggle.click();
     const handledRow = page.getByRole("listitem").filter({ hasText: title });
     await expect(handledRow).toBeVisible();
