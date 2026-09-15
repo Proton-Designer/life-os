@@ -17,6 +17,7 @@ import { getUlmWeeklyRecap } from "@/lib/self-mastery/weekly-retention-recap";
 import { WeeklyRecapCard } from "./weekly-recap-card";
 import { getOverconfidenceVerdict } from "@/lib/self-mastery/get-overconfidence-verdict";
 import { OverconfidenceCard } from "./overconfidence-card";
+import { TeachBackPanel } from "./teach-back-panel";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -73,6 +74,11 @@ export async function SelfMasteryLibrary() {
 
       <WeeklyRecapCard recap={weeklyRecap} />
       <OverconfidenceCard verdict={overconfidenceVerdict} />
+      {/* P2-18 -- own book/lesson picker, doesn't need the fully-shaped
+          LibraryBook rows this page already fetched, just id/title of
+          ready books (a teach-back target needs real lessons, and only a
+          "ready" book has any). */}
+      <TeachBackPanel books={books.filter((b) => b.status === "ready").map((b) => ({ id: b.id, title: b.title }))} />
 
       {books.length === 0 ? (
         // Not the generic EmptyState primitive — its action contract is a

@@ -186,6 +186,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/goals/actions.ts#setMilestoneDoneAction": { pending: "P4-07", note: "goals.milestone.set_done" },
   "app/(app)/habits/actions.ts#createIdentityHabitAction": { pending: "P4-07", note: "habits.identity_habit.create" },
   "app/(app)/habits/actions.ts#archiveIdentityHabitAction": { pending: "P4-07", note: "habits.identity_habit.archive" },
+  "app/(app)/habits/actions.ts#killIdentityHabitAction": { pending: "P4-07", note: "P2-11 escalation-aware kill (habits.identity_habit.archive covers the underlying write; the escalation gate itself is a UI/product concern, not a separate MCP capability)" },
   "app/(app)/habits/actions.ts#castHabitVoteAction": { pending: "P4-07", note: "habits.vote.cast" },
   "app/(app)/habits/actions.ts#retractHabitVoteAction": { pending: "P4-07", note: "habits.vote.retract: today-only own-row DELETE, allowed by lead DECISION [P4-undo]" },
 
