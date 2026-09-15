@@ -200,10 +200,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "book_ready_notification_log_book_id_fkey"
-            columns: ["book_id"]
+            foreignKeyName: "book_ready_notification_log_book_same_user"
+            columns: ["user_id", "book_id"]
             referencedRelation: "books"
-            referencedColumns: ["id"]
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
