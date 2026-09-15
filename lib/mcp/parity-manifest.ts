@@ -115,12 +115,12 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/close/actions.ts#computePlanSeeds": { read_only: true },
   "app/(app)/close/actions.ts#getEveningCloseData": { read_only: true },
   "app/(app)/close/actions.ts#getReplanData": { read_only: true },
-  "app/(app)/close/plan-actions.ts#dumpLine": { pending: "P4-07", note: "review.night_plan_task.dump" },
-  "app/(app)/close/plan-actions.ts#claimSeedLines": { pending: "P4-07", note: "review.night_plan_task.claim_seeds" },
-  "app/(app)/close/plan-actions.ts#savePlanRanks": { pending: "P4-07", note: "review.night_plan_task.save_ranks" },
+  "app/(app)/close/plan-actions.ts#dumpLine": { mcp: "review.night_plan_task.dump" },
+  "app/(app)/close/plan-actions.ts#claimSeedLines": { mcp: "review.night_plan_task.claim_seeds" },
+  "app/(app)/close/plan-actions.ts#savePlanRanks": { mcp: "review.night_plan_task.save_ranks" },
   "app/(app)/close/sleep-intent-actions.ts#getMySleepIntentForToday": { read_only: true },
-  "app/(app)/close/sleep-intent-actions.ts#saveMySleepIntent": { pending: "P4-07", note: "P2-05 sleep intent capture" },
-  "app/(app)/close/sleep-intent-actions.ts#clearMySleepIntent": { pending: "P4-07", note: "P2-05 sleep intent capture; a same-day own-row delete, not a hard_delete in the destructive sense (habits.vote.retract precedent, P4-undo)" },
+  "app/(app)/close/sleep-intent-actions.ts#saveMySleepIntent": { mcp: "review.sleep_intent.set" },
+  "app/(app)/close/sleep-intent-actions.ts#clearMySleepIntent": { mcp: "review.sleep_intent.clear" },
 
   // ── Deen ────────────────────────────────────────────────────────────────
   "app/(app)/deen/actions.ts#markPrayer": { mcp: "deen.prayer.log" },
@@ -180,15 +180,15 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/fitness/workouts/template-actions.ts#createPlanFromTemplate": { pending: "P4-29" },
 
   // ── Goals / identity habits ─────────────────────────────────────────────
-  "app/(app)/goals/actions.ts#createGoalAction": { pending: "P4-07", note: "goals.goal.create" },
-  "app/(app)/goals/actions.ts#setGoalStatusAction": { pending: "P4-07", note: "goals.goal.set_status" },
-  "app/(app)/goals/actions.ts#addMilestoneAction": { pending: "P4-07", note: "goals.milestone.add" },
-  "app/(app)/goals/actions.ts#setMilestoneDoneAction": { pending: "P4-07", note: "goals.milestone.set_done" },
-  "app/(app)/habits/actions.ts#createIdentityHabitAction": { pending: "P4-07", note: "habits.identity_habit.create" },
-  "app/(app)/habits/actions.ts#archiveIdentityHabitAction": { pending: "P4-07", note: "habits.identity_habit.archive" },
+  "app/(app)/goals/actions.ts#createGoalAction": { mcp: "goals.goal.create" },
+  "app/(app)/goals/actions.ts#setGoalStatusAction": { mcp: "goals.goal.set_status" },
+  "app/(app)/goals/actions.ts#addMilestoneAction": { mcp: "goals.milestone.add" },
+  "app/(app)/goals/actions.ts#setMilestoneDoneAction": { mcp: "goals.milestone.set_done" },
+  "app/(app)/habits/actions.ts#createIdentityHabitAction": { mcp: "habits.identity_habit.create" },
+  "app/(app)/habits/actions.ts#archiveIdentityHabitAction": { mcp: "habits.identity_habit.archive" },
   "app/(app)/habits/actions.ts#killIdentityHabitAction": { pending: "P4-07", note: "P2-11 escalation-aware kill (habits.identity_habit.archive covers the underlying write; the escalation gate itself is a UI/product concern, not a separate MCP capability)" },
-  "app/(app)/habits/actions.ts#castHabitVoteAction": { pending: "P4-07", note: "habits.vote.cast" },
-  "app/(app)/habits/actions.ts#retractHabitVoteAction": { pending: "P4-07", note: "habits.vote.retract: today-only own-row DELETE, allowed by lead DECISION [P4-undo]" },
+  "app/(app)/habits/actions.ts#castHabitVoteAction": { mcp: "habits.vote.cast" },
+  "app/(app)/habits/actions.ts#retractHabitVoteAction": { mcp: "habits.vote.retract" },
 
   // ── Onboarding ──────────────────────────────────────────────────────────
   "app/(app)/onboarding/actions.ts#saveDomainSelection": { excluded: "onboarding_wizard: step 1 domain picker" },
@@ -198,7 +198,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/onboarding/actions.ts#completeOnboarding": { excluded: "onboarding_wizard: final step" },
 
   // ── Day start ───────────────────────────────────────────────────────────
-  "app/(app)/open/actions.ts#startDayAction": { pending: "P4-07", note: "day.day_start.start" },
+  "app/(app)/open/actions.ts#startDayAction": { mcp: "day.day_start.start" },
 
   // ── Timeboxing (P2-06) ──────────────────────────────────────────────────
   "app/(app)/open/today/timebox-actions.ts#setTaskPlannedStartTime": { pending: "P4-cov-P2-06", note: "a plain HH:MM patch to a task the caller already owns, not a credential" },
@@ -336,8 +336,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/work/tasks-actions.ts#bulkRemoveTasks": { excluded: "hard_delete: DELETEs many work tasks" },
 
   // ── Worries ─────────────────────────────────────────────────────────────
-  "app/(app)/worries/actions.ts#markWorryHandled": { pending: "P4-07", note: "review.worry.set_handled" },
-  "app/(app)/worries/actions.ts#reopenWorry": { pending: "P4-07", note: "review.worry.reopen" },
+  "app/(app)/worries/actions.ts#markWorryHandled": { mcp: "review.worry.set_handled" },
+  "app/(app)/worries/actions.ts#reopenWorry": { mcp: "review.worry.reopen" },
   "app/(app)/worries/actions.ts#recordWorryOutcome": { pending: "P4-07", note: "P2-12: same surface as set_handled + an outcome enum; P4-07 should let review.worry.set_handled take an optional outcome rather than mint a second op" },
 
   // ── Auth ────────────────────────────────────────────────────────────────
