@@ -44,6 +44,11 @@ vi.mock("@/app/(app)/personal/answer-feedback-actions", () => ({
   getAnswerFeedback: (cardId: string, userAnswer: string) => getAnswerFeedbackMock(cardId, userAnswer),
 }));
 
+const getCloserDayConnectionMock = vi.fn(async (_cardId: string): Promise<string | null> => null);
+vi.mock("@/app/(app)/personal/closer-day-connection-actions", () => ({
+  getCloserDayConnection: (cardId: string) => getCloserDayConnectionMock(cardId),
+}));
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({}),
 }));
@@ -85,6 +90,8 @@ describe("RetrievalSessionOverlay", () => {
     replayPendingReviewsMock.mockResolvedValue({ succeeded: ["queued-1"], failures: [] });
     getAnswerFeedbackMock.mockReset();
     getAnswerFeedbackMock.mockResolvedValue(null); // the default state for the overwhelming majority of users -- no key
+    getCloserDayConnectionMock.mockReset();
+    getCloserDayConnectionMock.mockResolvedValue(null);
   });
 
   it("renders nothing when closed, without loading a session", () => {
@@ -145,6 +152,64 @@ describe("RetrievalSessionOverlay", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("P2-15: an ordinary card never requests a closer day-connection, even after reveal", async () => {
+    loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Ordinary prompt"), card("c2", "Second prompt")]));
+    revealCardAnswerMock.mockResolvedValue("An answer");
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("Ordinary prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByText("An answer")).toBeInTheDocument());
+
+    expect(getCloserDayConnectionMock).not.toHaveBeenCalled();
+  });
+
+  it("P2-15: the closer card requests a day-connection, and shows it under 'Today' once it resolves with a real one", async () => {
+    const closerCard = card("c-closer", "Closer prompt");
+    loadTodaysSessionMock.mockResolvedValue({
+      session: { id: "sess-1", userId: "user-1", localDate: "2026-09-01", startedAt: "2026-09-01T12:00:00Z", endedAt: null, cardsReviewed: 0, newCardsIntroduced: 0 },
+      plan: { warmUp: [], due: [], fresh: [], closer: closerCard },
+      settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
+      overflowDueCount: 0,
+      dueQuestions: [],
+    });
+    revealCardAnswerMock.mockResolvedValue("Closer answer");
+    getCloserDayConnectionMock.mockResolvedValue("This connects to Problem Set 3, due today.");
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("Closer prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByText("Closer answer")).toBeInTheDocument());
+
+    expect(getCloserDayConnectionMock).toHaveBeenCalledWith("c-closer");
+    await waitFor(() => expect(screen.getByText("This connects to Problem Set 3, due today.")).toBeInTheDocument());
+    expect(screen.getByText("Today")).toBeInTheDocument();
+  });
+
+  it("P2-15: the closer card shows nothing extra when there's no genuine day-connection (no key, cap hit, or nothing due) -- never a placeholder", async () => {
+    const closerCard = card("c-closer", "Closer prompt");
+    loadTodaysSessionMock.mockResolvedValue({
+      session: { id: "sess-1", userId: "user-1", localDate: "2026-09-01", startedAt: "2026-09-01T12:00:00Z", endedAt: null, cardsReviewed: 0, newCardsIntroduced: 0 },
+      plan: { warmUp: [], due: [], fresh: [], closer: closerCard },
+      settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
+      overflowDueCount: 0,
+      dueQuestions: [],
+    });
+    revealCardAnswerMock.mockResolvedValue("Closer answer");
+    getCloserDayConnectionMock.mockResolvedValue(null);
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("Closer prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByText("Closer answer")).toBeInTheDocument());
+    await waitFor(() => expect(getCloserDayConnectionMock).toHaveBeenCalledWith("c-closer"));
+
+    expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
 
   it("only fetches the answer after Reveal is tapped -- the non-negotiable invariant, at the component boundary", async () => {

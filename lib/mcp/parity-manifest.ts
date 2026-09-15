@@ -206,6 +206,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────
   "app/(app)/personal/answer-feedback-actions.ts#getAnswerFeedback": { excluded: "llm_spend: grades a typed answer with gatewayChat; the agent can judge the answer itself" },
   "app/(app)/personal/answer-feedback-actions.ts#parseFeedbackForTest": { read_only: true, note: "pure parser exported for tests" },
+  "app/(app)/personal/closer-day-connection-actions.ts#getCloserDayConnection": { excluded: "llm_spend: P2-15 closer-prompt day connection via gatewayChat; same shape as getAnswerFeedback just above, the agent can make this same connection itself" },
   "app/(app)/personal/self-mastery-actions.ts#fetchSourceChunkText": { read_only: true },
   "app/(app)/personal/self-mastery-actions.ts#uploadBook": { excluded: "file_upload: book file upload plus ingestion LLM spend" },
   "app/(app)/personal/self-mastery-session-actions.ts#loadTodaysSession": { excluded: "ui_scaffold: get-or-create of today's review session via start_session RPC; self_mastery.review.grade works without it" },
@@ -222,6 +223,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/self-mastery-session-actions.ts#getDueSummary": { read_only: true, note: "self_mastery.due_summary view is P4-27" },
   "app/(app)/personal/self-mastery-session-actions.ts#getSelfMasteryCandidateInput": { read_only: true },
   "app/(app)/personal/self-mastery-session-actions.ts#retryStarterDeckSeed": { excluded: "onboarding_wizard: retries the first-run starter deck seed" },
+  "app/(app)/personal/teach-back-actions.ts#getTeachableLessons": { read_only: true },
+  "app/(app)/personal/teach-back-actions.ts#submitTeachBack": { excluded: "llm_spend: P2-18 teach-back evaluation via gatewayChat; the agent can evaluate its own explanation of a lesson itself" },
 
   // ── Review ──────────────────────────────────────────────────────────────
   "app/(app)/review/actions.ts#getReviewData": { read_only: true },
@@ -267,6 +270,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/school/question-actions.ts#updateQuestion": { pending: "P4-08", note: "school.question.update" },
   "app/(app)/school/question-actions.ts#setQuestionActive": { pending: "P4-08", note: "school.question.set_active" },
   "app/(app)/school/question-draft-actions.ts#draftQuestionsFromNotes": { excluded: "llm_spend: server-side question drafting; the agent authors questions via school.question.create" },
+  "app/(app)/school/question-draft-actions.ts#draftQuestionsFromTranscript": { excluded: "llm_spend: same reasoning as draftQuestionsFromNotes above -- an MCP-connected agent can read the transcript itself (P4-cov-P3-15's scope) and author questions directly via school.question.create" },
   "app/(app)/school/staging-actions.ts#confirmStagingBatch": { pending: "P4-08", note: "school.staging.confirm_batch" },
   "app/(app)/school/staging-actions.ts#updateStagedDeliverable": { pending: "P4-08", note: "school.staging.update_deliverable" },
   "app/(app)/school/staging-actions.ts#deleteStagedDeliverable": { pending: "P4-08", note: "school.staging.delete_deliverable (pre-confirm only, per P4-08 AC)" },

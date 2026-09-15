@@ -29,6 +29,7 @@ import {
   type FinishSessionResult,
 } from "@/app/(app)/personal/self-mastery-session-actions";
 import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
+import { getCloserDayConnection } from "@/app/(app)/personal/closer-day-connection-actions";
 import type { LessonContext } from "@/lib/self-mastery/session/build-session";
 import type { BuiltSession } from "@/lib/self-mastery/session/types";
 
@@ -91,6 +92,12 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   // a "why"/"application" prompt can be testing exactly this content. Its
   // own failure never blocks reveal -- see handleReveal's .catch(() => null).
   const [lessonContext, setLessonContext] = useState<LessonContext | null>(null);
+  // P2-15: the closer's "connect this to today" line — same fire-and-
+  // forget, second-opinion-never-a-gate posture as aiFeedback above.
+  // null is the normal answer whenever there's nothing genuine to connect
+  // to, not just on a provider/key failure — see closer-day-connection-
+  // actions.ts's own header.
+  const [closerDayConnection, setCloserDayConnection] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [explanationText, setExplanationText] = useState("");
   const [completion, setCompletion] = useState<FinishSessionResult | null>(null);
@@ -197,6 +204,7 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setRevealedAnswer(null);
     setAiFeedback(null);
     setLessonContext(null);
+    setCloserDayConnection(null);
   }
 
   async function handleReveal() {
@@ -256,6 +264,21 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
           // nothing, exactly as if getAnswerFeedback itself had returned
           // null.
         });
+
+      // P2-15: only the CLOSER card gets a day-connection attempt -- this
+      // is a session-ending ritual (session-screen-spec.md §1.4), not
+      // something every card does. Same fire-and-forget/abandoned-check
+      // shape as getAnswerFeedback just above.
+      if (built?.plan.closer?.id === requestedCardId) {
+        getCloserDayConnection(requestedCardId)
+          .then((connection) => {
+            if (activeItemIdRef.current !== requestedCardId) return; // abandoned -- user already moved on
+            setCloserDayConnection(connection);
+          })
+          .catch(() => {
+            // null is the normal answer here too -- see closer-day-connection-actions.ts's own header.
+          });
+      }
     }
   }
 
@@ -606,6 +629,22 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                             AI suggests: {RATING_LABEL[aiFeedback.suggestedRating]}
                           </p>
                         )}
+                      </div>
+                    )}
+                    {/* P2-15: the closer's "connect this to today" line --
+                        only ever present on the one card that IS the
+                        closer, and only when getCloserDayConnection found a
+                        genuine connection to something really due today.
+                        Absent for every other card, absent while in
+                        flight, absent on no key/cap hit/nothing due --
+                        never a placeholder, never an empty state. */}
+                    {closerDayConnection && (
+                      <div className="flex gap-2.5 rounded-lg border border-border/40 bg-card p-4">
+                        <Target className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-xs font-medium text-muted-foreground">Today</p>
+                          <p className="text-sm text-foreground">{closerDayConnection}</p>
+                        </div>
                       </div>
                     )}
                     <div className="grid grid-cols-4 gap-2">
