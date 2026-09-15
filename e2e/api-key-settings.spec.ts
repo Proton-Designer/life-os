@@ -74,10 +74,34 @@ test.describe("API key settings", () => {
   test("a bogus key is rejected BY THE PROVIDER, not just by shape", async ({ page }) => {
     const section = await openSettings(page);
 
+    // REGRESSION (found 2026-09-15, full-suite triage against ad2da1d):
+    // multi-provider (Phase 1, 2026-09-14, lib/ai/providers.ts's PROVIDERS
+    // registry, six entries) turned this section from ONE provider panel
+    // (one "Connect" button) into one panel PER unconnected provider, each
+    // with its own "Connect" — an unscoped `section.getByRole("button",
+    // {name:/^connect$/i})` now resolves to up to six elements (a strict-
+    // mode violation) instead of one. This is a TEST bug, not a product
+    // one: six independent provider panels, each offering its own connect
+    // action, is exactly the intended multi-provider design.
+    //
+    // Scoped to the DeepSeek panel specifically — this test's own claim is
+    // about DeepSeek in particular (the bogus key is a DeepSeek-shaped
+    // "sk-..." key), not "some provider, any provider" — via its Label's
+    // `htmlFor="key-deepseek"` association
+    // (components/settings/api-key-settings.tsx) rather than a new
+    // data-testid, so this doesn't depend on a product deploy: the input
+    // and its "Connect" button are direct siblings inside one wrapping
+    // div, and `ancestor::div[1]` (a reverse XPath axis — position 1 is
+    // the CLOSEST ancestor, not the outermost) reaches exactly that div.
+    const deepseekInput = section.getByLabel("Paste your DeepSeek API key");
+    await expect(deepseekInput).toBeVisible();
+    const deepseekRow = deepseekInput.locator("xpath=ancestor::div[1]");
+    const deepseekConnectButton = deepseekRow.getByRole("button", { name: /^connect$/i });
+
     // Correct shape (starts with sk-, right sort of length) so the client-side
     // check passes and the only thing that can reject it is a real call.
-    await fillReliably(section.locator('input[type="password"]').first(), "sk-0000000000000000000000000000000000");
-    await section.getByRole("button", { name: /^connect$/i }).click();
+    await fillReliably(deepseekInput, "sk-0000000000000000000000000000000000");
+    await deepseekConnectButton.click();
 
     await expect(section.getByText(/rejected that key|didn't work|couldn't reach|error/i)).toBeVisible({
       timeout: 30_000,
