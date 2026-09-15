@@ -8,7 +8,24 @@ import {
   formatWindowRelativeTime,
   datesInMonth,
   addMonthsToDateString,
+  localWeekday,
 } from "../date-utils";
+
+describe("localWeekday", () => {
+  it("P2-12: reads the day in the GIVEN timezone, not the instant's own UTC day — the Monday Anti-Worry Hour gate depends on this", () => {
+    // 2026-09-14 02:00 UTC is still 2026-09-13 21:00 in America/Chicago (UTC-5) —
+    // Sunday there, Monday in UTC. The gate must see Sunday.
+    const instant = new Date("2026-09-14T02:00:00Z");
+    expect(localWeekday(instant, "America/Chicago")).toBe("Sunday");
+    expect(localWeekday(instant, "UTC")).toBe("Monday");
+  });
+
+  it("reads a real Monday correctly", () => {
+    // 2026-09-14 15:00 UTC is 2026-09-14 10:00 in America/Chicago — Monday in both.
+    const instant = new Date("2026-09-14T15:00:00Z");
+    expect(localWeekday(instant, "America/Chicago")).toBe("Monday");
+  });
+});
 
 describe("getWeekStartDate", () => {
   it("returns the same date when given a Sunday", () => {

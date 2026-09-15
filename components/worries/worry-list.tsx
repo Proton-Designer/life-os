@@ -1,10 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { CircleCheck, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { markWorryHandled, reopenWorry } from "@/app/(app)/worries/actions";
 import type { Worry } from "@/lib/night-plan/worries";
+
+/** P2-12: outcome label shown next to a handled worry that has one (recorded via the Monday Anti-Worry Hour panel) — a plain "Handled" tap from the list below never sets one. */
+const OUTCOME_LABEL: Record<string, string> = {
+  resolved: "Resolved",
+  took_action: "Took action",
+  let_go: "Let it go",
+};
 
 /**
  * The Worry List (#42) — the first real reader `captureDump({source:"worry"})`
@@ -13,51 +19,27 @@ import type { Worry } from "@/lib/night-plan/worries";
  * `planned_date` — see `lib/night-plan/worries.ts`'s header for why that
  * distinction is the whole bug.
  *
- * Server actions are IMPORTED here, not passed as props — the RSC
- * function-prop hazard AGENTS.md records; importing removes it rather than
- * testing for it.
- *
- * Optimistic locally, corrected by the server: a tap moves the row between
- * lists immediately (no spinner wait for a two-second ceremony), and rolls
- * back with the server's error if the write actually failed.
+ * PURELY PRESENTATIONAL as of P2-12 for `open`/`handled` themselves: the
+ * parent (`worries-page-client.tsx`) owns that state and the mutating
+ * handlers, not this component — the Monday Anti-Worry Hour panel above it
+ * needs to mutate the SAME list (so resolving a worry there removes it from
+ * here too, in the same tick, no page reload), which means exactly one
+ * component can own that state. `showHandled` stays LOCAL here — purely a
+ * display toggle, nothing else reads or depends on it.
  */
-export function WorryList({ open, handled }: { open: Worry[]; handled: Worry[] }) {
-  const [openWorries, setOpenWorries] = useState(open);
-  const [handledWorries, setHandledWorries] = useState(handled);
+export function WorryList({
+  open,
+  handled,
+  onHandle,
+  onReopen,
+}: {
+  open: Worry[];
+  handled: Worry[];
+  onHandle: (worry: Worry) => void;
+  onReopen: (worry: Worry) => void;
+}) {
   const [showHandled, setShowHandled] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-
-  function handle(worry: Worry) {
-    setError(null);
-    setOpenWorries((prev) => prev.filter((w) => w.id !== worry.id));
-    setHandledWorries((prev) => [{ ...worry, completed: true, completedAt: new Date().toISOString() }, ...prev]);
-    startTransition(async () => {
-      const res = await markWorryHandled(worry.id);
-      if ("error" in res) {
-        setError(res.error);
-        // Roll back: the row didn't actually move.
-        setHandledWorries((prev) => prev.filter((w) => w.id !== worry.id));
-        setOpenWorries((prev) => [...prev, worry].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
-      }
-    });
-  }
-
-  function reopen(worry: Worry) {
-    setError(null);
-    setHandledWorries((prev) => prev.filter((w) => w.id !== worry.id));
-    setOpenWorries((prev) => [...prev, { ...worry, completed: false, completedAt: null }]);
-    startTransition(async () => {
-      const res = await reopenWorry(worry.id);
-      if ("error" in res) {
-        setError(res.error);
-        setOpenWorries((prev) => prev.filter((w) => w.id !== worry.id));
-        setHandledWorries((prev) => [worry, ...prev]);
-      }
-    });
-  }
-
-  const hasAny = openWorries.length > 0 || handledWorries.length > 0;
+  const hasAny = open.length > 0 || handled.length > 0;
 
   if (!hasAny) {
     // A REAL DESIGN PROBLEM, PER SPEC: "no worries" must read as reassuring,
@@ -77,19 +59,17 @@ export function WorryList({ open, handled }: { open: Worry[]; handled: Worry[] }
 
   return (
     <div className="space-y-6">
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      {openWorries.length === 0 ? (
+      {open.length === 0 ? (
         <div className="rounded-2xl border border-border/40 bg-card p-6 text-center">
           <CircleCheck className="mx-auto size-6 text-accent-business" strokeWidth={1.5} />
           <p className="mt-2 text-sm">Everything's handled.</p>
         </div>
       ) : (
         <ul className="space-y-2">
-          {openWorries.map((w) => (
+          {open.map((w) => (
             <li key={w.id} className="flex items-center gap-3 rounded-lg border border-border/40 bg-card p-3">
               <span className="flex-1 text-sm">{w.title}</span>
-              <Button size="sm" variant="outline" onClick={() => handle(w)}>
+              <Button size="sm" variant="outline" onClick={() => onHandle(w)}>
                 <CircleCheck className="size-4" aria-hidden />
                 Handled
               </Button>
@@ -98,24 +78,27 @@ export function WorryList({ open, handled }: { open: Worry[]; handled: Worry[] }
         </ul>
       )}
 
-      {handledWorries.length > 0 ? (
+      {handled.length > 0 ? (
         <div>
           <button
             type="button"
             onClick={() => setShowHandled((v) => !v)}
             className="text-xs font-medium text-muted-foreground underline underline-offset-4"
           >
-            {showHandled ? "Hide" : "Show"} {handledWorries.length} handled
+            {showHandled ? "Hide" : "Show"} {handled.length} handled
           </button>
           {showHandled ? (
             <ul className="mt-2 space-y-2">
-              {handledWorries.map((w) => (
+              {handled.map((w) => (
                 <li
                   key={w.id}
                   className="flex items-center gap-3 rounded-lg border border-border/20 bg-card/60 p-3 text-muted-foreground"
                 >
-                  <span className="flex-1 text-sm line-through decoration-muted-foreground/50">{w.title}</span>
-                  <Button size="sm" variant="ghost" onClick={() => reopen(w)}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm line-through decoration-muted-foreground/50">{w.title}</span>
+                    {w.outcome ? <span className="text-[11px]">{OUTCOME_LABEL[w.outcome] ?? w.outcome}</span> : null}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => onReopen(w)}>
                     <Undo2 className="size-4" aria-hidden />
                     Reopen
                   </Button>

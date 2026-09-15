@@ -56,12 +56,43 @@ describe("worry actions — item #42's Handled state", () => {
     expect(eqArgs).toContainEqual(["dump_source", "worry"]);
   });
 
-  it("reopenWorry sets completed=false and clears completed_at", async () => {
+  it("reopenWorry sets completed=false, clears completed_at, and clears any recorded worry_outcome", async () => {
     const { reopenWorry } = await import("../actions");
     const res = await reopenWorry("worry-1");
     expect(res).toEqual({ ok: true });
     const updateCall = calls.find((c) => c.method === "update");
-    expect(updateCall!.args[0]).toEqual({ completed: false, completed_at: null });
+    expect(updateCall!.args[0]).toEqual({ completed: false, completed_at: null, worry_outcome: null });
+  });
+
+  it("recordWorryOutcome (P2-12) sets completed=true, completed_at, and the given outcome", async () => {
+    const { recordWorryOutcome } = await import("../actions");
+    const res = await recordWorryOutcome("worry-1", "took_action");
+    expect(res).toEqual({ ok: true });
+
+    const updateCall = calls.find((c) => c.method === "update");
+    const payload = updateCall!.args[0] as { completed: boolean; completed_at: string; worry_outcome: string };
+    expect(payload.completed).toBe(true);
+    expect(typeof payload.completed_at).toBe("string");
+    expect(payload.worry_outcome).toBe("took_action");
+
+    const eqArgs = calls.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(eqArgs).toContainEqual(["dump_source", "worry"]);
+  });
+
+  it("recordWorryOutcome rejects an unknown outcome before ever querying the row", async () => {
+    const { recordWorryOutcome } = await import("../actions");
+    // @ts-expect-error deliberately invalid, proving the guard runs at the boundary
+    const res = await recordWorryOutcome("worry-1", "shrug");
+    expect(res).toEqual({ error: "Unknown outcome." });
+    expect(calls.length).toBe(0);
+  });
+
+  it("refuses to record an outcome for an id that isn't a worry row belonging to this user — no update is attempted", async () => {
+    findResult = { data: null, error: null };
+    const { recordWorryOutcome } = await import("../actions");
+    const res = await recordWorryOutcome("someone-elses-task", "resolved");
+    expect(res).toEqual({ error: "That worry could not be found." });
+    expect(calls.some((c) => c.method === "update")).toBe(false);
   });
 
   it("refuses to handle an id that isn't a worry row belonging to this user — no update is attempted", async () => {

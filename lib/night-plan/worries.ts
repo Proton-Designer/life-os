@@ -35,23 +35,35 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DumpItem } from "./night-plan";
 
+/** P2-12: how a worry was resolved, recorded only by the Monday Anti-Worry Hour panel — see migration 201's own header for why this is a separate question from `completed`. */
+export type WorryOutcome = "resolved" | "took_action" | "let_go";
+
 export type Worry = {
   id: string;
   title: string;
   createdAt: string;
   completed: boolean;
   completedAt: string | null;
+  outcome: WorryOutcome | null;
 };
 
-const WORRY_COLUMNS = "id, title, created_at, completed, completed_at";
+const WORRY_COLUMNS = "id, title, created_at, completed, completed_at, worry_outcome";
 
-function toWorry(row: { id: string; title: string; created_at: string; completed: boolean; completed_at: string | null }): Worry {
+function toWorry(row: {
+  id: string;
+  title: string;
+  created_at: string;
+  completed: boolean;
+  completed_at: string | null;
+  worry_outcome: string | null;
+}): Worry {
   return {
     id: row.id,
     title: row.title,
     createdAt: row.created_at,
     completed: row.completed,
     completedAt: row.completed_at,
+    outcome: (row.worry_outcome as WorryOutcome | null) ?? null,
   };
 }
 

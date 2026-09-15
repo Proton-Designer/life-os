@@ -18,7 +18,10 @@ function makeSupabase(rows: unknown[], calls: Call[]) {
 describe("worry queries — item #42's actual fix", () => {
   it("getOpenWorries filters by dump_source=worry and completed=false, and NEVER by planned_date", async () => {
     const calls: Call[] = [];
-    const supabase = makeSupabase([{ id: "w1", title: "X", created_at: "t", completed: false, completed_at: null }], calls);
+    const supabase = makeSupabase(
+      [{ id: "w1", title: "X", created_at: "t", completed: false, completed_at: null, worry_outcome: null }],
+      calls
+    );
     const result = await getOpenWorries(supabase as never, "user-1");
 
     const eqArgs = calls.filter((c) => c.method === "eq").map((c) => c.args);
@@ -29,6 +32,16 @@ describe("worry queries — item #42's actual fix", () => {
     // never matched it. This query must carry no planned_date filter at all.
     expect(eqArgs.some(([field]) => field === "planned_date")).toBe(false);
     expect(result).toHaveLength(1);
+  });
+
+  it("P2-12: getHandledWorries maps a recorded worry_outcome onto Worry.outcome", async () => {
+    const calls: Call[] = [];
+    const supabase = makeSupabase(
+      [{ id: "w1", title: "X", created_at: "t", completed: true, completed_at: "t2", worry_outcome: "took_action" }],
+      calls
+    );
+    const [result] = await getHandledWorries(supabase as never, "user-1");
+    expect(result.outcome).toBe("took_action");
   });
 
   it("getHandledWorries filters completed=true, ordered most-recent-first", async () => {
@@ -42,7 +55,9 @@ describe("worry queries — item #42's actual fix", () => {
   });
 
   it("worriesToDumpItems adapts into the Night Plan engine's shape with source 'worry'", () => {
-    const items = worriesToDumpItems([{ id: "w1", title: "Call the landlord", createdAt: "t", completed: false, completedAt: null }]);
+    const items = worriesToDumpItems([
+      { id: "w1", title: "Call the landlord", createdAt: "t", completed: false, completedAt: null, outcome: null },
+    ]);
     expect(items).toEqual([{ id: "w1", title: "Call the landlord", source: "worry" }]);
   });
 });
