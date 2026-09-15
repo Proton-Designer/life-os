@@ -2387,6 +2387,61 @@ export type Database = {
         }
         Relationships: []
       }
+      morning_routine_checks: {
+        Row: {
+          checked_date: string
+          created_at: string
+          id: string
+          item_id: string
+          user_id: string
+        }
+        Insert: {
+          checked_date: string
+          created_at?: string
+          id?: string
+          item_id: string
+          user_id?: string
+        }
+        Update: {
+          checked_date?: string
+          created_at?: string
+          id?: string
+          item_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "morning_routine_checks_item_same_user"
+            columns: ["user_id", "item_id"]
+            referencedRelation: "morning_routine_items"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      morning_routine_items: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          id: string
+          label: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          label: string
+          user_id?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          label?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       notification_log: {
         Row: {
           created_at: string
