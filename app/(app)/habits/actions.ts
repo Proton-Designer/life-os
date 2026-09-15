@@ -8,6 +8,8 @@ import {
   killIdentityHabitCore,
   castHabitVoteCore,
   retractHabitVoteCore,
+  pauseIdentityHabitCore,
+  resumeIdentityHabitCore,
   type Habit,
 } from "@/lib/habits/actions-core";
 
@@ -104,6 +106,31 @@ export async function retractHabitVoteAction(habitId: string, requestedDate: str
   try {
     const timezone = await timezoneForUser(supabase, userId);
     await retractHabitVoteCore(supabase, userId, habitId, requestedDate, new Date(), timezone);
+    revalidateHabitSurfaces();
+    return { ok: true };
+  } catch (err) {
+    return { error: describeHabitError(err) };
+  }
+}
+
+/** P3-07 -- see actions-core.ts's own header on `pauseIdentityHabitCore` for the score-freeze reasoning and write ordering. */
+export async function pauseIdentityHabitAction(habitId: string): Promise<ActionResult> {
+  const { supabase, userId } = await requireUser();
+  try {
+    const timezone = await timezoneForUser(supabase, userId);
+    await pauseIdentityHabitCore(supabase, userId, habitId, new Date(), timezone);
+    revalidateHabitSurfaces();
+    return { ok: true };
+  } catch (err) {
+    return { error: describeHabitError(err) };
+  }
+}
+
+export async function resumeIdentityHabitAction(habitId: string): Promise<ActionResult> {
+  const { supabase, userId } = await requireUser();
+  try {
+    const timezone = await timezoneForUser(supabase, userId);
+    await resumeIdentityHabitCore(supabase, userId, habitId, new Date(), timezone);
     revalidateHabitSurfaces();
     return { ok: true };
   } catch (err) {

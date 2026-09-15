@@ -6,6 +6,8 @@ import {
   killIdentityHabitCore,
   castHabitVoteCore,
   retractHabitVoteCore,
+  pauseIdentityHabitCore,
+  resumeIdentityHabitCore,
   MAX_ACTIVE_HABITS,
 } from "../actions-core";
 
@@ -33,7 +35,7 @@ function makeClient(responses: Record<string, Resp[]>) {
         calls[table]!.push({ method, args });
         return chain;
       };
-    for (const method of ["select", "eq", "insert", "update", "delete", "upsert", "order", "in"]) {
+    for (const method of ["select", "eq", "insert", "update", "delete", "upsert", "order", "in", "is"]) {
       chain[method] = vi.fn(record(method));
     }
     const resolve = (): Resp => (queues[table] ?? []).shift() ?? { data: null, error: null };
@@ -113,6 +115,73 @@ describe("archiveIdentityHabitCore", () => {
     const updates = calls.identity_habits!.filter((c) => c.method === "update");
     expect(updates[0]!.args[0]).toMatchObject({ status: "archived" });
     expect((updates[0]!.args[0] as { archived_at: string }).archived_at).toBeTruthy();
+  });
+});
+
+// P3-07
+describe("pauseIdentityHabitCore", () => {
+  it("flips status to 'paused' (scoped to this user's own active habit) THEN opens a pause-log row dated today", async () => {
+    const { client, calls } = makeClient({
+      identity_habits: [{ data: { id: "h1" }, error: null }],
+      identity_habit_pauses: [{ data: null, error: null }],
+    });
+    await pauseIdentityHabitCore(client, "user-1", "h1", now, tz);
+
+    const habitEq = calls.identity_habits!.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(habitEq).toContainEqual(["id", "h1"]);
+    expect(habitEq).toContainEqual(["user_id", "user-1"]);
+    expect(habitEq).toContainEqual(["status", "active"]);
+    const habitUpdate = calls.identity_habits!.find((c) => c.method === "update");
+    expect(habitUpdate!.args[0]).toEqual({ status: "paused" });
+
+    const pauseInsert = calls.identity_habit_pauses!.find((c) => c.method === "insert");
+    expect(pauseInsert!.args[0]).toMatchObject({ user_id: "user-1", habit_id: "h1", paused_at: "2026-09-14" });
+  });
+
+  it("a no-op status update (already paused/archived/foreign id) opens NO pause-log row at all", async () => {
+    const { client, calls } = makeClient({ identity_habits: [{ data: null, error: null }] });
+    await pauseIdentityHabitCore(client, "user-1", "h1", now, tz);
+
+    expect(calls.identity_habit_pauses).toBeUndefined();
+  });
+
+  it("propagates a real database error from the status update without attempting the pause-log insert", async () => {
+    const { client, calls } = makeClient({
+      identity_habits: [{ data: null, error: new Error("db down") }],
+    });
+    await expect(pauseIdentityHabitCore(client, "user-1", "h1", now, tz)).rejects.toThrow("db down");
+    expect(calls.identity_habit_pauses).toBeUndefined();
+  });
+});
+
+describe("resumeIdentityHabitCore", () => {
+  it("closes the open pause-log row (resumed_at = today) THEN flips status back to 'active'", async () => {
+    const { client, calls } = makeClient({
+      identity_habit_pauses: [{ data: null, error: null }],
+      identity_habits: [{ data: null, error: null }],
+    });
+    await resumeIdentityHabitCore(client, "user-1", "h1", now, tz);
+
+    const pauseEq = calls.identity_habit_pauses!.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(pauseEq).toContainEqual(["user_id", "user-1"]);
+    expect(pauseEq).toContainEqual(["habit_id", "h1"]);
+    const pauseIs = calls.identity_habit_pauses!.filter((c) => c.method === "is").map((c) => c.args);
+    expect(pauseIs).toContainEqual(["resumed_at", null]);
+    const pauseUpdate = calls.identity_habit_pauses!.find((c) => c.method === "update");
+    expect(pauseUpdate!.args[0]).toEqual({ resumed_at: "2026-09-14" });
+
+    const habitUpdate = calls.identity_habits!.find((c) => c.method === "update");
+    expect(habitUpdate!.args[0]).toEqual({ status: "active" });
+    const habitEq = calls.identity_habits!.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(habitEq).toContainEqual(["status", "paused"]);
+  });
+
+  it("propagates a real database error from closing the pause-log row without attempting the status flip", async () => {
+    const { client, calls } = makeClient({
+      identity_habit_pauses: [{ data: null, error: new Error("db down") }],
+    });
+    await expect(resumeIdentityHabitCore(client, "user-1", "h1", now, tz)).rejects.toThrow("db down");
+    expect(calls.identity_habits).toBeUndefined();
   });
 });
 

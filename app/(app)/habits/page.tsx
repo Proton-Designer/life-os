@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
-import { getActiveHabitsWithStatus } from "@/lib/habits/queries";
+import { getActiveHabitsWithStatus, getPausedHabits } from "@/lib/habits/queries";
 import { HabitList } from "@/components/habits/habit-list";
 
 /**
@@ -28,7 +28,10 @@ export default async function HabitsPage() {
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
 
-  const habits = await getActiveHabitsWithStatus(supabase, user.id, todayStr, timezone);
+  const [habits, pausedHabits] = await Promise.all([
+    getActiveHabitsWithStatus(supabase, user.id, todayStr, timezone),
+    getPausedHabits(supabase, user.id),
+  ]);
 
   return (
     <PageContainer>
@@ -36,7 +39,7 @@ export default async function HabitsPage() {
         title="Habits"
         description="Vote once a day for who you're becoming. Up to seven identities — the database refuses an eighth."
       />
-      <HabitList habits={habits} today={todayStr} />
+      <HabitList habits={habits} pausedHabits={pausedHabits} today={todayStr} />
     </PageContainer>
   );
 }

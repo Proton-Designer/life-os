@@ -73,4 +73,83 @@ describe("computeHabitDecayScore", () => {
     const doubled = computeHabitDecayScore(["2026-09-01", "2026-09-01"], "2026-09-01");
     expect(doubled).toBeCloseTo(single * 2, 12);
   });
+
+  // P3-07: pause freezes decay. Migration 202's own header has the full
+  // product reasoning -- every day paused is excluded from a vote's
+  // days-elapsed count, so a pause protects the score the same way an
+  // active vote would, without requiring one.
+  describe("pauseRanges", () => {
+    it("with no pause ranges, behaves exactly as before (default [])", () => {
+      const withDefault = computeHabitDecayScore(["2026-08-01"], "2026-08-21");
+      const withEmpty = computeHabitDecayScore(["2026-08-01"], "2026-08-21", []);
+      expect(withDefault).toBe(withEmpty);
+    });
+
+    it("a CLOSED pause window fully spanning the gap freezes the score at exactly the vote's own contribution", () => {
+      // Voted once on 08-01, paused THAT SAME DAY through 08-21 -- zero
+      // real days elapsed against the vote (the habit was active for zero
+      // days between casting the vote and going on pause).
+      const score = computeHabitDecayScore(["2026-08-01"], "2026-08-21", [
+        { pausedAt: "2026-08-01", resumedAt: "2026-08-21" },
+      ]);
+      expect(score).toBeCloseTo(HABIT_VOTE_WEIGHT, 10); // 0.96^0 * 0.04
+    });
+
+    it("a STILL-OPEN pause (resumedAt: null) excludes every day through asOfDateStr, same as a closed one ending exactly there", () => {
+      const open = computeHabitDecayScore(["2026-08-01"], "2026-08-21", [{ pausedAt: "2026-08-01", resumedAt: null }]);
+      const closed = computeHabitDecayScore(["2026-08-01"], "2026-08-21", [
+        { pausedAt: "2026-08-01", resumedAt: "2026-08-21" },
+      ]);
+      expect(open).toBeCloseTo(closed, 12);
+    });
+
+    it("a pause BEFORE the vote was ever cast excludes nothing -- only days AFTER the vote count", () => {
+      // Paused 07-01..07-15 (before the habit existed/voted), voted 08-01,
+      // reviewed 08-11 -- the pause is irrelevant to this vote's own decay.
+      const withIrrelevantPause = computeHabitDecayScore(["2026-08-01"], "2026-08-11", [
+        { pausedAt: "2026-07-01", resumedAt: "2026-07-15" },
+      ]);
+      const withNoPause = computeHabitDecayScore(["2026-08-01"], "2026-08-11");
+      expect(withIrrelevantPause).toBeCloseTo(withNoPause, 12);
+    });
+
+    it("a PARTIAL overlap only excludes the days that actually fall within [voteDate, asOfDateStr]", () => {
+      // Voted 08-01. Paused 07-25..08-05 (starts before the vote, ends
+      // after it) -- only 08-01..08-05 (4 days) should be excluded, not the
+      // whole range.
+      const score = computeHabitDecayScore(["2026-08-01"], "2026-08-11", [
+        { pausedAt: "2026-07-25", resumedAt: "2026-08-05" },
+      ]);
+      // Raw gap is 10 days; 4 of them (08-01 through 08-05) are paused, so
+      // effective days-ago is 6.
+      expect(score).toBeCloseTo(HABIT_VOTE_WEIGHT * Math.pow(HABIT_DECAY_FACTOR, 6), 10);
+    });
+
+    it("multiple pause cycles each only offset the votes cast AFTER they ended -- a vote between two pauses isn't double-protected by the earlier one", () => {
+      // Vote A on 08-01. Pause 1: 08-02..08-06 (4 elapsed days). Vote B on
+      // 08-10 (cast while active, after pause 1 ended). Pause 2: 08-15..08-20
+      // (5 elapsed days, opens after vote B). Reviewed 08-25.
+      const pauseRanges = [
+        { pausedAt: "2026-08-02", resumedAt: "2026-08-06" },
+        { pausedAt: "2026-08-15", resumedAt: "2026-08-20" },
+      ];
+      const score = computeHabitDecayScore(["2026-08-01", "2026-08-10"], "2026-08-25", pauseRanges);
+
+      // Vote A (08-01): raw 24 days to 08-25, minus BOTH pauses (4 + 5 = 9
+      // paused days both fall after 08-01) => 15 effective days.
+      // Vote B (08-10): raw 15 days to 08-25, minus ONLY pause 2 (pause 1
+      // ended 08-06, entirely BEFORE vote B was cast, so it contributes
+      // nothing to vote B's own exclusion) => 15 - 5 = 10 effective days.
+      const expected =
+        HABIT_VOTE_WEIGHT * Math.pow(HABIT_DECAY_FACTOR, 15) + HABIT_VOTE_WEIGHT * Math.pow(HABIT_DECAY_FACTOR, 10);
+      expect(score).toBeCloseTo(expected, 10);
+    });
+
+    it("never goes negative (a malformed/overlapping range set still degrades to floor 0 effective days, not a boosted score)", () => {
+      const score = computeHabitDecayScore(["2026-08-20"], "2026-08-21", [
+        { pausedAt: "2026-01-01", resumedAt: "2026-12-31" }, // wildly overshoots the gap
+      ]);
+      expect(score).toBeCloseTo(HABIT_VOTE_WEIGHT, 10); // clamped to 0 effective days-ago, not negative
+    });
+  });
 });

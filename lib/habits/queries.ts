@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { localDateString } from "@/lib/date-utils";
-import { computeHabitDecayScore, daysBetweenDateStrings } from "./decay-score";
+import { computeHabitDecayScore, daysBetweenDateStrings, type HabitPauseRange } from "./decay-score";
 
 type TypedClient = SupabaseClient<Database>;
 
@@ -28,7 +28,19 @@ export type HabitWithVotes = {
   /** ISO instant, as stored -- callers convert to a local calendar date themselves via `localDateString`. */
   createdAt: string;
   voteDates: string[];
+  /** P3-07 -- every pause window this habit has EVER had (closed or still open), oldest first, for `computeHabitDecayScore`'s own decay-freeze math. A habit that has never been paused simply has an empty array, which is a genuine no-op for that function (default `[]` behaves identically to omitting the argument). */
+  pauseRanges: HabitPauseRange[];
 };
+
+/**
+ * `identity_habit_pauses` isn't in generated database.types.ts until
+ * migration 202 is applied -- same local escape hatch `lib/ai/
+ * morning-brief.ts`'s own header already established for the identical
+ * reason. Delete once types regenerate.
+ */
+function untypedFrom(supabase: SupabaseClient, table: string) {
+  return (supabase as unknown as { from: (t: string) => ReturnType<SupabaseClient["from"]> }).from(table);
+}
 
 /**
  * The shared raw fetch behind every habit-derived read: #39's /habits page
@@ -57,12 +69,14 @@ export async function getActiveHabitsWithVotes(supabase: TypedClient, userId: st
   if (!habits || habits.length === 0) return [];
 
   const habitIds = habits.map((h) => h.id as string);
-  const { data: votes, error: votesError } = await supabase
-    .from("habit_votes")
-    .select("habit_id, date")
-    .eq("user_id", userId)
-    .in("habit_id", habitIds);
+  const [{ data: votes, error: votesError }, { data: pausesRaw, error: pausesError }] = await Promise.all([
+    supabase.from("habit_votes").select("habit_id, date").eq("user_id", userId).in("habit_id", habitIds),
+    // P3-07 -- read-only, feeds decay-score.ts's own pause-freeze math below.
+    untypedFrom(supabase, "identity_habit_pauses").select("habit_id, paused_at, resumed_at").eq("user_id", userId).in("habit_id", habitIds),
+  ]);
   if (votesError) throw votesError;
+  if (pausesError) throw pausesError;
+  const pauses = (pausesRaw ?? []) as { habit_id: string; paused_at: string; resumed_at: string | null }[];
 
   const voteDatesByHabit = new Map<string, string[]>();
   for (const v of votes ?? []) {
@@ -72,12 +86,20 @@ export async function getActiveHabitsWithVotes(supabase: TypedClient, userId: st
     voteDatesByHabit.set(habitId, list);
   }
 
+  const pauseRangesByHabit = new Map<string, HabitPauseRange[]>();
+  for (const p of pauses) {
+    const list = pauseRangesByHabit.get(p.habit_id) ?? [];
+    list.push({ pausedAt: p.paused_at, resumedAt: p.resumed_at });
+    pauseRangesByHabit.set(p.habit_id, list);
+  }
+
   return habits.map((h) => ({
     id: h.id as string,
     identityStatement: h.identity_statement as string,
     rank: h.rank as number,
     createdAt: h.created_at as string,
     voteDates: voteDatesByHabit.get(h.id as string) ?? [],
+    pauseRanges: pauseRangesByHabit.get(h.id as string) ?? [],
   }));
 }
 
@@ -113,8 +135,34 @@ export async function getActiveHabitsWithStatus(
       rank: h.rank,
       votedToday: h.voteDates.includes(todayStr),
       isNew,
-      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr),
+      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr, h.pauseRanges),
       voteCount: h.voteDates.length,
     };
   });
+}
+
+export type PausedHabit = {
+  id: string;
+  identityStatement: string;
+  rank: number;
+};
+
+/**
+ * P3-07 -- this user's currently-paused habits, for the /habits page's own
+ * "Paused" section (a Resume affordance, no score/vote state shown --
+ * both are meaningless while paused, and showing a stale one would read
+ * as current). No decay/vote data needed here, so this is deliberately
+ * its own lean query rather than routed through `getActiveHabitsWithVotes`
+ * (which is scoped to `status = 'active'` and would need widening for a
+ * concern this function has no other reason to carry).
+ */
+export async function getPausedHabits(supabase: TypedClient, userId: string): Promise<PausedHabit[]> {
+  const { data, error } = await supabase
+    .from("identity_habits")
+    .select("id, identity_statement, rank")
+    .eq("user_id", userId)
+    .eq("status", "paused")
+    .order("rank", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((h) => ({ id: h.id as string, identityStatement: h.identity_statement as string, rank: h.rank as number }));
 }

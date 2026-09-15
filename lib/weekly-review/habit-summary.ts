@@ -51,7 +51,9 @@ export async function getHabitWeeklySummaries(
       id: h.id,
       identityStatement: h.identityStatement,
       isNew,
-      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr),
+      // P3-07: pause-freeze applies here too -- the same habit's score
+      // must read identically everywhere it's shown, not just on /habits.
+      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr, h.pauseRanges),
       votesThisWeek,
     };
   });

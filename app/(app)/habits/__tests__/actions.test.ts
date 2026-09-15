@@ -11,12 +11,16 @@ const archiveIdentityHabitCoreMock = vi.fn();
 const killIdentityHabitCoreMock = vi.fn();
 const castHabitVoteCoreMock = vi.fn();
 const retractHabitVoteCoreMock = vi.fn();
+const pauseIdentityHabitCoreMock = vi.fn();
+const resumeIdentityHabitCoreMock = vi.fn();
 vi.mock("@/lib/habits/actions-core", () => ({
   createIdentityHabitCore: (...args: unknown[]) => createIdentityHabitCoreMock(...args),
   archiveIdentityHabitCore: (...args: unknown[]) => archiveIdentityHabitCoreMock(...args),
   killIdentityHabitCore: (...args: unknown[]) => killIdentityHabitCoreMock(...args),
   castHabitVoteCore: (...args: unknown[]) => castHabitVoteCoreMock(...args),
   retractHabitVoteCore: (...args: unknown[]) => retractHabitVoteCoreMock(...args),
+  pauseIdentityHabitCore: (...args: unknown[]) => pauseIdentityHabitCoreMock(...args),
+  resumeIdentityHabitCore: (...args: unknown[]) => resumeIdentityHabitCoreMock(...args),
 }));
 
 const fakeSupabase = {
@@ -120,5 +124,31 @@ describe("habit actions (#39/#40) — 'use server' wrappers over lib/habits/acti
     const res = await retractHabitVoteAction("h1", "2026-09-14");
     expect(res).toEqual({ ok: true });
     expect(retractHabitVoteCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1", "2026-09-14", expect.any(Date), "America/Chicago");
+  });
+
+  // P3-07
+  it("pauseIdentityHabitAction calls through with the resolved timezone and revalidates /habits", async () => {
+    pauseIdentityHabitCoreMock.mockResolvedValue(undefined);
+    const { pauseIdentityHabitAction } = await import("../actions");
+    const res = await pauseIdentityHabitAction("h1");
+    expect(res).toEqual({ ok: true });
+    expect(pauseIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1", expect.any(Date), "America/Chicago");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/habits");
+  });
+
+  it("resumeIdentityHabitAction calls through with the resolved timezone and revalidates /habits", async () => {
+    resumeIdentityHabitCoreMock.mockResolvedValue(undefined);
+    const { resumeIdentityHabitAction } = await import("../actions");
+    const res = await resumeIdentityHabitAction("h1");
+    expect(res).toEqual({ ok: true });
+    expect(resumeIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1", expect.any(Date), "America/Chicago");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/habits");
+  });
+
+  it("pauseIdentityHabitAction maps a thrown error to an honest message rather than crashing", async () => {
+    pauseIdentityHabitCoreMock.mockRejectedValue(new Error("connection reset"));
+    const { pauseIdentityHabitAction } = await import("../actions");
+    const res = await pauseIdentityHabitAction("h1");
+    expect(res).toEqual({ error: "connection reset" });
   });
 });

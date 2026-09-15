@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getActiveHabitsWithStatus } from "../queries";
+import { getActiveHabitsWithStatus, getPausedHabits } from "../queries";
+import { HABIT_VOTE_WEIGHT, HABIT_DECAY_FACTOR } from "../decay-score";
 
 type Resp = { data: unknown; error: unknown };
 
@@ -132,5 +133,63 @@ describe("getActiveHabitsWithStatus", () => {
     expect((supabase.from as unknown as ReturnType<typeof vi.fn>).mock.results[0]!.value.order).toHaveBeenCalledWith("rank", {
       ascending: true,
     });
+  });
+
+  // P3-07: pause windows feed decay-score.ts's own freeze math -- this is
+  // just the plumbing (fetch + pass-through), the math itself is
+  // decay-score.test.ts's job.
+  it("fetches and applies this habit's pause windows to its score (P3-07)", async () => {
+    const supabase = makeClient({
+      identity_habits: [
+        { data: [{ id: "h1", identity_statement: "the athlete", rank: 1, created_at: "2026-08-01T00:00:00Z" }], error: null },
+      ],
+      habit_votes: [{ data: [{ habit_id: "h1", date: "2026-08-01" }], error: null }],
+      identity_habit_pauses: [
+        { data: [{ habit_id: "h1", paused_at: "2026-08-01", resumed_at: "2026-09-14" }], error: null },
+      ],
+    });
+    const [habit] = await getActiveHabitsWithStatus(supabase, "user-1", "2026-09-14", tz);
+    // Fully paused from the vote date through today -- score reads as if
+    // the vote were cast today (0 effective days elapsed).
+    expect(habit!.score).toBeCloseTo(HABIT_VOTE_WEIGHT, 10);
+  });
+
+  it("a habit with no pause rows at all scores identically to before P3-07 (empty pauseRanges is a true no-op)", async () => {
+    const supabase = makeClient({
+      identity_habits: [
+        { data: [{ id: "h1", identity_statement: "the athlete", rank: 1, created_at: "2026-08-01T00:00:00Z" }], error: null },
+      ],
+      habit_votes: [{ data: [{ habit_id: "h1", date: "2026-08-01" }], error: null }],
+    });
+    const [habit] = await getActiveHabitsWithStatus(supabase, "user-1", "2026-08-31", tz);
+    expect(habit!.score).toBeCloseTo(HABIT_VOTE_WEIGHT * Math.pow(HABIT_DECAY_FACTOR, 30), 10);
+  });
+});
+
+describe("getPausedHabits (P3-07)", () => {
+  it("returns this user's paused habits, ordered by rank", async () => {
+    const supabase = makeClient({
+      identity_habits: [
+        {
+          data: [
+            { id: "h1", identity_statement: "the athlete", rank: 3 },
+            { id: "h2", identity_statement: "the reader", rank: 1 },
+          ],
+          error: null,
+        },
+      ],
+    });
+    const result = await getPausedHabits(supabase, "user-1");
+    expect(result).toEqual([
+      { id: "h1", identityStatement: "the athlete", rank: 3 },
+      { id: "h2", identityStatement: "the reader", rank: 1 },
+    ]);
+  });
+
+  it("scopes the read to status = 'paused'", async () => {
+    const supabase = makeClient({ identity_habits: [{ data: [], error: null }] });
+    await getPausedHabits(supabase, "user-1");
+    const chain = (supabase.from as unknown as ReturnType<typeof vi.fn>).mock.results[0]!.value;
+    expect(chain.eq).toHaveBeenCalledWith("status", "paused");
   });
 });

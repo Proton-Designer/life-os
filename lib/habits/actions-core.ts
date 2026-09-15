@@ -95,6 +95,93 @@ export async function archiveIdentityHabitCore(supabase: TypedClient, userId: st
   if (error) throw error;
 }
 
+/**
+ * P3-07 -- pauses a habit: status flips to 'paused' (keeping its rank slot,
+ * migration 202's own widened partial unique index) and opens a new row in
+ * `identity_habit_pauses` (paused_at = the caller's own local today),
+ * which `getActiveHabitsWithVotes`'s score computation later excludes from
+ * decay for as long as the pause stays open -- see decay-score.ts's
+ * `computeHabitDecayScore` and migration 202's header for the full
+ * product reasoning ("pause freezes the score").
+ *
+ * STATUS UPDATE FIRST, THEN THE PAUSE-LOG ROW -- the safer of the two
+ * failure directions if something goes wrong between them: if the log
+ * insert fails after the status flip succeeds, the habit at least VISIBLY
+ * shows as paused (matching what the user just did), even though that one
+ * pause window's days won't be excluded from decay until whatever caused
+ * the insert failure is fixed. The reverse order (log row first, status
+ * second) would risk an ORPHAN pause window nobody's UI reflects while
+ * silently already affecting future decay math -- a wrong number the user
+ * has no visible reason to suspect, which is worse than a cosmetic status
+ * lag they can retry.
+ *
+ * Same "scoped .eq(status,'active') on the write, no pre-existence check,
+ * a stale/foreign/already-paused id simply matches zero rows" shape as
+ * `archiveIdentityHabitCore` -- except this DOES need to know whether the
+ * update actually matched a row, to decide whether opening a pause-log
+ * entry is warranted at all (a no-op status update should open no window).
+ */
+export async function pauseIdentityHabitCore(
+  supabase: TypedClient,
+  userId: string,
+  habitId: string,
+  now: Date,
+  timezone: string
+): Promise<void> {
+  const { data: updated, error: updateError } = await supabase
+    .from("identity_habits")
+    .update({ status: "paused" })
+    .eq("id", habitId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw updateError;
+  if (!updated) return; // not active (already paused/archived/foreign id) -- true no-op, same convention as archive
+
+  const today = localDateString(now, timezone);
+  const { error: pauseError } = await supabase
+    .from("identity_habit_pauses")
+    .insert({ user_id: userId, habit_id: habitId, paused_at: today });
+  if (pauseError) throw pauseError;
+}
+
+/**
+ * P3-07 -- resumes a paused habit: closes its open pause-log row
+ * (`resumed_at` = today, if one exists -- migration 202's own partial
+ * unique index guarantees at most one) and flips status back to 'active'.
+ * PAUSE-LOG ROW CLOSED FIRST, THEN STATUS -- the mirror-image ordering
+ * from `pauseIdentityHabitCore`'s own reasoning: if the status flip then
+ * fails, the habit stays visibly 'paused' (a safe, honest state) rather
+ * than silently reading 'active' again with a pause window that never
+ * got closed, which would keep excluding days from decay forever by
+ * accident.
+ */
+export async function resumeIdentityHabitCore(
+  supabase: TypedClient,
+  userId: string,
+  habitId: string,
+  now: Date,
+  timezone: string
+): Promise<void> {
+  const today = localDateString(now, timezone);
+  const { error: closeError } = await supabase
+    .from("identity_habit_pauses")
+    .update({ resumed_at: today })
+    .eq("user_id", userId)
+    .eq("habit_id", habitId)
+    .is("resumed_at", null);
+  if (closeError) throw closeError;
+
+  const { error: statusError } = await supabase
+    .from("identity_habits")
+    .update({ status: "active" })
+    .eq("id", habitId)
+    .eq("user_id", userId)
+    .eq("status", "paused");
+  if (statusError) throw statusError;
+}
+
 export type KillHabitResult = { ok: true } | { ok: false; reason: "requires_reason" };
 
 /**
