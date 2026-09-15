@@ -8,6 +8,21 @@
 -- never hand-copied into SQL a second time), and this function does only
 -- the write-once bookkeeping against those numbers.
 --
+-- STARTED FROM THE LIVE DEFINITION, NOT 079's FILE TEXT (Lead review
+-- correction, stage 03 attempt 1): `pg_get_functiondef('public.
+-- complete_session(uuid)')` on prod, diffed against 079's own migration
+-- file, showed one real drift — migration 080 ("ensure_user_stats_settings")
+-- added `insert into public.user_stats (user_id) values (caller) on
+-- conflict (user_id) do nothing;` right after the auth check, fixing a
+-- real bug (a user with no user_stats row previously finished a session
+-- with a null `stats` return and streaks that never updated). 079's own
+-- file text never got that fix folded back in, so rebuilding from 079
+-- would have SILENTLY REVERTED 080's fix — a real regression, caught only
+-- by diffing the live definition, not by re-reading history. Everything
+-- below is the live body verbatim except: the new `p_book_strengths`
+-- parameter, the new Priority 3 branch, and (unrelated to the drift) the
+-- `key::uuid` cast guard described below.
+--
 -- DEVIATION FROM 079's header note, LOGGED HERE (also OPEN_QUESTIONS.md):
 -- that note planned BOTH `milestone_50_at` and `milestone_80_at` landing
 -- together. This migration adds ONLY `milestone_80_at`. The audit
@@ -23,6 +38,24 @@
 -- WRITE-ONCE, RACE-SAFE: `update ... where milestone_80_at is null
 -- returning ...` — the null check is the guard, not a prior SELECT, so two
 -- concurrent completions of the same book can't both "win" the crossing.
+--
+-- INPUT VALIDATION (Lead review, stage 03 attempt 1): `p_book_strengths`
+-- comes from this repo's own trusted server-side TS caller, but
+-- `jsonb_each_text` + a blind `key::uuid`/`value::numeric` cast would still
+-- raise and abort the ENTIRE session completion (streak/freeze bookkeeping
+-- included) if a key or value were ever malformed — far too expensive a
+-- failure mode for what should be a best-effort bonus check. The loop's
+-- own query now filters to well-formed uuid keys and plain-decimal values
+-- via regex before casting, so a malformed entry is silently skipped
+-- (no book_milestone win that tick) rather than fatal.
+--
+-- GRANTS: no GRANT/REVOKE for this function exists anywhere in this repo's
+-- migrations (same finding 160's own header already made for
+-- get_session_queue) — Postgres grants EXECUTE to PUBLIC by default on a
+-- freshly created function, which is exactly what's live today (PUBLIC +
+-- postgres/anon/authenticated/service_role all show EXECUTE, all via that
+-- same PUBLIC grant), so the drop+create below needs no explicit GRANT to
+-- match current production.
 alter table public.books
   add column milestone_80_at timestamptz;
 
@@ -50,12 +83,13 @@ declare
   v_deck_hit boolean;
   v_book_id uuid;
   v_strength numeric;
-  v_ms80_hit boolean;
   v_book_title text;
 begin
   if caller is null then
     raise exception 'complete_session: no authenticated user';
   end if;
+
+  insert into public.user_stats (user_id) values (caller) on conflict (user_id) do nothing;
 
   select * into sess from public.work_sessions
     where id = p_session_id and user_id = caller and kind = 'learn'
@@ -181,15 +215,19 @@ begin
   -- function, same "every card in the book" scope, so this threshold means
   -- what the bar the user already sees means). Only book ids belonging to
   -- the caller are ever touched (composite `(user_id, id)` in the WHERE),
-  -- so a forged/foreign id in the jsonb payload can update nothing.
+  -- so a forged/foreign id in the jsonb payload can update nothing. The
+  -- regex filters below (not a blind cast) mean a malformed key or value
+  -- is silently skipped rather than aborting the whole session completion.
   if effortful_win is null then
     for v_book_id, v_strength in
       select key::uuid, value::numeric
       from jsonb_each_text(coalesce(p_book_strengths, '{}'::jsonb))
+      where key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        and value ~ '^[0-9]*\.?[0-9]+$'
     loop
       exit when effortful_win is not null;
       continue when v_strength < 0.8;
-      v_ms80_hit := null;
+      v_book_title := null;
       update public.books set milestone_80_at = now()
         where id = v_book_id and user_id = caller and milestone_80_at is null
         returning title into v_book_title;
@@ -201,7 +239,6 @@ begin
           'strength', v_strength
         );
       end if;
-      v_book_title := null;
     end loop;
   end if;
 
@@ -259,9 +296,7 @@ begin
     end loop;
   end if;
 
-  -- Priority 6 (personal_best) cut outright per the Opus Lead's ruling —
-  -- reads as gamification under LifeOS's "an input metric is context for
-  -- output, never a score" rule. Not ported, not deferred.
+  -- Priority 6 (personal_best) cut outright — see 079's header comment.
 
   return to_jsonb(stats) || jsonb_build_object('freeze_consumed', freeze_consumed, 'effortful_win', effortful_win);
 end;
