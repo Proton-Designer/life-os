@@ -31,7 +31,18 @@ import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, 
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
 import { addTaskCore, updateTaskCore, toggleTaskCore, updateScheduleEventCore, setScheduleEventOverrideCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
-import { createClassCore, updateClassCore, addClassAssessmentCore, updateClassAssessmentCore, ASSESSMENT_TYPES } from "@/lib/school/actions-core";
+import {
+  createClassCore,
+  updateClassCore,
+  addClassAssessmentCore,
+  updateClassAssessmentCore,
+  createGradeCategoryCore,
+  updateGradeCategoryCore,
+  ASSESSMENT_TYPES,
+} from "@/lib/school/actions-core";
+import { createQuestionCore, updateQuestionCore, setQuestionActiveCore } from "@/lib/school/questions-core";
+import { confirmStagingBatchCore, updateStagedDeliverableCore, deleteStagedDeliverableCore } from "@/lib/school/staging-core";
+import { submitPracticeTestAnswerCore, completePracticeTestCore } from "@/lib/school/practice-test-actions-core";
 import {
   quickLogExerciseCore,
   confirmWorkoutSessionCore,
@@ -52,7 +63,15 @@ import { saveAllocationCheckinCore } from "@/lib/checkins/actions-core";
 import { captureCore, logEventCore, saveActionPlanCore, recordPlanOutcomeCore } from "@/lib/distractions/actions-core";
 import { updateAppearanceCore, setWeekdayBaselinesCore, clearWeekdayBaselinesCore } from "@/lib/settings/actions-core";
 import { gradeReviewCore, logSelfExplanationCore } from "@/lib/self-mastery/actions-core";
-import { recordVerdictCore } from "@/lib/promotions/actions-core";
+import { recordVerdictCore, promoteLessonCore } from "@/lib/promotions/actions-core";
+import {
+  fetchQuestionState,
+  loadSessionSettings,
+  submitQuestionReview,
+  computeSessionBookStrengths,
+  completeTodaysSession,
+  countDueTomorrow,
+} from "@/lib/self-mastery/session/build-session";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "./tool-input-error";
 
@@ -240,6 +259,17 @@ function optionalNullableNumber(patch: WritePatch, field: string): number | null
   return value;
 }
 
+/** `classes.grade_boundaries` (migration 152) -- a jsonb array of {letter, minPct}, or null/undefined. Shape-checked field-by-field here (never trusted past JSON.stringify's own type erasure) since it's a caller-constructed array, not a single scalar like every other optional* helper handles. */
+function requireGradeBoundariesOrUndefined(patch: WritePatch, field: string): { letter: string; minPct: number }[] | null | undefined {
+  const value = patch[field];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value) || !value.every((v) => v !== null && typeof v === "object" && typeof (v as Record<string, unknown>).letter === "string" && typeof (v as Record<string, unknown>).minPct === "number")) {
+    throw new ToolInputError(`patch.${field} must be an array of {letter: string, minPct: number}, or null. Got: ${JSON.stringify(value)}.`);
+  }
+  return value as { letter: string; minPct: number }[];
+}
+
 /**
  * school's `task`/`schedule_event` write actions target an EXISTING row by
  * the top-level `id` — but `tasks.domain` and `schedule_events.domain` are
@@ -321,6 +351,7 @@ function pgCode(error: unknown): string | null {
 }
 
 const TASK_TYPES = ["homework_assignment", "reading_review", "quiz", "exam", "final_midterm", "project_paper", "reminder", "other"] as const;
+const QUESTION_ORIGINS = ["self", "ai", "missed"] as const;
 // Imported, never re-declared: a second copy of this vocabulary is exactly the
 // drift migration 151 converged away. ASSESSMENT_TYPES lives in actions-core.
 const DAYS_OF_WEEK = [0, 1, 2, 3, 4, 5, 6] as const;
@@ -1135,22 +1166,40 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           edit: {
             action: "edit",
-            description: "Full-replace edit of a school task's contents. Requires the top-level id.",
-            patchShape: "{ title: string, due_date?: string, task_type?: TaskType, task_type_other_label?: string, class_id?: string|null }",
+            description:
+              "MERGE-semantics edit of a school task's contents (lead DECISION, P4-08, recorded in .brain/memory/decisions.md) -- a field OMITTED from the patch keeps its current value; the UI's own edit form stays full-replace (unchanged, still calls updateTaskCore directly with every field). This handler alone reads the existing row first, then applies only the fields the caller actually sent, before calling the SAME updateTaskCore (unchanged) with the fully-resolved values. Requires the top-level id. due_date/task_type_other_label accept an explicit `null` to clear them (omit to leave alone) -- the one capability MERGE semantics would otherwise remove versus the old full-replace form, where simply omitting a field cleared it.",
+            patchShape: "{ title?: string, due_date?: string|null, task_type?: TaskType, task_type_other_label?: string|null, class_id?: string|null }",
             idempotent: true,
-            idempotencyVerification: "updateTaskCore (lib/tasks/actions-core.ts) UPDATEs to the exact given values -- a retry writes the identical row.",
+            idempotencyVerification:
+              "Reads the existing row, merges the patch over it, then calls updateTaskCore (lib/tasks/actions-core.ts) with the fully-resolved values -- a retry with the identical patch re-reads the (by-then-updated) row and re-merges to the SAME final state, so it's idempotent as long as nothing else changed the row between calls (the general assumption every idempotent write action in this file makes).",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               await assertRowDomain(ctx.userClient, "tasks", id, ctx.userId, "school");
-              const title = requireString(patch, "title");
-              const dueDate = optionalString(patch, "due_date");
-              const taskType = patch.task_type === undefined ? undefined : requireEnum(patch, "task_type", TASK_TYPES);
-              const taskTypeOtherLabel = optionalString(patch, "task_type_other_label");
-              const classId = optionalNullableString(patch, "class_id");
+              const { data: existing, error: readErr } = await ctx.userClient
+                .from("tasks")
+                .select("title, due_date, task_type, task_type_other_label, class_id")
+                .eq("id", id)
+                .eq("user_id", ctx.userId)
+                .maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No school task found with id "${id}".`);
+
+              const title = patch.title === undefined ? existing.title : requireString(patch, "title");
+              const dueDate = patch.due_date === undefined ? existing.due_date ?? undefined : optionalNullableString(patch, "due_date") ?? undefined;
+              const taskType =
+                patch.task_type === undefined
+                  ? (existing.task_type as (typeof TASK_TYPES)[number] | null) ?? undefined
+                  : patch.task_type === null
+                    ? undefined
+                    : requireEnum(patch, "task_type", TASK_TYPES);
+              const taskTypeOtherLabel =
+                patch.task_type_other_label === undefined ? existing.task_type_other_label ?? undefined : optionalNullableString(patch, "task_type_other_label") ?? undefined;
+              const classId = patch.class_id === undefined ? existing.class_id : optionalNullableString(patch, "class_id");
+
               await updateTaskCore(ctx.userClient, ctx.userId, id, { title, dueDate, taskType, taskTypeOtherLabel, classId });
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
-                summary: `edited school task ${id}`,
+                summary: `merge-edited school task ${id}`,
               };
             },
           },
@@ -1181,8 +1230,10 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           create: {
             action: "create",
-            description: "Create a class.",
-            patchShape: "{ code: string, short_name?: string, room?: string, instructor?: string }",
+            description:
+              "Create a class. term/late_policy/attendance_policy/allowed_absences/grade_boundaries (migration 152) are all optional and settable at creation time as of P4-08 -- previously only reachable via a follow-up class.edit call; the app's own createClass wrapper still only exposes code/short_name/room/instructor, so an agent creating a class with a full policy set in one call is doing something the UI itself cannot do in one step.",
+            patchShape:
+              "{ code: string, short_name?: string, room?: string, instructor?: string, term?: string|null, late_policy?: string|null, attendance_policy?: string|null, allowed_absences?: number|null, grade_boundaries?: {letter:string,minPct:number}[]|null }",
             idempotent: false,
             idempotencyVerification: "createClassCore (lib/school/actions-core.ts) plain INSERT with a freshly-computed position (max+1) -- a retry creates a second, duplicate class, at a different position since the first insert already advanced the max.",
             handler: async (ctx, patch) => {
@@ -1190,7 +1241,22 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const shortName = optionalString(patch, "short_name");
               const room = optionalString(patch, "room");
               const instructor = optionalString(patch, "instructor");
-              const id = await createClassCore(ctx.userClient, ctx.userId, { code, shortName, room, instructor });
+              const term = optionalNullableString(patch, "term");
+              const latePolicy = optionalNullableString(patch, "late_policy");
+              const attendancePolicy = optionalNullableString(patch, "attendance_policy");
+              const allowedAbsences = optionalNullableNumber(patch, "allowed_absences");
+              const gradeBoundaries = requireGradeBoundariesOrUndefined(patch, "grade_boundaries");
+              const id = await createClassCore(ctx.userClient, ctx.userId, {
+                code,
+                shortName,
+                room,
+                instructor,
+                term,
+                latePolicy,
+                attendancePolicy,
+                allowedAbsences,
+                gradeBoundaries,
+              });
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
                 summary: `created class "${code}"`,
@@ -1199,8 +1265,10 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           edit: {
             action: "edit",
-            description: "Edit a class's short_name/room/instructor. Requires the top-level id.",
-            patchShape: "{ short_name?: string|null, room?: string|null, instructor?: string|null }",
+            description:
+              "Edit a class's short_name/room/instructor/term/late_policy/attendance_policy/allowed_absences/grade_boundaries (migration 152). Requires the top-level id. Widened in P4-08 (WIRING only -- updateClassCore already accepted every one of these fields).",
+            patchShape:
+              "{ short_name?: string|null, room?: string|null, instructor?: string|null, term?: string|null, late_policy?: string|null, attendance_policy?: string|null, allowed_absences?: number|null, grade_boundaries?: {letter:string,minPct:number}[]|null }",
             idempotent: true,
             idempotencyVerification: "updateClassCore (lib/school/actions-core.ts) UPDATEs to the exact given values -- a retry writes the identical row.",
             handler: async (ctx, patch) => {
@@ -1209,6 +1277,11 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                 shortName: optionalNullableString(patch, "short_name"),
                 room: optionalNullableString(patch, "room"),
                 instructor: optionalNullableString(patch, "instructor"),
+                term: optionalNullableString(patch, "term"),
+                latePolicy: optionalNullableString(patch, "late_policy"),
+                attendancePolicy: optionalNullableString(patch, "attendance_policy"),
+                allowedAbsences: optionalNullableNumber(patch, "allowed_absences"),
+                gradeBoundaries: requireGradeBoundariesOrUndefined(patch, "grade_boundaries"),
               });
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
@@ -1244,8 +1317,10 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           edit: {
             action: "edit",
-            description: "Edit an assessment's name/type/date/weight, syncing its linked task's title/due_date. Requires the top-level id.",
-            patchShape: "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string, weight_pct?: number|null }",
+            description:
+              "Edit an assessment's name/type/date/weight/category, syncing its linked task's title/due_date. Requires the top-level id. category_id widened in P4-08 (WIRING only -- updateClassAssessmentCore already accepted it) -- pass a grade_categories id to categorize, or null to un-categorize; omit to leave the current category untouched.",
+            patchShape:
+              "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string, weight_pct?: number|null, category_id?: string|null }",
             idempotent: true,
             idempotencyVerification: "updateClassAssessmentCore (lib/school/actions-core.ts) UPDATEs the assessment and its linked task to the exact given values -- a retry writes the identical rows.",
             handler: async (ctx, patch) => {
@@ -1254,7 +1329,13 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const type = requireEnum(patch, "type", ASSESSMENT_TYPES);
               const date = requireString(patch, "date");
               const weightPct = optionalNullableNumber(patch, "weight_pct");
-              await updateClassAssessmentCore(ctx.userClient, ctx.userId, id, { name, type, date, weightPct });
+              const categoryId = optionalNullableString(patch, "category_id");
+              try {
+                await updateClassAssessmentCore(ctx.userClient, ctx.userId, id, { name, type, date, weightPct, categoryId });
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No grade category found with id "${categoryId}".`);
+                throw err;
+              }
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
                 summary: `edited assessment ${id}`,
@@ -1264,6 +1345,283 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           // "remove" deliberately absent -- delete_class_assessment
           // (migration 048) is a real DELETE; the MCP write path never
           // hard-deletes.
+        },
+      },
+      question: {
+        entity: "question",
+        actions: {
+          create: {
+            action: "create",
+            description:
+              "Add a question to a class's question bank (Phase 1 #22's manual-entry path). Every question needs either a source anchor (a page/timestamp/citation) or an explicit skip -- questions_anchor_present_or_skipped, enforced here AND by the database's own CHECK. Requires the top-level id (the class's id), same convention as class_assessment.add.",
+            patchShape: "{ prompt: string, answer: string, topic?: string|null, source_anchor?: string|null, source_skipped?: boolean, origin?: 'self'|'ai'|'missed' }",
+            idempotent: false,
+            idempotencyVerification: "createQuestionCore (lib/school/questions-core.ts) plain INSERT, no conflict handling -- a retry creates a second, duplicate question.",
+            handler: async (ctx, patch) => {
+              const classId = requireId(ctx);
+              const prompt = requireString(patch, "prompt");
+              const answer = requireString(patch, "answer");
+              const topic = optionalNullableString(patch, "topic");
+              const sourceAnchor = optionalNullableString(patch, "source_anchor");
+              const sourceSkipped = patch.source_skipped === undefined ? undefined : requireBoolean(patch, "source_skipped");
+              const origin = patch.origin === undefined ? undefined : requireEnum(patch, "origin", QUESTION_ORIGINS);
+              let result;
+              try {
+                result = await createQuestionCore(ctx.userClient, ctx.userId, { classId, prompt, answer, topic, sourceAnchor, sourceSkipped, origin });
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No class found with id "${classId}".`);
+                if (err instanceof Error && pgCode(err) === null) throw new ToolInputError(err.message);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id: result.id }) }], structuredContent: { id: result.id, updated_at: null } },
+                summary: `added a question to class ${classId}`,
+              };
+            },
+          },
+          update: {
+            action: "update",
+            description: "MERGE-semantics edit of a question's contents -- a field omitted from the patch keeps its current value (updateQuestionCore's own established field-by-field convention, not new to P4-08). Requires the top-level id.",
+            patchShape: "{ prompt?: string, answer?: string, topic?: string|null, source_anchor?: string|null, source_skipped?: boolean }",
+            idempotent: true,
+            idempotencyVerification: "updateQuestionCore (lib/school/questions-core.ts) UPDATEs only the fields present in the patch to the exact given values -- a retry with the identical patch writes the identical row.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const { data: existing, error: readErr } = await ctx.userClient.from("questions").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No question found with id "${id}".`);
+
+              const prompt = optionalString(patch, "prompt");
+              const answer = optionalString(patch, "answer");
+              const topic = optionalNullableString(patch, "topic");
+              const sourceAnchor = optionalNullableString(patch, "source_anchor");
+              const sourceSkipped = patch.source_skipped === undefined ? undefined : requireBoolean(patch, "source_skipped");
+              try {
+                await updateQuestionCore(ctx.userClient, ctx.userId, id, { prompt, answer, topic, sourceAnchor, sourceSkipped });
+              } catch (err) {
+                if (err instanceof Error && pgCode(err) === null) throw new ToolInputError(err.message);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited question ${id}`,
+              };
+            },
+          },
+          set_active: {
+            action: "set_active",
+            description:
+              "Retire (active:false) or restore (active:true) a question -- the ONLY removal action for a question, by design (questions-core.ts's own header: reviews reference questions, so there is no hard delete). Reversible either direction. Requires the top-level id.",
+            patchShape: "{ active: boolean }",
+            idempotent: true,
+            idempotencyVerification: "setQuestionActiveCore (lib/school/questions-core.ts) sets `active` to the exact given value -- a retry writes the identical row.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const active = requireBoolean(patch, "active");
+              const { data: existing, error: readErr } = await ctx.userClient.from("questions").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No question found with id "${id}".`);
+              await setQuestionActiveCore(ctx.userClient, ctx.userId, id, active);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, active }) }], structuredContent: { id, updated_at: null, active } },
+                summary: `set question ${id} active to ${active}`,
+              };
+            },
+          },
+        },
+      },
+      grade_category: {
+        entity: "grade_category",
+        actions: {
+          create: {
+            action: "create",
+            description: "Add a weight category to a class (migration 152's real weight-category model). Requires the top-level id (the class's id), same convention as class_assessment.add.",
+            patchShape: "{ name: string, weight_pct: number, drop_lowest_n?: number, expected_item_count?: number }",
+            idempotent: false,
+            idempotencyVerification: "createGradeCategoryCore (lib/school/actions-core.ts) plain INSERT, no conflict handling -- a retry creates a second, duplicate category.",
+            handler: async (ctx, patch) => {
+              const classId = requireId(ctx);
+              const name = requireString(patch, "name");
+              const weightPct = requireNumber(patch, "weight_pct");
+              const dropLowestN = optionalNumber(patch, "drop_lowest_n");
+              const expectedItemCount = optionalNumber(patch, "expected_item_count");
+              let id: string;
+              try {
+                id = await createGradeCategoryCore(ctx.userClient, ctx.userId, classId, { name, weightPct, dropLowestN, expectedItemCount });
+              } catch (err) {
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No class found with id "${classId}".`);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `added grade category "${name}" to class ${classId}`,
+              };
+            },
+          },
+          update: {
+            action: "update",
+            description: "Full-replace edit of a grade category's name/weight/drop_lowest_n/expected_item_count. Requires the top-level id.",
+            patchShape: "{ name: string, weight_pct: number, drop_lowest_n?: number, expected_item_count?: number }",
+            idempotent: true,
+            idempotencyVerification: "updateGradeCategoryCore (lib/school/actions-core.ts) UPDATEs to the exact given values -- a retry writes the identical row.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const { data: existing, error: readErr } = await ctx.userClient.from("grade_categories").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No grade category found with id "${id}".`);
+              const name = requireString(patch, "name");
+              const weightPct = requireNumber(patch, "weight_pct");
+              const dropLowestN = optionalNumber(patch, "drop_lowest_n");
+              const expectedItemCount = optionalNumber(patch, "expected_item_count");
+              await updateGradeCategoryCore(ctx.userClient, ctx.userId, id, { name, weightPct, dropLowestN, expectedItemCount });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited grade category ${id}`,
+              };
+            },
+          },
+        },
+      },
+      staging: {
+        entity: "staging",
+        actions: {
+          confirm_batch: {
+            action: "confirm_batch",
+            description:
+              "Confirm a staging batch (Phase 1 #18): commits every resolvable staged deliverable into a real class_assessments row (reusing addClassAssessmentCore -- 'we have all the information we need'), skipping any row still missing a date (#17's no-guessing rule) rather than erroring the whole batch. Requires the top-level id (the batch's id).",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "confirmStagingBatchCore (lib/school/staging-core.ts) is explicitly resumable by its own header -- claim_staging_batch lets a retry proceed against an already-confirming batch, and its per-row stamp is a conditional UPDATE guarded on committed_assessment_id IS NULL, so a retry (or a genuine concurrent double-call) never double-commits a row.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const result = await confirmStagingBatchCore(ctx.userClient, ctx.userId, id);
+              if (result.status === null) throw new ToolNotFoundError(`No staging batch found with id "${id}".`);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, ...result }) }], structuredContent: { id, updated_at: null, ...result } },
+                summary: `confirmed staging batch ${id}: ${result.committedCount} committed, ${result.remaining.length} remaining (status: ${result.status})`,
+              };
+            },
+          },
+          update_deliverable: {
+            action: "update_deliverable",
+            description:
+              "Correct a staged item before confirm (a low-confidence type, or a null/wrong date -- #17's no-guessing rule). PRE-CONFIRM ONLY: refuses to touch a row that already has a committed_assessment_id, same restriction as delete_deliverable. Requires the top-level id.",
+            patchShape: "{ name: string, type: 'quiz'|'exam'|'final_midterm'|'homework_assignment'|'project_paper', date: string|null }",
+            idempotent: true,
+            idempotencyVerification: "updateStagedDeliverableCore (lib/school/staging-core.ts) UPDATEs to the exact given values, scoped to committed_assessment_id IS NULL -- a retry (still pre-confirm) writes the identical row.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const { data: existing, error: readErr } = await ctx.userClient
+                .from("staged_deliverables")
+                .select("id, committed_assessment_id")
+                .eq("id", id)
+                .eq("user_id", ctx.userId)
+                .maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No staged deliverable found with id "${id}".`);
+              if (existing.committed_assessment_id) throw new ToolInputError(`Staged deliverable "${id}" is already confirmed and can no longer be edited.`);
+              const name = requireString(patch, "name");
+              const type = requireEnum(patch, "type", ASSESSMENT_TYPES);
+              const dateRaw = patch.date;
+              if (dateRaw !== null && typeof dateRaw !== "string") {
+                throw new ToolInputError(`patch.date is required and must be a string or null. Got: ${JSON.stringify(dateRaw)}.`);
+              }
+              await updateStagedDeliverableCore(ctx.userClient, ctx.userId, id, { name, type, date: dateRaw });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
+                summary: `edited staged deliverable ${id}`,
+              };
+            },
+          },
+          delete_deliverable: {
+            action: "delete_deliverable",
+            description:
+              "Reject a staged item before confirm -- a real DELETE, deliberately in scope (staging-core.ts's own convention: a row that survives to confirm time IS the accepted set, there is no separate reject-vs-delete state). PRE-CONFIRM ONLY: scoped to committed_assessment_id IS NULL, structurally incapable of deleting a real committed assessment. Requires the top-level id.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "deleteStagedDeliverableCore (lib/school/staging-core.ts) DELETEs scoped to committed_assessment_id IS NULL -- a retry after the first delete already removed the row matches 0 rows, a no-op, not an error.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const { data: existing, error: readErr } = await ctx.userClient
+                .from("staged_deliverables")
+                .select("id, committed_assessment_id")
+                .eq("id", id)
+                .eq("user_id", ctx.userId)
+                .maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No staged deliverable found with id "${id}".`);
+              if (existing.committed_assessment_id) throw new ToolInputError(`Staged deliverable "${id}" is already confirmed and can no longer be deleted.`);
+              await deleteStagedDeliverableCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, deleted: true }) }], structuredContent: { id, updated_at: null, deleted: true } },
+                summary: `deleted staged deliverable ${id}`,
+              };
+            },
+          },
+        },
+      },
+      practice_test: {
+        entity: "practice_test",
+        actions: {
+          // P4-08 (a9-confirmed scope addition): reuses P2-09's own cores
+          // (lib/school/practice-test-actions-core.ts, extracted from
+          // app/(app)/school/practice-test-actions.ts, which Sonnet ENG 1
+          // owns) -- no new persistence logic, only MCP wiring + error
+          // translation over the exact same reveal-then-self-report shape
+          // the app UI already uses.
+          submit_answer: {
+            action: "submit_answer",
+            description:
+              "Record one self-reported answer on an already-assembled practice test (assembly itself is a server-side cron dispatcher; this action never creates a practice_tests row). Requires the top-level id (the practice test's own id).",
+            patchShape: "{ question_id: string, self_reported_correct: boolean }",
+            idempotent: true,
+            idempotencyVerification:
+              "submitPracticeTestAnswerCore (lib/school/practice-test-actions-core.ts) upserts on (user_id, practice_test_id, question_id) -- a retry (or genuinely re-answering before completing) overwrites the same row with the same or a corrected self-report, never a duplicate.",
+            handler: async (ctx, patch) => {
+              const practiceTestId = requireId(ctx);
+              const questionId = requireString(patch, "question_id");
+              const selfReportedCorrect = requireBoolean(patch, "self_reported_correct");
+              try {
+                await submitPracticeTestAnswerCore(ctx.userClient, ctx.userId, practiceTestId, questionId, selfReportedCorrect);
+              } catch (err) {
+                // Composite FK (user_id, practice_test_id) -> practice_tests
+                // and (user_id, question_id) -> questions -- either one
+                // being foreign or nonexistent raises 23503. Can't tell
+                // which from the code alone, but "the practice test" is
+                // the top-level id this action is scoped to, so that's the
+                // more useful name in the error.
+                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No practice test found with id "${practiceTestId}" (or the question isn't part of it).`);
+                throw err;
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id: practiceTestId, question_id: questionId }) }], structuredContent: { id: practiceTestId, updated_at: null } },
+                summary: `recorded a self-reported answer on practice test ${practiceTestId}`,
+              };
+            },
+          },
+          complete: {
+            action: "complete",
+            description:
+              "Mark a practice test completed and compute+store its score from the recorded self-reports (an unanswered question counts as NOT correct, never silently excluded). Requires the top-level id (the practice test's own id).",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification:
+              "completePracticeTestCore (lib/school/practice-test-actions-core.ts) recomputes score_pct from the CURRENT practice_test_answers rows every call and UPDATEs to that exact value -- a retry with no new answers in between writes the identical row.",
+            handler: async (ctx) => {
+              const practiceTestId = requireId(ctx);
+              const { data: existing, error: readErr } = await ctx.userClient.from("practice_tests").select("id").eq("id", practiceTestId).eq("user_id", ctx.userId).maybeSingle();
+              if (readErr) throw readErr;
+              if (!existing) throw new ToolNotFoundError(`No practice test found with id "${practiceTestId}".`);
+              const outcome = await completePracticeTestCore(ctx.userClient, ctx.userId, practiceTestId);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id: practiceTestId, ...outcome }) }],
+                  structuredContent: { id: practiceTestId, updated_at: null, score_pct: outcome.scorePct, answered_count: outcome.answeredCount, question_count: outcome.questionCount },
+                },
+                summary: `completed practice test ${practiceTestId}: ${outcome.scorePct}% (${outcome.answeredCount}/${outcome.questionCount} answered)`,
+              };
+            },
+          },
         },
       },
       schedule_event: {
@@ -1920,7 +2278,31 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const promotionId = requireId(ctx);
               const verdict = requireEnum(patch, "verdict", ["adopted", "abandoned", "still_testing"] as const);
               const reason = optionalNullableString(patch, "reason");
-              const result = await recordVerdictCore(ctx.userClient, ctx.userId, { promotionId, verdict, reason });
+              // P4-08 follow-up (HANDOFF §5 item 3): same treatment as
+              // lesson.promote's own translation just above -- recordVerdictCore
+              // flattens its pg-code branches into plain Error messages before
+              // this handler ever sees them, so translation keys off the exact
+              // message text (copied verbatim from lib/promotions/actions-core.ts's
+              // own throws). A drift there silently stops this from firing
+              // (falls through to the generic re-throw) rather than mis-firing.
+              let result;
+              try {
+                result = await recordVerdictCore(ctx.userClient, ctx.userId, { promotionId, verdict, reason });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : null;
+                if (message === "That experiment is no longer there. Reload and see what's still open.") {
+                  throw new ToolNotFoundError(`No lesson promotion found with id "${promotionId}".`);
+                }
+                if (
+                  message === "You've already given this one its verdict. Reload to see where it landed." ||
+                  message === "Say what didn't work. A month from now that sentence is the whole value."
+                ) {
+                  throw new ToolInputError(message);
+                }
+                // GENERIC and "That didn't save..." stay plain Error --
+                // caller cannot self-correct either one.
+                throw err;
+              }
               return {
                 result: {
                   content: [{ type: "text", text: JSON.stringify(result) }],
@@ -1954,6 +2336,148 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: result.updatedAt, ...result },
                 },
                 summary: `logged a self-explanation for lesson ${lessonId}`,
+              };
+            },
+          },
+        },
+      },
+      question_review: {
+        entity: "question_review",
+        actions: {
+          grade: {
+            action: "grade",
+            description:
+              "Grade a spaced-repetition review for one QUESTION-bank question (1=Again, 2=Hard, 3=Good, 4=Easy) -- the question-bank twin of review.grade (submit_question_review, migration 161's sibling to review.grade's submit_review; genuinely distinct RPCs, not an overload). sessionId is always null here -- an MCP-graded review has no app-tracked work_sessions row to attribute it to, the same posture self_explanation.log already established for its own nullable session_id. No top-level id -- the question being graded is patch.question_id.",
+            patchShape:
+              "{ question_id: string, rating: 1|2|3|4, elapsed_ms?: number, answered_text?: string, confidence?: 'sure'|'think_so'|'guessing'|null, correct?: boolean|null }",
+            idempotent: false,
+            idempotencyVerification:
+              "submitQuestionReview (lib/self-mastery/session/build-session.ts) advances FSRS scheduling state FROM the row's CURRENT state, same non-idempotent shape as review.grade's own gradeReviewCore -- a retry is a second, real, distinct grading event, never a no-op. Never schedule this action.",
+            handler: async (ctx, patch) => {
+              const questionId = requireString(patch, "question_id");
+              const rating = requireNumberEnum(patch, "rating", [1, 2, 3, 4] as const);
+              const elapsedMs = optionalNumber(patch, "elapsed_ms") ?? 0;
+              const answeredText = optionalString(patch, "answered_text") ?? "";
+              const confidenceRaw = optionalNullableString(patch, "confidence");
+              if (confidenceRaw != null && !["sure", "think_so", "guessing"].includes(confidenceRaw)) {
+                throw new ToolInputError(`patch.confidence must be one of: sure, think_so, guessing, or null/omitted. Got: ${JSON.stringify(confidenceRaw)}.`);
+              }
+              const confidence = (confidenceRaw ?? null) as "sure" | "think_so" | "guessing" | null;
+              const correctRaw = patch.correct;
+              if (correctRaw !== undefined && correctRaw !== null && typeof correctRaw !== "boolean") {
+                throw new ToolInputError(`patch.correct must be a boolean, null, or omitted. Got: ${JSON.stringify(correctRaw)}.`);
+              }
+              const correct = (correctRaw ?? null) as boolean | null;
+
+              const currentState = await fetchQuestionState(ctx.userClient, ctx.userId, questionId);
+              const { desiredRetention } = await loadSessionSettings(ctx.userClient, ctx.userId);
+              const result = await submitQuestionReview(ctx.userClient, {
+                desiredRetention,
+                currentState,
+                questionId,
+                sessionId: null,
+                rating,
+                elapsedMs,
+                answeredText,
+                aiFeedback: null,
+                aiSuggestedRating: null,
+                confidence,
+                correct,
+                now: ctx.now,
+              });
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `graded question ${questionId} as ${rating}/4 -- next review in ${result.scheduledDays} day(s)`,
+              };
+            },
+          },
+        },
+      },
+      session: {
+        entity: "session",
+        actions: {
+          finish: {
+            action: "finish",
+            description:
+              "Finish (complete) a work session started via the app's own session screen -- complete_session (idempotent server-side, safe to call twice). Computes per-book retrievability and due-tomorrow AT finish time, same as the app's own finishSession (app/(app)/personal/self-mastery-session-actions.ts). Requires the top-level id (the session's id).",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "completeTodaysSession calls complete_session, which the RPC's own name and this file's existing self_mastery.review.grade precedent both document as idempotent server-side -- a retry recomputes the same streak/freeze state rather than double-counting it.",
+            handler: async (ctx) => {
+              const sessionId = requireId(ctx);
+              const localDate = localDateString(ctx.now, ctx.timezone);
+              const bookStrengths = await computeSessionBookStrengths(ctx.userClient, ctx.userId, sessionId, ctx.now);
+              const [result, dueTomorrow] = await Promise.all([
+                completeTodaysSession(ctx.userClient, sessionId, bookStrengths),
+                countDueTomorrow(ctx.userClient, ctx.userId, localDate, ctx.timezone),
+              ]);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id: sessionId, ...result, dueTomorrow }) }],
+                  structuredContent: { id: sessionId, updated_at: ctx.now.toISOString(), ...result, dueTomorrow },
+                },
+                summary: `finished session ${sessionId} -- ${result.totalReviews} review(s) this session, streak ${result.currentStreak}`,
+              };
+            },
+          },
+        },
+      },
+      lesson: {
+        entity: "lesson",
+        actions: {
+          promote: {
+            action: "promote",
+            description:
+              "Promote a lesson into a live 30-day experiment (the loop seam's FIRST write -- lesson_promotion.record_verdict is its second and last, recording the outcome of an EXISTING promotion this action creates). Genuinely distinct from record_verdict: promote CREATES a lesson_promotions row, record_verdict UPDATES one. No top-level id -- a new promotion every call.",
+            patchShape: "{ lesson_id: string, accepted_text: string, area_id: string }",
+            idempotent: false,
+            idempotencyVerification:
+              "promoteLessonCore (lib/promotions/actions-core.ts) INSERTs into lesson_promotions, guarded by lesson_promotions_active_per_lesson (one active promotion per lesson) -- a retry while the first is still active fails loudly (a clear, distinct message) rather than creating a second, duplicate experiment.",
+            handler: async (ctx, patch) => {
+              const lessonId = requireString(patch, "lesson_id");
+              const acceptedText = requireString(patch, "accepted_text");
+              const areaId = requireString(patch, "area_id");
+              // Opus Lead ruling (P4-08, during PAUSE 3): promoteLessonCore
+              // flattens its own pg-code branches into plain Error messages
+              // BEFORE this handler ever sees them (pgCode is already
+              // consumed inside the core), so there is no discriminator left
+              // to key translation on except the message text itself -- a
+              // small, explicit translation here, rather than retrofitting
+              // promoteLessonCore's own throws (which stay plain Error, for
+              // lib/promotions/actions.ts#promoteLesson's own ActionResult
+              // translation). Every string below is copied verbatim from
+              // that core's own throws -- if that file's wording ever
+              // changes, this mapping silently stops firing rather than
+              // mis-firing (falls through to the generic re-throw), so a
+              // drift here fails safe, not loud-but-wrong.
+              let result;
+              try {
+                result = await promoteLessonCore(ctx.userClient, ctx.userId, { lessonId, acceptedText, areaId });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : null;
+                if (message === "That area is no longer available. Pick another one.") {
+                  throw new ToolNotFoundError(`No area found with id "${areaId}".`);
+                }
+                if (
+                  message === "You're already testing this lesson. Give the current run its verdict first." ||
+                  message === "Write what you're actually going to do — even one line." ||
+                  message === "Choose which area of your life this belongs to."
+                ) {
+                  throw new ToolInputError(message);
+                }
+                // "That didn't save..." and the generic fallback stay
+                // plain Error -- caller cannot self-correct either one.
+                throw err;
+              }
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: result.promotionId, updated_at: null, ...result },
+                },
+                summary: `promoted lesson ${lessonId} into a live experiment`,
               };
             },
           },

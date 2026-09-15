@@ -72,8 +72,11 @@ describe("promoteLesson", () => {
   });
 
   it("reports a FAILURE when the insert returns no row and no error", async () => {
-    // The whole point. `error: null` and `data: []` is a refused write.
-    const { client } = makeSupabase({ lesson_promotions: { data: [], error: null } });
+    // The whole point. `error: null` and `data: null` is a refused write --
+    // promoteLessonCore's own `.single()` call (P4-08 extraction) returns a
+    // single object or null, never an array (that was `.select()` WITHOUT
+    // `.single()`'s pre-extraction shape).
+    const { client } = makeSupabase({ lesson_promotions: { data: null, error: null } });
     requireUserMock.mockResolvedValue({ supabase: client, userId: "u1" });
     const { promoteLesson } = await loadActions();
 
@@ -94,16 +97,26 @@ describe("promoteLesson", () => {
     if (!result.ok) expect(result.message).toContain("already testing this lesson");
   });
 
-  it("never sends user_id — the trigger sets it from the caller", async () => {
-    const { client, calls } = makeSupabase({ lesson_promotions: { data: [{ id: "p1" }], error: null } });
+  it("sends the real user_id (P4-08 change) — set_user_id_from_caller still overwrites it unconditionally, so a supplied real value is honest, not just a harmless-either-way placeholder", async () => {
+    // P4-08 extraction: promoteLessonCore's own insert deliberately supplies
+    // the real userId (its own header: "sending it would be ignored at
+    // best... still supplied for real here... since it's already known") --
+    // a documented behavior change from the pre-extraction promoteLesson,
+    // which sent no user_id at all. This test replaces the old "never sends
+    // user_id" one; the trigger's overwrite guarantee is unchanged and still
+    // the actual security boundary, just no longer exercised by omission.
+    //
+    // Also: `.single()` returns a single object, not an array (a separate
+    // P4-08 extraction fix -- the pre-extraction mock's `data: [{id:"p1"}]`
+    // matched a bare `.select()`, not `.single()`'s real shape).
+    const { client, calls } = makeSupabase({ lesson_promotions: { data: { id: "p1" }, error: null } });
     requireUserMock.mockResolvedValue({ supabase: client, userId: "u1" });
     const { promoteLesson } = await loadActions();
 
     const result = await promoteLesson({ lessonId: "l1", acceptedText: "  Do the thing  ", areaId: "a1" });
 
     expect(result).toEqual({ ok: true, promotionId: "p1" });
-    expect(calls[0]?.payload).toEqual({ lesson_id: "l1", area_id: "a1", accepted_text: "Do the thing" });
-    expect(calls[0]?.payload).not.toHaveProperty("user_id");
+    expect(calls[0]?.payload).toEqual({ user_id: "u1", lesson_id: "l1", area_id: "a1", accepted_text: "Do the thing" });
   });
 });
 

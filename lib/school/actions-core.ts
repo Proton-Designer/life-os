@@ -33,6 +33,20 @@ export interface CreateClassInput {
   code: string;
   room?: string;
   instructor?: string;
+  /**
+   * P4-08: the same migration-152 policy fields `UpdateClassInput` already
+   * accepts, now also settable at creation time (previously only
+   * available via a follow-up `updateClassCore` call). All optional and
+   * additive -- every existing caller (the app's own `createClass`
+   * wrapper included) that never sends these keeps working unchanged,
+   * since an absent field here was already `null` at insert time before
+   * this change (the column has no default either way).
+   */
+  term?: string | null;
+  latePolicy?: string | null;
+  attendancePolicy?: string | null;
+  allowedAbsences?: number | null;
+  gradeBoundaries?: { letter: string; minPct: number }[] | null;
 }
 
 /**
@@ -62,6 +76,11 @@ export async function createClassCore(supabase: SupabaseClient, userId: string, 
       room: input.room ?? null,
       instructor: input.instructor ?? null,
       position: nextPosition,
+      term: input.term ?? null,
+      late_policy: input.latePolicy ?? null,
+      attendance_policy: input.attendancePolicy ?? null,
+      allowed_absences: input.allowedAbsences ?? null,
+      grade_boundaries: input.gradeBoundaries ?? null,
     })
     .select("id")
     .single();

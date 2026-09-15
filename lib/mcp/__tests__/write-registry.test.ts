@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getWriteAction, listWriteEntities, listWriteActions, WRITE_REGISTRY } from "../write-registry";
-import { ToolNotFoundError } from "../tool-input-error";
+import { ToolNotFoundError, ToolInputError } from "../tool-input-error";
 
 function makeClient(opts: { existing?: { completed: boolean } | null; id?: string; error?: unknown } = {}) {
   const from = vi.fn(() => {
@@ -75,12 +75,18 @@ describe("write-registry dispatch shape", () => {
     expect(listWriteEntities("calendar")).toEqual([]);
   });
 
-  it("self_mastery's write surface is exactly grade/record_verdict/log -- never lessons/cards/source_chunks", () => {
-    expect(listWriteEntities("self_mastery").sort()).toEqual(["lesson_promotion", "review", "self_explanation"]);
+  it("self_mastery's write surface is exactly grade/record_verdict/log/question_review/session/lesson.promote -- P4-08 added question_review, session, and lesson (promote-only) -- still never cards/source_chunks/book content", () => {
+    expect(listWriteEntities("self_mastery").sort()).toEqual(["lesson", "lesson_promotion", "question_review", "review", "self_explanation", "session"]);
     expect(listWriteActions("self_mastery", "review")).toEqual(["grade"]);
     expect(listWriteActions("self_mastery", "lesson_promotion")).toEqual(["record_verdict"]);
     expect(listWriteActions("self_mastery", "self_explanation")).toEqual(["log"]);
-    for (const neverWritable of ["lesson", "card", "card_state", "source_chunks", "book", "book_section", "lesson_verdict"]) {
+    expect(listWriteActions("self_mastery", "question_review")).toEqual(["grade"]);
+    expect(listWriteActions("self_mastery", "session")).toEqual(["finish"]);
+    // P4-08's `lesson` entity is promote-ONLY (creates a lesson_promotions
+    // row) -- never general lesson-content mutation (title/core_claim/etc,
+    // which stays ingestion-only, see worker-stages.ts).
+    expect(listWriteActions("self_mastery", "lesson")).toEqual(["promote"]);
+    for (const neverWritable of ["card", "card_state", "source_chunks", "book", "book_section", "lesson_verdict"]) {
       expect(listWriteEntities("self_mastery")).not.toContain(neverWritable);
     }
   });
@@ -877,5 +883,172 @@ describe("habits.vote handlers", () => {
     const client = makeTableClient({ habit_votes: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/h-1/);
+  });
+});
+
+describe("school.task.edit — MERGE semantics (P4-08, Lead decision in .brain/memory/decisions.md)", () => {
+  const now = new Date("2026-09-15T12:00:00Z");
+  const EXISTING = {
+    domain: "school",
+    title: "Original title",
+    due_date: "2026-10-01",
+    task_type: "other",
+    task_type_other_label: "Field trip permission slip",
+    class_id: "class-1",
+  };
+
+  it("THE MERGE REGRESSION: a one-field patch (title only) leaves every other field at its pre-existing value, not null", async () => {
+    const chain = makeChain({ data: EXISTING, error: null });
+    const client = makeTableClient({ tasks: chain });
+    const action = getWriteAction("school", "task", "edit")!;
+
+    await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "task-1" }, { title: "New title" });
+
+    // updateTaskCore's own UPDATE payload -- proves every OMITTED field
+    // carried forward its pre-existing value rather than being nulled.
+    expect(chain.update.mock.calls[0]![0]).toEqual({
+      title: "New title",
+      due_date: "2026-10-01",
+      task_type: "other",
+      task_type_other_label: "Field trip permission slip",
+      class_id: "class-1",
+    });
+  });
+
+  it("an explicit null in the patch clears that ONE field -- the capability MERGE semantics would otherwise remove", async () => {
+    const chain = makeChain({ data: EXISTING, error: null });
+    const client = makeTableClient({ tasks: chain });
+    const action = getWriteAction("school", "task", "edit")!;
+
+    await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "task-1" }, { due_date: null });
+
+    expect(chain.update.mock.calls[0]![0]).toMatchObject({
+      title: "Original title",
+      due_date: null,
+      class_id: "class-1",
+    });
+  });
+
+  it("FINDING (pre-existing, not introduced by P4-08): a nonexistent task throws a plain Error from assertRowDomain's own not-found check, not this handler's ToolNotFoundError -- assertRowDomain runs FIRST and shares the same 'tasks' read, so the handler's own `if (!existing) throw new ToolNotFoundError` a few lines later is unreachable except in a genuine delete-between-reads race. Same shared-helper shape also affects schedule_event.edit_series/set_override/cancel_occurrence. Flagged, not fixed here -- assertRowDomain predates P4-08 and is shared by actions outside this task's scope.", async () => {
+    const client = makeTableClient({ tasks: makeChain({ data: null, error: null }) });
+    const action = getWriteAction("school", "task", "edit")!;
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "ghost" }, { title: "x" })).rejects.toThrow(
+      /No tasks row found with id "ghost"/,
+    );
+  });
+
+  it("refuses to edit across the domain boundary (assertRowDomain) -- an id belonging to co_op, not school", async () => {
+    const client = makeTableClient({ tasks: makeChain({ data: { ...EXISTING, domain: "co_op" }, error: null }) });
+    const action = getWriteAction("school", "task", "edit")!;
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "co-op-task" }, { title: "x" })).rejects.toThrow(
+      /domain boundary/,
+    );
+  });
+});
+
+describe("school.practice_test — P4-08 (reuses P2-09's own cores, no new persistence logic)", () => {
+  const now = new Date("2026-09-15T12:00:00Z");
+
+  describe("submit_answer", () => {
+    it("upserts the self-report with the given practice test/question/correctness", async () => {
+      const chain = makeChain({ data: null, error: null });
+      const client = makeTableClient({ practice_test_answers: chain });
+      const action = getWriteAction("school", "practice_test", "submit_answer")!;
+
+      const outcome = await action.handler(
+        { userClient: client, userId: "user-1", timezone: "UTC", now, id: "pt-1" },
+        { question_id: "q-1", self_reported_correct: true },
+      );
+
+      expect(chain.upsert.mock.calls[0]![0]).toMatchObject({
+        user_id: "user-1",
+        practice_test_id: "pt-1",
+        question_id: "q-1",
+        self_reported_correct: true,
+      });
+      expect(outcome.summary).toMatch(/pt-1/);
+    });
+
+    it("translates a composite-FK violation (bad practice test or question id) into ToolNotFoundError", async () => {
+      const client = makeTableClient({ practice_test_answers: makeChain({ data: null, error: { code: "23503", message: "fk violation" } }) });
+      const action = getWriteAction("school", "practice_test", "submit_answer")!;
+      await expect(
+        action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "not-real" }, { question_id: "q-1", self_reported_correct: true }),
+      ).rejects.toBeInstanceOf(ToolNotFoundError);
+    });
+
+    it("requires patch.self_reported_correct to be a real boolean", async () => {
+      const client = makeTableClient({ practice_test_answers: makeChain() });
+      const action = getWriteAction("school", "practice_test", "submit_answer")!;
+      await expect(
+        action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "pt-1" }, { question_id: "q-1" }),
+      ).rejects.toBeInstanceOf(ToolInputError);
+    });
+  });
+
+  describe("complete", () => {
+    it("computes score_pct from recorded self-reports -- an unanswered question counts as NOT correct", async () => {
+      const testsChain = makeChain({ data: { id: "pt-1", question_ids: ["q1", "q2", "q3"] }, error: null });
+      const answersChain = makeChain({ data: [{ question_id: "q1", self_reported_correct: true }, { question_id: "q2", self_reported_correct: false }], error: null });
+      const client = makeTableClient({ practice_tests: testsChain, practice_test_answers: answersChain });
+      const action = getWriteAction("school", "practice_test", "complete")!;
+
+      const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "pt-1" }, {});
+
+      // q1 correct, q2 wrong, q3 unanswered -- 1/3, never inflated by
+      // excluding the unanswered question from the denominator.
+      const block = outcome.result.content[0];
+      if (block.type !== "text") throw new Error("expected text");
+      expect(JSON.parse(block.text)).toMatchObject({ id: "pt-1", scorePct: 33.33, answeredCount: 2, questionCount: 3 });
+      expect(testsChain.update.mock.calls[0]![0]).toMatchObject({ status: "completed", score_pct: 33.33 });
+    });
+
+    it("throws ToolNotFoundError when the practice test doesn't exist for this user", async () => {
+      const client = makeTableClient({ practice_tests: makeChain({ data: null, error: null }) });
+      const action = getWriteAction("school", "practice_test", "complete")!;
+      await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "ghost" }, {})).rejects.toBeInstanceOf(ToolNotFoundError);
+    });
+  });
+});
+
+describe("self_mastery.lesson_promotion.record_verdict — P4-08 error translation follow-up (HANDOFF §5 item 3)", () => {
+  const now = new Date("2026-09-15T12:00:00Z");
+
+  it("translates 'promotion not found' into ToolNotFoundError", async () => {
+    const client = makeTableClient({ lesson_promotions: makeChain({ data: null, error: null }) });
+    const action = getWriteAction("self_mastery", "lesson_promotion", "record_verdict")!;
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "ghost" }, { verdict: "adopted" }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("translates 'already retired' (invalid state) into ToolInputError", async () => {
+    const client = makeTableClient({
+      lesson_promotions: makeChain({ data: { id: "lp-1", retired_at: "2026-01-01T00:00:00Z" }, error: null }),
+    });
+    const action = getWriteAction("self_mastery", "lesson_promotion", "record_verdict")!;
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "lp-1" }, { verdict: "adopted" }),
+    ).rejects.toBeInstanceOf(ToolInputError);
+  });
+
+  it("a missing reason on an 'abandoned' verdict is ToolInputError, caught before any DB call", async () => {
+    const client = makeTableClient({});
+    const action = getWriteAction("self_mastery", "lesson_promotion", "record_verdict")!;
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "lp-1" }, { verdict: "abandoned" }),
+    ).rejects.toBeInstanceOf(ToolInputError);
+  });
+
+  it("an unmapped/generic DB failure stays a plain Error, NOT wrapped in ToolNotFoundError or ToolInputError -- the caller cannot self-correct it", async () => {
+    const client = makeTableClient({
+      lesson_promotions: makeChain({ data: { id: "lp-1", retired_at: null }, error: null }),
+      lesson_verdicts: makeChain({ data: null, error: { code: "99999", message: "some unmapped DB error" } }),
+    });
+    const action = getWriteAction("self_mastery", "lesson_promotion", "record_verdict")!;
+    const promise = action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "lp-1" }, { verdict: "adopted" });
+    await expect(promise).rejects.toThrow(/Something went wrong/);
+    await expect(promise).rejects.not.toBeInstanceOf(ToolNotFoundError);
+    await expect(promise).rejects.not.toBeInstanceOf(ToolInputError);
   });
 });

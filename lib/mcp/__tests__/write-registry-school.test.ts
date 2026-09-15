@@ -59,8 +59,19 @@ function makeClient(opts: { maybeSingleSeq?: Record<string, unknown[]>; singleSe
 const now = new Date("2026-09-08T20:00:00.000Z");
 
 describe("write-registry — school dispatch shape", () => {
-  it("school has exactly task/class/class_assessment/schedule_event", () => {
-    expect(listWriteEntities("school").sort()).toEqual(["class", "class_assessment", "schedule_event", "task"]);
+  it("school has exactly task/class/class_assessment/schedule_event/question/grade_category/staging/practice_test", () => {
+    // P4-08 added question/grade_category/staging (write-coverage widening)
+    // and practice_test (a9-confirmed scope addition, reusing P2-09's cores).
+    expect(listWriteEntities("school").sort()).toEqual([
+      "class",
+      "class_assessment",
+      "grade_category",
+      "practice_test",
+      "question",
+      "schedule_event",
+      "staging",
+      "task",
+    ]);
   });
 
   it("school.task has add/edit/toggle, never remove — removeTaskCore is a real DELETE", () => {
@@ -155,12 +166,22 @@ describe("school.task.edit", () => {
 
   it("edits a genuinely school-domain task", async () => {
     const action = getWriteAction("school", "task", "edit")!;
-    const { client, calls } = makeClient({ maybeSingleSeq: { tasks: [{ domain: "school" }] } });
+    // P4-08: MERGE semantics -- assertRowDomain's own domain-check maybeSingle,
+    // THEN this handler's own existing-row read (same "tasks" table, FIFO
+    // queue per makeClient's own header) before it merges the patch over it.
+    const { client, calls } = makeClient({
+      maybeSingleSeq: {
+        tasks: [
+          { domain: "school" },
+          { title: "Old title", due_date: "2026-09-01", task_type: "homework_assignment", task_type_other_label: null, class_id: "class-1" },
+        ],
+      },
+    });
 
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "task-1" }, { title: "Renamed", due_date: "2026-09-12" });
 
     expect(textOf(outcome)).toEqual({ id: "task-1" });
-    expect(calls.tasks.update[0]).toMatchObject({ title: "Renamed", due_date: "2026-09-12" });
+    expect(calls.tasks.update[0]).toMatchObject({ title: "Renamed", due_date: "2026-09-12", class_id: "class-1" });
   });
 
   it("REJECTS when the top-level id is missing", async () => {

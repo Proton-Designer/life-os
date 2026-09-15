@@ -220,11 +220,11 @@ describe("listCapabilitiesTool", () => {
     await expect(listCapabilitiesTool("not_a_real_domain")).rejects.toThrow(/\bday\b.*\bgoals\b.*\bhabits\b|\bhabits\b.*\bgoals\b.*\bday\b/);
   });
 
-  it("self_mastery: source_chunks/book/book_section/lesson/card/card_state stay read-only -- only review/lesson_promotion/self_explanation gained a write action", async () => {
+  it("self_mastery: source_chunks/book/book_section/card/card_state stay read-only -- P4-08 added lesson (promote-only), question_review, and session; nothing else gained a write action", async () => {
     const outcome = await listCapabilitiesTool("self_mastery");
     const payload = textPayload(outcome);
     const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
-    for (const stillReadOnly of ["source_chunks", "book", "book_section", "lesson", "card", "card_state", "source", "question"]) {
+    for (const stillReadOnly of ["source_chunks", "book", "book_section", "card", "card_state", "source", "question"]) {
       expect(byEntity[stillReadOnly]).toEqual(["read"]);
     }
     // The three the owner actually asked for -- grading a review,
@@ -237,6 +237,9 @@ describe("listCapabilitiesTool", () => {
     // lesson_promotion (record a verdict AGAINST a promotion), it doesn't
     // register as a lesson_verdict-entity write.
     expect(byEntity.lesson_verdict).toEqual(["read"]);
+    // P4-08: lesson gained ONE write action (promote a lesson into a live
+    // experiment) -- still never general lesson-content mutation.
+    expect(byEntity.lesson).toEqual(["read", "write:promote"]);
   });
 
   it("work/business entities report their real write actions from write-registry.ts, live", async () => {

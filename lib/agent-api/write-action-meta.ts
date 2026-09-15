@@ -53,6 +53,18 @@ export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
   "habits.identity_habit.archive",
   "habits.vote.cast",
   "habits.vote.retract",
+  // P4-08
+  "school.question.create",
+  "school.question.update",
+  "school.question.set_active",
+  "school.grade_category.create",
+  "school.grade_category.update",
+  "school.staging.confirm_batch",
+  "school.staging.update_deliverable",
+  "school.staging.delete_deliverable",
+  "self_mastery.session.finish",
+  "school.practice_test.submit_answer",
+  "school.practice_test.complete",
 ]);
 
 /**

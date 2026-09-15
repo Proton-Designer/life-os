@@ -39,6 +39,7 @@ const CHECK_VIOLATION = "23514";
  * sharing one code means one of them answers the caller's question wrongly.
  */
 const NOT_IN_PREREQUISITE_STATE = "55000";
+const UNIQUE_VIOLATION = "23505";
 
 function pgCode(error: unknown): string | null {
   if (typeof error === "object" && error !== null && "code" in error) {
@@ -46,6 +47,79 @@ function pgCode(error: unknown): string | null {
     if (typeof code === "string") return code;
   }
   return null;
+}
+
+export interface PromoteLessonInput {
+  lessonId: string;
+  acceptedText: string;
+  areaId: string;
+}
+
+export interface PromotedLesson {
+  promotionId: string;
+}
+
+/**
+ * P4-08: R5 extraction of `lib/promotions/actions.ts`'s original
+ * `promoteLesson` body, moved here VERBATIM (same pg-error-code mapping,
+ * same messages) so the MCP write path reaches identical logic with zero
+ * duplication — same split `recordVerdictCore` already established in
+ * this file. THROWS (this file's own convention), unlike the original
+ * function's `ActionResult` return; `promoteLesson` itself becomes a thin
+ * wrapper translating a thrown error back to `{ok:false, message}`, same
+ * pattern `recordVerdict` already uses below.
+ *
+ * Uses the TYPED client (`SupabaseClient<Database>`), not the original's
+ * `untypedFrom` escape hatch — `lesson_promotions` IS in the generated
+ * `Database` type (confirmed directly against database.types.ts before
+ * writing this), so `lib/self-mastery/untyped-from.ts`'s own header
+ * claiming otherwise is stale for this table specifically. Not fixing the
+ * original `promoteLesson`'s own use of it here (out of this function's
+ * scope) — only this new core avoids it.
+ */
+export async function promoteLessonCore(supabase: SupabaseClient<Database>, userId: string, input: PromoteLessonInput): Promise<PromotedLesson> {
+  const acceptedText = input.acceptedText.trim();
+
+  if (!acceptedText) {
+    throw new Error("Write what you're actually going to do — even one line.");
+  }
+  if (!input.areaId) {
+    throw new Error("Choose which area of your life this belongs to.");
+  }
+
+  const { data, error } = await supabase
+    .from("lesson_promotions")
+    .insert({
+      // user_id is set by trigger from the caller, never from client input
+      // (set_user_id_from_caller). Sending it would be ignored at best --
+      // still supplied for real here (not a dummy) since it's already known.
+      user_id: userId,
+      lesson_id: input.lessonId,
+      area_id: input.areaId,
+      accepted_text: acceptedText,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    switch (pgCode(error)) {
+      case UNIQUE_VIOLATION:
+        // lesson_promotions_active_per_lesson. Not an error the user caused
+        // twice — usually a second tab, or a back-button resubmit.
+        throw new Error("You're already testing this lesson. Give the current run its verdict first.");
+      case FK_VIOLATION:
+        throw new Error("That area is no longer available. Pick another one.");
+      case CHECK_VIOLATION:
+        throw new Error("Write what you're actually going to do — even one line.");
+      default:
+        throw new Error(GENERIC);
+    }
+  }
+  if (!data) {
+    throw new Error("That didn't save. You may have been signed out — reload and try again.");
+  }
+
+  return { promotionId: data.id };
 }
 
 export interface RecordVerdictInput {
