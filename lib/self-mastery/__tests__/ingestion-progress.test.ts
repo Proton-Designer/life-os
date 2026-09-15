@@ -48,4 +48,46 @@ describe("estimateBookProgressPct", () => {
       prev = pct;
     }
   });
+
+  /**
+   * REGRESSION SUITE (2026-09-15, the Lead's fix): book 3d7a3825 (203
+   * source_chunks, 60 ranked lessons) sat visibly frozen at 55%/97% for
+   * hours because the static PCT_PER_CHUNK curve saturates at a stage's
+   * ceiling long before a real, larger book's true position gets there.
+   * These assert the exact numbers from the Lead's own report.
+   */
+  describe("with a real total (the fix)", () => {
+    it("THE REGRESSION GUARD: 203-chunk extraction at chunk 100 lands roughly mid-span (~32%), not saturated at 55", () => {
+      const pct = estimateBookProgressPct("extracting_lessons", 100, 203)!;
+      expect(pct).toBe(32); // base 10 + round(45 * 100/203) = 10 + 22
+      expect(pct).toBeLessThan(55); // must NOT have saturated at the next stage's base
+    });
+
+    it("THE REGRESSION GUARD: 60-lesson card generation at lesson 30 lands ~86%, not saturated at 97", () => {
+      const pct = estimateBookProgressPct("generating_cards", 30, 60)!;
+      expect(pct).toBe(86); // base 75 + round(22 * 30/60) = 75 + 11
+      expect(pct).toBeLessThan(97); // must NOT have saturated at finalizing's base
+    });
+
+    it("still climbs to the full span ceiling once position reaches total", () => {
+      expect(estimateBookProgressPct("extracting_lessons", 203, 203)).toBe(55);
+      expect(estimateBookProgressPct("generating_cards", 60, 60)).toBe(97);
+    });
+
+    it("clamps rather than overshoots if position somehow exceeds total", () => {
+      expect(estimateBookProgressPct("extracting_lessons", 250, 203)).toBe(55);
+    });
+
+    it("falls back to the static curve when total is omitted, null, or non-positive -- never divides by zero, never throws", () => {
+      const noTotal = estimateBookProgressPct("extracting_lessons", 5);
+      const nullTotal = estimateBookProgressPct("extracting_lessons", 5, null);
+      const zeroTotal = estimateBookProgressPct("extracting_lessons", 5, 0);
+      const negativeTotal = estimateBookProgressPct("extracting_lessons", 5, -1);
+      const fallbackExpected = 10 + Math.min(45, 5 * 2); // the unchanged PCT_PER_CHUNK curve
+      expect(noTotal).toBe(fallbackExpected);
+      expect(nullTotal).toBe(fallbackExpected);
+      expect(zeroTotal).toBe(fallbackExpected);
+      expect(negativeTotal).toBe(fallbackExpected);
+    });
+  });
 });

@@ -45,9 +45,40 @@ vi.mock("@/lib/self-mastery/ingestion/telemetry", () => ({
 
 const SECRET = "test-ingestion-secret";
 
+// Awaitable at every step, like the real supabase-js query builder --
+// `.eq()/.not()/.lt()` all return another `terminal(result)`, and the
+// object itself resolves via `.then` whether or not the caller chains
+// further (`await x.update(v).eq(id)` and `await x.update(v).eq(id).lt(...)`
+// both work against the SAME mock shape). One generic chain covers both the
+// stage/progress_pct `.update()` calls (2026-09-15's fix: progress_pct is
+// now a SEPARATE, `.lt()`-guarded update from `stage` -- see route.ts's
+// `syncBookProgress`) and `fetchStageTotal`'s `.select(...).eq().not()`
+// count query. `onLt` fires on every `.lt()` call so tests can assert the
+// route asked the DB for the monotonic guard -- the DB's own WHERE-clause
+// enforcement isn't re-proven here, same "prove the handler can't bypass
+// it, don't re-prove the function" posture this file already takes with
+// `advance_ingestion_cursor`'s CAS guard.
+function terminal<T>(
+  result: T,
+  onLt?: (column: string, value: unknown) => void,
+): T & { lt: (column: string, value: unknown) => T; eq: () => T; not: () => T; then: (resolve: (value: T) => void) => void } {
+  return {
+    ...result,
+    lt: vi.fn((column: string, value: unknown) => {
+      onLt?.(column, value);
+      return terminal(result, onLt);
+    }),
+    eq: vi.fn(() => terminal(result, onLt)),
+    not: vi.fn(() => terminal(result, onLt)),
+    then: (resolve: (value: T) => void) => resolve(result),
+  } as T & { lt: (column: string, value: unknown) => T; eq: () => T; not: () => T; then: (resolve: (value: T) => void) => void };
+}
+
 function makeMockSupabase(opts: {
   claimedJob: Record<string, unknown> | null;
   rpcResults?: Record<string, { data: unknown; error: unknown }>;
+  /** Keyed by table name ("source_chunks" | "lessons") -- fetchStageTotal's count query result. Defaults to `{count: null, error: null}` for any table not configured, which makes estimateBookProgressPct fall back to its static curve, same as before this file's own tests were updated for the 2026-09-15 fix. */
+  countResults?: Record<string, { count: number | null; error: unknown }>;
 }) {
   const rpcCalls: { fn: string; args: unknown }[] = [];
   const rpc = vi.fn((fn: string, args: unknown) => {
@@ -57,13 +88,15 @@ function makeMockSupabase(opts: {
     return Promise.resolve(result ?? { data: null, error: null });
   });
   const updateCalls: { table: string; values: unknown }[] = [];
+  const ltCalls: { table: string; column: string; value: unknown }[] = [];
   const from = vi.fn((table: string) => ({
     update: (values: unknown) => {
       updateCalls.push({ table, values });
-      return { eq: vi.fn(() => Promise.resolve({ error: null })) };
+      return terminal({ error: null }, (column, value) => ltCalls.push({ table, column, value }));
     },
+    select: () => terminal(opts.countResults?.[table] ?? { count: null, error: null }),
   }));
-  return { rpc, rpcCalls, from, updateCalls };
+  return { rpc, rpcCalls, from, updateCalls, ltCalls };
 }
 
 describe("POST /api/self-mastery/ingestion/step", () => {
@@ -304,9 +337,81 @@ describe("POST /api/self-mastery/ingestion/step", () => {
       const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
       expect(res.status).toBe(200);
 
-      const booksUpdate = mock.updateCalls.find((c) => c.table === "books");
-      expect(booksUpdate?.values).toMatchObject({ stage: "generating_cards" });
-      expect(typeof (booksUpdate?.values as { progress_pct: number }).progress_pct).toBe("number");
+      // TWO separate books writes as of the 2026-09-15 fix: `stage` is
+      // written unconditionally, `progress_pct` is written separately and
+      // ONLY if it's higher than what's already stored (syncBookProgress's
+      // own atomic `.lt()` guard) -- see route.ts's own header.
+      const booksUpdates = mock.updateCalls.filter((c) => c.table === "books");
+      const stageUpdate = booksUpdates.find((c) => "stage" in (c.values as object));
+      const progressUpdate = booksUpdates.find((c) => "progress_pct" in (c.values as object));
+      expect(stageUpdate?.values).toMatchObject({ stage: "generating_cards" });
+      expect(typeof (progressUpdate?.values as { progress_pct: number } | undefined)?.progress_pct).toBe("number");
+    });
+
+    /**
+     * REGRESSION SUITE (2026-09-15, the Lead's fix). Book 3d7a3825 (203
+     * source_chunks, 60 ranked lessons) sat visibly frozen at 55%/97% for
+     * hours because progress was estimated from a static per-chunk curve
+     * that saturates long before a real book's true position gets there --
+     * see ingestion-progress.ts's own header. These prove the ROUTE side:
+     * it fetches the real total and passes it through, and it never lets a
+     * freshly computed value overwrite a higher one already stored.
+     */
+    it("THE REGRESSION GUARD: fetches the REAL total for a chunked stage and estimates progress from it, not the static fallback curve", async () => {
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockResolvedValue({ nextStage: "extracting_lessons", nextChunkIndex: 100 }),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 99, cursor_attempt: 1, book_id: "book-1" },
+        rpcResults: { advance_ingestion_cursor: { data: { id: "job-1" }, error: null } },
+        // Book 3d7a3825's own real shape: 203 source_chunks total.
+        countResults: { source_chunks: { count: 203, error: null } },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      expect(res.status).toBe(200);
+
+      // fetchStageTotal queried source_chunks for THIS book, not lessons.
+      expect(mock.from).toHaveBeenCalledWith("source_chunks");
+      const progressUpdate = mock.updateCalls.find((c) => c.table === "books" && "progress_pct" in (c.values as object));
+      // base 10 + round(45 * 100/203) = 32 -- the same number
+      // ingestion-progress.test.ts's own regression guard asserts directly
+      // against estimateBookProgressPct. Would be 55 (fully saturated) under
+      // the old static curve at this position.
+      expect((progressUpdate?.values as { progress_pct: number }).progress_pct).toBe(32);
+    });
+
+    it("THE REGRESSION GUARD: asks the DB to guard progress_pct with .lt(), so a redeploy mid-run can never overwrite a higher already-stored value", async () => {
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          generating_cards: vi.fn().mockResolvedValue({ nextStage: "generating_cards", nextChunkIndex: 30 }),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "generating_cards", cursor_chunk_index: 29, cursor_attempt: 1, book_id: "book-1" },
+        rpcResults: { advance_ingestion_cursor: { data: { id: "job-1" }, error: null } },
+        // Book 3d7a3825's own real shape: 60 ranked lessons.
+        countResults: { lessons: { count: 60, error: null } },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      expect(res.status).toBe(200);
+
+      // base 75 + round(22 * 30/60) = 86 -- would already have read 97 under
+      // the old curve at this same position (saturates by lesson 11), which
+      // is exactly the value a redeploy must not clobber.
+      const ltCall = mock.ltCalls.find((c) => c.table === "books" && c.column === "progress_pct");
+      expect(ltCall?.value).toBe(86);
+      const progressUpdate = mock.updateCalls.find((c) => c.table === "books" && "progress_pct" in (c.values as object));
+      expect((progressUpdate?.values as { progress_pct: number }).progress_pct).toBe(86);
     });
 
     it("does NOT touch books when the advance lands on 'done' -- finalizingStage already owns that terminal write", async () => {

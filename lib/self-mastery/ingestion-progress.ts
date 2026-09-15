@@ -37,16 +37,29 @@ import type { IngestStage } from "./types";
  * call that advances the cursor, so the two can never drift apart by more
  * than one stage transition.
  *
- * DELIBERATELY QUERY-FREE. An earlier draft computed a mathematically
- * precise percentage (chunkIndex / true total chunks or lessons, via a
- * COUNT query per advance). Dropped in favour of this coarser, static
- * per-stage curve for two concrete reasons: (a) it keeps the route's only
- * database traffic on the write side (no extra SELECT per stage,
- * preserving budget for the 280s Vercel ceiling this route already
- * documents), and (b) it keeps this function pure and trivially testable
- * with no Supabase client at all. The number is an honest ESTIMATE, not a
- * measurement -- accurate enough to prove real, monotonic movement instead
- * of "0% then 100%," not a promise of calibrated accuracy.
+ * REVISION (2026-09-15, found by the Lead watching a real book run all
+ * evening): the "earlier draft" this header used to describe as rejected --
+ * a mathematically precise `position / true total` climb -- turned out to
+ * be necessary, not merely nice to have. The static PCT_PER_CHUNK curve
+ * below saturates at a stage's ceiling after a small, fixed chunk count
+ * (currently ~23 for a 45-point span) regardless of how many chunks/lessons
+ * the book actually has -- fine for a small book, but book 3d7a3825 (203
+ * chunks, 60 ranked lessons) sat visibly frozen at 55% for ~3 hours through
+ * all of extracting_lessons, then frozen at 97% for ~50 minutes through most
+ * of generating_cards. #6's whole purpose was eliminating exactly this
+ * shape of stall.
+ *
+ * STILL PURE, STILL QUERY-FREE HERE. This function takes `total` as a
+ * plain parameter rather than fetching it itself -- the route (the only
+ * caller) owns the one cheap COUNT query per tick this needs (source_chunks
+ * for extracting_lessons, rank-not-null lessons for verifying_grounding/
+ * generating_cards -- see route.ts's `fetchStageTotal`), keeping this file
+ * itself trivially testable with no Supabase client, same as before.
+ * `total` is OPTIONAL and falls back to the original static curve when
+ * omitted/null/non-positive (a count query failed, or a caller that hasn't
+ * been updated) -- never throws over a missing denominator. The number
+ * remains an honest ESTIMATE, not a guaranteed-precise measurement: monotonic
+ * movement through real positions matters far more here than exact accuracy.
  *
  * TERMINAL STAGES ARE NOT THIS FUNCTION'S JOB. `done` and `failed` both
  * return `null` -- `finalizingStage` already writes the authoritative
@@ -89,12 +102,14 @@ const STAGE_SPAN_PCT: Partial<Record<IngestStage, number>> = {
   generating_cards: 22, // 75 -> 97 (finalizing's base)
 };
 
-// Per-chunk climb rate within a chunked stage's span, and the chunk count
-// at which it saturates at the top of its span. Deliberately NOT derived
-// from a true total (see the file header) -- a round number picked so a
-// typical book (dozens to a couple hundred chunks/lessons, per
-// worker-stages.ts's own measured comments) visibly climbs through most or
-// all of its stage's span rather than saturating in the first few calls.
+// FALLBACK ONLY, as of the 2026-09-15 revision (see file header) -- the
+// per-chunk climb rate used only when the real caller-supplied `total` is
+// unavailable. A round number picked so a typical book (dozens to a couple
+// hundred chunks/lessons, per worker-stages.ts's own measured comments)
+// visibly climbs through most or all of its stage's span rather than
+// saturating in the first few calls -- kept unchanged from the original
+// design specifically so every existing call site/test that omits `total`
+// keeps behaving exactly as it did before this revision.
 const PCT_PER_CHUNK = 2;
 
 /**
@@ -103,8 +118,15 @@ const PCT_PER_CHUNK = 2;
  * `advance_ingestion_cursor`'s caller. Returns `null` for `done`/`failed`:
  * see the file header for why those are deliberately left to their own
  * authoritative writers instead of this estimate.
+ *
+ * `total` is the real denominator for the stage's own unit (source_chunks
+ * for extracting_lessons; rank-not-null lessons for verifying_grounding/
+ * generating_cards) -- the caller's responsibility to fetch (route.ts's
+ * `fetchStageTotal`), not this function's. Omitted, `null`, or non-positive
+ * (0, a failed count) all fall back to the static PCT_PER_CHUNK curve rather
+ * than dividing by zero or throwing -- see the file header.
  */
-export function estimateBookProgressPct(nextStage: IngestStage, nextChunkIndex: number | null): number | null {
+export function estimateBookProgressPct(nextStage: IngestStage, nextChunkIndex: number | null, total?: number | null): number | null {
   if (nextStage === "done" || nextStage === "failed") return null;
 
   const base = STAGE_BASE_PCT[nextStage];
@@ -113,6 +135,9 @@ export function estimateBookProgressPct(nextStage: IngestStage, nextChunkIndex: 
     return base;
   }
 
-  const climbed = Math.min(span, nextChunkIndex * PCT_PER_CHUNK);
+  const climbed =
+    total !== undefined && total !== null && total > 0
+      ? Math.min(span, span * (nextChunkIndex / total))
+      : Math.min(span, nextChunkIndex * PCT_PER_CHUNK);
   return Math.round(base + climbed);
 }

@@ -7,6 +7,7 @@ import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-ava
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
+import type { IngestStage } from "@/lib/self-mastery/types";
 
 /**
  * A5 gates 3-4, plus S6's driver wiring (2026-09-14): one ingestion chunk
@@ -132,6 +133,80 @@ async function failBook(
     console.error("[self-mastery ingestion] failed to sync books.status='failed'", bookFailError.message);
   }
   return { ok: true };
+}
+
+/**
+ * The real denominator for a chunked stage's within-stage progress climb
+ * (2026-09-15, the Lead's fix -- see ingestion-progress.ts's own header for
+ * the full incident: book 3d7a3825 sat visibly frozen at 55%/97% for hours
+ * because the OLD static curve saturates long before a real book's true
+ * position gets there). One cheap COUNT query, and only for the three
+ * stages that actually have a within-stage span to climb -- everything else
+ * returns `null` immediately, no query issued. Mirrors the exact row sets
+ * worker-stages.ts's own handlers walk: `extractingLessonsStage` iterates
+ * ALL of a book's `source_chunks`; `verifyGroundingStage` and
+ * `generatingCardsStage` both iterate the identical `rank IS NOT NULL`
+ * lesson set, in the same rank order (see either handler's own header), so
+ * they share one denominator here too. FAILS SOFT (`null`, never throws) on
+ * a count error -- a failed count must fall back to
+ * `estimateBookProgressPct`'s own static curve, not break the actual cursor
+ * advance this total only decorates.
+ */
+async function fetchStageTotal(supabase: SupabaseClient, stage: IngestStage, bookId: string): Promise<number | null> {
+  if (stage === "extracting_lessons") {
+    const { count, error } = await supabase
+      .from("source_chunks")
+      .select("id", { count: "exact", head: true })
+      .eq("book_id", bookId);
+    return error || count === null ? null : count;
+  }
+  if (stage === "verifying_grounding" || stage === "generating_cards") {
+    const { count, error } = await supabase
+      .from("lessons")
+      .select("id", { count: "exact", head: true })
+      .eq("book_id", bookId)
+      .not("rank", "is", null);
+    return error || count === null ? null : count;
+  }
+  return null;
+}
+
+/**
+ * `books.stage`/`books.progress_pct` sync, shared by both call sites below
+ * (a genuine advance, and the exhausted-attempts skip path) -- previously
+ * duplicated inline at each. `stage` is written unconditionally (it is the
+ * cursor's own truth, and always moves forward with it); `progress_pct` is
+ * written ONLY if the freshly estimated value is HIGHER than whatever is
+ * already stored, via a single atomic `UPDATE ... WHERE progress_pct <
+ * :next` rather than a read-then-write -- no race to reason about, no extra
+ * read. NEVER MOVES BACKWARDS (2026-09-15, the Lead's fix): deploying this
+ * more-accurate estimate mid-run must not visibly regress a book that had
+ * already climbed higher under the OLD, overly-eager curve (book 3d7a3825
+ * was reading 97% at lesson 11 of 60 -- the new, correct estimate for that
+ * same position is ~86%, which must never overwrite the already-stored 97).
+ * Both writes are best-effort, matching the pre-existing posture at both
+ * call sites: the cursor has already, durably advanced by the time this
+ * runs, so a cosmetic sync failure must never turn a real success into a
+ * reported one.
+ */
+async function syncBookProgress(supabase: SupabaseClient, bookId: string, stage: IngestStage, chunkIndex: number | null): Promise<void> {
+  const total = await fetchStageTotal(supabase, stage, bookId);
+  const nextProgressPct = estimateBookProgressPct(stage, chunkIndex, total);
+
+  const { error: stageSyncError } = await untypedFrom(supabase, "books").update({ stage }).eq("id", bookId);
+  if (stageSyncError) {
+    console.error("[self-mastery ingestion] failed to sync books.stage", stageSyncError.message);
+  }
+
+  if (nextProgressPct !== null) {
+    const { error: progressSyncError } = await untypedFrom(supabase, "books")
+      .update({ progress_pct: nextProgressPct })
+      .eq("id", bookId)
+      .lt("progress_pct", nextProgressPct);
+    if (progressSyncError) {
+      console.error("[self-mastery ingestion] failed to sync books.progress_pct", progressSyncError.message);
+    }
+  }
 }
 
 export async function POST(request: Request) {
@@ -285,13 +360,7 @@ export async function POST(request: Request) {
         // makes (see below) -- a skip is still real forward motion the
         // library view must reflect, not a stall.
         if (!alreadySkipped && expectedStage !== "done" && expectedStage !== "failed") {
-          const nextProgressPct = estimateBookProgressPct(expectedStage, nextChunkIndex);
-          const bookUpdate: Record<string, unknown> = { stage: expectedStage };
-          if (nextProgressPct !== null) bookUpdate.progress_pct = nextProgressPct;
-          const { error: bookSyncError } = await untypedFrom(supabase, "books").update(bookUpdate).eq("id", job.book_id);
-          if (bookSyncError) {
-            console.error("[self-mastery ingestion] failed to sync books.stage/progress_pct after skip", bookSyncError.message);
-          }
+          await syncBookProgress(supabase, job.book_id, expectedStage, nextChunkIndex);
         }
 
         // CIRCUIT BREAKER (BUG-1 layer 1's second half): non-determinism
@@ -419,14 +488,7 @@ export async function POST(request: Request) {
   // successfully, durably advanced by this point — a cosmetic sync failure
   // must not turn a real success into a reported one.
   if (work.nextStage !== "done" && work.nextStage !== "failed") {
-    const bookUpdate: Record<string, unknown> = { stage: work.nextStage };
-    const nextProgressPct = estimateBookProgressPct(work.nextStage, work.nextChunkIndex);
-    if (nextProgressPct !== null) bookUpdate.progress_pct = nextProgressPct;
-
-    const { error: bookSyncError } = await untypedFrom(supabase, "books").update(bookUpdate).eq("id", job.book_id);
-    if (bookSyncError) {
-      console.error("[self-mastery ingestion] failed to sync books.stage/progress_pct after advance", bookSyncError.message);
-    }
+    await syncBookProgress(supabase, job.book_id, work.nextStage, work.nextChunkIndex);
   }
 
   return NextResponse.json({
