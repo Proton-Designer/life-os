@@ -1869,7 +1869,9 @@ export type Database = {
       }
       mcp_access_tokens: {
         Row: {
+          client_kind: string
           created_at: string
+          expires_at: string | null
           id: string
           label: string | null
           last_used_at: string | null
@@ -1880,7 +1882,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          client_kind?: string
           created_at?: string
+          expires_at?: string | null
           id?: string
           label?: string | null
           last_used_at?: string | null
@@ -1891,7 +1895,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          client_kind?: string
           created_at?: string
+          expires_at?: string | null
           id?: string
           label?: string | null
           last_used_at?: string | null
@@ -1913,6 +1919,7 @@ export type Database = {
           result_summary: string | null
           token_id: string | null
           tool_name: string
+          transport: string
           user_id: string
         }
         Insert: {
@@ -1924,6 +1931,7 @@ export type Database = {
           result_summary?: string | null
           token_id?: string | null
           tool_name: string
+          transport?: string
           user_id: string
         }
         Update: {
@@ -1935,6 +1943,7 @@ export type Database = {
           result_summary?: string | null
           token_id?: string | null
           tool_name?: string
+          transport?: string
           user_id?: string
         }
         Relationships: [
