@@ -330,7 +330,24 @@ describe("chat() -- multi-provider dispatch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("throws a clear, named error for a provider whose adapter isn't wired yet, rather than silently doing nothing", async () => {
-    await expect(chat("google", "test-key", [{ role: "user", content: "hi" }])).rejects.toThrow(/Gemini.*isn't wired yet/);
+  it("routes google through googleChat (slice 6) -- its own branch, distinct response shape (`candidates`, not `choices` or `content`) proves it's not silently falling through to another adapter", async () => {
+    vi.stubGlobal("navigator", undefined);
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "ok" }], role: "model" } }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await chat("google", "test-key", [{ role: "user", content: "hi" }]);
+    expect(result.ok, result.message ?? "").toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("ALL 6 REGISTERED PROVIDERS ARE NOW WIRED (slice 6 closes the set) -- chat() has no remaining 'unimplemented' fallthrough for any real ProviderId", async () => {
+    const { PROVIDER_IDS } = await import("../providers");
+    expect(PROVIDER_IDS.sort()).toEqual(["anthropic", "deepseek", "google", "moonshot", "openai", "xai"].sort());
   });
 });

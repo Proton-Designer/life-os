@@ -1,8 +1,9 @@
 import "server-only";
-import { PROVIDERS, type ProviderId } from "./providers";
+import type { ProviderId } from "./providers";
 import { openAiCompatibleChat } from "./adapters/openai-compatible";
 import { openAiSdkChat } from "./adapters/openai-sdk";
 import { anthropicChat } from "./adapters/anthropic";
+import { googleChat } from "./adapters/google";
 import type { ChatResult } from "./adapters/types";
 
 export type { ChatResult } from "./adapters/types";
@@ -25,17 +26,13 @@ export type { ChatResult } from "./adapters/types";
  * a wireProtocol value that would imply more uniformity than actually
  * exists between the four.
  *
- * anthropic.ts lands in slice 5 (this one) — Claude's Messages API isn't
- * wire-compatible with chat/completions at all (no "system" role, no
- * shared error hierarchy shape with the openai package's), so it gets its
+ * anthropic.ts (slice 5) and google.ts (slice 6, this one) each get their
  * own branch here rather than folding into either "openai-compatible"
- * path. google.ts (Gemini) lands in a later slice; until then, routing it
- * here throws rather than silently doing nothing — the same "fail loud on
- * unimplemented" posture worker-stages.ts already takes for an
- * unregistered ingest stage (a 501, not a silent 200). Nothing calls
- * `chat()` with google yet (`gatewayChat` still hardcodes
- * `DEFAULT_PROVIDER`), so that branch is unreachable in production today —
- * a placeholder for a later slice, not a live gap.
+ * path: neither Claude's Messages API nor Gemini's `generateContent` is
+ * wire-compatible with chat/completions (no "system" role, `contents`
+ * instead of `messages`, different error shapes entirely). All 6
+ * providers are now wired — `chat()` no longer has an unreachable branch
+ * for any registered ProviderId.
  */
 export interface ChatOpts {
   maxTokens?: number;
@@ -64,8 +61,10 @@ export async function chat(
   if (provider === "anthropic") {
     return anthropicChat(apiKey, messages, opts);
   }
-  const { wireProtocol, label } = PROVIDERS[provider];
-  throw new Error(`chat(): ${label} (wireProtocol "${wireProtocol}") isn't wired yet — its adapter lands in a later multi-provider slice.`);
+  // provider === "google" -- the last case; TypeScript's exhaustiveness
+  // over ProviderId (all 6 branches above + this) means there is no
+  // "unimplemented" fallthrough left to guard, unlike slices 3-5.
+  return googleChat(apiKey, messages, opts);
 }
 
 /**
