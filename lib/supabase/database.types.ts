@@ -2495,6 +2495,7 @@ export type Database = {
           pin_lock_enabled: boolean
           prayer_calc_method: string
           qada_owed: number
+          sleep_reminder_enabled: boolean
           theme_preset: string
           timezone: string
           tracking_started_on: string | null
@@ -2521,6 +2522,7 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
+          sleep_reminder_enabled?: boolean
           theme_preset?: string
           timezone?: string
           tracking_started_on?: string | null
@@ -2547,6 +2549,7 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
+          sleep_reminder_enabled?: boolean
           theme_preset?: string
           timezone?: string
           tracking_started_on?: string | null
@@ -3058,6 +3061,54 @@ export type Database = {
             referencedColumns: ["user_id", "id"]
           },
         ]
+      }
+      sleep_intents: {
+        Row: {
+          created_at: string
+          id: string
+          intended_bedtime: string
+          intent_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          intended_bedtime: string
+          intent_date: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          intended_bedtime?: string
+          intent_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sleep_reminder_log: {
+        Row: {
+          created_at: string
+          id: string
+          sent_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          sent_date: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          sent_date?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       source_chunks: {
         Row: {
@@ -3745,6 +3796,7 @@ export type Database = {
           created_at: string
           ended_at: string | null
           goal_minutes: number | null
+          hour_notified_at: string | null
           id: string
           kill_list_item_id: string | null
           kind: string
@@ -3763,6 +3815,7 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           goal_minutes?: number | null
+          hour_notified_at?: string | null
           id?: string
           kill_list_item_id?: string | null
           kind?: string
@@ -3781,6 +3834,7 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           goal_minutes?: number | null
+          hour_notified_at?: string | null
           id?: string
           kill_list_item_id?: string | null
           kind?: string
@@ -4253,6 +4307,7 @@ export type Database = {
           created_at: string
           ended_at: string | null
           goal_minutes: number | null
+          hour_notified_at: string | null
           id: string
           kill_list_item_id: string | null
           kind: string
