@@ -8,6 +8,7 @@ import {
   connectCanvas,
   disconnectCanvas,
   refreshCanvasCourses,
+  getCanvasConnectionStatus,
   getCanvasCourseMappings,
   setCourseMapping,
   type CanvasConnectionStatus,
@@ -15,11 +16,32 @@ import {
   type LocalClassOption,
 } from "@/app/(app)/settings/canvas-actions";
 
+const DISCONNECTED_STATUS: CanvasConnectionStatus = {
+  connected: false,
+  instanceUrl: null,
+  tokenLast4: null,
+  canvasUserName: null,
+  tokenStatus: null,
+  lastSyncedAt: null,
+  lastSyncError: null,
+};
+
+/**
+ * Renders an ISO timestamp WITHOUT any timezone conversion (no `Date` local-
+ * time formatting) — this Client Component's initial render also happens
+ * during SSR, and `toLocaleString()`/`Intl` there would use the server's
+ * timezone/locale, then re-run on the client with the browser's, producing a
+ * hydration mismatch. Slicing the ISO string is deterministic across both.
+ */
+function formatSyncedAt(iso: string): string {
+  return `${iso.replace("T", " ").slice(0, 16)} UTC`;
+}
+
 /**
  * Bring-your-own Canvas settings — same shape and tone as api-key-settings.tsx
  * and connector-settings.tsx: connect/disconnect a credential, plus (Canvas-
- * specific) a per-course mapping list once connected. School works fully
- * without this connected; skipping it costs nothing, same as the AI keys.
+ * specific) a per-course mapping list and sync status once connected. School
+ * works fully without this connected; skipping it costs nothing.
  */
 export function CanvasSettings({
   initialStatus,
@@ -53,7 +75,24 @@ export function CanvasSettings({
           instanceUrl: url,
           tokenLast4: rawToken.slice(-4),
           canvasUserName: res.message.replace(/^Connected as /, "").replace(/\.$/, ""),
+          tokenStatus: "ok",
+          lastSyncedAt: status.lastSyncedAt, // reconnect doesn't itself sync — preserve prior history
+          lastSyncError: null,
         });
+      }
+    });
+  }
+
+  /** Re-paste a token for an already-known instance URL — the expired-token recovery path. */
+  function handleReconnect() {
+    const url = status.instanceUrl ?? "";
+    const rawToken = token.trim();
+    startTransition(async () => {
+      const res = await connectCanvas(url, rawToken);
+      setMessage({ ok: res.ok, text: res.message });
+      if (res.ok) {
+        setToken("");
+        setStatus((s) => ({ ...s, tokenLast4: rawToken.slice(-4), tokenStatus: "ok", lastSyncError: null }));
       }
     });
   }
@@ -62,7 +101,7 @@ export function CanvasSettings({
     startTransition(async () => {
       const res = await disconnectCanvas();
       setMessage({ ok: res.ok, text: res.message });
-      if (res.ok) setStatus({ connected: false, instanceUrl: null, tokenLast4: null, canvasUserName: null });
+      if (res.ok) setStatus(DISCONNECTED_STATUS);
     });
   }
 
@@ -70,7 +109,16 @@ export function CanvasSettings({
     startTransition(async () => {
       const res = await refreshCanvasCourses();
       setMessage({ ok: res.ok, text: res.message });
-      if (res.ok) setMappings(await getCanvasCourseMappings());
+      if (res.ok) {
+        setMappings(await getCanvasCourseMappings());
+        setStatus((s) => ({ ...s, lastSyncedAt: new Date().toISOString(), lastSyncError: null, tokenStatus: "ok" }));
+      } else {
+        // Reflect the server's verdict on token health rather than guessing
+        // client-side — refreshCanvasCourses only flips tokenStatus when the
+        // client reported authExpired, so re-reading status is the honest
+        // signal for whether this failure means "reconnect" or "just retry".
+        setStatus(await getCanvasConnectionStatus());
+      }
     });
   }
 
@@ -82,6 +130,8 @@ export function CanvasSettings({
       if (!res.ok) setMessage({ ok: false, text: res.message });
     });
   }
+
+  const expired = status.connected && status.tokenStatus === "expired";
 
   return (
     <div className="flex flex-col gap-5">
@@ -100,20 +150,47 @@ export function CanvasSettings({
         <div className="flex flex-col gap-3 rounded-xl border border-border/40 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-sm font-medium">{status.instanceUrl}</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {status.canvasUserName ? `connected as ${status.canvasUserName} · ` : "connected · "}
+            <span className={`font-mono text-xs ${expired ? "text-destructive" : "text-muted-foreground"}`}>
+              {expired ? "token expired · " : status.canvasUserName ? `connected as ${status.canvasUserName} · ` : "connected · "}
               ····{status.tokenLast4}
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={isPending} onClick={handleSync}>
-              Sync courses
-            </Button>
-            <Button size="sm" variant="ghost" disabled={isPending} onClick={handleDisconnect}>
-              Disconnect
-            </Button>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {status.lastSyncedAt ? `Last synced ${formatSyncedAt(status.lastSyncedAt)}` : "Never synced yet."}
+          </p>
+          {status.lastSyncError ? <p className="text-xs text-destructive">{status.lastSyncError}</p> : null}
+
+          {expired ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="canvas-reconnect-token" className="text-xs text-muted-foreground">
+                Canvas rejected that token. Paste a new one to reconnect.
+              </Label>
+              <Input
+                id="canvas-reconnect-token"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                disabled={isPending || !storageConfigured}
+              />
+              <div>
+                <Button size="sm" disabled={isPending || !storageConfigured || !token.trim()} onClick={handleReconnect}>
+                  {isPending ? "Reconnecting…" : "Reconnect"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={isPending} onClick={handleSync}>
+                Sync courses
+              </Button>
+              <Button size="sm" variant="ghost" disabled={isPending} onClick={handleDisconnect}>
+                Disconnect
+              </Button>
+            </div>
+          )}
 
           {mappings.length > 0 ? (
             <div className="flex flex-col gap-2 pt-2">

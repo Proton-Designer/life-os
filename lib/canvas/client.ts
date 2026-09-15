@@ -39,7 +39,15 @@ export interface CanvasCourseSummary {
   courseCode: string | null;
 }
 
-export type CanvasClientResult<T> = { ok: true; data: T } | { ok: false; message: string };
+/**
+ * `authExpired` (P2-22): true only when Canvas itself rejected the token
+ * (HTTP 401/403) — distinguishes "the credential is bad, ask the user to
+ * reconnect" from every other failure kind (network, timeout, malformed
+ * response, SSRF-guard rejection), which callers must NOT treat as an
+ * expired token. A typed flag, not a string match on `message`, so a
+ * caller can branch on it without depending on exact wording.
+ */
+export type CanvasClientResult<T> = { ok: true; data: T } | { ok: false; message: string; authExpired?: boolean };
 
 /** Strips a trailing slash so `${base}${path}` never double-slashes. */
 function normalizeInstanceUrl(raw: string): string {
@@ -56,7 +64,7 @@ async function canvasFetch(instanceUrl: string, token: string, path: string): Pr
       signal: controller.signal,
     });
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, message: "Canvas rejected that token. Check the token and instance URL." };
+      return { ok: false, message: "Canvas rejected that token. Check the token and instance URL.", authExpired: true };
     }
     if (!res.ok) {
       return { ok: false, message: `Canvas returned an error (HTTP ${res.status}).` };

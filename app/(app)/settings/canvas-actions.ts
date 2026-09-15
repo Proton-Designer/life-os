@@ -17,6 +17,10 @@ export interface CanvasConnectionStatus {
   instanceUrl: string | null;
   tokenLast4: string | null;
   canvasUserName: string | null;
+  /** 'ok' | 'expired' — only meaningful when `connected`. See migration 213's column comment. */
+  tokenStatus: "ok" | "expired" | null;
+  lastSyncedAt: string | null;
+  lastSyncError: string | null;
 }
 
 export interface CanvasActionResult {
@@ -41,15 +45,28 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
   const { supabase, userId } = await requireUser();
   const { data } = await supabase
     .from("canvas_connections")
-    .select("instance_url, token_last4, canvas_user_name")
+    .select("instance_url, token_last4, canvas_user_name, token_status, last_synced_at, last_sync_error")
     .eq("user_id", userId)
     .maybeSingle();
-  if (!data) return { connected: false, instanceUrl: null, tokenLast4: null, canvasUserName: null };
+  if (!data) {
+    return {
+      connected: false,
+      instanceUrl: null,
+      tokenLast4: null,
+      canvasUserName: null,
+      tokenStatus: null,
+      lastSyncedAt: null,
+      lastSyncError: null,
+    };
+  }
   return {
     connected: true,
     instanceUrl: data.instance_url,
     tokenLast4: data.token_last4,
     canvasUserName: data.canvas_user_name,
+    tokenStatus: data.token_status as "ok" | "expired",
+    lastSyncedAt: data.last_synced_at,
+    lastSyncError: data.last_sync_error,
   };
 }
 
@@ -93,6 +110,12 @@ export async function connectCanvas(instanceUrl: string, rawToken: string): Prom
       token_last4: last4(token),
       canvas_user_id: check.data.canvasUserId,
       canvas_user_name: check.data.name,
+      // A fresh, verified token means whatever was stale is no longer true —
+      // reset on every successful (re)connect. `last_synced_at` deliberately
+      // stays out of this payload: it's sync history, not connection health,
+      // and PostgREST's upsert only touches columns present in the body.
+      token_status: "ok",
+      last_sync_error: null,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -137,9 +160,15 @@ async function resolveStoredConnection(
  * canvas_course_mappings. `class_id` is deliberately absent from the
  * upsert payload — PostgREST's upsert only sets columns present in the
  * request body, so re-syncing (which happens every time this is called,
- * including automatically later from P2-22's sync-status screen) can never
+ * including from the sync-status panel's "Sync courses" button) can never
  * silently null out a mapping the user already made. Only name/code (Canvas
  * facts) are refreshed; class_id (the user's own decision) is untouched.
+ *
+ * P2-22: every outcome writes canvas_connections' sync-status columns —
+ * `last_sync_error` on any failure (cleared on success), `token_status`
+ * flipped to 'expired' ONLY when the client reports `authExpired` (a
+ * network blip or SSRF-guard rejection must not send the user down a
+ * reconnect flow for a problem that isn't the credential).
  */
 export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
   const { supabase, userId } = await requireUser();
@@ -147,8 +176,18 @@ export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
   if (!conn) return { ok: false, message: "Connect Canvas first." };
 
   const res = await fetchCanvasCourses(conn.instanceUrl, conn.token);
-  if (!res.ok) return { ok: false, message: res.message };
-  if (res.data.length === 0) return { ok: true, message: "No active courses found on Canvas." };
+  if (!res.ok) {
+    await supabase
+      .from("canvas_connections")
+      .update({
+        last_sync_error: res.message,
+        ...(res.authExpired ? { token_status: "expired" as const } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId);
+    revalidatePath("/settings");
+    return { ok: false, message: res.message };
+  }
 
   const { error } = await supabase.from("canvas_course_mappings").upsert(
     res.data.map((c) => ({
@@ -160,10 +199,27 @@ export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
     })),
     { onConflict: "user_id,canvas_course_id" },
   );
-  if (error) return { ok: false, message: "Fetched courses but couldn't save them. Try again." };
+  const now = new Date().toISOString();
+  if (error) {
+    await supabase
+      .from("canvas_connections")
+      .update({ last_sync_error: "Fetched courses but couldn't save them.", updated_at: now })
+      .eq("user_id", userId);
+    revalidatePath("/settings");
+    return { ok: false, message: "Fetched courses but couldn't save them. Try again." };
+  }
+
+  await supabase
+    .from("canvas_connections")
+    .update({ last_synced_at: now, last_sync_error: null, updated_at: now })
+    .eq("user_id", userId);
 
   revalidatePath("/settings");
-  return { ok: true, message: `Synced ${res.data.length} course${res.data.length === 1 ? "" : "s"}.` };
+  const message =
+    res.data.length === 0
+      ? "No active courses found on Canvas."
+      : `Synced ${res.data.length} course${res.data.length === 1 ? "" : "s"}.`;
+  return { ok: true, message };
 }
 
 export async function getCanvasCourseMappings(): Promise<CanvasCourseMapping[]> {

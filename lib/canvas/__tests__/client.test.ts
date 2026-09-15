@@ -48,4 +48,18 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain("private or internal address");
   });
+
+  it("sets authExpired:true on a 401/403, so callers can distinguish it from a network failure (P2-22)", async () => {
+    safeFetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    const res = await verifyCanvasToken("https://school.instructure.com", "stale-tok");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.authExpired).toBe(true);
+  });
+
+  it("does NOT set authExpired on a generic network failure", async () => {
+    safeFetchMock.mockImplementationOnce(() => Promise.reject(new Error("Couldn't reach that Canvas instance. Check the URL.")));
+    const res = await verifyCanvasToken("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.authExpired).toBeUndefined();
+  });
 });
