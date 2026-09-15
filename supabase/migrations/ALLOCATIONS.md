@@ -98,6 +98,8 @@ the point is to make a number unavailable the moment it is promised.
 | `216` | Team B / tracking-app-4b (P3-14 fix), allocated by tracking-app-a9, 2026-09-15 | Lower `storage.buckets.lectures.file_size_limit` to the effective project-wide 50MB, so the bucket stops advertising 500MB. Measured on production: 50MB-1 byte accepted, 51MB rejected | allocated |
 | `217` | Team B / p4-b-tokens (P4-13), allocated by tracking-app-a9, 2026-09-15 | OAuth hardening: per-(user,client) serialized refresh rotation + reuse handling, registration throttle/prune job | allocated |
 | `218` | Team B / tracking-app-4b (P3-19), allocated by tracking-app-a9, 2026-09-15 | RescueTime BYOK: encrypted API key + daily productivity summaries + sync status (reserved; withdrawn if no schema needed) | allocated |
+| `219` | Team B / tracking-app-4b (P3-20), allocated by tracking-app-a9, 2026-09-15 | Per-user FSRS parameter storage (reserved; withdrawn if not needed) | allocated |
+| `220` | Team B / p4-b-tokens (P4-14), allocated by tracking-app-a9, 2026-09-15 | Atomic MCP rate-limit counter RPC (per token / per user / scheduler budget) | allocated |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
 | `250`+ | — | next free | — |
 
