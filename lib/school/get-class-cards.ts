@@ -6,6 +6,7 @@ import { computeAssignmentRisk, type RiskBand } from "@/lib/school/risk/assignme
 import type { Confidence } from "@/lib/school/risk/types";
 import type { QuestionOrigin } from "@/lib/school/questions-core";
 import { parseGradeBoundaries } from "@/lib/school/grades/parse-grade-boundaries";
+import { untypedFrom } from "@/lib/school/untyped-from";
 
 // `difficulty_rating` / `confidence_rating` / `target_grade_pct` (classes) and
 // `weight_pct` (class_assessments) landed in migration 105 — see that file's own
@@ -139,6 +140,19 @@ export type ClassCardData = {
       sourceSnippet: string | null;
     }[];
   } | null;
+  /** P3-14 -- this class's lecture recordings, most recent first. Reads via
+   * `untypedFrom` (lib/school/untyped-from.ts) until `lecture_recordings`
+   * (migration 211) is applied and `database.types.ts` regenerated. Actual
+   * audio bytes are never here -- only lecture-actions.ts's
+   * `getLectureRecordingUrl` mints a signed URL, on demand, per play. */
+  lectures: {
+    id: string;
+    originalFilename: string;
+    mimeType: string;
+    sizeBytes: number;
+    durationSeconds: number | null;
+    createdAt: string;
+  }[];
 };
 
 /**
@@ -190,6 +204,7 @@ export async function getClassCards(
     { data: questionRows, error: questionError },
     { data: categoryRows, error: categoryError },
     { data: batchRows, error: batchError },
+    { data: lectureRows, error: lectureError },
   ] = await Promise.all([
     supabase
       .from("tasks")
@@ -225,12 +240,30 @@ export async function getClassCards(
       .in("class_id", classIds)
       .neq("status", "confirmed")
       .order("created_at", { ascending: false }),
+    // P3-14 -- see this file's untypedFrom import comment and lecture-actions.ts.
+    untypedFrom(supabase, "lecture_recordings")
+      .select("id, class_id, original_filename, mime_type, size_bytes, duration_seconds, created_at")
+      .eq("user_id", userId)
+      .in("class_id", classIds)
+      .order("created_at", { ascending: false })
+      .returns<
+        {
+          id: string;
+          class_id: string;
+          original_filename: string;
+          mime_type: string;
+          size_bytes: number;
+          duration_seconds: number | null;
+          created_at: string;
+        }[]
+      >(),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
   if (questionError) throw questionError;
   if (categoryError) throw categoryError;
   if (batchError) throw batchError;
+  if (lectureError) throw lectureError;
 
   // Dependent on batchRows resolving first (which batch ids exist), so this can't join
   // the Promise.all wave above — same "the next query needs the prior one's ids" shape
@@ -354,6 +387,20 @@ export async function getClassCards(
     questionsByClass.set(q.class_id, list);
   }
 
+  const lecturesByClass = new Map<string, ClassCardData["lectures"]>();
+  for (const l of lectureRows ?? []) {
+    const list = lecturesByClass.get(l.class_id) ?? [];
+    list.push({
+      id: l.id,
+      originalFilename: l.original_filename,
+      mimeType: l.mime_type,
+      sizeBytes: l.size_bytes,
+      durationSeconds: l.duration_seconds,
+      createdAt: l.created_at,
+    });
+    lecturesByClass.set(l.class_id, list);
+  }
+
   return classes.map((c) => {
     const tasks = tasksByClass.get(c.id) ?? [];
     const rawAssessments = assessmentsByClass.get(c.id) ?? [];
@@ -412,6 +459,7 @@ export async function getClassCards(
       pendingStagingBatch: pendingBatchIdByClass.has(c.id)
         ? { id: pendingBatchIdByClass.get(c.id)!, deliverables: deliverablesByBatch.get(pendingBatchIdByClass.get(c.id)!) ?? [] }
         : null,
+      lectures: lecturesByClass.get(c.id) ?? [],
     };
   });
 }

@@ -110,6 +110,7 @@ describe("getClassCards", () => {
         ],
         questions: [],
         pendingStagingBatch: null,
+        lectures: [],
       },
     ]);
   });
@@ -150,6 +151,7 @@ describe("getClassCards", () => {
         tasks: [],
         questions: [],
         pendingStagingBatch: null,
+        lectures: [],
       },
     ]);
   });
@@ -171,6 +173,46 @@ describe("getClassCards", () => {
       { id: "q1", prompt: "What is Big-O of binary search?", answer: "O(log n)", topic: "Complexity", sourceAnchor: "Ch. 3, p.42", sourceSkipped: false, origin: "self", active: true },
       { id: "q2", prompt: "Define a heap invariant", answer: "Parent <= children (min-heap)", topic: null, sourceAnchor: null, sourceSkipped: true, origin: "missed", active: false },
     ]);
+  });
+
+  // P3-14 — mirrors the questions-bank test above: camelCase shaping, grouped
+  // by class_id, most-recent-first order trusted from the real query same as
+  // pendingStagingBatch's own fixtures.
+  it("shapes a class's lecture recordings into camelCase rows", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [{ id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null }],
+      tasks: [],
+      class_assessments: [],
+      lecture_recordings: [
+        { id: "l2", class_id: "c1", original_filename: "lec2.m4a", mime_type: "audio/x-m4a", size_bytes: 2048, duration_seconds: null, created_at: "2026-09-10T00:00:00Z" },
+        { id: "l1", class_id: "c1", original_filename: "lec1.mp3", mime_type: "audio/mpeg", size_bytes: 1024, duration_seconds: 1800, created_at: "2026-09-01T00:00:00Z" },
+      ],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+
+    expect(result[0]!.lectures).toEqual([
+      { id: "l2", originalFilename: "lec2.m4a", mimeType: "audio/x-m4a", sizeBytes: 2048, durationSeconds: null, createdAt: "2026-09-10T00:00:00Z" },
+      { id: "l1", originalFilename: "lec1.mp3", mimeType: "audio/mpeg", sizeBytes: 1024, durationSeconds: 1800, createdAt: "2026-09-01T00:00:00Z" },
+    ]);
+  });
+
+  it("never attributes another class's lecture recordings to a class with none of its own", async () => {
+    const supabase = makeFakeSupabase({
+      classes: [
+        { id: "c1", short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null },
+        { id: "c2", short_name: "Phys", code: "PHYS-2326-002", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null },
+      ],
+      tasks: [],
+      class_assessments: [],
+      lecture_recordings: [
+        { id: "l1", class_id: "c1", original_filename: "lec1.mp3", mime_type: "audio/mpeg", size_bytes: 1024, duration_seconds: null, created_at: "2026-09-01T00:00:00Z" },
+      ],
+    });
+
+    const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+    const c2 = result.find((r) => r.id === "c2")!;
+    expect(c2.lectures).toEqual([]);
   });
 
   it("returns an empty array with zero classes, without querying tasks/assessments at all", async () => {

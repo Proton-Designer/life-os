@@ -20,6 +20,7 @@ import { GradeScenarioPanel } from "@/components/school/grade-scenario-panel";
 import { GradeCategoriesPanel } from "@/components/school/grade-categories-panel";
 import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
+import { LecturePanel } from "@/components/school/lecture-panel";
 import { SyllabusReviewPanel } from "@/components/school/syllabus-review-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
 import { TaskWizardDialog, type TaskWizardSubmitInput } from "@/components/school/task-wizard-dialog";
@@ -553,6 +554,13 @@ export function ClassDetailDialog({
             select above; creating/editing/deleting a category itself is not. */}
         <div className="rounded-2xl border border-border/40 bg-card p-4">
           <GradeCategoriesPanel classId={classData.id} categories={classData.categories} />
+        </div>
+
+        {/* P3-14 -- same self-contained immediate-commit shape as
+            SyllabusPanel/QuestionBankPanel: reads straight from
+            classData.lectures (server props), nothing staged here. */}
+        <div className="rounded-2xl border border-border/40 bg-card p-4">
+          <LecturePanel classId={classData.id} lectures={classData.lectures} editing={editing} />
         </div>
 
         {/* Reads straight from classData.assessments (server props), not the

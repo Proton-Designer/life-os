@@ -43,6 +43,7 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     gradeBoundaries: [],
     categories: [],
     pendingStagingBatch: null,
+    lectures: [],
     hasSyllabus: false,
     tasksDueThisWeek: 0,
     upcomingAssessment: null,
