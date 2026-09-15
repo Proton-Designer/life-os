@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, CircleCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ function GoalMilestoneRow({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [optimisticDone, setOptimisticDone] = useState<boolean | null>(null);
+  const router = useRouter();
 
   if (!milestone) {
     if (!adding) {
@@ -87,6 +89,18 @@ function GoalMilestoneRow({
               setAdding(false);
               setTitle("");
               setError(null);
+              // #43/#44 BUG FIX (2026-09-15, found investigating the Opus
+              // Lead's e2e report): addMilestoneAction is called directly
+              // from this handler, not a <form action={...}>, so Next.js
+              // does NOT automatically refresh the current route
+              // afterward -- the same class of bug createGoalAction below
+              // had. Without this, `milestone` (a prop, not local state)
+              // never updates, this component falls back to its own
+              // "+ Add this month's milestone" button as if nothing
+              // happened, and a second attempt hits
+              // goal_milestones_user_goal_month_key's real uniqueness with
+              // a confusing "already has a milestone" error.
+              router.refresh();
             }
           });
         }}
@@ -217,6 +231,7 @@ function AddGoalForm({
   const [rank, setRank] = useState(String(availableRanks[0] ?? 1));
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   return (
     <form
@@ -238,6 +253,24 @@ function AddGoalForm({
             setError(res.error);
           } else {
             onAdded();
+            // #43/#44 BUG FIX (2026-09-15, found investigating the Opus
+            // Lead's e2e report of goals.spec.ts failing on Mobile Chrome
+            // with "listitem not visible" — not a timing flake, the row
+            // was never going to appear at all). createGoalAction is
+            // called directly from this handler, not a
+            // <form action={...}>, so Next.js does NOT automatically
+            // refresh the current route the way it does for a native
+            // form-action submission. GoalBoard's own `allGoals` is a
+            // useState(goals) copy (below), so even a caller that DID
+            // trigger a refresh still needed that state to actually
+            // resync from the newly-fetched `goals` prop — both halves
+            // are fixed together here: this refresh call, and the
+            // useEffect in GoalBoard that adopts a fresh `goals` prop.
+            // Same idiom this codebase already uses everywhere else a
+            // mutation isn't reflected via local optimistic state (e.g.
+            // components/business/kill-list-items-dialog.tsx,
+            // components/school/add-class-dialog.tsx).
+            router.refresh();
           }
         });
       }}
@@ -293,6 +326,21 @@ export function GoalBoard({
   const [allGoals, setAllGoals] = useState(goals);
   const [adding, setAdding] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+
+  // #43/#44 BUG FIX (2026-09-15): `goals` is only used as `useState`'s
+  // INITIAL value — React does not re-run that initializer on a later
+  // render with a different prop, so without this effect `allGoals` would
+  // stay frozen at whatever `goals` looked like on first mount forever,
+  // even after AddGoalForm's `router.refresh()` (above) delivers a fresh
+  // one. `markResolved` below (Done/Drop) still updates `allGoals`
+  // directly for its own optimistic paint — this effect only ever fires
+  // on a genuinely NEW `goals` array from the server, which happens
+  // strictly after that server-side write already committed, so it can
+  // only ever confirm state this component already believes, never
+  // contradict an in-flight optimistic update with stale data.
+  useEffect(() => {
+    setAllGoals(goals);
+  }, [goals]);
 
   const active = allGoals.filter((g) => g.status === "active").sort((a, b) => a.rank - b.rank);
   const resolved = allGoals.filter((g) => g.status !== "active");
