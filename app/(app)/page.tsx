@@ -29,6 +29,7 @@ import { SessionEntryCard } from "@/components/self-mastery/session/session-entr
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
+import { shouldShowSessionEntry } from "@/lib/home/session-entry-visibility";
 import { resolveAreaWeights } from "@/lib/home/resolve-area-weights";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate } from "@/lib/home/build-candidates";
@@ -94,6 +95,11 @@ export default async function HomePage() {
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
   // makes Self-Mastery disappear the moment the group row is archived.
   const hasSelfMastery = hasArea(domainsState, "learning");
+
+  // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's
+  // own header for the full mechanism and why this is NOT the same as
+  // checking dueSummary?.starterDeckMissing.
+  const showSessionEntry = shouldShowSessionEntry(hasSelfMastery, dueSummary);
 
   // Body-level gating (Opus Lead finding, stranger-journey e2e): the nav
   // gates correctly, but Home's own content did not — Sector progress and
@@ -169,7 +175,13 @@ export default async function HomePage() {
   // production today. selfMasteryCandidateInput takes the ALREADY-fetched
   // dueSummary rather than re-querying (see that function's own comment).
   const weights = resolveAreaWeights(domainsState);
-  const selfMasteryCandidateInput = hasSelfMastery
+  // showSessionEntry, not hasSelfMastery alone — a School-only user's due
+  // questions must be able to compete for the top "Now" slot the same way a
+  // Self-Mastery user's due cards already do, not just be visible lower down.
+  // Leaving this on hasSelfMastery while fixing visibility below would trade
+  // one "built but unreachable" shape (invisible) for another (visible but
+  // never ranked).
+  const selfMasteryCandidateInput = showSessionEntry
     ? await getSelfMasteryCandidateInput(dueSummary)
     : { hasCandidate: false as const, dueAt: null, decay: null, cost: null };
   const selfMasteryCandidate = buildSelfMasteryCandidate(selfMasteryCandidateInput, weights);
@@ -194,7 +206,7 @@ export default async function HomePage() {
           a fixed layout slot -- Self-Mastery only renders first when it
           genuinely outranks the current top of the five-domain list.
           See selfMasteryRanksFirst's own comment above. */}
-      {selfMasteryRanksFirst && <SessionEntryCard dueSummary={hasSelfMastery ? dueSummary : null} />}
+      {selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
 
       <WeeklyGoalsHeader
         deen={deenGoal}
@@ -234,7 +246,7 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {!selfMasteryRanksFirst && <SessionEntryCard dueSummary={hasSelfMastery ? dueSummary : null} />}
+      {!selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
 
       <Panel title="The day's shape">
         {ribbonLayout ? (
