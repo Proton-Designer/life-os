@@ -67,6 +67,10 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
         filters.push((r) => r[col] === val);
         return b;
       },
+      in(col: string, vals: unknown[]) {
+        filters.push((r) => vals.includes(r[col]));
+        return b;
+      },
       is(col: string, val: unknown) {
         filters.push((r) => (r[col] ?? null) === val);
         return b;

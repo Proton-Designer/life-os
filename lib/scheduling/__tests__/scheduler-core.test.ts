@@ -8,11 +8,11 @@ vi.mock("@/lib/notifications/send-push", () => ({
 
 const { listScheduledActionsCore, createScheduledActionCore, cancelScheduledActionCore, pauseScheduledActionCore } = await import("../scheduler-core");
 
-function makeClient(opts: { listData?: unknown[]; insertData?: unknown; insertError?: unknown; updateData?: unknown } = {}) {
+function makeClient(opts: { listData?: unknown[]; insertData?: unknown; insertError?: unknown; updateData?: unknown; profile?: unknown } = {}) {
   const insertCalls: Record<string, unknown>[] = [];
   const updateCalls: { row: Record<string, unknown>; eq: unknown[][] }[] = [];
 
-  const from = vi.fn(() => {
+  const from = vi.fn((table?: string) => {
     const chain: Record<string, unknown> = {};
     chain.select = vi.fn(() => chain);
     chain.eq = vi.fn((...args: unknown[]) => {
@@ -29,7 +29,11 @@ function makeClient(opts: { listData?: unknown[]; insertData?: unknown; insertEr
       return chain;
     });
     chain.single = vi.fn(async () => ({ data: opts.insertData ?? { id: "sched-1", next_run_at: "2026-09-10T12:00:00.000Z" }, error: opts.insertError ?? null }));
-    chain.maybeSingle = vi.fn(async () => ({ data: opts.updateData !== undefined ? opts.updateData : { id: "sched-1" }, error: null }));
+    chain.maybeSingle = vi.fn(async () => {
+      // P4-16: createScheduledActionCore reads the caller's profile first.
+      if (table === "profiles") return { data: opts.profile !== undefined ? opts.profile : { timezone: "America/Chicago" }, error: null };
+      return { data: opts.updateData !== undefined ? opts.updateData : { id: "sched-1" }, error: null };
+    });
     return chain;
   });
 
@@ -137,6 +141,43 @@ describe("createScheduledActionCore — patch.tool_name dispatch", () => {
     await expect(createScheduledActionCore(client, "user-1", "tok-1", "America/Chicago", now, { tool_name: "read", run_at: "2026-09-09T12:00:00.000Z" })).rejects.toThrow(
       /patch\.tool_name must be "write" or "notify"/i,
     );
+  });
+});
+
+describe("createScheduledActionCore — P4-16: no profile row means no schedule (never silent UTC)", () => {
+  const writePatch = { tool_name: "write", domain: "settings", entity: "profile", action: "update", write_patch: { theme_preset: "ocean" }, cron_expression: "0 7 * * *" };
+
+  it("REFUSES a write schedule for an account with NO profiles row, and inserts nothing", async () => {
+    const { client, insertCalls } = makeClient({ profile: null });
+    await expect(createScheduledActionCore(client, "user-1", "tok-1", "UTC", now, writePatch)).rejects.toThrow(/no profile|finish onboarding/i);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("REFUSES a notify schedule for an account with NO profiles row", async () => {
+    hasAnyPushSubscriptionMock.mockResolvedValueOnce(true);
+    const { client, insertCalls } = makeClient({ profile: null });
+    await expect(
+      createScheduledActionCore(client, "user-1", "tok-1", "UTC", now, { tool_name: "notify", title: "t", body: "b", cron_expression: "0 7 * * *" }),
+    ).rejects.toThrow(/no profile|finish onboarding/i);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("REFUSES when the profile exists but has no timezone", async () => {
+    const { client, insertCalls } = makeClient({ profile: { timezone: null } });
+    await expect(createScheduledActionCore(client, "user-1", "tok-1", "UTC", now, writePatch)).rejects.toThrow(/time ?zone/i);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("the refusal is a model-visible input error, not a generic failure", async () => {
+    const { ToolInputError } = await import("@/lib/mcp/tool-input-error");
+    const { client } = makeClient({ profile: null });
+    await expect(createScheduledActionCore(client, "user-1", "tok-1", "UTC", now, writePatch)).rejects.toBeInstanceOf(ToolInputError);
+  });
+
+  it("ACCEPTS the same schedule once the profile has a timezone", async () => {
+    const { client, insertCalls } = makeClient();
+    await createScheduledActionCore(client, "user-1", "tok-1", "America/Chicago", now, writePatch);
+    expect(insertCalls).toHaveLength(1);
   });
 });
 

@@ -51,7 +51,7 @@ vi.mock("@/lib/notifications/notify-core", () => ({
   sendScheduledNotificationCore: (...args: unknown[]) => sendScheduledNotificationCoreMock(...args),
 }));
 
-const { claimDueActions, processOneScheduledAction, processScheduledActions, MAX_CONSECUTIVE_FAILURES, NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS } = await import("../scheduler-runner");
+const { claimDueActions, processOneScheduledAction, processScheduledActions, MAX_CONSECUTIVE_FAILURES, NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS, CLAIM_BATCH_LIMIT } = await import("../scheduler-runner");
 
 beforeEach(() => {
   getLiveTokenByIdMock.mockReset();
@@ -122,12 +122,16 @@ function makeServiceClient(opts: { claimData?: unknown[]; profileTimezone?: stri
     chain.select = vi.fn(() => chain);
     chain.eq = vi.fn(() => chain);
     chain.lte = vi.fn(() => chain);
+    chain.order = vi.fn(() => chain);
+    // claimDueActions step 1 (P4-16): the bounded due-id select ends in .limit().
+    chain.limit = vi.fn(() => Promise.resolve({ data: opts.claimData ?? [], error: null }));
     chain.update = vi.fn((row: Record<string, unknown>) => {
       updateCalls.push({ table, row });
       const resolved = { data: opts.claimData ?? [], error: null };
       const c2: Record<string, unknown> = {};
       c2.eq = vi.fn(() => c2);
       c2.lte = vi.fn(() => c2);
+      c2.in = vi.fn(() => c2);
       c2.select = vi.fn(() => Promise.resolve(resolved));
       c2.then = (resolve: (v: typeof resolved) => void) => resolve(resolved);
       return c2;
@@ -140,14 +144,55 @@ function makeServiceClient(opts: { claimData?: unknown[]; profileTimezone?: stri
 }
 
 describe("claimDueActions", () => {
-  it("bumps next_run_at forward as the claim, atomically, and returns the claimed rows", async () => {
-    const rows = [makeRow()];
-    const { client, updateCalls } = makeServiceClient({ claimData: rows });
-    const result = await claimDueActions(client, now);
-    expect(result).toEqual(rows);
-    expect(updateCalls[0].table).toBe("mcp_scheduled_actions");
-    const bumped = new Date(updateCalls[0].row.next_run_at as string);
-    expect(bumped.getTime()).toBeGreaterThan(now.getTime());
+  function dueRow(i: number, overrides: Record<string, unknown> = {}) {
+    const minutesAgo = 100 - i; // i=0 is the OLDEST due row
+    return {
+      ...makeRow({ id: `sched-${String(i).padStart(3, "0")}` }),
+      status: "active",
+      next_run_at: new Date(now.getTime() - minutesAgo * 60_000).toISOString(),
+      ...overrides,
+    };
+  }
+
+  it("bumps next_run_at forward as the claim and returns the claimed rows", async () => {
+    const db = makeFakeMcpDb({ mcp_scheduled_actions: [dueRow(0)] });
+    const result = await claimDueActions(db.client, now);
+    expect(result.map((r) => r.id)).toEqual(["sched-000"]);
+    expect(new Date(db.tables.mcp_scheduled_actions[0].next_run_at as string).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("never claims paused/cancelled rows or rows not yet due", async () => {
+    const db = makeFakeMcpDb({
+      mcp_scheduled_actions: [
+        dueRow(0, { status: "paused" }),
+        dueRow(1, { status: "cancelled" }),
+        dueRow(2, { next_run_at: new Date(now.getTime() + 60_000).toISOString() }),
+        dueRow(3),
+      ],
+    });
+    const result = await claimDueActions(db.client, now);
+    expect(result.map((r) => r.id)).toEqual(["sched-003"]);
+  });
+
+  // P4-16: an unbounded claim + one-at-a-time processing inside one serverless
+  // invocation could run a large backlog into the function timeout.
+  it(`P4-16: claims at most CLAIM_BATCH_LIMIT rows per tick, OLDEST next_run_at first, leaving the rest due`, async () => {
+    expect(CLAIM_BATCH_LIMIT).toBeGreaterThan(0);
+    const total = CLAIM_BATCH_LIMIT + 5;
+    // Insert in shuffled order so "oldest first" is proven by the claim, not by insertion order.
+    const rows = Array.from({ length: total }, (_, i) => dueRow(i)).reverse();
+    const db = makeFakeMcpDb({ mcp_scheduled_actions: rows });
+
+    const first = await claimDueActions(db.client, now);
+    expect(first).toHaveLength(CLAIM_BATCH_LIMIT);
+    expect(first.map((r) => r.id)).toEqual(Array.from({ length: CLAIM_BATCH_LIMIT }, (_, i) => `sched-${String(i).padStart(3, "0")}`));
+
+    const stillDue = db.tables.mcp_scheduled_actions.filter((r) => String(r.next_run_at) <= now.toISOString());
+    expect(stillDue).toHaveLength(5);
+
+    const second = await claimDueActions(db.client, now);
+    expect(second).toHaveLength(5);
+    expect(second.some((r) => first.some((f) => f.id === r.id))).toBe(false);
   });
 });
 

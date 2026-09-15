@@ -104,6 +104,15 @@ export const NOTIFY_ONE_OFF_MAX_DELIVERY_ATTEMPTS = 3;
 const ONE_OFF_RETRY_DELAY_MS = 5 * 60 * 1000;
 /** How long a claim's temporary bump holds before a crashed run's row becomes due again on its own — the self-healing half of "at-least-once," not a tunable retry interval. */
 const CLAIM_BUFFER_MS = 10 * 60 * 1000;
+/**
+ * P4-16: most rows one poll tick claims. Rows are processed one at a time in a
+ * single serverless invocation (several DB round trips + a GoTrue check + the
+ * write each), so an unbounded claim could run a backlog into the function
+ * timeout — and then the claim buffer would re-fire the whole batch. 25 per
+ * 5-minute tick drains 300/hour. A placeholder like the constants above, to
+ * revisit once real scheduled traffic exists.
+ */
+export const CLAIM_BATCH_LIMIT = 25;
 
 interface ScheduledActionRow {
   id: string;
@@ -135,14 +144,36 @@ interface ScheduledActionRow {
 export async function claimDueActions(serviceClient: SupabaseClient, now: Date): Promise<ScheduledActionRow[]> {
   const nowIso = now.toISOString();
   const claimedUntil = new Date(now.getTime() + CLAIM_BUFFER_MS).toISOString();
+
+  // P4-16: BOUNDED, OLDEST FIRST. Step 1 picks at most CLAIM_BATCH_LIMIT due
+  // ids by next_run_at. Step 2 is the real claim: the same bump UPDATE as
+  // before, restricted to those ids AND re-checking the original WHERE — so
+  // a concurrent poll that picked the same ids matches 0 of them once this
+  // UPDATE has bumped them (Postgres re-evaluates the WHERE on the locked
+  // row), and the claim stays atomic. Anything past the limit stays due and
+  // is claimed by the next tick; oldest-first means nothing starves.
+  const { data: due, error: dueError } = await serviceClient
+    .from("mcp_scheduled_actions")
+    .select("id")
+    .eq("status", "active")
+    .lte("next_run_at", nowIso)
+    .order("next_run_at", { ascending: true })
+    .limit(CLAIM_BATCH_LIMIT);
+  if (dueError) throw dueError;
+  const ids = ((due ?? []) as { id: string }[]).map((r) => r.id);
+  if (ids.length === 0) return [];
+
   const { data, error } = await serviceClient
     .from("mcp_scheduled_actions")
     .update({ next_run_at: claimedUntil })
+    .in("id", ids)
     .eq("status", "active")
     .lte("next_run_at", nowIso)
     .select("id, user_id, token_id, tool_name, args, cron_expression, run_at, attempt_count");
   if (error) throw error;
-  return (data ?? []) as ScheduledActionRow[];
+  // Process in the same oldest-first order step 1 chose (RETURNING order is not guaranteed).
+  const byId = new Map(((data ?? []) as ScheduledActionRow[]).map((r) => [r.id, r]));
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
 interface FinalizeInput {

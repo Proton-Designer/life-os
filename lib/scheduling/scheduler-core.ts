@@ -183,6 +183,8 @@ async function createWriteScheduledAction(
   const writeArgs: WriteArgs = { domain, entity, action, ...(typeof writeId === "string" ? { id: writeId } : {}), ...(writePatch ? { patch: writePatch as Record<string, unknown> } : {}) };
   const operation = resolveWriteOperation(writeArgs);
 
+  await assertProfileTimezone(supabase, userId);
+
   const { data, error } = await supabase
     .from("mcp_scheduled_actions")
     .insert({
@@ -229,6 +231,8 @@ async function createNotifyScheduledAction(
 
   const { nextRunAt, runAt, cronExpression } = resolveSchedule(patch, timezone, now);
 
+  await assertProfileTimezone(supabase, userId);
+
   const { data, error } = await supabase
     .from("mcp_scheduled_actions")
     .insert({
@@ -264,6 +268,36 @@ export async function createScheduledActionCore(
   if (toolName === "write") return createWriteScheduledAction(supabase, userId, tokenId, timezone, now, patch);
   if (toolName === "notify") return createNotifyScheduledAction(supabase, userId, tokenId, timezone, now, patch);
   throw new ToolInputError(`patch.tool_name must be "write" or "notify". Got: ${JSON.stringify(toolName)}.`);
+}
+
+/**
+ * P4-16: NO PROFILE, NO SCHEDULE. The timezone every schedule is computed in
+ * comes from `profiles.timezone`, and the context builder falls back to
+ * "UTC" when there is no profile row. Production has auth users with no
+ * profile (signed up, never onboarded), and the OAuth authorize route isn't
+ * behind the onboarding gate. So such an account could create a "7am daily"
+ * schedule that silently fires at 7am UTC. Refuse at creation with a
+ * message the user can act on, rather than guessing a timezone.
+ *
+ * Called by both create branches AFTER their pure input validation and
+ * immediately BEFORE the insert, so a malformed patch still gets its own
+ * specific error first (P4-01's model-visible errors) and nothing is ever
+ * inserted for a profile-less account.
+ */
+async function assertProfileTimezone(supabase: SupabaseClient, userId: string): Promise<void> {
+  const { data, error } = await supabase.from("profiles").select("timezone").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new ToolInputError(
+      "This account has no profile yet, so there is no timezone to schedule in. Finish onboarding in the Life OS app (it sets your location and timezone), then try again. Nothing was scheduled.",
+    );
+  }
+  const tz = (data as { timezone?: unknown }).timezone;
+  if (typeof tz !== "string" || tz.length === 0) {
+    throw new ToolInputError(
+      "This account's profile has no timezone set, so a schedule's local time can't be computed. Set your location in Life OS Settings, then try again. Nothing was scheduled.",
+    );
+  }
 }
 
 /**
