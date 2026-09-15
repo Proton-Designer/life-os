@@ -1,21 +1,23 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { tokenHasScope, touchLastUsed, type McpScope } from "./tokens";
-import { checkRateLimit } from "./rate-limit";
-import { writeAuditRow, type McpAuditOutcome } from "./audit";
-import { mintSessionJwt, buildUserScopedClient } from "./session";
-import { readMcpAuth, type AuthInfoLike } from "./auth-info";
-import { ToolInputError } from "./tool-input-error";
+import type { McpScope } from "./tokens";
+import type { AuthInfoLike } from "./auth-info";
+import { executeOperation, type ToolOutcome } from "@/lib/agent-api/execute";
 
 /**
- * The single composition point every MCP tool handler calls through —
- * scope check, rate limit, session mint, the tool's own logic, and the
- * audit write, in that order, for every tool (read or write) this
- * connector will ever register. L3's brief named each piece as something
- * to prove; this is where they actually compose, once, so no future tool
- * re-derives the ordering (and the ordering IS the guarantee — see the
- * audit-write comment below).
+ * The MCP adapter over the transport-neutral operation core
+ * (lib/agent-api/execute.ts, P4-02). Every MCP tool handler — and the
+ * scheduler runner, which fires through the same path — still calls
+ * `runMcpTool` with the same arguments it always has; the chain itself
+ * (scope check, rate limit, session mint, the tool's own logic, audit
+ * write, in that order) now lives in `executeOperation`, once, so the REST
+ * adapter can compose exactly the same guarantees.
+ *
+ * This file's only job is the mapping back to MCP: a success returns the
+ * tool's own `CallToolResult` object untouched, and a typed failure becomes
+ * `{content:[{type:"text", text: message}], isError: true}` — byte-for-byte
+ * the response runMcpTool produced before the extraction.
  *
  * Results are typed as the SDK's own `CallToolResult`, not a hand-rolled
  * lookalike: `registerTool`'s callback return type is a union with
@@ -26,11 +28,8 @@ import { ToolInputError } from "./tool-input-error";
  * was never trying to be one. Using the SDK's type directly sidesteps it.
  */
 
-export interface RunMcpToolOutcome {
-  result: CallToolResult;
-  /** One short line for mcp_audit_log.result_summary — e.g. "returned 3 tasks". Never the full payload; that already exists in `result`/`args`. */
-  summary: string;
-}
+/** Kept under its original name so every tool and test importing it is untouched. */
+export type RunMcpToolOutcome = ToolOutcome;
 
 export async function runMcpTool(
   serviceClient: SupabaseClient,
@@ -43,86 +42,11 @@ export async function runMcpTool(
   // a registry-driven table/column set (lib/mcp/registry.ts) cannot be
   // statically typed against the generated `Database` union — the table
   // name is a runtime string, not a literal this client's types can know
-  // about. Same mechanism as lib/mcp/tokens.ts's own untyped client, for a
-  // different (but structurally identical) reason.
+  // about.
   fn: (userClient: SupabaseClient, userId: string) => Promise<RunMcpToolOutcome>,
 ): Promise<CallToolResult> {
-  const auth = readMcpAuth(authInfo);
-  if (!auth) {
-    // withMcpAuth (app/api/mcp/route.ts) is supposed to reject an
-    // unauthenticated call before any tool handler runs at all. Reaching
-    // here with nothing to read is that guarantee failing, not a normal
-    // permission denial -- and there is no userId to attribute an audit
-    // row to (the column is NOT NULL), so none is written.
-    return errorResult("Not authenticated.");
-  }
-
-  const deny = async (message: string): Promise<CallToolResult> => {
-    await writeAuditRow(serviceClient, {
-      userId: auth.userId,
-      tokenId: auth.tokenId,
-      toolName,
-      operation,
-      args,
-      outcome: "denied",
-      resultSummary: message,
-    });
-    void touchLastUsed(serviceClient, auth.tokenId).catch(() => {});
-    return errorResult(message);
-  };
-
-  if (!tokenHasScope(auth.scopes, requiredScope)) {
-    return deny(`This token doesn't have "${requiredScope}" permission.`);
-  }
-
-  const rateLimit = await checkRateLimit(serviceClient, auth.tokenId);
-  if (!rateLimit.ok) {
-    return deny(rateLimit.message ?? "Rate limited.");
-  }
-
-  let outcome: McpAuditOutcome = "ok";
-  let resultSummary = "";
-  let toolResult: CallToolResult;
-  try {
-    const jwt = await mintSessionJwt(auth.userId);
-    const userClient = buildUserScopedClient(jwt);
-    const { result, summary } = await fn(userClient, auth.userId);
-    toolResult = result;
-    resultSummary = summary;
-  } catch (e) {
-    outcome = "error";
-    resultSummary = e instanceof Error ? e.message.slice(0, 500) : "Unknown error";
-    // ToolInputError (lib/mcp/tool-input-error.ts) is the ONE exception to
-    // the generic message below — its message is written to be safe to
-    // hand back verbatim (see that class's own doc comment on exactly what
-    // it may and may not contain). Every other thrown value — a bare
-    // Error, a Postgres error, anything else — stays behind the generic
-    // text, unchanged from before this type existed.
-    toolResult = e instanceof ToolInputError ? errorResult(e.message) : errorResult("Something went wrong running that tool.");
-  }
-
-  // AUDIT WRITTEN BEFORE THE TOOL RETURNS, unconditionally, for both the ok
-  // and error paths above -- not an afterthought bolted on after `return`.
-  // A process death between "wrote the row" and "sent the response" still
-  // leaves the record; a process death between "ran the tool" and "wrote
-  // the row" is exactly the gap this ordering closes, by making the write
-  // happen first and awaiting it.
-  //
-  // A FAILURE OF THE AUDIT WRITE ITSELF overrides an otherwise-successful
-  // result into an error response -- deliberately, even though the
-  // underlying tool action (for a future write tool) may genuinely have
-  // already succeeded. The guardrail this connector's accepted-risk
-  // tradeoff depends on is "every call is audited"; a result we cannot
-  // confirm was recorded cannot be reported as a clean success without
-  // quietly giving that guarantee up the one time it would have mattered.
-  try {
-    await writeAuditRow(serviceClient, { userId: auth.userId, tokenId: auth.tokenId, toolName, operation, args, outcome, resultSummary });
-  } catch {
-    return errorResult("That may have worked, but it couldn't be recorded, so it's being reported as failed. Try again.");
-  }
-
-  void touchLastUsed(serviceClient, auth.tokenId).catch(() => {}); // best-effort; never blocks or fails the call
-  return toolResult;
+  const outcome = await executeOperation(serviceClient, authInfo, { toolName, operation, requiredScope, args, run: fn }, "mcp");
+  return outcome.ok ? outcome.toolResult : errorResult(outcome.message);
 }
 
 function errorResult(message: string): CallToolResult {
