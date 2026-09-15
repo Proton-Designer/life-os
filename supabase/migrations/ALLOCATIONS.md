@@ -88,6 +88,7 @@ the point is to make a number unavailable the moment it is promised.
 | `186` | Sonnet ENG 1 (Team A, P2-11) | identity_habits.kill_reason, nullable, escalated kill-flow | pending |
 | `187` | Sonnet ENG 1 (Team A, P2-14), allocated by Opus Lead, 2026-09-15 | books.ingestion_mode, not null default 'standard', CHECK IN ('standard','batch') | pending |
 | `190` | Sonnet ENG 2 (Team A, P2-04) | work_sessions.hour_notified_at idempotency column | pending |
+| `202` | goals-builder (Team A, P3-07), reassigned to Sonnet ENG 2 on goals-builder's retirement | `identity_habits.status` CHECK widens to admit `paused`; `identity_habits` rank uniqueness widens from `active`-only to `active`+`paused` (a paused habit keeps its rank slot); new `identity_habit_pauses` child table (composite tenancy FK, RLS) recording pause/resume spans, so `computeHabitDecayScore` can exclude paused days from a vote's decay window | **APPLIED** (0161a84) |
 | `210`–`239` | BLOCK — Team B (overnight run 2026-09-15, lead tracking-app-a9) | Phase 4 AI/MCP + Canvas + Team B's Phase 3 migrations. Individual numbers are recorded as rows below when handed out | reserved |
 | `210` | Team B / tracking-app-1e (P2-20) — allocated by Team B lead tracking-app-a9, 2026-09-15 | Canvas integration: encrypted BYO Canvas token + instance URL per user, Canvas course <-> local class mapping. RLS + composite tenancy FKs | allocated |
 | `211` | Team B / tracking-app-4b (P3-14) — allocated by Team B lead tracking-app-a9, 2026-09-15 | Lecture capture: lecture/recording rows + private storage bucket and storage RLS, shaped so P3-15 can attach a transcript | allocated |
@@ -99,7 +100,7 @@ the point is to make a number unavailable the moment it is promised.
 | `217` | Team B / p4-b-tokens (P4-13), allocated by tracking-app-a9, 2026-09-15 | OAuth hardening: per-(user,client) serialized refresh rotation + reuse handling, registration throttle/prune job | allocated |
 | `218` | Team B / tracking-app-4b (P3-19), allocated by tracking-app-a9, 2026-09-15 | RescueTime BYOK: encrypted API key + daily productivity summaries + sync status (reserved; withdrawn if no schema needed) | allocated |
 | `219` | Team B / tracking-app-4b (P3-20), allocated by tracking-app-a9, 2026-09-15 | Per-user FSRS parameter storage (reserved; withdrawn if not needed) | allocated |
-| `220` | Team B / p4-b-tokens (P4-14), allocated by tracking-app-a9, 2026-09-15 | Atomic MCP rate-limit counter RPC (per token / per user / scheduler budget) | allocated |
+| `220` | Team B / p4-b-tokens (P4-14), allocated by tracking-app-a9, 2026-09-15 | Atomic MCP rate-limit counter RPC (per token / per user / scheduler budget) | **APPLIED** (0161a84) |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
 | `250`+ | — | next free | — |
 
