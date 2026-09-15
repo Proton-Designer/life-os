@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchTimezone } from "@/lib/deen/actions-core";
 import { listScheduledActionsCore, createScheduledActionCore, cancelScheduledActionCore, pauseScheduledActionCore } from "@/lib/scheduling/scheduler-core";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
+import { ToolInputError } from "../tool-input-error";
 
 /**
  * `scheduler_manage(action: "list"|"create"|"cancel"|"pause", id?, patch?)`
@@ -40,7 +41,7 @@ export function resolveSchedulerManageOperation(args: SchedulerManageArgs): stri
 }
 
 function requireId(args: SchedulerManageArgs): string {
-  if (!args.id) throw new Error("This action requires the top-level `id` of the scheduled action.");
+  if (!args.id) throw new ToolInputError("This action requires the top-level `id` of the scheduled action.");
   return args.id;
 }
 

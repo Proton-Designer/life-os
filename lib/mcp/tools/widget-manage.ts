@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { listWidgetsCore, createWidgetCore, updateWidgetCore, archiveWidgetCore, getWidgetCore, type WidgetRow } from "@/lib/widgets/actions-core";
 import { validateDataSource, validateDisplay, validateKind, validateSlot } from "@/lib/widgets/validate";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
+import { ToolInputError, ToolNotFoundError } from "../tool-input-error";
 
 /**
  * `widget_manage(action: "list"|"create"|"update"|"delete", id?, patch?)` —
@@ -36,8 +37,25 @@ export function resolveWidgetManageOperation(args: WidgetManageArgs): string {
 }
 
 function requireId(args: WidgetManageArgs): string {
-  if (!args.id) throw new Error("This action requires the top-level `id` of the widget.");
+  if (!args.id) throw new ToolInputError("This action requires the top-level `id` of the widget.");
   return args.id;
+}
+
+/**
+ * Runs a validator over a value READ FROM THE DATABASE (a stored widget's
+ * own data_source), not the caller's input. validate.ts throws
+ * ToolInputError, whose message echoes the value it was given — fine for
+ * caller input, but for a stored value that would hand database contents
+ * back through runMcpTool's verbatim pass-through. Demoted to a plain Error
+ * here so it stays behind the generic message (still audited in full).
+ */
+function validateStored<T>(validate: () => T): T {
+  try {
+    return validate();
+  } catch (e) {
+    if (e instanceof ToolInputError) throw new Error(`Stored widget failed validation: ${e.message}`);
+    throw e;
+  }
 }
 
 function widgetToItem(row: WidgetRow) {
@@ -64,7 +82,7 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
 
     case "create": {
       const kind = validateKind(patch.kind);
-      const title = typeof patch.title === "string" && patch.title ? patch.title : (() => { throw new Error("patch.title is required."); })();
+      const title = typeof patch.title === "string" && patch.title ? patch.title : (() => { throw new ToolInputError("patch.title is required."); })();
       const { dataSource, fullColumns, orderBy } = validateDataSource(patch.data_source);
       const display = validateDisplay(kind, patch.display, fullColumns, orderBy);
       const slot = validateSlot(patch.slot);
@@ -86,11 +104,11 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
       // caller could assert arbitrarily (or, if omitted, the call could
       // never succeed at all -- there was no path back to the real kind).
       const existing = await getWidgetCore(supabase, userId, id);
-      if (!existing) throw new Error(`No widget with id "${id}".`);
+      if (!existing) throw new ToolNotFoundError(`No widget with id "${id}".`);
 
       const update: { title?: string; dataSource?: ReturnType<typeof validateDataSource>["dataSource"]; display?: ReturnType<typeof validateDisplay>; position?: number } = {};
       if (patch.title !== undefined) {
-        if (typeof patch.title !== "string" || !patch.title) throw new Error("patch.title must be a non-empty string.");
+        if (typeof patch.title !== "string" || !patch.title) throw new ToolInputError("patch.title must be a non-empty string.");
         update.title = patch.title;
       }
 
@@ -108,7 +126,7 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
         // EXISTING (unchanged) data_source to get its fullColumns/orderBy,
         // rather than requiring the caller to resend it just to change display.
         if (!fullColumns || !orderBy) {
-          const existingValidated = validateDataSource(existing.data_source);
+          const existingValidated = validateStored(() => validateDataSource(existing.data_source));
           fullColumns = existingValidated.fullColumns;
           orderBy = existingValidated.orderBy;
         }
@@ -116,7 +134,7 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
       }
 
       if (patch.position !== undefined) {
-        if (typeof patch.position !== "number" || !Number.isInteger(patch.position)) throw new Error("patch.position must be an integer.");
+        if (typeof patch.position !== "number" || !Number.isInteger(patch.position)) throw new ToolInputError("patch.position must be an integer.");
         update.position = patch.position;
       }
       await updateWidgetCore(supabase, userId, id, update);
@@ -132,7 +150,7 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
       // (mirrors PROGRAM-PLAN R9's `'unlogged'` prayer status).
       const id = requireId(args);
       const existing = await getWidgetCore(supabase, userId, id);
-      if (!existing) throw new Error(`No widget with id "${id}".`);
+      if (!existing) throw new ToolNotFoundError(`No widget with id "${id}".`);
       await archiveWidgetCore(supabase, userId, id);
       return {
         result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },

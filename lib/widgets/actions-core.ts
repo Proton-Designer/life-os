@@ -174,7 +174,15 @@ function streakDisplayFrom(display: unknown): StreakDisplay {
  * in the widget layer.
  */
 function toWidgetRow(raw: RawWidgetRow): WidgetRow {
-  const kind = validateKind(raw.kind);
+  // raw.kind is a DATABASE value: validateKind throws ToolInputError (which
+  // echoes the value verbatim to an MCP client), so demote it to a plain
+  // Error here -- a stored value must stay behind the generic message.
+  let kind: WidgetKind;
+  try {
+    kind = validateKind(raw.kind);
+  } catch (e) {
+    throw new Error(`Stored widget failed validation: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const common = {
     id: raw.id,
     title: raw.title,

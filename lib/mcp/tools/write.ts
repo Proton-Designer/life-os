@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchTimezone } from "@/lib/deen/actions-core";
 import { getWriteAction, listWriteEntities, listWriteActions, type WritePatch } from "../write-registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
+import { ToolInputError } from "../tool-input-error";
 
 export interface WriteArgs {
   domain: string;
@@ -33,13 +34,13 @@ export async function writeTool(supabase: SupabaseClient, userId: string, args: 
   if (!actionDef) {
     const entities = listWriteEntities(args.domain);
     if (entities.length === 0) {
-      throw new Error(`No writable entities for domain "${args.domain}". Call list_capabilities("${args.domain}") to see what's readable.`);
+      throw new ToolInputError(`No writable entities for domain "${args.domain}". Call list_capabilities("${args.domain}") to see what's readable.`);
     }
     if (!entities.includes(args.entity)) {
-      throw new Error(`Unknown writable entity "${args.entity}" for domain "${args.domain}". Writable entities: ${entities.join(", ")}.`);
+      throw new ToolInputError(`Unknown writable entity "${args.entity}" for domain "${args.domain}". Writable entities: ${entities.join(", ")}.`);
     }
     const actions = listWriteActions(args.domain, args.entity);
-    throw new Error(`Unknown action "${args.action}" for ${args.domain}.${args.entity}. Available actions: ${actions.join(", ") || "(none)"}.`);
+    throw new ToolInputError(`Unknown action "${args.action}" for ${args.domain}.${args.entity}. Available actions: ${actions.join(", ") || "(none)"}.`);
   }
 
   const timezone = await fetchTimezone(supabase, userId);

@@ -35,3 +35,22 @@ export class ToolInputError extends Error {
     this.name = "ToolInputError";
   }
 }
+
+/**
+ * The caller named a specific row by id and no such row exists for this
+ * user (or it is outside the entity's allowlist filters). A SUBCLASS of
+ * `ToolInputError`, so `runMcpTool`'s one `instanceof ToolInputError` check
+ * passes it through verbatim with no second branch; the separate class
+ * exists so a transport that has status codes (P4-02's REST adapter) can
+ * tell "not found" (404) apart from "invalid input" (400).
+ *
+ * Same safety property as the parent: the message may echo only the
+ * caller's own id and the registry's public entity name, never a table
+ * name or anything read from the row.
+ */
+export class ToolNotFoundError extends ToolInputError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolNotFoundError";
+  }
+}

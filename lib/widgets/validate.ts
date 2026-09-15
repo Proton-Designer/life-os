@@ -1,5 +1,12 @@
 import "server-only";
 import { getDomain, getEntity, type EntityDef } from "@/lib/mcp/registry";
+// Every rule in this file validates CALLER input against registry-static
+// allowlists, and every message names only those static sets plus the
+// caller's own value — so each throws ToolInputError and reaches the MCP
+// client verbatim (P4-01). A caller validating a value READ FROM THE
+// DATABASE must demote these to a plain Error (see widget-manage.ts's
+// validateStored and actions-core.ts's toWidgetRow).
+import { ToolInputError } from "@/lib/mcp/tool-input-error";
 
 /**
  * Validates a widget's `data_source`/`display` BEFORE it's ever stored —
@@ -145,29 +152,29 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** Validates `data_source` against the registry's own allowlists. Returns the registry's EntityDef-shaped info the caller needs (nothing sensitive — just enough to cross-check `display` against `fullColumns`/`orderBy`). */
 export function validateDataSource(raw: unknown): { dataSource: DataSource; fullColumns: string[]; orderBy: EntityDef["orderBy"] } {
-  if (!isPlainObject(raw)) throw new Error("data_source must be an object: { domain, entity, filter? }.");
+  if (!isPlainObject(raw)) throw new ToolInputError("data_source must be an object: { domain, entity, filter? }.");
   const domain = raw.domain;
   const entity = raw.entity;
-  if (typeof domain !== "string" || !domain) throw new Error("data_source.domain is required.");
-  if (typeof entity !== "string" || !entity) throw new Error("data_source.entity is required.");
+  if (typeof domain !== "string" || !domain) throw new ToolInputError("data_source.domain is required.");
+  if (typeof entity !== "string" || !entity) throw new ToolInputError("data_source.entity is required.");
 
   const domainDef = getDomain(domain);
-  if (!domainDef) throw new Error(`Unknown domain "${domain}" in data_source. Call list_capabilities() for the valid set.`);
+  if (!domainDef) throw new ToolInputError(`Unknown domain "${domain}" in data_source. Call list_capabilities() for the valid set.`);
   const entityDef = getEntity(domain, entity);
   if (!entityDef) {
     const known = Object.keys(domainDef.entities);
-    throw new Error(`Unknown entity "${entity}" for domain "${domain}" in data_source. Known entities: ${known.join(", ") || "(none yet)"}.`);
+    throw new ToolInputError(`Unknown entity "${entity}" for domain "${domain}" in data_source. Known entities: ${known.join(", ") || "(none yet)"}.`);
   }
 
   let filter: Record<string, string | number | boolean> | undefined;
   if (raw.filter !== undefined) {
-    if (!isPlainObject(raw.filter)) throw new Error("data_source.filter must be an object.");
+    if (!isPlainObject(raw.filter)) throw new ToolInputError("data_source.filter must be an object.");
     for (const [col, value] of Object.entries(raw.filter)) {
       if (!entityDef.filterableColumns.includes(col)) {
-        throw new Error(`data_source.filter references "${col}", which is not filterable on entity "${entity}". Filterable: ${entityDef.filterableColumns.join(", ")}.`);
+        throw new ToolInputError(`data_source.filter references "${col}", which is not filterable on entity "${entity}". Filterable: ${entityDef.filterableColumns.join(", ")}.`);
       }
       if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-        throw new Error(`data_source.filter.${col} must be a string, number, or boolean.`);
+        throw new ToolInputError(`data_source.filter.${col} must be a string, number, or boolean.`);
       }
     }
     filter = raw.filter as Record<string, string | number | boolean>;
@@ -178,40 +185,40 @@ export function validateDataSource(raw: unknown): { dataSource: DataSource; full
   // the required filter column would fail at EVERY render, not just look
   // wrong. Caught here, at creation, not discovered later on the Home page.
   if (entityDef.parentFilter && !filter?.[entityDef.parentFilter.column]) {
-    throw new Error(`Entity "${entity}" requires data_source.filter.${entityDef.parentFilter.column} — it is always read scoped to one parent, never as an unscoped list.`);
+    throw new ToolInputError(`Entity "${entity}" requires data_source.filter.${entityDef.parentFilter.column} — it is always read scoped to one parent, never as an unscoped list.`);
   }
 
   return { dataSource: { domain, entity, filter }, fullColumns: entityDef.fullColumns, orderBy: entityDef.orderBy };
 }
 
 function validateProgressAggregate(raw: unknown, fullColumns: string[]): ProgressAggregate {
-  if (!isPlainObject(raw)) throw new Error("display.aggregate must be an object: { type: 'count' } or { type: 'sum', field }.");
+  if (!isPlainObject(raw)) throw new ToolInputError("display.aggregate must be an object: { type: 'count' } or { type: 'sum', field }.");
   if (raw.type === "count") return { type: "count" };
   if (raw.type === "sum") {
     const field = raw.field;
-    if (typeof field !== "string" || !field) throw new Error("display.aggregate.field is required when display.aggregate.type is 'sum'.");
-    if (!fullColumns.includes(field)) throw new Error(`display.aggregate.field "${field}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+    if (typeof field !== "string" || !field) throw new ToolInputError("display.aggregate.field is required when display.aggregate.type is 'sum'.");
+    if (!fullColumns.includes(field)) throw new ToolInputError(`display.aggregate.field "${field}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
     return { type: "sum", field };
   }
-  throw new Error("display.aggregate.type must be 'count' or 'sum' for a progress_against_goal widget.");
+  throw new ToolInputError("display.aggregate.type must be 'count' or 'sum' for a progress_against_goal widget.");
 }
 
 function validateListDisplay(raw: Record<string, unknown>, fullColumns: string[]): ListDisplay {
   const titleField = raw.titleField;
-  if (typeof titleField !== "string" || !titleField) throw new Error("display.titleField is required for a list widget.");
-  if (!fullColumns.includes(titleField)) throw new Error(`display.titleField "${titleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+  if (typeof titleField !== "string" || !titleField) throw new ToolInputError("display.titleField is required for a list widget.");
+  if (!fullColumns.includes(titleField)) throw new ToolInputError(`display.titleField "${titleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
 
   let subtitleField: string | undefined;
   if (raw.subtitleField !== undefined) {
-    if (typeof raw.subtitleField !== "string" || !raw.subtitleField) throw new Error("display.subtitleField must be a non-empty string.");
-    if (!fullColumns.includes(raw.subtitleField)) throw new Error(`display.subtitleField "${raw.subtitleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+    if (typeof raw.subtitleField !== "string" || !raw.subtitleField) throw new ToolInputError("display.subtitleField must be a non-empty string.");
+    if (!fullColumns.includes(raw.subtitleField)) throw new ToolInputError(`display.subtitleField "${raw.subtitleField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
     subtitleField = raw.subtitleField;
   }
 
   let limit = 5;
   if (raw.limit !== undefined) {
     if (typeof raw.limit !== "number" || !Number.isInteger(raw.limit) || raw.limit < 1 || raw.limit > 10) {
-      throw new Error("display.limit must be an integer between 1 and 10.");
+      throw new ToolInputError("display.limit must be an integer between 1 and 10.");
     }
     limit = raw.limit;
   }
@@ -226,10 +233,10 @@ function validateListDisplay(raw: Record<string, unknown>, fullColumns: string[]
  * `kindLabel` only changes the error message's wording, not the check.
  */
 function validateDateFieldIsPrimaryDescendingSort(dateField: string, fullColumns: string[], orderBy: EntityDef["orderBy"], kindLabel: string): void {
-  if (!fullColumns.includes(dateField)) throw new Error(`display.dateField "${dateField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+  if (!fullColumns.includes(dateField)) throw new ToolInputError(`display.dateField "${dateField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
   const primarySort = orderBy[0];
   if (!primarySort || primarySort.column !== dateField || primarySort.ascending !== false) {
-    throw new Error(
+    throw new ToolInputError(
       `A ${kindLabel}'s dateField must be this entity's own primary sort column, descending (so the most recent rows are the ones fetched) -- "${dateField}" isn't. This entity's own order is: ${orderBy.map((o) => `${o.column} ${o.ascending ? "asc" : "desc"}`).join(", ") || "(none)"}.`,
     );
   }
@@ -237,27 +244,27 @@ function validateDateFieldIsPrimaryDescendingSort(dateField: string, fullColumns
 
 function validateStreakDisplay(raw: Record<string, unknown>, fullColumns: string[], orderBy: EntityDef["orderBy"]): StreakDisplay {
   const dateField = raw.dateField;
-  if (typeof dateField !== "string" || !dateField) throw new Error("display.dateField is required for a streak widget.");
+  if (typeof dateField !== "string" || !dateField) throw new ToolInputError("display.dateField is required for a streak widget.");
   validateDateFieldIsPrimaryDescendingSort(dateField, fullColumns, orderBy, "streak");
   return { dateField };
 }
 
 function validateSparklineDisplay(raw: Record<string, unknown>, fullColumns: string[], orderBy: EntityDef["orderBy"]): SparklineDisplay {
   const dateField = raw.dateField;
-  if (typeof dateField !== "string" || !dateField) throw new Error("display.dateField is required for a sparkline widget.");
+  if (typeof dateField !== "string" || !dateField) throw new ToolInputError("display.dateField is required for a sparkline widget.");
   validateDateFieldIsPrimaryDescendingSort(dateField, fullColumns, orderBy, "sparkline");
 
   let valueField: string | undefined;
   if (raw.valueField !== undefined) {
-    if (typeof raw.valueField !== "string" || !raw.valueField) throw new Error("display.valueField must be a non-empty string.");
-    if (!fullColumns.includes(raw.valueField)) throw new Error(`display.valueField "${raw.valueField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+    if (typeof raw.valueField !== "string" || !raw.valueField) throw new ToolInputError("display.valueField must be a non-empty string.");
+    if (!fullColumns.includes(raw.valueField)) throw new ToolInputError(`display.valueField "${raw.valueField}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
     valueField = raw.valueField;
   }
 
   let days = 14;
   if (raw.days !== undefined) {
     if (typeof raw.days !== "number" || !Number.isInteger(raw.days) || raw.days < 7 || raw.days > 60) {
-      throw new Error("display.days must be an integer between 7 and 60.");
+      throw new ToolInputError("display.days must be an integer between 7 and 60.");
     }
     days = raw.days;
   }
@@ -267,25 +274,25 @@ function validateSparklineDisplay(raw: Record<string, unknown>, fullColumns: str
 
 /** Validates `display` against `kind` and the data source entity's own `fullColumns`/`orderBy` (so a field a widget wants to show is guaranteed selectable, and a sparkline's date bucketing is guaranteed to cover the right window, at render time). */
 export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: string[], orderBy: EntityDef["orderBy"]): WidgetDisplay {
-  if (!isPlainObject(raw)) throw new Error("display must be an object.");
+  if (!isPlainObject(raw)) throw new ToolInputError("display must be an object.");
 
   if (kind === "metric_card") {
     const aggregate = raw.aggregate;
     if (aggregate === "count") return { aggregate: "count" };
     if (aggregate === "field") {
       const field = raw.field;
-      if (typeof field !== "string" || !field) throw new Error("display.field is required when display.aggregate is 'field'.");
-      if (!fullColumns.includes(field)) throw new Error(`display.field "${field}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
+      if (typeof field !== "string" || !field) throw new ToolInputError("display.field is required when display.aggregate is 'field'.");
+      if (!fullColumns.includes(field)) throw new ToolInputError(`display.field "${field}" is not a column on this widget's data source entity. Available: ${fullColumns.join(", ")}.`);
       return { aggregate: "field", field };
     }
-    throw new Error("display.aggregate must be 'count' or 'field' for a metric_card widget.");
+    throw new ToolInputError("display.aggregate must be 'count' or 'field' for a metric_card widget.");
   }
 
   if (kind === "progress_against_goal") {
     const aggregate = validateProgressAggregate(raw.aggregate, fullColumns);
     const goal = raw.goal;
     if (typeof goal !== "number" || !Number.isFinite(goal) || goal <= 0) {
-      throw new Error("display.goal is required and must be a positive number for a progress_against_goal widget.");
+      throw new ToolInputError("display.goal is required and must be a positive number for a progress_against_goal widget.");
     }
     return { aggregate, goal };
   }
@@ -304,7 +311,7 @@ export function validateDisplay(kind: WidgetKind, raw: unknown, fullColumns: str
 
 export function validateKind(raw: unknown): WidgetKind {
   if (typeof raw !== "string" || !(WIDGET_KINDS as readonly string[]).includes(raw)) {
-    throw new Error(`kind must be one of: ${WIDGET_KINDS.join(", ")}. Got: ${JSON.stringify(raw)}.`);
+    throw new ToolInputError(`kind must be one of: ${WIDGET_KINDS.join(", ")}. Got: ${JSON.stringify(raw)}.`);
   }
   return raw as WidgetKind;
 }
@@ -312,7 +319,7 @@ export function validateKind(raw: unknown): WidgetKind {
 export function validateSlot(raw: unknown): WidgetSlot {
   if (raw === undefined) return "home";
   if (typeof raw !== "string" || !(WIDGET_SLOTS as readonly string[]).includes(raw)) {
-    throw new Error(`slot must be one of: ${WIDGET_SLOTS.join(", ")}. Got: ${JSON.stringify(raw)}.`);
+    throw new ToolInputError(`slot must be one of: ${WIDGET_SLOTS.join(", ")}. Got: ${JSON.stringify(raw)}.`);
   }
   return raw as WidgetSlot;
 }

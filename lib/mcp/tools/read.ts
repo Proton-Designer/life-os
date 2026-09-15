@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDomain, getEntity, type EntityDef, type FixedFilterValue } from "../registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
+import { ToolInputError, ToolNotFoundError } from "../tool-input-error";
 
 /**
  * `read(domain, entity, id?, filter?, detail?, fields?, cursor?)` —
@@ -54,12 +55,12 @@ export interface ReadArgs {
 function resolveEntity(domain: string, entity: string): EntityDef {
   const domainDef = getDomain(domain);
   if (!domainDef) {
-    throw new Error(`Unknown domain "${domain}". Call list_capabilities() for the valid set.`);
+    throw new ToolInputError(`Unknown domain "${domain}". Call list_capabilities() for the valid set.`);
   }
   const entityDef = getEntity(domain, entity);
   if (!entityDef) {
     const known = Object.keys(domainDef.entities);
-    throw new Error(
+    throw new ToolInputError(
       `Unknown entity "${entity}" for domain "${domain}". Known entities: ${known.join(", ") || "(none yet)"}. ` +
         `Call list_capabilities("${domain}") for the valid set.`,
     );
@@ -76,7 +77,7 @@ function resolveColumns(def: EntityDef, detail: ReadDetail, fields?: string[]): 
   const maximal = new Set(def.fullColumns);
   const invalid = fields.filter((f) => !maximal.has(f));
   if (invalid.length > 0) {
-    throw new Error(
+    throw new ToolInputError(
       `Field(s) not available for entity "${def.entity}": ${invalid.join(", ")}. ` +
         `Available: ${def.fullColumns.join(", ")}.`,
     );
@@ -180,6 +181,9 @@ async function verifyParent(supabase: SupabaseClient, userId: string, def: Entit
   const { data, error } = await q.maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) {
+    // Deliberately a plain Error (generic to the MCP client), NOT a
+    // ToolNotFoundError: the message names the internal parent TABLE, which
+    // lib/mcp/tool-input-error.ts's safety property forbids passing through.
     throw new Error(`No parent ${pf.parentTable} row found for ${def.entity}.${pf.column} = "${parentId}" (or it doesn't belong to you).`);
   }
 }
@@ -190,7 +194,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   const def = resolveEntity(args.domain, args.entity);
   const detail: ReadDetail = args.detail ?? "summary";
   if (detail !== "ids" && detail !== "summary" && detail !== "full") {
-    throw new Error(`Invalid detail "${detail}". Must be one of: ids, summary, full.`);
+    throw new ToolInputError(`Invalid detail "${detail}". Must be one of: ids, summary, full.`);
   }
   const columns = resolveColumns(def, detail, args.fields);
   const select = selectClause(def, columns);
@@ -203,7 +207,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
     idQuery = applyFixedFilter(idQuery, def.fixedFilter);
     const { data, error } = await idQuery.maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) throw new Error(`No ${def.entity} found with id "${args.id}".`);
+    if (!data) throw new ToolNotFoundError(`No ${def.entity} found with id "${args.id}".`);
 
     // parentFilter, id-path: the row is already this user's own (checked
     // above), but a child table with no domain column of its own (e.g.
@@ -214,7 +218,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
     if (def.parentFilter) {
       const parentId = (data as unknown as Record<string, unknown>)[def.parentFilter.column];
       if (typeof parentId !== "string" || !parentId) {
-        throw new Error(`No ${def.entity} found with id "${args.id}".`);
+        throw new ToolNotFoundError(`No ${def.entity} found with id "${args.id}".`);
       }
       await verifyParent(supabase, userId, def, parentId);
     }
@@ -233,7 +237,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   if (def.parentFilter) {
     const parentId = args.filter?.[def.parentFilter.column];
     if (typeof parentId !== "string" || !parentId) {
-      throw new Error(`Entity "${def.entity}" requires filter.${def.parentFilter.column} — it is always read scoped to one parent, never as an unscoped list.`);
+      throw new ToolInputError(`Entity "${def.entity}" requires filter.${def.parentFilter.column} — it is always read scoped to one parent, never as an unscoped list.`);
     }
     await verifyParent(supabase, userId, def, parentId);
   }
@@ -243,7 +247,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   if (args.filter) {
     for (const [col, value] of Object.entries(args.filter)) {
       if (!def.filterableColumns.includes(col)) {
-        throw new Error(`Field "${col}" is not filterable on entity "${def.entity}". Filterable: ${def.filterableColumns.join(", ")}.`);
+        throw new ToolInputError(`Field "${col}" is not filterable on entity "${def.entity}". Filterable: ${def.filterableColumns.join(", ")}.`);
       }
       query = query.eq(col, value);
     }

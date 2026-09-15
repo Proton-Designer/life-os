@@ -2,6 +2,7 @@ import "server-only";
 import { listDomains, getDomain } from "../registry";
 import { listWriteActions } from "../write-registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
+import { ToolInputError } from "../tool-input-error";
 
 /**
  * `list_capabilities(domain?)` — TOOL-ARCHITECTURE.md's discovery tool.
@@ -36,7 +37,7 @@ export async function listCapabilitiesTool(domain?: string): Promise<RunMcpToolO
   const domainDef = getDomain(domain);
   if (!domainDef) {
     const known = listDomains().map((d) => d.domain);
-    throw new Error(`Unknown domain "${domain}". Known domains: ${known.join(", ") || "(none yet)"}.`);
+    throw new ToolInputError(`Unknown domain "${domain}". Known domains: ${known.join(", ") || "(none yet)"}.`);
   }
 
   const entities = Object.values(domainDef.entities).map((e) => {

@@ -4,6 +4,7 @@ import { getWriteAction } from "@/lib/mcp/write-registry";
 import { resolveWriteOperation, type WriteArgs } from "@/lib/mcp/tools/write";
 import { hasAnyPushSubscription } from "@/lib/notifications/send-push";
 import { isValidCronExpression, computeNextRunAt } from "./cron";
+import { ToolInputError, ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 /**
  * `core(supabase, userId, ...)` extraction for `scheduler_manage`'s four
@@ -100,7 +101,7 @@ export async function listScheduledActionsCore(supabase: SupabaseClient, userId:
 function requireStringField(patch: Record<string, unknown>, field: string): string {
   const value = patch[field];
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`patch.${field} is required and must be a non-empty string.`);
+    throw new ToolInputError(`patch.${field} is required and must be a non-empty string.`);
   }
   return value;
 }
@@ -115,19 +116,19 @@ function resolveSchedule(patch: Record<string, unknown>, timezone: string, now: 
   const hasRunAt = patch.run_at !== undefined;
   const hasCron = patch.cron_expression !== undefined;
   if (hasRunAt === hasCron) {
-    throw new Error("Provide exactly one of patch.run_at (a one-off ISO instant) or patch.cron_expression (a recurring schedule) -- never both, never neither.");
+    throw new ToolInputError("Provide exactly one of patch.run_at (a one-off ISO instant) or patch.cron_expression (a recurring schedule) -- never both, never neither.");
   }
 
   if (hasRunAt) {
-    if (typeof patch.run_at !== "string") throw new Error("patch.run_at must be a string (ISO 8601 instant).");
+    if (typeof patch.run_at !== "string") throw new ToolInputError("patch.run_at must be a string (ISO 8601 instant).");
     const parsed = new Date(patch.run_at);
-    if (Number.isNaN(parsed.getTime())) throw new Error(`patch.run_at must be a valid ISO 8601 instant. Got: ${JSON.stringify(patch.run_at)}.`);
-    if (parsed.getTime() <= now.getTime()) throw new Error("patch.run_at must be in the future.");
+    if (Number.isNaN(parsed.getTime())) throw new ToolInputError(`patch.run_at must be a valid ISO 8601 instant. Got: ${JSON.stringify(patch.run_at)}.`);
+    if (parsed.getTime() <= now.getTime()) throw new ToolInputError("patch.run_at must be in the future.");
     return { nextRunAt: parsed, runAt: parsed.toISOString(), cronExpression: null };
   }
 
   if (typeof patch.cron_expression !== "string" || !isValidCronExpression(patch.cron_expression)) {
-    throw new Error(`patch.cron_expression must be "MM HH * * *" (daily, local time) or "MM HH * * D" (weekly, D=0-6, 0=Sunday). Got: ${JSON.stringify(patch.cron_expression)}.`);
+    throw new ToolInputError(`patch.cron_expression must be "MM HH * * *" (daily, local time) or "MM HH * * D" (weekly, D=0-6, 0=Sunday). Got: ${JSON.stringify(patch.cron_expression)}.`);
   }
   return { nextRunAt: computeNextRunAt(patch.cron_expression, now, timezone), runAt: null, cronExpression: patch.cron_expression };
 }
@@ -156,25 +157,25 @@ async function createWriteScheduledAction(
 
   const actionDef = getWriteAction(domain, entity, action);
   if (!actionDef) {
-    throw new Error(`Unknown write action "${domain}.${entity}.${action}". Call list_capabilities("${domain}") to see what's available.`);
+    throw new ToolInputError(`Unknown write action "${domain}.${entity}.${action}". Call list_capabilities("${domain}") to see what's available.`);
   }
   // Absence of `idempotent: true` means NOT VERIFIED, not "assumed safe" —
   // see WriteActionDef's own comment (write-registry.ts). Refused here,
   // loudly, rather than scheduling something at-least-once delivery could
   // silently duplicate.
   if (actionDef.idempotent !== true) {
-    throw new Error(
+    throw new ToolInputError(
       `"${domain}.${entity}.${action}" isn't verified safe to schedule yet -- an unattended scheduled action can run twice for the same firing (at-least-once delivery), and this one hasn't been confirmed to tolerate that without duplicating data. It can still be called directly through write(), just not scheduled.`,
     );
   }
 
   const writeId = patch.write_id;
   if (writeId !== undefined && typeof writeId !== "string") {
-    throw new Error(`patch.write_id must be a string if given. Got: ${JSON.stringify(writeId)}.`);
+    throw new ToolInputError(`patch.write_id must be a string if given. Got: ${JSON.stringify(writeId)}.`);
   }
   const writePatch = patch.write_patch;
   if (writePatch !== undefined && (typeof writePatch !== "object" || writePatch === null || Array.isArray(writePatch))) {
-    throw new Error("patch.write_patch must be an object if given.");
+    throw new ToolInputError("patch.write_patch must be an object if given.");
   }
 
   const { nextRunAt, runAt, cronExpression } = resolveSchedule(patch, timezone, now);
@@ -223,7 +224,7 @@ async function createNotifyScheduledAction(
   const body = requireStringField(patch, "body");
 
   if (!(await hasAnyPushSubscription(supabase, userId))) {
-    throw new Error("No push notifications are enabled on any device yet -- enable them in Settings before scheduling a reminder, or this could never actually reach you.");
+    throw new ToolInputError("No push notifications are enabled on any device yet -- enable them in Settings before scheduling a reminder, or this could never actually reach you.");
   }
 
   const { nextRunAt, runAt, cronExpression } = resolveSchedule(patch, timezone, now);
@@ -262,7 +263,7 @@ export async function createScheduledActionCore(
   const toolName = patch.tool_name;
   if (toolName === "write") return createWriteScheduledAction(supabase, userId, tokenId, timezone, now, patch);
   if (toolName === "notify") return createNotifyScheduledAction(supabase, userId, tokenId, timezone, now, patch);
-  throw new Error(`patch.tool_name must be "write" or "notify". Got: ${JSON.stringify(toolName)}.`);
+  throw new ToolInputError(`patch.tool_name must be "write" or "notify". Got: ${JSON.stringify(toolName)}.`);
 }
 
 /**
@@ -275,12 +276,12 @@ export async function createScheduledActionCore(
 export async function cancelScheduledActionCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
   const { data, error } = await supabase.from("mcp_scheduled_actions").update({ status: "cancelled" }).eq("id", id).eq("user_id", userId).select("id").maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error(`No scheduled action found with id "${id}".`);
+  if (!data) throw new ToolNotFoundError(`No scheduled action found with id "${id}".`);
 }
 
 /** Sets `status: 'paused'` — the poll skips it (only `status='active'` rows are ever due), but it stays listed and can be re-created if the caller wants it running again. There is no separate "resume" action in this pass -- cancel and re-create with `scheduler_manage("create")` is the only path back to active, matching exactly the four actions asked for. */
 export async function pauseScheduledActionCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
   const { data, error } = await supabase.from("mcp_scheduled_actions").update({ status: "paused" }).eq("id", id).eq("user_id", userId).select("id").maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error(`No scheduled action found with id "${id}".`);
+  if (!data) throw new ToolNotFoundError(`No scheduled action found with id "${id}".`);
 }
