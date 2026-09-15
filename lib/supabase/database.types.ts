@@ -2927,6 +2927,81 @@ export type Database = {
           },
         ]
       }
+      rescuetime_connections: {
+        Row: {
+          created_at: string
+          encrypted_key: string
+          key_last4: string
+          last_sync_error: string | null
+          last_synced_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_key: string
+          key_last4: string
+          last_sync_error?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_key?: string
+          key_last4?: string
+          last_sync_error?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      rescuetime_daily_summaries: {
+        Row: {
+          created_at: string
+          distracting_percentage: number | null
+          id: string
+          neutral_percentage: number | null
+          productive_percentage: number | null
+          productivity_pulse: number | null
+          summary_date: string
+          total_hours: number | null
+          updated_at: string
+          user_id: string
+          very_distracting_percentage: number | null
+          very_productive_percentage: number | null
+        }
+        Insert: {
+          created_at?: string
+          distracting_percentage?: number | null
+          id?: string
+          neutral_percentage?: number | null
+          productive_percentage?: number | null
+          productivity_pulse?: number | null
+          summary_date: string
+          total_hours?: number | null
+          updated_at?: string
+          user_id: string
+          very_distracting_percentage?: number | null
+          very_productive_percentage?: number | null
+        }
+        Update: {
+          created_at?: string
+          distracting_percentage?: number | null
+          id?: string
+          neutral_percentage?: number | null
+          productive_percentage?: number | null
+          productivity_pulse?: number | null
+          summary_date?: string
+          total_hours?: number | null
+          updated_at?: string
+          user_id?: string
+          very_distracting_percentage?: number | null
+          very_productive_percentage?: number | null
+        }
+        Relationships: []
+      }
       reviews: {
         Row: {
           ai_feedback: string | null
