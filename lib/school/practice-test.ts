@@ -169,12 +169,21 @@ export async function dispatchPracticeTestAssembly(supabase: SupabaseClient, now
 
     const questionIds = assemblePracticeTestQuestions(activeIds, `${exam.id}:${interval.label}`);
 
-    // THE ENFORCEMENT POINT: exam.class_id came from the SAME row exam.id
-    // did (one query above), so this is always true today -- but it is the
-    // one and only gate a future refactor has to pass through, not an
-    // implicit assumption. See assertPracticeTestClassMatchesAssessment's
-    // own header.
-    assertPracticeTestClassMatchesAssessment(exam.id, exam.class_id, exam.class_id);
+    // THE ENFORCEMENT POINT (fixed 2026-09-15, Opus Lead review: the
+    // original version passed exam.class_id for BOTH arguments, so the
+    // check could never fail -- it was comparing a value to itself).
+    // assessmentRow.class_id below is a fresh, independent read of the
+    // assessment's own row, decoupled from the batch fetch above, so this
+    // actually exercises the invariant rather than restating it.
+    const { data: assessmentRow, error: assessmentError } = await supabase
+      .from("class_assessments")
+      .select("class_id")
+      .eq("id", exam.id)
+      .maybeSingle();
+    if (assessmentError) throw assessmentError;
+    if (!assessmentRow) continue; // assessment vanished between the batch fetch and here
+
+    assertPracticeTestClassMatchesAssessment(exam.id, assessmentRow.class_id, exam.class_id);
 
     const { error: insertError } = await supabase.from("practice_tests").insert({
       user_id: exam.user_id,

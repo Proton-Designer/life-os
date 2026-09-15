@@ -87,12 +87,15 @@ describe("dispatchPracticeTestAssembly()", () => {
     profiles?: { user_id: string; timezone: string | null }[];
     questionsByClass?: Record<string, { id: string }[]>;
     alreadyAssembled?: Set<string>; // "assessmentId:interval"
+    /** Overrides the class_id returned by the FRESH per-assessment single-row read the enforcement point makes, keyed by exam id -- lets a test simulate the assessment's own row disagreeing with the batch-fetched exam.class_id. */
+    assessmentClassIdOverride?: Record<string, string>;
   }) {
     const insertCalls: Record<string, unknown>[] = [];
     const claimed = new Set(opts.alreadyAssembled ?? []);
 
     const from = vi.fn((table: string) => {
       const eqFilters: [string, unknown][] = [];
+      let wantsSingle = false;
       const chain: Record<string, unknown> = {};
       chain.select = vi.fn(() => chain);
       chain.eq = vi.fn((col: string, val: unknown) => {
@@ -100,8 +103,22 @@ describe("dispatchPracticeTestAssembly()", () => {
         return chain;
       });
       chain.in = vi.fn(() => chain);
+      chain.maybeSingle = vi.fn(() => {
+        wantsSingle = true;
+        return chain;
+      });
       chain.then = (resolve: (v: { data: unknown; error: null }) => void) => {
-        if (table === "class_assessments") return resolve({ data: opts.exams ?? [], error: null });
+        if (table === "class_assessments") {
+          if (wantsSingle) {
+            const idFilter = eqFilters.find(([c]) => c === "id");
+            const examId = idFilter?.[1] as string | undefined;
+            const exam = (opts.exams ?? []).find((e) => e.id === examId);
+            if (!exam) return resolve({ data: null, error: null });
+            const classId = opts.assessmentClassIdOverride?.[examId!] ?? exam.class_id;
+            return resolve({ data: { class_id: classId }, error: null });
+          }
+          return resolve({ data: opts.exams ?? [], error: null });
+        }
         if (table === "profiles") return resolve({ data: opts.profiles ?? [], error: null });
         if (table === "questions") {
           const classFilter = eqFilters.find(([c]) => c === "class_id");
@@ -199,6 +216,17 @@ describe("dispatchPracticeTestAssembly()", () => {
       questionsByClass: { "class-1": [{ id: "q1" }] },
     });
     await expect(dispatchPracticeTestAssembly(client, new Date("2026-09-15T12:00:00Z"))).resolves.toEqual({ examsChecked: 1, assembled: 1 });
+  });
+
+  it("THE REGRESSION GUARD (fixed 2026-09-15, second pass): throws when the assessment's own class_id, read fresh from the DB, disagrees with the class_id about to be written -- the original enforcement call passed the same value for both arguments and could never fail", async () => {
+    const { client, insertCalls } = makeClient({
+      exams: [{ id: "exam-1", user_id: "user-1", class_id: "class-1", date: "2026-09-29" }],
+      profiles: [{ user_id: "user-1", timezone: "UTC" }],
+      questionsByClass: { "class-1": [{ id: "q1" }] },
+      assessmentClassIdOverride: { "exam-1": "class-DIFFERENT" },
+    });
+    await expect(dispatchPracticeTestAssembly(client, new Date("2026-09-15T12:00:00Z"))).rejects.toThrow(PracticeTestClassMismatchError);
+    expect(insertCalls).toHaveLength(0);
   });
 
   it("processes multiple exams independently in one tick", async () => {
