@@ -5,10 +5,12 @@ import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "../tool-input-error";
 
 /**
- * `read(domain, entity, id?, filter?, detail?, fields?, cursor?)` —
- * TOOL-ARCHITECTURE.md §3/§5's single read dispatcher. L3 wires exactly
- * `domain:"deen"`, `entity:"prayer"` (see lib/mcp/registry.ts's own header
- * for why only that one, and why not more were rushed in this pass).
+ * `read(domain, entity, id?, filter?, detail?, fields?, cursor?, limit?)` —
+ * TOOL-ARCHITECTURE.md §3/§5's single read dispatcher, over every domain and
+ * entity lib/mcp/registry.ts declares. A list returns
+ * `{items, has_more, cursor, total}`; `filter` takes equality values on
+ * `filterableColumns` and `{gte?, lte?}` ranges on `rangeFilterableColumns`
+ * (P4-04); `limit` (1-20) narrows a page, never widens it.
  *
  * `detail`/`fields` narrow WITHIN an entity's `fullColumns` registry entry,
  * never past it (memo §3) — this is enforced here, not left to trust: a
@@ -31,9 +33,9 @@ const PAGE_SIZE = 20;
  * the MCP-facing shape (`ReadArgs`), built from whatever a model/widget
  * definition supplies, and `maxRows` must never be reachable through it.
  * `app/api/mcp/route.ts` calls `readTool(client, userId, args)` — three
- * arguments, no fourth — so the MCP route's page size is PAGE_SIZE=20,
- * unconditionally, with no code path by which a caller-supplied value
- * could reach it. Only `lib/widgets/render.ts` passes `options.maxRows`,
+ * arguments, no fourth — so the MCP route's page size is at most
+ * PAGE_SIZE=20: `args.limit` (P4-04) can only NARROW it (1..20, validated),
+ * and no caller-supplied value can raise it. Only `lib/widgets/render.ts` passes `options.maxRows`,
  * and only as its own named constant (`WIDGET_RENDER_MAX_ROWS`) — never a
  * value read from a widget's `data_source`/`display`.
  */
@@ -42,14 +44,42 @@ export interface ReadToolOptions {
   maxRows?: number;
 }
 
+export type ReadRange = { gte?: string | number; lte?: string | number };
+
 export interface ReadArgs {
   domain: string;
   entity: string;
   id?: string;
-  filter?: Record<string, string | number | boolean>;
+  /** Equality on filterableColumns; `{gte?, lte?}` on rangeFilterableColumns. */
+  filter?: Record<string, string | number | boolean | ReadRange>;
   detail?: ReadDetail;
   fields?: string[];
   cursor?: string;
+  /** 1..PAGE_SIZE. Narrows a page for "just the latest N"; can never raise the page size (only ReadToolOptions.maxRows can). */
+  limit?: number;
+}
+
+function isRangeValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Validates a caller's `{gte?, lte?}` shape. Only the caller's own column name is echoed. */
+function parseRange(col: string, value: Record<string, unknown>): ReadRange {
+  const keys = Object.keys(value);
+  const scalar = (v: unknown) => typeof v === "string" || typeof v === "number";
+  if (keys.length === 0 || keys.some((k) => k !== "gte" && k !== "lte") || keys.some((k) => !scalar(value[k]))) {
+    throw new ToolInputError(`filter.${col} range must be { gte?, lte? } with at least one string or number bound.`);
+  }
+  return value as ReadRange;
+}
+
+function resolvePageSize(args: ReadArgs, options?: ReadToolOptions): number {
+  if (options?.maxRows) return options.maxRows;
+  if (args.limit === undefined) return PAGE_SIZE;
+  if (typeof args.limit !== "number" || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > PAGE_SIZE) {
+    throw new ToolInputError(`limit must be an integer from 1 to ${PAGE_SIZE}. Got: ${JSON.stringify(args.limit)}.`);
+  }
+  return args.limit;
 }
 
 function resolveEntity(domain: string, entity: string): EntityDef {
@@ -190,8 +220,8 @@ async function verifyParent(supabase: SupabaseClient, userId: string, def: Entit
 
 /** Untyped `SupabaseClient` — see lib/mcp/tool-wrapper.ts's comment on its `fn` parameter for why a registry-driven dynamic table dispatcher can't be typed against the generated `Database` union. */
 export async function readTool(supabase: SupabaseClient, userId: string, args: ReadArgs, options?: ReadToolOptions): Promise<RunMcpToolOutcome> {
-  const pageSize = options?.maxRows ?? PAGE_SIZE;
   const def = resolveEntity(args.domain, args.entity);
+  const pageSize = resolvePageSize(args, options);
   const detail: ReadDetail = args.detail ?? "summary";
   if (detail !== "ids" && detail !== "summary" && detail !== "full") {
     throw new ToolInputError(`Invalid detail "${detail}". Must be one of: ids, summary, full.`);
@@ -246,6 +276,16 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   query = applyFixedFilter(query, def.fixedFilter);
   if (args.filter) {
     for (const [col, value] of Object.entries(args.filter)) {
+      if (isRangeValue(value)) {
+        const allowed = def.rangeFilterableColumns ?? [];
+        if (!allowed.includes(col)) {
+          throw new ToolInputError(`"${col}" can't be range-filtered on entity "${def.entity}". Range-filterable: ${allowed.join(", ") || "(none)"}.`);
+        }
+        const range = parseRange(col, value);
+        if (range.gte !== undefined) query = query.gte(col, range.gte);
+        if (range.lte !== undefined) query = query.lte(col, range.lte);
+        continue;
+      }
       if (!def.filterableColumns.includes(col)) {
         throw new ToolInputError(`Field "${col}" is not filterable on entity "${def.entity}". Filterable: ${def.filterableColumns.join(", ")}.`);
       }
@@ -262,7 +302,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   const items = rows.map((row) => toItem(def, row as unknown as Record<string, unknown>, columns));
   const nextOffset = offset + rows.length;
   const hasMore = count !== null ? nextOffset < count : rows.length === pageSize;
-  const payload = { items, has_more: hasMore, cursor: hasMore ? encodeCursor(nextOffset) : null };
+  const payload = { items, has_more: hasMore, cursor: hasMore ? encodeCursor(nextOffset) : null, total: count ?? null };
 
   return {
     result: { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload },

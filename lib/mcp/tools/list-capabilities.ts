@@ -80,6 +80,7 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
       detail_levels: ["ids", "summary", "full"],
       fields: { summary: e.summaryColumns, full: e.fullColumns },
       filterable_fields: e.filterableColumns,
+      range_filterable_fields: e.rangeFilterableColumns ?? [],
       actions: writeActionNames.length > 0 ? ["read", ...writeActionNames.map((a) => `write:${a}`)] : ["read"],
       write_actions: writeActionDetail(e.entity),
     };

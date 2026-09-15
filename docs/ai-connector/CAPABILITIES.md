@@ -1,4 +1,4 @@
-# What the AI connector can actually do — verified against the live registry, 2026-09-10
+# What the AI connector can actually do — verified against the live registry, 2026-09-10 (counts re-derived 2026-09-15)
 
 This is the answer to "what can the AI actually do with my account." Every claim below was
 checked directly against `lib/mcp/registry.ts`, `lib/mcp/write-registry.ts`,
@@ -9,8 +9,9 @@ different, **the code is what's true**; see the "known gaps" section at the bott
 specific places that's currently the case.
 
 **How to keep this page honest as the registry grows:** re-derive the counts, don't copy them
-forward. A count in this file is a snapshot, not a promise — treat any specific number here as
-current as of 2026-09-10 and re-verify before repeating it in a future conversation.
+forward — run `npx tsx scripts/mcp-surface-counts.ts` (read-only; prints tools, domains,
+entities, write actions, schedulable actions, widget kinds). A count in this file is a snapshot,
+not a promise — the numbers below are from that script on 2026-09-15.
 
 ## How a connection works
 
@@ -21,6 +22,12 @@ token exists too, for bearer-header clients that don't do an OAuth click-through
 scripts). Either way, **every call is scoped to this one account** — there is no path by which a
 connection reaches anyone else's data, and no path by which it reaches more of this account's
 own data than the rules below describe.
+
+On connect the server's instructions tell the AI to call `list_capabilities()` first. With no
+argument it returns this account's map: its local date and timezone, whether it is a legacy or
+domains-mode account, which life areas it tracks, and each domain's readable and writable
+entities. `list_capabilities("<domain>")` then gives fields, filters, and every write action's
+patch shape.
 
 Five tools exist, all generic: `list_capabilities` (discovery), `read`, `write`,
 `scheduler_manage`, `widget_manage`. There is no per-table tool — the model asks
@@ -33,11 +40,12 @@ the registry gains, they arrive through these same five tools, never a sixth.
 Every read is a live, filtered query, not a data dump: the registry defines exactly which
 columns each entity exposes (an allowlist, not a blocklist — a field the registry doesn't name
 cannot be requested, full stop), and every read is capped at 20 rows per call, paginated via a
-cursor. Credential-shaped columns (API key material, PIN hashes) are excluded from the
+cursor, with a `total` count. A read can ask for fewer rows (`limit` 1-20) and can bound a
+date/time column with `{gte, lte}` on the columns an entity declares as range-filterable. Credential-shaped columns (API key material, PIN hashes) are excluded from the
 allowlist entirely, at the same layer as every other field — there's no separate secrecy
 mechanism to trust, and no separate mechanism to audit.
 
-As of this writing, verified directly against `REGISTRY`: **13 domains, 57 entities.**
+As of 2026-09-15, from `scripts/mcp-surface-counts.ts`: **13 domains, 59 entities.**
 
 | Domain | Entities | Covers |
 |---|---|---|
@@ -47,7 +55,7 @@ As of this writing, verified directly against `REGISTRY`: **13 domains, 57 entit
 | `school` | 6 | Classes, assessments, schedule events + overrides/cancellations, tasks |
 | `fitness` | 15 | Plans, workouts, sessions, body metrics, benchmarks, exercises, schedule |
 | `self_mastery` | 12 | Books, lessons, cards, spaced-repetition reviews, self-explanations, lesson promotions/verdicts |
-| `settings` | 3 | Profile, per-user settings, API key metadata (never key material) |
+| `settings` | 5 | Profile, per-user settings, API key metadata (never key material), the account's selected areas and subdomains |
 | `checkins` | 2 | Check-in prompts/answers, per-window domain-minute allocations |
 | `distractions` | 4 | Triggers, events, action plans, plan outcomes |
 | `review` | 1 | Night Plan items (the evening-close ceremony's dumped/ranked list) |
@@ -62,11 +70,15 @@ archived/soft-deleted state a person can still recover from their own UI, never 
 un-scoped (every write is checked against this account's own rows only), and every write is
 logged to an audit trail regardless of outcome.
 
-As of this writing, verified directly against `WRITE_REGISTRY`: **9 domains, 50 registered write
+As of 2026-09-15, from `scripts/mcp-surface-counts.ts`: **9 domains, 63 registered write
 actions**, covering deen, work, business, school, fitness, checkins, distractions, settings, and
 self_mastery. (`calendar`, `home`, `review`, and `widgets`-as-a-domain have no write surface of
-their own — `review`'s Night Plan items are written through `work`/`distractions`' own actions,
-and widgets are written through the separate `widget_manage` tool, not `write`.)
+their own. **`review`'s Night Plan items cannot be written by the AI at all today** — no write
+action touches them; an earlier version of this page wrongly said they were written through
+`work`/`distractions`. Widgets are written through the separate `widget_manage` tool, not `write`.)
+
+When the AI omits `patch.date` on an action that logs something that happened (a prayer, a
+workout, a kill-list item), the account's own local today is used — never the AI's clock.
 
 self_mastery's write surface is new this pass: grading a spaced-repetition review, recording a
 lesson-promotion verdict (adopted/abandoned/still_testing), and logging a self-explanation
@@ -84,14 +96,14 @@ retry after a crash, a missed poll caught on the next one) — "at-least-once," 
 The property that matters: **the scheduler will only accept a write action whose registry entry
 explicitly says it tolerates being run twice** — refusal is the default, verification is what
 unlocks scheduling, and that check is re-read from the live registry on every schedule attempt,
-never cached from an earlier pass. As of this writing: **32 of the 50 write actions are
-schedulable; 18 are not**, because running them twice would do something a person didn't ask
+never cached from an earlier pass. As of 2026-09-15: **40 of the 63 write actions are
+schedulable; 23 are not**, because running them twice would do something a person didn't ask
 for the second time — drift a timestamp forward, double-count an entry, or otherwise leave a
 different result than intended. Grading a review, logging a self-explanation, and recording a
-lesson-promotion verdict are all in the 18 — a repeat grade doesn't mean "the same grade again,"
+lesson-promotion verdict are all in the 23 — a repeat grade doesn't mean "the same grade again,"
 it's a second real grading event, so none of self_mastery's writes are schedulable yet. Toggles
 (sunnah/adhkar/task-completion in a couple of domains) and plain appends (adding a task, logging
-a distraction event) are the other recurring shape in the 18 — see "known gaps" for what would
+a distraction event) are the other recurring shape in the 23 — see "known gaps" for what would
 change that, since a couple of them are a genuine small fix away rather than a redesign.
 
 Reminders/notifications are a real delivery mechanism, not just a scheduled write that fires
@@ -110,16 +122,17 @@ Tier-1's core safety property — a widget can never see anything a live `read()
 is provable exactly because nothing about a widget executes; extending what a config row can
 express was judged the better way to grow this capability than opening a code-execution surface.
 
-**Widget kinds, and their real current status — verified directly against the applied schema,
-not just the application code:**
+**Widget kinds — all five are creatable and rendered.** Migration 149 widened the database
+constraint to all five, and `lib/widgets/render.ts` draws each one. The AI can read each kind's
+display schema from `list_capabilities("widgets")`.
 
-| Kind | Status |
+| Kind | Shows |
 |---|---|
-| `metric_card` | Live — a count or a single field value |
-| `list` | Live — a short list of titled rows |
-| `progress_against_goal` | **Built in the app (validated, rendered), but the database's own constraint on this table has not been widened to allow it yet — creating one fails at the database, not gracefully.** |
-| `sparkline` | Same gap as `progress_against_goal` — built, not yet creatable |
-| `streak` | Same database gap, **and** has no rendering logic built yet either — further from usable than the other two |
+| `metric_card` | A count or a single field value |
+| `list` | A short list of titled rows |
+| `progress_against_goal` | A count or sum against a goal |
+| `sparkline` | A per-day trend over 7-60 days |
+| `streak` | Consecutive days with an entry |
 
 Only `home` is a renderable placement today. Widget actions (create/update/archive) are **not**
 schedulable at all, regardless of how the table above changes — `widget_manage` is a separate
@@ -138,12 +151,10 @@ tool from `write`, and the scheduler only ever looks at `write`/`notify` actions
 
 ## Known gaps, stated plainly rather than left to be rediscovered
 
-- **Three widget kinds are built but not creatable** (the table above) — the database
-  constraint governing this table was never widened to match the application code. This is a
-  genuine, verified inconsistency between what the code supports and what the schema allows,
-  found while writing this document, reported rather than fixed here (touches a migration and a
-  file another engineer has in flight — not this document's place to resolve).
-- **18 of 50 write actions cannot be scheduled today.** Most of those need a real redesign
+- ~~Three widget kinds are built but not creatable~~ — resolved by migration 149 (all five kinds
+  creatable and rendered).
+- **Night Plan items have no write action** (see Write, above).
+- **23 of 63 write actions cannot be scheduled today.** Most of those need a real redesign
   (toggles inherently invert, not set; plain appends have no natural retry key) — but a couple
   are a small, identified fix away (a "has this already happened" guard on the specific column
   that drifts), flagged for whoever picks that up next rather than built speculatively.

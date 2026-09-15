@@ -111,13 +111,14 @@ describe("readTool — detail tiers", () => {
     expect(items[0]).not.toHaveProperty("user_id");
   });
 
-  it("detail:'full' includes every registered column, including user_id", async () => {
+  it("detail:'full' includes every registered column -- and never user_id (P4-04: every row is already the caller's own)", async () => {
     const { client } = makeClient({ list: [ROW] });
     const outcome = await readTool(client, "user-1", { domain: "deen", entity: "prayer", detail: "full" });
     const block = outcome.result.content[0];
     if (block.type !== "text") throw new Error("expected text");
     const { items } = JSON.parse(block.text);
-    expect(items[0]).toMatchObject({ id: "p1", updated_at: "2026-09-08T11:00:00Z", user_id: "user-1" });
+    expect(items[0]).toMatchObject({ id: "p1", updated_at: "2026-09-08T11:00:00Z", date: "2026-09-08", prayer_name: "fajr", status: "on_time" });
+    expect(items[0]).not.toHaveProperty("user_id");
   });
 
   it("rejects an invalid detail value", async () => {
@@ -338,5 +339,88 @@ describe("readTool — ReadToolOptions.maxRows (R12)", () => {
     const block = outcome.result.content[0];
     if (block.type !== "text") throw new Error("expected text");
     expect(JSON.parse(block.text).has_more).toBe(false);
+  });
+});
+
+describe("readTool — P4-04 total, limit, range filters", () => {
+  function rangeClient(opts: { list?: unknown[]; count?: number | null } = {}) {
+    const calls: [string, string, unknown][] = [];
+    let lastRange: [number, number] | null = null;
+    const chain: Record<string, unknown> = {};
+    chain.select = vi.fn(() => chain);
+    chain.is = vi.fn(() => chain);
+    chain.order = vi.fn(() => chain);
+    for (const op of ["eq", "gte", "lte"]) {
+      chain[op] = vi.fn((col: string, val: unknown) => {
+        calls.push([op, col, val]);
+        return chain;
+      });
+    }
+    chain.range = vi.fn(async (a: number, b: number) => {
+      lastRange = [a, b];
+      const list = opts.list ?? [];
+      return { data: list, error: null, count: opts.count === undefined ? list.length : opts.count };
+    });
+    return { client: { from: vi.fn(() => chain) } as unknown as SupabaseClient, calls, getLastRange: () => lastRange };
+  }
+
+  function payloadOf(outcome: Awaited<ReturnType<typeof readTool>>) {
+    const block = outcome.result.content[0];
+    if (block.type !== "text") throw new Error("expected text");
+    return JSON.parse(block.text);
+  }
+
+  it("returns total from the exact count it already computes", async () => {
+    const { client } = rangeClient({ list: [ROW], count: 57 });
+    expect(payloadOf(await readTool(client, "user-1", { domain: "deen", entity: "prayer" }))).toMatchObject({ total: 57, has_more: true });
+  });
+
+  it("total is null when the count is unavailable", async () => {
+    const { client } = rangeClient({ list: [ROW], count: null });
+    expect(payloadOf(await readTool(client, "user-1", { domain: "deen", entity: "prayer" })).total).toBeNull();
+  });
+
+  it("limit narrows the page (e.g. just the latest 3)", async () => {
+    const { client, getLastRange } = rangeClient({ list: [ROW, ROW, ROW], count: 10 });
+    const payload = payloadOf(await readTool(client, "user-1", { domain: "deen", entity: "prayer", limit: 3 }));
+    expect(getLastRange()).toEqual([0, 2]);
+    expect(payload.has_more).toBe(true);
+  });
+
+  it.each([0, 21, 2.5, -1])("limit %s is rejected with the valid range, as a model-visible input error", async (limit) => {
+    const { client } = rangeClient();
+    const { ToolInputError } = await import("../../tool-input-error");
+    const err = await readTool(client, "user-1", { domain: "deen", entity: "prayer", limit }).catch((e) => e);
+    expect(err).toBeInstanceOf(ToolInputError);
+    expect((err as Error).message).toMatch(/limit must be an integer from 1 to 20/);
+  });
+
+  it("options.maxRows (widgets only) still wins over any limit", async () => {
+    const { client, getLastRange } = rangeClient();
+    await readTool(client, "user-1", { domain: "deen", entity: "prayer", limit: 3 }, { maxRows: 30 });
+    expect(getLastRange()).toEqual([0, 29]);
+  });
+
+  it("a {gte,lte} range on a declared range column applies both bounds", async () => {
+    const { client, calls } = rangeClient();
+    await readTool(client, "user-1", { domain: "deen", entity: "prayer", filter: { date: { gte: "2026-09-08", lte: "2026-09-14" } } });
+    expect(calls).toEqual(expect.arrayContaining([["gte", "date", "2026-09-08"], ["lte", "date", "2026-09-14"]]));
+    expect(calls.find(([op, col]) => op === "eq" && col === "date")).toBeUndefined();
+  });
+
+  it("a range on a column that isn't range-filterable is refused, naming the allowed set", async () => {
+    const { client } = rangeClient();
+    const { ToolInputError } = await import("../../tool-input-error");
+    const err = await readTool(client, "user-1", { domain: "deen", entity: "prayer", filter: { status: { gte: "a" } } }).catch((e) => e);
+    expect(err).toBeInstanceOf(ToolInputError);
+    expect((err as Error).message).toMatch(/"status" can't be range-filtered on entity "prayer"\. Range-filterable: date/);
+  });
+
+  it.each([[{}], [{ gte: "2026-01-01", after: "x" }], [{ gte: { nested: 1 } }]])("a malformed range object %j is refused", async (range) => {
+    const { client } = rangeClient();
+    const { ToolInputError } = await import("../../tool-input-error");
+    const err = await readTool(client, "user-1", { domain: "deen", entity: "prayer", filter: { date: range as never } }).catch((e) => e);
+    expect(err).toBeInstanceOf(ToolInputError);
+    expect((err as Error).message).toMatch(/filter\.date range must be \{ gte\?, lte\? \}/);
   });
 });

@@ -13,21 +13,23 @@ import { readMcpAuth } from "@/lib/mcp/auth-info";
 import { AGENT_INSTRUCTIONS } from "@/lib/agent-api/instructions";
 
 /**
- * L3+L6+L11 (docs/ai-connector/PROGRAM-PLAN.md), scope per the team-lead's
- * adoption of Eng2's TOOL-ARCHITECTURE.md (commit 2855e96): four of the
- * seven generic tools — `list_capabilities` (discovery), `read` (every
- * domain read, wired to `deen`'s 8 entities — lib/mcp/registry.ts), and
- * `write` (every domain write, wired to `deen.prayer.log`,
- * `deen.sunnah_log.toggle`, `deen.adhkar.toggle` — lib/mcp/write-registry.ts).
- * `deen.prayer.unlog` is deliberately NOT wired — see write-registry.ts's
- * header. `widget_manage` is now wired too (L11/R7 Tier 1 declarative
- * widgets — lib/mcp/tools/widget-manage.ts, gated per TOOL-ARCHITECTURE.md
- * §6: config rows only, never agent-authored code). `scheduler_manage` is
- * now wired too (L7 — lib/mcp/tools/scheduler-manage.ts, deferred/
- * recurring writes fired by app/api/cron/scheduled-actions/route.ts's
- * pg_cron+pg_net poll, reusing this SAME `write` tool at fire time — never
- * a parallel executor). `search`/`fetch` remain explicitly out of scope
- * for this layer.
+ * The remote MCP server. Five generic tools, each dispatching through a
+ * registry rather than one tool per table:
+ *   - `list_capabilities` — no argument: this account's map (P4-03,
+ *     lib/agent-api/account-map.ts); with a domain: its entities, fields,
+ *     filters and write actions.
+ *   - `read` — every entity in lib/mcp/registry.ts (list with total, limit,
+ *     equality and {gte,lte} range filters; or one row by id).
+ *   - `write` — every action in lib/mcp/write-registry.ts. No hard deletes:
+ *     removal archives or flips a status.
+ *   - `widget_manage` — declarative Home widgets (config rows drawn by a
+ *     fixed renderer, never agent-authored code).
+ *   - `scheduler_manage` — deferred/recurring writes and reminders, fired by
+ *     app/api/cron/scheduled-actions through this SAME `write` path.
+ * Every tool call runs through lib/mcp/tool-wrapper.ts -> the transport-
+ * neutral core lib/agent-api/execute.ts (scope, rate limit, session, audit).
+ * `search`/`fetch` were never built. Counts live in the registries (and
+ * `npx tsx scripts/mcp-surface-counts.ts`), deliberately not in this comment.
  *
  * Streamable HTTP only — no SSE, no Redis (settled in PROGRAM-PLAN.md's
  * findings: Claude is deprecating SSE, Gemini rejects it outright, and
@@ -43,7 +45,8 @@ import { AGENT_INSTRUCTIONS } from "@/lib/agent-api/instructions";
  *        skips: banned/soft-deleted. MUST run here, between "token
  *        verified" and "session minted", never folded into either)
  *     -> (per-tool, inside runMcpTool) scope check, rate limit, mint a
- *        locally-signed ES256 session JWT, build a user-scoped client from
+ *        5-minute HS256 session JWT (lib/mcp/session.ts explains why HS256
+ *        with the legacy shared secret, not ES256), build a user-scoped client from
  *        it — RLS applies from there on exactly as it does for the
  *        cookie-authed UI.
  *
@@ -75,10 +78,23 @@ const ReadInputSchema = z.object({
   domain: z.string(),
   entity: z.string(),
   id: z.string().optional(),
-  filter: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  // Equality value, or a {gte?, lte?} range on a range-filterable column (P4-04).
+  // .strict() so a misspelled bound is rejected, not silently dropped.
+  filter: z
+    .record(
+      z.string(),
+      z.union([
+        z.string(),
+        z.number(),
+        z.boolean(),
+        z.object({ gte: z.union([z.string(), z.number()]).optional(), lte: z.union([z.string(), z.number()]).optional() }).strict(),
+      ]),
+    )
+    .optional(),
   detail: z.enum(["ids", "summary", "full"]).optional(),
   fields: z.array(z.string()).optional(),
   cursor: z.string().optional(),
+  limit: z.number().int().min(1).max(20).optional(),
 });
 
 const ListCapabilitiesInputSchema = z.object({
@@ -143,7 +159,7 @@ const handler = createMcpHandler(
       {
         title: "Read",
         description:
-          "Read data from any domain/entity this connector exposes. Call list_capabilities first if unsure of valid domain/entity/field names — an invalid one is rejected with the valid set named in the error.",
+          "Read one entity: a page of up to 20 rows {items, has_more, cursor, total}, or one row by id. detail: ids | summary (default) | full; fields narrows further. filter: equality on filterable_fields, or {gte, lte} on range_filterable_fields (e.g. a date range). limit 1-20 for just the latest N. Invalid names are rejected with the valid set named in the error.",
         inputSchema: ReadInputSchema,
       },
       async (args, ctx) =>
@@ -183,7 +199,7 @@ const handler = createMcpHandler(
       {
         title: "Manage widgets",
         description:
-          "Create, update, delete, or list declarative dashboard widgets (L11/R7 Tier 1 — a config row rendered by a fixed, audited renderer, never agent-authored code). A widget's data source can only reference a domain/entity this connector's read() already exposes. 'create'/'update'/'delete' require a token with 'write' scope; 'list' only needs 'read'.",
+          "Create, update, delete (archive), or list Home dashboard widgets: a config row drawn by a fixed renderer, never agent-authored code. Kinds, the display schema per kind, and the data_source shape are in list_capabilities(\"widgets\"). A data source can reference only an entity read() exposes. create/update/delete need 'write' scope; list needs 'read'.",
         inputSchema: WidgetManageInputSchema,
       },
       async (args, ctx) =>

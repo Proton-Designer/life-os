@@ -322,6 +322,17 @@ someone with a working deletion path, or Supabase support if it's GoTrue-side.
 **Fix direction (not done):** check and log/retry the `error` in `afterEach`
 so a repeat of this isn't silent next time.
 
+### MCP connector docs and comments had drifted from the code (fixed 2026-09-15, P4-04)
+**Found:** 2026-09-15, p4-b-core, from the P4 capability audit. Code was right, docs wrong:
+`docs/ai-connector/CAPABILITIES.md` claimed Night Plan items were writable through
+work/distractions (no write action touches them) and that three widget kinds were not creatable
+(migration 149 fixed that; all five render). `app/api/mcp/route.ts`'s header said "four of seven
+tools", "deen's 8 entities" and an ES256 session JWT (reality: 5 tools, every domain, HS256).
+`registry.ts` / `read.ts` headers still said only deen.prayer was wired, and the brain doc's
+counts were stale. **Fixed:** all of the above, with counts from the new
+`npx tsx scripts/mcp-surface-counts.ts` instead of typed numbers. **Still open:** nothing
+regenerates those counts automatically. Re-run the script whenever the registries change.
+
 <!--
 [ ] Under 200 lines   [ ] "Do not" lines filled in
 -->

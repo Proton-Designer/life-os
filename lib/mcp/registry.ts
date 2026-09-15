@@ -3,13 +3,17 @@ import "server-only";
 /**
  * The internal dispatch table Eng2's TOOL-ARCHITECTURE.md (§3, §5) calls for:
  * the single source of truth `list_capabilities` describes and `read`
- * dispatches against. L3 populates exactly one domain (`deen`) with exactly
- * one entity (`prayer`) — "the dispatch table matters more than the
- * coverage; L5 fans it out" (team-lead). Adding a second entity, or a
- * second domain, is adding another object to these maps, never a new code
- * path — that extensibility IS the proof this architecture works, not
- * something to demonstrate by rushing more entities in before each one's
- * been checked the way `prayer` was below.
+ * dispatches against. It started as one entity (deen.prayer) and now covers
+ * every domain (current counts: `npx tsx scripts/mcp-surface-counts.ts`).
+ * Adding an entity or a domain is adding another object to these maps, never
+ * a new code path — and each one is checked the way `prayer` was below
+ * (verified updatedAtColumn, allowlisted columns).
+ *
+ * DESCRIPTIONS ARE MODEL-FACING (P4-04): they ship into an AI's context on
+ * every list_capabilities call, so they describe the user's data in ≤300
+ * chars with no migration numbers, rulings, plan labels or file paths
+ * (lib/mcp/__tests__/registry-descriptions.test.ts enforces both). Build
+ * history goes in a `// Build history` comment beside the entry instead.
  *
  * EVERY ENTITY'S COLUMN LISTS ARE A VISIBILITY REGISTRY, not a convenience
  * projection (memo §3): `detail`/`fields` narrow within `fullColumns`, they
@@ -87,6 +91,8 @@ export interface EntityDef {
   fullColumns: string[];
   /** Columns `filter` may reference. Never `fullColumns` by default — an allowlist, so a caller can't filter on a column that isn't even selectable. */
   filterableColumns: string[];
+  /** Day/timestamp columns `filter` may bound with `{gte?, lte?}` (P4-04), e.g. "this week's prayers" without paging all history. Must be in fullColumns. */
+  rangeFilterableColumns?: string[];
   /** Default sort, applied for deterministic pagination. Always includes the id column as a tiebreaker. */
   orderBy: { column: string; ascending: boolean }[];
   /**
@@ -190,8 +196,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Three write paths, all checked, since R9 added the second one: markPrayerCore and unlogPrayerCore (lib/deen/actions-core.ts) both upsert and BOTH explicitly set `logged_at: now.toISOString()` -- logging and unlogging are equally real writes and equally stamped, not just the on_time/qada/missed case. unmarkPrayer (app/(app)/deen/actions.ts) DELETEs the row outright rather than leaving a stale one, same posture as settings.api_key.removeApiKey. No UPDATE exists on this table anywhere.",
         summaryColumns: ["date", "prayer_name", "status"],
-        fullColumns: ["date", "prayer_name", "status", "logged_at", "user_id"],
+        fullColumns: ["date", "prayer_name", "status", "logged_at"],
         filterableColumns: ["date", "prayer_name", "status"],
+        rangeFilterableColumns: ["date"],
         orderBy: [
           { column: "date", ascending: false },
           { column: "prayer_name", ascending: true },
@@ -206,8 +213,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "toggleSunnah (app/(app)/deen/actions.ts) upserts `completed` on an existing row without touching created_at, which would go stale on a second toggle -- migration 133 adds a real trigger-backed updated_at for exactly this reason; verified NOT faithfully served by created_at before adding it.",
         summaryColumns: ["date", "prayer_name", "slot", "completed"],
-        fullColumns: ["date", "prayer_name", "slot", "completed", "created_at", "user_id"],
+        fullColumns: ["date", "prayer_name", "slot", "completed", "created_at"],
         filterableColumns: ["date", "prayer_name", "slot", "completed"],
+        rangeFilterableColumns: ["date"],
         orderBy: [
           { column: "date", ascending: false },
           { column: "prayer_name", ascending: true },
@@ -222,8 +230,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "toggleAdhkar (app/(app)/deen/actions.ts) upserts `completed` on an existing row; the table had NO created_at or any timestamp at all before migration 133 added a real trigger-backed updated_at.",
         summaryColumns: ["date", "period", "completed"],
-        fullColumns: ["date", "period", "completed", "user_id"],
+        fullColumns: ["date", "period", "completed"],
         filterableColumns: ["date", "period", "completed"],
+        rangeFilterableColumns: ["date"],
         orderBy: [
           { column: "date", ascending: false },
           { column: "period", ascending: true },
@@ -238,8 +247,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "logQuranSession (app/(app)/deen/actions.ts) only ever INSERTs -- no update or delete path for this table exists anywhere in actions.ts -- so created_at IS the true last-modified time; deliberately no new column added (team-lead's ruling: append-only tables are legitimately served by created_at).",
         summaryColumns: ["date", "pages_read", "surah", "juz"],
-        fullColumns: ["date", "pages_read", "surah", "juz", "created_at", "user_id"],
+        fullColumns: ["date", "pages_read", "surah", "juz", "created_at"],
         filterableColumns: ["date"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       reflection_entry: {
@@ -251,8 +261,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "logReflectionEntry inserts; decrementReflectionEntry (both app/(app)/deen/actions.ts) deletes the single most recent row of a tier -- no row is ever UPDATEd in place, so created_at IS the true last-modified time; no new column added, same append-only reasoning as quran_session.",
         summaryColumns: ["date", "tier"],
-        fullColumns: ["date", "tier", "created_at", "user_id"],
+        fullColumns: ["date", "tier", "created_at"],
         filterableColumns: ["date", "tier"],
+        rangeFilterableColumns: ["date"],
         orderBy: [
           { column: "date", ascending: false },
           { column: "created_at", ascending: false },
@@ -267,8 +278,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "updateDeenHabit, archiveDeenHabit, setDeenHabitStageOverride, and setDeenHabitCommittedDate (all app/(app)/deen/actions.ts) each UPDATE an existing row post-creation -- created_at would go stale on the very first edit; migration 133 adds a real trigger-backed updated_at.",
         summaryColumns: ["name", "committed_date", "archived"],
-        fullColumns: ["name", "committed_date", "archived", "anchor_cue", "commitment_note", "stage_override", "created_at", "user_id"],
+        fullColumns: ["name", "committed_date", "archived", "anchor_cue", "commitment_note", "stage_override", "created_at"],
         filterableColumns: ["archived"],
+        rangeFilterableColumns: ["committed_date"],
         orderBy: [
           { column: "committed_date", ascending: false },
           { column: "name", ascending: true },
@@ -283,8 +295,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "toggleDeenHabitLog and setDeenHabitLogStatus (both app/(app)/deen/actions.ts) upsert `completed` on an existing (habit_id,date) row; the table had no created_at at all before migration 133 added a real trigger-backed updated_at.",
         summaryColumns: ["habit_id", "date", "completed"],
-        fullColumns: ["habit_id", "date", "completed", "user_id"],
+        fullColumns: ["habit_id", "date", "completed"],
         filterableColumns: ["habit_id", "date", "completed"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       weekly_focus: {
@@ -296,8 +309,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "setWeeklyFocus (app/(app)/deen/actions.ts) upserts `habit_id` on (user_id,week_start_date) conflict, which can genuinely replace a week's focus habit without touching created_at; migration 133 adds a real trigger-backed updated_at.",
         summaryColumns: ["week_start_date", "habit_id"],
-        fullColumns: ["week_start_date", "habit_id", "created_at", "user_id"],
+        fullColumns: ["week_start_date", "habit_id", "created_at"],
         filterableColumns: ["week_start_date"],
+        rangeFilterableColumns: ["week_start_date"],
         orderBy: [{ column: "week_start_date", ascending: false }],
       },
     },
@@ -315,8 +329,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Migration 135 (applied, verified on production by the lead -- a stale 2000-01-01 value was overwritten to today) added a real trigger-backed updated_at to coop_targets, reusing migration 074's touch_updated_at(), after editTarget/completeTarget/moveTarget (app/(app)/work/targets-actions.ts) were found to all UPDATE an existing row with completed_at reflecting only completion, never edits or reordering.",
         summaryColumns: ["title", "deadline", "status", "position"],
-        fullColumns: ["title", "deadline", "status", "position", "completed_at", "created_at", "updated_at", "user_id"],
+        fullColumns: ["title", "deadline", "status", "position", "completed_at", "created_at", "updated_at"],
         filterableColumns: ["status"],
+        rangeFilterableColumns: ["completed_at"],
         orderBy: [{ column: "position", ascending: true }],
       },
       task: {
@@ -345,8 +360,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         // field is invisible-but-recoverable, a broken read takes the
         // whole entity down. Confirmed with the lead before committing.
         summaryColumns: ["target_id", "title", "deadline", "status", "blocked_from", "blocked_reason"],
-        fullColumns: ["target_id", "title", "deadline", "status", "blocked_from", "blocked_reason", "blocked_since", "completed_at", "created_at", "updated_at", "user_id"],
+        fullColumns: ["target_id", "title", "deadline", "status", "blocked_from", "blocked_reason", "blocked_since", "completed_at", "created_at", "updated_at"],
         filterableColumns: ["target_id", "status"],
+        rangeFilterableColumns: ["created_at", "completed_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
       work_session: {
@@ -358,8 +374,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Trigger-backed invariant: migration 146 added a real `updated_at` + work_sessions_touch_updated_at (touch_updated_at(), 074), replacing the prior ended_at-based claim after that claim went false -- 146 added goal_minutes/class_id (set on start, never touching ended_at), so a session whose goal changed post-start would have reported as unchanged under the old marker. The trigger fires on every UPDATE regardless of which columns change, so it cannot be silently bypassed by a future write path the way the app-write-path claim was.",
         summaryColumns: ["kind", "started_at", "ended_at"],
-        fullColumns: ["kind", "started_at", "ended_at", "created_at", "counts_toward_hours", "user_id"],
+        fullColumns: ["kind", "started_at", "ended_at", "created_at", "counts_toward_hours"],
         filterableColumns: ["kind"],
+        rangeFilterableColumns: ["started_at", "ended_at"],
         orderBy: [{ column: "started_at", ascending: false }],
       },
     },
@@ -377,8 +394,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Migration 135 (applied, verified on production by the lead) added a real trigger-backed updated_at to kill_list_items, reusing migration 074's touch_updated_at(), after setKillListItem/toggleKillListItem (app/(app)/business/actions.ts) were found to leave completed_at reflecting only the completion toggle, never a text edit to an existing slot.",
         summaryColumns: ["date", "position", "text", "completed"],
-        fullColumns: ["date", "position", "text", "completed", "completed_at", "created_at", "updated_at", "user_id"],
+        fullColumns: ["date", "position", "text", "completed", "completed_at", "created_at", "updated_at"],
         filterableColumns: ["date", "position", "completed"],
+        rangeFilterableColumns: ["date"],
         orderBy: [
           { column: "date", ascending: false },
           { column: "position", ascending: true },
@@ -393,8 +411,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Migration 135 (applied, verified on production by the lead) added a real trigger-backed updated_at to weekly_goals, reusing migration 074's touch_updated_at(), after saveBusinessWeeklyGoal (app/(app)/business/actions.ts) was found to upsert on (user_id,week_start_date,domain) conflict -- which can overwrite headline/milestones on an existing row -- with no other timestamp on the table to reflect it.",
         summaryColumns: ["week_start_date", "headline", "milestones", "locked"],
-        fullColumns: ["week_start_date", "headline", "milestones", "locked", "quran_page_target", "created_at", "updated_at", "user_id"],
+        fullColumns: ["week_start_date", "headline", "milestones", "locked", "quran_page_target", "created_at", "updated_at"],
         filterableColumns: ["week_start_date", "locked"],
+        rangeFilterableColumns: ["week_start_date"],
         orderBy: [{ column: "week_start_date", ascending: false }],
         fixedFilter: { domain: "business" },
       },
@@ -408,15 +427,18 @@ export const REGISTRY: Record<string, DomainDef> = {
       task: {
         entity: "task",
         table: "tasks",
-        description:
-          "A school task/assignment/reminder. `tasks` is shared with `co_op` (and, for a Night Plan dump item, domain=NULL, migration 119) -- fixedFilter keeps this entity strictly to domain='school' rows.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   A school task/assignment/reminder. `tasks` is shared with `co_op` (and, for a Night Plan dump item,
+        //   domain=NULL, migration 119) -- fixedFilter keeps this entity strictly to domain='school' rows.
+        description: "A school task, assignment or reminder, with due date, type and optional class. Only school tasks; work tasks and Night Plan items are separate entities.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
           "Migration 136 (applied, verified on production by the lead -- 5 columns, 5 triggers, trigger confirmed firing on tasks) added a real trigger-backed updated_at to tasks, reusing migration 074's touch_updated_at(), after updateTaskCore/toggleTaskCore/updateClassAssessmentCore's task-sync step were found to each UPDATE an existing row with completed_at reflecting only the complete/not-complete transition, never a title/due_date/class_id edit (same gap migration 135 fixed for coop_tasks).",
         summaryColumns: ["title", "due_date", "task_type", "completed", "class_id"],
-        fullColumns: ["title", "due_date", "due_time", "task_type", "task_type_other_label", "completed", "completed_at", "class_id", "created_at", "updated_at", "user_id"],
+        fullColumns: ["title", "due_date", "due_time", "task_type", "task_type_other_label", "completed", "completed_at", "class_id", "created_at", "updated_at"],
         filterableColumns: ["due_date", "task_type", "completed", "class_id"],
+        rangeFilterableColumns: ["due_date", "completed_at"],
         orderBy: [
           { column: "due_date", ascending: true },
           { column: "created_at", ascending: false },
@@ -432,7 +454,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to classes, reusing migration 074's touch_updated_at(), after updateClassCore (short_name/room/instructor) and uploadClassSyllabus/removeClassSyllabus (syllabus_path) were found to each UPDATE an existing row with no faithful existing column to reflect it.",
         summaryColumns: ["short_name", "code", "room", "instructor", "position"],
-        fullColumns: ["short_name", "code", "room", "instructor", "position", "difficulty_rating", "confidence_rating", "target_grade_pct", "created_at", "updated_at", "user_id"],
+        fullColumns: ["short_name", "code", "room", "instructor", "position", "difficulty_rating", "confidence_rating", "target_grade_pct", "created_at", "updated_at"],
         filterableColumns: ["code"],
         orderBy: [
           { column: "position", ascending: true },
@@ -442,28 +464,39 @@ export const REGISTRY: Record<string, DomainDef> = {
       class_assessment: {
         entity: "class_assessment",
         table: "class_assessments",
-        description: "One assessment (quiz/exam/final_midterm/homework_assignment/project_paper) for a class, with its grade-engine inputs. Adding one also creates a linked task (ruling R5) -- see write-registry's class_assessment.add.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One assessment (quiz/exam/final_midterm/homework_assignment/project_paper) for a class, with its
+        //   grade-engine inputs. Adding one also creates a linked task (ruling R5) -- see write-registry's
+        //   class_assessment.add.
+        description: "One graded assessment for a class (quiz, exam, final_midterm, homework_assignment, project_paper) with its date, weight and score inputs. Adding one also creates a linked school task.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
           "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to class_assessments, reusing migration 074's touch_updated_at(), after updateClassAssessmentCore (lib/school/actions-core.ts) was found to UPDATE name/type/date/weight_pct on an existing row with no faithful existing column to reflect it.",
         summaryColumns: ["class_id", "name", "type", "date"],
-        fullColumns: ["class_id", "name", "type", "date", "weight_pct", "points_earned", "points_possible", "is_excused", "task_id", "created_at", "updated_at", "user_id"],
+        fullColumns: ["class_id", "name", "type", "date", "weight_pct", "points_earned", "points_possible", "is_excused", "task_id", "created_at", "updated_at"],
         filterableColumns: ["class_id", "type", "date"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       schedule_event: {
         entity: "schedule_event",
         table: "schedule_events",
-        description:
-          "A class's recurring meeting pattern (or a one-off school event). `schedule_events` is shared with `co_op` -- fixedFilter keeps this entity strictly to domain='school' rows. Per-occurrence overrides/cancellations are separate entities below (schedule_event_override/schedule_event_cancellation), each scoped via parentFilter to THIS entity's own rows.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   A class's recurring meeting pattern (or a one-off school event). `schedule_events` is shared with
+        //   `co_op` -- fixedFilter keeps this entity strictly to domain='school' rows. Per-occurrence
+        //   overrides/cancellations are separate entities below
+        //   (schedule_event_override/schedule_event_cancellation), each scoped via parentFilter to THIS entity's
+        //   own rows.
+        description: "A class's recurring meeting pattern, or a one-off school event. Only school events. Per-occurrence changes are schedule_event_override and schedule_event_cancellation, each read for one event.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
           "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to schedule_events, reusing migration 074's touch_updated_at(), after updateScheduleEventCore (day_of_week/event_time/end_time) and updateClassEvent (app/(app)/school/actions.ts, multi-day class-group editing, not core-extracted this phase; title/event_time/end_time/location/instructor) were found to each UPDATE an existing row with no faithful existing column to reflect it.",
         summaryColumns: ["title", "is_recurring", "day_of_week", "event_date", "event_time", "end_time"],
-        fullColumns: ["title", "is_recurring", "day_of_week", "event_date", "event_time", "end_time", "location", "instructor", "class_id", "created_at", "updated_at", "user_id"],
+        fullColumns: ["title", "is_recurring", "day_of_week", "event_date", "event_time", "end_time", "location", "instructor", "class_id", "created_at", "updated_at"],
         filterableColumns: ["is_recurring", "day_of_week", "class_id"],
+        rangeFilterableColumns: ["event_date"],
         orderBy: [
           { column: "day_of_week", ascending: true },
           { column: "event_time", ascending: true },
@@ -495,8 +528,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Migration 136 (applied, verified on production by the lead) added a real trigger-backed updated_at to schedule_event_overrides, after setScheduleEventOverrideCore's upsert (onConflict: event_id,date) was found to MERGE event_time/end_time on an existing row -- a true update, not a no-op -- which created_at never reflected.",
         summaryColumns: ["event_id", "date", "event_time", "end_time"],
-        fullColumns: ["event_id", "date", "event_time", "end_time", "created_at", "updated_at", "user_id"],
+        fullColumns: ["event_id", "date", "event_time", "end_time", "created_at", "updated_at"],
         filterableColumns: ["event_id", "date"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: true }],
         parentFilter: { column: "event_id", parentTable: "schedule_events", parentIdColumn: "id", parentFixedFilter: { domain: "school" } },
       },
@@ -509,8 +543,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "cancelScheduleOccurrenceCore upserts with ignoreDuplicates:true -- a TRUE no-op on conflict (the row is never modified after insert; the table carries no other mutable column at all, existence/absence IS the entire fact). created_at is therefore a genuinely faithful last-modified proxy, same append-only reasoning as deen.quran_session. Migration 136 deliberately excluded this table for exactly this reason -- a trigger here would simply never fire.",
         summaryColumns: ["event_id", "date"],
-        fullColumns: ["event_id", "date", "created_at", "user_id"],
+        fullColumns: ["event_id", "date", "created_at"],
         filterableColumns: ["event_id", "date"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: true }],
         parentFilter: { column: "event_id", parentTable: "schedule_events", parentIdColumn: "id", parentFixedFilter: { domain: "school" } },
       },
@@ -518,11 +553,13 @@ export const REGISTRY: Record<string, DomainDef> = {
   },
   fitness: {
     domain: "fitness",
-    description:
-      "The largest domain in the app (15 tables). Logging (workout_session/session_set) and body-metric/benchmark writes are " +
-      "fully wired -- the owner's 'checking off logs' requirement in its heaviest form (team-lead's framing). Plan-editing " +
-      "(workout_plan/plan_session/plan_session_exercise/plan_micro_exercise/workout_exercise/workout_schedule/active_workout_plan) " +
-      "is READ-ONLY here, deliberately -- see docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.",
+    // Build history (moved out of the model-facing description, P4-04):
+    //   The largest domain in the app (15 tables). Logging (workout_session/session_set) and body-
+    //   metric/benchmark writes are fully wired -- the owner's 'checking off logs' requirement in its
+    //   heaviest form (team-lead's framing). Plan-editing (workout_plan/plan_session/plan_session_exercise/p
+    //   lan_micro_exercise/workout_exercise/workout_schedule/active_workout_plan) is READ-ONLY here,
+    //   deliberately -- see docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.
+    description: "Workouts, plans and body metrics. Logging (workout sessions and sets), body metrics, benchmarks, exercises and workout templates can be written. Plan editing (plans, plan sessions, micro exercises, the weekly schedule, the active plan) is read-only.",
     entities: {
       workout_session: {
         entity: "workout_session",
@@ -533,20 +570,26 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "INSERT-ONLY, all three write paths checked: quickLogExerciseCore, confirmWorkoutSessionCore (RPC confirm_workout_session, 029), confirmPlanSessionCore (all lib/fitness/actions-core.ts) each only ever INSERT. No UPDATE or DELETE on workout_sessions exists anywhere in app code or in any RPC. created_at IS the true last-modified time, same append-only reasoning as deen.quran_session.",
         summaryColumns: ["date", "workout_id", "workout_name", "source"],
-        fullColumns: ["date", "workout_id", "workout_name", "source", "plan_session_id", "created_at", "user_id"],
+        fullColumns: ["date", "workout_id", "workout_name", "source", "plan_session_id", "created_at"],
         filterableColumns: ["date", "workout_id", "source", "plan_session_id"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       session_set: {
         entity: "session_set",
         table: "session_sets",
-        description: "One exercise's sets/reps/load within a logged session -- exercise_name is a snapshot (survives the exercise being later archived/renamed). Immutable by design, same as workout_session. Always read scoped to one session via filter.session_id (parentFilter) -- never as a flat list across every session ever logged.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One exercise's sets/reps/load within a logged session -- exercise_name is a snapshot (survives the
+        //   exercise being later archived/renamed). Immutable by design, same as workout_session. Always read
+        //   scoped to one session via filter.session_id (parentFilter) -- never as a flat list across every
+        //   session ever logged.
+        description: "One exercise's sets, reps and load within a logged session. exercise_name is a snapshot that survives later renames. Never edited after logging. Always read for one session via filter.session_id.",
         idColumn: "id",
         updatedAtColumn: "created_at",
         updatedAtVerification:
           "INSERT-ONLY: every write path (quickLogExerciseCore, confirmWorkoutSessionCore's RPC, confirmPlanSessionCore) only ever INSERTs session_sets rows as part of creating their parent session; no UPDATE/DELETE exists anywhere. created_at IS the true last-modified time.",
         summaryColumns: ["session_id", "exercise_id", "exercise_name", "position", "sets", "reps", "load"],
-        fullColumns: ["session_id", "exercise_id", "exercise_name", "position", "sets", "reps", "load", "created_at", "user_id"],
+        fullColumns: ["session_id", "exercise_id", "exercise_name", "position", "sets", "reps", "load", "created_at"],
         filterableColumns: ["session_id", "exercise_id"],
         orderBy: [{ column: "position", ascending: true }],
         parentFilter: { column: "session_id", parentTable: "workout_sessions", parentIdColumn: "id" },
@@ -560,8 +603,9 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Trigger-backed invariant: migration 138 added a real `updated_at` + body_metrics_touch_updated_at (touch_updated_at(), 074) after logWeightCore/logWaistCore/logCycleBenchmark's combined call (app/(app)/fitness/actions.ts, lib/fitness/actions-core.ts) were found to upsert on (user_id,date) conflict -- a genuine UPDATE-in-place on a re-logged date that created_at never reflected. The trigger fires on every UPDATE to this row regardless of which write path performs it.",
         summaryColumns: ["date", "weight_lb", "waist_in"],
-        fullColumns: ["date", "weight_lb", "waist_in", "created_at", "user_id"],
+        fullColumns: ["date", "weight_lb", "waist_in", "created_at"],
         filterableColumns: ["date"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       fitness_benchmark: {
@@ -573,15 +617,25 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Trigger-backed invariant: migration 138 added a real `updated_at` + fitness_benchmarks_touch_updated_at (touch_updated_at(), 074) after logBenchmarkRepsCore (lib/fitness/actions-core.ts) and logCycleBenchmark's own reps loop (app/(app)/fitness/actions.ts) were found to both upsert on (user_id,date,exercise_id) conflict -- re-logging the same exercise/date genuinely UPDATEs max_reps in place, which created_at never reflected. The trigger fires on every UPDATE regardless of which write path performs it.",
         summaryColumns: ["date", "exercise_id", "max_reps"],
-        fullColumns: ["date", "exercise_id", "max_reps", "created_at", "user_id"],
+        fullColumns: ["date", "exercise_id", "max_reps", "created_at"],
         filterableColumns: ["date", "exercise_id"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       fitness_cycle_anchor: {
         entity: "fitness_cycle_anchor",
         table: "fitness_cycle_anchor",
-        description:
-          "The one-time anchor date 4-week Cycle Progress windows are computed from (lib/fitness/cycle.ts's cycleForDate, a pure function over this stored value). FOUND DURING THIS BUILD: no write path for this table exists ANYWHERE in the current app -- grepped every .ts file outside supabase/migrations and the one test-only route (app/api/test/clear-fitness-cycle-anchor) that DELETEs it for e2e teardown. Migration 039's own comment describes the intended default ('first plan activation, spec's logic-gap resolution #6'), but nothing in activatePlan/setActiveSlot actually sets it -- the Cycle Progress feature is half-built. Flagged to the lead, not fixed here (building a missing feature is out of scope for an MCP fan-out pass). Registered read-only and honestly: a caller will get an empty list until this is wired, which is the truth, not a bug in this registration.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   The one-time anchor date 4-week Cycle Progress windows are computed from (lib/fitness/cycle.ts's
+        //   cycleForDate, a pure function over this stored value). FOUND DURING THIS BUILD: no write path for
+        //   this table exists ANYWHERE in the current app -- grepped every .ts file outside supabase/migrations
+        //   and the one test-only route (app/api/test/clear-fitness-cycle-anchor) that DELETEs it for e2e
+        //   teardown. Migration 039's own comment describes the intended default ('first plan activation, spec's
+        //   logic-gap resolution #6'), but nothing in activatePlan/setActiveSlot actually sets it -- the Cycle
+        //   Progress feature is half-built. Flagged to the lead, not fixed here (building a missing feature is
+        //   out of scope for an MCP fan-out pass). Registered read-only and honestly: a caller will get an empty
+        //   list until this is wired, which is the truth, not a bug in this registration.
+        description: "The start date that 4-week cycle progress is counted from. Nothing in the app sets it yet, so this is usually empty.",
         idColumn: "user_id",
         updatedAtColumn: "created_at",
         updatedAtVerification:
@@ -594,8 +648,14 @@ export const REGISTRY: Record<string, DomainDef> = {
       active_workout_plan: {
         entity: "active_workout_plan",
         table: "active_workout_plans",
-        description:
-          "The two active-plan slots (micro, routine) -- at most one row per user. READ-ONLY: migration 129's own header is the reason (a composite tenancy FK whose unqualified ON DELETE SET NULL made deleting an active plan impossible in production for weeks, fixed there but still the program's clearest 'obvious operation, isn't' trap). Writing here directly would also bypass lib/fitness/sync-workout-schedule.ts's shim, desyncing workout_schedule for the nine legacy readers outside fitness. See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   The two active-plan slots (micro, routine) -- at most one row per user. READ-ONLY: migration 129's
+        //   own header is the reason (a composite tenancy FK whose unqualified ON DELETE SET NULL made deleting
+        //   an active plan impossible in production for weeks, fixed there but still the program's clearest
+        //   'obvious operation, isn't' trap). Writing here directly would also bypass lib/fitness/sync-workout-
+        //   schedule.ts's shim, desyncing workout_schedule for the nine legacy readers outside fitness. See
+        //   docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.
+        description: "The account's active plan slots (micro and routine), at most one row. Read-only: plans are activated in the app, which keeps the weekly schedule in sync.",
         idColumn: "user_id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
@@ -614,20 +674,23 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Trigger-backed invariant: migration 138 added a real `updated_at` + exercises_touch_updated_at (touch_updated_at(), 074) after archiveExerciseCore (lib/fitness/actions-core.ts) was found to UPDATE `archived` on an existing row post-creation -- created_at went stale on the very first archive. The trigger fires on every UPDATE to this row regardless of which write path performs it.",
         summaryColumns: ["name", "primary_muscles", "secondary_muscles", "archived"],
-        fullColumns: ["name", "primary_muscles", "secondary_muscles", "archived", "created_at", "user_id"],
+        fullColumns: ["name", "primary_muscles", "secondary_muscles", "archived", "created_at"],
         filterableColumns: ["archived"],
         orderBy: [{ column: "name", ascending: true }],
       },
       workout: {
         entity: "workout",
         table: "workouts",
-        description: "One named workout template -- either standalone or the backing row for a routine plan's session (plan_sessions.workout_id, migration 040's legacy-reader mirror). Archived, never hard-deleted.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One named workout template -- either standalone or the backing row for a routine plan's session
+        //   (plan_sessions.workout_id, migration 040's legacy-reader mirror). Archived, never hard-deleted.
+        description: "One named workout template, standalone or backing a routine plan's session. Archived, never deleted.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
           "Trigger-backed invariant: migration 138 added a real `updated_at` + workouts_touch_updated_at (touch_updated_at(), 074) after renameWorkoutCore/archiveWorkoutCore (lib/fitness/actions-core.ts) and the save_workout RPC (031, its own `update public.workouts set name = ...`) were found to each UPDATE an existing row post-creation with no faithful existing column to reflect it. The trigger fires on every UPDATE regardless of which write path performs it.",
         summaryColumns: ["name", "archived"],
-        fullColumns: ["name", "archived", "created_at", "user_id"],
+        fullColumns: ["name", "archived", "created_at"],
         filterableColumns: ["archived"],
         orderBy: [{ column: "name", ascending: true }],
       },
@@ -640,7 +703,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "The table has NO created_at/updated_at column at all (migration 025's schema, confirmed directly). Moot anyway: save_workout (031) is the ONLY write path and always does a full delete-then-reinsert of a workout's whole exercise list, never an in-place UPDATE of one row -- a changed row IS a different row (fresh id), so there is no 'went stale while the id stayed the same' failure mode a timestamp would even need to guard against. No migration requested for this shape -- see docs/ai-connector/FITNESS-UPDATED-AT-NEEDED.md.",
         summaryColumns: ["workout_id", "exercise_id", "position", "target_sets", "target_reps_low", "target_reps_high"],
-        fullColumns: ["workout_id", "exercise_id", "position", "target_sets", "target_reps_low", "target_reps_high", "target_load", "user_id"],
+        fullColumns: ["workout_id", "exercise_id", "position", "target_sets", "target_reps_low", "target_reps_high", "target_load"],
         filterableColumns: ["workout_id", "exercise_id"],
         orderBy: [{ column: "position", ascending: true }],
         parentFilter: { column: "workout_id", parentTable: "workouts", parentIdColumn: "id" },
@@ -654,7 +717,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Trigger-backed invariant: migration 138 added a real `updated_at` + workout_plans_touch_updated_at (touch_updated_at(), 074) after savePlan (app/(app)/fitness/workouts/plan-actions.ts) was found to UPDATE `name` on an existing row when editing a plan that already has an id, with no faithful existing column to reflect it. The trigger fires on every UPDATE regardless of which write path performs it.",
         summaryColumns: ["name", "kind", "archived"],
-        fullColumns: ["name", "kind", "archived", "created_at", "user_id"],
+        fullColumns: ["name", "kind", "archived", "created_at"],
         filterableColumns: ["kind", "archived"],
         orderBy: [{ column: "name", ascending: true }],
       },
@@ -667,7 +730,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "The table has NO created_at/updated_at column at all (migration 036's schema, confirmed directly). Moot anyway: savePlan always does a full delete-then-reinsert of a routine plan's whole session list (see its own comment: 'Cascades to plan_session_exercises via ON DELETE CASCADE'), never an in-place UPDATE -- same delete+reinsert shape as workout_exercises, same reasoning for why no migration is requested.",
         summaryColumns: ["plan_id", "name", "position", "schedule_days", "start_time"],
-        fullColumns: ["plan_id", "name", "position", "schedule_days", "start_time", "workout_id", "user_id"],
+        fullColumns: ["plan_id", "name", "position", "schedule_days", "start_time", "workout_id"],
         filterableColumns: ["plan_id"],
         orderBy: [{ column: "position", ascending: true }],
         parentFilter: { column: "plan_id", parentTable: "workout_plans", parentIdColumn: "id" },
@@ -681,7 +744,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "The table has NO created_at/updated_at column at all (migration 036's schema, confirmed directly). Moot anyway: savePlan deletes and reinserts a session's whole exercise list on every save, same delete+reinsert shape as workout_exercises/plan_sessions -- no migration requested.",
         summaryColumns: ["session_id", "exercise_id", "position", "duration_minutes", "target_sets", "target_reps"],
-        fullColumns: ["session_id", "exercise_id", "position", "duration_minutes", "target_sets", "target_reps", "load_lb", "user_id"],
+        fullColumns: ["session_id", "exercise_id", "position", "duration_minutes", "target_sets", "target_reps", "load_lb"],
         filterableColumns: ["session_id", "exercise_id"],
         orderBy: [{ column: "position", ascending: true }],
         parentFilter: { column: "session_id", parentTable: "plan_sessions", parentIdColumn: "id" },
@@ -695,7 +758,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "The table has NO created_at/updated_at column at all (migration 036's schema, confirmed directly). Moot anyway: savePlan deletes and reinserts a micro plan's whole exercise list on every save ('delete eq plan_id, then insert rows'), same delete+reinsert shape as workout_exercises -- no migration requested.",
         summaryColumns: ["plan_id", "exercise_id", "position", "schedule_days", "goal_type", "goal_value"],
-        fullColumns: ["plan_id", "exercise_id", "position", "schedule_days", "goal_type", "goal_value", "notes", "user_id"],
+        fullColumns: ["plan_id", "exercise_id", "position", "schedule_days", "goal_type", "goal_value", "notes"],
         filterableColumns: ["plan_id", "exercise_id"],
         orderBy: [{ column: "position", ascending: true }],
         parentFilter: { column: "plan_id", parentTable: "workout_plans", parentIdColumn: "id" },
@@ -703,40 +766,52 @@ export const REGISTRY: Record<string, DomainDef> = {
       workout_schedule: {
         entity: "workout_schedule",
         table: "workout_schedule",
-        description:
-          "The day-of-week -> workout pointer nine legacy readers outside fitness still key off. READ-ONLY, deliberately: while a routine plan is active, this table is entirely wiped-and-regenerated on every plan mutation by lib/fitness/sync-workout-schedule.ts's shim -- a write here would be silently undone by the next savePlan/activatePlan/deactivateSlot/deletePlan call, with no way for a caller to know whether a routine is currently active. See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   The day-of-week -> workout pointer nine legacy readers outside fitness still key off. READ-ONLY,
+        //   deliberately: while a routine plan is active, this table is entirely wiped-and-regenerated on every
+        //   plan mutation by lib/fitness/sync-workout-schedule.ts's shim -- a write here would be silently
+        //   undone by the next savePlan/activatePlan/deactivateSlot/deletePlan call, with no way for a caller to
+        //   know whether a routine is currently active. See docs/ai-connector/FITNESS-WRITE-SCOPE-DECISIONS.md.
+        description: "Which workout falls on each day of the week. Read-only: while a routine plan is active the app regenerates it on every plan change, so direct edits would be undone.",
         idColumn: "id",
         updatedAtColumn: null,
         updatedAtVerification:
           "The table has NO created_at/updated_at column at all (baseline + migration 023's schema, confirmed directly). Not requested as a migration -- low value given this table is read-only via MCP and already churns via the sync shim's own delete-then-reinsert.",
         summaryColumns: ["day_of_week", "workout_name", "time", "workout_id"],
-        fullColumns: ["day_of_week", "workout_name", "time", "duration_minutes", "workout_id", "user_id"],
+        fullColumns: ["day_of_week", "workout_name", "time", "duration_minutes", "workout_id"],
         filterableColumns: ["day_of_week", "workout_id"],
         orderBy: [{ column: "day_of_week", ascending: true }],
       },
       rep_goal: {
         entity: "rep_goal",
         table: "rep_goals",
-        description:
-          "LEGACY/DEAD, kept readable for history: superseded by plan_micro_exercises (migration 036 materializes every active rep_goals row into a 'Starter Reps' micro plan). Confirmed zero writers anywhere in current app code via grep -- read only by app/(app)/settings/export/route.ts's data export.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   LEGACY/DEAD, kept readable for history: superseded by plan_micro_exercises (migration 036
+        //   materializes every active rep_goals row into a 'Starter Reps' micro plan). Confirmed zero writers
+        //   anywhere in current app code via grep -- read only by app/(app)/settings/export/route.ts's data
+        //   export.
+        description: "Legacy rep goals, kept readable for history. Replaced by micro plans (plan_micro_exercise); nothing writes here anymore.",
         idColumn: "id",
         updatedAtColumn: "created_at",
         updatedAtVerification:
           "Zero writers confirmed (grepped the whole tree outside supabase/migrations for `from(\"rep_goals\")`/`from('rep_goals')` and found none) -- a frozen historical artifact, same append-only reasoning as deen.quran_session, just for a table nothing writes to anymore rather than one that only ever inserted.",
         summaryColumns: ["exercise_id", "daily_target", "active_days", "archived"],
-        fullColumns: ["exercise_id", "daily_target", "active_days", "archived", "created_at", "user_id"],
+        fullColumns: ["exercise_id", "daily_target", "active_days", "archived", "created_at"],
         filterableColumns: ["exercise_id", "archived"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
     },
   },
   self_mastery: {
     domain: "self_mastery",
-    description:
-      "Book ingestion and spaced-repetition study -- library metadata, chapter structure, extracted lessons, " +
-      "spaced-repetition cards and their FSRS state, the append-only review log, promotion/verdict tracking " +
-      "for adopted lessons, and CollegeOS's class question bank (shares this study engine's review log). " +
-      "The raw book text itself (source_chunks.text/.embedding) is structurally excluded -- see that entity below.",
+    // Build history (moved out of the model-facing description, P4-04):
+    //   Book ingestion and spaced-repetition study -- library metadata, chapter structure, extracted
+    //   lessons, spaced-repetition cards and their FSRS state, the append-only review log, promotion/verdict
+    //   tracking for adopted lessons, and CollegeOS's class question bank (shares this study engine's review
+    //   log). The raw book text itself (source_chunks.text/.embedding) is structurally excluded -- see that
+    //   entity below.
+    description: "Book study: library metadata, chapter structure, extracted lessons, spaced-repetition cards with their review state and append-only review log, promoted-lesson verdicts, and the class question bank. Raw book text is never readable.",
     entities: {
       /**
        * RULED ON BY THE LEAD (measured, not judged): `provenance_quote`
@@ -777,11 +852,12 @@ export const REGISTRY: Record<string, DomainDef> = {
       lesson: {
         entity: "lesson",
         table: "lessons",
-        description:
-          "One extracted, hallucination-firewalled lesson from a book: a claim, its mechanism, an action template, " +
-          "and the verbatim quote that grounds it (see this entity's own header comment above). Flat, not " +
-          "parent-scoped -- the owner explicitly wants 'all those mini reflections' browsable across the whole " +
-          "library, not book-by-book only; filter.book_id narrows to one book when wanted.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One extracted, hallucination-firewalled lesson from a book: a claim, its mechanism, an action
+        //   template, and the verbatim quote that grounds it (see this entity's own header comment above). Flat,
+        //   not parent-scoped -- the owner explicitly wants 'all those mini reflections' browsable across the
+        //   whole library, not book-by-book only; filter.book_id narrows to one book when wanted.
+        description: "One lesson extracted from a book: a claim, its mechanism, an action template, and the verbatim quote that grounds it. Readable across the whole library; filter.book_id narrows to one book.",
         idColumn: "id",
         updatedAtColumn: null,
         updatedAtVerification:
@@ -815,6 +891,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         // numeric noise to a model, same reasoning as card/source_chunks
         // below, not a security concern for this one.
         filterableColumns: ["book_id", "status", "section_id"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
         // See this entity's header comment (above) for the full ruling.
         truncateColumns: { provenance_quote: 240 },
@@ -859,15 +936,18 @@ export const REGISTRY: Record<string, DomainDef> = {
         // see to deleted_at IS NULL, so the column would read as an always-
         // null field in every row this entity could ever return.
         filterableColumns: ["status", "stage"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
       book_section: {
         entity: "book_section",
         table: "book_sections",
-        description:
-          "One book's chapter/section structure (title, page range, nesting level) -- the table the per-chapter " +
-          "summary this connector is supposed to expose would live on. Parent-scoped: always read for one named " +
-          "book via filter.book_id, never as a flat cross-book list (a section has no meaning outside its book).",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One book's chapter/section structure (title, page range, nesting level) -- the table the per-chapter
+        //   summary this connector is supposed to expose would live on. Parent-scoped: always read for one named
+        //   book via filter.book_id, never as a flat cross-book list (a section has no meaning outside its
+        //   book).
+        description: "One book's chapter or section structure: title, page range, nesting level. Always read for one book via filter.book_id.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification: "Trigger-backed invariant: migration 144 (R6's book_sections summary/provenance storage) added a real `updated_at` + book_sections_touch_updated_at (touch_updated_at(), 074) from day one, not retrofitted -- the table's original 0-created_at-column state (062_ulm_book_sections.sql) is now historical, and L9's persistence work (chunkingStage) has begun writing real rows.",
@@ -915,6 +995,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["state", "due_at", "stability", "book_id"],
         fullColumns: ["state", "due_at", "stability", "difficulty", "reps", "lapses", "learning_steps", "last_review_at", "last_rating", "book_id", "card_id", "question_id"],
         filterableColumns: ["book_id", "state", "card_id", "question_id"],
+        rangeFilterableColumns: ["due_at", "last_review_at"],
         orderBy: [{ column: "due_at", ascending: true }],
       },
       review: {
@@ -953,6 +1034,7 @@ export const REGISTRY: Record<string, DomainDef> = {
           "question_id",
         ],
         filterableColumns: ["book_id", "card_id", "question_id", "rating"],
+        rangeFilterableColumns: ["reviewed_at"],
         orderBy: [{ column: "reviewed_at", ascending: false }],
       },
       self_explanation: {
@@ -969,6 +1051,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["prompt", "response", "lesson_id"],
         fullColumns: ["prompt", "response", "lesson_id", "created_at"],
         filterableColumns: ["lesson_id"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
       lesson_promotion: {
@@ -989,6 +1072,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["accepted_text", "lesson_id", "area_id", "retired_at"],
         fullColumns: ["accepted_text", "lesson_id", "area_id", "cadence", "cue", "started_at", "verdict_due_at", "retired_at", "created_at"],
         filterableColumns: ["lesson_id", "area_id"],
+        rangeFilterableColumns: ["started_at", "verdict_due_at"],
         orderBy: [{ column: "started_at", ascending: false }],
       },
       lesson_verdict: {
@@ -1001,6 +1085,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["verdict", "promotion_id", "verdict_at"],
         fullColumns: ["verdict", "reason", "promotion_id", "verdict_at"],
         filterableColumns: ["promotion_id", "verdict"],
+        rangeFilterableColumns: ["verdict_at"],
         orderBy: [{ column: "verdict_at", ascending: false }],
       },
       source: {
@@ -1070,6 +1155,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["prompt", "topic", "active", "class_id"],
         fullColumns: ["prompt", "answer", "topic", "origin", "source_anchor", "source_skipped", "active", "class_id", "created_at", "updated_at"],
         filterableColumns: ["class_id", "active", "origin"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
       /**
@@ -1175,7 +1261,10 @@ export const REGISTRY: Record<string, DomainDef> = {
       user_setting: {
         entity: "user_setting",
         table: "user_settings",
-        description: "ULM's per-user learning settings: daily new-card limit, notification prefs, desired retention, AI grading opt-in, session length target, and weekday hour baselines (R58).",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   ULM's per-user learning settings: daily new-card limit, notification prefs, desired retention, AI
+        //   grading opt-in, session length target, and weekday hour baselines (R58).
+        description: "Per-account learning settings: daily new-card limit, notification preferences, desired retention, AI grading opt-in, session length target, and weekday hour baselines.",
         idColumn: "user_id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
@@ -1312,13 +1401,19 @@ export const REGISTRY: Record<string, DomainDef> = {
           "created_at",
         ],
         filterableColumns: ["kind", "answered", "tag_type"],
+        rangeFilterableColumns: ["checkin_time"],
         orderBy: [{ column: "checkin_time", ascending: false }],
       },
       allocation: {
         entity: "allocation",
         table: "checkin_allocations",
-        description:
-          "One domain's minutes for one allocation-style checkin. `domain` is nullable and `is_wasted` is a separate boolean (migration 108's sentinel split) -- an unaccounted-time row is `domain: null, is_wasted: true`, never a literal domain named \"wasted\". Not shared with any other MCP domain (its own `domain` column is a tag on ITS OWN rows, not a foreign table's ownership discriminator), so no fixedFilter is needed here the way weekly_goal/task/schedule_event need one.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One domain's minutes for one allocation-style checkin. `domain` is nullable and `is_wasted` is a
+        //   separate boolean (migration 108's sentinel split) -- an unaccounted-time row is `domain: null,
+        //   is_wasted: true`, never a literal domain named "wasted". Not shared with any other MCP domain (its
+        //   own `domain` column is a tag on ITS OWN rows, not a foreign table's ownership discriminator), so no
+        //   fixedFilter is needed here the way weekly_goal/task/schedule_event need one.
+        description: "Minutes allocated to one domain for one allocation check-in. Unaccounted time is domain null with is_wasted true, never a domain named \"wasted\".",
         idColumn: "id",
         updatedAtColumn: "created_at",
         updatedAtVerification:
@@ -1326,6 +1421,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["checkin_id", "domain", "minutes", "is_wasted"],
         fullColumns: ["checkin_id", "domain", "minutes", "is_wasted", "created_at"],
         filterableColumns: ["checkin_id", "domain", "is_wasted"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
     },
@@ -1345,6 +1441,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["domain", "name", "archived"],
         fullColumns: ["domain", "name", "description", "archived", "created_at"],
         filterableColumns: ["domain", "archived"],
+        rangeFilterableColumns: ["created_at"],
         orderBy: [{ column: "created_at", ascending: false }],
       },
       event: {
@@ -1358,6 +1455,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["trigger_id", "date", "reflection_tier"],
         fullColumns: ["trigger_id", "date", "reflection_tier", "reflection_entry_id", "created_at"],
         filterableColumns: ["trigger_id", "date"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
       action_plan: {
@@ -1387,6 +1485,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["trigger_id", "date", "followed"],
         fullColumns: ["trigger_id", "plan_id", "date", "followed", "created_at"],
         filterableColumns: ["trigger_id", "date", "followed"],
+        rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
       },
     },
@@ -1442,14 +1541,22 @@ export const REGISTRY: Record<string, DomainDef> = {
   },
   review: {
     domain: "review",
-    description:
-      "The evening-close/night-plan ceremony and its Review popup. Mostly an aggregation of distractions' own entities (trigger/action_plan/plan_outcome above), work.work_session, and settings.user_setting -- plus its own genuinely-owned slice of `tasks`, the Night Plan's dumped/ranked items (domain IS NULL), below.",
+    // Build history (moved out of the model-facing description, P4-04):
+    //   The evening-close/night-plan ceremony and its Review popup. Mostly an aggregation of distractions'
+    //   own entities (trigger/action_plan/plan_outcome above), work.work_session, and settings.user_setting
+    //   -- plus its own genuinely-owned slice of `tasks`, the Night Plan's dumped/ranked items (domain IS
+    //   NULL), below.
+    description: "The evening close and Night Plan. Most of what it shows lives in distractions, work.work_session and settings.user_setting; its own data is the Night Plan's dumped and ranked items.",
     entities: {
       night_plan_task: {
         entity: "night_plan_task",
         table: "tasks",
-        description:
-          "One Night Plan item: a line dumped during the evening-close ceremony (app/(app)/close/plan-actions.ts's dumpLine), optionally starred/crowned for the next day (mit_rank 1-3 via savePlanRanks). Scoped to `domain IS NULL` rows only -- school's and co_op's own tasks (domain='school'/'co_op') are NOT this entity, see school.task above.",
+        // Build history (moved out of the model-facing description, P4-04):
+        //   One Night Plan item: a line dumped during the evening-close ceremony (app/(app)/close/plan-
+        //   actions.ts's dumpLine), optionally starred/crowned for the next day (mit_rank 1-3 via
+        //   savePlanRanks). Scoped to `domain IS NULL` rows only -- school's and co_op's own tasks
+        //   (domain='school'/'co_op') are NOT this entity, see school.task above.
+        description: "One Night Plan item: a line dumped during the evening close, optionally ranked for the next day (mit_rank 1-3). Only Night Plan items, not school or work tasks.",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
@@ -1457,6 +1564,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         summaryColumns: ["title", "planned_date", "mit_rank", "completed"],
         fullColumns: ["title", "planned_date", "mit_rank", "dump_source", "completed", "completed_at", "created_at", "updated_at"],
         filterableColumns: ["planned_date", "mit_rank", "completed", "dump_source"],
+        rangeFilterableColumns: ["planned_date"],
         orderBy: [
           { column: "planned_date", ascending: false },
           { column: "created_at", ascending: false },
@@ -1478,14 +1586,16 @@ export const REGISTRY: Record<string, DomainDef> = {
   },
   widgets: {
     domain: "widgets",
-    description:
-      "L11/R7 Tier 1 declarative widgets -- a config row rendered by one audited renderer, never agent-authored code. " +
-      "Created/edited/deleted through the dedicated widget_manage tool, not write() -- this entity exists so a caller can " +
-      "list/inspect its own widgets through the same read() dispatch as everything else. Backed by the mcp_widgets table, " +
-      "migration 141 (applied; docs/ai-connector/WIDGETS-MIGRATION-NEEDED.md carries the historical design rationale, " +
-      "marked APPLIED, not an open request). Migration 149 widened `kind`'s CHECK to admit all five of R11's extended " +
-      "vocabulary (metric_card/list/progress_against_goal/sparkline/streak) -- all five are creatable at the database " +
-      "level as of that migration, independent of which ones render.ts has real rendering logic for.",
+    // Build history (moved out of the model-facing description, P4-04):
+    //   L11/R7 Tier 1 declarative widgets -- a config row rendered by one audited renderer, never agent-
+    //   authored code. Created/edited/deleted through the dedicated widget_manage tool, not write() -- this
+    //   entity exists so a caller can list/inspect its own widgets through the same read() dispatch as
+    //   everything else. Backed by the mcp_widgets table, migration 141 (applied; docs/ai-connector/WIDGETS-
+    //   MIGRATION-NEEDED.md carries the historical design rationale, marked APPLIED, not an open request).
+    //   Migration 149 widened `kind`'s CHECK to admit all five of R11's extended vocabulary
+    //   (metric_card/list/progress_against_goal/sparkline/streak) -- all five are creatable at the database
+    //   level as of that migration, independent of which ones render.ts has real rendering logic for.
+    description: "Home dashboard widgets: a config row (kind, data source, display) drawn by a fixed renderer, never agent-written code. Read here; create, update and delete through widget_manage. Kinds: metric_card, list, progress_against_goal, sparkline, streak.",
     entities: {
       widget: {
         entity: "widget",
@@ -1496,7 +1606,7 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "Built with a real trigger-backed updated_at from day one (touch_updated_at(), migration 074) in the table's own proposal doc -- not retrofitted later the way 133/135/136/137/138 each had to be. createWidgetCore/updateWidgetCore/archiveWidgetCore (lib/widgets/actions-core.ts) are the ONLY write paths -- all three go through a plain INSERT/UPDATE the trigger covers. Checked for non-code writers per the team-lead's standing rule: the table's one FK (user_id -> auth.users, ON DELETE CASCADE) only ever DELETEs this row on account deletion, never UPDATEs it, so there is no cascade path that could touch updated_at without going through the trigger.",
         summaryColumns: ["kind", "title", "slot", "position", "status"],
-        fullColumns: ["kind", "title", "data_source", "display", "slot", "position", "status", "created_at", "updated_at", "user_id"],
+        fullColumns: ["kind", "title", "data_source", "display", "slot", "position", "status", "created_at", "updated_at"],
         filterableColumns: ["kind", "slot", "status"],
         orderBy: [
           { column: "slot", ascending: true },

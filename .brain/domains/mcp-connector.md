@@ -5,7 +5,7 @@ layer: L2
 type: domain
 status: canonical
 owner: unassigned
-updated: 2026-09-13
+updated: 2026-09-15
 sources:
   - lib/mcp/**
   - app/api/mcp/**
@@ -36,7 +36,9 @@ A remote MCP server (`/api/mcp`) plus a hand-rolled OAuth 2.1 authorization serv
 | Term | Means |
 |---|---|
 | 5 generic tools | `list_capabilities, read, write, widget_manage, scheduler_manage` (not the originally-designed 7 — `search`/`fetch` were never built). One `domain`/`entity`/`action` triple dispatches through a registry instead of ~150 individual tools. |
-| Registry-driven, allowlist | `lib/mcp/registry.ts` (reads) / `write-registry.ts` (writes) define every entity's exposed columns/filters per domain. 13 domains, 57 read entities; 9 domains, 50 write actions, 32 schedulable. |
+| Registry-driven, allowlist | `lib/mcp/registry.ts` (reads) / `write-registry.ts` (writes) define every entity's exposed columns/filters per domain. 13 domains, 59 read entities; 9 domains, 63 write actions, 40 schedulable (2026-09-15, from `npx tsx scripts/mcp-surface-counts.ts` — re-run it, don't copy these forward). |
+| Account map | `list_capabilities()` (no argument) returns `lib/agent-api/account-map.ts`'s per-account map: local today, legacy/domains mode, active areas, per-domain read/write entity names, as `domain_fields` + rows. Initialize `instructions` are static and point here (P4-03). |
+| Read ergonomics | `read` returns `total`; `limit` 1-20; `{gte,lte}` on `rangeFilterableColumns`; `user_id` is never a returned column; descriptions ≤300 chars with no build jargon (test-enforced, P4-04). |
 | PAT = OAuth token | `mcp_access_tokens` holds both; OAuth just mints a PAT server-side, labeled `"OAuth: <client>"`. |
 
 ## Where the code lives
@@ -45,7 +47,7 @@ A remote MCP server (`/api/mcp`) plus a hand-rolled OAuth 2.1 authorization serv
 |---|---|---|
 | Auth chain | `lib/mcp/{tokens,session,active-user,tool-wrapper}.ts` | `runMcpTool` is the single composition point: scope→rate-limit→mint session→run→audit |
 | OAuth | `lib/mcp/oauth.ts`, `app/api/mcp/oauth/{authorize,token,register}/route.ts`, `app/.well-known/oauth-*` | PKCE S256, single-use codes, refresh rotation with reuse detection |
-| Registries | `lib/mcp/{registry,write-registry}.ts` | 1482 / 1573 lines |
+| Registries | `lib/mcp/{registry,write-registry}.ts` | 1627 / 1951 lines (2026-09-15, same script) |
 | Tools | `lib/mcp/tools/{read,write,widget-manage,scheduler-manage,list-capabilities}.ts` | |
 | Rate limit / audit | `lib/mcp/{rate-limit,audit}.ts` | 30 calls/60s per token, counted from `mcp_audit_log`, no in-memory state |
 | Entry | `app/api/mcp/route.ts` | `verifyToken` chain, lines 35-71 |
