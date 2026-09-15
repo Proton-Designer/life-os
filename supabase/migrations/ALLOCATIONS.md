@@ -80,8 +80,8 @@ the point is to make a number unavailable the moment it is promised.
 | `179` | School engineer (#24) — allocated by Phase-1 lead 2026-09-14 | questions_create_card_state AFTER INSERT trigger on questions (mirrors 069/159 source-creation triggers) so every question gets its card_states row and can enter get_session_queue; plus idempotent backfill. Not security definer (card_states_own_row ALL check user_id=auth.uid() admits it). Reviewed, dry-run, APPLIED 2026-09-14, shape asserts passed | applied |
 | `180` | School engineer (#25 fix) — allocated by Phase-1 lead 2026-09-14 | get_session_queue NEW-item arm: round-robin by source like the due arm. Current body orders new items by row_number() over (order by state_id) (a random UUID) then LIMITs, so a lone new question starves behind a book's new-card backlog. Found by live verification: queue(20,20) for a user with 219 new cards + 1 new question returned 0 questions. Engineer's positive control (rolled back): 50:1 skew starved before, 1001=starved source after. Lead pre-apply check: 0 new card_states would lose their source join. APPLIED 2026-09-14; the failing production query now returns 1001:card 1002:QUESTION | applied |
 | `181`–`209` | BLOCK — Team A (overnight run 2026-09-15, Opus Lead [618bf2]) | Phase 2/3 Team A migrations. Individual numbers are recorded as rows below when handed out | reserved |
-| `181` | Sonnet ENG 1 (Team A, P2-01) | profiles.ai_monthly_spend_cap_usd, nullable, CHECK > 0 when set | pending |
-| `182` | Sonnet ENG 1 (Team A, P2-02) | ai_morning_briefs, claim-first per (user_id, brief_date), RLS select-own | pending |
+| `181` | Sonnet ENG 1 (Team A, P2-01) | profiles.ai_monthly_spend_cap_usd, nullable, CHECK > 0 when set | APPLIED 2026-09-15 |
+| `182` | Sonnet ENG 1 (Team A, P2-02) | ai_morning_briefs, claim-first per (user_id, brief_date), RLS select-own | APPLIED 2026-09-15 |
 | `183` | Sonnet ENG 1 (Team A, P2-05) | sleep_intents (self-service) + profiles.sleep_reminder_enabled + sleep_reminder_log (claim-first) | pending |
 | `190` | Sonnet ENG 2 (Team A, P2-04) | work_sessions.hour_notified_at idempotency column | pending |
 | `210`–`239` | BLOCK — Team B (overnight run 2026-09-15, lead tracking-app-a9) | Phase 4 AI/MCP + Canvas + Team B's Phase 3 migrations. Individual numbers are recorded as rows below when handed out | reserved |
@@ -91,8 +91,6 @@ the point is to make a number unavailable the moment it is promised.
 | `213` | Team B / tracking-app-1e (P2-22), allocated by tracking-app-a9, 2026-09-15 | Canvas token expiry handling + sync status (reserved in case columns/tables are needed; withdrawn if P2-22 needs no schema) | allocated |
 | `214` | Team B / tracking-app-4b (P3-15), allocated by tracking-app-a9, 2026-09-15 | Lecture transcription: `lecture_transcripts` (FK to lecture_recordings, composite tenancy) + async job status | allocated |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
-| `181` | Sonnet ENG 1 (Team A, P2-01) | profiles.ai_monthly_spend_cap_usd numeric(10,2) null, CHECK > 0; NULL = system default $10 | APPLIED 2026-09-15 |
-| `182` | Sonnet ENG 1 (Team A, P2-02) | ai_morning_briefs (one row per user per local day, claim-first unique lock, RLS select-only own) | APPLIED 2026-09-15 |
 | `250`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
