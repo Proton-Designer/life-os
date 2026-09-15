@@ -22,6 +22,7 @@ import { QuestionBankPanel } from "@/components/school/question-bank-panel";
 import { SyllabusPanel } from "@/components/school/syllabus-panel";
 import { AnnouncementPanel } from "@/components/school/announcement-panel";
 import { LecturePanel } from "@/components/school/lecture-panel";
+import { PracticeTestPanel } from "@/components/school/practice-test-panel";
 import { SyllabusReviewPanel } from "@/components/school/syllabus-review-panel";
 import { TaskListModule, type TaskListItem } from "@/components/school/task-list-module";
 import { TaskWizardDialog, type TaskWizardSubmitInput } from "@/components/school/task-wizard-dialog";
@@ -556,6 +557,14 @@ export function ClassDetailDialog({
             (server props), owns its own card wrapper the way GradeScenarioPanel does,
             since it renders nothing at all once there's no batch to review. */}
         {classData.pendingStagingBatch && <SyllabusReviewPanel batch={classData.pendingStagingBatch} />}
+
+        {/* P2-09 -- self-contained, own client-side fetch (there's no existing
+            server prop to extend for this), same reasoning practice-test-
+            panel.tsx's own header gives. Assembly itself happens server-side
+            (the cron dispatcher); this only lists/takes already-assembled tests. */}
+        <div className="rounded-2xl border border-border/40 bg-card p-4">
+          <PracticeTestPanel classId={classData.id} />
+        </div>
 
         {/* Self-contained immediate-commit CRUD (own Server Actions), same shape as
             SyllabusPanel/QuestionBankPanel below — nothing staged here. Assignment of an
