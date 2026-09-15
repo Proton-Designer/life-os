@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
 const ROUTES: { name: string; href: string }[] = [
   { name: "Goals", href: "/goals" },
@@ -24,6 +24,15 @@ const ROUTES: { name: string; href: string }[] = [
 test("Goals, Habits, Worries, and Weekly Review are all reachable from the legacy nav", async ({ page }) => {
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
+  // Same class of race the Lead found in goals.spec.ts's skip guard
+  // (flagged by ritual-builder, 2026-09-15): an isVisible() read right
+  // after goto()/dismiss, with no prior wait for the page to actually
+  // settle, can catch the DOM before hydration/layout has decided desktop
+  // vs. mobile chrome, and read the wrong one. Different failure mode here
+  // — a race would fail loudly on the toHaveAttribute checks below rather
+  // than silently pass — but the fix is the same: anchor on a real settle
+  // point (the route-skeleton-fade-in signal) before the instant read.
+  await settleRoute(page);
 
   // Present on both surfaces, but only VISIBLE on mobile (MobileIsland's
   // `<nav>` is `lg:hidden`) — `.isVisible()`, not `.count()`, is what tells
