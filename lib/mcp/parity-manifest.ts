@@ -19,7 +19,7 @@
  *   cache revalidation). Its read coverage, if any, is tracked by the read
  *   registry tests, not here.
  * - `{ pending: "P4-xx" }` — should be exposed; the named task (in
- *   PENDING_TASKS) will do it. When that task lands, flip the entry to
+ *   PENDING_TASKS, or any `P4-cov-…` id) will do it. When that task lands, flip the entry to
  *   `{ mcp: … }` (see `flipPendingToMcp` below).
  *
  * `note` is optional free text for partial coverage and caveats.
@@ -43,7 +43,7 @@ export const EXCLUSION_CATEGORIES = [
 ] as const;
 export type ExclusionCategory = (typeof EXCLUSION_CATEGORIES)[number];
 
-/** Tasks a `pending` decision may name. Each must exist on the P4 board. */
+/** Named tasks a `pending` decision may name (plus any COV_TASK_ID below). Each must exist on the P4 board. */
 export const PENDING_TASKS = {
   "P4-05": "read coverage: Phase-1 tables",
   "P4-06": "write coverage: Deen",
@@ -54,8 +54,24 @@ export const PENDING_TASKS = {
   "P4-27": "computed decide views",
   "P4-29": "fitness plan-editing writes",
   "P4-cov-P3-14": "lecture capture MCP coverage",
+  "P4-cov-P2-01": "monthly AI spend cap setting MCP coverage",
+  "P4-cov-P2-20": "Canvas course mapping + sync trigger MCP coverage",
 } as const;
-export type PendingTask = keyof typeof PENDING_TASKS;
+
+/**
+ * Coverage follow-up ids (INSTRUCTIONS §5: a feature with mcp_surface: yes
+ * spawns `P4-cov-<id>`). Any id of this shape is accepted as a `pending`
+ * target without editing PENDING_TASKS, so Team A can record a decision in
+ * the same commit that creates the cov task. The test checks the task file
+ * exists on the board only when PARITY_BOARD_DIR is set (the board is
+ * run-scoped and absent from a clean checkout).
+ */
+export const COV_TASK_ID = /^P4-cov-[A-Z0-9-]+$/;
+export type PendingTask = keyof typeof PENDING_TASKS | `P4-cov-${string}`;
+
+export function isAllowedPendingTask(id: string): boolean {
+  return id in PENDING_TASKS || COV_TASK_ID.test(id);
+}
 
 export type ParityDecision =
   | { mcp: string; note?: string }
@@ -248,7 +264,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/ai-preference-actions.ts#getMyAiPreference": { read_only: true },
   "app/(app)/settings/ai-preference-actions.ts#saveMyAiPreference": { pending: "P4-26", note: "settings.ai_preference.save (provider/tier, not a credential)" },
   "app/(app)/settings/ai-spend-actions.ts#getMyMonthlySpendStatus": { read_only: true },
-  "app/(app)/settings/ai-spend-actions.ts#saveMyMonthlySpendCapUsd": { pending: "P4-26", note: "P2-01 spend ceiling; not a credential" },
+  "app/(app)/settings/ai-spend-actions.ts#saveMyMonthlySpendCapUsd": { pending: "P4-cov-P2-01", note: "P2-01 spend ceiling; not a credential" },
   "app/(app)/settings/api-key-actions.ts#getApiKeyStatuses": { read_only: true },
   "app/(app)/settings/api-key-actions.ts#saveApiKey": { excluded: "credential: stores a provider API key" },
   "app/(app)/settings/api-key-actions.ts#removeApiKey": { excluded: "credential: removes a provider API key" },
@@ -256,10 +272,10 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/canvas-actions.ts#getCanvasConnectionStatus": { read_only: true },
   "app/(app)/settings/canvas-actions.ts#connectCanvas": { excluded: "credential: stores a Canvas token" },
   "app/(app)/settings/canvas-actions.ts#disconnectCanvas": { excluded: "credential: removes the Canvas token" },
-  "app/(app)/settings/canvas-actions.ts#refreshCanvasCourses": { excluded: "credential: spends the stored Canvas token on an outbound call" },
+  "app/(app)/settings/canvas-actions.ts#refreshCanvasCourses": { pending: "P4-cov-P2-20", note: "triggers a sync; the Canvas token stays server-side and is never exposed" },
   "app/(app)/settings/canvas-actions.ts#getCanvasCourseMappings": { read_only: true },
   "app/(app)/settings/canvas-actions.ts#getLocalClassOptions": { read_only: true },
-  "app/(app)/settings/canvas-actions.ts#setCourseMapping": { pending: "P4-26", note: "course mapping is not a credential (audit: expose); needs a P4-cov-P2-20 task or P4-26 scope" },
+  "app/(app)/settings/canvas-actions.ts#setCourseMapping": { pending: "P4-cov-P2-20", note: "course mapping is not a credential" },
   "app/(app)/settings/location-actions.ts#searchCities": { read_only: true },
   "app/(app)/settings/location-actions.ts#getNearestCityLabel": { read_only: true },
   "app/(app)/settings/mcp-token-actions.ts#getMcpTokenStatuses": { read_only: true },

@@ -5,6 +5,7 @@
  * lib/mcp/parity-manifest.ts. If this test fails, read its message: it
  * prints the exact lines to add or fix.
  */
+import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,6 +13,7 @@ import {
   PARITY_MANIFEST,
   PENDING_TASKS,
   flipPendingToMcp,
+  isAllowedPendingTask,
   pendingFor,
   type ParityDecision,
 } from "../parity-manifest";
@@ -30,6 +32,20 @@ const SCAN_ROOT = process.env.PARITY_SCAN_ROOT ? path.resolve(process.env.PARITY
 const MANIFEST_PATH = "lib/mcp/parity-manifest.ts";
 
 /**
+ * Optional: the run's board dir (…/board). When set, every `pending` id must
+ * have a `<id>-*.md` task file in some column. Unset in a clean checkout,
+ * where the run-scoped board doesn't exist.
+ */
+const BOARD_DIR = process.env.PARITY_BOARD_DIR ? path.resolve(process.env.PARITY_BOARD_DIR) : null;
+function boardHasTask(id: string): boolean {
+  if (!BOARD_DIR) return true;
+  return fs
+    .readdirSync(BOARD_DIR, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .some((col) => fs.readdirSync(path.join(BOARD_DIR, col.name)).some((f) => f.startsWith(`${id}-`) && f.endsWith(".md")));
+}
+
+/**
  * widget_manage is a dedicated tool, not a WRITE_REGISTRY domain. Its action
  * enum lives in app/api/mcp/route.ts (WidgetManageInputSchema) and
  * lib/mcp/tools/widget-manage.ts (WidgetManageArgs["action"]); neither
@@ -41,8 +57,8 @@ const HOW_TO_DECIDE = [
   `Add one line per export to PARITY_MANIFEST in ${MANIFEST_PATH}, choosing EXACTLY ONE decision:`,
   `  { mcp: "domain.entity.action" }   an MCP write op in lib/mcp/write-registry.ts already does the same thing`,
   `                                    ("domain.entity.read" for an MCP read entity in lib/mcp/registry.ts)`,
-  `  { pending: "P4-xx" }              should be exposed; name the task that will do it: ${Object.keys(PENDING_TASKS).join(", ")}`,
-  `                                    (no fitting task? ask the Team B lead to create one and add it to PENDING_TASKS)`,
+  `  { pending: "P4-xx" }              should be exposed; name the task that will do it: ${Object.keys(PENDING_TASKS).join(", ")},`,
+  `                                    or any P4-cov-<id> coverage task on the board (e.g. "P4-cov-P2-05")`,
   `  { excluded: "<category>: <why>" } never exposed; category is one of: ${EXCLUSION_CATEGORIES.join(", ")}`,
   `  { read_only: true }               writes no user data (getter, pure helper, revalidatePath)`,
 ].join("\n");
@@ -137,7 +153,11 @@ describe("MCP parity manifest", () => {
         const why = resolveMcpOp(d.mcp);
         if (why) problems.push(`${key}: { mcp: "${d.mcp}" } — ${why}. Use an op that exists, or { pending: "P4-xx" } until it does`);
       } else if ("pending" in d) {
-        if (!(d.pending in PENDING_TASKS)) problems.push(`${key}: pending "${d.pending}" is not in PENDING_TASKS (${Object.keys(PENDING_TASKS).join(", ")})`);
+        if (!isAllowedPendingTask(d.pending)) {
+          problems.push(`${key}: pending "${d.pending}" is not in PENDING_TASKS (${Object.keys(PENDING_TASKS).join(", ")}) and is not a P4-cov-<id>`);
+        } else if (BOARD_DIR && !boardHasTask(d.pending)) {
+          problems.push(`${key}: pending "${d.pending}" has no task file on the board (${BOARD_DIR})`);
+        }
       } else if ("excluded" in d) {
         const category = d.excluded.split(":")[0];
         const reason = d.excluded.slice(category.length + 1).trim();
@@ -151,15 +171,19 @@ describe("MCP parity manifest", () => {
     if (problems.length > 0) throw new Error(`Malformed parity decisions:\n${problems.map((p) => `  ${p}`).join("\n")}\n\n${HOW_TO_DECIDE}`);
   });
 
-  it("reports the decision counts (visible in verbose output)", () => {
-    const counts = { total: 0, mcp: 0, excluded: 0, read_only: 0, pending: 0 };
-    for (const d of Object.values(PARITY_MANIFEST)) {
-      counts.total++;
-      counts[decisionKinds(d)[0] as "mcp" | "excluded" | "read_only" | "pending"]++;
+  it("decision counts are internally consistent (logged, never pinned)", () => {
+    // Counts are derived from the scan, not hard-coded: a new, mapped export
+    // keeps this green. An unmapped one leaves the sum short of the total.
+    const counts = { total: scan.exports.length, mcp: 0, excluded: 0, read_only: 0, pending: 0 };
+    for (const e of scan.exports) {
+      const d = PARITY_MANIFEST[e.key];
+      if (!d) continue;
+      const kinds = decisionKinds(d);
+      if (kinds.length === 1) counts[kinds[0] as "mcp" | "excluded" | "read_only" | "pending"]++;
     }
     console.info(`[parity] ${JSON.stringify(counts)} across ${scan.filesScanned} use-server files`);
+    expect(counts.total).toBeGreaterThan(150); // an empty or broken scan must not pass
     expect(counts.mcp + counts.excluded + counts.read_only + counts.pending).toBe(counts.total);
-    expect(counts.total).toBe(scan.exports.length);
   });
 });
 
@@ -190,8 +214,7 @@ describe("manifest helpers", () => {
     expect(() => flipPendingToMcp(src, "app/(app)/deen/actions.ts#logQuranSession", "deen.quran")).toThrow(/domain\.entity\.action/);
   });
 
-  it("flipPendingToMcp works on the real manifest source", async () => {
-    const fs = await import("node:fs");
+  it("flipPendingToMcp works on the real manifest source", () => {
     const real = fs.readFileSync(path.join(REPO_ROOT, MANIFEST_PATH), "utf8");
     const key = pendingFor("P4-06")[0];
     expect(flipPendingToMcp(real, key, "deen.some_entity.some_action")).toContain(`${JSON.stringify(key)}: { mcp: "deen.some_entity.some_action" },`);
