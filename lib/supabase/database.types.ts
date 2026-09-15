@@ -3529,6 +3529,7 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string
+          worry_outcome: string | null
         }
         Insert: {
           class_id?: string | null
@@ -3548,6 +3549,7 @@ export type Database = {
           title: string
           updated_at?: string
           user_id?: string
+          worry_outcome?: string | null
         }
         Update: {
           class_id?: string | null
@@ -3567,6 +3569,7 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string
+          worry_outcome?: string | null
         }
         Relationships: [
           {
