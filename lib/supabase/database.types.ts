@@ -3649,6 +3649,7 @@ export type Database = {
       staging_batches: {
         Row: {
           canvas_announcement_id: string | null
+          canvas_assignment_id: string | null
           class_id: string
           created_at: string
           id: string
@@ -3659,6 +3660,7 @@ export type Database = {
         }
         Insert: {
           canvas_announcement_id?: string | null
+          canvas_assignment_id?: string | null
           class_id: string
           created_at?: string
           id?: string
@@ -3669,6 +3671,7 @@ export type Database = {
         }
         Update: {
           canvas_announcement_id?: string | null
+          canvas_assignment_id?: string | null
           class_id?: string
           created_at?: string
           id?: string
