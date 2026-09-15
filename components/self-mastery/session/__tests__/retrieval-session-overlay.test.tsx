@@ -114,6 +114,39 @@ describe("RetrievalSessionOverlay", () => {
     expect(revealCardAnswerMock).not.toHaveBeenCalled();
   });
 
+  it("P2-16: offers no Dictate control when the browser has no SpeechRecognition, and shows/wires one that appends to the typed answer when it does", async () => {
+    loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Dictation prompt")]));
+    const user = userEvent.setup();
+    const { unmount } = render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Dictation prompt")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Dictate" })).not.toBeInTheDocument();
+    unmount();
+
+    class FakeSpeechRecognition {
+      lang = "";
+      interimResults = false;
+      onresult: ((event: { results: { [i: number]: { [j: number]: { transcript: string } } } }) => void) | null = null;
+      onend: (() => void) | null = null;
+      start() {
+        this.onresult?.({ results: { 0: { 0: { transcript: "hippocampus" } } } });
+        this.onend?.();
+      }
+    }
+    vi.stubGlobal("webkitSpeechRecognition", FakeSpeechRecognition);
+    try {
+      loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Dictation prompt")]));
+      render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText("Dictation prompt")).toBeInTheDocument());
+
+      await user.type(screen.getByPlaceholderText(/Type what you remember/), "the");
+      await user.click(screen.getByRole("button", { name: "Dictate" }));
+
+      expect(screen.getByPlaceholderText(/Type what you remember/)).toHaveValue("the hippocampus");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("only fetches the answer after Reveal is tapped -- the non-negotiable invariant, at the component boundary", async () => {
     loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Prompt one")]));
     revealCardAnswerMock.mockResolvedValue("The real answer");

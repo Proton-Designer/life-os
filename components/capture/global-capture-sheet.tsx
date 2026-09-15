@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { parseUtterance, type ParsedUtterance } from "@/lib/capture/parse-utterance";
 import { captureTask, captureDistraction, captureDump } from "@/lib/capture/actions";
 import type { DistractionDomain } from "@/lib/distractions/types";
+import { useDictation } from "@/components/shared/use-dictation";
 
 type CaptureType = "task" | "distraction" | "worry" | "note";
 
@@ -103,10 +104,9 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
   const [domain, setDomain] = useState<DistractionDomain>(() => inferDefaultDomain(pathname));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dictationSupported] = useState(
-    () => typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
-  );
-  const [dictating, setDictating] = useState(false);
+  // P2-16 extracted this into a shared hook (components/shared/use-dictation.ts)
+  // so Self-Mastery's free-recall answer could reuse it verbatim.
+  const dictation = useDictation((transcript) => setText((prev) => (prev ? `${prev} ${transcript}` : transcript)));
 
   const todayStr = localDateString(new Date(), timezone);
   const parsed = useMemo(
@@ -121,7 +121,7 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
     setCaptureType("task");
     setDomain(inferDefaultDomain(pathname));
     setError(null);
-    setDictating(false);
+    dictation.reset();
   }
 
   // The single close path — used by Cancel AND by Radix's own onOpenChange (escape,
@@ -130,36 +130,6 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
   function handleClose() {
     setOpen(false);
     reset();
-  }
-
-  function toggleDictation() {
-    if (!dictationSupported) return;
-    // Not in TypeScript's standard DOM lib (webkit-prefixed, non-standard API) — this is
-    // the narrow slice this component actually uses, not a claim about the full API.
-    type MinimalSpeechRecognition = {
-      lang: string;
-      interimResults: boolean;
-      onresult: ((event: { results: { [i: number]: { [j: number]: { transcript: string } } } }) => void) | null;
-      onend: (() => void) | null;
-      start: () => void;
-    };
-    const SpeechRecognitionCtor = (
-      window as unknown as {
-        SpeechRecognition?: new () => MinimalSpeechRecognition;
-        webkitSpeechRecognition?: new () => MinimalSpeechRecognition;
-      }
-    ).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: new () => MinimalSpeechRecognition }).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) return;
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript;
-      if (transcript) setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
-    };
-    recognition.onend = () => setDictating(false);
-    setDictating(true);
-    recognition.start();
   }
 
   async function handleConfirm() {
@@ -238,15 +208,15 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
               rows={3}
               className="min-h-20 flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            {dictationSupported && (
+            {dictation.supported && (
               <button
                 type="button"
-                onClick={toggleDictation}
-                aria-label={dictating ? "Listening" : "Dictate"}
-                aria-pressed={dictating}
+                onClick={dictation.toggle}
+                aria-label={dictation.dictating ? "Listening" : "Dictate"}
+                aria-pressed={dictation.dictating}
                 className={cn(
                   "flex size-9 shrink-0 items-center justify-center rounded-full border border-input",
-                  dictating ? "bg-destructive/10 text-destructive" : "text-muted-foreground hover:text-foreground"
+                  dictation.dictating ? "bg-destructive/10 text-destructive" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 <Mic className="size-4" aria-hidden />

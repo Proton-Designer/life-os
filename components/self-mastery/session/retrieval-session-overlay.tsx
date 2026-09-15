@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Sparkles, Target, X } from "lucide-react";
+import { Mic, Sparkles, Target, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useDictation } from "@/components/shared/use-dictation";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { startTimer, pauseTimer, resumeTimer, elapsedMs, type TimerState } from "@/lib/self-mastery/session/timer";
 import { getScheduler, toFsrsCard, computeNextState, toRpcNextState } from "@/lib/self-mastery/fsrs-scheduler";
@@ -71,6 +72,10 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   const [sequence, setSequence] = useState<SessionSequenceItem[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [answeredText, setAnsweredText] = useState("");
+  // P2-16: the same in-browser dictation the Global Capture Sheet already
+  // has (components/shared/use-dictation.ts, extracted from there) —
+  // append-with-a-space onto whatever's already typed, same merge rule.
+  const dictation = useDictation((transcript) => setAnsweredText((prev) => (prev ? `${prev} ${transcript}` : transcript)));
   const [confidence, setConfidence] = useState<Confidence | null>(null);
   const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null);
   // The one thing a user's own API key unlocks (Opus Lead, 4589d22). null
@@ -187,6 +192,7 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
 
   function resetCardInputs() {
     setAnsweredText("");
+    dictation.reset();
     setConfidence(null);
     setRevealedAnswer(null);
     setAiFeedback(null);
@@ -507,15 +513,31 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                 </p>
                 <p className="text-center text-xl font-medium">{currentItem.item.prompt}</p>
 
-                <textarea
-                  value={answeredText}
-                  onChange={(e) => setAnsweredText(e.target.value)}
-                  disabled={phase === "revealed"}
-                  placeholder="Type what you remember -- an honest 'I don't know' is fine, leave it blank."
-                  rows={4}
-                  maxLength={20_000}
-                  className="rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-70"
-                />
+                <div className="flex items-start gap-2">
+                  <textarea
+                    value={answeredText}
+                    onChange={(e) => setAnsweredText(e.target.value)}
+                    disabled={phase === "revealed"}
+                    placeholder="Type what you remember -- an honest 'I don't know' is fine, leave it blank."
+                    rows={4}
+                    maxLength={20_000}
+                    className="flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-70"
+                  />
+                  {dictation.supported && phase !== "revealed" && (
+                    <button
+                      type="button"
+                      onClick={dictation.toggle}
+                      aria-label={dictation.dictating ? "Listening" : "Dictate"}
+                      aria-pressed={dictation.dictating}
+                      className={cn(
+                        "flex size-9 shrink-0 items-center justify-center rounded-full border border-input",
+                        dictation.dictating ? "bg-destructive/10 text-destructive" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Mic className="size-4" aria-hidden />
+                    </button>
+                  )}
+                </div>
 
                 {phase === "card" && (
                   <>
