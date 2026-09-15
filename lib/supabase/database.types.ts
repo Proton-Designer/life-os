@@ -335,7 +335,10 @@ export type Database = {
           created_at: string
           encrypted_token: string
           instance_url: string
+          last_sync_error: string | null
+          last_synced_at: string | null
           token_last4: string
+          token_status: string
           updated_at: string
           user_id: string
         }
@@ -345,7 +348,10 @@ export type Database = {
           created_at?: string
           encrypted_token: string
           instance_url: string
+          last_sync_error?: string | null
+          last_synced_at?: string | null
           token_last4: string
+          token_status?: string
           updated_at?: string
           user_id: string
         }
@@ -355,7 +361,10 @@ export type Database = {
           created_at?: string
           encrypted_token?: string
           instance_url?: string
+          last_sync_error?: string | null
+          last_synced_at?: string | null
           token_last4?: string
+          token_status?: string
           updated_at?: string
           user_id?: string
         }
