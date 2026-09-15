@@ -278,6 +278,13 @@ export async function fetchCardAnswer(client: TypedClient, cardId: string): Prom
   return data.answer;
 }
 
+/** Question-path twin of `fetchCardAnswer` -- same reveal-only invariant (hydrateQueueQuestions deliberately never selects `answer`; this is the one function allowed to). Call this only after the user has committed an attempt. */
+export async function fetchQuestionAnswer(client: TypedClient, questionId: string): Promise<string> {
+  const { data, error } = await client.from("questions").select("answer").eq("id", questionId).single();
+  if (error) throw error;
+  return data.answer;
+}
+
 export interface LessonContext {
   mechanism: string | null;
   actionTemplate: string | null;

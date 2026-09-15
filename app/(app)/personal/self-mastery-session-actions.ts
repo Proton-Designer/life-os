@@ -7,9 +7,12 @@ import { localDateString } from "@/lib/date-utils";
 import {
   buildTodaysSession,
   fetchCardAnswer as fetchCardAnswerCore,
+  fetchQuestionAnswer as fetchQuestionAnswerCore,
   fetchLessonContext as fetchLessonContextCore,
   fetchCardState,
+  fetchQuestionState,
   submitCardReview,
+  submitQuestionReview,
   loadSessionSettings,
   completeTodaysSession,
   countDueCards,
@@ -82,6 +85,12 @@ export async function revealLessonContext(lessonId: string): Promise<LessonConte
   return fetchLessonContextCore(supabase, lessonId);
 }
 
+/** Question-path twin of `revealCardAnswer` -- same separate-fetch-after-commit discipline, for the same reason (see that function's doc). */
+export async function revealQuestionAnswer(questionId: string): Promise<string> {
+  const { supabase } = await requireUser();
+  return fetchQuestionAnswerCore(supabase, questionId);
+}
+
 export interface GradeCardInput {
   cardId: string;
   sessionId: string;
@@ -130,6 +139,52 @@ export async function gradeCard(input: GradeCardInput): Promise<{ scheduledDays:
   return { scheduledDays };
 }
 
+export interface GradeQuestionInput {
+  questionId: string;
+  sessionId: string;
+  rating: 1 | 2 | 3 | 4;
+  elapsedMs: number;
+  answeredText: string;
+  confidence: "sure" | "think_so" | "guessing" | null;
+  /** The raw outcome (`reviews.correct`, 111) -- distinct from the derived `rating`. See submitQuestionReview's own input doc. */
+  correct: boolean | null;
+}
+
+/**
+ * Question-path twin of `gradeCard` (#26) -- same online-only shape,
+ * `submitQuestionReview` instead of `submitCardReview`. UNLIKE the card
+ * path, THIS IS THE ONLY WAY a question review is ever submitted in this
+ * pass: there is no offline queue for questions (Opus Lead's explicit
+ * scoping -- #24/#26's cut line stops at online-only), so a thrown error
+ * here has nowhere else to land and MUST propagate to the caller, never be
+ * swallowed. The overlay's own call site is responsible for keeping the
+ * user's typed answer in state on that rejection so a retry doesn't start
+ * from a blank field -- see retrieval-session-overlay.tsx.
+ */
+export async function gradeQuestion(input: GradeQuestionInput): Promise<{ scheduledDays: number }> {
+  const { supabase, userId } = await requireUser();
+  const currentState = await fetchQuestionState(supabase, userId, input.questionId);
+  const { desiredRetention } = await loadSessionSettings(supabase, userId);
+  const { scheduledDays } = await submitQuestionReview(supabase, {
+    desiredRetention,
+    currentState,
+    questionId: input.questionId,
+    sessionId: input.sessionId,
+    rating: input.rating,
+    elapsedMs: input.elapsedMs,
+    answeredText: input.answeredText,
+    // Same discipline as gradeCard: AI grading assist isn't wired in this
+    // pass, never fabricated as a real signal.
+    aiFeedback: null,
+    aiSuggestedRating: null,
+    confidence: input.confidence,
+    correct: input.correct,
+    now: new Date(),
+  });
+  revalidatePath("/");
+  return { scheduledDays };
+}
+
 /**
  * Read-only, scheduling-numbers-only (no prompt/answer text) — safe to call
  * any time. The overlay calls this immediately before computing the next
@@ -140,6 +195,12 @@ export async function gradeCard(input: GradeCardInput): Promise<{ scheduledDays:
 export async function fetchCurrentCardState(cardId: string) {
   const { supabase, userId } = await requireUser();
   return fetchCardState(supabase, userId, cardId);
+}
+
+/** Question-path twin of `fetchCurrentCardState` -- same read-only, scheduling-numbers-only discipline. */
+export async function fetchCurrentQuestionState(questionId: string) {
+  const { supabase, userId } = await requireUser();
+  return fetchQuestionState(supabase, userId, questionId);
 }
 
 /** Revalidates Home after a grading pass — called once the overlay knows a review actually landed (immediate success or a replayed one), not on every optimistic advance. */

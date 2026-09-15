@@ -293,6 +293,70 @@ describe("Self-Mastery session actions", () => {
     });
   });
 
+  describe("gradeQuestion", () => {
+    it("fetches current card_states by question_id first, then submits the review with correct/confidence passed through", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        card_states: makeChain({ data: null, error: null }), // no prior state -> new question
+        user_settings: makeChain({
+          data: { session_target_minutes: 10, daily_new_limit: 5, ai_grading_enabled: false, desired_retention: 0.9 },
+          error: null,
+        }),
+      };
+      fromImpl = (table) => tables[table];
+      rpcMock.mockImplementationOnce(async () => ({ data: { id: "review-1" }, error: null }));
+      const { gradeQuestion } = await import("../self-mastery-session-actions");
+
+      await gradeQuestion({
+        questionId: "q1",
+        sessionId: "sess-1",
+        rating: 3,
+        elapsedMs: 4000,
+        answeredText: "my answer",
+        confidence: "think_so",
+        correct: true,
+      });
+
+      expect(rpcMock).toHaveBeenCalledWith(
+        "submit_question_review",
+        expect.objectContaining({ p_question_id: "q1", p_confidence: "think_so", p_correct: true, p_answered_text: "my answer" })
+      );
+    });
+
+    // The whole reason this exists (Opus Lead's scoping): there is NO offline
+    // queue for questions in this pass, so a failed submit has nowhere else
+    // to land -- it MUST reach the caller as a rejection, never be silently
+    // swallowed, so the overlay can keep the user's typed answer for retry.
+    it("propagates a failed submit as a rejection rather than swallowing it -- there is no offline queue to fall back to for questions", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        card_states: makeChain({ data: null, error: null }),
+        user_settings: makeChain({
+          data: { session_target_minutes: 10, daily_new_limit: 5, ai_grading_enabled: false, desired_retention: 0.9 },
+          error: null,
+        }),
+      };
+      fromImpl = (table) => tables[table];
+      // mockRejectedValueOnce (not a resolved {data:null, error:{...}} object) --
+      // matches this file's own established convention for simulating a failed
+      // RPC (see retryStarterDeckSeed's own failure test above), and sidesteps
+      // rpcMock's return-type inference being locked to `error: null` from its
+      // first literal.
+      rpcMock.mockRejectedValueOnce(new Error("submit_question_review: no card_states row for question q1 / user user-1"));
+      const { gradeQuestion } = await import("../self-mastery-session-actions");
+
+      await expect(
+        gradeQuestion({
+          questionId: "q1",
+          sessionId: "sess-1",
+          rating: 3,
+          elapsedMs: 4000,
+          answeredText: "my answer",
+          confidence: "think_so",
+          correct: true,
+        })
+      ).rejects.toThrow("no card_states row");
+    });
+  });
+
   describe("finishSession", () => {
     it("computes dueTomorrow alongside complete_session's own result", async () => {
       const tables: Record<string, ReturnType<typeof makeChain>> = {
