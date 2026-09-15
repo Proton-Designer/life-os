@@ -110,6 +110,14 @@ else
   record $? "vitest-skips"
 fi
 
+step "client -> server-only imports (self-tested first; fast static twin of the build check)"
+# tsc and vitest pass on a "use client" module that transitively imports
+# `import "server-only"`; only `next build` fails. Shipped twice in one hour on
+# 2026-09-14 (b63600b, 7da1471). This ~1s scan runs safely in the shared tree,
+# where concurrent `next build`s would clobber each other's .next/.
+node scripts/check-client-server-only.mjs --self-test </dev/null && node scripts/check-client-server-only.mjs </dev/null
+record $? "client-server-only"
+
 step "production build (the ONLY check that sees RSC boundary violations)"
 npx next build </dev/null > /tmp/preflight-build.log 2>&1
 record $? "next build"
