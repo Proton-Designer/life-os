@@ -42,10 +42,14 @@ function estimateTokensFromText(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
 }
 
+/** Same char-based approximation, summed across every input text -- exported so a caller needing a TOKEN COUNT (not a cost) for a usage-log entry, when the provider itself didn't report one, doesn't have to back-derive it from a dollar figure. See lib/ai/embeddings.ts's own use for Gemini, which never reports usage. */
+export function estimateTotalTokens(texts: string[]): number {
+  return texts.reduce((sum, t) => sum + estimateTokensFromText(t), 0);
+}
+
 /** Pre-flight, upper-bound estimate from the raw input texts -- same "never under-count" posture as transcription-pricing.ts's own worst-case estimate. */
 export function estimateWorstCaseEmbeddingCostUsd(provider: EmbeddingProvider, texts: string[]): number {
-  const totalTokens = texts.reduce((sum, t) => sum + estimateTokensFromText(t), 0);
-  return (totalTokens / 1_000_000) * RATE_PER_1M[provider];
+  return (estimateTotalTokens(texts) / 1_000_000) * RATE_PER_1M[provider];
 }
 
 /** Real cost from the provider's own reported token usage (when it reports one) -- used for the recordUsage() log after a call completes, never for the pre-flight gate. */

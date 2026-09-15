@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateWorstCaseEmbeddingCostUsd, computeActualEmbeddingCostUsd } from "../embeddings-pricing";
+import { estimateWorstCaseEmbeddingCostUsd, computeActualEmbeddingCostUsd, estimateTotalTokens } from "../embeddings-pricing";
 
 describe("estimateWorstCaseEmbeddingCostUsd", () => {
   it("scales with total input text length across all texts, not just the first", () => {
@@ -18,6 +18,16 @@ describe("estimateWorstCaseEmbeddingCostUsd", () => {
 
   it("empty text array costs nothing", () => {
     expect(estimateWorstCaseEmbeddingCostUsd("openai", [])).toBe(0);
+  });
+});
+
+describe("estimateTotalTokens", () => {
+  it("sums the approximate token count across every text, not just the first", () => {
+    expect(estimateTotalTokens(["a".repeat(4), "a".repeat(8)])).toBe(1 + 2);
+  });
+
+  it("empty array is zero tokens", () => {
+    expect(estimateTotalTokens([])).toBe(0);
   });
 });
 
