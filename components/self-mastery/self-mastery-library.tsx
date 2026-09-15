@@ -10,7 +10,11 @@ import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
 import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
 import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
-import { requireUser } from "@/lib/supabase/auth";
+import { requireUser, getProfile } from "@/lib/supabase/auth";
+import { localDateString } from "@/lib/date-utils";
+import { getMostRecentCompletedWeek } from "@/lib/weekly-review/week-range";
+import { getUlmWeeklyRecap } from "@/lib/self-mastery/weekly-retention-recap";
+import { WeeklyRecapCard } from "./weekly-recap-card";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -40,9 +44,24 @@ export async function SelfMasteryLibrary() {
   const keyCheck = ingestionAvailable ? await hasUsableIngestionKey(supabase, userId) : null;
   const canUpload = ingestionAvailable && (keyCheck?.usable ?? false);
 
+  // P2-03's ULM weekly recap -- keyed on the most recently COMPLETED
+  // Sun-Sat week (same week-range convention the Weekly Review page uses),
+  // not this week so-far, since it's a stored snapshot the weekly cron
+  // writes once the week is over (lib/self-mastery/weekly-retention-recap.ts's
+  // own header). Null (no row yet, first week ever, or a tick was missed) is
+  // a real, silent-absence state -- WeeklyRecapCard renders nothing then,
+  // same graceful posture as every other AI/cron-fed panel in this app.
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const todayStr = localDateString(now, timezone);
+  const weekRange = getMostRecentCompletedWeek(todayStr);
+  const weeklyRecap = await getUlmWeeklyRecap(supabase, userId, weekRange.startDate);
+
   return (
     <PageContainer>
       <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && canUpload ? <UploadBookDialog /> : null} />
+
+      <WeeklyRecapCard recap={weeklyRecap} />
 
       {books.length === 0 ? (
         // Not the generic EmptyState primitive — its action contract is a

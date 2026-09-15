@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { Panel } from "@/components/ui/panel";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, resolveLocalTime, formatShortDate, addDaysToDateString } from "@/lib/date-utils";
@@ -9,6 +10,7 @@ import { daysBetweenDateStrings } from "@/lib/habits/decay-score";
 import { getDistractionPareto } from "@/lib/weekly-review/pareto";
 import { getHabitWeeklySummaries } from "@/lib/weekly-review/habit-summary";
 import { getMostRecentCompletedWeek, getThisWeekSoFar } from "@/lib/weekly-review/week-range";
+import { getCollegeOsWeeklyNarrative } from "@/lib/weekly-review/weekly-narrative";
 import { WeeklyReviewView } from "@/components/weekly-review/weekly-review-view";
 
 /**
@@ -51,11 +53,17 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
   const endIso = resolveLocalTime(range.endDateExclusive, "00:00", timezone).toISOString();
   const weekDayCount = daysBetweenDateStrings(range.startDate, range.endDateExclusive);
 
-  const [hours, recallMinutes, pareto, habitSummaries] = await Promise.all([
+  const [hours, recallMinutes, pareto, habitSummaries, narrative] = await Promise.all([
     getHoursByKindForRange(supabase, user.id, startIso, endIso, new Date()),
     getEndedRecallMinutesForRange(supabase, user.id, startIso, endIso),
     getDistractionPareto(supabase, user.id),
     getHabitWeeklySummaries(supabase, user.id, range.startDate, range.endDateExclusive, todayStr, timezone),
+    // P2-03's AI weekly narrative -- keyed on `range.startDate`, so it only
+    // ever matches a stored row for the COMPLETED week the cron generated
+    // it for; the "so-far" (still in-progress) view naturally has no
+    // matching row yet and renders nothing, same graceful-absence posture
+    // as every other AI/cron-fed panel in this app (getMorningBriefForToday).
+    getCollegeOsWeeklyNarrative(supabase, user.id, range.startDate),
   ]);
 
   const lastDayInclusive = addDaysToDateString(range.endDateExclusive, -1);
@@ -70,6 +78,11 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
             : `${formatShortDate(range.startDate, todayStr)} – ${formatShortDate(lastDayInclusive, todayStr)}`
         }
       />
+      {narrative ? (
+        <Panel title="Your week">
+          <p className="whitespace-pre-line text-sm text-muted-foreground">{narrative}</p>
+        </Panel>
+      ) : null}
       <WeeklyReviewView
         soFar={soFar}
         weekDayCount={weekDayCount}
