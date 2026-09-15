@@ -6,6 +6,9 @@ import { NotificationSettings } from "@/components/settings/notification-setting
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
 import { ApiKeySettings } from "@/components/settings/api-key-settings";
 import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
+import { AiPreferenceSettings, type AiProviderCatalogInfo } from "@/components/settings/ai-preference-settings";
+import { getMyAiPreference } from "@/app/(app)/settings/ai-preference-actions";
+import { MODEL_CATALOG } from "@/lib/ai/model-catalog";
 import { ConnectorSettings } from "@/components/settings/connector-settings";
 import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
 import { ThemeSettings } from "@/components/settings/theme-settings";
@@ -73,6 +76,25 @@ export default async function SettingsPage() {
   const storageConfigured = isKeyStorageConfigured();
   const mcpTokens = await getMcpTokenStatuses();
 
+  // Multi-provider preference picker. `hasKey` deliberately only reflects
+  // a STORED key, never the operator-funded fallback (even for an
+  // allowlisted deepseek account) -- this UI has no cheap, accurate way to
+  // check per-user allowlist status from here, and an optimistic "has key"
+  // that turns out wrong is worse than a conservative "no key" that turns
+  // out to still work anyway.
+  const hasStoredKey = new Set(keyStatuses.map((s) => s.provider));
+  const aiPreferenceCatalog: AiProviderCatalogInfo[] = PROVIDER_IDS.map((id) => {
+    const entry = MODEL_CATALOG[id];
+    return {
+      id,
+      label: PROVIDERS[id].label,
+      hasKey: hasStoredKey.has(id),
+      cheap: { id: entry.budget.id, inputUsdPer1M: entry.budget.inputUsdPer1M, outputUsdPer1M: entry.budget.outputUsdPer1M },
+      capable: { id: entry.flagship.id, inputUsdPer1M: entry.flagship.inputUsdPer1M, outputUsdPer1M: entry.flagship.outputUsdPer1M },
+    };
+  });
+  const aiPreference = await getMyAiPreference();
+
   return (
     <PageContainer>
       <PageHeader title="Settings" />
@@ -132,11 +154,18 @@ export default async function SettingsPage() {
             </div>
           </Panel>
           <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
-            <ApiKeySettings
-              providers={providers}
-              initialStatuses={keyStatuses}
-              storageConfigured={storageConfigured}
-            />
+            <div className="flex flex-col gap-4">
+              <AiPreferenceSettings
+                catalog={aiPreferenceCatalog}
+                initialProvider={aiPreference.provider}
+                initialModelTier={aiPreference.modelTier}
+              />
+              <ApiKeySettings
+                providers={providers}
+                initialStatuses={keyStatuses}
+                storageConfigured={storageConfigured}
+              />
+            </div>
           </Panel>
           <Panel id="connectors" className="scroll-mt-24" title="Connectors">
             <ConnectorSettings initialTokens={mcpTokens} />
