@@ -395,10 +395,19 @@ export function SessionSetupDialog({
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Objectives — due in the next 14 days
                   </p>
+                  {/* #37: this used to read "optional" nowhere explicitly, but
+                      Study Material below had no indication it could be
+                      required either — this section and the custom-objective
+                      one in the Deep Work branch now both state the rule
+                      plainly rather than leaving it to the disabled Start
+                      button to explain. */}
+                  <p className="text-xs text-muted-foreground">
+                    Select a task, or add Study Material below — Start needs at least one.
+                  </p>
                   {isLoadingTasks ? (
                     <p className="text-sm text-muted-foreground">Loading tasks…</p>
                   ) : classTasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nothing due soon for this class.</p>
+                    <p className="text-sm text-muted-foreground">Nothing due soon for this class — add Study Material below.</p>
                   ) : (
                     <div className="flex flex-col gap-1.5">
                       {classTasks.map((t) => (
@@ -443,10 +452,17 @@ export function SessionSetupDialog({
             <>
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Objectives</p>
+                {/* #37: the field below used to read "(optional)", which
+                    directly contradicted the gate a few lines down (Opus
+                    Lead review, 2026-09-14) — this states the actual rule
+                    instead of leaving it to a disabled Start button to imply. */}
+                <p className="text-xs text-muted-foreground">
+                  Select at least one item, or add a custom objective below — Start needs at least one.
+                </p>
                 {isLoadingKillList ? (
                   <p className="text-sm text-muted-foreground">Loading kill list…</p>
                 ) : killListItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nothing on today's kill list yet.</p>
+                  <p className="text-sm text-muted-foreground">Nothing on today's kill list yet — add a custom objective below.</p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
                     {killListItems.map((item) => (
@@ -464,7 +480,7 @@ export function SessionSetupDialog({
 
               <div className="flex flex-col gap-1">
                 <label htmlFor="session-custom-objective" className="text-xs text-muted-foreground">
-                  Custom objective (optional)
+                  Custom objective
                 </label>
                 <Input
                   id="session-custom-objective"
