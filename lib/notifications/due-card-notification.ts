@@ -41,10 +41,14 @@ import { countDueCards } from "@/lib/self-mastery/session/build-session";
  * with no `checkin_window_start`) when the profile has none. Computed via
  * `resolveLocalTime` (never raw `Date` math, CLAUDE.md's hard constraint).
  *
- * THE WINDOW IS BOUNDED, `[threshold, threshold + 1h)`, not open-ended —
+ * THE WINDOW IS BOUNDED, `[threshold, threshold + 3h)`, not open-ended —
  * see `isWithinSendWindow`'s own comment for why an open "any time at or
  * after threshold" reading can't simultaneously satisfy "23:59 local ->
- * no send" and "08:00 local -> send" on the same day.
+ * no send" and "08:00 local -> send" on the same day. 3 hours (widened
+ * from an initial 1h, Opus Lead review, 2026-09-14): a 1h/four-tick window
+ * gives a transient push-service outage, or a card that first becomes due
+ * at 09:05, no real retry room before the day's slot is gone for good.
+ * 3h still can never reach evening or midnight.
  *
  * REUSES `countDueCards` (lib/self-mastery/session/build-session.ts)
  * rather than re-deriving "how many cards are due" a second way — the
@@ -83,8 +87,8 @@ function truncatePrompt(prompt: string): string {
   return `${collapsed.slice(0, PROMPT_TRUNCATE_LENGTH - 1).trimEnd()}…`;
 }
 
-/** One hour — how long the morning send window stays open past its start. Not the cron's own 15-minute cadence (this app-layer window shouldn't be coupled to that ops-level interval): wide enough to absorb a few missed/late ticks, narrow enough that a genuinely missed window reads as "no notification today," never a stale one arriving hours late. */
-const SEND_WINDOW_DURATION_MS = 60 * 60 * 1000;
+/** How long the morning send window stays open past its start — 3 hours (Opus Lead review, 2026-09-14: widened from an initial 1h, which left no real retry room for a transient push-service outage or a card that first becomes due shortly after the threshold). Not the cron's own 15-minute cadence (this app-layer window shouldn't be coupled to that ops-level interval): wide enough to absorb several missed/late ticks, narrow enough that a genuinely missed window reads as "no notification today," never a stale one arriving in the evening. */
+const SEND_WINDOW_DURATION_MS = 3 * 60 * 60 * 1000;
 
 /**
  * Whether `now` falls within this user's morning send window on `sentDate`

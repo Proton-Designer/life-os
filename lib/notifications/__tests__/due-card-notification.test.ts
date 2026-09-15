@@ -20,11 +20,12 @@ beforeEach(() => {
 });
 
 // America/Chicago is UTC-5 in September (no DST ambiguity to worry about
-// for these instants). 13:00Z == 08:00 local.
+// for these instants). 13:00Z == 08:00 local. Window is [08:00, 11:00).
 const AT_0800_LOCAL = new Date("2026-09-14T13:00:00.000Z");
 const AT_0759_LOCAL = new Date("2026-09-14T12:59:00.000Z");
 const AT_2359_LOCAL = new Date("2026-09-14T04:59:00.000Z"); // 23:59 on the 13th local
-const AT_0900_LOCAL = new Date("2026-09-14T14:00:00.000Z"); // window just closed (>= threshold + 1h)
+const AT_1059_LOCAL = new Date("2026-09-14T15:59:00.000Z"); // threshold + 2:59 -- still inside the 3h window
+const AT_1100_LOCAL = new Date("2026-09-14T16:00:00.000Z"); // threshold + 3:00 -- window just closed
 
 /**
  * A per-table fake client claim-first-aware: `claimedUsers` seeds which
@@ -141,7 +142,7 @@ describe("dispatchDueCardNotifications (#10)", () => {
       expect(result.dispatched).toBe(1);
     });
 
-    it("does not send at 23:59 local -- the window is a bounded 1h slot, not open-ended for the rest of the day", async () => {
+    it("does not send at 23:59 local -- the window is a bounded 3h slot, not open-ended for the rest of the day", async () => {
       countDueCardsMock.mockResolvedValue(2);
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
@@ -153,14 +154,26 @@ describe("dispatchDueCardNotifications (#10)", () => {
       expect(sendPushToUserMock).not.toHaveBeenCalled();
     });
 
-    it("does not send once the window has closed (threshold + 1h)", async () => {
+    it("still sends at threshold + 2:59 -- the widened 3h window gives real retry room", async () => {
+      countDueCardsMock.mockResolvedValue(2);
+      sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+      const { client } = makeClient({
+        subs: [{ user_id: "user-1" }],
+        profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
+        dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
+      });
+      const result = await dispatchDueCardNotifications(client, AT_1059_LOCAL);
+      expect(result.dispatched).toBe(1);
+    });
+
+    it("does not send once the window has closed (threshold + 3:00)", async () => {
       countDueCardsMock.mockResolvedValue(2);
       const { client } = makeClient({
         subs: [{ user_id: "user-1" }],
         profiles: [{ user_id: "user-1", timezone: "America/Chicago" }],
         dueCardByUser: { "user-1": { cardId: "card-1", prompt: "x" } },
       });
-      const result = await dispatchDueCardNotifications(client, AT_0900_LOCAL);
+      const result = await dispatchDueCardNotifications(client, AT_1100_LOCAL);
       expect(result.dispatched).toBe(0);
     });
 
