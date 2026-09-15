@@ -23,6 +23,17 @@ conclusion, not a replacement for reading the original when it matters.
 
 ---
 
+## 2026-09-15 — MCP `school.task.edit` is MERGE semantics; the UI's own edit form stays full-replace
+
+**Status:** Active — Opus Lead ruling, P4-08 (overnight run-20260915-0011)
+**Source:** `.claude/overnight/run-20260915-0011/board/03-in-review/P4-08-write-coverage-school-qbank-ulm.md`
+
+**Decision:** Calling `write(domain:"school", entity:"task", action:"edit", id, patch)` through MCP now merges — a field the caller omits from `patch` keeps the task's current value, rather than being cleared. `due_date` and `task_type_other_label` accept an explicit `null` in the patch to clear them (the one thing MERGE semantics would otherwise remove versus the old behavior, where simply omitting a field cleared it). The app's own task-edit form, and `lib/tasks/actions-core.ts#updateTaskCore` itself, are UNCHANGED — still full-replace. The merge happens entirely inside the write-registry.ts handler: it reads the existing row, resolves each field (`patch.field === undefined ? existing.value : <validated from patch>`), then calls the same, untouched `updateTaskCore` with the fully-resolved values.
+
+**Why:** An AI agent calling this tool typically wants to change ONE field ("push this task's due date back a day") without first reading back and re-sending every other field — full-replace makes that a lossy trap (omit `class_id` by accident, and the edit silently unlinks the task from its class). The UI's own edit dialog already always has the full row in hand (it's editing a form pre-filled from that row), so full-replace costs it nothing and stays as-is — only the MCP write path's shape needed to change.
+
+---
+
 ## 2026-08-19 — A missed Lock-In hour resolves to `wasted`, and every hour stays editable
 
 **Status:** Active — ruled by Ayman 2026-08-19 16:45 CDT
