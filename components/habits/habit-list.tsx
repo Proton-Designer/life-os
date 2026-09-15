@@ -10,7 +10,7 @@ import {
   castHabitVoteAction,
   retractHabitVoteAction,
 } from "@/app/(app)/habits/actions";
-import { MAX_ACTIVE_HABITS } from "@/lib/habits/actions-core";
+import { MAX_ACTIVE_HABITS } from "@/lib/habits/constants";
 import type { HabitWithStatus } from "@/lib/habits/queries";
 
 /**

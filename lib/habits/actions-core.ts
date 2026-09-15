@@ -6,7 +6,8 @@ import { localDateString } from "@/lib/date-utils";
 type TypedClient = SupabaseClient<Database>;
 
 /** Mirrors identity_habits_rank_per_user_idx (migration 175) -- restated here only so a caller reads the ceiling without opening the migration. */
-export const MAX_ACTIVE_HABITS = 7;
+import { MAX_ACTIVE_HABITS } from "./constants";
+export { MAX_ACTIVE_HABITS };
 
 export type Habit = {
   id: string;
