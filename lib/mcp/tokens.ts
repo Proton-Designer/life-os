@@ -387,5 +387,7 @@ export async function getLiveTokenById(supabase: SupabaseClient, tokenId: string
 
 /** Records that a verified token was actually used. Best-effort — a failure here must never fail the request it's recording. */
 export async function touchLastUsed(supabase: SupabaseClient, tokenId: string): Promise<void> {
-  await supabase.from("mcp_access_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", tokenId);
+  // .is(revoked_at, null) — P4-11 sweep: a token revoked mid-request must not
+  // show "last used" after its revocation in Settings.
+  await supabase.from("mcp_access_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", tokenId).is("revoked_at", null);
 }
