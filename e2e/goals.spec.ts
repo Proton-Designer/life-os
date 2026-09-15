@@ -28,10 +28,26 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
     await page.goto("/goals");
     await dismissCheckinDialogIfPresent(page);
 
-    const addButton = page.getByRole("button", { name: "+ Add a goal" });
-    if (!(await addButton.isVisible())) {
-      test.skip(true, "This account's 5 active goals are already full — no room to add a test goal without dropping a real one first.");
+    // THE SKIP GUARD MUST EXAMINE SOMETHING REAL, NOT AN INSTANT SNAPSHOT
+    // (found live 2026-09-15, Opus Lead: a line-reporter run showed "2
+    // passed" four runs in a row, and every one of them was this test
+    // silently SKIPPING, not passing — `addButton.isVisible()` is a
+    // one-shot check with no retry, so on a slow/cold render it can catch
+    // the page before the ceiling state (full vs. not) has actually
+    // rendered, and this account's real ceiling is never full). Wait for
+    // the page's own always-rendered header first, then read the REAL
+    // "N/5" ratio it displays and skip only when N is actually 5 — never
+    // infer fullness from a button's happening-to-be-visible-yet state.
+    await expect(page.getByText("This month's Top 5")).toBeVisible();
+    const ratioText = await page.getByText(/^\d\/5$/).textContent();
+    const activeCount = Number(ratioText!.split("/")[0]);
+    if (activeCount >= 5) {
+      test.skip(
+        true,
+        `This account's 5 active goals are already full (${ratioText}) — no room to add a test goal without dropping a real one first.`
+      );
     }
+
     // The allocation check-in TOAST (role="status") fires on its own
     // window timer, independent of anything this spec does — found live
     // 2026-09-15 as a real flaky failure, on screen exactly when the Add
@@ -39,6 +55,8 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
     // only ever catches the full check-in SHEET (role="dialog"), a
     // different element.
     await dismissCheckinToastIfPresent(page);
+    const addButton = page.getByRole("button", { name: "+ Add a goal" });
+    await expect(addButton).toBeVisible();
     await addButton.click();
 
     await fillReliably(page.getByPlaceholder("Goal title"), title);
@@ -57,9 +75,16 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
 
     // "see it ranked": a numeric rank badge and the Business domain label,
     // both beside the title — NOT a specific rank number, which depends on
-    // how many other active goals this real account already has.
+    // how many other active goals this real account already has. An
+    // explicit longer timeout, not the 5s default: creating a goal now
+    // triggers a real router.refresh() round trip (components/goals/
+    // goal-board.tsx's AddGoalForm, fixed 2026-09-15 — createGoalAction is
+    // called directly from a client handler, not a <form action>, so
+    // Next.js does not refresh the route automatically) rather than an
+    // instant client-side paint, and a cold serverless start can push that
+    // past 5s.
     const row = page.getByRole("listitem").filter({ hasText: title });
-    await expect(row).toBeVisible();
+    await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row.getByText(/^\d+$/).first()).toBeVisible();
     await expect(row.getByText("Business")).toBeVisible();
 
@@ -71,7 +96,7 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
     // been sitting open since the goal was created.
     await dismissCheckinToastIfPresent(page);
     await row.getByRole("button", { name: "Done" }).click();
-    await expect(row).toBeHidden();
+    await expect(row).toBeHidden({ timeout: 15_000 });
 
     // "see it in /business Completed goals" — revalidatePath("/business")
     // fires from the same action (app/(app)/goals/actions.ts), so this
