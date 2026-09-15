@@ -61,9 +61,20 @@ export function MondayAntiWorryHour({
           <p className="mt-1 text-xs text-muted-foreground">
             {worries.length} open worr{worries.length === 1 ? "y" : "ies"} — pick what actually happened with each.
           </p>
-          <ul className="mt-4 space-y-2">
+          {/*
+            reviewer-a3 finding (P2-12 stage 03, moved back from 03-in-review):
+            this used to be a <ul>/<li> (implicit role="listitem"), which collided
+            with worry-list.tsx's OWN open-worry <li> rendering the same title —
+            two "listitem" matches for the same worry text while both are open
+            (proven by worries-page-client.test.tsx's own "appears twice while
+            open" assertion), which breaks e2e/worries.spec.ts's strict-mode
+            `getByRole("listitem").filter({ hasText: title })` locator on any
+            real Monday. This is a working SET of action cards, not a second nav
+            list — plain <div>s carry no listitem role to collide with.
+          */}
+          <div className="mt-4 space-y-2">
             {worries.map((w) => (
-              <li key={w.id} className="rounded-lg border border-border/40 p-3">
+              <div key={w.id} className="rounded-lg border border-border/40 p-3">
                 <p className="text-sm">{w.title}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {OUTCOME_OPTIONS.map((opt) => (
@@ -72,9 +83,9 @@ export function MondayAntiWorryHour({
                     </Button>
                   ))}
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         </>
       )}
     </div>
