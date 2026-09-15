@@ -33,8 +33,34 @@
 #
 # USAGE
 #   scripts/agent-commit.sh "commit message" path [path...]
+#   scripts/agent-commit.sh - path [path...]        <<'EOF'
+#   commit message read from stdin -- see below
+#   EOF
 #
 #   EXPLICIT FILE PATHS ONLY. Never a directory.
+#
+# THE STDIN FORM EXISTS BECAUSE A MESSAGE PASSED AS A SHELL ARGUMENT MUST BE
+# QUOTED CORRECTLY BY WHOEVER TYPES THE INVOCATION, AND THAT IS EASY TO GET
+# WRONG (2026-09-14). A commit message wrapped in 'single quotes' at the call
+# site (this file's own advice above, to defeat backtick command substitution)
+# breaks the instant the message contains a literal apostrophe -- 'it's' ends
+# the quoted string early. The correct escape is 'it'\''s' (close, escaped
+# quote, reopen), which is real but easy to forget or garble, and a caller
+# that gets it wrong does not always get a shell syntax error to notice --
+# some invocation paths silently drop the stray quote character instead,
+# landing a commit with the apostrophe quietly missing. THIS SCRIPT'S OWN
+# `"$MESSAGE"` EXPANSION WAS NEVER THE BUG: proven in a scratch repo, a
+# correctly-escaped or heredoc-supplied message round-trips an apostrophe
+# perfectly today, with zero code changes. The bug is that getting an
+# argument-based invocation right requires knowing a quoting trick with no
+# feedback when it's wrong. Passing `-` as the message and piping the real
+# text in via a QUOTED heredoc (`<<'EOF'`, quotes around the delimiter --
+# unquoted would still expand $vars/`cmd` substitution) sidesteps the whole
+# class of hazard: apostrophes, backticks, dollar signs, and newlines all
+# arrive byte-for-byte, because nothing about heredoc body text is
+# shell-interpreted when the delimiter is quoted. Prefer this form for any
+# message containing an apostrophe or backtick. The argument form is
+# unchanged and still supported for a plain message with neither.
 #
 # CORRECTED 2026-09-02. This header previously read: "It will refuse to commit
 # if the staged set does not exactly match the paths you asked for — that is
@@ -65,10 +91,18 @@ TIMEOUT_SECONDS=120
 
 if [ "$#" -lt 2 ]; then
   echo "usage: $0 \"commit message\" path [path...]" >&2
+  echo "   or: $0 - path [path...]   <<'EOF'   (message read from stdin -- see this file's header)" >&2
   exit 2
 fi
 
-MESSAGE="$1"
+if [ "$1" = "-" ]; then
+  # $(...) command substitution strips ALL trailing newlines on its own
+  # (a heredoc body ends in one, the newline before the closing delimiter
+  # line) -- no separate trim needed.
+  MESSAGE="$(cat)"
+else
+  MESSAGE="$1"
+fi
 shift
 PATHS=("$@")
 
