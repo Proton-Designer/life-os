@@ -47,3 +47,55 @@ export async function getHoursTodayMinutes(
     now
   );
 }
+
+/** Minutes per `work_sessions.kind` ('deep_work' / 'deep_study' / 'learn' / ...), whatever kinds actually occurred in the range. */
+export type HoursByKind = Record<string, number>;
+
+/**
+ * #46's Weekly Review "Total Hours + by-category" (ruled 2026-09-14: reuse
+ * `work_sessions`, not `checkin_allocations`/`getFocusMap` — "Hours"
+ * everywhere else in the ritual layer means timed Lock-In sessions, so a
+ * Weekly Review number built on self-reported check-in time would disagree
+ * with "Hours today" on /close and /open/today under the same word).
+ *
+ * Extends `getHoursTodayMinutes` above to an arbitrary `[startIso, endIso)`
+ * range and breaks it down by `kind` — same duration math
+ * (`computeFocusTimeMinutes`), same day-bound discipline (the caller passes
+ * already-`resolveLocalTime`-derived instants, never a raw `${date}T00:00:00Z`
+ * slice), extended rather than duplicated, per the ruling's own instruction.
+ *
+ * DELIBERATELY NOT `counts_toward_hours`-filtered, unlike
+ * `getHoursTodayMinutes`: the ruling names deep_work/deep_study/learn as the
+ * three bar categories, and `'learn'` (retrieval review) resolves
+ * `counts_toward_hours` to `false` by construction (migrations 057/077) —
+ * filtering on it here would silently drop the `'learn'` bar the ruling
+ * asked for. `totalMinutes` is the sum of every `byKind` entry, so the
+ * Weekly Review's headline and the bars underneath it reconcile by
+ * construction, not by coincidence.
+ */
+export async function getHoursByKindForRange(
+  supabase: SupabaseClient,
+  userId: string,
+  startIso: string,
+  endIso: string,
+  now: Date
+): Promise<{ totalMinutes: number; byKind: HoursByKind }> {
+  const { data } = await supabase
+    .from("work_sessions")
+    .select("started_at, ended_at, kind")
+    .eq("user_id", userId)
+    .gte("started_at", startIso)
+    .lt("started_at", endIso);
+
+  const byKind: HoursByKind = {};
+  for (const row of (data ?? []) as { started_at: string; ended_at: string | null; kind: string }[]) {
+    const minutes = computeFocusTimeMinutes(
+      [{ startedAt: new Date(row.started_at), endedAt: row.ended_at ? new Date(row.ended_at) : null }],
+      now
+    );
+    byKind[row.kind] = (byKind[row.kind] ?? 0) + minutes;
+  }
+
+  const totalMinutes = Object.values(byKind).reduce((a, b) => a + b, 0);
+  return { totalMinutes, byKind };
+}
