@@ -12,7 +12,9 @@ import { computeDeltaMinutes, computeDeltaSeconds } from "@/lib/day-structure/de
 import { computeEfficiency } from "@/lib/day-structure/efficiency";
 import { getHoursTodayMinutes } from "@/lib/evening-close/hours-today";
 import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
+import { getTodaysTimeboxedTasks } from "@/lib/day-structure/timebox";
 import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
+import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
 
 /**
  * Merged Today (#36) — "Delta · Hours · Efficiency in one view." The day-
@@ -63,6 +65,11 @@ export default async function MergedTodayPage() {
   const deltaSeconds = computeDeltaSeconds(wakeMark.wokeAtIso, now);
   const hoursTodayMinutes = await getHoursTodayMinutes(supabase, user.id, today, timezone, now);
   const efficiency = computeEfficiency(hoursTodayMinutes, deltaMinutes);
+  // P2-06 timeboxing -- Night Plan's own "today's plan" set (the
+  // starred/crowned items), each with an optional planned start time. See
+  // lib/day-structure/timebox.ts's own header for why this reuses THAT set
+  // rather than a broader "everything due today" pool.
+  const timeboxedTasks = await getTodaysTimeboxedTasks(supabase, user.id, today);
 
   return (
     <PageContainer>
@@ -91,6 +98,7 @@ export default async function MergedTodayPage() {
           value={efficiency ? `${efficiency.percent}%` : "—"}
         />
       </div>
+      <TimeboxedTasks tasks={timeboxedTasks} />
     </PageContainer>
   );
 }

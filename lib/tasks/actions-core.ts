@@ -111,6 +111,25 @@ export async function removeTaskCore(supabase: SupabaseClient, userId: string, i
   if (error) throw error;
 }
 
+/**
+ * P2-06 timeboxing — a narrow, single-field update, deliberately NOT folded
+ * into `updateTaskCore` (that one is Item 5's full-replace Edit popup,
+ * mandatory `title` and all; forcing every timebox-panel caller to also
+ * resend the title for an inline "set a start time" affordance is the
+ * wrong shape, same reasoning P2-05's `saveMySleepIntent` stayed its own
+ * narrow action rather than folding into a generic profile update).
+ * `time: null` clears it — a deliberate "no start time" is a real state,
+ * not an error, same posture as `clearSleepIntent`. Format validation
+ * (`isValidBedtime` — reused, not duplicated, from
+ * lib/night-plan/sleep-intent.ts, since the shape is identical) happens at
+ * the Server Action layer, not here; this core trusts its caller for
+ * shape, matching every other core in this file.
+ */
+export async function setTaskPlannedStartTimeCore(supabase: SupabaseClient, userId: string, id: string, time: string | null): Promise<void> {
+  const { error } = await supabase.from("tasks").update({ planned_start_time: time }).eq("id", id).eq("user_id", userId);
+  if (error) throw error;
+}
+
 export async function addScheduleEventCore(
   supabase: SupabaseClient,
   userId: string,

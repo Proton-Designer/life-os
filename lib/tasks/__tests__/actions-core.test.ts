@@ -311,3 +311,36 @@ describe("addScheduleEventCore", () => {
     expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ event_date: eventDate }));
   });
 });
+
+describe("setTaskPlannedStartTimeCore", () => {
+  it("updates only planned_start_time, scoped to id and user_id -- no requireUser() inside", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { setTaskPlannedStartTimeCore } = await import("../actions-core");
+
+    await setTaskPlannedStartTimeCore(client, "user-1", "task-1", "09:30");
+
+    expect(fromMock).toHaveBeenCalledWith("tasks");
+    expect(chain.update).toHaveBeenCalledWith({ planned_start_time: "09:30" });
+    expect(chain.eq).toHaveBeenCalledWith("id", "task-1");
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  it("null clears it -- a deliberate 'no start time' is a real state, written the same way as setting one", async () => {
+    const chain = makeChain();
+    fromImpl = () => chain;
+    const { setTaskPlannedStartTimeCore } = await import("../actions-core");
+
+    await setTaskPlannedStartTimeCore(client, "user-1", "task-1", null);
+
+    expect(chain.update).toHaveBeenCalledWith({ planned_start_time: null });
+  });
+
+  it("propagates a real DB error rather than swallowing it", async () => {
+    const chain = makeChain({ data: null, error: { message: "constraint violation" } as never });
+    fromImpl = () => chain;
+    const { setTaskPlannedStartTimeCore } = await import("../actions-core");
+
+    await expect(setTaskPlannedStartTimeCore(client, "user-1", "task-1", "09:30")).rejects.toBeTruthy();
+  });
+});
