@@ -50,8 +50,13 @@ export const HABIT_VOTE_WEIGHT = 1 - HABIT_DECAY_FACTOR;
  * Calendar days from `fromStr` to `toStr` (both YYYY-MM-DD), positive when
  * `toStr` is later. Pure integer arithmetic on already-resolved calendar
  * components -- no instant, no timezone.
+ *
+ * Exported for reuse within lib/habits (queries.ts's "New" badge, under-7-
+ * days-old check) -- kept a same-directory import rather than promoted to
+ * lib/date-utils.ts, same reasoning lib/self-mastery/session/exam-
+ * intensity.ts's own copy gives for staying local to its own owner.
  */
-function daysBetweenDateStrings(fromStr: string, toStr: string): number {
+export function daysBetweenDateStrings(fromStr: string, toStr: string): number {
   const [fy, fm, fd] = fromStr.split("-").map(Number);
   const [ty, tm, td] = toStr.split("-").map(Number);
   const fromUTC = Date.UTC(fy!, fm! - 1, fd!);
