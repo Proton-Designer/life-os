@@ -9,6 +9,8 @@ import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/da
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
+import { saveBusinessWeeklyGoalCore } from "@/lib/business/actions-core";
+import { saveDeenWeeklyGoalCore } from "@/lib/deen/actions-core";
 
 /** Client-callable wrapper — NotificationsBell polls this rather than calling the server-only getNotifications directly. */
 export async function getNotificationsForNow(nowIso: string): Promise<NotificationItem[]> {
@@ -118,6 +120,15 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
  * components/home/weekly-focus.tsx). Behavior unchanged: upserts this
  * week's row, then locks last week's row on this week's first save, per
  * the "past weeks are locked/read-only once the week ends" rule.
+ *
+ * P4-06: the upsert itself now goes through the same per-domain core the
+ * MCP write tool uses (saveBusinessWeeklyGoalCore /
+ * saveDeenWeeklyGoalCore — both plain upserts, deliberately no
+ * locking/carry-forward of their own, see saveBusinessWeeklyGoalCore's own
+ * header). The lock-previous-week step below stays HERE, cookie-only, for
+ * both domains alike — business.weekly_goal.save's MCP path has never had
+ * it either, so this doesn't introduce a new cookie-vs-MCP asymmetry, only
+ * preserves the one that already existed for business.
  */
 export async function saveWeeklyGoal(
   domain: "deen" | "business",
@@ -133,18 +144,11 @@ export async function saveWeeklyGoal(
   const currentWeekStart = getWeekStartDate(localDateString(now, timezone));
   const previousWeekStart = addDaysToDateString(currentWeekStart, -7);
 
-  const { error: upsertError } = await supabase.from("weekly_goals").upsert(
-    {
-      user_id: userId,
-      week_start_date: currentWeekStart,
-      domain,
-      headline,
-      milestones,
-      quran_page_target: quranPageTarget ?? null,
-    },
-    { onConflict: "user_id,week_start_date,domain" }
-  );
-  if (upsertError) throw upsertError;
+  if (domain === "business") {
+    await saveBusinessWeeklyGoalCore(supabase, userId, currentWeekStart, headline, milestones);
+  } else {
+    await saveDeenWeeklyGoalCore(supabase, userId, currentWeekStart, headline, milestones, quranPageTarget ?? null);
+  }
 
   const { data: previousWeek } = await supabase
     .from("weekly_goals")

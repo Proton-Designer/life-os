@@ -1,6 +1,26 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { markPrayerCore, unlogPrayerCore, toggleSunnahCore, toggleAdhkarCore } from "@/lib/deen/actions-core";
+import {
+  markPrayerCore,
+  unlogPrayerCore,
+  toggleSunnahCore,
+  toggleAdhkarCore,
+  quranSessionLogCore,
+  adjustQadaBacklogCore,
+  setTravelingModeCore,
+  reflectionEntryLogCore,
+  createDeenHabitCore,
+  updateDeenHabitCore,
+  archiveDeenHabitCore,
+  setDeenHabitStageOverrideCore,
+  setDeenHabitCommittedDateCore,
+  toggleDeenHabitLogCore,
+  setDeenHabitLogStatusCore,
+  setWeeklyFocusCore,
+  saveDeenWeeklyGoalCore,
+} from "@/lib/deen/actions-core";
+import type { HabitStage } from "@/lib/deen/habit-stage";
+import { localDateString } from "@/lib/date-utils";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
@@ -159,6 +179,33 @@ function requireId(ctx: WriteContext): string {
   return ctx.id;
 }
 
+function requireNumber(patch: WritePatch, field: string): number {
+  const value = patch[field];
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    throw new ToolInputError(`patch.${field} is required and must be a number. Got: ${JSON.stringify(value)}.`);
+  }
+  return value;
+}
+
+function requireBoolean(patch: WritePatch, field: string): boolean {
+  const value = patch[field];
+  if (typeof value !== "boolean") {
+    throw new ToolInputError(`patch.${field} is required and must be a boolean. Got: ${JSON.stringify(value)}.`);
+  }
+  return value;
+}
+
+/** null is a valid value here (reset to automatic / clear an override) — distinct from undefined (field omitted). */
+function requireHabitStageOrNull(patch: WritePatch): HabitStage | null {
+  const value = patch.stage;
+  const allowed: readonly HabitStage[] = ["active_build", "stabilized", "locked"];
+  if (value === null) return null;
+  if (typeof value !== "string" || !allowed.includes(value as HabitStage)) {
+    throw new ToolInputError(`patch.stage must be one of: ${allowed.join(", ")}, or null to reset to automatic. Got: ${JSON.stringify(value)}.`);
+  }
+  return value as HabitStage;
+}
+
 function optionalNumber(patch: WritePatch, field: string): number | undefined {
   const value = patch[field];
   if (value === undefined) return undefined;
@@ -264,7 +311,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             patchShape: "{ date: string, prayer_name: PrayerName, status: 'on_time'|'qada'|'missed' }",
             idempotent: true,
             idempotencyVerification:
-              "markPrayerCore upserts on (user_id,date,prayer_name) with status taken verbatim from the caller-supplied patch (date is REQUIRED, never defaulted to 'today') -- a retry upserts the identical status. logged_at advances to the retry's own `now` each call, which is benign (a real, honest last-touched time, not a double-count) and never read as this entity's real-world state.",
+              "markPrayerCore upserts on (user_id,date,prayer_name) with status taken verbatim from the caller-supplied patch (date is REQUIRED at the handler level, but P4-03's write.ts:withDateDefault fills in the account's local today when the caller omits it -- deen.prayer.log is in DATE_DEFAULTS_TO_TODAY) -- a retry upserts the identical status. logged_at advances to the retry's own `now` each call, which is benign (a real, honest last-touched time, not a double-count) and never read as this entity's real-world state.",
             handler: async (ctx, patch) => {
               const date = requireString(patch, "date");
               const prayerName = requirePrayerName(patch);
@@ -362,6 +409,307 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: ctx.now.toISOString(), ...result },
                 },
                 summary: `toggled ${period} adhkar on ${date} to ${result.completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+        },
+      },
+      // ---------------------------------------------------------------
+      // P4-06: quran_session, profile, reflection_entry, habit, habit_log,
+      // weekly_focus, weekly_goal. Every core these call lives in
+      // lib/deen/actions-core.ts, same "never call requireUser/getProfile,
+      // timezone+now always explicit" rule as prayer/sunnah_log/adhkar
+      // above. `date` fields on the log-style actions here default to
+      // today (localDateString(ctx.now, ctx.timezone)) when the caller
+      // omits them -- a deliberate P4-06 convenience the older
+      // prayer/sunnah_log/adhkar actions don't have (they require an
+      // explicit date); set_committed_date is the one exception (see its
+      // own description) since defaulting it to today would silently do
+      // something the caller almost certainly didn't intend.
+      // ---------------------------------------------------------------
+      quran_session: {
+        entity: "quran_session",
+        actions: {
+          log: {
+            action: "log",
+            description: "Log Quran pages read for a date, optionally with surah/juz. Missing date defaults to today. Strictly not-after-today, server-side.",
+            patchShape: "{ date?: string, pages: number, surah?: string, juz?: number }",
+            idempotent: false,
+            idempotencyVerification: "quranSessionLogCore does a plain INSERT -- a retry creates a second row for the same date, not an upsert.",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const pages = requireNumber(patch, "pages");
+              const surah = optionalString(patch, "surah");
+              const juz = optionalNumber(patch, "juz");
+              const result = await quranSessionLogCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, date, pages, surah, juz);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `logged ${pages} Quran page${pages === 1 ? "" : "s"} on ${date}`,
+              };
+            },
+          },
+        },
+      },
+      profile: {
+        entity: "profile",
+        actions: {
+          adjust_qada: {
+            action: "adjust_qada",
+            description: "Adjust the qada (missed-prayer makeup) backlog count by a delta. Clamped at zero -- never negative.",
+            patchShape: "{ delta: number }",
+            idempotent: false,
+            idempotencyVerification: "adjustQadaBacklogCore reads the CURRENT value and adds delta -- a retry applies the delta twice, not toward a fixed target.",
+            handler: async (ctx, patch) => {
+              const delta = requireNumber(patch, "delta");
+              const result = await adjustQadaBacklogCore(ctx.userClient, ctx.userId, delta);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `adjusted qada backlog by ${delta} (now ${result.qadaOwed})`,
+              };
+            },
+          },
+          set_traveling_mode: {
+            action: "set_traveling_mode",
+            description: "Set traveling mode on/off. Only sets the flag -- never computes prayer-shortening itself (this app deliberately never automates fiqh).",
+            patchShape: "{ enabled: boolean }",
+            idempotent: true,
+            idempotencyVerification: "setTravelingModeCore sets a fixed value taken verbatim from the patch -- a retry sets the identical value.",
+            handler: async (ctx, patch) => {
+              const enabled = requireBoolean(patch, "enabled");
+              const result = await setTravelingModeCore(ctx.userClient, ctx.userId, enabled);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `set traveling mode to ${enabled}`,
+              };
+            },
+          },
+        },
+      },
+      reflection_entry: {
+        entity: "reflection_entry",
+        actions: {
+          log: {
+            action: "log",
+            description: "Log one reflection-entry tally for a date and tier (1, 2, or 3). Missing date defaults to today. No text/note field -- a plain tally, by design (privacy).",
+            patchShape: "{ date?: string, tier: 1 | 2 | 3 }",
+            idempotent: false,
+            idempotencyVerification: "reflectionEntryLogCore does a plain INSERT -- a retry creates a second tally row for the same date/tier.",
+            handler: async (ctx, patch) => {
+              const date = requireString(patch, "date");
+              const tier = requireNumberEnum(patch, "tier", [1, 2, 3] as const);
+              const result = await reflectionEntryLogCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, date, tier);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `logged a tier-${tier} reflection entry on ${date}`,
+              };
+            },
+          },
+        },
+      },
+      habit: {
+        entity: "habit",
+        actions: {
+          create: {
+            action: "create",
+            description: "Create a new Deen habit. committed_date is always today (server-computed) -- use habit.set_committed_date to correct it afterward.",
+            patchShape: "{ name: string, anchor_cue?: string }",
+            idempotent: false,
+            idempotencyVerification: "createDeenHabitCore does a plain INSERT -- a retry creates a second habit with the same name, not an upsert (there is no natural conflict key for a habit's identity).",
+            handler: async (ctx, patch) => {
+              const name = requireString(patch, "name");
+              const anchorCue = optionalString(patch, "anchor_cue");
+              const result = await createDeenHabitCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, name, anchorCue);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { id: result.id, updated_at: ctx.now.toISOString() },
+                },
+                summary: `created deen habit "${name}"`,
+              };
+            },
+          },
+          update: {
+            action: "update",
+            description: 'Rename a habit and/or set its anchor cue (implementation-intention cue, e.g. "After Fajr"). Requires the top-level id.',
+            patchShape: "{ name: string, anchor_cue: string | null }",
+            idempotent: true,
+            idempotencyVerification: "updateDeenHabitCore sets fixed values taken verbatim from the patch -- a retry sets the identical row state.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const name = requireString(patch, "name");
+              const anchorCue = optionalNullableString(patch, "anchor_cue") ?? null;
+              await updateDeenHabitCore(ctx.userClient, ctx.userId, id, name, anchorCue);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id, name }) }],
+                  structuredContent: { id, updated_at: ctx.now.toISOString(), name },
+                },
+                summary: `updated deen habit ${id}`,
+              };
+            },
+          },
+          archive: {
+            action: "archive",
+            description: "Soft-archive a habit (never a hard delete -- its log history survives an un-archive). Requires the top-level id.",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "archiveDeenHabitCore sets archived=true, a fixed value -- a retry sets the identical value.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              await archiveDeenHabitCore(ctx.userClient, ctx.userId, id);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id, archived: true }) }],
+                  structuredContent: { id, updated_at: ctx.now.toISOString(), archived: true },
+                },
+                summary: `archived deen habit ${id}`,
+              };
+            },
+          },
+          set_stage_override: {
+            action: "set_stage_override",
+            description: "Override a habit's stage (active_build/stabilized/locked), or null to reset to automatic derivation from committed_date. Requires the top-level id.",
+            patchShape: "{ stage: 'active_build' | 'stabilized' | 'locked' | null }",
+            idempotent: true,
+            idempotencyVerification: "setDeenHabitStageOverrideCore sets a fixed value taken verbatim from the patch -- a retry sets the identical value.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const stage = requireHabitStageOrNull(patch);
+              await setDeenHabitStageOverrideCore(ctx.userClient, ctx.userId, id, stage);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id, stage }) }],
+                  structuredContent: { id, updated_at: ctx.now.toISOString(), stage },
+                },
+                summary: `set deen habit ${id} stage override to ${stage ?? "automatic"}`,
+              };
+            },
+          },
+          set_committed_date: {
+            action: "set_committed_date",
+            description: "Correct when a habit was actually started. REQUIRED, never defaulted to today -- this action's whole point is usually setting a date that ISN'T today. Strictly not-after-today, server-side. Requires the top-level id.",
+            patchShape: "{ committed_date: string }",
+            idempotent: true,
+            idempotencyVerification: "setDeenHabitCommittedDateCore sets a fixed value taken verbatim from the patch -- a retry sets the identical value.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const committedDate = requireString(patch, "committed_date");
+              await setDeenHabitCommittedDateCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, id, committedDate);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id, committed_date: committedDate }) }],
+                  structuredContent: { id, updated_at: ctx.now.toISOString(), committedDate },
+                },
+                summary: `set deen habit ${id} committed date to ${committedDate}`,
+              };
+            },
+          },
+        },
+      },
+      habit_log: {
+        entity: "habit_log",
+        actions: {
+          toggle: {
+            action: "toggle",
+            description: "Flip a habit's completion for a date. Missing date defaults to today. Requires the top-level id (the habit).",
+            patchShape: "{ date?: string }",
+            // THE TOGGLE TRAP -- same shape as deen.sunnah_log.toggle/deen.adhkar.toggle.
+            idempotent: false,
+            idempotencyVerification: "toggleDeenHabitLogCore reads `completed` then upserts its negation -- a retry inverts what the first call already set.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const date = requireString(patch, "date");
+              const result = await toggleDeenHabitLogCore(ctx.userClient, ctx.userId, id, date);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify(result) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), ...result },
+                },
+                summary: `toggled deen habit ${id} on ${date} to ${result.completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+          set_status: {
+            action: "set_status",
+            description: "Set (not toggle) a habit's completion for a date. Missing date defaults to today. Strictly not-after-today, server-side. Requires the top-level id (the habit).",
+            patchShape: "{ date?: string, completed: boolean }",
+            idempotent: true,
+            idempotencyVerification: "setDeenHabitLogStatusCore upserts on (habit_id,date) with `completed` taken verbatim from the patch -- a retry upserts the identical value.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const date = requireString(patch, "date");
+              const completed = requireBoolean(patch, "completed");
+              await setDeenHabitLogStatusCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, id, date, completed);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id, date, completed }) }],
+                  structuredContent: { id, updated_at: ctx.now.toISOString(), date, completed },
+                },
+                summary: `set deen habit ${id} on ${date} to ${completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+        },
+      },
+      weekly_focus: {
+        entity: "weekly_focus",
+        actions: {
+          set: {
+            action: "set",
+            description: "Set this week's focus habit. week_start_date is always server-computed from now/timezone, never caller-supplied. Requires the top-level id (the habit).",
+            patchShape: "{}",
+            idempotent: true,
+            idempotencyVerification: "setWeeklyFocusCore upserts on (user_id,week_start_date) with habit_id taken verbatim from the top-level id -- a retry upserts the identical value.",
+            handler: async (ctx) => {
+              const id = requireId(ctx);
+              const result = await setWeeklyFocusCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, id);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ habitId: id, ...result }) }],
+                  structuredContent: { updated_at: ctx.now.toISOString(), habitId: id, ...result },
+                },
+                summary: `set weekly focus to habit ${id} for week of ${result.weekStartDate}`,
+              };
+            },
+          },
+        },
+      },
+      weekly_goal: {
+        entity: "weekly_goal",
+        actions: {
+          save: {
+            action: "save",
+            description: "Save (upsert) this week's deen-domain goal. Plain upsert, no locking/carry-forward -- see saveDeenWeeklyGoalCore's own comment (mirrors business.weekly_goal.save exactly).",
+            patchShape: "{ week_start_date: string, headline: string, milestones: string[], quran_page_target?: number }",
+            idempotent: true,
+            idempotencyVerification: "saveDeenWeeklyGoalCore upserts on (user_id,week_start_date,domain) with headline/milestones/quran_page_target taken verbatim from the patch -- a retry upserts the identical row.",
+            handler: async (ctx, patch) => {
+              const weekStartDate = requireString(patch, "week_start_date");
+              const headline = requireString(patch, "headline");
+              const milestonesRaw = patch.milestones;
+              if (!Array.isArray(milestonesRaw) || !milestonesRaw.every((m) => typeof m === "string")) {
+                throw new ToolInputError("patch.milestones must be an array of strings.");
+              }
+              const quranPageTarget = optionalNumber(patch, "quran_page_target") ?? null;
+              await saveDeenWeeklyGoalCore(ctx.userClient, ctx.userId, weekStartDate, headline, milestonesRaw, quranPageTarget);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ week_start_date: weekStartDate, headline }) }],
+                  structuredContent: { id: `${weekStartDate}:deen`, updated_at: null, week_start_date: weekStartDate, headline },
+                },
+                summary: `saved deen weekly goal for week of ${weekStartDate}`,
               };
             },
           },

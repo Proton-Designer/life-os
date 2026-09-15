@@ -54,8 +54,10 @@ export const PENDING_TASKS = {
   "P4-27": "computed decide views",
   "P4-29": "fitness plan-editing writes",
   "P4-cov-P3-14": "lecture capture MCP coverage",
+  "P4-cov-P3-15": "lecture transcription MCP coverage",
   "P4-cov-P2-01": "monthly AI spend cap setting MCP coverage",
   "P4-cov-P2-20": "Canvas course mapping + sync trigger MCP coverage",
+  "P4-cov-P2-06": "timeboxing (task planned start time) MCP coverage",
 } as const;
 
 /**
@@ -86,7 +88,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/actions.ts#markNotificationReadForNow": { excluded: "ui_scaffold: per-day notification dismissal state; no user-authored data" },
   "app/(app)/actions.ts#signOut": { excluded: "auth: ends the browser session" },
   "app/(app)/actions.ts#toggleItem": { pending: "P4-09", note: "prayer/kill-list/school-task/adhkar kinds already covered by their own ops; toggle_habit (fitness habit_logs) lands as fitness.habit_log.toggle" },
-  "app/(app)/actions.ts#saveWeeklyGoal": { pending: "P4-06", note: "domain 'business' covered by business.weekly_goal.save; domain 'deen' lands as deen.weekly_goal.save" },
+  "app/(app)/actions.ts#saveWeeklyGoal": { mcp: "business.weekly_goal.save", note: "domain 'business' -> business.weekly_goal.save; domain 'deen' -> deen.weekly_goal.save (P4-06)" },
 
   // ── Business / Lock-In ──────────────────────────────────────────────────
   "app/(app)/business/actions.ts#setKillListItem": { mcp: "business.kill_list_item.set" },
@@ -124,20 +126,20 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/deen/actions.ts#markPrayer": { mcp: "deen.prayer.log" },
   "app/(app)/deen/actions.ts#unmarkPrayer": { mcp: "deen.prayer.unlog", note: "UI deletes the row; MCP sets the non-destructive 'unlogged' status (migration 143)" },
   "app/(app)/deen/actions.ts#toggleAdhkar": { mcp: "deen.adhkar.toggle" },
-  "app/(app)/deen/actions.ts#logQuranSession": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#adjustQadaBacklog": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#setTravelingMode": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#logReflectionEntry": { pending: "P4-06" },
+  "app/(app)/deen/actions.ts#logQuranSession": { mcp: "deen.quran_session.log" },
+  "app/(app)/deen/actions.ts#adjustQadaBacklog": { mcp: "deen.profile.adjust_qada" },
+  "app/(app)/deen/actions.ts#setTravelingMode": { mcp: "deen.profile.set_traveling_mode" },
+  "app/(app)/deen/actions.ts#logReflectionEntry": { mcp: "deen.reflection_entry.log" },
   "app/(app)/deen/actions.ts#decrementReflectionEntry": { excluded: "hard_delete: DELETEs the latest reflection_entries row (undo-shaped)" },
-  "app/(app)/deen/actions.ts#createDeenHabit": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#toggleDeenHabitLog": { pending: "P4-06" },
+  "app/(app)/deen/actions.ts#createDeenHabit": { mcp: "deen.habit.create" },
+  "app/(app)/deen/actions.ts#toggleDeenHabitLog": { mcp: "deen.habit_log.toggle" },
   "app/(app)/deen/actions.ts#toggleSunnah": { mcp: "deen.sunnah_log.toggle" },
-  "app/(app)/deen/actions.ts#setWeeklyFocus": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#updateDeenHabit": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#archiveDeenHabit": { pending: "P4-06", note: "soft archive, so allowed" },
-  "app/(app)/deen/actions.ts#setDeenHabitStageOverride": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#setDeenHabitCommittedDate": { pending: "P4-06" },
-  "app/(app)/deen/actions.ts#setDeenHabitLogStatus": { pending: "P4-06" },
+  "app/(app)/deen/actions.ts#setWeeklyFocus": { mcp: "deen.weekly_focus.set" },
+  "app/(app)/deen/actions.ts#updateDeenHabit": { mcp: "deen.habit.update" },
+  "app/(app)/deen/actions.ts#archiveDeenHabit": { mcp: "deen.habit.archive", note: "soft archive, so allowed" },
+  "app/(app)/deen/actions.ts#setDeenHabitStageOverride": { mcp: "deen.habit.set_stage_override" },
+  "app/(app)/deen/actions.ts#setDeenHabitCommittedDate": { mcp: "deen.habit.set_committed_date" },
+  "app/(app)/deen/actions.ts#setDeenHabitLogStatus": { mcp: "deen.habit_log.set_status" },
   "app/(app)/deen/actions.ts#getDeenHabitLogRange": { read_only: true },
   "app/(app)/deen/salah-calendar-actions.ts#getSalahMonthSummary": { read_only: true },
   "app/(app)/deen/salah-calendar-actions.ts#getSalahDayDetail": { read_only: true },
@@ -197,6 +199,10 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Day start ───────────────────────────────────────────────────────────
   "app/(app)/open/actions.ts#startDayAction": { pending: "P4-07", note: "day.day_start.start" },
 
+  // ── Timeboxing (P2-06) ──────────────────────────────────────────────────
+  "app/(app)/open/today/timebox-actions.ts#setTaskPlannedStartTime": { pending: "P4-cov-P2-06", note: "a plain HH:MM patch to a task the caller already owns, not a credential" },
+  "app/(app)/open/today/timebox-actions.ts#clearTaskPlannedStartTime": { pending: "P4-cov-P2-06" },
+
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────
   "app/(app)/personal/answer-feedback-actions.ts#getAnswerFeedback": { excluded: "llm_spend: grades a typed answer with gatewayChat; the agent can judge the answer itself" },
   "app/(app)/personal/answer-feedback-actions.ts#parseFeedbackForTest": { read_only: true, note: "pure parser exported for tests" },
@@ -231,6 +237,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/school/actions.ts#addClassEvent": { excluded: "scope_ruling: SCHOOL-WRITE-SCOPE-DECISIONS ruling 2 (no schedule create)" },
   "app/(app)/school/actions.ts#updateClassEvent": { mcp: "school.schedule_event.edit_series", note: "partial: MCP edits one row's day/time; UI edits a multi-day class_group" },
   "app/(app)/school/actions.ts#removeClassEvent": { excluded: "hard_delete: DELETEs a class's schedule rows" },
+  "app/(app)/school/announcement-actions.ts#extractAnnouncementDeliverables": { excluded: "llm_spend: announcement text extraction via LLM, same shape as syllabus-extraction-actions.ts's own extractSyllabusDeliverables" },
+  "app/(app)/school/announcement-actions.ts#getAnnouncementHistory": { read_only: true },
   "app/(app)/school/class-actions.ts#addClassAssessment": { mcp: "school.class_assessment.add" },
   "app/(app)/school/class-actions.ts#deleteClassAssessment": { excluded: "hard_delete: DELETEs an assessment" },
   "app/(app)/school/class-actions.ts#updateClassAssessment": { mcp: "school.class_assessment.edit", note: "partial: category_id lands in P4-08" },
@@ -249,6 +257,12 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/school/lecture-actions.ts#finalizeLectureUpload": { pending: "P4-cov-P3-14" },
   "app/(app)/school/lecture-actions.ts#removeLectureRecording": { pending: "P4-cov-P3-14", note: "a DELETE; that task must rule on it against L6 before wiring" },
   "app/(app)/school/lecture-actions.ts#getLectureRecordingUrl": { read_only: true, note: "signed-URL read is in P4-cov-P3-14's scope" },
+  "app/(app)/school/transcript-actions.ts#requestTranscription": { pending: "P4-cov-P3-15", note: "kicks off a paid BYOK job; that task must also decide how spend/provider selection surfaces to an agent" },
+  "app/(app)/school/transcript-actions.ts#getTranscriptionAvailability": { read_only: true, note: "key-presence read is in P4-cov-P3-15's scope" },
+  "app/(app)/school/practice-test-actions.ts#getMyPracticeTests": { read_only: true },
+  "app/(app)/school/practice-test-actions.ts#getPracticeTestQuestions": { read_only: true },
+  "app/(app)/school/practice-test-actions.ts#submitPracticeTestAnswer": { pending: "P4-08", note: "P2-09 self-reported practice-test answer" },
+  "app/(app)/school/practice-test-actions.ts#completePracticeTest": { pending: "P4-08", note: "P2-09 practice-test completion + score" },
   "app/(app)/school/question-actions.ts#createQuestion": { pending: "P4-08", note: "school.question.create" },
   "app/(app)/school/question-actions.ts#updateQuestion": { pending: "P4-08", note: "school.question.update" },
   "app/(app)/school/question-actions.ts#setQuestionActive": { pending: "P4-08", note: "school.question.set_active" },
@@ -319,6 +333,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Worries ─────────────────────────────────────────────────────────────
   "app/(app)/worries/actions.ts#markWorryHandled": { pending: "P4-07", note: "review.worry.set_handled" },
   "app/(app)/worries/actions.ts#reopenWorry": { pending: "P4-07", note: "review.worry.reopen" },
+  "app/(app)/worries/actions.ts#recordWorryOutcome": { pending: "P4-07", note: "P2-12: same surface as set_handled + an outcome enum; P4-07 should let review.worry.set_handled take an optional outcome rather than mint a second op" },
 
   // ── Auth ────────────────────────────────────────────────────────────────
   "app/login/actions.ts#signIn": { excluded: "auth: password sign-in" },

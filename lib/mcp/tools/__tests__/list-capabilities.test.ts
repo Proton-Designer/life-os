@@ -49,7 +49,12 @@ describe("listCapabilitiesTool — P4-03 account map and write detail", () => {
     const deen = textPayload(await listCapabilitiesTool("deen"));
     const log = deen.entities.find((e: { entity: string }) => e.entity === "prayer").write_actions.find((a: { action: string }) => a.action === "log");
     expect(log).toMatchObject({ requires_id: false, patch: expect.stringContaining("date") });
-    expect(deen.entities.find((e: { entity: string }) => e.entity === "habit").write_actions).toEqual([]);
+    // P4-06: deen.habit gained 5 write actions — create has no top-level id
+    // (a new row), the other 4 target an existing habit by id.
+    const habitActions = deen.entities.find((e: { entity: string }) => e.entity === "habit").write_actions;
+    expect(habitActions.map((a: { action: string }) => a.action).sort()).toEqual(["archive", "create", "set_committed_date", "set_stage_override", "update"]);
+    expect(habitActions.find((a: { action: string }) => a.action === "create")).toMatchObject({ requires_id: false });
+    expect(habitActions.find((a: { action: string }) => a.action === "update")).toMatchObject({ requires_id: true, patch: expect.any(String) });
   });
 
   it("widgets detail names the 5 kinds and a display schema per kind", async () => {
@@ -124,16 +129,34 @@ describe("listCapabilitiesTool", () => {
     await expect(listCapabilitiesTool("nonexistent_domain")).rejects.toThrow(/deen/);
   });
 
-  it("reports write actions ONLY for the 3 entities write-registry.ts actually wires — habit/habit_log/weekly_focus/etc. stay read-only, honestly", async () => {
+  it("reports write actions for every deen entity that has BOTH read and write coverage (P4-06 added 5 of these)", async () => {
     const outcome = await listCapabilitiesTool("deen");
     const payload = textPayload(outcome);
     const byEntity = Object.fromEntries(payload.entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
     expect(byEntity.prayer).toEqual(["read", "write:log", "write:unlog"]); // R9
     expect(byEntity.sunnah_log).toEqual(["read", "write:toggle"]);
     expect(byEntity.adhkar).toEqual(["read", "write:toggle"]);
-    for (const stillReadOnly of ["quran_session", "reflection_entry", "habit", "habit_log", "weekly_focus"]) {
-      expect(byEntity[stillReadOnly]).toEqual(["read"]);
+    expect(byEntity.quran_session).toEqual(["read", "write:log"]); // P4-06
+    expect(byEntity.reflection_entry).toEqual(["read", "write:log"]); // P4-06
+    expect(byEntity.habit?.sort()).toEqual(
+      ["read", "write:archive", "write:create", "write:set_committed_date", "write:set_stage_override", "write:update"].sort(),
+    ); // P4-06
+    expect(byEntity.habit_log?.sort()).toEqual(["read", "write:set_status", "write:toggle"].sort()); // P4-06
+    expect(byEntity.weekly_focus).toEqual(["read", "write:set"]); // P4-06
+  });
+
+  it('KNOWN GAP (P4-06, flagged to a9/p4-b-core, not fixed here): weekly_goal and profile have real write actions in WRITE_REGISTRY but no read-registry entity under deen, so list_capabilities("deen") -- which only iterates REGISTRY entities -- never advertises them at all. Documenting the actual (undiscoverable) behavior, not the desired one. (habit/habit_log/weekly_focus DO have read entities and are covered by the test above.)', async () => {
+    const outcome = await listCapabilitiesTool("deen");
+    const payload = textPayload(outcome);
+    const listedEntities = new Set(payload.entities.map((e: { entity: string }) => e.entity));
+    for (const writeOnlyForNow of ["weekly_goal", "profile"]) {
+      expect(listedEntities.has(writeOnlyForNow)).toBe(false);
     }
+    // A caller can still find them: WRITE_REGISTRY itself is queryable
+    // (getWriteAction/listWriteEntities/listWriteActions), and `write()`
+    // accepts them today. Only the discovery TOOL's advertised list is short.
+    const { listWriteEntities } = await import("@/lib/mcp/write-registry");
+    expect(listWriteEntities("deen")).toEqual(expect.arrayContaining(["weekly_goal", "profile"]));
   });
 
   it("self_mastery: source_chunks/book/book_section/lesson/card/card_state stay read-only -- only review/lesson_promotion/self_explanation gained a write action", async () => {

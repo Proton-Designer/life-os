@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
@@ -201,7 +202,10 @@ describe("Deen actions", () => {
   it("logQuranSession inserts pages/surah/juz", async () => {
     const chains: Record<string, ReturnType<typeof makeChain>> = {
       profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
-      quran_sessions: makeChain(),
+      // quranSessionLogCore selects `id` back off the insert (P4-06, for
+      // the MCP write tool's {id, updated_at} contract) — needs a non-null
+      // row for that final .single() to resolve.
+      quran_sessions: makeChain({ data: { id: "qs-1" }, error: null }),
     };
     fromImpl = (table) => chains[table];
     const { logQuranSession } = await import("../actions");
@@ -221,7 +225,9 @@ describe("Deen actions", () => {
   it("logReflectionEntry inserts a tally row for today with the given tier", async () => {
     const chains: Record<string, ReturnType<typeof makeChain>> = {
       profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
-      reflection_entries: makeChain(),
+      // reflectionEntryLogCore selects `id` back off the insert (P4-06,
+      // same MCP contract as quranSessionLogCore above).
+      reflection_entries: makeChain({ data: { id: "re-1" }, error: null }),
     };
     fromImpl = (table) => chains[table];
     const { logReflectionEntry } = await import("../actions");
@@ -348,7 +354,10 @@ describe("Deen actions", () => {
   // 2026-08-25/26, item 6 data layer (Opus Lead contract).
   describe("Habit Builder editor actions", () => {
     it("updateDeenHabit updates name and a trimmed anchor cue, scoped to the habit and user", async () => {
-      const chain = makeChain();
+      // requireHabitUpdated (P4-06) checks rows-affected via .select("id")
+      // instead of a separate pre-check — needs a non-empty array back to
+      // NOT throw ToolNotFoundError.
+      const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
       fromImpl = () => chain;
       const { updateDeenHabit } = await import("../actions");
 
@@ -361,7 +370,7 @@ describe("Deen actions", () => {
     });
 
     it("updateDeenHabit normalizes a blank anchor cue to null, not an empty string", async () => {
-      const chain = makeChain();
+      const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
       fromImpl = () => chain;
       const { updateDeenHabit } = await import("../actions");
 
@@ -371,7 +380,7 @@ describe("Deen actions", () => {
     });
 
     it("updateDeenHabit accepts a null anchor cue directly", async () => {
-      const chain = makeChain();
+      const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
       fromImpl = () => chain;
       const { updateDeenHabit } = await import("../actions");
 
@@ -381,7 +390,7 @@ describe("Deen actions", () => {
     });
 
     it("archiveDeenHabit soft-deletes via `archived: true` — never a hard delete", async () => {
-      const chain = makeChain();
+      const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
       fromImpl = () => chain;
       const { archiveDeenHabit } = await import("../actions");
 
@@ -393,8 +402,18 @@ describe("Deen actions", () => {
       expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
     });
 
+    it("updateDeenHabit throws ToolNotFoundError (P4-06) for a habit id that doesn't belong to this user, rather than silently no-op'ing", async () => {
+      // Positive control: 0 rows affected (an empty array from .select("id"))
+      // is what the real update returns when id/user_id don't match a row.
+      const chain = makeChain({ data: [], error: null });
+      fromImpl = () => chain;
+      const { updateDeenHabit } = await import("../actions");
+
+      await expect(updateDeenHabit("someone-elses-habit", "x", null)).rejects.toBeInstanceOf(ToolNotFoundError);
+    });
+
     it("setDeenHabitStageOverride writes the given stage", async () => {
-      const chain = makeChain();
+      const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
       fromImpl = () => chain;
       const { setDeenHabitStageOverride } = await import("../actions");
 
@@ -404,7 +423,7 @@ describe("Deen actions", () => {
     });
 
     it("setDeenHabitStageOverride writes null to reset to automatic", async () => {
-      const chain = makeChain();
+      const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
       fromImpl = () => chain;
       const { setDeenHabitStageOverride } = await import("../actions");
 
@@ -416,7 +435,7 @@ describe("Deen actions", () => {
     it("setDeenHabitCommittedDate updates committed_date when it's today or earlier", async () => {
       const chains: Record<string, ReturnType<typeof makeChain>> = {
         profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
-        deen_habits: makeChain(),
+        deen_habits: makeChain({ data: [{ id: "habit-1" }], error: null }),
       };
       fromImpl = (table) => chains[table];
       const { setDeenHabitCommittedDate } = await import("../actions");

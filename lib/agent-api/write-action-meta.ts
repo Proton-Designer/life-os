@@ -37,6 +37,14 @@ export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
   "fitness.workout.rename",
   "fitness.workout.archive",
   "self_mastery.lesson_promotion.record_verdict",
+  // P4-06
+  "deen.habit.update",
+  "deen.habit.archive",
+  "deen.habit.set_stage_override",
+  "deen.habit.set_committed_date",
+  "deen.habit_log.toggle",
+  "deen.habit_log.set_status",
+  "deen.weekly_focus.set",
 ]);
 
 /**
@@ -57,6 +65,11 @@ export const DATE_DEFAULTS_TO_TODAY: ReadonlySet<string> = new Set([
   "fitness.body_metric.log_weight",
   "fitness.body_metric.log_waist",
   "fitness.fitness_benchmark.log",
+  // P4-06 -- all "log a thing that happened" shapes, same reasoning as prayer/sunnah/adhkar above.
+  "deen.quran_session.log",
+  "deen.reflection_entry.log",
+  "deen.habit_log.toggle",
+  "deen.habit_log.set_status",
 ]);
 
 /** Handlers that require patch.date where a silent "today" would be wrong. The agent must always send it. */
