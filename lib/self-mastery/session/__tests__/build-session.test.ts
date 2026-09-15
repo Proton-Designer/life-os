@@ -476,3 +476,141 @@ describe("desired_retention actually reaches the scheduler", () => {
     expect(atHighRetention).toBeLessThan(atLowRetention);
   });
 });
+
+describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
+  /**
+   * Builds a full buildTodaysSession-compatible client. `classAssessmentRows`
+   * feeds loadNearestUpcomingExamsByClass; everything else defaults to an
+   * empty/zero shape (SEED_MS_PER_CARD's 20s pace applies with zero review
+   * history, so capacity is deterministic and computable by hand for the
+   * assertions below). The get_session_queue RPC call is captured so this
+   * test can assert on the ACTUAL p_limit_due/p_limit_new sent -- the one
+   * observable side effect of the capacity math, since BuiltSession itself
+   * doesn't expose capacity directly.
+   */
+  function makeSessionClient(classAssessmentRows: { class_id: string; date: string; type: string; name: string }[], sessionTargetMinutes: number) {
+    const queueCalls: { p_limit_due: number; p_limit_new: number }[] = [];
+    const makeThenableChain = (table: string) => {
+      const target: Record<string, unknown> = {
+        single: async () => {
+          if (table === "user_settings") {
+            return {
+              // daily_new_limit is deliberately huge: totalDueCount is 0 in this
+              // fixture (empty card_states), so allocateQueueLimits would otherwise
+              // cap limitNew at a small daily_new_limit long before capacity itself
+              // does, hiding the very capacity math these tests assert on.
+              data: { session_target_minutes: sessionTargetMinutes, daily_new_limit: 10_000, ai_grading_enabled: false, desired_retention: 0.9 },
+              error: null,
+            };
+          }
+          return { data: null, error: null };
+        },
+        then: (res: (v: { data: unknown[]; count: number; error: null }) => unknown) => {
+          if (table === "class_assessments") return Promise.resolve(res({ data: classAssessmentRows, count: classAssessmentRows.length, error: null }));
+          // reviews (elapsed_ms history), card_states (due/new counts) -- all empty:
+          // zero due, zero history, SEED_MS_PER_CARD's 20s/card pace applies.
+          return Promise.resolve(res({ data: [], count: 0, error: null }));
+        },
+      };
+      const proxy: unknown = new Proxy(target, {
+        get(t, prop) {
+          if (prop in t) return (t as Record<string | symbol, unknown>)[prop];
+          return () => proxy;
+        },
+      });
+      return proxy;
+    };
+
+    const client = {
+      from: vi.fn((table: string) => makeThenableChain(table)),
+      rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
+        if (fn === "start_session") {
+          return {
+            data: { id: "s1", user_id: "u1", local_date: "2026-09-14", started_at: "2026-09-14T00:00:00Z", ended_at: null, cards_reviewed: 0, new_cards_introduced: 0 },
+            error: null,
+          };
+        }
+        if (fn === "get_session_queue") {
+          queueCalls.push(args as { p_limit_due: number; p_limit_new: number });
+          return { data: [], error: null };
+        }
+        return { data: [], error: null };
+      }),
+    } as unknown as Parameters<typeof buildTodaysSession>[0];
+
+    return { client, queueCalls };
+  }
+
+  // SEED_MS_PER_CARD = 20_000ms (20s/card, zero review history). At a 10-minute
+  // target: 600_000ms / 20_000ms = 30 cards baseline.
+  it("scales capacity up when an exam is imminent for the user's only class", async () => {
+    const { client, queueCalls } = makeSessionClient(
+      [{ class_id: "c1", date: "2026-09-15", type: "exam", name: "Midterm" }], // 1 day away -> 3.0x
+      10
+    );
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
+    // baseline 30 * 3.0 = 90, but the absolute ceiling (20 min / 20s = 60) caps it.
+    expect(totalLimit).toBe(60);
+  });
+
+  it("uses the MAX multiplier across classes, never a product of several -- three imminent exams must not compound", async () => {
+    const { client, queueCalls } = makeSessionClient(
+      [
+        { class_id: "c1", date: "2026-09-15", type: "exam", name: "Exam 1" }, // 1 day -> 3.0x
+        { class_id: "c2", date: "2026-09-16", type: "final_midterm", name: "Exam 2" }, // 2 days -> 2.5x
+        { class_id: "c3", date: "2026-09-17", type: "exam", name: "Exam 3" }, // 3 days -> 2.5x
+      ],
+      10
+    );
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
+    // If multipliers compounded (3.0*2.5*2.5=18.75x -> 562 cards), the ceiling would
+    // still cap it at 60 -- so this alone can't distinguish MAX from a product. The
+    // real assertion is in the next test, at a target small enough that the ceiling
+    // never binds and a product WOULD be observable if it were happening.
+    expect(totalLimit).toBeLessThanOrEqual(60);
+  });
+
+  it("MAX, not product, is directly observable at a low session target where the ceiling never binds", async () => {
+    // 1-minute target: 60_000ms / 20_000ms = 3 cards baseline. Ceiling at 20 min =
+    // 60 cards, far above anything this test reaches, so it never binds here.
+    const { client, queueCalls } = makeSessionClient(
+      [
+        { class_id: "c1", date: "2026-09-15", type: "exam", name: "Exam 1" }, // 1 day -> 3.0x
+        { class_id: "c2", date: "2026-09-16", type: "final_midterm", name: "Exam 2" }, // 2 days -> 2.5x
+      ],
+      1
+    );
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
+    // MAX(3.0, 2.5) = 3.0 -> floor(3 * 3.0) = 9. A product (3.0*2.5=7.5) would give
+    // floor(3*7.5)=22 instead -- these are far enough apart that either bug would fail
+    // this assertion, not just round differently.
+    expect(totalLimit).toBe(9);
+  });
+
+  it("applies the absolute ceiling even under extreme intensity — never an open-ended cram session", async () => {
+    const { client, queueCalls } = makeSessionClient(
+      [{ class_id: "c1", date: "2026-09-14", type: "exam", name: "Exam today" }], // 0 days away -> 3.0x, the curve's max
+      60 // a 60-minute target would otherwise yield 180 cards at baseline
+    );
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
+    // Ceiling: 20 min / 20s per card = 60 cards, regardless of the 60-min target or
+    // the 3x multiplier that would otherwise demand 540.
+    expect(totalLimit).toBe(60);
+  });
+
+  it("does not scale capacity at all when no class has an upcoming exam-type assessment", async () => {
+    const { client, queueCalls } = makeSessionClient([], 10);
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
+    expect(totalLimit).toBe(30); // baseline only, multiplier 1.0
+  });
+});

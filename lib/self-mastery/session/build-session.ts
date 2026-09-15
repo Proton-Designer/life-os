@@ -19,6 +19,7 @@ import { getScheduler, toFsrsCard, toRpcNextState, computeNextState, type DbCard
 import { cardRetrievability } from "@/lib/self-mastery/memory-strength";
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
+import { loadNearestUpcomingExamsByClass, examIntensityMultiplier, applyExamIntensity, daysBetweenDateStrings } from "./exam-intensity";
 import type {
   BuiltSession,
   EffortfulWinMoment,
@@ -432,7 +433,50 @@ export async function buildTodaysSession(
   ]);
 
   const medianMs = computeMedianElapsedMs(recentElapsedMs);
-  const capacity = estimateSessionCapacity(settings.sessionTargetMinutes, medianMs);
+  const baseCapacity = estimateSessionCapacity(settings.sessionTargetMinutes, medianMs);
+
+  // Phase 1 #27 -- exam-intensity.ts (ULM area, imported per the Lead's own
+  // scoping note in that file's header) is a pure multiplier on capacity, not
+  // a new RPC or SessionPlan shape -- see that file's own "WHY THIS IS A PURE
+  // MULTIPLIER" section. MAX across the caller's classes, not a product of
+  // several (Opus Lead ruling): three exams next week must not compound into
+  // a 3x*3x*3x session, only the single most urgent deadline governs.
+  // exam-intensity.ts deliberately types its own minimal AssessmentQueryClient
+  // rather than depending on this app's generated Database type (it isn't
+  // owned here, per that file's header) -- the real client is structurally
+  // richer (a thenable PostgrestFilterBuilder, not a literal Promise) than
+  // that narrow interface can express without excess-property friction, so
+  // the cast is the boundary between "this app's real client" and "the one
+  // shape this pure module actually calls," not a type-safety hole: every
+  // method the interface names is a real method this client has.
+  const examsByClass = await loadNearestUpcomingExamsByClass(
+    client as unknown as Parameters<typeof loadNearestUpcomingExamsByClass>[0],
+    input.userId,
+    input.localDate
+  );
+  const maxIntensityMultiplier =
+    examsByClass.size === 0
+      ? 1.0
+      : Math.max(
+          ...[...examsByClass.values()].map((a) => examIntensityMultiplier(daysBetweenDateStrings(input.localDate, a.date)))
+        );
+  const intensifiedCapacity = applyExamIntensity(baseCapacity, maxIntensityMultiplier);
+
+  // ABSOLUTE CEILING (Opus Lead required addition): the source spec's own
+  // identity for this session is "5-10 minutes, completable every day" --
+  // intensity may extend it toward a real deadline, but must never turn it
+  // into an open-ended cram session. No existing session-size constant exists
+  // to cite here (checked: no CHECK on user_settings.session_target_minutes,
+  // no UI control sets it yet) -- MAX_SESSION_MINUTES_WITH_INTENSITY is a new,
+  // named ceiling, not a rediscovered one. 20 minutes is roughly double the
+  // spec's own upper bound: generous for a real exam week, still bounded.
+  // Expressed as a capacity (via the SAME median-pace math as baseCapacity,
+  // not a bare item-count guess) so the cap means what it says in real
+  // minutes regardless of how fast or slow this user's own pace is.
+  const MAX_SESSION_MINUTES_WITH_INTENSITY = 20;
+  const absoluteCeiling = estimateSessionCapacity(MAX_SESSION_MINUTES_WITH_INTENSITY, medianMs);
+  const capacity = Math.min(intensifiedCapacity, absoluteCeiling);
+
   const limits = allocateQueueLimits(capacity, totalDueCount, settings.dailyNewLimit);
 
   const entries = await fetchQueueEntries(client, limits);
