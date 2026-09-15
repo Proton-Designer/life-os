@@ -1690,6 +1690,61 @@ export type Database = {
           },
         ]
       }
+      lecture_transcripts: {
+        Row: {
+          attempt_count: number
+          claimed_at: string | null
+          cost_usd: number | null
+          created_at: string
+          duration_seconds: number | null
+          error_message: string | null
+          id: string
+          provider: string | null
+          recording_id: string
+          status: string
+          transcript_text: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          claimed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          duration_seconds?: number | null
+          error_message?: string | null
+          id?: string
+          provider?: string | null
+          recording_id: string
+          status?: string
+          transcript_text?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          attempt_count?: number
+          claimed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          duration_seconds?: number | null
+          error_message?: string | null
+          id?: string
+          provider?: string | null
+          recording_id?: string
+          status?: string
+          transcript_text?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lecture_transcripts_recording_same_user"
+            columns: ["user_id", "recording_id"]
+            referencedRelation: "lecture_recordings"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       lesson_promotions: {
         Row: {
           accepted_text: string
@@ -4222,6 +4277,30 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      claim_lecture_transcription_job: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          attempt_count: number
+          claimed_at: string | null
+          cost_usd: number | null
+          created_at: string
+          duration_seconds: number | null
+          error_message: string | null
+          id: string
+          provider: string | null
+          recording_id: string
+          status: string
+          transcript_text: string | null
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "lecture_transcripts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       claim_staging_batch: { Args: { p_batch_id: string }; Returns: string }
       complete_session: { Args: { p_session_id: string }; Returns: Json }
       complete_target: { Args: { p_target_id: string }; Returns: undefined }
@@ -4299,6 +4378,30 @@ export type Database = {
       reorder_coop_target: {
         Args: { p_new_position: number; p_target_id: string }
         Returns: undefined
+      }
+      requeue_lecture_transcription: {
+        Args: { p_recording_id: string }
+        Returns: {
+          attempt_count: number
+          claimed_at: string | null
+          cost_usd: number | null
+          created_at: string
+          duration_seconds: number | null
+          error_message: string | null
+          id: string
+          provider: string | null
+          recording_id: string
+          status: string
+          transcript_text: string | null
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "lecture_transcripts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       restore_book: {
         Args: { p_book_id: string }
