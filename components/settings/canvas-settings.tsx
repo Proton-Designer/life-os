@@ -107,17 +107,25 @@ export function CanvasSettings({
 
   function handleSync() {
     startTransition(async () => {
-      const res = await refreshCanvasCourses();
-      setMessage({ ok: res.ok, text: res.message });
-      if (res.ok) {
-        setMappings(await getCanvasCourseMappings());
-        setStatus((s) => ({ ...s, lastSyncedAt: new Date().toISOString(), lastSyncError: null, tokenStatus: "ok" }));
-      } else {
-        // Reflect the server's verdict on token health rather than guessing
-        // client-side — refreshCanvasCourses only flips tokenStatus when the
-        // client reported authExpired, so re-reading status is the honest
-        // signal for whether this failure means "reconnect" or "just retry".
-        setStatus(await getCanvasConnectionStatus());
+      try {
+        const res = await refreshCanvasCourses();
+        setMessage({ ok: res.ok, text: res.message });
+        if (res.ok) {
+          setMappings(await getCanvasCourseMappings());
+          setStatus((s) => ({ ...s, lastSyncedAt: new Date().toISOString(), lastSyncError: null, tokenStatus: "ok" }));
+        } else {
+          // Reflect the server's verdict on token health rather than guessing
+          // client-side — refreshCanvasCourses only flips tokenStatus when the
+          // client reported authExpired, so re-reading status is the honest
+          // signal for whether this failure means "reconnect" or "just retry".
+          setStatus(await getCanvasConnectionStatus());
+        }
+      } catch (err) {
+        // Defense in depth (P2-22 04-verification finding): refreshCanvasCourses
+        // itself now always resolves rather than rejects, but a rejected Server
+        // Action (a transport failure, not a Canvas-sync one) must still surface
+        // a message here rather than leave the panel silently stuck mid-sync.
+        setMessage({ ok: false, text: err instanceof Error ? err.message : "Sync failed unexpectedly. Try again." });
       }
     });
   }

@@ -169,13 +169,50 @@ async function resolveStoredConnection(
  * flipped to 'expired' ONLY when the client reports `authExpired` (a
  * network blip or SSRF-guard rejection must not send the user down a
  * reconnect flow for a problem that isn't the credential).
+ *
+ * 04-verification finding (a9, live): `resolveStoredConnection`'s
+ * `decryptSecret` (or, defensively, anything else in this function) can
+ * throw synchronously rather than return a `CanvasClientResult` — a stored
+ * token that predates an `API_KEY_ENCRYPTION_SECRET` rotation is the real
+ * case, but ANY unhandled throw here left the Server Action rejecting with
+ * no sync-status write at all: the UI showed nothing, the DB stayed
+ * unchanged, and the user had no way to know sync was silently broken. Two
+ * separate try/catches (not one shared one) because they mean different
+ * things: a decrypt failure specifically means the credential itself is
+ * unusable (token_status: 'expired', matching the 401/403 case above,
+ * since both end in "reconnect"); anything else is informational only
+ * (last_sync_error, token_status untouched — an unrelated exception is not
+ * evidence the token is bad).
  */
 export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
   const { supabase, userId } = await requireUser();
-  const conn = await resolveStoredConnection(supabase, userId);
+
+  let conn: Awaited<ReturnType<typeof resolveStoredConnection>>;
+  try {
+    conn = await resolveStoredConnection(supabase, userId);
+  } catch {
+    const message = "Your saved Canvas token can't be read anymore. Reconnect.";
+    await supabase
+      .from("canvas_connections")
+      .update({ token_status: "expired", last_sync_error: message, updated_at: new Date().toISOString() })
+      .eq("user_id", userId);
+    revalidatePath("/settings");
+    return { ok: false, message };
+  }
   if (!conn) return { ok: false, message: "Connect Canvas first." };
 
-  const res = await fetchCanvasCourses(conn.instanceUrl, conn.token);
+  let res: Awaited<ReturnType<typeof fetchCanvasCourses>>;
+  try {
+    res = await fetchCanvasCourses(conn.instanceUrl, conn.token);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Sync failed unexpectedly. Try again.";
+    await supabase
+      .from("canvas_connections")
+      .update({ last_sync_error: message, updated_at: new Date().toISOString() })
+      .eq("user_id", userId);
+    revalidatePath("/settings");
+    return { ok: false, message };
+  }
   if (!res.ok) {
     await supabase
       .from("canvas_connections")
