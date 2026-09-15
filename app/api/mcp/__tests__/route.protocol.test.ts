@@ -85,7 +85,9 @@ function fakeServiceClient() {
 function fakeUserClient(profileTimezone = "America/Chicago") {
   const from = vi.fn((table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "order"]) chain[m] = vi.fn(() => chain);
+    for (const m of ["select", "eq", "order", "is", "in"]) chain[m] = vi.fn(() => chain);
+    // P4-03's account map awaits the user_domains query directly (no terminal call).
+    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: [], error: null });
     chain.range = vi.fn(async () => ({ data: PRAYER_ROWS, error: null, count: PRAYER_ROWS.length }));
     chain.maybeSingle = vi.fn(async () =>
       table === "profiles" ? { data: { timezone: profileTimezone }, error: null } : { data: PRAYER_ROWS[0], error: null },
@@ -121,6 +123,9 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
 
     await client.connect(transport);
 
+    // P4-03: static initialize instructions point the agent at the account map.
+    expect(client.getInstructions()).toMatch(/list_capabilities\(\) first/);
+
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(["list_capabilities", "read", "scheduler_manage", "widget_manage", "write"]);
 
@@ -131,6 +136,16 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     const capsBlock = (caps.content as { type: string; text?: string }[])[0];
     const capsPayload = JSON.parse(capsBlock.text ?? "{}");
     expect(capsPayload.entities.map((e: { entity: string }) => e.entity)).toContain("prayer");
+
+    // P4-03: the no-argument call is this account's map, built through the
+    // same user-scoped client (profile timezone America/Chicago here).
+    const map = await client.callTool({ name: "list_capabilities", arguments: {} });
+    expect(map.isError).toBeFalsy();
+    const mapPayload = JSON.parse(((map.content as { type: string; text?: string }[])[0].text) ?? "{}");
+    expect(mapPayload.today.timezone).toBe("America/Chicago");
+    expect(mapPayload.today.local_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(mapPayload.domain_fields).toEqual(["one_line", "active_for_account", "read", "write", "views"]);
+    expect(mapPayload.domains.deen[2]).toContain("prayer");
 
     // Then the actual read, using exactly the entity discovery just named.
     const result = await client.callTool({ name: "read", arguments: { domain: "deen", entity: "prayer" } });
@@ -153,8 +168,9 @@ describe("app/api/mcp/route — real MCP protocol round trip", () => {
     // The wrapper's own guarantee, proven at the real protocol boundary:
     // three tool calls left exactly three audit rows, each carrying the
     // RESOLVED operation (migration 131), not just the generic tool name.
-    expect(auditInserts).toHaveLength(3);
+    expect(auditInserts).toHaveLength(4);
     expect(auditInserts[0]).toMatchObject({ tool_name: "list_capabilities", operation: "discovery.deen.list_capabilities", outcome: "ok" });
+    expect(auditInserts.splice(1, 1)[0]).toMatchObject({ tool_name: "list_capabilities", operation: "discovery.list_capabilities", outcome: "ok" });
     expect(auditInserts[1]).toMatchObject({ tool_name: "read", operation: "deen.prayer.read", outcome: "ok", user_id: "user-1", token_id: "tok-1" });
     expect(auditInserts[2]).toMatchObject({ tool_name: "write", operation: "deen.prayer.log", outcome: "ok", user_id: "user-1", token_id: "tok-1" });
 

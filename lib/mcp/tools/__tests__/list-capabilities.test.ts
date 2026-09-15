@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { listCapabilitiesTool, resolveListCapabilitiesOperation } from "../list-capabilities";
 
 function textPayload(outcome: Awaited<ReturnType<typeof listCapabilitiesTool>>) {
@@ -7,11 +8,69 @@ function textPayload(outcome: Awaited<ReturnType<typeof listCapabilitiesTool>>) 
   return JSON.parse(block.text);
 }
 
+/** A domains-mode (faith only) account, for the no-argument call — which is now the account map (P4-03). */
+function accountContext() {
+  const from = vi.fn((table: string) => {
+    const chain: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "in", "is", "order"]) chain[m] = vi.fn(() => chain);
+    const rows = table === "user_domains" ? [{ id: "d1", key: "faith", position: 0, weight: "essential" }] : [];
+    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? { timezone: "America/Chicago", onboarding_completed: true } : null, error: null }));
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
+    return chain;
+  });
+  return { userClient: { from } as unknown as SupabaseClient, userId: "user-1", now: new Date("2026-09-15T03:30:00.000Z") };
+}
+
+describe("listCapabilitiesTool — P4-03 account map and write detail", () => {
+  it("with no domain, returns the ACCOUNT MAP: local today, mode, active areas, per-domain read/write names", async () => {
+    const payload = textPayload(await listCapabilitiesTool(undefined, accountContext()));
+    expect(payload.today).toEqual({ local_date: "2026-09-14", timezone: "America/Chicago", local_time: "22:30" });
+    expect(payload.mode).toBe("domains");
+    expect(payload.active_areas).toEqual(["faith"]);
+    expect(payload.domain_fields).toEqual(["one_line", "active_for_account", "read", "write", "views"]);
+    const [oneLine, deenActive, deenRead, deenWrite, deenViews] = payload.domains.deen;
+    expect(oneLine).toEqual(expect.any(String));
+    expect(deenActive).toBe(true);
+    expect(deenRead).toContain("prayer");
+    expect(deenWrite).toContain("prayer");
+    expect(deenViews).toEqual([]);
+    expect(payload.domains.fitness[1]).toBe(false);
+  });
+
+  it("with no domain and no account context, refuses rather than returning an account-agnostic list", async () => {
+    await expect(listCapabilitiesTool()).rejects.toThrow(/account context/i);
+  });
+
+  it("per-domain detail carries each write action's description, patch shape, requires_id and schedulable", async () => {
+    const payload = textPayload(await listCapabilitiesTool("work"));
+    const target = payload.entities.find((e: { entity: string }) => e.entity === "target");
+    const complete = target.write_actions.find((a: { action: string }) => a.action === "complete");
+    expect(complete).toEqual({ action: "complete", description: expect.any(String), patch: "{}", requires_id: true, schedulable: expect.any(Boolean) });
+    const deen = textPayload(await listCapabilitiesTool("deen"));
+    const log = deen.entities.find((e: { entity: string }) => e.entity === "prayer").write_actions.find((a: { action: string }) => a.action === "log");
+    expect(log).toMatchObject({ requires_id: false, patch: expect.stringContaining("date") });
+    expect(deen.entities.find((e: { entity: string }) => e.entity === "habit").write_actions).toEqual([]);
+  });
+
+  it("widgets detail names the 5 kinds and a display schema per kind", async () => {
+    const payload = textPayload(await listCapabilitiesTool("widgets"));
+    expect(payload.widget_kinds).toEqual(["metric_card", "list", "progress_against_goal", "sparkline", "streak"]);
+    expect(Object.keys(payload.display_schema).sort()).toEqual(["list", "metric_card", "progress_against_goal", "sparkline", "streak"]);
+    expect(payload.data_source_schema).toEqual(expect.any(String));
+  });
+
+  it("settings exposes the account's areas and subdomains as read entities", async () => {
+    const payload = textPayload(await listCapabilitiesTool("settings"));
+    const names = payload.entities.map((e: { entity: string }) => e.entity);
+    expect(names).toEqual(expect.arrayContaining(["area", "subdomain"]));
+  });
+});
+
 describe("listCapabilitiesTool", () => {
   it("with no domain, lists only domains actually wired — honest, not the memo's full eventual matrix", async () => {
-    const outcome = await listCapabilitiesTool();
+    const outcome = await listCapabilitiesTool(undefined, accountContext());
     const payload = textPayload(outcome);
-    expect(payload.domains.map((d: { domain: string }) => d.domain).sort()).toEqual([
+    expect(Object.keys(payload.domains).sort()).toEqual([
       "business",
       "calendar",
       "checkins",

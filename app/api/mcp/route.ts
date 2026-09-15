@@ -10,6 +10,7 @@ import { writeTool, resolveWriteOperation, type WriteArgs } from "@/lib/mcp/tool
 import { widgetManageTool, resolveWidgetManageOperation, resolveWidgetManageScope, type WidgetManageArgs } from "@/lib/mcp/tools/widget-manage";
 import { schedulerManageTool, resolveSchedulerManageOperation, resolveSchedulerManageScope, type SchedulerManageArgs } from "@/lib/mcp/tools/scheduler-manage";
 import { readMcpAuth } from "@/lib/mcp/auth-info";
+import { AGENT_INSTRUCTIONS } from "@/lib/agent-api/instructions";
 
 /**
  * L3+L6+L11 (docs/ai-connector/PROGRAM-PLAN.md), scope per the team-lead's
@@ -119,7 +120,7 @@ const handler = createMcpHandler(
       {
         title: "List capabilities",
         description:
-          "Discover the domains, entities, fields, and actions this connector exposes. Call with no arguments for the domain list, or with a domain to see its entities. Cheap — call whenever unsure before read/write.",
+          "Call first with no arguments: returns this account's map (local today and timezone, legacy/domains mode, active areas, and each domain's readable and writable entities as rows in domain_fields order). Call with a domain for its entities' fields, filters, and each write action's description, patch shape, requires_id and schedulable.",
         inputSchema: ListCapabilitiesInputSchema,
       },
       async ({ domain }, ctx) =>
@@ -130,7 +131,10 @@ const handler = createMcpHandler(
           resolveListCapabilitiesOperation(domain),
           "read",
           { domain },
-          () => listCapabilitiesTool(domain),
+          // No domain: this account's map (P4-03), read through the same
+          // user-scoped client every tool gets. `now` is the instant only;
+          // the map derives the local date via localDateString.
+          (userClient, userId) => listCapabilitiesTool(domain, domain ? undefined : { userClient, userId, now: new Date() }),
         ),
     );
 
@@ -222,7 +226,7 @@ const handler = createMcpHandler(
       },
     );
   },
-  { serverInfo: { name: "lifeos-mcp", version: "0.1.0" } },
+  { serverInfo: { name: "lifeos-mcp", version: "0.1.0" }, instructions: AGENT_INSTRUCTIONS },
 );
 
 const authedHandler = withMcpAuth(handler, verifyToken, { required: true });
