@@ -51,6 +51,8 @@ A remote MCP server (`/api/mcp`) plus a hand-rolled OAuth 2.1 authorization serv
 | Tools | `lib/mcp/tools/{read,write,widget-manage,scheduler-manage,list-capabilities}.ts` | |
 | Rate limit / audit | `lib/mcp/{rate-limit,audit}.ts` | 30 calls/60s per token, counted from `mcp_audit_log`, no in-memory state |
 | Entry | `app/api/mcp/route.ts` | `verifyToken` chain, lines 35-71 |
+| Shared operation table | `lib/agent-api/operations.ts`, `lib/agent-api/execute.ts` | The 5 tools' zod input schemas plus `buildOperationSpec`, used by MCP and REST alike (P4-17). `executeOperation(..., transport)` is the transport-neutral chain `runMcpTool` wraps |
+| REST adapter `/api/v1` | `app/api/v1/{route,me/route,actions/route,[...path]/route}.ts` → `lib/agent-api/rest/{handler,parse-path,http}.ts` | Same PATs (Bearer or `X-LifeOS-Token`), same chain with `transport='rest'`. Body = the tool's structuredContent verbatim. Errors are problem+json. Widget/schedule managers sit at `/api/v1/manage/*` because `widgets` is a read domain. Grammar is in `GET /api/v1` |
 
 ## How it works — the auth chain
 
@@ -77,6 +79,7 @@ OAuth: RFC 6749 §4.1 + PKCE (mandatory) + RFC 7591 DCR + RFC 8414/9728 metadata
 - **No hard deletes anywhere on the write path** — every "remove" archives, enforced by convention per-entity, not by one mechanism.
 - **Prompt injection is an accepted, undefended risk** — contained (audit, revocation, rate ceiling, no hard deletes), not prevented; a deliberate, owner-approved tradeoff.
 - **Access tokens can expire (migration 215, P4-12).** `mcp_access_tokens.expires_at` (NULL = never) is enforced like `revoked_at` in `verifyAccessToken` and `getLiveTokenById`, so an expired token also denies its scheduled fires. OAuth tokens are 30-day `client_kind='mcp_oauth'` and the token response returns `expires_in`. Settings PATs let you pick 7/30/90 days or never (default 90). A DB trigger caps live tokens at 20 per user. `mcp_audit_log.transport` records mcp/rest/scheduler.
+- **`/api/v1` sends CORS `Access-Control-Allow-Origin: *` and is safe only because it never reads cookies (P4-17).** `app/api/v1/__tests__/route.test.ts` guards this structurally; adding any cookie/session fallback there turns it into CSRF. Query-string tokens get a 400. `/api/v1` is excluded from `proxy.ts`'s matcher. It shares MCP's per-token rate budget (both count `mcp_audit_log` rows). Like `/api/mcp`, it needs the Vercel bot-protection exclusion (pending operator action). Idempotency-Key is not stored yet (P4-18).
 - `docs/ai-connector/PROGRAM-PLAN.md`'s and `docs/ai-connector/CAPABILITIES.md`'s widget-CHECK-constraint status is **stale** — migration 149 already resolved it (see `domain.widgets`).
 
 ## Not covered here
