@@ -13,6 +13,8 @@ import { getSignalNoiseForRange } from "@/lib/business/sn-ratio";
 import { getUserDomainWeights } from "@/lib/business/domain-weights";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { buildWeeklyRecap, type WeekWindow } from "@/lib/weekly-planning/weekly-recap";
+import { getRescueTimeInsightsData } from "@/lib/insights/get-rescuetime-summary";
+import { RescueTimePanel } from "@/components/insights/rescuetime-panel";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -217,6 +219,13 @@ export default async function InsightsPage({
       .maybeSingle(),
     getUserDomainWeights(userId),
   ]);
+
+  // P3-19 -- deliberately NOT joined into the Promise.all wave above: a
+  // small, independent read (RescueTime's own cache table), not on the
+  // critical path the wave's own comment cares about, and a page this
+  // heavily shared across agents is safer to extend additively than to
+  // insert into the middle of a long positional destructure.
+  const rescueTimeData = await getRescueTimeInsightsData(supabase, userId);
 
   const hasFocusData = segments.length > 0;
   const domainSegments = segments.filter((s) => s.domain !== "wasted");
@@ -556,6 +565,15 @@ export default async function InsightsPage({
             )}
           </ul>
         )}
+      </Panel>
+
+      {/* P3-19 -- RescueTime daily productive-vs-distracting breakdown.
+          Placed last, own top-level Panel: unlike everything above (all
+          derived from this app's own tables), this is BYOK third-party data
+          -- optional, off by default, no fabricated zero when disconnected
+          (RescueTimePanel's own "connect in Settings" prompt handles that). */}
+      <Panel title="RescueTime">
+        <RescueTimePanel initialData={rescueTimeData} />
       </Panel>
     </PageContainer>
   );

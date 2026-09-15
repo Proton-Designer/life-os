@@ -16,6 +16,8 @@ import { ConnectorSettings } from "@/components/settings/connector-settings";
 import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
 import { CanvasSettings } from "@/components/settings/canvas-settings";
 import { getCanvasConnectionStatus, getCanvasCourseMappings, getLocalClassOptions } from "@/app/(app)/settings/canvas-actions";
+import { RescueTimeSettings } from "@/components/settings/rescuetime-settings";
+import { getRescueTimeConnectionStatus } from "@/app/(app)/settings/rescuetime-actions";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
 import { resolveThemePreset } from "@/lib/theme-presets";
@@ -36,6 +38,7 @@ const SECTIONS = [
   { id: "notifications", label: "Notifications" },
   { id: "ai", label: "AI features" },
   { id: "canvas", label: "Canvas" },
+  { id: "rescuetime", label: "RescueTime" },
   { id: "connectors", label: "Connectors" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
@@ -108,6 +111,7 @@ export default async function SettingsPage() {
   const canvasStatus = await getCanvasConnectionStatus();
   const canvasMappings = await getCanvasCourseMappings();
   const localClasses = await getLocalClassOptions();
+  const rescueTimeStatus = await getRescueTimeConnectionStatus();
 
   return (
     <PageContainer>
@@ -196,6 +200,9 @@ export default async function SettingsPage() {
               localClasses={localClasses}
               storageConfigured={storageConfigured}
             />
+          </Panel>
+          <Panel id="rescuetime" className="scroll-mt-24" title="RescueTime">
+            <RescueTimeSettings initialStatus={rescueTimeStatus} storageConfigured={storageConfigured} />
           </Panel>
           <Panel id="connectors" className="scroll-mt-24" title="Connectors">
             <ConnectorSettings initialTokens={mcpTokens} />
