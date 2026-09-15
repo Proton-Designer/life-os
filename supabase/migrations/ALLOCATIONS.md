@@ -84,7 +84,8 @@ the point is to make a number unavailable the moment it is promised.
 | `182` | Sonnet ENG 1 (Team A, P2-02) | ai_morning_briefs, claim-first per (user_id, brief_date), RLS select-own | APPLIED 2026-09-15 |
 | `183` | Sonnet ENG 1 (Team A, P2-05) | sleep_intents (self-service) + profiles.sleep_reminder_enabled + sleep_reminder_log (claim-first) | pending |
 | `184` | Sonnet ENG 1 (Team A, P2-07) | staging_batches.raw_text, nullable, populated for announcement source only | APPLIED 2026-09-15 |
-| `185` | Sonnet ENG 1 (Team A, P2-09) | practice_tests + practice_test_answers (fixed pre-exam intervals) | pending |
+| `185` | Sonnet ENG 1 (Team A, P2-09) | practice_tests + practice_test_answers (fixed pre-exam intervals) | APPLIED 2026-09-15 |
+| `186` | Sonnet ENG 1 (Team A, P2-11) | identity_habits.kill_reason, nullable, escalated kill-flow | pending |
 | `190` | Sonnet ENG 2 (Team A, P2-04) | work_sessions.hour_notified_at idempotency column | pending |
 | `210`–`239` | BLOCK — Team B (overnight run 2026-09-15, lead tracking-app-a9) | Phase 4 AI/MCP + Canvas + Team B's Phase 3 migrations. Individual numbers are recorded as rows below when handed out | reserved |
 | `210` | Team B / tracking-app-1e (P2-20) — allocated by Team B lead tracking-app-a9, 2026-09-15 | Canvas integration: encrypted BYO Canvas token + instance URL per user, Canvas course <-> local class mapping. RLS + composite tenancy FKs | allocated |
@@ -95,6 +96,7 @@ the point is to make a number unavailable the moment it is promised.
 | `215` | Team B / p4-b-tokens (P4-12), allocated by tracking-app-a9, 2026-09-15 | Token lifecycle: `mcp_access_tokens.expires_at` + `client_kind`; `mcp_audit_log.transport` | allocated |
 | `216` | Team B / tracking-app-4b (P3-14 fix), allocated by tracking-app-a9, 2026-09-15 | Lower `storage.buckets.lectures.file_size_limit` to the effective project-wide 50MB, so the bucket stops advertising 500MB. Measured on production: 50MB-1 byte accepted, 51MB rejected | allocated |
 | `217` | Team B / p4-b-tokens (P4-13), allocated by tracking-app-a9, 2026-09-15 | OAuth hardening: per-(user,client) serialized refresh rotation + reuse handling, registration throttle/prune job | allocated |
+| `218` | Team B / tracking-app-4b (P3-19), allocated by tracking-app-a9, 2026-09-15 | RescueTime BYOK: encrypted API key + daily productivity summaries + sync status (reserved; withdrawn if no schema needed) | allocated |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
 | `250`+ | — | next free | — |
 
