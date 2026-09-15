@@ -52,4 +52,26 @@ describe("signIn", () => {
     await expect(signIn(formData)).rejects.toThrow("NEXT_REDIRECT");
     expect(redirectMock).toHaveBeenCalledWith("/");
   });
+
+  it("P4-13: redirects to a same-origin `next` (e.g. back to the OAuth authorize screen) after sign-in", async () => {
+    signInWithPasswordMock.mockResolvedValue({ error: null });
+    const { signIn } = await import("../actions");
+    const formData = new FormData();
+    formData.set("email", "test@example.com");
+    formData.set("password", "correct-password");
+    formData.set("next", "/api/mcp/oauth/authorize?client_id=abc&state=xyz");
+    await expect(signIn(formData)).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirectMock).toHaveBeenCalledWith("/api/mcp/oauth/authorize?client_id=abc&state=xyz");
+  });
+
+  it("P4-13: ignores an off-site `next` (open-redirect guard) and goes to /", async () => {
+    signInWithPasswordMock.mockResolvedValue({ error: null });
+    const { signIn } = await import("../actions");
+    const formData = new FormData();
+    formData.set("email", "test@example.com");
+    formData.set("password", "correct-password");
+    formData.set("next", "//evil.example.com/steal");
+    await expect(signIn(formData)).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirectMock).toHaveBeenCalledWith("/");
+  });
 });

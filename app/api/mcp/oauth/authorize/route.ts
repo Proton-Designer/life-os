@@ -5,6 +5,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getOAuthClient, mintAuthorizationCode, parseScopeParam } from "@/lib/mcp/oauth";
 import { renderConsentPage, renderErrorPage, renderLoginRequiredPage } from "@/lib/mcp/authorize-page";
 import type { McpScope } from "@/lib/mcp/tokens";
+import { getPublicOrigin } from "mcp-handler";
+import { authorizeReturnPath, isAllowedResource, isSameOriginRequest } from "@/lib/mcp/authorize-guards";
 
 /**
  * RFC 6749 sec 4.1 authorization endpoint, with a MANDATORY consent step —
@@ -20,16 +22,23 @@ import type { McpScope } from "@/lib/mcp/tokens";
  * meant to connect" is, and DCR's public /register endpoint means that
  * question can be asked by a stranger, not just by Claude.
  *
- * SCOPE DECISION, STATED PLAINLY: an unauthenticated visitor is shown a
- * plain "sign in first" page with a link to /login, not a redirect-then
- * -return-here flow. Claude's own connector click-through happens in the
- * user's browser, where Ayman is normally already logged into Life OS on
- * the same domain — the un-authenticated branch is the uncommon case, not
- * the one to optimize. Wiring a `next=` return-through-login round trip
- * would mean editing app/login/actions.ts, a shared file with its own
- * history; not worth the coupling for a path that, in practice, is rarely
- * hit and costs one manual re-click when it is.
+ * SIGN-IN RETURNS HERE (P4-13). An unauthenticated visitor gets a "sign in
+ * first" page linking to /login?next=<this authorize URL>; app/login honours
+ * a same-origin `next` (lib/auth/safe-next.ts), so the connector flow resumes
+ * instead of dumping the user on Home. (This app is multi-tenant: the
+ * signed-out branch is a normal first-connect case, not a rare one.)
+ *
+ * ALSO P4-13:
+ *   - an omitted `scope` means READ only (was read+write); a client that wants
+ *     to write must ask, and the consent page lists exactly what is requested.
+ *   - `resource` (RFC 8707), if present, must be this server's /api/mcp.
+ *   - the consent POST must carry a same-origin Origin (or Referer).
  */
+
+/** Our own origins: the proxy-aware public origin the discovery metadata advertises, plus the raw request origin. */
+function ownOrigins(request: Request): string[] {
+  return [getPublicOrigin(request), new URL(request.url).origin];
+}
 
 interface ResolvedAuthorize {
   clientId: string;
@@ -54,7 +63,7 @@ type ResolveResult =
  * trusting the hidden form fields blindly is what makes the POST handler
  * correct even against a tampered form submission.
  */
-async function resolveAuthorizeRequest(params: URLSearchParams): Promise<ResolveResult> {
+async function resolveAuthorizeRequest(params: URLSearchParams, origins: string[]): Promise<ResolveResult> {
   const clientId = params.get("client_id");
   const redirectUriParam = params.get("redirect_uri");
   const responseType = params.get("response_type");
@@ -90,7 +99,17 @@ async function resolveAuthorizeRequest(params: URLSearchParams): Promise<Resolve
   if (parsedScopes === null) {
     return { stage: "redirect_error", redirectUri: redirectUriParam, state, error: "invalid_scope", description: `Unknown scope in "${scopeParam}".` };
   }
-  const scopes: McpScope[] = parsedScopes.length > 0 ? parsedScopes : ["read", "write"];
+  // P4-13: omitted scope = read only. Write access has to be asked for explicitly.
+  const scopes: McpScope[] = parsedScopes.length > 0 ? parsedScopes : ["read"];
+  if (!isAllowedResource(resource, origins)) {
+    return {
+      stage: "redirect_error",
+      redirectUri: redirectUriParam,
+      state,
+      error: "invalid_target",
+      description: "The requested resource is not this server's MCP endpoint (/api/mcp).",
+    };
+  }
 
   const user = await getAuthedUser();
   if (!user) return { stage: "needs_login" };
@@ -110,6 +129,11 @@ async function resolveAuthorizeRequest(params: URLSearchParams): Promise<Resolve
   };
 }
 
+/** /login?next=<the GET authorize URL for these params> -- sign-in returns straight back to the consent screen. */
+function loginUrlFor(params: URLSearchParams): string {
+  return `/login?next=${encodeURIComponent(authorizeReturnPath(params))}`;
+}
+
 function redirectWithError(redirectUri: string, state: string | null, error: string, description: string): Response {
   const url = new URL(redirectUri);
   url.searchParams.set("error", error);
@@ -124,7 +148,7 @@ function html(body: string, status = 200): Response {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const result = await resolveAuthorizeRequest(searchParams);
+  const result = await resolveAuthorizeRequest(searchParams, ownOrigins(request));
 
   switch (result.stage) {
     case "client_error":
@@ -132,7 +156,7 @@ export async function GET(request: Request) {
     case "redirect_error":
       return redirectWithError(result.redirectUri, result.state, result.error, result.description);
     case "needs_login":
-      return html(renderLoginRequiredPage("/login"));
+      return html(renderLoginRequiredPage(loginUrlFor(searchParams)));
     case "ready": {
       const r = result.resolved;
       const hiddenFields: Record<string, string> = {
@@ -160,13 +184,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // P4-13: refuse a consent decision that didn't come from our own page,
+  // before reading the form or touching the session.
+  const origins = ownOrigins(request);
+  if (!isSameOriginRequest(request.headers, origins)) {
+    return html(renderErrorPage("This request didn't come from the Life OS consent screen. Start the connection again from your app."), 403);
+  }
+
   const form = await request.formData();
   const params = new URLSearchParams();
   for (const [key, value] of form.entries()) {
     if (typeof value === "string") params.set(key, value);
   }
 
-  const result = await resolveAuthorizeRequest(params);
+  const result = await resolveAuthorizeRequest(params, origins);
 
   switch (result.stage) {
     case "client_error":
@@ -177,7 +208,7 @@ export async function POST(request: Request) {
       // The session that rendered the GET consent page has gone away
       // between then and now (e.g. it expired mid-decision) — never mint a
       // code without re-confirming a live session immediately beforehand.
-      return html(renderLoginRequiredPage("/login"));
+      return html(renderLoginRequiredPage(loginUrlFor(params)));
     case "ready": {
       const r = result.resolved;
       const decision = form.get("decision");
@@ -190,7 +221,7 @@ export async function POST(request: Request) {
       }
 
       const user = await getAuthedUser();
-      if (!user) return html(renderLoginRequiredPage("/login"));
+      if (!user) return html(renderLoginRequiredPage(loginUrlFor(params)));
 
       const supabase = await createClient();
       const mintResult = await mintAuthorizationCode(supabase, {

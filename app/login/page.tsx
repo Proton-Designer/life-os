@@ -3,20 +3,24 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { signIn } from "./actions";
+import { safeNextPath } from "@/lib/auth/safe-next";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next: rawNext } = await searchParams;
+  // P4-13: carried through sign-in (and through a failed attempt) so the MCP OAuth consent flow resumes.
+  const next = safeNextPath(rawNext);
 
   async function signInAction(formData: FormData) {
     "use server";
     const result = await signIn(formData);
     if (result?.error) {
       const { redirect } = await import("next/navigation");
-      redirect(`/login?error=${encodeURIComponent(result.error)}`);
+      const keepNext = safeNextPath(formData.get("next") as string | null);
+      redirect(`/login?error=${encodeURIComponent(result.error)}${keepNext ? `&next=${encodeURIComponent(keepNext)}` : ""}`);
     }
   }
 
@@ -33,6 +37,7 @@ export default async function LoginPage({
           <p className="text-sm text-muted-foreground">Sign in to continue</p>
         </div>
         <form action={signInAction} className="flex flex-col gap-4">
+          {next ? <input type="hidden" name="next" value={next} /> : null}
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>
             <Input

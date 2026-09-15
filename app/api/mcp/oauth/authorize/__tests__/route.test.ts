@@ -91,11 +91,12 @@ describe("GET /api/mcp/oauth/authorize", () => {
 });
 
 describe("POST /api/mcp/oauth/authorize", () => {
-  function formRequest(fields: Record<string, string>) {
+  function formRequest(fields: Record<string, string>, extraHeaders: Record<string, string> = {}) {
     const body = new URLSearchParams(fields);
     return new Request("https://lifeos.example.com/api/mcp/oauth/authorize", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      // P4-13: the consent POST requires a same-origin Origin header (a real browser form submit sends one).
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://lifeos.example.com", ...extraHeaders },
       body: body.toString(),
     });
   }
@@ -155,5 +156,106 @@ describe("POST /api/mcp/oauth/authorize", () => {
     const response = await POST(formRequest({ ...baseFields, decision: "maybe" }));
     expect(response.status).toBe(400);
     expect(mintAuthorizationCode).not.toHaveBeenCalled();
+  });
+});
+
+describe("P4-13 authorize hardening", () => {
+  function post(fields: Record<string, string>, headers: Record<string, string>) {
+    return POST(
+      new Request("https://lifeos.example.com/api/mcp/oauth/authorize", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+        body: new URLSearchParams(fields).toString(),
+      }),
+    );
+  }
+  const fields = {
+    client_id: "lifeos_client_abc",
+    redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+    response_type: "code",
+    code_challenge: "a-real-challenge-value",
+    code_challenge_method: "S256",
+    state: "xyz",
+    scope: "read write",
+    decision: "allow",
+  };
+
+  it("login-required page links to /login?next=<this authorize URL> (GET)", async () => {
+    getAuthedUser.mockResolvedValueOnce(null);
+    const response = await GET(new Request(authorizeUrl()));
+    const body = await response.text();
+    const href = /href="([^"]+)"/.exec(body)![1].replace(/&amp;/g, "&");
+    const login = new URL(href, "https://lifeos.example.com");
+    expect(login.pathname).toBe("/login");
+    const next = login.searchParams.get("next")!;
+    expect(next.startsWith("/api/mcp/oauth/authorize?")).toBe(true);
+    expect(new URLSearchParams(next.split("?")[1]).get("client_id")).toBe("lifeos_client_abc");
+    expect(new URLSearchParams(next.split("?")[1]).get("state")).toBe("xyz");
+  });
+
+  it("login-required page after a POST links back to the GET authorize URL, without the decision", async () => {
+    getAuthedUser.mockResolvedValueOnce(null);
+    const response = await post(fields, { origin: "https://lifeos.example.com" });
+    const href = /href="([^"]+)"/.exec(await response.text())![1].replace(/&amp;/g, "&");
+    const next = new URL(href, "https://lifeos.example.com").searchParams.get("next")!;
+    expect(next.startsWith("/api/mcp/oauth/authorize?")).toBe(true);
+    expect(next).not.toContain("decision");
+  });
+
+  it("an omitted scope defaults to READ only, and the consent page says so", async () => {
+    getAuthedUser.mockResolvedValue({ id: "user-1", email: "a@b.com" });
+    const url = new URL(authorizeUrl());
+    url.searchParams.delete("scope");
+    const page = await (await GET(new Request(url.toString()))).text();
+    expect(page).toContain('name="scope" value="read"');
+
+    mintAuthorizationCode.mockResolvedValueOnce({ ok: true, code: "c" });
+    const { scope: _omit, ...noScope } = fields;
+    void _omit;
+    await post(noScope, { origin: "https://lifeos.example.com" });
+    expect(mintAuthorizationCode).toHaveBeenCalledWith("user-client-marker", expect.objectContaining({ scopes: ["read"] }));
+  });
+
+  it("an explicit 'read write' scope is still honoured", async () => {
+    getAuthedUser.mockResolvedValue({ id: "user-1", email: "a@b.com" });
+    mintAuthorizationCode.mockResolvedValueOnce({ ok: true, code: "c" });
+    await post(fields, { origin: "https://lifeos.example.com" });
+    expect(mintAuthorizationCode).toHaveBeenCalledWith("user-client-marker", expect.objectContaining({ scopes: ["read", "write"] }));
+  });
+
+  it("a resource that is not this server's /api/mcp is refused with invalid_target (redirect)", async () => {
+    getAuthedUser.mockResolvedValue({ id: "user-1", email: "a@b.com" });
+    for (const bad of ["https://evil.example.com/api/mcp", "https://lifeos.example.com/api/other", "https://lifeos.example.com/api/mcp?x=1", "not a url"]) {
+      const response = await GET(new Request(authorizeUrl({ resource: bad })));
+      expect(response.status, bad).toBe(302);
+      expect(new URL(response.headers.get("location")!).searchParams.get("error"), bad).toBe("invalid_target");
+    }
+    expect(mintAuthorizationCode).not.toHaveBeenCalled();
+  });
+
+  it("the correct resource (with or without a trailing slash) is accepted", async () => {
+    getAuthedUser.mockResolvedValue({ id: "user-1", email: "a@b.com" });
+    for (const good of ["https://lifeos.example.com/api/mcp", "https://lifeos.example.com/api/mcp/"]) {
+      const response = await GET(new Request(authorizeUrl({ resource: good })));
+      expect(response.status, good).toBe(200);
+    }
+  });
+
+  it("the consent POST is refused (403, no code) without an Origin/Referer, or from another origin", async () => {
+    getAuthedUser.mockResolvedValue({ id: "user-1", email: "a@b.com" });
+    const cases: Record<string, string>[] = [{}, { origin: "https://evil.example.com" }, { origin: "null" }, { referer: "https://evil.example.com/page" }];
+    for (const headers of cases) {
+      const response = await post(fields, headers);
+      expect(response.status, JSON.stringify(headers)).toBe(403);
+    }
+    expect(mintAuthorizationCode).not.toHaveBeenCalled();
+  });
+
+  it("a same-origin Referer is accepted when Origin is absent", async () => {
+    getAuthedUser.mockResolvedValue({ id: "user-1", email: "a@b.com" });
+    mintAuthorizationCode.mockResolvedValueOnce({ ok: true, code: "c" });
+    const response = await post(fields, { referer: "https://lifeos.example.com/api/mcp/oauth/authorize?client_id=x" });
+    expect(response.status).toBe(302);
+    expect(mintAuthorizationCode).toHaveBeenCalled();
   });
 });
