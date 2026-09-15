@@ -8,6 +8,7 @@ const mintRefreshToken = vi.fn();
 const findAccessTokenForRefreshToken = vi.fn();
 const findLiveAccessTokenIdsForClient = vi.fn();
 const getOAuthClient = vi.fn();
+const burnUnusedRefreshTokensForClient = vi.fn();
 vi.mock("@/lib/mcp/oauth", async (importActual) => {
   // formatOAuthTokenLabel is kept REAL (importActual), not mocked — it's a
   // pure function, and mocking it would make these tests assert against a
@@ -21,6 +22,7 @@ vi.mock("@/lib/mcp/oauth", async (importActual) => {
     findAccessTokenForRefreshToken: (...args: unknown[]) => findAccessTokenForRefreshToken(...args),
     findLiveAccessTokenIdsForClient: (...args: unknown[]) => findLiveAccessTokenIdsForClient(...args),
     getOAuthClient: (...args: unknown[]) => getOAuthClient(...args),
+    burnUnusedRefreshTokensForClient: (...args: unknown[]) => burnUnusedRefreshTokensForClient(...args),
   };
 });
 
@@ -57,6 +59,8 @@ beforeEach(() => {
   findAccessTokenForRefreshToken.mockReset();
   findLiveAccessTokenIdsForClient.mockReset();
   getOAuthClient.mockReset();
+  burnUnusedRefreshTokensForClient.mockReset();
+  burnUnusedRefreshTokensForClient.mockResolvedValue(0);
   getOAuthClient.mockResolvedValue(null); // default: unnamed client, unless a test overrides it
   createAccessToken.mockReset();
   revokeAccessToken.mockReset();
@@ -176,6 +180,18 @@ describe("POST /api/mcp/oauth/token", () => {
       expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-attackers-live-token");
     });
 
+    it("P4-11 security: REUSE DETECTED also burns every unused refresh token for the (user, client) pair, after reading the live ids", async () => {
+      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
+      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1", clientId: "cid" });
+      findLiveAccessTokenIdsForClient.mockResolvedValueOnce(["tok-live"]);
+
+      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
+
+      expect(burnUnusedRefreshTokensForClient).toHaveBeenCalledWith("service-client-marker", "user-1", "cid");
+      expect(findLiveAccessTokenIdsForClient.mock.invocationCallOrder[0]).toBeLessThan(burnUnusedRefreshTokensForClient.mock.invocationCallOrder[0]);
+      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-live");
+    });
+
     it("refuses to mint a fresh token if the one being refreshed no longer has scopes on record", async () => {
       rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
       getTokenScopesById.mockResolvedValueOnce(null);
@@ -242,6 +258,7 @@ describe("POST /api/mcp/oauth/token", () => {
       const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
 
       expect(response.status).toBe(500);
+      expect((await response.json()).error_description).not.toContain("db down"); // P4-13 nit: generic
       expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-new");
       expect(revokeAccessToken).not.toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old");
       expect(mintRefreshToken).not.toHaveBeenCalled();

@@ -31,6 +31,7 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
   for (const [t, rows] of Object.entries(seed)) tables[t] = rows.map((r) => ({ ...r }));
   const failOn = new Set<string>();
   const failMessage: Record<string, string> = {};
+  let idSeq = 0;
 
   function builder(table: string, op: "select" | "update" | "insert", payload?: Row | Row[]) {
     const filters: Filter[] = [];
@@ -46,8 +47,10 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
       const rows = (tables[table] ??= []);
       if (op === "insert") {
         const list = Array.isArray(payload) ? payload : [payload as Row];
-        for (const r of list) rows.push({ ...r });
-        return { data: returning ? list.map(pick) : null, error: null };
+        // Like a real table's `id uuid default gen_random_uuid()`: callers that don't pass an id get one.
+        const stored = list.map((r) => ({ id: `${table}-${++idSeq}`, ...r }));
+        for (const r of stored) rows.push(r);
+        return { data: returning ? stored.map(pick) : null, error: null };
       }
       let matched = rows.filter((r) => filters.every((f) => f(r)));
       if (order) {

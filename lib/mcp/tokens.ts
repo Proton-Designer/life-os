@@ -336,11 +336,23 @@ export async function verifyAccessToken(
  * motivating case: a refreshed access token must keep the SAME scopes the
  * one it replaces had, never silently widen to full access on every
  * refresh. Returns null for an unknown id rather than throwing.
+ *
+ * RETURNS NULL FOR A REVOKED TOKEN (P4-11 security fix). This used to read
+ * scopes regardless of `revoked_at`, so the refresh grant would mint a fresh
+ * live token to replace a REVOKED one: after reuse detection revoked token B,
+ * B's still-unused sibling refresh token minted a live token C, and the
+ * schedule handoff moved the stolen chain's schedules onto C (found live by
+ * p4-b-parity). A revoked credential must never be refreshable.
+ *
+ * EXPIRY IS DELIBERATELY IGNORED: refreshing an expired access token is the
+ * normal OAuth path (P4-12 gives OAuth tokens a 30-day expires_at).
  */
 export async function getTokenScopesById(supabase: SupabaseClient, tokenId: string): Promise<McpScope[] | null> {
-  const { data, error } = await supabase.from("mcp_access_tokens").select("scopes").eq("id", tokenId).maybeSingle();
+  const { data, error } = await supabase.from("mcp_access_tokens").select("scopes, revoked_at").eq("id", tokenId).maybeSingle();
   if (error || !data) return null;
-  return (data as { scopes: string[] }).scopes.filter(isMcpScope);
+  const row = data as { scopes: string[]; revoked_at?: string | null };
+  if (row.revoked_at) return null;
+  return row.scopes.filter(isMcpScope);
 }
 
 /**

@@ -602,6 +602,30 @@ export async function findAccessTokenForRefreshToken(
 }
 
 /**
+ * P4-11 security fix: on refresh-token REUSE, burn every still-unused refresh
+ * token for this (user, client) pair — stamp `rotated_at` so each one now
+ * reads as "already used." Revoking the live access tokens alone was not
+ * enough: the unused sibling refresh token issued alongside a revoked token
+ * could still be redeemed for a brand-new live token (found live). Returns
+ * how many were burned; a DB error is logged and reported as -1 so the caller
+ * can still refuse the request (it always does on reuse).
+ */
+export async function burnUnusedRefreshTokensForClient(supabase: SupabaseClient, userId: string, clientId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("mcp_oauth_refresh_tokens")
+    .update({ rotated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .is("rotated_at", null)
+    .select("id");
+  if (error) {
+    logDbError("burnUnusedRefreshTokensForClient update on mcp_oauth_refresh_tokens", error);
+    return -1;
+  }
+  return (data ?? []).length;
+}
+
+/**
  * Finds the access_token_id(s) linked to the CURRENT (not-yet-rotated)
  * refresh token row(s) for a given (user, client) pair — the live
  * descendant of a rotation chain, and the actual target reuse detection

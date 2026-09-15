@@ -6,6 +6,7 @@ import {
   mintRefreshToken,
   findAccessTokenForRefreshToken,
   findLiveAccessTokenIdsForClient,
+  burnUnusedRefreshTokensForClient,
   getOAuthClient,
   formatOAuthTokenLabel,
 } from "@/lib/mcp/oauth";
@@ -41,13 +42,22 @@ import { repointScheduledActionsToken } from "@/lib/scheduling/token-handoff";
  * The refresh_token stays clock-free: single-use rotation, and a REPLAYED
  * (already-rotated) refresh token is a theft signal that revokes the family.
  * Refreshing an EXPIRED access token is the normal path and is allowed --
- * getTokenScopesById reads scopes regardless of expiry.
+ * getTokenScopesById reads scopes regardless of expiry -- but a REVOKED one
+ * is never refreshable (P4-11 security fix).
  */
 
 /** P4-12: every OAuth-minted access token is a 30-day mcp_oauth token. An instant (now + TTL), never a calendar date. */
 function oauthTokenOptions() {
   return { clientKind: "mcp_oauth" as const, expiresAt: new Date(Date.now() + OAUTH_ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString() };
 }
+
+/**
+ * The only free-text 500 description this route sends. Other 500 paths pass
+ * createAccessToken's / mintRefreshToken's own `message`, which are fixed,
+ * user-facing strings by construction (e.g. the live-token cap message),
+ * never DB error text.
+ */
+const GENERIC_SERVER_ERROR = "The token request couldn't be completed. Try again.";
 
 function tokenError(error: string, description: string, status = 400) {
   return NextResponse.json({ error, error_description: description }, { status });
@@ -133,9 +143,17 @@ export async function POST(request: Request) {
         // and findLiveAccessTokenIdsForClient doc comments for the full
         // reasoning (corrected during L4 flow verification — an earlier
         // version of this code only did (1)).
+        //
+        // P4-11 security fix: ALSO burn every unused refresh token for the
+        // pair. Revoking the live access tokens alone left their sibling
+        // refresh tokens redeemable, and a redeemed sibling minted a fresh
+        // live token (and the schedule handoff moved the stolen chain's
+        // schedules onto it). Order: find the live ids (they are read FROM
+        // those unused refresh rows), then burn, then revoke.
         const stale = await findAccessTokenForRefreshToken(supabase, rawRefreshToken);
         if (stale) {
           const liveIds = await findLiveAccessTokenIdsForClient(supabase, stale.userId, stale.clientId);
+          await burnUnusedRefreshTokensForClient(supabase, stale.userId, stale.clientId);
           const toRevoke = new Set([stale.accessTokenId, ...liveIds]);
           for (const tokenId of toRevoke) {
             await revokeAccessToken(supabase, stale.userId, tokenId);
@@ -156,11 +174,14 @@ export async function POST(request: Request) {
     // must still be read-only after a refresh.
     const priorScopes = await getTokenScopesById(supabase, rotated.oldAccessTokenId);
     if (!priorScopes || priorScopes.length === 0) {
-      // The token being refreshed no longer exists or has no scopes (e.g.
-      // it was manually revoked from Settings between issuance and this
-      // refresh) — refuse rather than silently minting a fresh full-access
-      // token for a credential that shouldn't exist anymore.
-      return tokenError("invalid_grant", "The access token this refresh token belongs to no longer exists.");
+      // The token being refreshed no longer exists, has no scopes, or is
+      // REVOKED — revoked from Settings, or by reuse detection above.
+      // getTokenScopesById returns null for a revoked token (P4-11 security
+      // fix: before that, this branch minted a live replacement for a revoked
+      // token). Refuse BEFORE any mint or schedule re-point. The refresh token
+      // was already rotated above, so it is spent too. An EXPIRED but
+      // unrevoked token is still refreshable.
+      return tokenError("invalid_grant", "The access this refresh token belonged to has been revoked or no longer exists. Reconnect to continue.");
     }
 
     const rotatedClient = await getOAuthClient(supabase, rotated.clientId);
@@ -181,7 +202,10 @@ export async function POST(request: Request) {
       await repointScheduledActionsToken(supabase, rotated.userId, rotated.oldAccessTokenId, minted.status.id);
     } catch (e) {
       await revokeAccessToken(supabase, rotated.userId, minted.status.id);
-      return tokenError("server_error", e instanceof Error ? e.message : "Could not complete the token refresh.", 500);
+      // Generic on purpose (P4-13 nit): the thrown error carries DB text,
+      // which must never reach an OAuth client.
+      void e;
+      return tokenError("server_error", GENERIC_SERVER_ERROR, 500);
     }
     await revokeAccessToken(supabase, rotated.userId, rotated.oldAccessTokenId);
 
