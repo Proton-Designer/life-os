@@ -314,8 +314,23 @@ describe("chat() -- multi-provider dispatch", () => {
     vi.unstubAllGlobals();
   });
 
+  it("routes anthropic through anthropicChat (slice 5) -- its own branch, distinct response shape (no `choices`) proves it's not silently falling through to the openai-compatible path", async () => {
+    vi.stubGlobal("navigator", undefined);
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await chat("anthropic", "test-key", [{ role: "user", content: "hi" }]);
+    expect(result.ok, result.message ?? "").toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("throws a clear, named error for a provider whose adapter isn't wired yet, rather than silently doing nothing", async () => {
-    await expect(chat("anthropic", "test-key", [{ role: "user", content: "hi" }])).rejects.toThrow(/Claude.*isn't wired yet/);
     await expect(chat("google", "test-key", [{ role: "user", content: "hi" }])).rejects.toThrow(/Gemini.*isn't wired yet/);
   });
 });

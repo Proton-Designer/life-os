@@ -2,6 +2,7 @@ import "server-only";
 import { PROVIDERS, type ProviderId } from "./providers";
 import { openAiCompatibleChat } from "./adapters/openai-compatible";
 import { openAiSdkChat } from "./adapters/openai-sdk";
+import { anthropicChat } from "./adapters/anthropic";
 import type { ChatResult } from "./adapters/types";
 
 export type { ChatResult } from "./adapters/types";
@@ -24,14 +25,17 @@ export type { ChatResult } from "./adapters/types";
  * a wireProtocol value that would imply more uniformity than actually
  * exists between the four.
  *
- * anthropic.ts/google.ts land in later slices; until then, routing a
- * non-openai-compatible provider here throws rather than silently doing
- * nothing — the same "fail loud on unimplemented" posture worker-stages.ts
- * already takes for an unregistered ingest stage (a 501, not a silent
- * 200). Nothing calls `chat()` with a non-deepseek provider yet
- * (`gatewayChat` still hardcodes `DEFAULT_PROVIDER`), so this branch is
- * unreachable in production today — a placeholder for a later slice, not
- * a live gap.
+ * anthropic.ts lands in slice 5 (this one) — Claude's Messages API isn't
+ * wire-compatible with chat/completions at all (no "system" role, no
+ * shared error hierarchy shape with the openai package's), so it gets its
+ * own branch here rather than folding into either "openai-compatible"
+ * path. google.ts (Gemini) lands in a later slice; until then, routing it
+ * here throws rather than silently doing nothing — the same "fail loud on
+ * unimplemented" posture worker-stages.ts already takes for an
+ * unregistered ingest stage (a 501, not a silent 200). Nothing calls
+ * `chat()` with google yet (`gatewayChat` still hardcodes
+ * `DEFAULT_PROVIDER`), so that branch is unreachable in production today —
+ * a placeholder for a later slice, not a live gap.
  */
 export interface ChatOpts {
   maxTokens?: number;
@@ -56,6 +60,9 @@ export async function chat(
   }
   if (provider === "openai" || provider === "moonshot" || provider === "xai") {
     return openAiSdkChat(provider, apiKey, messages, opts);
+  }
+  if (provider === "anthropic") {
+    return anthropicChat(apiKey, messages, opts);
   }
   const { wireProtocol, label } = PROVIDERS[provider];
   throw new Error(`chat(): ${label} (wireProtocol "${wireProtocol}") isn't wired yet — its adapter lands in a later multi-provider slice.`);
@@ -84,11 +91,12 @@ export async function chat(
  * as a regression test.
  *
  * `thinking: false` applies to DeepSeek only (its raw-fetch adapter's own
- * field). `effort: "low"` is its slice-4 sibling for the SDK-backed
- * adapters (openai-sdk.ts's OpenAI entry; Kimi/xAI don't confirm support
- * yet, so it's silently unsent for them — see openai-sdk.ts's QUIRKS
- * table) — each provider gets whichever of the two its own adapter reads,
- * the other is simply ignored.
+ * field). `effort: "low"` is its sibling for the SDK-backed adapters
+ * (openai-sdk.ts's OpenAI entry; anthropic.ts's Claude entry, translated to
+ * `output_config.effort`, never disabling `thinking` itself -- see that
+ * file's own header for why; Kimi/xAI don't confirm reasoning-effort
+ * support yet, so it's silently unsent for them) — each provider gets
+ * whichever of the two its own adapter reads, the other is simply ignored.
  */
 export async function verifyKey(provider: ProviderId, apiKey: string): Promise<ChatResult> {
   return chat(provider, apiKey, [{ role: "user", content: "Reply with the single word: ok" }], {
