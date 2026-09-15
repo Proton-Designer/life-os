@@ -75,7 +75,7 @@ the point is to make a number unavailable the moment it is promised.
 | `174` | reserved spare, multi-provider | — | reserved |
 | `175` | ritual-builder (#39-41) — allocated by Phase-1 lead 2026-09-14 | `identity_habits` + `habit_votes` as NEW tables (not custom_habits: its domain CHECK + live Fitness reader; not deen_habits: Faith-scoped stage mechanic). 7-habit cap = partial unique index on (user_id, rank) where status='active'. Votes: row-presence toggle, unique (user_id, habit_id, date), today-only enforced server-side. Score derived, never stored: 0.04 * sum 0.96^age over votes. Reviewed, dry-run, APPLIED 2026-09-14 | applied |
 | `176` | reserved spare for ritual-builder | — | reserved |
-| `177` | goals-builder (#6 book-ready notification) — allocated by Phase-1 lead 2026-09-14 | book_ready_notification_log, unique (book_id) — a book finishes once | allocated |
+| `177` | goals-builder (#6 book-ready notification) — allocated by Phase-1 lead 2026-09-14 | book_ready_notification_log, unique (book_id) — a book finishes once; claim-first lock. Reviewed, dry-run, APPLIED 2026-09-14 | applied |
 | `178`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**

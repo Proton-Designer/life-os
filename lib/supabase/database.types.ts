@@ -179,6 +179,34 @@ export type Database = {
         }
         Relationships: []
       }
+      book_ready_notification_log: {
+        Row: {
+          book_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_ready_notification_log_book_id_fkey"
+            columns: ["book_id"]
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       book_sections: {
         Row: {
           book_id: string
