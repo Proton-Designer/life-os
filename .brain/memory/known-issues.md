@@ -300,6 +300,28 @@ and four Work/Business tables are documented as missing a faithful
 are still open — they may have been allocated and applied since this file was
 last read.
 
+### `supabase.auth.admin.deleteUser` fails for some `onboard-*@example.com` e2e accounts
+**Found:** 2026-09-15, goals-builder, regression-suite triage. `e2e/onboarding.spec.ts`'s
+`afterEach` (f0f3f62, 2026-09-01) is supposed to hard-delete every fresh account
+`signUpFresh()` creates, via the service-role admin API. Two accounts from a
+2026-09-15 run (`onboard-1789443637820-abztbe@example.com`,
+`onboard-1789443200600-aoy0zx@example.com`) survived it. Reproduced directly:
+`admin.auth.admin.deleteUser(id)` returns `"Database error deleting user"` for
+both, deterministically (retried once, same result) — not a transient
+connection blip. Every FK in `public` that references `auth.users` is
+`ON DELETE CASCADE` (checked all 94 via `pg_constraint`), so it isn't an
+uncascaded child row in a table this repo owns; more likely a GoTrue-internal
+failure (an auth-schema trigger, or something specific to these two rows).
+**Not fixed:** `afterEach`'s own `await admin.auth.admin.deleteUser(match.id)`
+call never checks the returned `error` — a failure like this one is silently
+swallowed, which is exactly how these two went unnoticed. The two rows above
+are still live in production `auth.users`; direct SQL deletion is blocked by
+this environment's own destructive-op gate, and the admin API itself is what's
+failing, so they could not be removed in-session. Left for the Lead — either
+someone with a working deletion path, or Supabase support if it's GoTrue-side.
+**Fix direction (not done):** check and log/retry the `error` in `afterEach`
+so a repeat of this isn't silent next time.
+
 <!--
 [ ] Under 200 lines   [ ] "Do not" lines filled in
 -->
