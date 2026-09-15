@@ -187,10 +187,21 @@ describe("MCP parity manifest", () => {
   });
 });
 
+// Helper tests use SYNTHETIC manifests only. Completing a real task (flipping
+// its pending entries to mcp) must never break the guard, so nothing here may
+// depend on which live entries are still pending.
 describe("manifest helpers", () => {
   it("pendingFor lists a task's remaining entries", () => {
-    expect(pendingFor("P4-06")).toContain("app/(app)/deen/actions.ts#logQuranSession");
-    expect(pendingFor("P4-06")).not.toContain("app/(app)/deen/actions.ts#markPrayer");
+    const manifest: Record<string, ParityDecision> = {
+      "a.ts#one": { pending: "P4-06" },
+      "a.ts#two": { pending: "P4-06", note: "x" },
+      "a.ts#three": { mcp: "deen.prayer.log" },
+      "b.ts#four": { pending: "P4-07" },
+      "b.ts#five": { read_only: true },
+    };
+    expect(pendingFor("P4-06", manifest)).toEqual(["a.ts#one", "a.ts#two"]);
+    expect(pendingFor("P4-07", manifest)).toEqual(["b.ts#four"]);
+    expect(pendingFor("P4-08", manifest)).toEqual([]);
   });
 
   const src = [
@@ -214,9 +225,24 @@ describe("manifest helpers", () => {
     expect(() => flipPendingToMcp(src, "app/(app)/deen/actions.ts#logQuranSession", "deen.quran")).toThrow(/domain\.entity\.action/);
   });
 
-  it("flipPendingToMcp works on the real manifest source", () => {
+  it("flipPendingToMcp round-trips a synthetic source until nothing is pending", () => {
+    let out = src;
+    for (const key of ["app/(app)/deen/actions.ts#logQuranSession", "app/(app)/deen/actions.ts#setWeeklyFocus"]) {
+      out = flipPendingToMcp(out, key, "deen.some_entity.some_action");
+    }
+    expect(out).not.toMatch(/pending:/);
+    expect(() => flipPendingToMcp(out, "app/(app)/deen/actions.ts#logQuranSession", "deen.a.b")).toThrow(/not pending/);
+  });
+
+  it("the live manifest source keeps the one-entry-per-line format flipPendingToMcp relies on", () => {
+    // Structural only: holds whatever each entry's decision currently is.
     const real = fs.readFileSync(path.join(REPO_ROOT, MANIFEST_PATH), "utf8");
-    const key = pendingFor("P4-06")[0];
-    expect(flipPendingToMcp(real, key, "deen.some_entity.some_action")).toContain(`${JSON.stringify(key)}: { mcp: "deen.some_entity.some_action" },`);
+    const broken = Object.keys(PARITY_MANIFEST).filter((key) => {
+      const escaped = JSON.stringify(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return (real.match(new RegExp(`^\\s*${escaped}: \\{[^\\n]*\\},[ \\t]*$`, "gm")) ?? []).length !== 1;
+    });
+    if (broken.length > 0) {
+      throw new Error(`Keep each PARITY_MANIFEST entry on exactly one line, \`"<key>": { … },\` — these aren't:\n${broken.map((k) => `  ${k}`).join("\n")}`);
+    }
   });
 });
