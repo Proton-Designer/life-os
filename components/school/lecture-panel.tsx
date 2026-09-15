@@ -2,7 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { uploadLectureRecording, removeLectureRecording, getLectureRecordingUrl } from "@/app/(app)/school/lecture-actions";
+import { prepareLectureUpload, finalizeLectureUpload, removeLectureRecording, getLectureRecordingUrl } from "@/app/(app)/school/lecture-actions";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
 export type LectureRecording = {
@@ -47,17 +48,39 @@ export function LecturePanel({
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playbackUrl, setPlaybackUrl] = useState<{ id: string; url: string; mimeType: string } | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
+  /**
+   * Three hops (a9 review, P3-14): prepare (Server Action -- validates
+   * ownership + mime/size, mints a signed upload url) -> the browser
+   * uploads the actual bytes straight to Storage, never through a Server
+   * Action's own request body -> finalize (Server Action -- re-reads the
+   * real object and only then writes the row). A failure at the upload hop
+   * leaves an unfinalized object in Storage with no row pointing at it --
+   * same "orphaned object, never lost data" posture as every other upload
+   * in this codebase, just with the orphan risk moved earlier.
+   */
   function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later (e.g. after a failed upload)
     if (!file) return;
-    const formData = new FormData();
-    formData.set("file", file);
-    startTransition(async () => {
-      await uploadLectureRecording(classId, formData);
-      router.refresh();
-    });
+    setUploadError(null);
+    setIsUploading(true);
+    (async () => {
+      try {
+        const { path, token } = await prepareLectureUpload(classId, file.name, file.type, file.size);
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage.from("lectures").uploadToSignedUrl(path, token, file);
+        if (uploadError) throw uploadError;
+        await finalizeLectureUpload(classId, path);
+        router.refresh();
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "Upload failed -- try again");
+      } finally {
+        setIsUploading(false);
+      }
+    })();
   }
 
   function play(id: string) {
@@ -90,11 +113,19 @@ export function LecturePanel({
         <h3 className="text-sm font-medium">Lecture recordings</h3>
         <input ref={fileInputRef} type="file" accept="audio/*" className="hidden" onChange={handleFileChosen} />
         {editing && (
-          <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => fileInputRef.current?.click()}>
-            Upload recording
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isPending || isUploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isUploading ? "Uploading…" : "Upload recording"}
           </Button>
         )}
       </div>
+
+      {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
 
       {lectures.length === 0 ? (
         <p className="text-xs text-muted-foreground">No recordings yet.</p>

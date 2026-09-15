@@ -6,7 +6,6 @@ import { computeAssignmentRisk, type RiskBand } from "@/lib/school/risk/assignme
 import type { Confidence } from "@/lib/school/risk/types";
 import type { QuestionOrigin } from "@/lib/school/questions-core";
 import { parseGradeBoundaries } from "@/lib/school/grades/parse-grade-boundaries";
-import { untypedFrom } from "@/lib/school/untyped-from";
 
 // `difficulty_rating` / `confidence_rating` / `target_grade_pct` (classes) and
 // `weight_pct` (class_assessments) landed in migration 105 — see that file's own
@@ -240,23 +239,15 @@ export async function getClassCards(
       .in("class_id", classIds)
       .neq("status", "confirmed")
       .order("created_at", { ascending: false }),
-    // P3-14 -- see this file's untypedFrom import comment and lecture-actions.ts.
-    untypedFrom(supabase, "lecture_recordings")
+    // P3-14 -- see lecture-actions.ts. Migration 211 is applied and typed
+    // (database.types.ts regenerated in 234ecb1), so this is a plain typed
+    // query like every other one in this file.
+    supabase
+      .from("lecture_recordings")
       .select("id, class_id, original_filename, mime_type, size_bytes, duration_seconds, created_at")
       .eq("user_id", userId)
       .in("class_id", classIds)
-      .order("created_at", { ascending: false })
-      .returns<
-        {
-          id: string;
-          class_id: string;
-          original_filename: string;
-          mime_type: string;
-          size_bytes: number;
-          duration_seconds: number | null;
-          created_at: string;
-        }[]
-      >(),
+      .order("created_at", { ascending: false }),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;

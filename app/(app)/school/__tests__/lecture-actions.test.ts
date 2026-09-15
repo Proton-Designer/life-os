@@ -6,30 +6,43 @@ vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathM
 // Same "thenable chain" shape as lib/school/__tests__/get-class-cards.test.ts's
 // own fake — every chained method returns the chain itself, and it resolves
 // to a fixed { data, error } regardless of which methods were actually
-// called, which is enough for these functions (they only ever await the
-// final result of one straight-line chain, never branch on an intermediate
-// step's return value).
+// called. Results are keyed by table name since each function under test
+// only ever touches ONE table per call (classes in prepare, lecture_recordings
+// everywhere else) — no cross-call ordering to fake.
 function makeChain(result: { data: unknown; error: unknown }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "insert", "delete", "eq", "single", "maybeSingle", "returns"]) {
+  for (const method of ["select", "insert", "delete", "eq", "single", "maybeSingle"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (resolve: (v: { data: unknown; error: unknown }) => void) => resolve(result);
   return chain;
 }
 
-const uploadMock = vi.fn(async (_path: string, _file: File, _opts: { contentType: string; upsert: boolean }) => ({
+let fromResults: Record<string, { data: unknown; error: unknown }> = {};
+const fromMock = vi.fn((table: string) => makeChain(fromResults[table] ?? { data: null, error: null }));
+
+const createSignedUploadUrlMock = vi.fn(async (_path: string) => ({
+  data: { path: "unused", token: "upload-token-abc" },
   error: null as { message: string } | null,
 }));
+const listMock = vi.fn(
+  async (_dir: string, _opts: { search: string }) =>
+    ({ data: [] as { name: string; metadata: Record<string, unknown> | null }[], error: null as { message: string } | null })
+);
 const removeMock = vi.fn(async (_paths: string[]) => ({ error: null as { message: string } | null }));
 const createSignedUrlMock = vi.fn(async () => ({ data: { signedUrl: "https://signed.example/x" }, error: null as { message: string } | null }));
-let fromResult: { data: unknown; error: unknown } = { data: null, error: null };
-const fromMock = vi.fn((_table: string) => makeChain(fromResult));
 
 const requireUserMock = vi.fn(async () => ({
   supabase: {
-    storage: { from: () => ({ upload: uploadMock, remove: removeMock, createSignedUrl: createSignedUrlMock }) },
     from: fromMock,
+    storage: {
+      from: () => ({
+        createSignedUploadUrl: createSignedUploadUrlMock,
+        list: listMock,
+        remove: removeMock,
+        createSignedUrl: createSignedUrlMock,
+      }),
+    },
   },
   userId: "user-1",
 }));
@@ -37,58 +50,114 @@ vi.mock("@/lib/supabase/auth", () => ({
   requireUser: () => requireUserMock(),
 }));
 
-function audioFile(name: string) {
-  return new File(["audio-bytes"], name, { type: "audio/mpeg" });
-}
-
 describe("lecture-actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fromResult = { data: null, error: null };
-    uploadMock.mockResolvedValue({ error: null });
+    fromResults = { classes: { data: { id: "class-1" }, error: null } };
+    createSignedUploadUrlMock.mockResolvedValue({ data: { path: "unused", token: "upload-token-abc" }, error: null });
+    listMock.mockResolvedValue({ data: [], error: null });
     removeMock.mockResolvedValue({ error: null });
     createSignedUrlMock.mockResolvedValue({ data: { signedUrl: "https://signed.example/x" }, error: null });
   });
 
-  it("uploadLectureRecording uploads to the lectures bucket under <user>/<class>/, then inserts a row, then revalidates", async () => {
-    const { uploadLectureRecording } = await import("../lecture-actions");
-    const formData = new FormData();
-    formData.set("file", audioFile("lecture 1.mp3"));
+  describe("prepareLectureUpload", () => {
+    it("verifies class ownership, then mints a signed upload url under <user>/<class>/", async () => {
+      const { prepareLectureUpload } = await import("../lecture-actions");
 
-    await uploadLectureRecording("class-1", formData);
+      const result = await prepareLectureUpload("class-1", "lecture 1.mp3", "audio/mpeg", 1024);
 
-    expect(uploadMock).toHaveBeenCalledTimes(1);
-    const [path, , opts] = uploadMock.mock.calls[0]!;
-    expect(path).toMatch(/^user-1\/class-1\/\d+-lecture_1\.mp3$/);
-    expect(opts).toEqual({ contentType: "audio/mpeg", upsert: false });
+      expect(fromMock).toHaveBeenCalledWith("classes");
+      expect(createSignedUploadUrlMock).toHaveBeenCalledTimes(1);
+      const [path] = createSignedUploadUrlMock.mock.calls[0]!;
+      expect(path).toMatch(/^user-1\/class-1\/\d+-lecture_1\.mp3$/);
+      expect(result).toEqual({ path, token: "upload-token-abc" });
+    });
 
-    expect(fromMock).toHaveBeenCalledWith("lecture_recordings");
-    expect(removeMock).not.toHaveBeenCalled(); // insert succeeded -- nothing to clean up
-    expect(revalidatePathMock).toHaveBeenCalledWith("/school");
+    it("rejects a class the caller doesn't own, without minting an upload url", async () => {
+      fromResults.classes = { data: null, error: { message: "not found" } };
+      const { prepareLectureUpload } = await import("../lecture-actions");
+
+      await expect(prepareLectureUpload("class-1", "lecture.mp3", "audio/mpeg", 1024)).rejects.toThrow("Class not found");
+      expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unsupported mime type at prepare time, without minting an upload url", async () => {
+      const { prepareLectureUpload } = await import("../lecture-actions");
+
+      await expect(prepareLectureUpload("class-1", "lecture.mov", "video/quicktime", 1024)).rejects.toThrow(/Unsupported file type/);
+      expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects an oversize file at prepare time, without minting an upload url", async () => {
+      const { prepareLectureUpload } = await import("../lecture-actions");
+
+      await expect(prepareLectureUpload("class-1", "lecture.mp3", "audio/mpeg", 600 * 1024 * 1024)).rejects.toThrow(/too large/);
+      expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+    });
   });
 
-  it("uploadLectureRecording cleans up the just-uploaded object when the row insert fails, and rethrows", async () => {
-    fromResult = { data: null, error: { message: "insert failed" } };
-    const { uploadLectureRecording } = await import("../lecture-actions");
-    const formData = new FormData();
-    formData.set("file", audioFile("lecture1.mp3"));
+  describe("finalizeLectureUpload", () => {
+    it("rejects a path outside this user/class's own prefix, without touching Storage or inserting a row", async () => {
+      const { finalizeLectureUpload } = await import("../lecture-actions");
 
-    await expect(uploadLectureRecording("class-1", formData)).rejects.toEqual({ message: "insert failed" });
+      await expect(finalizeLectureUpload("class-1", "user-2/class-1/123-lec.mp3")).rejects.toThrow(
+        "Path does not belong to this user/class"
+      );
+      expect(listMock).not.toHaveBeenCalled();
+      expect(fromMock).not.toHaveBeenCalledWith("lecture_recordings");
+    });
 
-    expect(uploadMock).toHaveBeenCalledTimes(1);
-    expect(removeMock).toHaveBeenCalledTimes(1);
-    expect(removeMock.mock.calls[0]![0]).toEqual([uploadMock.mock.calls[0]![0]]);
-    expect(revalidatePathMock).not.toHaveBeenCalled();
-  });
+    it("rejects when the uploaded object can't be found (upload never completed or expired)", async () => {
+      listMock.mockResolvedValue({ data: [], error: null });
+      const { finalizeLectureUpload } = await import("../lecture-actions");
 
-  it("uploadLectureRecording throws when no file is provided, without touching storage", async () => {
-    const { uploadLectureRecording } = await import("../lecture-actions");
-    await expect(uploadLectureRecording("class-1", new FormData())).rejects.toThrow("No file provided");
-    expect(uploadMock).not.toHaveBeenCalled();
+      await expect(finalizeLectureUpload("class-1", "user-1/class-1/123-lec.mp3")).rejects.toThrow(/Upload not found/);
+      expect(fromMock).not.toHaveBeenCalledWith("lecture_recordings");
+    });
+
+    it("re-reads the real object metadata from Storage (not client input) and inserts a row from it", async () => {
+      listMock.mockResolvedValue({
+        data: [{ name: "123-lec.mp3", metadata: { size: 2048, mimetype: "audio/mpeg" } }],
+        error: null,
+      });
+      fromResults.lecture_recordings = { data: null, error: null };
+      const { finalizeLectureUpload } = await import("../lecture-actions");
+
+      await finalizeLectureUpload("class-1", "user-1/class-1/123-lec.mp3");
+
+      expect(fromMock).toHaveBeenCalledWith("lecture_recordings");
+      expect(revalidatePathMock).toHaveBeenCalledWith("/school");
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    it("removes the object and rejects when the real object's mime type fails the allowlist", async () => {
+      listMock.mockResolvedValue({
+        data: [{ name: "123-lec.mov", metadata: { size: 2048, mimetype: "video/quicktime" } }],
+        error: null,
+      });
+      const { finalizeLectureUpload } = await import("../lecture-actions");
+
+      await expect(finalizeLectureUpload("class-1", "user-1/class-1/123-lec.mov")).rejects.toThrow(/validation/);
+      expect(removeMock).toHaveBeenCalledWith(["user-1/class-1/123-lec.mov"]);
+      expect(fromMock).not.toHaveBeenCalledWith("lecture_recordings");
+    });
+
+    it("cleans up the object when the row insert fails, and rethrows", async () => {
+      listMock.mockResolvedValue({
+        data: [{ name: "123-lec.mp3", metadata: { size: 2048, mimetype: "audio/mpeg" } }],
+        error: null,
+      });
+      fromResults.lecture_recordings = { data: null, error: { message: "insert failed" } };
+      const { finalizeLectureUpload } = await import("../lecture-actions");
+
+      await expect(finalizeLectureUpload("class-1", "user-1/class-1/123-lec.mp3")).rejects.toEqual({ message: "insert failed" });
+      expect(removeMock).toHaveBeenCalledWith(["user-1/class-1/123-lec.mp3"]);
+      expect(revalidatePathMock).not.toHaveBeenCalled();
+    });
   });
 
   it("removeLectureRecording deletes the row then best-effort removes the storage object", async () => {
-    fromResult = { data: { storage_path: "user-1/class-1/123-lec.mp3" }, error: null };
+    fromResults.lecture_recordings = { data: { storage_path: "user-1/class-1/123-lec.mp3" }, error: null };
     const { removeLectureRecording } = await import("../lecture-actions");
 
     await removeLectureRecording("rec-1");
@@ -97,23 +166,25 @@ describe("lecture-actions", () => {
     expect(revalidatePathMock).toHaveBeenCalledWith("/school");
   });
 
-  it("getLectureRecordingUrl mints a fresh signed URL for an owned recording", async () => {
-    fromResult = { data: { storage_path: "user-1/class-1/123-lec.mp3", mime_type: "audio/mpeg" }, error: null };
-    const { getLectureRecordingUrl } = await import("../lecture-actions");
+  describe("getLectureRecordingUrl", () => {
+    it("mints a fresh signed URL for an owned recording", async () => {
+      fromResults.lecture_recordings = { data: { storage_path: "user-1/class-1/123-lec.mp3", mime_type: "audio/mpeg" }, error: null };
+      const { getLectureRecordingUrl } = await import("../lecture-actions");
 
-    const result = await getLectureRecordingUrl("rec-1");
+      const result = await getLectureRecordingUrl("rec-1");
 
-    expect(createSignedUrlMock).toHaveBeenCalledWith("user-1/class-1/123-lec.mp3", 3600);
-    expect(result).toEqual({ url: "https://signed.example/x", mimeType: "audio/mpeg" });
-  });
+      expect(createSignedUrlMock).toHaveBeenCalledWith("user-1/class-1/123-lec.mp3", 3600);
+      expect(result).toEqual({ url: "https://signed.example/x", mimeType: "audio/mpeg" });
+    });
 
-  it("getLectureRecordingUrl returns null instead of throwing for a recording that no longer exists or isn't this user's", async () => {
-    fromResult = { data: null, error: null };
-    const { getLectureRecordingUrl } = await import("../lecture-actions");
+    it("returns null instead of throwing for a recording that no longer exists or isn't this user's", async () => {
+      fromResults.lecture_recordings = { data: null, error: null };
+      const { getLectureRecordingUrl } = await import("../lecture-actions");
 
-    const result = await getLectureRecordingUrl("rec-missing");
+      const result = await getLectureRecordingUrl("rec-missing");
 
-    expect(result).toBeNull();
-    expect(createSignedUrlMock).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+      expect(createSignedUrlMock).not.toHaveBeenCalled();
+    });
   });
 });
