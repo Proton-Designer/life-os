@@ -71,6 +71,13 @@ describe("DeepSeekProvider.summarizeSection", () => {
     // around -- if this regresses to unset/true, ingestion silently pays
     // for hidden reasoning tokens on every one of 66+ calls per book.
     expect(opts?.thinking).toBe(false);
+    // Multi-provider Addition A (the Lead, 2026-09-14): ingestion must
+    // ALWAYS request the budget tier explicitly, never ride whatever tier
+    // a user picked for interactive features -- a "capable"/flagship tier
+    // here would spend several real dollars of the user's own money per
+    // book. Was gatewayChat's DEFAULT before this was made explicit; this
+    // regression guard catches it if that default ever changes.
+    expect(opts?.tier).toBe("cheap");
   });
 
   it("trims the returned content", async () => {
@@ -141,6 +148,10 @@ describe("DeepSeekProvider.extractLessons", () => {
     expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // everything passed -- no retry needed
     const opts = gatewayChatSpy.mock.calls[0]![4];
     expect(opts?.thinking).toBe(false);
+    // Addition A (see summarizeSection's own test above) -- chatJson's
+    // shared call site, which extractLessons/generateCards/checkEntailment
+    // all go through, must request the budget tier too.
+    expect(opts?.tier).toBe("cheap");
   });
 
   it("drops a candidate whose provenance_quote is not a verbatim substring of the chunk (isGrounded firewall survives the port)", async () => {

@@ -243,7 +243,16 @@ export class DeepSeekProvider implements LlmProvider {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      { maxTokens, thinking: false, timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
+      // tier explicitly "cheap" (Phase 1 multi-provider, Addition A, the
+      // Lead): bulk ingestion runs hundreds of calls per book -- it must
+      // NEVER silently ride a user's chosen "capable"/flagship tier, which
+      // would spend several real dollars of THEIR money per book. This was
+      // already gatewayChat's default before this line existed; made
+      // explicit here so it survives a future change to that default
+      // without ingestion cost silently changing with it. The grounding
+      // quality gate (verifyGroundingStage), not model size, is what
+      // protects extraction quality -- see the Lead's own reasoning.
+      { maxTokens, thinking: false, tier: "cheap", timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
     );
     if (result.usage) {
       this.lastUsage = {
@@ -296,7 +305,9 @@ export class DeepSeekProvider implements LlmProvider {
       // is "NEVER INVOKED AUTOMATICALLY" (see summarize-sections.ts's own
       // header) and has apparently never been run against a real key. Same
       // cost reasoning as every other call in this file now applies here.
-      { maxTokens: MAX_TOKENS_SUMMARIZE, temperature: 0.2, thinking: false },
+      // tier explicitly "cheap" -- same Addition A reasoning as chatJson's
+      // own call site above.
+      { maxTokens: MAX_TOKENS_SUMMARIZE, temperature: 0.2, thinking: false, tier: "cheap" },
     );
     if (result.usage) {
       this.lastUsage = {
