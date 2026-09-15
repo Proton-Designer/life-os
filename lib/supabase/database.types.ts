@@ -662,6 +662,7 @@ export type Database = {
       }
       class_assessments: {
         Row: {
+          canvas_assignment_id: string | null
           category_id: string | null
           class_id: string
           created_at: string
@@ -671,6 +672,7 @@ export type Database = {
           name: string
           points_earned: number | null
           points_possible: number | null
+          points_source: string | null
           task_id: string | null
           type: string
           updated_at: string
@@ -678,6 +680,7 @@ export type Database = {
           weight_pct: number | null
         }
         Insert: {
+          canvas_assignment_id?: string | null
           category_id?: string | null
           class_id: string
           created_at?: string
@@ -687,6 +690,7 @@ export type Database = {
           name: string
           points_earned?: number | null
           points_possible?: number | null
+          points_source?: string | null
           task_id?: string | null
           type: string
           updated_at?: string
@@ -694,6 +698,7 @@ export type Database = {
           weight_pct?: number | null
         }
         Update: {
+          canvas_assignment_id?: string | null
           category_id?: string | null
           class_id?: string
           created_at?: string
@@ -703,6 +708,7 @@ export type Database = {
           name?: string
           points_earned?: number | null
           points_possible?: number | null
+          points_source?: string | null
           task_id?: string | null
           type?: string
           updated_at?: string
@@ -3642,6 +3648,7 @@ export type Database = {
       }
       staging_batches: {
         Row: {
+          canvas_announcement_id: string | null
           class_id: string
           created_at: string
           id: string
@@ -3651,6 +3658,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          canvas_announcement_id?: string | null
           class_id: string
           created_at?: string
           id?: string
@@ -3660,6 +3668,7 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          canvas_announcement_id?: string | null
           class_id?: string
           created_at?: string
           id?: string
