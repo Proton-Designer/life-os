@@ -11,12 +11,10 @@ import {
   mintAuthorizationCode,
   consumeAuthorizationCode,
   mintRefreshToken,
-  rotateRefreshToken,
   findAccessTokenForRefreshToken,
-  findLiveAccessTokenIdsForClient,
+  runRefreshGrant,
   parseScopeParam,
   AUTH_CODE_TTL_SECONDS,
-  MAX_REGISTERED_CLIENTS,
 } from "../oauth";
 
 /** Same idiom as lib/mcp/__tests__/tokens.test.ts's makeChain, generalized to carry an arbitrary resolved shape (e.g. `count`). */
@@ -172,21 +170,12 @@ describe("registerOAuthClient", () => {
     expect(chain.insert).not.toHaveBeenCalled();
   });
 
-  it("refuses to register past the client-count ceiling", async () => {
-    const client = clientWithSequence([makeChain({ count: MAX_REGISTERED_CLIENTS, error: null })]);
-    const result = await registerOAuthClient(client, { redirect_uris: ["https://a.example.com/cb"] });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(429);
-    }
-  });
-
   it("issues a client_id and normalizes the response shape on success", async () => {
     const insertChain = makeChain({
       data: { client_id: "lifeos_client_abc", client_name: "Claude", redirect_uris: ["https://a.example.com/cb"], created_at: "2026-09-09T00:00:00Z" },
       error: null,
     });
-    const client = clientWithSequence([makeChain({ count: 0, error: null }), insertChain]);
+    const client = clientWithSequence([insertChain]); // P4-13: no global count query (no ipHash given)
 
     const result = await registerOAuthClient(client, { redirect_uris: ["https://a.example.com/cb"], client_name: "Claude" });
 
@@ -203,7 +192,7 @@ describe("registerOAuthClient", () => {
       data: { client_id: "lifeos_client_xyz", client_name: null, redirect_uris: ["https://a.example.com/cb"], created_at: "2026-09-09T00:00:00Z" },
       error: null,
     });
-    const client = clientWithSequence([makeChain({ count: 0, error: null }), insertChain]);
+    const client = clientWithSequence([insertChain]); // P4-13: no global count query (no ipHash given)
 
     const result = await registerOAuthClient(client, {
       redirect_uris: ["https://a.example.com/cb"],
@@ -387,55 +376,43 @@ describe("mintRefreshToken / findAccessTokenForRefreshToken", () => {
   });
 });
 
-describe("findLiveAccessTokenIdsForClient — the actual reuse-detection target", () => {
-  it("returns every access_token_id still linked to a not-yet-rotated refresh token row", async () => {
-    const client = clientReturning(makeChain({ data: [{ access_token_id: "tok-live-1" }, { access_token_id: "tok-live-2" }], error: null }));
-    expect(await findLiveAccessTokenIdsForClient(client, "user-1", "lifeos_client_abc")).toEqual(["tok-live-1", "tok-live-2"]);
+describe("runRefreshGrant — P4-13: the whole refresh grant is one SQL call (mcp_oauth_refresh_grant, migration 217)", () => {
+  function rpcClient(result: { data: unknown; error: unknown }) {
+    const rpc = vi.fn(async () => result);
+    return { client: { rpc } as unknown as SupabaseClient, rpc };
+  }
+  const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
+
+  it("sends ONLY hashes (and last4) of freshly generated secrets, and returns the raw values on ok", async () => {
+    const { client, rpc } = rpcClient({ data: { outcome: "ok", access_token_id: "tok-new", scopes: ["read", "bogus"] }, error: null });
+    const res = await runRefreshGrant(client, "lifeos_oauthrefresh_live", { label: "OAuth: Claude", expiresAt: "2026-10-15T00:00:00.000Z" });
+    expect(res.outcome).toBe("ok");
+    if (res.outcome !== "ok") return;
+    const [name, args] = rpc.mock.calls[0] as unknown as [string, Record<string, string>];
+    expect(name).toBe("mcp_oauth_refresh_grant");
+    expect(args.p_refresh_token_hash).toBe(sha("lifeos_oauthrefresh_live"));
+    expect(args.p_new_access_token_hash).toBe(sha(res.accessToken));
+    expect(args.p_new_access_token_last4).toBe(res.accessToken.slice(-4));
+    expect(args.p_new_refresh_token_hash).toBe(sha(res.refreshToken));
+    expect(args.p_label).toBe("OAuth: Claude");
+    expect(args.p_expires_at).toBe("2026-10-15T00:00:00.000Z");
+    expect(res.accessToken.startsWith("lifeos_pat_")).toBe(true);
+    expect(res.refreshToken.startsWith("lifeos_oauthrefresh_")).toBe(true);
+    expect(JSON.stringify(args)).not.toContain(res.accessToken);
+    expect(JSON.stringify(args)).not.toContain(res.refreshToken);
+    expect(res.scopes).toEqual(["read"]); // unknown scope filtered
+    expect(res.accessTokenId).toBe("tok-new");
   });
 
-  it("returns an empty array when nothing is live (or on a DB error) rather than throwing", async () => {
-    const client = clientReturning(makeChain({ data: null, error: { message: "boom" } }));
-    expect(await findLiveAccessTokenIdsForClient(client, "user-1", "lifeos_client_abc")).toEqual([]);
-  });
-});
-
-describe("rotateRefreshToken — reuse detection is the point", () => {
-  it("REJECTS an unknown refresh token", async () => {
-    const client = clientReturning(makeChain({ data: null, error: null }));
-    const result = await rotateRefreshToken(client, "lifeos_oauthrefresh_unknown");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reuseDetected).toBe(false);
+  it.each(["invalid", "reuse", "revoked"] as const)("passes outcome %s through, with no tokens", async (outcome) => {
+    const { client } = rpcClient({ data: { outcome }, error: null });
+    expect(await runRefreshGrant(client, "rt", { label: "l", expiresAt: "x" })).toEqual({ outcome });
   });
 
-  it("FLAGS reuse when the token was already rotated — this is the theft-detection signal", async () => {
-    const lookupChain = makeChain({
-      data: { id: "rt-1", access_token_id: "tok-1", client_id: "lifeos_client_abc", user_id: "user-1", rotated_at: "2026-09-09T00:00:00Z" },
-      error: null,
-    });
-    const client = clientReturning(lookupChain);
-    const result = await rotateRefreshToken(client, "lifeos_oauthrefresh_already-used");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reuseDetected).toBe(true);
-    // Must not have attempted the rotating UPDATE for an already-rotated row.
-    expect(lookupChain.update).not.toHaveBeenCalled();
-  });
-
-  it("ROTATES a live (never-used) refresh token exactly once", async () => {
-    const client = clientWithSequence([
-      makeChain({ data: { id: "rt-1", access_token_id: "tok-1", client_id: "lifeos_client_abc", user_id: "user-1", rotated_at: null }, error: null }),
-      makeChain({ data: { id: "rt-1", access_token_id: "tok-1", client_id: "lifeos_client_abc", user_id: "user-1" }, error: null }),
-    ]);
-    const result = await rotateRefreshToken(client, "lifeos_oauthrefresh_live");
-    expect(result).toEqual({ ok: true, userId: "user-1", clientId: "lifeos_client_abc", oldAccessTokenId: "tok-1" });
-  });
-
-  it("treats a lost race (the UPDATE matches nothing) the same as reuse", async () => {
-    const client = clientWithSequence([
-      makeChain({ data: { id: "rt-1", access_token_id: "tok-1", client_id: "lifeos_client_abc", user_id: "user-1", rotated_at: null }, error: null }),
-      makeChain({ data: null, error: null }),
-    ]);
-    const result = await rotateRefreshToken(client, "lifeos_oauthrefresh_raced");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reuseDetected).toBe(true);
+  it("maps the live-token cap trigger error to `cap`, any other DB error to `error`, and an unknown payload to `error`", async () => {
+    expect((await runRefreshGrant(rpcClient({ data: null, error: { message: "mcp_token_cap: this account already has 20 live tokens" } }).client, "rt", { label: "l", expiresAt: "x" })).outcome).toBe("cap");
+    expect((await runRefreshGrant(rpcClient({ data: null, error: { message: "boom" } }).client, "rt", { label: "l", expiresAt: "x" })).outcome).toBe("error");
+    expect((await runRefreshGrant(rpcClient({ data: { outcome: "surprise" }, error: null }).client, "rt", { label: "l", expiresAt: "x" })).outcome).toBe("error");
+    expect((await runRefreshGrant(rpcClient({ data: { outcome: "ok" }, error: null }).client, "rt", { label: "l", expiresAt: "x" })).outcome).toBe("error");
   });
 });

@@ -3,12 +3,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn(() => "service-client-marker") }));
 
 const consumeAuthorizationCode = vi.fn();
-const rotateRefreshToken = vi.fn();
 const mintRefreshToken = vi.fn();
 const findAccessTokenForRefreshToken = vi.fn();
-const findLiveAccessTokenIdsForClient = vi.fn();
 const getOAuthClient = vi.fn();
-const burnUnusedRefreshTokensForClient = vi.fn();
+const runRefreshGrant = vi.fn();
 vi.mock("@/lib/mcp/oauth", async (importActual) => {
   // formatOAuthTokenLabel is kept REAL (importActual), not mocked — it's a
   // pure function, and mocking it would make these tests assert against a
@@ -17,29 +15,18 @@ vi.mock("@/lib/mcp/oauth", async (importActual) => {
   return {
     ...actual,
     consumeAuthorizationCode: (...args: unknown[]) => consumeAuthorizationCode(...args),
-    rotateRefreshToken: (...args: unknown[]) => rotateRefreshToken(...args),
     mintRefreshToken: (...args: unknown[]) => mintRefreshToken(...args),
     findAccessTokenForRefreshToken: (...args: unknown[]) => findAccessTokenForRefreshToken(...args),
-    findLiveAccessTokenIdsForClient: (...args: unknown[]) => findLiveAccessTokenIdsForClient(...args),
     getOAuthClient: (...args: unknown[]) => getOAuthClient(...args),
-    burnUnusedRefreshTokensForClient: (...args: unknown[]) => burnUnusedRefreshTokensForClient(...args),
+    runRefreshGrant: (...args: unknown[]) => runRefreshGrant(...args),
   };
 });
 
 const createAccessToken = vi.fn();
-const revokeAccessToken = vi.fn();
-const getTokenScopesById = vi.fn();
 vi.mock("@/lib/mcp/tokens", async (importActual) => ({
   // Real constants (OAUTH_ACCESS_TOKEN_TTL_SECONDS), so expires_in is asserted against the shipped value, not a mock's.
   ...(await importActual<typeof import("@/lib/mcp/tokens")>()),
   createAccessToken: (...args: unknown[]) => createAccessToken(...args),
-  revokeAccessToken: (...args: unknown[]) => revokeAccessToken(...args),
-  getTokenScopesById: (...args: unknown[]) => getTokenScopesById(...args),
-}));
-
-const repointScheduledActionsToken = vi.fn();
-vi.mock("@/lib/scheduling/token-handoff", () => ({
-  repointScheduledActionsToken: (...args: unknown[]) => repointScheduledActionsToken(...args),
 }));
 
 import { POST } from "../route";
@@ -54,19 +41,12 @@ function formRequest(fields: Record<string, string>) {
 
 beforeEach(() => {
   consumeAuthorizationCode.mockReset();
-  rotateRefreshToken.mockReset();
   mintRefreshToken.mockReset();
   findAccessTokenForRefreshToken.mockReset();
-  findLiveAccessTokenIdsForClient.mockReset();
   getOAuthClient.mockReset();
-  burnUnusedRefreshTokensForClient.mockReset();
-  burnUnusedRefreshTokensForClient.mockResolvedValue(0);
   getOAuthClient.mockResolvedValue(null); // default: unnamed client, unless a test overrides it
   createAccessToken.mockReset();
-  revokeAccessToken.mockReset();
-  getTokenScopesById.mockReset();
-  repointScheduledActionsToken.mockReset();
-  repointScheduledActionsToken.mockResolvedValue(0);
+  runRefreshGrant.mockReset();
 });
 
 describe("POST /api/mcp/oauth/token", () => {
@@ -138,140 +118,83 @@ describe("POST /api/mcp/oauth/token", () => {
     });
   });
 
-  describe("grant_type=refresh_token", () => {
+  describe("grant_type=refresh_token (P4-13: one serialized grant, migration 217)", () => {
+    const FOUND = { accessTokenId: "tok-old", userId: "user-1", clientId: "cid" };
+
     it("rejects a missing refresh_token", async () => {
       const response = await POST(formRequest({ grant_type: "refresh_token" }));
       expect(response.status).toBe(400);
-      expect(rotateRefreshToken).not.toHaveBeenCalled();
+      expect(runRefreshGrant).not.toHaveBeenCalled();
     });
 
-    it("a plain invalid refresh token (no reuse) is rejected without touching revokeAccessToken", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "invalid", reuseDetected: false });
+    it("an unknown refresh token is invalid_grant, and the grant never runs", async () => {
+      findAccessTokenForRefreshToken.mockResolvedValueOnce(null);
       const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt" }));
       expect(response.status).toBe(400);
-      expect(revokeAccessToken).not.toHaveBeenCalled();
-      expect(findAccessTokenForRefreshToken).not.toHaveBeenCalled();
-      expect(findLiveAccessTokenIdsForClient).not.toHaveBeenCalled();
+      expect((await response.json()).error).toBe("invalid_grant");
+      expect(runRefreshGrant).not.toHaveBeenCalled();
     });
 
-    it("REUSE DETECTED (simple case, no race): revokes the stale row's own (already-dead) access token, then rejects", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
-      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1", clientId: "cid" });
-      findLiveAccessTokenIdsForClient.mockResolvedValueOnce([]); // nothing else live
+    it("runs the grant with the client's label and a 30-day expiry, and returns the new tokens with expires_in and the carried-forward scopes", async () => {
+      findAccessTokenForRefreshToken.mockResolvedValueOnce(FOUND);
+      getOAuthClient.mockResolvedValueOnce({ client_id: "cid", client_name: "Claude", redirect_uris: [], created_at: "x" });
+      runRefreshGrant.mockResolvedValueOnce({ outcome: "ok", accessToken: "lifeos_pat_new", refreshToken: "lifeos_oauthrefresh_new", accessTokenId: "tok-new", scopes: ["read"] });
 
-      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
 
-      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-stale");
+      expect(getOAuthClient).toHaveBeenCalledWith("service-client-marker", "cid");
+      const [client, raw, params] = runRefreshGrant.mock.calls[0] as [string, string, { label: string; expiresAt: string }];
+      expect(client).toBe("service-client-marker");
+      expect(raw).toBe("rt-live");
+      expect(params.label).toBe("OAuth: Claude");
+      const ms = Date.parse(params.expiresAt) - Date.now();
+      expect(ms).toBeGreaterThan(30 * 86_400_000 - 60_000);
+      expect(ms).toBeLessThanOrEqual(30 * 86_400_000);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ access_token: "lifeos_pat_new", token_type: "Bearer", expires_in: 30 * 24 * 60 * 60, scope: "read", refresh_token: "lifeos_oauthrefresh_new" });
+    });
+
+    it.each([
+      ["reuse", /already been used/i],
+      ["revoked", /revoked or no longer exists/i],
+      ["invalid", /invalid/i],
+    ] as const)("outcome %s -> 400 invalid_grant, no tokens in the response", async (outcome, message) => {
+      findAccessTokenForRefreshToken.mockResolvedValueOnce(FOUND);
+      runRefreshGrant.mockResolvedValueOnce({ outcome });
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt" }));
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.error).toBe("invalid_grant");
+      expect(body.error_description).toMatch(message);
+      expect(body).not.toHaveProperty("access_token");
     });
 
-    it("REUSE DETECTED (the race that matters): ALSO revokes the currently-live access token, not just the stale row's own — this is the actual attacker-redeemed-first scenario", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
-      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale-already-dead", userId: "user-1", clientId: "cid" });
-      // The attacker already redeemed this refresh token once and is holding a LIVE token from it.
-      findLiveAccessTokenIdsForClient.mockResolvedValueOnce(["tok-attackers-live-token"]);
-
-      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
-
-      expect(findLiveAccessTokenIdsForClient).toHaveBeenCalledWith("service-client-marker", "user-1", "cid");
-      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-stale-already-dead");
-      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-attackers-live-token");
-    });
-
-    it("P4-11 security: REUSE DETECTED also burns every unused refresh token for the (user, client) pair, after reading the live ids", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
-      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1", clientId: "cid" });
-      findLiveAccessTokenIdsForClient.mockResolvedValueOnce(["tok-live"]);
-
-      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
-
-      expect(burnUnusedRefreshTokensForClient).toHaveBeenCalledWith("service-client-marker", "user-1", "cid");
-      expect(findLiveAccessTokenIdsForClient.mock.invocationCallOrder[0]).toBeLessThan(burnUnusedRefreshTokensForClient.mock.invocationCallOrder[0]);
-      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-live");
-    });
-
-    it("refuses to mint a fresh token if the one being refreshed no longer has scopes on record", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
-      getTokenScopesById.mockResolvedValueOnce(null);
-
-      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
-
-      expect(response.status).toBe(400);
-      expect(createAccessToken).not.toHaveBeenCalled();
-    });
-
-    it("on success: mints a NEW access token carrying the SAME scopes as the one it replaces, revokes the old one, and issues a new refresh token", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
-      getTokenScopesById.mockResolvedValueOnce(["read"]); // the OLD token was read-only
-      createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_rotated", status: { id: "tok-new", scopes: ["read"] } });
-      mintRefreshToken.mockResolvedValueOnce({ ok: true, refreshToken: "lifeos_oauthrefresh_rotated" });
-
-      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
-
-      expect(createAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "OAuth: unnamed connector", ["read"], {
-        clientKind: "mcp_oauth",
-        expiresAt: expect.any(String),
-      });
-      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old");
-      expect(response.status).toBe(200);
+    it("outcome error -> 500 with a GENERIC description (never DB text)", async () => {
+      findAccessTokenForRefreshToken.mockResolvedValueOnce(FOUND);
+      runRefreshGrant.mockResolvedValueOnce({ outcome: "error" });
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt" }));
+      expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.access_token).toBe("lifeos_pat_rotated");
-      expect(body.scope).toBe("read"); // NOT widened to "read write"
-      expect(body.refresh_token).toBe("lifeos_oauthrefresh_rotated");
-      expect(body.expires_in).toBe(30 * 24 * 60 * 60); // P4-12: the refreshed token is also a 30-day token
+      expect(body.error).toBe("server_error");
+      expect(body.error_description).toBe("The token request couldn't be completed. Try again.");
     });
 
-    it("P4-12: a refresh that hits the live-token cap returns the clear cap message and leaves the old token alone", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
-      getTokenScopesById.mockResolvedValueOnce(["read"]);
-      createAccessToken.mockResolvedValueOnce({ ok: false, message: "You already have 20 active tokens, which is the limit. Revoke one you no longer use in Settings, then try again." });
-
-      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
-
+    it("outcome cap -> 500 with the clear 'revoke a connection' message", async () => {
+      findAccessTokenForRefreshToken.mockResolvedValueOnce(FOUND);
+      runRefreshGrant.mockResolvedValueOnce({ outcome: "cap" });
+      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt" }));
       expect(response.status).toBe(500);
-      expect((await response.json()).error_description).toMatch(/20 active tokens/);
-      expect(revokeAccessToken).not.toHaveBeenCalled();
-      expect(repointScheduledActionsToken).not.toHaveBeenCalled();
+      expect((await response.json()).error_description).toMatch(/Revoke one in Life OS Settings/);
     });
 
-    it("P4-11: re-points the user's scheduled actions old->new BEFORE revoking the old token", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
-      getTokenScopesById.mockResolvedValueOnce(["read", "write"]);
-      createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_rotated", status: { id: "tok-new", scopes: ["read", "write"] } });
-      mintRefreshToken.mockResolvedValueOnce({ ok: true, refreshToken: "lifeos_oauthrefresh_rotated" });
-
-      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
-
-      expect(response.status).toBe(200);
-      expect(repointScheduledActionsToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old", "tok-new");
-      expect(repointScheduledActionsToken.mock.invocationCallOrder[0]).toBeLessThan(revokeAccessToken.mock.invocationCallOrder[0]);
-    });
-
-    it("P4-11: a failed re-point fails the refresh closed -- revokes the NEW token, never the old one", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: true, userId: "user-1", clientId: "cid", oldAccessTokenId: "tok-old" });
-      getTokenScopesById.mockResolvedValueOnce(["read"]);
-      createAccessToken.mockResolvedValueOnce({ ok: true, token: "lifeos_pat_rotated", status: { id: "tok-new", scopes: ["read"] } });
-      repointScheduledActionsToken.mockRejectedValueOnce(new Error("db down"));
-
-      const response = await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-live" }));
-
-      expect(response.status).toBe(500);
-      expect((await response.json()).error_description).not.toContain("db down"); // P4-13 nit: generic
-      expect(revokeAccessToken).toHaveBeenCalledWith("service-client-marker", "user-1", "tok-new");
-      expect(revokeAccessToken).not.toHaveBeenCalledWith("service-client-marker", "user-1", "tok-old");
+    it("never mints tokens itself on the refresh path (createAccessToken/mintRefreshToken are the authorization_code path only)", async () => {
+      findAccessTokenForRefreshToken.mockResolvedValueOnce(FOUND);
+      runRefreshGrant.mockResolvedValueOnce({ outcome: "ok", accessToken: "a", refreshToken: "r", accessTokenId: "t", scopes: ["read"] });
+      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt" }));
+      expect(createAccessToken).not.toHaveBeenCalled();
       expect(mintRefreshToken).not.toHaveBeenCalled();
-    });
-
-    it("P4-11: REUSE DETECTED never re-points scheduled actions -- the stolen chain's schedules stay denied", async () => {
-      rotateRefreshToken.mockResolvedValueOnce({ ok: false, error: "invalid_grant", message: "reused", reuseDetected: true });
-      findAccessTokenForRefreshToken.mockResolvedValueOnce({ accessTokenId: "tok-stale", userId: "user-1", clientId: "cid" });
-      findLiveAccessTokenIdsForClient.mockResolvedValueOnce(["tok-attacker"]);
-
-      await POST(formRequest({ grant_type: "refresh_token", refresh_token: "rt-stolen" }));
-
-      expect(repointScheduledActionsToken).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { makeFakeMcpDb, type FakeMcpDb } from "@/lib/scheduling/__tests__/fake-mcp-tables";
+import { installRefreshGrantEmulation } from "@/lib/scheduling/__tests__/fake-refresh-grant";
 
 /**
  * P4-11 security fix (e): ONE revoked access token, pushed through EVERY
@@ -13,8 +14,9 @@ import { makeFakeMcpDb, type FakeMcpDb } from "@/lib/scheduling/__tests__/fake-m
  *   hash  -> verifyAccessToken         (per HTTP request: app/api/mcp/route.ts verifyToken)
  *   HTTP  -> POST /api/mcp             (withMcpAuth -> verifyToken -> 401)
  *   id    -> getLiveTokenById          (scheduled fires)
- *   id    -> getTokenScopesById        (refresh grant)
- *   grant -> POST /oauth/token refresh (the revoked token's own unused refresh token)
+ *   grant -> POST /oauth/token refresh (the revoked token's own unused refresh token;
+ *            since P4-13 that is mcp_oauth_refresh_grant, migration 217, run
+ *            here as its JS mirror -- getTokenScopesById no longer exists)
  *   refresh-token hash -> findAccessTokenForRefreshToken (reuse detection only;
  *            it may return the row, but following it never yields a grant)
  *   runner -> processOneScheduledAction (denied, row paused)
@@ -54,6 +56,7 @@ let RT = "";
 beforeEach(async () => {
   dispatched.mockReset();
   db = makeFakeMcpDb({ mcp_access_tokens: [], mcp_oauth_refresh_tokens: [], mcp_oauth_clients: [], mcp_scheduled_actions: [], profiles: [{ user_id: USER, timezone: "UTC" }] });
+  installRefreshGrantEmulation(db);
   const minted = await tokens.createAccessToken(db.client, USER, "OAuth: x", ["read", "write"], { clientKind: "mcp_oauth" });
   if (!minted.ok || !minted.token || !minted.status) throw new Error(minted.message);
   RAW = minted.token;
@@ -72,7 +75,6 @@ beforeEach(async () => {
   // assertions below fail for revocation, not because the fixture is broken.
   expect(await tokens.verifyAccessToken(db.client, RAW)).not.toBeNull();
   expect(await tokens.getLiveTokenById(db.client, ID)).not.toBeNull();
-  expect(await tokens.getTokenScopesById(db.client, ID)).toEqual(["read", "write"]);
 
   await tokens.revokeAccessToken(db.client, USER, ID);
   expect(db.tables.mcp_access_tokens[0].revoked_at).toBeTruthy();
@@ -116,10 +118,6 @@ describe("P4-11 (e): a revoked access token is dead on every load path", () => {
     expect(db.tables.mcp_scheduled_actions[0].status).toBe("paused");
   });
 
-  it("getTokenScopesById (by id) -> null", async () => {
-    expect(await tokens.getTokenScopesById(db.client, ID)).toBeNull();
-  });
-
   it("refresh grant with its own unused refresh token -> invalid_grant, no new live token, schedule not moved", async () => {
     const res = await tokenPOST(
       new Request("https://x.test/api/mcp/oauth/token", {
@@ -137,7 +135,6 @@ describe("P4-11 (e): a revoked access token is dead on every load path", () => {
   it("findAccessTokenForRefreshToken may return the mapping (reuse detection needs it), but it never leads to a grant", async () => {
     const found = await oauth.findAccessTokenForRefreshToken(db.client, RT);
     expect(found?.accessTokenId).toBe(ID);
-    expect(await tokens.getTokenScopesById(db.client, found!.accessTokenId)).toBeNull();
     expect(await tokens.getLiveTokenById(db.client, found!.accessTokenId)).toBeNull();
   });
 

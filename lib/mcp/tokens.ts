@@ -329,42 +329,14 @@ export async function verifyAccessToken(
   return { userId: row.user_id, tokenId: row.id, scopes };
 }
 
-/**
- * Reads back a token's own scopes by id, for a caller that already knows
- * the id (never the raw value) and needs to preserve them elsewhere — L4's
- * OAuth refresh-token rotation (app/api/mcp/oauth/token/route.ts) is the
- * motivating case: a refreshed access token must keep the SAME scopes the
- * one it replaces had, never silently widen to full access on every
- * refresh. Returns null for an unknown id rather than throwing.
- *
- * RETURNS NULL FOR A REVOKED TOKEN (P4-11 security fix). This used to read
- * scopes regardless of `revoked_at`, so the refresh grant would mint a fresh
- * live token to replace a REVOKED one: after reuse detection revoked token B,
- * B's still-unused sibling refresh token minted a live token C, and the
- * schedule handoff moved the stolen chain's schedules onto C (found live by
- * p4-b-parity). A revoked credential must never be refreshable.
- *
- * EXPIRY IS DELIBERATELY IGNORED: refreshing an expired access token is the
- * normal OAuth path (P4-12 gives OAuth tokens a 30-day expires_at).
- */
-export async function getTokenScopesById(supabase: SupabaseClient, tokenId: string): Promise<McpScope[] | null> {
-  const { data, error } = await supabase.from("mcp_access_tokens").select("scopes, revoked_at").eq("id", tokenId).maybeSingle();
-  if (error || !data) return null;
-  const row = data as { scopes: string[]; revoked_at?: string | null };
-  if (row.revoked_at) return null;
-  return row.scopes.filter(isMcpScope);
-}
 
 /**
  * L7's fire-time scope check (the scheduler's own non-negotiable
  * requirement #2 — team-lead: "the token's scope is checked at fire time,
  * not at schedule time. If the owner revokes a token, everything it
- * scheduled must stop working immediately"). Deliberately NOT
- * `getTokenScopesById` above — that function selects scopes only and does
- * NOT check `revoked_at`, which was fine for its own caller (OAuth refresh
- * rotation, which only needs to preserve an already-live token's scope
- * set) but would be a real security gap here: a revoked token's scheduled
- * actions must be DENIED, not silently keep firing with stale scopes.
+ * scheduled must stop working immediately"). Checks `revoked_at` AND
+ * `expires_at`: a revoked or expired token's scheduled actions must be
+ * DENIED, not silently keep firing with stale scopes.
  *
  * Keyed by `tokenId`, not the raw token — a scheduled action only ever
  * stores the id (migration 130's own design: there is no column anywhere

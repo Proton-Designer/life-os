@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { makeFakeMcpDb, type FakeMcpDb } from "@/lib/scheduling/__tests__/fake-mcp-tables";
+import { installRefreshGrantEmulation } from "@/lib/scheduling/__tests__/fake-refresh-grant";
 
 /**
  * P4-11 security fix — reproduces p4-b-parity's live verification failure
@@ -12,12 +13,14 @@ import { makeFakeMcpDb, type FakeMcpDb } from "@/lib/scheduling/__tests__/fake-m
  *   refresh R2 (sibling) -> WAS 200 + a fresh live token C, and the handoff
  *                           moved the stolen chain's schedule onto C (active)
  *
- * Everything OAuth- and token-shaped here is REAL code against one in-memory
- * DB: rotateRefreshToken, mintRefreshToken, findAccessTokenForRefreshToken,
- * findLiveAccessTokenIdsForClient, createAccessToken, revokeAccessToken,
- * getTokenScopesById, getLiveTokenById, the re-point helper and
- * processOneScheduledAction. Stubbed only: GoTrue's active-user check, the
- * audit insert, and the write dispatch itself (executeOperation).
+ * Real code against one in-memory DB: the token route, runRefreshGrant,
+ * mintRefreshToken, findAccessTokenForRefreshToken, createAccessToken,
+ * revokeAccessToken, getLiveTokenById and processOneScheduledAction. Since
+ * P4-13 the refresh grant itself is the SQL function mcp_oauth_refresh_grant
+ * (migration 217); here it runs as its JS mirror (fake-refresh-grant.ts). The
+ * SQL was proven on a real Postgres, including the concurrent race this file
+ * cannot express (see the P4-13 Log). Stubbed: GoTrue's active-user check,
+ * the audit insert, and the write dispatch (executeOperation).
  */
 
 let db: FakeMcpDb;
@@ -88,6 +91,7 @@ beforeEach(() => {
     mcp_scheduled_actions: [],
     profiles: [{ user_id: USER, timezone: "America/Chicago" }],
   });
+  installRefreshGrantEmulation(db);
 });
 
 async function scheduleUnder(tokenId: string) {
@@ -180,17 +184,19 @@ describe("P4-11 security: a reuse-detected chain cannot be revived through a sib
 });
 
 describe("P4-13 nit (folded in): token-route 500s never echo internal error text", () => {
-  it("a failed schedule re-point returns a generic server_error description", async () => {
+  it("a failed refresh grant returns a generic server_error description, and nothing changed", async () => {
     const { accessTokenId: A, refreshToken: R1 } = await issueInitial();
     await scheduleUnder(A);
-    db.failOn.add("mcp_scheduled_actions:update");
-    db.failMessage["mcp_scheduled_actions:update"] = 'relation "mcp_scheduled_actions" violates constraint secret_internal_name';
+    db.failOn.add("rpc:mcp_oauth_refresh_grant");
+    db.failMessage["rpc:mcp_oauth_refresh_grant"] = 'relation "mcp_scheduled_actions" violates constraint secret_internal_name';
 
     const res = await refresh(R1);
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("server_error");
     expect(body.error_description).not.toMatch(/secret_internal_name|relation|constraint/);
+    expect(db.tables.mcp_scheduled_actions[0].token_id).toBe(A);
+    expect(liveTokens().map((t) => t.id)).toEqual([A]);
   });
 });
 

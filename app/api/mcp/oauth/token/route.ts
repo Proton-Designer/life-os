@@ -2,16 +2,13 @@ import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   consumeAuthorizationCode,
-  rotateRefreshToken,
   mintRefreshToken,
   findAccessTokenForRefreshToken,
-  findLiveAccessTokenIdsForClient,
-  burnUnusedRefreshTokensForClient,
   getOAuthClient,
   formatOAuthTokenLabel,
+  runRefreshGrant,
 } from "@/lib/mcp/oauth";
-import { createAccessToken, revokeAccessToken, getTokenScopesById, OAUTH_ACCESS_TOKEN_TTL_SECONDS } from "@/lib/mcp/tokens";
-import { repointScheduledActionsToken } from "@/lib/scheduling/token-handoff";
+import { createAccessToken, OAUTH_ACCESS_TOKEN_TTL_SECONDS } from "@/lib/mcp/tokens";
 
 /**
  * RFC 6749 sec 4.1.3 / 6 token endpoint — the second half of the
@@ -41,9 +38,9 @@ import { repointScheduledActionsToken } from "@/lib/scheduling/token-handoff";
  * verifyAccessToken / getLiveTokenById, and `expires_in` reports that TTL.
  * The refresh_token stays clock-free: single-use rotation, and a REPLAYED
  * (already-rotated) refresh token is a theft signal that revokes the family.
- * Refreshing an EXPIRED access token is the normal path and is allowed --
- * getTokenScopesById reads scopes regardless of expiry -- but a REVOKED one
- * is never refreshable (P4-11 security fix).
+ * Refreshing an EXPIRED access token is the normal path and is allowed, but
+ * a REVOKED one is never refreshable (P4-11 security fix). The refresh grant
+ * is one serialized transaction (P4-13, migration 217).
  */
 
 /** P4-12: every OAuth-minted access token is a 30-day mcp_oauth token. An instant (now + TTL), never a calendar date. */
@@ -58,6 +55,7 @@ function oauthTokenOptions() {
  * never DB error text.
  */
 const GENERIC_SERVER_ERROR = "The token request couldn't be completed. Try again.";
+const TOKEN_CAP_MESSAGE_FOR_CLIENT = "This account already has the maximum number of active connections. Revoke one in Life OS Settings, then reconnect.";
 
 function tokenError(error: string, description: string, status = 400) {
   return NextResponse.json({ error, error_description: description }, { status });
@@ -127,98 +125,49 @@ export async function POST(request: Request) {
     const rawRefreshToken = form.get("refresh_token");
     if (!rawRefreshToken) return tokenError("invalid_request", "refresh_token is required.");
 
-    const rotated = await rotateRefreshToken(supabase, rawRefreshToken);
-    if (!rotated.ok) {
-      if (rotated.reuseDetected) {
-        // Theft signal. Revoke BOTH: (1) the stale row's own access token —
-        // usually already dead from the normal rotation that superseded it,
-        // a harmless no-op, but cheap insurance if it somehow isn't — and
-        // (2) whatever access token is CURRENTLY live for this (user,
-        // client) pair, which is the one that actually matters: if an
-        // attacker redeemed this same refresh token before its legitimate
-        // holder did, THAT redemption looked like an ordinary rotation and
-        // produced the live token the attacker is now holding. Revoking
-        // only (1) would leave (2) — the attacker's working credential —
-        // completely untouched. See lib/mcp/oauth.ts's rotateRefreshToken
-        // and findLiveAccessTokenIdsForClient doc comments for the full
-        // reasoning (corrected during L4 flow verification — an earlier
-        // version of this code only did (1)).
-        //
-        // P4-11 security fix: ALSO burn every unused refresh token for the
-        // pair. Revoking the live access tokens alone left their sibling
-        // refresh tokens redeemable, and a redeemed sibling minted a fresh
-        // live token (and the schedule handoff moved the stolen chain's
-        // schedules onto it). Order: find the live ids (they are read FROM
-        // those unused refresh rows), then burn, then revoke.
-        const stale = await findAccessTokenForRefreshToken(supabase, rawRefreshToken);
-        if (stale) {
-          const liveIds = await findLiveAccessTokenIdsForClient(supabase, stale.userId, stale.clientId);
-          await burnUnusedRefreshTokensForClient(supabase, stale.userId, stale.clientId);
-          const toRevoke = new Set([stale.accessTokenId, ...liveIds]);
-          for (const tokenId of toRevoke) {
-            await revokeAccessToken(supabase, stale.userId, tokenId);
-          }
-        }
-      }
-      return tokenError(rotated.error, rotated.message);
-    }
+    // The label needs the client's registered name, so look the refresh row
+    // up first (read-only; client_id never changes). An unknown token stops
+    // here. Everything that WRITES happens inside one transaction below.
+    const found = await findAccessTokenForRefreshToken(supabase, rawRefreshToken);
+    if (!found) return tokenError("invalid_grant", "Refresh token is invalid.");
+    const client = await getOAuthClient(supabase, found.clientId);
 
-    // Rotate the ACCESS token too, not just the refresh token: the old access
-    // token is revoked the moment a new one is issued, so a refresh genuinely
-    // rotates the live credential. Since P4-12 the old token would also die
-    // on its own at its 30-day expires_at; a client that never refreshes
-    // stops working then (see this file's header).
-    //
-    // SCOPES ARE CARRIED FORWARD FROM THE TOKEN BEING REPLACED, never
-    // widened to full access by default — a read-only OAuth-issued token
-    // must still be read-only after a refresh.
-    const priorScopes = await getTokenScopesById(supabase, rotated.oldAccessTokenId);
-    if (!priorScopes || priorScopes.length === 0) {
-      // The token being refreshed no longer exists, has no scopes, or is
-      // REVOKED — revoked from Settings, or by reuse detection above.
-      // getTokenScopesById returns null for a revoked token (P4-11 security
-      // fix: before that, this branch minted a live replacement for a revoked
-      // token). Refuse BEFORE any mint or schedule re-point. The refresh token
-      // was already rotated above, so it is spent too. An EXPIRED but
-      // unrevoked token is still refreshable.
-      return tokenError("invalid_grant", "The access this refresh token belonged to has been revoked or no longer exists. Reconnect to continue.");
-    }
-
-    const rotatedClient = await getOAuthClient(supabase, rotated.clientId);
-    const minted = await createAccessToken(supabase, rotated.userId, formatOAuthTokenLabel(rotatedClient), priorScopes, oauthTokenOptions());
-    if (!minted.ok || !minted.token || !minted.status) {
-      return tokenError("server_error", minted.message, 500);
-    }
-
-    // P4-11: move this user's scheduled actions onto the new token BEFORE the
-    // old one is revoked — they fire under `token_id`, and the runner pauses
-    // any row whose token is revoked, so revoking first killed every schedule
-    // an OAuth client had created at its first refresh. Only this legitimate
-    // rotation re-points; the reuse-detection branch above deliberately does
-    // not (a stolen chain's schedules must stay denied). If the move fails,
-    // fail the refresh closed: revoke the token we just minted and leave the
-    // old token + schedules exactly as they were.
-    try {
-      await repointScheduledActionsToken(supabase, rotated.userId, rotated.oldAccessTokenId, minted.status.id);
-    } catch (e) {
-      await revokeAccessToken(supabase, rotated.userId, minted.status.id);
-      // Generic on purpose (P4-13 nit): the thrown error carries DB text,
-      // which must never reach an OAuth client.
-      void e;
-      return tokenError("server_error", GENERIC_SERVER_ERROR, 500);
-    }
-    await revokeAccessToken(supabase, rotated.userId, rotated.oldAccessTokenId);
-
-    const nextRefresh = await mintRefreshToken(supabase, { accessTokenId: minted.status.id, clientId: rotated.clientId, userId: rotated.userId });
-    if (!nextRefresh.ok) return tokenError("server_error", nextRefresh.message, 500);
-
-    return NextResponse.json({
-      access_token: minted.token,
-      token_type: "Bearer",
-      expires_in: OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-      scope: minted.status.scopes.join(" "),
-      refresh_token: nextRefresh.refreshToken,
+    // P4-13: the whole grant is public.mcp_oauth_refresh_grant (migration
+    // 217), serialized per (user, client) under an advisory lock:
+    //   - REUSE of an already-rotated refresh token (theft signal) burns every
+    //     unused refresh token for the pair and revokes the replayed token plus
+    //     every live one -- in the same locked transaction, so a refresh racing
+    //     the replay can no longer mint a token that survives it (the race the
+    //     P4-11 security fix left open).
+    //   - a REVOKED access token (Settings, or reuse detection) is never
+    //     refreshed; an EXPIRED one is (P4-12's normal path).
+    //   - otherwise: rotate, revoke the old token, mint the new one with the
+    //     SAME scopes (never widened), move scheduled actions onto it (P4-11,
+    //     now atomic), mint the next refresh token.
+    const grant = await runRefreshGrant(supabase, rawRefreshToken, {
+      label: formatOAuthTokenLabel(client),
+      expiresAt: oauthTokenOptions().expiresAt,
     });
+    switch (grant.outcome) {
+      case "ok":
+        return NextResponse.json({
+          access_token: grant.accessToken,
+          token_type: "Bearer",
+          expires_in: OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+          scope: grant.scopes.join(" "),
+          refresh_token: grant.refreshToken,
+        });
+      case "invalid":
+        return tokenError("invalid_grant", "Refresh token is invalid.");
+      case "reuse":
+        return tokenError("invalid_grant", "Refresh token has already been used. The associated access has been revoked.");
+      case "revoked":
+        return tokenError("invalid_grant", "The access this refresh token belonged to has been revoked or no longer exists. Reconnect to continue.");
+      case "cap":
+        return tokenError("server_error", TOKEN_CAP_MESSAGE_FOR_CLIENT, 500);
+      case "error":
+        return tokenError("server_error", GENERIC_SERVER_ERROR, 500);
+    }
   }
 
   return tokenError("unsupported_grant_type", `grant_type "${grantType}" is not supported. Use authorization_code or refresh_token.`);

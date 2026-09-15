@@ -24,6 +24,8 @@ export interface FakeMcpDb {
   failOn: Set<string>; // e.g. "mcp_scheduled_actions:update"
   /** Optional error text per failOn key (default: "forced <op> failure on <table>"), e.g. to mimic a trigger's RAISE. */
   failMessage: Record<string, string>;
+  /** `client.rpc(name, args)` handlers a test installs (e.g. installRefreshGrantEmulation). Unknown name -> PostgREST-like error. */
+  rpcHandlers: Record<string, (args: Record<string, unknown>) => unknown>;
 }
 
 export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
@@ -81,6 +83,10 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
         filters.push((r) => (r[col] ?? null) === val);
         return b;
       },
+      gte(col: string, val: string) {
+        filters.push((r) => r[col] !== null && r[col] !== undefined && String(r[col]) >= val);
+        return b;
+      },
       lte(col: string, val: string) {
         filters.push((r) => r[col] !== null && r[col] !== undefined && String(r[col]) <= val);
         return b;
@@ -122,5 +128,17 @@ export function makeFakeMcpDb(seed: Record<string, Row[]> = {}): FakeMcpDb {
     insert: (row: Row | Row[]) => builder(table, "insert", row),
   });
 
-  return { client: { from } as unknown as SupabaseClient, tables, failOn, failMessage };
+  const rpcHandlers: Record<string, (args: Record<string, unknown>) => unknown> = {};
+  const rpc = async (name: string, args: Record<string, unknown>) => {
+    if (failOn.has(`rpc:${name}`)) return { data: null, error: { message: failMessage[`rpc:${name}`] ?? `forced rpc failure ${name}` } };
+    const handler = rpcHandlers[name];
+    if (!handler) return { data: null, error: { message: `fake db: no rpc handler for ${name}` } };
+    try {
+      return { data: handler(args), error: null };
+    } catch (e) {
+      return { data: null, error: { message: e instanceof Error ? e.message : String(e) } };
+    }
+  };
+
+  return { client: { from, rpc } as unknown as SupabaseClient, tables, failOn, failMessage, rpcHandlers };
 }
