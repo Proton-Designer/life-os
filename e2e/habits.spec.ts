@@ -36,34 +36,36 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
     await dismissCheckinDialogIfPresent(page);
 
     // Wait for the page to actually settle into its real state before
-    // deciding anything off it. An instant isVisible()/textContent() read
-    // right after goto() can race a not-yet-rendered page and read "not
-    // there" for a button/text that WILL be there a moment later — the
-    // exact false-skip bug the Lead found live in goals.spec.ts (a
-    // slots-full guard that skipped, and reported GREEN, before the page
-    // had actually rendered). This waiting `expect` is the settle point
-    // every decision below is anchored to.
+    // deciding anything off it, with the SAME generous timeout the
+    // mutation waits below use — this is the page's INITIAL render (a
+    // Server Component doing a real Supabase query), which a cold
+    // serverless start can delay just as much as a later mutation. An
+    // instant isVisible()/textContent() read right after goto() (the
+    // previous version of this guard) can race a not-yet-rendered page and
+    // read "not there" for a button/text that WILL be there a moment
+    // later — confirmed LIVE via --reporter=list across two production
+    // runs (2026-09-15): habits.spec.ts skipped once on Mobile, once on
+    // Desktop, at random, even though SEED has 0 habits and the skip can
+    // never legitimately fire. Same shape as the goals.spec.ts bug the
+    // Lead found first.
     const countLabel = page.getByText(/^\d\/7$/);
-    await expect(countLabel).toBeVisible();
-
-    const addButton = page.getByRole("button", { name: "+ Add an identity habit" });
-    const ceilingButton = page.getByRole("button", { name: /Ceiling reached/ });
-    // SEED has 0 habits today, so this should never actually fire — kept as
-    // a real guard, not an instant snapshot: `countLabel` above already
-    // proved the page rendered, so `isVisible()` here reads the REAL state
-    // rather than racing hydration. A POSITIVE check for the ceiling
-    // button, not "the add button is absent" — a stronger, more specific
-    // signal for why the add button might not be there.
-    if (await ceilingButton.isVisible()) {
-      test.skip(true, "This account's 7 active habits are already full — no room to add a test habit without archiving a real one first.");
-    }
-    await expect(addButton).toBeVisible();
+    await expect(countLabel).toBeVisible(MUTATION_TIMEOUT);
 
     // Baseline count BEFORE adding, so "N/7" is checked as a real increment
-    // rather than assuming this real account starts at 0/7.
+    // rather than assuming this real account starts at 0/7 -- and the skip
+    // decision itself: parsed from the SAME already-waited text, an exact
+    // numeric check (N === 7) rather than inferring the ceiling from a
+    // second element's presence/absence.
     const beforeText = await countLabel.textContent();
     const beforeCount = Number(beforeText?.split("/")[0]);
     expect(Number.isFinite(beforeCount), `could not parse a baseline count from "${beforeText}"`).toBe(true);
+
+    if (beforeCount === 7) {
+      test.skip(true, "This account's 7 active habits are already full — no room to add a test habit without archiving a real one first.");
+    }
+
+    const addButton = page.getByRole("button", { name: "+ Add an identity habit" });
+    await expect(addButton).toBeVisible(MUTATION_TIMEOUT);
 
     await dismissCheckinToastIfPresent(page);
     await addButton.click();
