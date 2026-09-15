@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { confirmStagingBatch, updateStagedDeliverable, deleteStagedDeliverable } from "@/app/(app)/school/staging-actions";
-import { ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/actions-core";
+import { ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/assessment-types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
