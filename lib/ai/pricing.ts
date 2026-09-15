@@ -1,4 +1,6 @@
 import "server-only";
+import { MODEL_CATALOG } from "./model-catalog";
+import type { ProviderId } from "./providers";
 
 /**
  * DeepSeek's published per-token pricing, fetched directly from
@@ -120,6 +122,65 @@ export function estimateWorstCaseCostUsd(model: string, promptChars: number, max
       completionTokens: maxTokens,
       reasoningTokens: 0,
     },
+    at,
+  );
+}
+
+/**
+ * MULTI-PROVIDER (Phase 1, 2026-09-14) — added as a layer ON TOP of the
+ * DeepSeek-only functions above, which stay completely untouched: same
+ * signature, same arithmetic, same tests, unmodified. `gatewayChat` (the
+ * only real caller of either) now calls this instead, so DeepSeek's own
+ * behavior is provably identical (`provider === "deepseek"` delegates
+ * straight to `estimateCostUsd`, no new logic in that path at all) while
+ * the other five providers get real pricing for the first time.
+ *
+ * FLAT RATES, NO PEAK/OFF-PEAK, NO CACHE DISCOUNT: DeepSeek is the only
+ * provider in this codebase's catalog with a confirmed peak/off-peak split
+ * or a confirmed cache-hit discount rate (lib/ai/model-catalog.ts's own
+ * header). Every other provider bills a flat USD/1M rate per the catalog,
+ * and a cached prompt token is billed at the FULL input rate here — not
+ * because no discount exists on the real providers (several do), but
+ * because this codebase has not verified any of their exact discount
+ * rates, and guessing one would risk UNDER-billing against the spend cap.
+ * Same "fail toward the more expensive assumption" philosophy
+ * `estimateCostUsd`'s own unpriced-model fallback already uses.
+ */
+const FLAT_PRICING_USD_PER_1M: { [P in Exclude<ProviderId, "deepseek">]: Record<string, { input: number; output: number }> } = Object.fromEntries(
+  (Object.keys(MODEL_CATALOG) as ProviderId[])
+    .filter((provider): provider is Exclude<ProviderId, "deepseek"> => provider !== "deepseek")
+    .map((provider) => {
+      const entry = MODEL_CATALOG[provider];
+      const models = [entry.flagship, entry.budget, ...(entry.mid ? [entry.mid] : [])];
+      return [provider, Object.fromEntries(models.map((m) => [m.id, { input: m.inputUsdPer1M, output: m.outputUsdPer1M }]))];
+    }),
+) as { [P in Exclude<ProviderId, "deepseek">]: Record<string, { input: number; output: number }> };
+
+function computeFlatCostUsd(rates: { input: number; output: number }, tokens: UsageTokens): number {
+  return (tokens.promptTokens / 1_000_000) * rates.input + (tokens.completionTokens / 1_000_000) * rates.output;
+}
+
+export function estimateMultiProviderCostUsd(provider: ProviderId, model: string, tokens: UsageTokens, at: Date = new Date()): number {
+  if (provider === "deepseek") return estimateCostUsd(model, tokens, at);
+  const table = FLAT_PRICING_USD_PER_1M[provider];
+  const rates = table[model];
+  if (rates) return computeFlatCostUsd(rates, tokens);
+  // Unpriced model for this provider (a catalog id changed, or a caller
+  // passed an override string this table doesn't know) -- fail toward the
+  // provider's own MOST EXPENSIVE known rate (its flagship), same
+  // reasoning as estimateCostUsd's own unpriced-model fallback: a gap in
+  // this table must under-admit against the spend cap, never over-admit.
+  const flagshipId = MODEL_CATALOG[provider].flagship.id;
+  return computeFlatCostUsd(table[flagshipId]!, tokens);
+}
+
+export function estimateMultiProviderWorstCaseCostUsd(provider: ProviderId, model: string, promptChars: number, maxTokens: number, at: Date = new Date()): number {
+  if (provider === "deepseek") return estimateWorstCaseCostUsd(model, promptChars, maxTokens, at);
+  const estimatedPromptTokens = Math.ceil(promptChars / 4);
+  return estimateMultiProviderCostUsd(
+    provider,
+    model,
+    { promptTokens: estimatedPromptTokens, cachedPromptTokens: 0, completionTokens: maxTokens, reasoningTokens: 0 },
     at,
   );
 }

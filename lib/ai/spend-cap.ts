@@ -1,7 +1,8 @@
 import "server-only";
-import { estimateWorstCaseCostUsd } from "./pricing";
+import { estimateMultiProviderWorstCaseCostUsd } from "./pricing";
 import { getDefaultUsageStore, type UsageStore } from "./usage-log";
 import type { KeySource } from "./resolve-key";
+import type { ProviderId } from "./providers";
 
 /**
  * The hard spend ceiling on the SHARED, operator-funded DeepSeek key.
@@ -69,7 +70,13 @@ export async function checkSpendCap(
   model: string,
   promptChars: number,
   maxTokens: number,
-  opts: { store?: UsageStore; capUsdOverride?: number; at?: Date } = {},
+  opts: {
+    store?: UsageStore;
+    capUsdOverride?: number;
+    at?: Date;
+    /** Multi-provider (2026-09-14). Defaults to deepseek — every pre-existing caller/test that omits this keeps its exact prior pricing behavior, since estimateMultiProviderWorstCaseCostUsd("deepseek", ...) delegates straight to the untouched DeepSeek-only function. */
+    provider?: ProviderId;
+  } = {},
 ): Promise<SpendCapCheck> {
   if (keySource !== "server") {
     return { allowed: true, capUsd: Number.POSITIVE_INFINITY, spentUsd: 0, estimatedCallUsd: 0 };
@@ -77,7 +84,7 @@ export async function checkSpendCap(
   const store = opts.store ?? getDefaultUsageStore();
   const capUsd = opts.capUsdOverride ?? configuredCapUsd();
   const spentUsd = await store.totalServerKeySpendUsd();
-  const estimatedCallUsd = estimateWorstCaseCostUsd(model, promptChars, maxTokens, opts.at);
+  const estimatedCallUsd = estimateMultiProviderWorstCaseCostUsd(opts.provider ?? "deepseek", model, promptChars, maxTokens, opts.at);
   const projected = spentUsd + estimatedCallUsd;
   if (projected > capUsd) {
     return {

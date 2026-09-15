@@ -196,4 +196,74 @@ describe("gatewayChat()", () => {
     // own separate raw-text field anywhere else on the entry.
     expect(Object.keys(store.entries[0])).not.toContain("rawPrompt");
   });
+
+  /**
+   * Multi-provider (2026-09-14). Every test above omits `opts.provider` and
+   * still passes unchanged -- proving DEFAULT_PROVIDER's own backward-compat
+   * guarantee empirically, not just by reading the code. These tests are
+   * the NEW behavior: an explicit `provider` actually resolves that
+   * provider's own key, model, and adapter -- not silently still DeepSeek.
+   */
+  describe("provider selection", () => {
+    it("an explicit non-deepseek provider resolves ITS OWN key, not DeepSeek's -- proven by resolveApiKeyWithSource's own call args", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-ant-server-key", source: "server" });
+      vi.stubGlobal("navigator", undefined); // openai/anthropic/google SDKs vs. jsdom -- see client.test.ts's own note
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { provider: "anthropic", usageStore: store, now: OFF_PEAK });
+
+      expect(result.ok, result.message ?? "").toBe(true);
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "anthropic");
+      expect(store.entries[0].provider).toBe("anthropic");
+    });
+
+    it("the cheap/capable tier resolves to THAT provider's own catalog models, not DeepSeek's", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-openai-key", source: "server" });
+      vi.stubGlobal("navigator", undefined);
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200, headers: { "content-type": "application/json" } }),
+      );
+      const { PROVIDERS } = await import("../providers");
+      const store = new FakeUsageStore();
+
+      await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { provider: "openai", tier: "capable", usageStore: store, now: OFF_PEAK });
+      expect(store.entries[0].model).toBe(PROVIDERS.openai.models.capable);
+    });
+
+    it("omitting provider still defaults to deepseek -- the exact prior signature keeps working", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
+      fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      const store = new FakeUsageStore();
+      await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
+      expect(resolveApiKeyWithSourceMock).toHaveBeenCalledWith(fakeClient, "u1", "deepseek");
+      expect(store.entries[0].provider).toBe("deepseek");
+    });
+
+    it("costUsd for a non-deepseek provider uses its OWN flat catalog rate, not DeepSeek's peak/off-peak table", async () => {
+      resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-openai-key", source: "server" });
+      vi.stubGlobal("navigator", undefined);
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const { MODEL_CATALOG } = await import("../model-catalog");
+      const store = new FakeUsageStore();
+      const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], {
+        provider: "openai",
+        tier: "cheap",
+        capUsdOverride: 1000, // clear the default $1 cap -- this call alone would exceed it
+        usageStore: store,
+        now: OFF_PEAK,
+      });
+      const budget = MODEL_CATALOG.openai.budget;
+      expect(result.costUsd).toBeCloseTo(budget.inputUsdPer1M + budget.outputUsdPer1M, 5);
+    });
+  });
 });
