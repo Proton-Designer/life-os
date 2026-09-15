@@ -313,6 +313,7 @@ export type Database = {
           file_size_bytes: number | null
           id: string
           lesson_count: number
+          milestone_80_at: string | null
           page_count: number | null
           progress_pct: number
           ready_at: string | null
@@ -332,6 +333,7 @@ export type Database = {
           file_size_bytes?: number | null
           id?: string
           lesson_count?: number
+          milestone_80_at?: string | null
           page_count?: number | null
           progress_pct?: number
           ready_at?: string | null
@@ -351,6 +353,7 @@ export type Database = {
           file_size_bytes?: number | null
           id?: string
           lesson_count?: number
+          milestone_80_at?: string | null
           page_count?: number | null
           progress_pct?: number
           ready_at?: string | null
@@ -4400,7 +4403,10 @@ export type Database = {
         }
       }
       claim_staging_batch: { Args: { p_batch_id: string }; Returns: string }
-      complete_session: { Args: { p_session_id: string }; Returns: Json }
+      complete_session: {
+        Args: { p_book_strengths?: Json; p_session_id: string }
+        Returns: Json
+      }
       complete_target: { Args: { p_target_id: string }; Returns: undefined }
       confirm_storage_deleted: {
         Args: { p_storage_path: string }
@@ -4514,6 +4520,7 @@ export type Database = {
           file_size_bytes: number | null
           id: string
           lesson_count: number
+          milestone_80_at: string | null
           page_count: number | null
           progress_pct: number
           ready_at: string | null
