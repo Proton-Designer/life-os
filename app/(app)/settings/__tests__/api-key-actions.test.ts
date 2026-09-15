@@ -76,7 +76,11 @@ describe("testStoredKey", () => {
 
     expect(result).toEqual({ ok: true, message: "Key is working." });
     expect(verifyKeyMock).toHaveBeenCalledTimes(1);
-    expect(verifyKeyMock).toHaveBeenCalledWith("deepseek", rawUserKey);
+    // Multi-provider (2026-09-14): verifyKey now also gets the resolved
+    // catalog model to test against -- "deepseek-flash" (the "cheap"
+    // default tier, since this call didn't pass modelTier) -- so key AND
+    // model are verified together, not just the key alone.
+    expect(verifyKeyMock).toHaveBeenCalledWith("deepseek", rawUserKey, "deepseek-flash");
   });
 
   it("rejects an unknown provider before ever resolving a key", async () => {
@@ -97,6 +101,19 @@ describe("testStoredKey", () => {
 
     const result = await testStoredKey("deepseek");
 
-    expect(result).toEqual({ ok: false, message: "That key was revoked." });
+    // Multi-provider (2026-09-14, the Lead's requirement): a verification
+    // failure now names the model it was tested against, so a retired/
+    // mistyped catalog id is distinguishable from a genuinely bad key.
+    expect(result).toEqual({ ok: false, message: "That key was revoked. (tested against deepseek-flash)" });
+  });
+
+  it("a caller-supplied modelTier changes which model gets verified -- the Settings UI's job once it exists", async () => {
+    const { encryptSecret } = await import("@/lib/ai/encryption");
+    currentChain = makeChain({ data: { encrypted_key: encryptSecret("sk-a-real-key") }, error: null });
+    const { testStoredKey } = await import("../api-key-actions");
+
+    await testStoredKey("deepseek", "capable");
+
+    expect(verifyKeyMock).toHaveBeenCalledWith("deepseek", "sk-a-real-key", "deepseek-v4-pro");
   });
 });

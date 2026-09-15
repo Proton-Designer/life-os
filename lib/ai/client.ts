@@ -96,9 +96,18 @@ export async function chat(
  * file's own header for why; Kimi/xAI don't confirm reasoning-effort
  * support yet, so it's silently unsent for them) — each provider gets
  * whichever of the two its own adapter reads, the other is simply ignored.
+ *
+ * `model` (multi-provider, 2026-09-14, the Lead's requirement): omitted,
+ * this verifies PROVIDERS[provider].defaultModel (the budget model) as it
+ * always has. api-key-actions.ts passes the user's actually-SELECTED
+ * catalog model tier explicitly instead, so "Test key"/"Connect" verify
+ * the key AND that exact model id TOGETHER — a retired or mistyped model
+ * string surfaces here, once, at setup, naming the model, rather than
+ * failing silently inside every real feature later.
  */
-export async function verifyKey(provider: ProviderId, apiKey: string): Promise<ChatResult> {
+export async function verifyKey(provider: ProviderId, apiKey: string, model?: string): Promise<ChatResult> {
   return chat(provider, apiKey, [{ role: "user", content: "Reply with the single word: ok" }], {
+    model,
     maxTokens: 20,
     thinking: false,
     effort: "low",

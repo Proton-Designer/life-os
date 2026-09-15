@@ -4,7 +4,20 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { encryptSecret, isKeyStorageConfigured, last4 } from "@/lib/ai/encryption";
 import { verifyKey } from "@/lib/ai/client";
-import { isProviderId, validateKeyShape, type ProviderId } from "@/lib/ai/providers";
+import { isProviderId, validateKeyShape, PROVIDERS, type ProviderId, type ModelTier } from "@/lib/ai/providers";
+
+/**
+ * Multi-provider (2026-09-14, the Lead's requirement): resolves which
+ * catalog model id to verify against. Defaults to "cheap" (the budget
+ * model) when the caller doesn't specify a tier -- matches this file's
+ * own prior behavior (verifyKey's own default) exactly, so a caller that
+ * doesn't pass modelTier sees no change. The Settings UI passes the
+ * user's actually-selected tier once it exists, so "Test key"/"Connect"
+ * verify the key and that EXACT model together.
+ */
+function resolveVerifyModel(provider: ProviderId, modelTier: ModelTier): string {
+  return PROVIDERS[provider].models[modelTier];
+}
 
 /**
  * Bring-your-own-key management.
@@ -55,7 +68,7 @@ export async function getApiKeyStatuses(): Promise<KeyStatus[]> {
  * having enabled it. Silent absence is the failure this codebase keeps finding,
  * and it is worst when the user believes they already fixed it.
  */
-export async function saveApiKey(provider: string, rawKey: string, label?: string): Promise<KeyActionResult> {
+export async function saveApiKey(provider: string, rawKey: string, label?: string, modelTier: ModelTier = "cheap"): Promise<KeyActionResult> {
   if (!isProviderId(provider)) return { ok: false, message: "Unknown provider." };
   if (!isKeyStorageConfigured()) {
     return {
@@ -68,8 +81,14 @@ export async function saveApiKey(provider: string, rawKey: string, label?: strin
   const shapeError = validateKeyShape(provider, key);
   if (shapeError) return { ok: false, message: shapeError };
 
-  const check = await verifyKey(provider, key);
-  if (!check.ok) return { ok: false, message: check.message ?? "That key didn't work." };
+  const model = resolveVerifyModel(provider, modelTier);
+  const check = await verifyKey(provider, key, model);
+  if (!check.ok) {
+    // Names the model so a retired/mistyped catalog id surfaces HERE, once,
+    // at setup -- not as a silent failure inside every real feature later
+    // (the Lead's explicit requirement).
+    return { ok: false, message: `${check.message ?? "That key didn't work."} (tested against ${model})` };
+  }
 
   const { supabase, userId } = await requireUser();
   const { error } = await supabase.from("user_api_keys").upsert(
@@ -126,14 +145,15 @@ export async function removeApiKey(provider: string): Promise<KeyActionResult> {
  * is always the raw, not-yet-stored value the caller just typed in, never
  * anything resolved from storage.
  */
-export async function testStoredKey(provider: string): Promise<KeyActionResult> {
+export async function testStoredKey(provider: string, modelTier: ModelTier = "cheap"): Promise<KeyActionResult> {
   if (!isProviderId(provider)) return { ok: false, message: "Unknown provider." };
   const { supabase, userId } = await requireUser();
   const { resolveStoredUserKey } = await import("@/lib/ai/resolve-key");
   const key = await resolveStoredUserKey(supabase, userId, provider);
   if (!key) return { ok: false, message: "No key stored for this provider." };
-  const check = await verifyKey(provider, key);
+  const model = resolveVerifyModel(provider, modelTier);
+  const check = await verifyKey(provider, key, model);
   return check.ok
     ? { ok: true, message: "Key is working." }
-    : { ok: false, message: check.message ?? "That key isn't working anymore." };
+    : { ok: false, message: `${check.message ?? "That key isn't working anymore."} (tested against ${model})` };
 }
