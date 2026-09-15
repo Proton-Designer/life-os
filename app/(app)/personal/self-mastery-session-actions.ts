@@ -15,6 +15,7 @@ import {
   submitQuestionReview,
   loadSessionSettings,
   completeTodaysSession,
+  computeSessionBookStrengths,
   countDueCards,
   countNewCards,
   countDueTomorrow,
@@ -220,8 +221,14 @@ export interface FinishSessionResult extends SessionCompletionResult {
 export async function finishSession(sessionId: string): Promise<FinishSessionResult> {
   const { supabase, userId } = await requireUser();
   const { localDate, timezone } = await resolveLocalDate();
+  // P2-17: per-book retrievability for whatever book(s) this session
+  // touched, computed BEFORE calling complete_session so the RPC's
+  // book_milestone check (migration 200) has real numbers to test against
+  // — {} for a question-only/empty session is a legitimate no-op, not an
+  // error (computeSessionBookStrengths's own contract).
+  const bookStrengths = await computeSessionBookStrengths(supabase, userId, sessionId, new Date());
   const [result, dueTomorrow] = await Promise.all([
-    completeTodaysSession(supabase, sessionId),
+    completeTodaysSession(supabase, sessionId, bookStrengths),
     countDueTomorrow(supabase, userId, localDate, timezone),
   ]);
   revalidatePath("/");

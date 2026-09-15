@@ -16,7 +16,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { getScheduler, toFsrsCard, toRpcNextState, computeNextState, type DbCardState } from "@/lib/self-mastery/fsrs-scheduler";
-import { cardRetrievability } from "@/lib/self-mastery/memory-strength";
+import { cardRetrievability, averageRetrievability, type CardStateForStrength } from "@/lib/self-mastery/memory-strength";
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
 import { loadNearestUpcomingExamsByClass, examIntensityMultiplier, applyExamIntensity, daysBetweenDateStrings } from "./exam-intensity";
@@ -35,6 +35,19 @@ import type {
 } from "./types";
 
 type TypedClient = Awaited<ReturnType<typeof createClient>>;
+
+/** `card_states` row shape for `computeSessionBookStrengths` — same fields `get-book-detail.ts`'s own `CardStateRow` selects, kept local rather than shared since the two callers select through differently-typed clients. */
+interface SessionCardStateRow {
+  card_id: string;
+  state: "new" | "learning" | "review" | "relearning";
+  stability: number | null;
+  difficulty: number | null;
+  due_at: string | null;
+  reps: number;
+  lapses: number;
+  last_review_at: string | null;
+  learning_steps: number;
+}
 
 export async function loadSessionSettings(client: TypedClient, userId: string): Promise<SessionSettings> {
   const { data, error } = await client
@@ -613,9 +626,87 @@ export async function submitCardReview(client: TypedClient, input: SubmitCardRev
   return { reviewId: data!.id, scheduledDays };
 }
 
-/** Calls complete_session, which recomputes streak/freeze state server-side and is idempotent — safe to call twice (e.g. a flaky retry) without double-counting the streak. */
-export async function completeTodaysSession(client: TypedClient, sessionId: string): Promise<SessionCompletionResult> {
-  const { data, error } = await client.rpc("complete_session", { p_session_id: sessionId });
+/**
+ * Per-book retrievability (P2-17) for every book this session actually
+ * reviewed — feeds `complete_session`'s `book_milestone` effortful-win
+ * check (migration 200). Same computation as `get-book-detail.ts`'s own
+ * Memory Strength bar: the mean `averageRetrievability` across EVERY card
+ * in the book (not just this session's), never excluding an untouched
+ * card from the denominator — so the 80% threshold means exactly what the
+ * bar the user already sees means, computed in exactly the one place this
+ * codebase does the FSRS forgetting-curve math (migration 200's own
+ * header on why that split matters).
+ *
+ * Returns `{}` (not an error) when the session touched no book — most
+ * question-only or empty sessions — so callers can pass the result
+ * straight through without a branch.
+ */
+export async function computeSessionBookStrengths(
+  client: TypedClient,
+  userId: string,
+  sessionId: string,
+  now: Date
+): Promise<Record<string, number>> {
+  const { data: reviewRows, error: reviewsError } = await client.from("reviews").select("book_id").eq("session_id", sessionId).eq("user_id", userId);
+  if (reviewsError) throw reviewsError;
+  // Question-backed reviews carry book_id = null — filtered out here, not
+  // in the query, so this function has exactly one thing to get right.
+  const bookIds = [...new Set((reviewRows ?? []).map((r) => r.book_id).filter((id): id is string => id != null))];
+  if (bookIds.length === 0) return {};
+
+  const { data: cardRows, error: cardsError } = await client.from("cards").select("id, book_id").eq("user_id", userId).in("book_id", bookIds);
+  if (cardsError) throw cardsError;
+  const cards = cardRows ?? [];
+  if (cards.length === 0) return {};
+
+  const cardIds = cards.map((c) => c.id);
+  const { data: stateRows, error: statesError } = await client
+    .from("card_states")
+    .select("card_id, state, stability, difficulty, due_at, reps, lapses, last_review_at, learning_steps")
+    .eq("user_id", userId)
+    .in("card_id", cardIds);
+  if (statesError) throw statesError;
+  const stateByCardId = new Map(((stateRows ?? []) as SessionCardStateRow[]).map((s) => [s.card_id, s]));
+  const toCardStateForStrength = (row: SessionCardStateRow | undefined): CardStateForStrength | null =>
+    row
+      ? {
+          state: row.state,
+          stability: row.stability,
+          difficulty: row.difficulty,
+          dueAt: row.due_at,
+          reps: row.reps,
+          lapses: row.lapses,
+          lastReviewAt: row.last_review_at,
+          learningSteps: row.learning_steps,
+        }
+      : null;
+
+  const cardsByBook = new Map<string, typeof cards>();
+  for (const c of cards) {
+    const list = cardsByBook.get(c.book_id) ?? [];
+    list.push(c);
+    cardsByBook.set(c.book_id, list);
+  }
+
+  const result: Record<string, number> = {};
+  for (const bookId of bookIds) {
+    const bookCards = cardsByBook.get(bookId) ?? [];
+    const cardStates = bookCards.map((c) => toCardStateForStrength(stateByCardId.get(c.id)));
+    result[bookId] = averageRetrievability(cardStates, now);
+  }
+  return result;
+}
+
+/** Calls complete_session, which recomputes streak/freeze state server-side and is idempotent — safe to call twice (e.g. a flaky retry) without double-counting the streak. `bookStrengths` (P2-17) lets the RPC's `book_milestone` check run against real numbers; omit or pass `{}` for a session that touched no book. */
+export async function completeTodaysSession(
+  client: TypedClient,
+  sessionId: string,
+  bookStrengths?: Record<string, number>
+): Promise<SessionCompletionResult> {
+  const { data, error } = await client.rpc("complete_session", {
+    p_session_id: sessionId,
+    p_book_strengths: (bookStrengths ?? {}) as unknown as never,
+  });
   if (error) throw error;
   const result = data as unknown as {
     current_streak: number;

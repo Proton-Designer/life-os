@@ -358,10 +358,11 @@ describe("Self-Mastery session actions", () => {
   });
 
   describe("finishSession", () => {
-    it("computes dueTomorrow alongside complete_session's own result", async () => {
+    it("computes dueTomorrow alongside complete_session's own result, and passes {} book strengths for a session that touched no book", async () => {
       const tables: Record<string, ReturnType<typeof makeChain>> = {
         profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
         card_states: makeChain({ data: null, error: null, count: 5 }),
+        reviews: makeChain({ data: [], error: null }),
       };
       fromImpl = (table) => tables[table];
       rpcMock.mockImplementationOnce(async () => ({
@@ -372,9 +373,58 @@ describe("Self-Mastery session actions", () => {
 
       const result = await finishSession("sess-1");
 
-      expect(rpcMock).toHaveBeenCalledWith("complete_session", { p_session_id: "sess-1" });
+      expect(rpcMock).toHaveBeenCalledWith("complete_session", { p_session_id: "sess-1", p_book_strengths: {} });
       expect(result.dueTomorrow).toBe(5);
       expect(result.currentStreak).toBe(2);
+    });
+
+    it("P2-17: computes real per-book retrievability for a book this session touched and passes it as p_book_strengths", async () => {
+      const now = new Date("2026-09-15T12:00:00Z");
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        card_states: makeChain({
+          data: [
+            {
+              card_id: "card-1",
+              state: "review",
+              stability: 50,
+              difficulty: 3,
+              due_at: now.toISOString(),
+              reps: 3,
+              lapses: 0,
+              last_review_at: now.toISOString(),
+              learning_steps: 0,
+            },
+          ],
+          error: null,
+          count: 0,
+        }),
+        reviews: makeChain({ data: [{ book_id: "book-1" }], error: null }),
+        cards: makeChain({ data: [{ id: "card-1", book_id: "book-1" }], error: null }),
+      };
+      fromImpl = (table) => tables[table];
+      rpcMock.mockImplementationOnce(async () => ({
+        data: { current_streak: 3, longest_streak: 5, freezes_available: 1, total_reviews: 41, total_sessions: 11 },
+        error: null,
+      }));
+      const { finishSession } = await import("../self-mastery-session-actions");
+
+      await finishSession("sess-1");
+
+      expect(rpcMock).toHaveBeenCalledWith(
+        "complete_session",
+        expect.objectContaining({
+          p_session_id: "sess-1",
+          p_book_strengths: expect.objectContaining({ "book-1": expect.any(Number) }),
+        })
+      );
+      const [, args] = rpcMock.mock.calls.find(([fn]) => fn === "complete_session")!;
+      const strengths = (args as { p_book_strengths: Record<string, number> }).p_book_strengths;
+      // A freshly-reviewed card (reps>0, recent last_review_at) reads well
+      // above 0 -- the exact number is ts-fsrs's, not asserted here (that's
+      // memory-strength.test.ts's job); this proves the real pipeline ran,
+      // not a stubbed passthrough.
+      expect(strengths["book-1"]).toBeGreaterThan(0);
     });
   });
 });
