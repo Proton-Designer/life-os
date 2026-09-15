@@ -2054,6 +2054,7 @@ export type Database = {
           created_at: string
           id: string
           redirect_uris: string[]
+          registration_ip_hash: string | null
         }
         Insert: {
           client_id: string
@@ -2061,6 +2062,7 @@ export type Database = {
           created_at?: string
           id?: string
           redirect_uris: string[]
+          registration_ip_hash?: string | null
         }
         Update: {
           client_id?: string
@@ -2068,6 +2070,7 @@ export type Database = {
           created_at?: string
           id?: string
           redirect_uris?: string[]
+          registration_ip_hash?: string | null
         }
         Relationships: []
       }
@@ -4447,6 +4450,21 @@ export type Database = {
           decrypted_secret: string
           name: string
         }[]
+      }
+      mcp_oauth_prune_stale_clients: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      mcp_oauth_refresh_grant: {
+        Args: {
+          p_expires_at: string
+          p_label: string
+          p_new_access_token_hash: string
+          p_new_access_token_last4: string
+          p_new_refresh_token_hash: string
+          p_refresh_token_hash: string
+        }
+        Returns: Json
       }
       merge_subdomain_config: {
         Args: { p_patch: Json; p_subdomain_id: string }
