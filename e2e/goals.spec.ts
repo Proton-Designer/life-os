@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
 
 /**
  * Goals (#43/#44) end to end into #53's own reader: creates a real goal
@@ -32,6 +32,13 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
     if (!(await addButton.isVisible())) {
       test.skip(true, "This account's 5 active goals are already full — no room to add a test goal without dropping a real one first.");
     }
+    // The allocation check-in TOAST (role="status") fires on its own
+    // window timer, independent of anything this spec does — found live
+    // 2026-09-15 as a real flaky failure, on screen exactly when the Add
+    // form was being opened/submitted. dismissCheckinDialogIfPresent above
+    // only ever catches the full check-in SHEET (role="dialog"), a
+    // different element.
+    await dismissCheckinToastIfPresent(page);
     await addButton.click();
 
     await fillReliably(page.getByPlaceholder("Goal title"), title);
@@ -44,6 +51,8 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
     await page.getByRole("combobox").nth(0).click();
     await page.getByRole("option", { name: "Business" }).click();
 
+    // Same toast risk right before the mutating submit click.
+    await dismissCheckinToastIfPresent(page);
     await page.getByRole("button", { name: "Add goal" }).click();
 
     // "see it ranked": a numeric rank badge and the Business domain label,
