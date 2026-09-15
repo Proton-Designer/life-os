@@ -72,7 +72,9 @@ function fakeServiceClient() {
     chain.then = (r: (v: { error: null }) => void) => r({ error: null });
     return chain;
   });
-  return { client: { from }, auditInserts };
+  // P4-14: the rate limiter is one RPC now (public.mcp_rate_limit_consume); always allow.
+  const rpc = vi.fn(async () => ({ data: { allowed: true }, error: null }));
+  return { client: { from, rpc }, auditInserts };
 }
 
 /**

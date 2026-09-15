@@ -18,21 +18,18 @@ vi.mock("../session", () => ({
 }));
 
 /**
- * A fake service-role client covering exactly the two query shapes
- * lib/mcp/tool-wrapper.ts's dependencies make against `mcp_audit_log`:
- * rate-limit's `.select(..., {count}).eq().gte()` (a thenable, no terminal
- * call) and audit's `.insert(...)` (also a thenable). Records every insert
- * so tests can assert exactly what was logged.
+ * A fake service-role client covering exactly what lib/mcp/tool-wrapper.ts's
+ * dependencies do: rate-limit's ONE atomic RPC (P4-14,
+ * public.mcp_rate_limit_consume) and audit's `.insert(...)` against
+ * mcp_audit_log (a thenable). Records every insert so tests can assert
+ * exactly what was logged.
  */
-function makeServiceClient(opts: { rateLimitCount?: number; rateLimitError?: unknown; auditInsertError?: unknown } = {}) {
+function makeServiceClient(opts: { rateLimitDenied?: boolean; rateLimitError?: unknown; auditInsertError?: unknown } = {}) {
   const inserts: Record<string, unknown>[] = [];
   const from = vi.fn((_table: string) => {
     const chain: Record<string, unknown> = {};
-    const selectResolved = { count: opts.rateLimitCount ?? 0, error: opts.rateLimitError ?? null };
-    for (const m of ["select", "eq", "gte"]) {
-      chain[m] = vi.fn(() => chain);
-    }
-    chain.then = (resolve: (v: typeof selectResolved) => void) => resolve(selectResolved);
+    for (const m of ["select", "eq", "gte"]) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null, count: 0 });
     chain.insert = vi.fn((row: Record<string, unknown>) => {
       inserts.push(row);
       const resolved = { error: opts.auditInsertError ?? null };
@@ -40,7 +37,12 @@ function makeServiceClient(opts: { rateLimitCount?: number; rateLimitError?: unk
     });
     return chain;
   });
-  return { client: { from } as unknown as SupabaseClient, inserts };
+  const rpc = vi.fn(async (_name: string, _args: Record<string, unknown>) => {
+    if (opts.rateLimitError) return { data: null, error: opts.rateLimitError };
+    if (opts.rateLimitDenied) return { data: { allowed: false, limited_key: "tok:tok-1", retry_after_seconds: 30 }, error: null };
+    return { data: { allowed: true }, error: null };
+  });
+  return { client: { from, rpc } as unknown as SupabaseClient, inserts };
 }
 
 const GOOD_AUTH: AuthInfoLike = { scopes: ["read", "write"], extra: { userId: "user-1", tokenId: "tok-1" } };
@@ -84,7 +86,7 @@ describe("runMcpTool", () => {
   });
 
   it("REJECTS when the rate limit is exceeded, and audits it as DENIED, without running the tool", async () => {
-    const { client, inserts } = makeServiceClient({ rateLimitCount: 999 });
+    const { client, inserts } = makeServiceClient({ rateLimitDenied: true });
     const { runMcpTool } = await import("../tool-wrapper");
 
     const result = await runMcpTool(client, GOOD_AUTH, "get_profile", "test.get_profile", "read", {}, okFn);

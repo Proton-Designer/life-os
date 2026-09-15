@@ -33,7 +33,7 @@ function textOf(result: CallToolResult): string {
   return block.text;
 }
 
-/** Service-role client: rate-limit count query + audit insert, both succeed. */
+/** Service-role client: rate-limit RPC (P4-14) + audit insert, both succeed. */
 function makeServiceClient(): SupabaseClient {
   const from = vi.fn(() => {
     const chain: Record<string, unknown> = {};
@@ -42,7 +42,8 @@ function makeServiceClient(): SupabaseClient {
     chain.insert = vi.fn(() => ({ then: (resolve: (v: unknown) => void) => resolve({ error: null }) }));
     return chain;
   });
-  return { from } as unknown as SupabaseClient;
+  const rpc = vi.fn(async () => ({ data: { allowed: true }, error: null }));
+  return { from, rpc } as unknown as SupabaseClient;
 }
 
 /** User-scoped client: every query chain resolves to the same canned `{data, error}`. */
