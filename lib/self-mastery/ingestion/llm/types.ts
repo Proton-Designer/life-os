@@ -123,6 +123,30 @@ export interface SummarizeSectionResult {
   summary: string;
 }
 
+/**
+ * P2-14: batch-mode ingestion's combined-call variants of `extractLessons`/
+ * `generateCards` -- OPTIONAL on the interface, deliberately, because only a
+ * provider with a real gateway-routed transport (`DeepSeekProvider`) has
+ * anything to gain from combining N passages/lessons into one call; the dev
+ * shim and the heuristic path have no such benefit and are not required to
+ * implement these. The result array is the SAME LENGTH AND ORDER as the
+ * input array -- `null` at index i means the batched call did not return a
+ * usable result for input i (a malformed shape, a missing entry, or the
+ * whole call failing to parse), NOT "zero lessons found." Callers MUST
+ * treat `null` as "fall back to the single-item call for this one input,"
+ * never as "nothing to add" -- see worker-stages.ts's batch-mode stage
+ * handlers, the only callers, for the fallback loop. An empty array (`[]`,
+ * not `null`) at index i IS a legitimate "this passage/lesson genuinely
+ * produced nothing," exactly like the single-item methods already return.
+ */
+export interface ExtractLessonsBatchResult {
+  perChunk: (CandidateLesson[] | null)[];
+}
+
+export interface GenerateCardsBatchResult {
+  perLesson: (GeneratedCard[] | null)[];
+}
+
 export interface LlmProvider {
   triageChunk(input: ChunkTriageInput): Promise<ChunkTriageResult>;
   extractLessons(input: ExtractLessonsInput): Promise<CandidateLesson[]>;
@@ -131,4 +155,6 @@ export interface LlmProvider {
   gradeAnswer(input: GradeAnswerInput): Promise<GradeAnswerResult>;
   checkEntailment(input: EntailmentCheckInput): Promise<EntailmentCheckResult>;
   summarizeSection(input: SummarizeSectionInput): Promise<SummarizeSectionResult>;
+  extractLessonsBatch?(inputs: ExtractLessonsInput[]): Promise<ExtractLessonsBatchResult>;
+  generateCardsBatch?(inputs: GenerateCardsInput[]): Promise<GenerateCardsBatchResult>;
 }

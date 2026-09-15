@@ -233,6 +233,147 @@ describe("DeepSeekProvider.extractLessons", () => {
   });
 });
 
+describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
+  const CHUNK_A = { chunkText: CHUNK_TEXT, pageStart: 1, pageEnd: 1, sourceChunkId: "chunk-a" };
+  const CHUNK_B = {
+    chunkText: "Deep work is the ability to focus without distraction on a cognitively demanding task.",
+    pageStart: 5,
+    pageEnd: 5,
+    sourceChunkId: "chunk-b",
+  };
+
+  it("returns an empty array for zero inputs without calling the gateway", async () => {
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.extractLessonsBatch([]);
+    expect(result).toEqual({ perChunk: [] });
+    expect(gatewayChatSpy).not.toHaveBeenCalled();
+  });
+
+  it("degrades to the plain single-item call for exactly one input", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(validExtractJson()));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.extractLessonsBatch([CHUNK_A]);
+    expect(result.perChunk).toHaveLength(1);
+    expect(result.perChunk[0]).toHaveLength(1);
+    expect(result.perChunk[0]![0]!.sourceChunkId).toBe("chunk-a");
+  });
+
+  it("ONE combined gatewayChat call returns matching, correctly-ordered candidates for each of 2 chunks", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(
+        JSON.stringify({
+          results: [
+            {
+              lessons: [
+                {
+                  title: "Shrink new habits to two minutes",
+                  core_claim: "Beginning any new routine works best when the initial version is trivially quick to complete.",
+                  mechanism: "A tiny starting version removes the friction that normally stops a habit before it forms.",
+                  action_template: "Pick one habit and define a version of it that takes under two minutes.",
+                  provenance_quote:
+                    "The two-minute rule states that when you start a new habit, it should take less than two minutes to do.",
+                },
+              ],
+            },
+            {
+              lessons: [
+                {
+                  title: "Protect blocks of undistracted focus",
+                  core_claim: "Sustained concentration on hard problems, free of interruption, is a distinct skill worth protecting.",
+                  mechanism: "Demanding cognitive work degrades sharply under fragmented attention.",
+                  action_template: "Schedule a recurring block with notifications off for your hardest task.",
+                  provenance_quote: "Deep work is the ability to focus without distraction on a cognitively demanding task.",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
+
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // ONE call for both chunks -- the entire point of batching
+    expect(result.perChunk).toHaveLength(2);
+    expect(result.perChunk[0]![0]!.sourceChunkId).toBe("chunk-a");
+    expect(result.perChunk[0]![0]!.title).toBe("Shrink new habits to two minutes");
+    expect(result.perChunk[1]![0]!.sourceChunkId).toBe("chunk-b");
+    expect(result.perChunk[1]![0]!.title).toBe("Protect blocks of undistracted focus");
+    const opts = gatewayChatSpy.mock.calls[0]![4];
+    expect(opts?.tier).toBe("cheap");
+  });
+
+  it("THE REGRESSION GUARD: a malformed response (no results array) falls back to null for EVERY chunk, not an empty-lessons guess", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("not json at all"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
+    expect(result.perChunk).toEqual([null, null]);
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // no strictness-note retry loop for the batch call itself
+  });
+
+  it("a wrong-length results array (partial response) also falls back to null for every chunk -- never misaligns indices", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(JSON.stringify({ results: [{ lessons: [] }] }))); // 1 entry for 2 chunks
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
+    expect(result.perChunk).toEqual([null, null]);
+  });
+
+  it("a single malformed entry within an otherwise-valid results array only nulls that one slot", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(
+        JSON.stringify({
+          results: [
+            { lessons: "not an array" }, // malformed slot 0
+            {
+              lessons: [
+                {
+                  title: "Protect blocks of undistracted focus",
+                  core_claim: "Sustained concentration on hard problems, free of interruption, is a distinct skill worth protecting.",
+                  mechanism: "Demanding cognitive work degrades sharply under fragmented attention.",
+                  action_template: "Schedule a recurring block with notifications off for your hardest task.",
+                  provenance_quote: "Deep work is the ability to focus without distraction on a cognitively demanding task.",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
+    expect(result.perChunk[0]).toBeNull();
+    expect(result.perChunk[1]).toHaveLength(1);
+  });
+
+  it("an ungrounded quote in one chunk's slot yields an empty array for that slot (not null) -- a real, legitimate outcome", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(
+        JSON.stringify({
+          results: [
+            {
+              lessons: [
+                {
+                  title: "x",
+                  core_claim: "y",
+                  mechanism: "z",
+                  action_template: "w",
+                  provenance_quote: "This was never in chunk A at all.",
+                },
+              ],
+            },
+            { lessons: [] },
+          ],
+        }),
+      ),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
+    expect(result.perChunk[0]).toEqual([]); // dropped by the grounding firewall, not a fallback case
+    expect(result.perChunk[1]).toEqual([]);
+  });
+});
+
 const LESSON = {
   title: "Shrink new habits to two minutes",
   coreClaim: "Beginning any new routine works best when the initial version is trivially quick to complete.",
@@ -244,14 +385,18 @@ const LESSON = {
   sourceChunkId: "chunk-1",
 };
 
-function validCardsJson(overrides: Partial<Record<string, string>> = {}): string {
-  return JSON.stringify({
+function validCardsJsonFields(overrides: Partial<Record<string, string>> = {}): Record<string, string> {
+  return {
     free_recall_prompt: "What does this lesson claim about the ideal length of a new habit's first version?",
     application_prompt: "You want to start flossing every night but keep skipping it -- what's the two-minute version?",
     application_answer: "Floss just one tooth for the first week, so the habit takes under two minutes to complete.",
     why_prompt: "In your own words, why does a tiny starting version make a new habit more likely to stick?",
     ...overrides,
-  });
+  };
+}
+
+function validCardsJson(overrides: Partial<Record<string, string>> = {}): string {
+  return JSON.stringify(validCardsJsonFields(overrides));
 }
 
 describe("DeepSeekProvider.generateCards", () => {
@@ -289,6 +434,89 @@ describe("DeepSeekProvider.generateCards", () => {
     gatewayChatSpy.mockResolvedValue(failResult("DeepSeek returned an error (HTTP 500)."));
     const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
     await expect(provider.generateCards({ lesson: LESSON })).rejects.toThrow(/HTTP 500/);
+  });
+});
+
+const LESSON_B = {
+  title: "Protect blocks of undistracted focus",
+  coreClaim: "Sustained concentration on hard problems, free of interruption, is a distinct skill worth protecting.",
+  mechanism: "Demanding cognitive work degrades sharply under fragmented attention.",
+  actionTemplate: "Schedule a recurring block with notifications off for your hardest task.",
+  evidenceStrength: "author_anecdote" as const,
+  provenanceQuote: "Deep work is the ability to focus without distraction on a cognitively demanding task.",
+  pageRef: 5,
+  sourceChunkId: "chunk-b",
+};
+
+describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
+  it("returns an empty array for zero inputs without calling the gateway", async () => {
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.generateCardsBatch([]);
+    expect(result).toEqual({ perLesson: [] });
+    expect(gatewayChatSpy).not.toHaveBeenCalled();
+  });
+
+  it("degrades to the plain single-item call (with its free_recall/cloze guarantee) for exactly one input", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(validCardsJson()));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.generateCardsBatch([{ lesson: LESSON }]);
+    expect(result.perLesson).toHaveLength(1);
+    expect(result.perLesson[0]!.some((c) => c.promptType === "free_recall")).toBe(true);
+  });
+
+  it("ONE combined gatewayChat call returns matching, correctly-ordered cards for each of 2 lessons, each with the free_recall guarantee applied", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(
+        JSON.stringify({
+          results: [
+            validCardsJsonFields(),
+            validCardsJsonFields({ free_recall_prompt: "What skill does this lesson say is worth protecting?" }),
+          ],
+        }),
+      ),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+
+    const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
+
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // ONE call for both lessons
+    expect(result.perLesson).toHaveLength(2);
+    expect(result.perLesson[0]!.some((c) => c.promptType === "free_recall")).toBe(true);
+    expect(result.perLesson[1]!.some((c) => c.promptType === "free_recall")).toBe(true);
+    expect(result.perLesson[1]!.find((c) => c.promptType === "free_recall")!.prompt).toBe(
+      "What skill does this lesson say is worth protecting?",
+    );
+    // finalizeCards' cloze append applies uniformly to a batch-successful slot too.
+    expect(result.perLesson[0]!.length).toBeGreaterThan(0);
+  });
+
+  it("THE REGRESSION GUARD: a malformed response falls back to null for EVERY lesson, never a silently-empty deck", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("not json at all"));
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
+    expect(result.perLesson).toEqual([null, null]);
+    expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a wrong-length results array also falls back to null for every lesson", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(JSON.stringify({ results: [validCardsJsonFields()] }))); // 1 entry for 2 lessons
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
+    expect(result.perLesson).toEqual([null, null]);
+  });
+
+  it("a single invalid-shape entry within an otherwise-valid results array only nulls that one slot", async () => {
+    gatewayChatSpy.mockResolvedValue(
+      okResult(
+        JSON.stringify({
+          results: [{ free_recall_prompt: "missing the other three fields" }, validCardsJsonFields()],
+        }),
+      ),
+    );
+    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
+    expect(result.perLesson[0]).toBeNull();
+    expect(result.perLesson[1]!.some((c) => c.promptType === "free_recall")).toBe(true);
   });
 });
 

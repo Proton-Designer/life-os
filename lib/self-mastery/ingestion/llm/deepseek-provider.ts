@@ -73,11 +73,14 @@ import type {
   EntailmentCheckResult,
   SummarizeSectionInput,
   SummarizeSectionResult,
+  ExtractLessonsBatchResult,
+  GenerateCardsBatchResult,
   LlmProvider,
 } from "./types";
 import { gatewayChat } from "@/lib/ai/gateway";
 import type { ChatResult } from "@/lib/ai/client";
 import { isGrounded } from "./grounding";
+import type { EvidenceStrength } from "./types";
 import { classifyEvidenceStrength } from "../evidence-strength";
 import { passesLanguageSanity, passesClaimNotQuote, passesAntiLeak, passesCardTextSanity } from "../invariants";
 import { buildClozeCard, generateCardsForLesson } from "../cards";
@@ -100,6 +103,32 @@ const MAX_TOKENS_SUMMARIZE = 400;
 const MAX_TOKENS_EXTRACT = 600;
 const MAX_TOKENS_CARDS = 600;
 const MAX_TOKENS_ENTAILMENT = 220;
+
+/**
+ * P2-14 batch mode. `BATCH_SIZE_*` is how many chunks/lessons
+ * `worker-stages.ts` combines into one call -- kept here, not there,
+ * because it's the token-budget math below that actually bounds it, not a
+ * pipeline concern. `MAX_TOKENS_*_BATCH` is `MAX_TOKENS_*` per item times
+ * the batch size (each passage/lesson's own output is independent of the
+ * others, so the combined budget scales linearly -- same calibration basis
+ * as `MAX_TOKENS_EXTRACT`'s own header, just multiplied rather than
+ * re-measured, since production batch data doesn't exist yet). 4 was
+ * chosen, not derived: small enough that a combined prompt for even the
+ * largest real chunks stays well inside `INGESTION_BATCH_TIMEOUT_MS`, large
+ * enough to meaningfully cut the call count (4x fewer calls, not 1.5x).
+ */
+export const BATCH_SIZE_EXTRACT = 4;
+export const BATCH_SIZE_CARDS = 4;
+const MAX_TOKENS_EXTRACT_BATCH = MAX_TOKENS_EXTRACT * BATCH_SIZE_EXTRACT;
+const MAX_TOKENS_CARDS_BATCH = MAX_TOKENS_CARDS * BATCH_SIZE_CARDS;
+// Longer than INGESTION_LONG_TIMEOUT_MS (60s): a combined prompt/response is
+// several times bigger, and unlike the single-item calls there is no
+// MAX_ATTEMPTS retry loop eating into the SAME budget here (see
+// extractLessonsBatch's own header) -- one call gets the full margin
+// instead of splitting it across up to 3 attempts. Still well inside
+// route.ts's maxDuration=280 with real room left for the DB writes and a
+// possible per-chunk fallback loop on top.
+const INGESTION_BATCH_TIMEOUT_MS = 100_000;
 
 /**
  * FOUND LIVE (2026-09-14, Phase 1 #5's first real production book): every
@@ -348,6 +377,58 @@ export class DeepSeekProvider implements LlmProvider {
    * `evidenceStrength` is classified from the chunk's own source text,
    * never the model's self-label -- same reasoning as every other provider.
    */
+  /**
+   * Shared by `extractLessons` and P2-14's `extractLessonsBatch` -- the
+   * per-candidate shape check + `isGrounded`/language-sanity write-time
+   * gates + `passesClaimNotQuote` filter are identical regardless of
+   * whether the raw `lessons` array came from a single-passage call or one
+   * slot of a combined batch call.
+   */
+  private parseLessonCandidates(
+    rawLessons: unknown[],
+    evidenceStrength: EvidenceStrength,
+    pageStart: number,
+    sourceChunkId: string,
+    chunkText: string,
+  ): { raw: CandidateLesson[]; passing: CandidateLesson[] } {
+    const raw: CandidateLesson[] = [];
+    for (const r of rawLessons) {
+      if (typeof r !== "object" || r === null) continue;
+      const rr = r as Record<string, unknown>;
+      if (
+        typeof rr["title"] !== "string" ||
+        typeof rr["core_claim"] !== "string" ||
+        typeof rr["mechanism"] !== "string" ||
+        typeof rr["action_template"] !== "string" ||
+        typeof rr["provenance_quote"] !== "string"
+      ) {
+        continue;
+      }
+      const candidate: CandidateLesson = {
+        title: rr["title"],
+        coreClaim: rr["core_claim"],
+        mechanism: rr["mechanism"],
+        actionTemplate: rr["action_template"],
+        evidenceStrength,
+        provenanceQuote: rr["provenance_quote"],
+        pageRef: pageStart,
+        sourceChunkId,
+      };
+      // Independent re-check, same as every other provider -- a model can
+      // hallucinate a near-quote just as a heuristic can pick a bad span.
+      if (
+        isGrounded(candidate, chunkText) &&
+        passesLanguageSanity(candidate.title) &&
+        passesLanguageSanity(candidate.coreClaim) &&
+        passesLanguageSanity(candidate.mechanism) &&
+        passesLanguageSanity(candidate.actionTemplate)
+      ) {
+        raw.push(candidate);
+      }
+    }
+    return { raw, passing: raw.filter((c) => passesClaimNotQuote(c)) };
+  }
+
   async extractLessons(input: ExtractLessonsInput): Promise<CandidateLesson[]> {
     const evidenceStrength = classifyEvidenceStrength(input.chunkText);
     const MAX_ATTEMPTS = 3;
@@ -388,48 +469,91 @@ Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mec
       );
       if (!parsed) continue;
 
-      const rawCandidates: CandidateLesson[] = [];
-      for (const raw of parsed.lessons) {
-        if (typeof raw !== "object" || raw === null) continue;
-        const r = raw as Record<string, unknown>;
-        if (
-          typeof r["title"] !== "string" ||
-          typeof r["core_claim"] !== "string" ||
-          typeof r["mechanism"] !== "string" ||
-          typeof r["action_template"] !== "string" ||
-          typeof r["provenance_quote"] !== "string"
-        ) {
-          continue;
-        }
-        const candidate: CandidateLesson = {
-          title: r["title"],
-          coreClaim: r["core_claim"],
-          mechanism: r["mechanism"],
-          actionTemplate: r["action_template"],
-          evidenceStrength,
-          provenanceQuote: r["provenance_quote"],
-          pageRef: input.pageStart,
-          sourceChunkId: input.sourceChunkId,
-        };
-        // Independent re-check, same as every other provider -- a model can
-        // hallucinate a near-quote just as a heuristic can pick a bad span.
-        if (
-          isGrounded(candidate, input.chunkText) &&
-          passesLanguageSanity(candidate.title) &&
-          passesLanguageSanity(candidate.coreClaim) &&
-          passesLanguageSanity(candidate.mechanism) &&
-          passesLanguageSanity(candidate.actionTemplate)
-        ) {
-          rawCandidates.push(candidate);
-        }
-      }
-
-      const passingCandidates = rawCandidates.filter((c) => passesClaimNotQuote(c));
+      const { raw: rawCandidates, passing: passingCandidates } = this.parseLessonCandidates(
+        parsed.lessons,
+        evidenceStrength,
+        input.pageStart,
+        input.sourceChunkId,
+        input.chunkText,
+      );
       if (passingCandidates.length > bestCandidates.length) bestCandidates = passingCandidates;
       if (passingCandidates.length === rawCandidates.length && rawCandidates.length > 0) break; // everything passed
     }
 
     return bestCandidates;
+  }
+
+  /**
+   * P2-14 batch mode: ONE combined call for up to `BATCH_SIZE_EXTRACT`
+   * passages, not a loop of `extractLessons` -- fewer calls at lower total
+   * cost is the entire point. Deliberately NO strictness-note retry loop
+   * here, unlike the single-item method: a malformed shape or a
+   * wrong-length `results` array (partial or extra entries) makes EVERY
+   * slot `null` rather than guessing which result maps to which passage --
+   * the ONLY caller (worker-stages.ts's batch-mode extractingLessonsStage)
+   * is responsible for falling back to `extractLessons` (which DOES have
+   * the retry loop) for `null` slots. Retrying the whole combined call
+   * itself here would cost as much as the fallback while adding latency
+   * for no extra reliability the fallback doesn't already provide.
+   *
+   * `inputs.length <= 1` degrades to the plain single-item call -- there is
+   * no combined-prompt benefit to "batching" zero or one passage.
+   */
+  async extractLessonsBatch(inputs: ExtractLessonsInput[]): Promise<ExtractLessonsBatchResult> {
+    if (inputs.length === 0) return { perChunk: [] };
+    if (inputs.length === 1) return { perChunk: [await this.extractLessons(inputs[0]!)] };
+
+    const passages = inputs
+      .map((input, i) => `Passage ${i} (page ${input.pageStart}):\n"""\n${input.chunkText}\n"""`)
+      .join("\n\n");
+    const userPrompt = `Extract up to 2 distinct teachable lessons from EACH of the ${inputs.length} passages below, INDEPENDENTLY -- never mix content across passages, and a provenance_quote for passage N must come verbatim from passage N only.
+
+Rules (apply to every passage separately):
+- FIRST identify the ONE sentence (or short span) in that passage the lesson is actually about. "provenance_quote" MUST be that exact span, copied verbatim (same words, same order, same punctuation) from THAT passage. If a passage has no extractable lesson, give it an empty lessons array -- do not invent one from a different passage.
+- "core_claim" restates that same sentence's specific point in SUBSTANTIALLY DIFFERENT WORDS -- not the quote with a word or two swapped.
+- "mechanism" must explain WHY the claim is true, staying on the same topic.
+- "title" must be short and imperative where natural, about the exact same specific point as core_claim.
+- "action_template" must be a specific, concrete action tied to this exact claim, not generic advice.
+
+${passages}
+
+Return ONLY strict JSON: {"results": [{"lessons": [{"title": "...", "core_claim": "...", "mechanism": "...", "action_template": "...", "provenance_quote": "..."}]}, ...]} -- exactly ${inputs.length} entries in "results", in the SAME ORDER as the passages above (results[i] is for Passage i).`;
+
+    const isValid = (obj: unknown): obj is { results: unknown[] } =>
+      typeof obj === "object" && obj !== null && Array.isArray((obj as { results?: unknown }).results);
+
+    const parsed = await this.chatJson(
+      "self_mastery_ingestion_extract_lessons_batch",
+      EXTRACT_LESSONS_SYSTEM_PROMPT,
+      userPrompt,
+      Math.min(MAX_TOKENS_EXTRACT_BATCH, MAX_TOKENS_EXTRACT * inputs.length),
+      isValid,
+      { timeoutMs: INGESTION_BATCH_TIMEOUT_MS, retry: { maxAttempts: 1 } },
+    );
+
+    if (!parsed || parsed.results.length !== inputs.length) {
+      // Malformed shape, or a wrong-length array -- never guess which
+      // entry maps to which passage. Every slot falls back to the
+      // single-item call, none silently treated as "no lessons."
+      return { perChunk: inputs.map(() => null) };
+    }
+
+    return {
+      perChunk: inputs.map((input, i) => {
+        const entry = parsed.results[i];
+        if (typeof entry !== "object" || entry === null || !Array.isArray((entry as { lessons?: unknown }).lessons)) {
+          return null;
+        }
+        const { passing } = this.parseLessonCandidates(
+          (entry as { lessons: unknown[] }).lessons,
+          classifyEvidenceStrength(input.chunkText),
+          input.pageStart,
+          input.sourceChunkId,
+          input.chunkText,
+        );
+        return passing; // may legitimately be [] -- "no lessons in this passage," not a failure
+      }),
+    };
   }
 
   /**
@@ -440,6 +564,41 @@ Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mec
    * needs an embedding this repo doesn't have; anti-leak and
    * card-text-sanity, which don't need one, both are.
    */
+  /** Shared by `generateCards` and P2-14's `generateCardsBatch`. */
+  private buildCardCandidates(
+    fields: Record<string, string>,
+    lesson: CandidateLesson,
+  ): { candidateCards: GeneratedCard[]; passing: GeneratedCard[] } {
+    const candidateCards: GeneratedCard[] = [
+      { promptType: "free_recall", prompt: fields["free_recall_prompt"]!, answer: lesson.coreClaim },
+      { promptType: "application", prompt: fields["application_prompt"]!, answer: fields["application_answer"]! },
+      { promptType: "why", prompt: fields["why_prompt"]!, answer: lesson.mechanism },
+    ];
+    const passing = candidateCards.filter(
+      (c) => passesLanguageSanity(c.prompt) && passesCardTextSanity(c.prompt, c.promptType) && passesAntiLeak(c).passed,
+    );
+    return { candidateCards, passing };
+  }
+
+  /** Shared by `generateCards` and P2-14's `generateCardsBatch` -- the
+   * free_recall guarantee + cloze append apply uniformly regardless of
+   * whether the passing cards came from a single-lesson call, one slot of
+   * a combined batch call, or a per-lesson fallback after a malformed
+   * batch response. */
+  private finalizeCards(passing: GeneratedCard[], lesson: CandidateLesson): GeneratedCard[] {
+    const cards: GeneratedCard[] = [...passing];
+    if (!cards.some((c) => c.promptType === "free_recall")) {
+      // Never ship without a free_recall card -- the generation effect is
+      // the point. The heuristic template is topic-anchor by construction,
+      // guaranteed to pass anti-leak.
+      const fallback = generateCardsForLesson(lesson).find((c) => c.promptType === "free_recall");
+      if (fallback) cards.push(fallback);
+    }
+    const cloze = buildClozeCard(lesson);
+    if (cloze) cards.push(cloze);
+    return cards.slice(0, 4);
+  }
+
   async generateCards(input: GenerateCardsInput): Promise<GeneratedCard[]> {
     const lesson = input.lesson;
     const MAX_ATTEMPTS = 3;
@@ -483,33 +642,77 @@ Return ONLY strict JSON: {"free_recall_prompt": "...", "application_prompt": "..
       );
       if (!parsed) continue;
 
-      const candidateCards: GeneratedCard[] = [
-        { promptType: "free_recall", prompt: parsed["free_recall_prompt"]!, answer: lesson.coreClaim },
-        { promptType: "application", prompt: parsed["application_prompt"]!, answer: parsed["application_answer"]! },
-        { promptType: "why", prompt: parsed["why_prompt"]!, answer: lesson.mechanism },
-      ];
-
-      const passing = candidateCards.filter(
-        (c) => passesLanguageSanity(c.prompt) && passesCardTextSanity(c.prompt, c.promptType) && passesAntiLeak(c).passed,
-      );
+      const { candidateCards, passing } = this.buildCardCandidates(parsed, lesson);
       const hasFreeRecall = passing.some((c) => c.promptType === "free_recall");
       if (passing.length > bestPassing.length) bestPassing = passing;
       if (hasFreeRecall && passing.length === candidateCards.length) break;
     }
 
-    const cards: GeneratedCard[] = [...bestPassing];
-    if (!cards.some((c) => c.promptType === "free_recall")) {
-      // Never ship without a free_recall card -- the generation effect is
-      // the point. The heuristic template is topic-anchor by construction,
-      // guaranteed to pass anti-leak.
-      const fallback = generateCardsForLesson(lesson).find((c) => c.promptType === "free_recall");
-      if (fallback) cards.push(fallback);
+    return this.finalizeCards(bestPassing, lesson);
+  }
+
+  /**
+   * P2-14 batch mode: ONE combined call for up to `BATCH_SIZE_CARDS`
+   * lessons. Same posture as `extractLessonsBatch` -- no strictness-note
+   * retry loop here; a malformed shape or wrong-length `results` array
+   * makes every slot `null`, and the caller falls back to `generateCards`
+   * (which has the retry loop AND the free_recall/cloze guarantee) for
+   * those lessons specifically.
+   */
+  async generateCardsBatch(inputs: GenerateCardsInput[]): Promise<GenerateCardsBatchResult> {
+    if (inputs.length === 0) return { perLesson: [] };
+    if (inputs.length === 1) return { perLesson: [await this.generateCards(inputs[0]!)] };
+
+    const lessons = inputs
+      .map((input, i) => {
+        const l = input.lesson;
+        return `Lesson ${i}:\nTitle: ${l.title}\nCore claim: ${l.coreClaim}\nMechanism: ${l.mechanism}\nAction: ${l.actionTemplate}`;
+      })
+      .join("\n\n");
+    const userPrompt = `For EACH of the ${inputs.length} lessons below, write retrieval-practice questions that do NOT reveal or restate the answer in the question itself -- the reader must recall it from memory. Treat each lesson independently -- never mix content across lessons.
+
+For each lesson write:
+1. free_recall_prompt -- names the general topic/subject (so the reader knows which lesson this is) WITHOUT quoting or hinting at the claim's specific content words.
+2. application_prompt -- a concrete, situational "you're in situation Y" question, specific enough that answering it requires applying THIS lesson.
+3. application_answer -- a 1-2 sentence answer specific to the scenario just described, not a restatement of the generic action_template.
+4. why_prompt -- asks the reader to explain the mechanism in their own words, without revealing it.
+
+${lessons}
+
+Return ONLY strict JSON: {"results": [{"free_recall_prompt": "...", "application_prompt": "...", "application_answer": "...", "why_prompt": "..."}, ...]} -- exactly ${inputs.length} entries, in the SAME ORDER as the lessons above (results[i] is for Lesson i).`;
+
+    const isValid = (obj: unknown): obj is { results: unknown[] } =>
+      typeof obj === "object" && obj !== null && Array.isArray((obj as { results?: unknown }).results);
+
+    const parsed = await this.chatJson(
+      "self_mastery_ingestion_generate_cards_batch",
+      GENERATE_CARDS_SYSTEM_PROMPT,
+      userPrompt,
+      Math.min(MAX_TOKENS_CARDS_BATCH, MAX_TOKENS_CARDS * inputs.length),
+      isValid,
+      { timeoutMs: INGESTION_BATCH_TIMEOUT_MS, retry: { maxAttempts: 1 } },
+    );
+
+    if (!parsed || parsed.results.length !== inputs.length) {
+      return { perLesson: inputs.map(() => null) };
     }
 
-    const cloze = buildClozeCard(lesson);
-    if (cloze) cards.push(cloze);
+    const isCardFields = (obj: unknown): obj is Record<string, string> =>
+      typeof obj === "object" &&
+      obj !== null &&
+      typeof (obj as Record<string, unknown>)["free_recall_prompt"] === "string" &&
+      typeof (obj as Record<string, unknown>)["application_prompt"] === "string" &&
+      typeof (obj as Record<string, unknown>)["application_answer"] === "string" &&
+      typeof (obj as Record<string, unknown>)["why_prompt"] === "string";
 
-    return cards.slice(0, 4);
+    return {
+      perLesson: inputs.map((input, i) => {
+        const entry = parsed.results[i];
+        if (!isCardFields(entry)) return null;
+        const { passing } = this.buildCardCandidates(entry, input.lesson);
+        return this.finalizeCards(passing, input.lesson);
+      }),
+    };
   }
 
   /**
