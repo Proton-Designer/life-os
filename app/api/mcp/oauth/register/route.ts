@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { registerOAuthClient } from "@/lib/mcp/oauth";
+import { clientIpFromHeaders, hashRegistrationIp, registerOAuthClient } from "@/lib/mcp/oauth";
 
 /**
  * RFC 7591 Dynamic Client Registration. Claude's connector UI requires DCR
@@ -28,7 +28,10 @@ export async function POST(request: Request) {
   }
 
   const supabase = createServiceRoleClient();
-  const result = await registerOAuthClient(supabase, body as Record<string, unknown>);
+  // P4-13: limited per client IP per hour (keyed hash only; see hashRegistrationIp).
+  const result = await registerOAuthClient(supabase, body as Record<string, unknown>, {
+    ipHash: hashRegistrationIp(clientIpFromHeaders(request.headers)),
+  });
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error, error_description: result.message }, { status: result.status });

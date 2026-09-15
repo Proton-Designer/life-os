@@ -5,7 +5,9 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 const registerOAuthClient = vi.fn();
-vi.mock("@/lib/mcp/oauth", () => ({
+vi.mock("@/lib/mcp/oauth", async (importActual) => ({
+  // Real clientIpFromHeaders / hashRegistrationIp (pure), mocked registration.
+  ...(await importActual<typeof import("@/lib/mcp/oauth")>()),
   registerOAuthClient: (...args: unknown[]) => registerOAuthClient(...args),
 }));
 
@@ -44,7 +46,7 @@ describe("POST /api/mcp/oauth/register", () => {
 
     const response = await POST(jsonRequest({ redirect_uris: ["https://claude.ai/cb"], client_name: "Claude" }));
 
-    expect(registerOAuthClient).toHaveBeenCalledWith("service-client-marker", { redirect_uris: ["https://claude.ai/cb"], client_name: "Claude" });
+    expect(registerOAuthClient).toHaveBeenCalledWith("service-client-marker", { redirect_uris: ["https://claude.ai/cb"], client_name: "Claude" }, { ipHash: null });
     expect(response.status).toBe(201);
     const body = await response.json();
     expect(body.client_id).toBe("lifeos_client_abc");
@@ -58,5 +60,19 @@ describe("POST /api/mcp/oauth/register", () => {
     expect(response.status).toBe(429);
     const body = await response.json();
     expect(body.error).toBe("temporarily_unavailable");
+  });
+
+  it("P4-13: passes the keyed hash of the caller's IP (never the raw IP) for the per-IP limit", async () => {
+    registerOAuthClient.mockResolvedValueOnce({ ok: false, status: 429, error: "temporarily_unavailable", message: "Too many" });
+    const req = new Request("https://lifeos.example.com/api/mcp/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9, 10.0.0.1" },
+      body: JSON.stringify({ redirect_uris: ["https://claude.ai/cb"] }),
+    });
+    const response = await POST(req);
+    expect(response.status).toBe(429);
+    const opts = registerOAuthClient.mock.calls.at(-1)![2] as { ipHash: string };
+    expect(opts.ipHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(opts.ipHash).not.toContain("203.0.113.9");
   });
 });

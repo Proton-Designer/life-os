@@ -145,7 +145,8 @@ async function postAuthorize(authorizeEndpoint: string, cookie: string, params: 
   return fetch(authorizeEndpoint, {
     method: "POST",
     redirect: "manual",
-    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    // P4-13: the consent POST now requires a same-origin Origin header, as a real browser form submit sends.
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded", origin: new URL(authorizeEndpoint).origin },
     body: buildAuthorizeForm(params, decision),
   });
 }
