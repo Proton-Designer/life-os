@@ -424,6 +424,10 @@ export type Database = {
           canvas_course_id: string
           canvas_course_name: string
           class_id: string | null
+          computed_current_letter_grade: string | null
+          computed_current_score: number | null
+          computed_final_score: number | null
+          computed_grade_synced_at: string | null
           created_at: string
           dismissed_at: string | null
           id: string
@@ -435,6 +439,10 @@ export type Database = {
           canvas_course_id: string
           canvas_course_name: string
           class_id?: string | null
+          computed_current_letter_grade?: string | null
+          computed_current_score?: number | null
+          computed_final_score?: number | null
+          computed_grade_synced_at?: string | null
           created_at?: string
           dismissed_at?: string | null
           id?: string
@@ -446,6 +454,10 @@ export type Database = {
           canvas_course_id?: string
           canvas_course_name?: string
           class_id?: string | null
+          computed_current_letter_grade?: string | null
+          computed_current_score?: number | null
+          computed_final_score?: number | null
+          computed_grade_synced_at?: string | null
           created_at?: string
           dismissed_at?: string | null
           id?: string
