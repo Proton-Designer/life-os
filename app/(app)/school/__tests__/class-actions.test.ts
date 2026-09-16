@@ -42,6 +42,21 @@ describe("class-actions — thin wrappers over lib/school/actions-core.ts", () =
     expect(revalidatePathMock).toHaveBeenCalledWith("/school");
   });
 
+  // CANVAS-LITE-03: classes.code is NOT NULL -- code is now editable, but
+  // an empty save must never reach the database.
+  it("updateClass passes a real code through to updateClassCore", async () => {
+    const { updateClass } = await import("../class-actions");
+    await updateClass("class-1", { code: "CS-3345-HON" });
+
+    expect(updateClassCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "class-1", { code: "CS-3345-HON" });
+  });
+
+  it("updateClass REJECTS an empty code before ever calling updateClassCore", async () => {
+    const { updateClass } = await import("../class-actions");
+    await expect(updateClass("class-1", { code: "   " })).rejects.toThrow(/can't be empty/);
+    expect(updateClassCoreMock).not.toHaveBeenCalled();
+  });
+
   it("addClassAssessment delegates to addClassAssessmentCore", async () => {
     const { addClassAssessment } = await import("../class-actions");
     await addClassAssessment("class-1", "Midterm 2", "final_midterm", "2026-10-15");

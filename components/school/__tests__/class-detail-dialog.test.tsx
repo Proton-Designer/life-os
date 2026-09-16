@@ -195,6 +195,7 @@ describe("ClassDetailDialog", () => {
     await waitFor(() =>
       expect(updateClassMock).toHaveBeenCalledWith("c1", {
         shortName: "Lin Alg",
+        code: "MATH 2418",
         room: "FO 2.100",
         instructor: "Dr. Nguyen",
         term: null,
@@ -216,6 +217,35 @@ describe("ClassDetailDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
 
     await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    expect(updateClassMock).not.toHaveBeenCalled();
+  });
+
+  // CANVAS-LITE-03: the user explicitly asked to be able to "remove,
+  // change, edit" an (auto-imported or hand-made) class -- code was
+  // read-only everywhere until this task; this is the real gap it closes.
+  it("Save commits an edited class code", async () => {
+    const user = userEvent.setup();
+    render(<ClassDetailDialog open onOpenChange={vi.fn()} classData={baseClassData()} timezone="America/Chicago" />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Lin Alg" }));
+    const codeField = screen.getByPlaceholderText("Code (e.g. CS-3341)");
+    await user.clear(codeField);
+    await user.type(codeField, "MATH-2418-HON");
+    await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
+
+    await waitFor(() => expect(updateClassMock).toHaveBeenCalledWith("c1", expect.objectContaining({ code: "MATH-2418-HON" })));
+  });
+
+  it("refuses to save an empty class code -- classes.code is NOT NULL", async () => {
+    const user = userEvent.setup();
+    render(<ClassDetailDialog open onOpenChange={vi.fn()} classData={baseClassData()} timezone="America/Chicago" />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Lin Alg" }));
+    const codeField = screen.getByPlaceholderText("Code (e.g. CS-3341)");
+    await user.clear(codeField);
+    await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
+
+    await waitFor(() => expect(screen.getByText(/can't be empty/)).toBeInTheDocument());
     expect(updateClassMock).not.toHaveBeenCalled();
   });
 

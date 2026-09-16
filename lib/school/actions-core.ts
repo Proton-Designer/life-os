@@ -90,6 +90,14 @@ export async function createClassCore(supabase: SupabaseClient, userId: string, 
 
 export interface UpdateClassInput {
   shortName?: string | null;
+  /**
+   * CANVAS-LITE-03: `classes.code` is NOT NULL, unlike every other field
+   * here -- undefined means "don't touch" (same as the rest), but the
+   * caller (updateClass) must never pass an empty string; this core does
+   * not re-validate that (same division of responsibility class-actions.ts
+   * already has for allowedAbsences' numeric-ness).
+   */
+  code?: string;
   room?: string | null;
   instructor?: string | null;
   /** `classes.term` (migration 152, Phase 1 #11) -- free text, same editable-
@@ -117,6 +125,7 @@ export async function updateClassCore(supabase: SupabaseClient, userId: string, 
     .from("classes")
     .update({
       short_name: input.shortName,
+      code: input.code,
       room: input.room,
       instructor: input.instructor,
       term: input.term,

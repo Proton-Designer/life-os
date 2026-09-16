@@ -125,6 +125,7 @@ export function ClassDetailDialog({
   const weekDates = weekDatesFrom(getWeekStartDate(todayStr));
 
   const [shortName, setShortName] = useState(classData.shortName ?? "");
+  const [code, setCode] = useState(classData.code);
   const [room, setRoom] = useState(classData.room ?? "");
   const [instructor, setInstructor] = useState(classData.instructor ?? "");
   const [term, setTerm] = useState(classData.term ?? "");
@@ -146,6 +147,7 @@ export function ClassDetailDialog({
   useEffect(() => {
     if (editing) return;
     setShortName(classData.shortName ?? "");
+    setCode(classData.code);
     setRoom(classData.room ?? "");
     setInstructor(classData.instructor ?? "");
     setTerm(classData.term ?? "");
@@ -173,6 +175,7 @@ export function ClassDetailDialog({
 
   function handleCancel() {
     setShortName(classData.shortName ?? "");
+    setCode(classData.code);
     setRoom(classData.room ?? "");
     setInstructor(classData.instructor ?? "");
     setTerm(classData.term ?? "");
@@ -280,8 +283,11 @@ export function ClassDetailDialog({
           .filter((b) => b.letter.trim() !== "" && b.minPct.trim() !== "" && Number.isFinite(Number(b.minPct)))
           .map((b) => ({ letter: b.letter.trim(), minPct: Number(b.minPct) }));
 
+        const trimmedCode = code.trim();
+
         const detailsChanged =
           shortName.trim() !== (classData.shortName ?? "") ||
+          trimmedCode !== classData.code ||
           room.trim() !== (classData.room ?? "") ||
           instructor.trim() !== (classData.instructor ?? "") ||
           term.trim() !== (classData.term ?? "") ||
@@ -350,8 +356,12 @@ export function ClassDetailDialog({
           if (parsedAllowedAbsences !== null && !Number.isFinite(parsedAllowedAbsences)) {
             throw new Error("Allowed absences must be a number");
           }
+          if (trimmedCode === "") {
+            throw new Error("Class code can't be empty.");
+          }
           await updateClass(classData.id, {
             shortName: shortName.trim() || null,
+            code: trimmedCode,
             room: room.trim() || null,
             instructor: instructor.trim() || null,
             term: term.trim() || null,
@@ -442,6 +452,7 @@ export function ClassDetailDialog({
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-2">
               <Input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Abbreviation" className="w-40" />
+              <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code (e.g. CS-3341)" aria-label="Class code" className="w-40" />
               <Input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="Room" className="w-40" />
               <Input value={instructor} onChange={(e) => setInstructor(e.target.value)} placeholder="Instructor" className="w-48" />
               <Input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Term (e.g. Fall 2026)" className="w-48" />

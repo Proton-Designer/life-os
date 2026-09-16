@@ -178,6 +178,7 @@ export async function updateClass(
   classId: string,
   fields: {
     shortName?: string | null;
+    code?: string;
     room?: string | null;
     instructor?: string | null;
     term?: string | null;
@@ -188,6 +189,13 @@ export async function updateClass(
   }
 ) {
   const { supabase, userId } = await requireUser();
+  // CANVAS-LITE-03: code is NOT NULL -- refuse an empty save here rather
+  // than let a blank string reach the database (the same "the caller
+  // enforces this, the core doesn't re-check" split allowedAbsences'
+  // numeric-ness already uses).
+  if (fields.code !== undefined && fields.code.trim() === "") {
+    throw new Error("Class code can't be empty.");
+  }
   await updateClassCore(supabase, userId, classId, fields);
   revalidatePath("/school");
 }
