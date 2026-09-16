@@ -105,4 +105,57 @@ describe("uploadBook", () => {
     expect(fromMock).toHaveBeenCalledWith("books");
     expect(result.ok).toBe(false); // the insert itself was made to fail above; only the gate-clearing is under test
   });
+
+  /** P2-14B: the batch-mode selector's own reader-cited destination -- proves the form field actually reaches the insert, not just that a UI control exists. */
+  describe("ingestion_mode threading (P2-14B)", () => {
+    function captureInsertPayload(): { fromMock: ReturnType<typeof vi.fn>; getPayload: () => Record<string, unknown> | undefined } {
+      let payload: Record<string, unknown> | undefined;
+      const fromMockLocal = vi.fn(() => ({
+        insert: (p: Record<string, unknown>) => {
+          payload = p;
+          return { select: () => ({ single: () => ({ returns: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }) };
+        },
+      }));
+      return { fromMock: fromMockLocal, getPayload: () => payload };
+    }
+
+    beforeEach(() => {
+      isIngestionAvailableMock.mockResolvedValue(true);
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: true, providerLabel: "DeepSeek" });
+    });
+
+    it("defaults to 'standard' when the form omits ingestion_mode entirely", async () => {
+      const { fromMock: localFrom, getPayload } = captureInsertPayload();
+      requireUserMock.mockResolvedValue({ supabase: { from: localFrom } as unknown as SupabaseClient, userId: "user-1" });
+      const { uploadBook } = await import("../self-mastery-actions");
+
+      await uploadBook(formDataFor(fakeFile()));
+
+      expect(getPayload()?.ingestion_mode).toBe("standard");
+    });
+
+    it("threads 'batch' through when the dialog set it", async () => {
+      const { fromMock: localFrom, getPayload } = captureInsertPayload();
+      requireUserMock.mockResolvedValue({ supabase: { from: localFrom } as unknown as SupabaseClient, userId: "user-1" });
+      const { uploadBook } = await import("../self-mastery-actions");
+      const fd = formDataFor(fakeFile());
+      fd.set("ingestion_mode", "batch");
+
+      await uploadBook(fd);
+
+      expect(getPayload()?.ingestion_mode).toBe("batch");
+    });
+
+    it("an unrecognized value degrades to 'standard', never trusted verbatim -- same defensive posture as worker-stages.ts's own getIngestionMode", async () => {
+      const { fromMock: localFrom, getPayload } = captureInsertPayload();
+      requireUserMock.mockResolvedValue({ supabase: { from: localFrom } as unknown as SupabaseClient, userId: "user-1" });
+      const { uploadBook } = await import("../self-mastery-actions");
+      const fd = formDataFor(fakeFile());
+      fd.set("ingestion_mode", "something-else");
+
+      await uploadBook(fd);
+
+      expect(getPayload()?.ingestion_mode).toBe("standard");
+    });
+  });
 });

@@ -80,6 +80,13 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
   const file = formData.get("file");
   const title = String(formData.get("title") ?? "").trim();
   const author = String(formData.get("author") ?? "").trim();
+  // P2-14B: narrowed defensively, same posture as worker-stages.ts's own
+  // getIngestionMode -- anything other than the literal "batch" degrades
+  // to "standard" (the DB column's own default), never the other way
+  // around. Set once here, at upload time; never changed mid-ingest
+  // (migration 187's own header).
+  const rawIngestionMode = formData.get("ingestion_mode");
+  const ingestionMode: "standard" | "batch" = rawIngestionMode === "batch" ? "batch" : "standard";
 
   if (!(file instanceof File)) return { ok: false, message: "No file provided" };
   const validationError = validateBookFile(file);
@@ -95,6 +102,7 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
       stage: "queued",
       progress_pct: 0,
       file_size_bytes: file.size,
+      ingestion_mode: ingestionMode,
     })
     .select("id")
     .single()

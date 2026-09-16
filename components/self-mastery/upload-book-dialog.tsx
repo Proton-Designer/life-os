@@ -15,6 +15,8 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
+  /** P2-14B: "standard" (default, today's per-chunk behavior) vs "batch" (lower cost, migration 187's books.ingestion_mode). */
+  const [ingestionMode, setIngestionMode] = useState<"standard" | "batch">("standard");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -23,6 +25,7 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
     setFile(null);
     setTitle("");
     setAuthor("");
+    setIngestionMode("standard");
     setError(null);
   }
 
@@ -51,6 +54,7 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
       formData.set("file", file);
       formData.set("title", title.trim());
       formData.set("author", author.trim());
+      formData.set("ingestion_mode", ingestionMode);
       const result = await uploadBook(formData);
       if (!result.ok) {
         setError(result.message);
@@ -95,6 +99,20 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
               <div className="flex flex-col gap-1">
                 <Label htmlFor="book-author">Author (optional)</Label>
                 <Input id="book-author" value={author} onChange={(e) => setAuthor(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Processing mode</Label>
+                <div className="flex gap-1.5">
+                  <Button type="button" size="sm" variant={ingestionMode === "standard" ? "default" : "outline"} onClick={() => setIngestionMode("standard")}>
+                    Standard
+                  </Button>
+                  <Button type="button" size="sm" variant={ingestionMode === "batch" ? "default" : "outline"} onClick={() => setIngestionMode("batch")}>
+                    Batch (lower cost)
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Batch combines several sections per AI call to cost less — it can take longer to see your first cards.
+                </p>
               </div>
             </div>
           )}
