@@ -419,14 +419,14 @@ export type Database = {
           canvas_user_name: string | null
           created_at: string
           encrypted_ics_feed_url: string | null
-          encrypted_token: string
+          encrypted_token: string | null
           ics_feed_url_last4: string | null
-          instance_url: string
+          instance_url: string | null
           last_ics_reconcile_at: string | null
           last_sync_error: string | null
           last_synced_at: string | null
-          token_last4: string
-          token_status: string
+          token_last4: string | null
+          token_status: string | null
           updated_at: string
           user_id: string
         }
@@ -435,14 +435,14 @@ export type Database = {
           canvas_user_name?: string | null
           created_at?: string
           encrypted_ics_feed_url?: string | null
-          encrypted_token: string
+          encrypted_token?: string | null
           ics_feed_url_last4?: string | null
-          instance_url: string
+          instance_url?: string | null
           last_ics_reconcile_at?: string | null
           last_sync_error?: string | null
           last_synced_at?: string | null
-          token_last4: string
-          token_status?: string
+          token_last4?: string | null
+          token_status?: string | null
           updated_at?: string
           user_id: string
         }
@@ -451,14 +451,14 @@ export type Database = {
           canvas_user_name?: string | null
           created_at?: string
           encrypted_ics_feed_url?: string | null
-          encrypted_token?: string
+          encrypted_token?: string | null
           ics_feed_url_last4?: string | null
-          instance_url?: string
+          instance_url?: string | null
           last_ics_reconcile_at?: string | null
           last_sync_error?: string | null
           last_synced_at?: string | null
-          token_last4?: string
-          token_status?: string
+          token_last4?: string | null
+          token_status?: string | null
           updated_at?: string
           user_id?: string
         }
