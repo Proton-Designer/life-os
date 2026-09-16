@@ -70,9 +70,19 @@ test("a long, unbroken PAT label does not overflow /settings at 320px", async ({
 
   const connectors = page.locator("#connectors");
   await connectors.scrollIntoViewIfNeeded();
+  // P4-20/P4-21: the create-token form moved behind the "Any agent" tab
+  // (three tabs now: Claude/ChatGPT, Any agent, Text-based assistant) --
+  // it is not the default-active one, so its fields are `hidden` until
+  // this click.
+  await connectors.getByRole("tab", { name: "Any agent" }).click();
   await fillReliably(connectors.getByLabel(/label/i), longLabel);
   await checkReliably(connectors.getByRole("checkbox").first()); // Read permission, minimum to enable Create
   await connectors.getByRole("button", { name: /create token/i }).click();
+  // The token list (UX-04) starts COLLAPSED -- Radix's CollapsibleContent
+  // sets the `hidden` attribute while closed (confirmed in
+  // @radix-ui/react-collapsible's own source, not assumed), so the new
+  // row is genuinely not visible until this reveal click.
+  await connectors.getByRole("button", { name: /connected agent/i }).click();
   await expect(connectors.getByText(longLabel)).toBeVisible();
 
   for (const width of [320, 390]) {
