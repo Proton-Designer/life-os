@@ -203,3 +203,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 | `188` | Sonnet ENG 1 (P3-01), allocated by Opus Lead, 2026-09-15 | Morning routine checklist: morning_routine_items + morning_routine_checks | allocated |
 | `189` | Sonnet ENG 1 (P2-21), allocated by Opus Lead, 2026-09-15 | Canvas dedup columns: class_assessments.canvas_assignment_id + staging_batches.canvas_announcement_id (partial unique) | allocated |
 | `194` | Sonnet ENG 1 (P2-21), allocated by Opus Lead, 2026-09-15 | staging_batches.canvas_assignment_id + partial unique (dedup for staged unmatched Canvas assignments) | allocated |
+| `195` | Sonnet ENG 1 (P3-13), allocated by Opus Lead, 2026-09-15 | canvas_connections.encrypted_ics_feed_url (BYO Canvas ICS feed, encrypted at rest) | allocated |
