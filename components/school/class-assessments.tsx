@@ -24,6 +24,14 @@ export type ClassAssessment = {
   /** `class_assessments.category_id` (migration 152, Phase 1 #11) — which
    * `grade_categories` row this assessment belongs to, or null. */
   categoryId: string | null;
+  /** GAP-01: `class_assessments.points_earned`/`points_possible` — the ONLY
+   * writer of these was Canvas grade sync until this task; null means
+   * ungraded, never coalesced to 0 (same null-is-never-zero contract as
+   * weightPct). Editing either clears `points_source` server-side
+   * (lib/school/actions-core.ts) so a later Canvas sync never overwrites a
+   * hand-entered value. */
+  pointsEarned: number | null;
+  pointsPossible: number | null;
   /** Always computed by the caller (lib/school/get-class-cards.ts) from
    * computeAssignmentRisk — the engine degrades gracefully rather than needing this to
    * be optional. `confidence` (not a boolean prop) is what actually drives ranking now
@@ -95,8 +103,13 @@ const TYPE_COLOR: Record<AssessmentType, string> = {
 // Confidence/Actions are fixed and as narrow as a short label allows — the original
 // inversion of the old <table>, where "Midterm/Final" (a category repeated on every row)
 // claimed several times the width of the assessment's own name.
-const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_1.75rem]";
-const ROW_GRID_WITH_CATEGORY = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_6rem_1.75rem]";
+// GAP-01: one new "Grade" column (5.5rem, a compact earned/possible pair)
+// rather than two full columns — this grid is already fixed-width-column-
+// heavy with no responsive variant of its own, and the task's own 390px
+// reachability requirement is better served by staying compact than by
+// widening the row further.
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_5.5rem_1.75rem]";
+const ROW_GRID_WITH_CATEGORY = "grid-cols-[minmax(0,1fr)_4rem_4.5rem_3rem_5.5rem_6rem_1.75rem]";
 
 /**
  * Left half of the expanded class view (item 6c / B2 redesign, 2026-08-26
@@ -134,7 +147,15 @@ export function ClassAssessments({
   onAdd: (input: { name: string; type: AssessmentType; date: string }) => void;
   onUpdate: (
     id: string,
-    patch: Partial<{ name: string; type: AssessmentType; date: string; weightPct: number | null; categoryId: string | null }>
+    patch: Partial<{
+      name: string;
+      type: AssessmentType;
+      date: string;
+      weightPct: number | null;
+      categoryId: string | null;
+      pointsEarned: number | null;
+      pointsPossible: number | null;
+    }>
   ) => void;
   onRemove: (id: string) => void;
 }) {
@@ -174,6 +195,32 @@ export function ClassAssessments({
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
     onUpdate(id, { weightPct: Math.min(100, Math.max(0, parsed)) });
+  }
+
+  // GAP-01: same empty-clears/non-negative discipline as handleWeightChange
+  // above, plus the earned<=possible invariant (the AC's own requirement).
+  // Editing EITHER field can clamp the other, so the invariant never goes
+  // stale between the two independent inputs.
+  function handlePointsEarnedChange(id: string, raw: string, possible: number | null) {
+    if (raw.trim() === "") {
+      onUpdate(id, { pointsEarned: null });
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+    onUpdate(id, { pointsEarned: possible !== null ? Math.min(parsed, possible) : parsed });
+  }
+
+  function handlePointsPossibleChange(id: string, raw: string, earned: number | null) {
+    if (raw.trim() === "") {
+      onUpdate(id, { pointsPossible: null });
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+    const patch: Partial<{ pointsPossible: number | null; pointsEarned: number | null }> = { pointsPossible: parsed };
+    if (earned !== null && earned > parsed) patch.pointsEarned = parsed;
+    onUpdate(id, patch);
   }
 
   const hasLinkedTask = assessments.some((a) => a.task_id !== null);
@@ -238,6 +285,7 @@ export function ClassAssessments({
               <span>Type</span>
               <span>Date</span>
               <span>Wt %</span>
+              <span>Grade</span>
               {categories.length > 0 && <span>Category</span>}
               <span aria-hidden />
             </div>
@@ -302,6 +350,35 @@ export function ClassAssessments({
                     placeholder="%"
                     className="h-8 text-xs"
                   />
+                  {/* GAP-01: a compact earned/possible pair, one grid column
+                      (not two) -- see ROW_GRID's own comment on why. */}
+                  <div className="flex items-center gap-0.5">
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={a.pointsEarned ?? ""}
+                      onChange={(e) => handlePointsEarnedChange(a.id, e.target.value, a.pointsPossible)}
+                      aria-label={`Points earned for ${a.name || "new assessment"}`}
+                      placeholder="—"
+                      className="h-8 w-11 px-1 text-xs"
+                    />
+                    <span aria-hidden className="text-xs text-muted-foreground">
+                      /
+                    </span>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={a.pointsPossible ?? ""}
+                      onChange={(e) => handlePointsPossibleChange(a.id, e.target.value, a.pointsEarned)}
+                      aria-label={`Points possible for ${a.name || "new assessment"}`}
+                      placeholder="—"
+                      className="h-8 w-11 px-1 text-xs"
+                    />
+                  </div>
                   {categories.length > 0 && (
                     <select
                       value={a.categoryId ?? ""}

@@ -19,6 +19,8 @@ function assessment(overrides: Partial<ClassAssessment> = {}): ClassAssessment {
     task_id: "t1",
     weightPct: null,
     categoryId: null,
+    pointsEarned: null,
+    pointsPossible: null,
     risk: { score: 0, band: "low", confidence: "moderate" },
     ...overrides,
   };
@@ -206,6 +208,113 @@ describe("ClassAssessments", () => {
     });
   });
 
+  // GAP-01
+  describe("grade entry", () => {
+    it("editing points earned/possible stages a numeric patch for each independently", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ pointsEarned: null, pointsPossible: null })]}
+          categories={[]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points possible for Midterm" }), { target: { value: "100" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { pointsPossible: 100 });
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points earned for Midterm" }), { target: { value: "87" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { pointsEarned: 87 });
+    });
+
+    it("clearing either field stages null, never a real zero", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ pointsEarned: 87, pointsPossible: 100 })]}
+          categories={[]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points earned for Midterm" }), { target: { value: "" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { pointsEarned: null });
+    });
+
+    it("rejects a negative points-earned value rather than staging it", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ pointsEarned: null, pointsPossible: 100 })]}
+          categories={[]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points earned for Midterm" }), { target: { value: "-5" } });
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+
+    it("clamps points earned DOWN to points possible when possible is already known", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ pointsEarned: null, pointsPossible: 20 })]}
+          categories={[]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points earned for Midterm" }), { target: { value: "35" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { pointsEarned: 20 });
+    });
+
+    it("clamps the already-staged points earned DOWN when possible shrinks below it -- the invariant never goes stale", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ pointsEarned: 90, pointsPossible: 100 })]}
+          categories={[]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points possible for Midterm" }), { target: { value: "50" } });
+      expect(onUpdate).toHaveBeenLastCalledWith("a1", { pointsPossible: 50, pointsEarned: 50 });
+    });
+
+    it("ignores non-numeric input rather than staging NaN", () => {
+      const onUpdate = vi.fn();
+      render(
+        <ClassAssessments
+          assessments={[assessment({ pointsEarned: null, pointsPossible: null })]}
+          categories={[]}
+          editing
+          todayStr="2026-08-26"
+          onAdd={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Points earned for Midterm" }), { target: { value: "abc" } });
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   it("Add asks type first, then name+date, and stages via onAdd rather than calling the server", async () => {
     const onAdd = vi.fn();
     const user = userEvent.setup();
@@ -284,6 +393,8 @@ function rankedAssessment(
     task_id: null,
     weightPct: null,
     categoryId: null,
+    pointsEarned: null,
+    pointsPossible: null,
     risk: { score, band: score >= 50 ? "high" : "low", confidence },
   };
 }
@@ -429,7 +540,7 @@ function realAssessment(id: string, name: string, date: string, weightPct: numbe
     projectedGradePct: 85,
   });
   const { score, band, confidence } = computeAssignmentRisk(input);
-  return { id, name, type: "quiz", date, task_id: null, weightPct, categoryId: null, risk: { score, band, confidence } };
+  return { id, name, type: "quiz", date, task_id: null, weightPct, categoryId: null, pointsEarned: null, pointsPossible: null, risk: { score, band, confidence } };
 }
 
 describe("ClassAssessments — R35: the mixed confidence group is now reachable through the real engine", () => {

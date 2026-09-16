@@ -40,6 +40,8 @@ function mapAssessments(source: ClassCardData["assessments"]): ClassAssessment[]
     risk: a.risk,
     weightPct: a.weightPct,
     categoryId: a.categoryId,
+    pointsEarned: a.pointsEarned,
+    pointsPossible: a.pointsPossible,
   }));
 }
 
@@ -305,7 +307,9 @@ export function ClassDetailDialog({
               orig.type !== a.type ||
               orig.date !== a.date ||
               orig.weightPct !== a.weightPct ||
-              orig.categoryId !== a.categoryId)
+              orig.categoryId !== a.categoryId ||
+              orig.pointsEarned !== a.pointsEarned ||
+              orig.pointsPossible !== a.pointsPossible)
           );
         });
 
@@ -358,7 +362,23 @@ export function ClassDetailDialog({
           });
         }
         for (const a of assessmentsToUpdate) {
-          await updateClassAssessment(a.id, { name: a.name, type: a.type, date: a.date, weightPct: a.weightPct, categoryId: a.categoryId });
+          const orig = originalAssessmentById.get(a.id);
+          // GAP-01: pointsEarned/pointsPossible are sent ONLY when they
+          // actually changed -- unlike weightPct/categoryId, providing
+          // either ALWAYS clears points_source server-side (the P2-21
+          // never-overwrite marker). Sending them unconditionally on every
+          // save (as weightPct/categoryId already do) would silently strip
+          // a Canvas-synced grade's protection the next time the user
+          // merely renamed the assessment or moved its date.
+          const pointsChanged = orig !== undefined && (orig.pointsEarned !== a.pointsEarned || orig.pointsPossible !== a.pointsPossible);
+          await updateClassAssessment(a.id, {
+            name: a.name,
+            type: a.type,
+            date: a.date,
+            weightPct: a.weightPct,
+            categoryId: a.categoryId,
+            ...(pointsChanged ? { pointsEarned: a.pointsEarned, pointsPossible: a.pointsPossible } : {}),
+          });
         }
         for (const t of tasksToUpdate) {
           await updateTask(t.id, {

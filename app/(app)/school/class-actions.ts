@@ -67,7 +67,16 @@ export async function deleteClassAssessment(assessmentId: string) {
  */
 export async function updateClassAssessment(
   assessmentId: string,
-  fields: { name: string; type: AssessmentType; date: string; weightPct?: number | null; categoryId?: string | null }
+  fields: {
+    name: string;
+    type: AssessmentType;
+    date: string;
+    weightPct?: number | null;
+    categoryId?: string | null;
+    /** GAP-01: undefined leaves both columns + points_source untouched, same convention as weightPct/categoryId. See UpdateClassAssessmentInput's own doc for why either field clears points_source. */
+    pointsEarned?: number | null;
+    pointsPossible?: number | null;
+  }
 ) {
   const { supabase, userId } = await requireUser();
   await updateClassAssessmentCore(supabase, userId, assessmentId, fields);

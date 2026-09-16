@@ -58,6 +58,20 @@ describe("class-actions — thin wrappers over lib/school/actions-core.ts", () =
     expect(revalidatePathMock).toHaveBeenCalledWith("/school");
   });
 
+  // GAP-01
+  it("updateClassAssessment passes pointsEarned/pointsPossible through unmodified when provided", async () => {
+    const { updateClassAssessment } = await import("../class-actions");
+    await updateClassAssessment("assessment-1", { name: "Renamed", type: "exam", date: "2026-10-20", pointsEarned: 87, pointsPossible: 100 });
+
+    expect(updateClassAssessmentCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", "assessment-1", {
+      name: "Renamed",
+      type: "exam",
+      date: "2026-10-20",
+      pointsEarned: 87,
+      pointsPossible: 100,
+    });
+  });
+
   it("deleteClassAssessment still calls the delete_class_assessment RPC directly -- a real DELETE, deliberately NOT core-extracted (see lib/school/actions-core.ts's header comment)", async () => {
     const { deleteClassAssessment } = await import("../class-actions");
     await deleteClassAssessment("assessment-1");

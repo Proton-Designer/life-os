@@ -209,4 +209,51 @@ describe("updateClassAssessmentCore", () => {
     expect(call).not.toHaveProperty("points_earned");
     expect(call).not.toHaveProperty("points_source");
   });
+
+  // GAP-01: points_possible is a real column Canvas sync also writes
+  // alongside points_earned, under the SAME never-overwrite guard
+  // (lib/canvas/sync-core.ts:265) -- a hand-edit to either must equally
+  // protect against a later sync overwriting it.
+  it("providing pointsPossible ALONE also clears points_source -- Canvas treats earned+possible as one unit, so a hand-edit must too", async () => {
+    const assessmentsChain = makeChain({ data: { task_id: null }, error: null });
+    const from = vi.fn(() => assessmentsChain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20", pointsPossible: 100 });
+
+    expect(assessmentsChain.update).toHaveBeenCalledWith({ name: "x", type: "quiz", date: "2026-10-20", points_possible: 100, points_source: null });
+  });
+
+  it("providing BOTH pointsEarned and pointsPossible writes both columns and clears points_source once", async () => {
+    const assessmentsChain = makeChain({ data: { task_id: null }, error: null });
+    const from = vi.fn(() => assessmentsChain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassAssessmentCore(client, "user-1", "assessment-1", {
+      name: "x",
+      type: "quiz",
+      date: "2026-10-20",
+      pointsEarned: 87,
+      pointsPossible: 100,
+    });
+
+    expect(assessmentsChain.update).toHaveBeenCalledWith({
+      name: "x",
+      type: "quiz",
+      date: "2026-10-20",
+      points_earned: 87,
+      points_possible: 100,
+      points_source: null,
+    });
+  });
+
+  it("omitting pointsPossible leaves it untouched (same convention as pointsEarned)", async () => {
+    const assessmentsChain = makeChain({ data: { task_id: null }, error: null });
+    const from = vi.fn(() => assessmentsChain);
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20" });
+    const call = assessmentsChain.update.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("points_possible");
+  });
 });

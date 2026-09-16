@@ -416,6 +416,102 @@ describe("ClassDetailDialog", () => {
     expect(updateClassAssessmentMock).not.toHaveBeenCalledWith("a2", expect.anything());
   });
 
+  // GAP-01
+  it("persists a hand-entered grade through Save", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClassDetailDialog
+        open
+        onOpenChange={vi.fn()}
+        classData={baseClassData({
+          assessments: [
+            {
+              id: "a1",
+              name: "Midterm",
+              type: "final_midterm",
+              date: "2026-10-06",
+              taskId: "t1",
+              risk: { score: 10, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: null,
+              pointsPossible: null,
+              isExcused: false,
+              categoryId: null,
+            },
+          ],
+        })}
+        timezone="America/Chicago"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Lin Alg" }));
+    await user.type(screen.getByRole("spinbutton", { name: "Points possible for Midterm" }), "100");
+    await user.type(screen.getByRole("spinbutton", { name: "Points earned for Midterm" }), "87");
+    await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
+
+    await waitFor(() =>
+      expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", {
+        name: "Midterm",
+        type: "final_midterm",
+        date: "2026-10-06",
+        weightPct: null,
+        categoryId: null,
+        pointsEarned: 87,
+        pointsPossible: 100,
+      })
+    );
+  });
+
+  // GAP-01: the P2-21 points_source protection only means anything if a
+  // save that DOESN'T touch the grade truly never re-sends it -- this is
+  // the regression this task could easily have introduced (see
+  // class-detail-dialog.tsx's own comment on why pointsEarned/pointsPossible
+  // are conditional, unlike weightPct/categoryId).
+  it("editing an unrelated field on an ALREADY-GRADED assessment never re-sends pointsEarned/pointsPossible -- a Canvas-synced grade's protection must survive an unrelated save", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClassDetailDialog
+        open
+        onOpenChange={vi.fn()}
+        classData={baseClassData({
+          assessments: [
+            {
+              id: "a1",
+              name: "Midterm",
+              type: "final_midterm",
+              date: "2026-10-06",
+              taskId: "t1",
+              risk: { score: 10, band: "low", confidence: "insufficient" },
+              weightPct: null,
+              pointsEarned: 87,
+              pointsPossible: 100,
+              isExcused: false,
+              categoryId: null,
+            },
+          ],
+        })}
+        timezone="America/Chicago"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Lin Alg" }));
+    await user.type(screen.getByRole("textbox", { name: "Name for Midterm" }), " Exam");
+    await user.click(screen.getByRole("button", { name: "Save Lin Alg" }));
+
+    await waitFor(() =>
+      expect(updateClassAssessmentMock).toHaveBeenCalledWith("a1", {
+        name: "Midterm Exam",
+        type: "final_midterm",
+        date: "2026-10-06",
+        weightPct: null,
+        categoryId: null,
+      })
+    );
+    const call = updateClassAssessmentMock.mock.calls.find(([id]) => id === "a1")![1] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("pointsEarned");
+    expect(call).not.toHaveProperty("pointsPossible");
+  });
+
   it("surfaces a Save error, stays in editing mode with staged state intact, and never refreshes", async () => {
     updateClassMock.mockRejectedValueOnce(new Error("network down"));
     const user = userEvent.setup();
