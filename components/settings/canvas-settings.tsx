@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   connectCanvas,
   disconnectCanvas,
@@ -43,6 +44,23 @@ function formatSyncedAt(iso: string): string {
   return `${iso.replace("T", " ").slice(0, 16)} UTC`;
 }
 
+type CanvasPath = "token" | "no_token";
+
+/**
+ * CANVAS-LITE-01: some schools (UT Arlington) let students mint their own
+ * Canvas access tokens; the user's own school (UTD) does not. Every
+ * Canvas capability this app has must therefore have a real path that
+ * needs no token — this is a display toggle only (never persisted,
+ * never gates anything): the ICS feed connect below is independently
+ * usable regardless of which tab is showing, same as the token connect
+ * form is. Neutral by design (Opus Lead's requirement) — a school's own
+ * token policy, not a downgrade notice, and no bullet in the no-token
+ * tab is phrased as "what you're missing."
+ */
+function defaultCanvasPath(status: CanvasConnectionStatus): CanvasPath {
+  return status.icsFeedConnected && !status.connected ? "no_token" : "token";
+}
+
 /**
  * Bring-your-own Canvas settings — same shape and tone as api-key-settings.tsx
  * and connector-settings.tsx: connect/disconnect a credential, plus (Canvas-
@@ -61,6 +79,7 @@ export function CanvasSettings({
   storageConfigured: boolean;
 }) {
   const [status, setStatus] = useState(initialStatus);
+  const [path, setPath] = useState<CanvasPath>(() => defaultCanvasPath(initialStatus));
   const [mappings, setMappings] = useState(initialMappings);
   const [instanceUrl, setInstanceUrl] = useState("");
   const [token, setToken] = useState("");
@@ -174,9 +193,17 @@ export function CanvasSettings({
   return (
     <div className="flex flex-col gap-5">
       <p className="text-sm text-muted-foreground">
-        Connect Canvas with a personal access token to pull in your courses and match them to your classes here.
-        School works fully without this — nothing else is affected if you skip it.
+        School works fully without connecting Canvas at all — nothing else is affected if you skip this. Some schools let students mint a
+        Canvas personal access token; others don&apos;t. Either way, every capability below is available to you.
       </p>
+
+      <SegmentedControl
+        options={[
+          { label: "My school allows access tokens", value: "token", active: path === "token" },
+          { label: "My school doesn't", value: "no_token", active: path === "no_token" },
+        ]}
+        onSelect={(value) => setPath(value as CanvasPath)}
+      />
 
       {!storageConfigured ? (
         <p className="rounded-lg border border-border/50 bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -184,7 +211,34 @@ export function CanvasSettings({
         </p>
       ) : null}
 
-      {status.connected ? (
+      {path === "no_token" ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-4 text-sm">
+          <p className="text-muted-foreground">
+            You can still get the same capabilities without a token — each of these works today:
+          </p>
+          <ul className="flex flex-col gap-2 text-muted-foreground">
+            <li>
+              <span className="font-medium text-foreground">Calendar feed</span> (below) — brings in assignment titles and due dates
+              automatically. It doesn&apos;t carry grades.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Paste a syllabus or Canvas announcement</span> — open a class on{" "}
+              <span className="font-mono">School</span> and use its Syllabus/Announcement tools there.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Enter grades by hand</span> — open a class&apos;s Assessments tab and type
+              them in directly, same as any other edit.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Connect an AI agent</span> (ChatGPT, Claude, Gemini, Perplexity) — create a
+              personal access token in <a href="#connectors" className="underline underline-offset-2 hover:text-foreground">Connectors</a>{" "}
+              and have it import your Canvas data on a schedule. The import recipe is landing soon.
+            </li>
+          </ul>
+        </div>
+      ) : null}
+
+      {path === "token" && status.connected ? (
         <div className="flex flex-col gap-3 rounded-xl border border-border/40 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-sm font-medium">{status.instanceUrl}</span>
@@ -262,53 +316,8 @@ export function CanvasSettings({
             <p className="text-xs text-muted-foreground">No courses synced yet — click &quot;Sync courses&quot;.</p>
           )}
 
-          {!expired ? (
-            <div className="flex flex-col gap-2 border-t border-border/30 pt-3">
-              <span className="text-xs font-medium text-muted-foreground">Calendar feed reconciliation</span>
-              <p className="text-xs text-muted-foreground">
-                Optional: paste your Canvas calendar feed URL (Canvas &gt; Calendar &gt; &quot;Calendar Feed&quot;) to catch assignments the course
-                sync above might miss.
-              </p>
-              {status.icsFeedConnected ? (
-                <>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-mono text-xs text-muted-foreground">feed connected · ····{status.icsFeedLast4}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {status.lastIcsReconcileAt ? `Last reconciled ${formatSyncedAt(status.lastIcsReconcileAt)}` : "Never reconciled yet."}
-                  </p>
-                  <div>
-                    <Button size="sm" variant="outline" disabled={isPending} onClick={handleReconcileIcs}>
-                      Reconcile now
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="canvas-ics-url" className="sr-only">
-                    Canvas calendar feed URL
-                  </Label>
-                  <Input
-                    id="canvas-ics-url"
-                    type="password"
-                    placeholder="https://yourschool.instructure.com/feeds/calendars/user_....ics"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={icsFeedUrl}
-                    onChange={(e) => setIcsFeedUrl(e.target.value)}
-                    disabled={isPending || !storageConfigured}
-                  />
-                  <div>
-                    <Button size="sm" variant="outline" disabled={isPending || !storageConfigured || !icsFeedUrl.trim()} onClick={handleSaveIcsFeedUrl}>
-                      Save feed URL
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : null}
         </div>
-      ) : (
+      ) : path === "token" ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-4">
           <Label htmlFor="canvas-url" className="text-xs text-muted-foreground">
             Canvas instance URL
@@ -343,7 +352,57 @@ export function CanvasSettings({
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
+
+      {/* CANVAS-LITE-01: unconditional -- "available to every Canvas student
+          regardless of token policy" (this task's own Why). Previously
+          nested inside status.connected && !expired, which meant a
+          no-token student never saw it at all; the `expired` gate was also
+          unrelated (a stale TOKEN says nothing about an independent ICS
+          connection) and is dropped here rather than carried forward. */}
+      <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-4">
+        <span className="text-xs font-medium text-muted-foreground">Calendar feed</span>
+        <p className="text-xs text-muted-foreground">
+          Paste your Canvas calendar feed URL (Canvas &gt; Calendar &gt; &quot;Calendar Feed&quot;) to bring in assignment titles and due
+          dates — works whether or not your school allows access tokens. It doesn&apos;t carry grades.
+        </p>
+        {status.icsFeedConnected ? (
+          <>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="font-mono text-xs text-muted-foreground">feed connected · ····{status.icsFeedLast4}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {status.lastIcsReconcileAt ? `Last reconciled ${formatSyncedAt(status.lastIcsReconcileAt)}` : "Never reconciled yet."}
+            </p>
+            <div>
+              <Button size="sm" variant="outline" disabled={isPending} onClick={handleReconcileIcs}>
+                Reconcile now
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="canvas-ics-url" className="sr-only">
+              Canvas calendar feed URL
+            </Label>
+            <Input
+              id="canvas-ics-url"
+              type="password"
+              placeholder="https://yourschool.instructure.com/feeds/calendars/user_....ics"
+              autoComplete="off"
+              spellCheck={false}
+              value={icsFeedUrl}
+              onChange={(e) => setIcsFeedUrl(e.target.value)}
+              disabled={isPending || !storageConfigured}
+            />
+            <div>
+              <Button size="sm" variant="outline" disabled={isPending || !storageConfigured || !icsFeedUrl.trim()} onClick={handleSaveIcsFeedUrl}>
+                Save feed URL
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {message ? (
         <p className={`text-xs ${message.ok ? "text-muted-foreground" : "text-destructive"}`}>{message.text}</p>
