@@ -183,7 +183,10 @@ describe("CanvasSettings -- no-token paths (CANVAS-LITE-01)", () => {
     expect(screen.getByText(/Connect an AI agent/)).toBeInTheDocument();
   });
 
-  it("the agent-path copy links to Connectors and does NOT claim the import itself is available yet", async () => {
+  // CANVAS-LITE-02 shipped the agent-import recipe; CANVAS-LITE-03 made
+  // classes auto-create on import -- this copy now describes both as real,
+  // available capabilities rather than "landing soon."
+  it("the agent-path copy links to Connectors and describes the import as real, including auto-created classes", async () => {
     const user = userEvent.setup();
     render(<CanvasSettings initialStatus={DISCONNECTED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
 
@@ -191,7 +194,7 @@ describe("CanvasSettings -- no-token paths (CANVAS-LITE-01)", () => {
 
     const connectorsLink = screen.getByRole("link", { name: "Connectors" });
     expect(connectorsLink).toHaveAttribute("href", "#connectors");
-    expect(screen.getByText(/import recipe is landing soon/)).toBeInTheDocument();
+    expect(screen.getByText(/classes getting created automatically/)).toBeInTheDocument();
   });
 
   it("switching back to the token tab restores the connect form, and the calendar feed is still there", async () => {
@@ -208,5 +211,45 @@ describe("CanvasSettings -- no-token paths (CANVAS-LITE-01)", () => {
   it("neither tab label reads as a downgrade -- both are plain, factual, and neutrally worded", () => {
     render(<CanvasSettings initialStatus={DISCONNECTED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
     expect(screen.queryByText(/basic|limited|workaround|instead of/i)).not.toBeInTheDocument();
+  });
+});
+
+// CANVAS-LITE-03: "the mapping list is reachable without a token" -- a
+// course seen via agent import (CANVAS-LITE-02) or the ICS feed can be
+// mapped/unmapped the same way a token-synced one can. Previously this
+// list only rendered inside the token-connected branch, so a no-token
+// user could never see or unlink their own mappings.
+describe("CanvasSettings -- course mapping list is reachable regardless of token connection (CANVAS-LITE-03)", () => {
+  const MAPPING = { id: "map-1", canvasCourseId: "10", canvasCourseName: "Organic Chemistry II", canvasCourseCode: "CHEM-2412", classId: "class-1" };
+
+  it("shows the mapping list on the no-token tab even though Canvas was never token-connected", async () => {
+    const user = userEvent.setup();
+    render(<CanvasSettings initialStatus={DISCONNECTED} initialMappings={[MAPPING]} localClasses={[{ id: "class-1", label: "Chem II" }]} storageConfigured={true} />);
+
+    await user.click(screen.getByRole("button", { name: "My school doesn't" }));
+
+    expect(screen.getByText("Course mapping")).toBeInTheDocument();
+    expect(screen.getByText(/Organic Chemistry II/)).toBeInTheDocument();
+  });
+
+  it("shows the mapping list even when disconnected on the token tab (an agent-import-only account)", () => {
+    render(<CanvasSettings initialStatus={DISCONNECTED} initialMappings={[MAPPING]} localClasses={[{ id: "class-1", label: "Chem II" }]} storageConfigured={true} />);
+    expect(screen.getByText("Course mapping")).toBeInTheDocument();
+  });
+
+  it("renders nothing for the mapping section when there are no mappings yet -- no empty-state noise", () => {
+    render(<CanvasSettings initialStatus={DISCONNECTED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+    expect(screen.queryByText("Course mapping")).not.toBeInTheDocument();
+  });
+
+  it("choosing 'Not mapped' calls setCourseMapping with a null class id -- this is the unlink action", async () => {
+    const { setCourseMapping } = await import("@/app/(app)/settings/canvas-actions");
+    vi.mocked(setCourseMapping).mockResolvedValue({ ok: true, message: "Unlinked. Won't be re-imported automatically." });
+    const user = userEvent.setup();
+    render(<CanvasSettings initialStatus={DISCONNECTED} initialMappings={[MAPPING]} localClasses={[{ id: "class-1", label: "Chem II" }]} storageConfigured={true} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "");
+
+    await waitFor(() => expect(setCourseMapping).toHaveBeenCalledWith("map-1", null));
   });
 });

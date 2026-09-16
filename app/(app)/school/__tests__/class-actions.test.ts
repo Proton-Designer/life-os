@@ -113,6 +113,7 @@ describe("class-actions — thin wrappers over lib/school/actions-core.ts", () =
         chain.select = vi.fn(() => chain);
         chain.eq = vi.fn(() => chain);
         chain.delete = vi.fn(() => chain);
+        chain.update = vi.fn(() => chain);
         chain.single = vi.fn(async () => ({ data: { syllabus_path: opts.syllabusPath ?? null }, error: null }));
         chain.then = (resolve: (v: { error: null }) => void) => resolve({ error: null });
         return chain;

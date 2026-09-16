@@ -63,6 +63,10 @@ const supabase = {
         calls.push(`delete:${table}`);
         return makeFilterChain(`delete:${table}`);
       },
+      update: () => {
+        calls.push(`update:${table}`);
+        return makeFilterChain(`update:${table}`);
+      },
     };
   },
   storage: { from: () => ({ remove: storageRemoveMock, list: storageListMock }) },
@@ -87,6 +91,7 @@ describe("deleteClass", () => {
 
     expect(calls).toEqual([
       "select:classes",
+      "update:canvas_course_mappings",
       "delete:schedule_events",
       "delete:tasks",
       "delete:classes",
@@ -109,6 +114,26 @@ describe("deleteClass", () => {
 
   it("leaves the class row intact when deleting its tasks fails, so the delete can be retried", async () => {
     failOn = "delete:tasks";
+    const { deleteClass } = await import("../class-actions");
+
+    await expect(deleteClass("class-1")).rejects.toThrow(/boom/);
+    expect(calls).not.toContain("delete:classes");
+  });
+
+  // CANVAS-LITE-03: "removal sticks" -- a class that only exists because
+  // auto-import created it must not silently reappear on the next
+  // connect/sync. Stamped BEFORE the class row is gone (the FK's own SET
+  // NULL would otherwise lose which mapping row to mark).
+  it("stamps dismissed_at on the owning canvas_course_mappings row BEFORE deleting the class", async () => {
+    const { deleteClass } = await import("../class-actions");
+    await deleteClass("class-1");
+
+    expect(calls.indexOf("update:canvas_course_mappings")).toBeGreaterThan(calls.indexOf("select:classes"));
+    expect(calls.indexOf("update:canvas_course_mappings")).toBeLessThan(calls.indexOf("delete:classes"));
+  });
+
+  it("leaves the class row intact when stamping the mapping's dismissed_at fails", async () => {
+    failOn = "update:canvas_course_mappings";
     const { deleteClass } = await import("../class-actions");
 
     await expect(deleteClass("class-1")).rejects.toThrow(/boom/);

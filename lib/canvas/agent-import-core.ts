@@ -1,7 +1,9 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { localDateString } from "@/lib/date-utils";
-import { getMappedCourses, processCanvasAssignment, type CanvasAssignmentSyncState, type LocalAssessment } from "@/lib/canvas/sync-core";
+import { getMappedCourses, processCanvasAssignment, findUnambiguousClassMatch, type CanvasAssignmentSyncState, type LocalAssessment, type LocalClassRow } from "@/lib/canvas/sync-core";
+import { deriveClassCode } from "@/lib/canvas/course-auto-import-core";
+import { createClassCore } from "@/lib/school/actions-core";
 import { stageAnnouncementCore } from "@/lib/school/announcement-extraction-core";
 
 /**
@@ -78,40 +80,23 @@ export interface CanvasImportBatchResult {
   counts: { created: number; updated: number; skipped: number };
 }
 
-/** Case-insensitive, whitespace-collapsed -- same normalization posture as sync-core.ts's own `normalizeTitle`, reused here for course-name/code matching rather than re-deriving the rule. */
-function normalize(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-interface LocalClassRow {
-  id: string;
-  shortName: string | null;
-  code: string | null;
-}
-
 /**
- * Never auto-creates a `classes` row -- a class is something the user set
- * up (same posture as never auto-creating an assessment). Maps only when
- * the Canvas course's own name/code matches EXACTLY ONE of the user's
- * classes' short_name/code, case-insensitively; anything ambiguous or
- * absent is left unmapped for the user to resolve in Settings
- * (CANVAS-LITE-03's own scope).
+ * CANVAS-LITE-03 (supersedes the earlier "never auto-creates a class"
+ * design here): the user's own instruction applies to a course seen via
+ * agent import exactly as it does to a token-connected one -- adopt an
+ * unambiguous hand-made match (`findUnambiguousClassMatch`, shared with
+ * lib/canvas/course-auto-import-core.ts's own connect/sync path), else
+ * create a class rather than leaving the user to hand-create it first.
+ * Assessments stay never-auto-created; classes are the deliberate
+ * exception (the AC's own contrast). A DISMISSED mapping (the user
+ * deleted/unlinked a class this import path created before) is never
+ * re-linked or re-created automatically -- removal sticks -- though its
+ * cached name/code still refreshes, same as an already-linked mapping.
  */
-function findUnambiguousClassMatch(classes: LocalClassRow[], courseName: string, courseCode: string | null): LocalClassRow | null {
-  const candidates = [normalize(courseName), ...(courseCode ? [normalize(courseCode)] : [])];
-  const matches = classes.filter((c) => {
-    const fields = [c.shortName ? normalize(c.shortName) : null, c.code ? normalize(c.code) : null].filter((f): f is string => f !== null);
-    return fields.some((f) => candidates.includes(f));
-  });
-  const uniqueIds = new Set(matches.map((c) => c.id));
-  if (uniqueIds.size !== 1) return null;
-  return matches[0]!;
-}
-
 async function processCourseItem(supabase: SupabaseClient, userId: string, item: CanvasImportCourseItem, localClasses: LocalClassRow[]): Promise<CanvasImportItemResult> {
   const { data: existing, error: existingError } = await supabase
     .from("canvas_course_mappings")
-    .select("class_id")
+    .select("class_id, dismissed_at")
     .eq("user_id", userId)
     .eq("canvas_course_id", item.canvasCourseId)
     .maybeSingle();
@@ -122,7 +107,7 @@ async function processCourseItem(supabase: SupabaseClient, userId: string, item:
   // reasoning as refreshCanvasCourses' own upsert (app/(app)/settings/
   // canvas-actions.ts): PostgREST only touches columns present in the
   // body, so refreshing name/code can never silently null out a mapping
-  // the user (or a prior auto-map below) already made.
+  // the user (or a prior resolution below) already made.
   const upsertPayload: Record<string, unknown> = {
     user_id: userId,
     canvas_course_id: item.canvasCourseId,
@@ -131,31 +116,39 @@ async function processCourseItem(supabase: SupabaseClient, userId: string, item:
     updated_at: now,
   };
 
-  let autoMappedClassId: string | null = null;
-  if (!existing?.class_id) {
+  let resolvedClassId: string | null = null;
+  let via: "matched" | "created" | null = null;
+  if (!existing?.class_id && !existing?.dismissed_at) {
     const match = findUnambiguousClassMatch(localClasses, item.canvasCourseName, item.canvasCourseCode);
     if (match) {
-      upsertPayload.class_id = match.id;
-      autoMappedClassId = match.id;
+      resolvedClassId = match.id;
+      via = "matched";
+    } else {
+      resolvedClassId = await createClassCore(supabase, userId, { shortName: item.canvasCourseName, code: item.canvasCourseCode ?? deriveClassCode(item.canvasCourseName) });
+      via = "created";
     }
+    upsertPayload.class_id = resolvedClassId;
   }
 
   const { error } = await supabase.from("canvas_course_mappings").upsert(upsertPayload, { onConflict: "user_id,canvas_course_id" });
   if (error) throw error;
 
+  if (existing?.dismissed_at) {
+    return { kind: "course", ref: item.canvasCourseId, outcome: "updated", reason: "refreshed name/code (previously removed by the user, not re-linked)" };
+  }
   if (!existing) {
     return {
       kind: "course",
       ref: item.canvasCourseId,
       outcome: "created",
-      reason: autoMappedClassId ? `new mapping, auto-mapped to local class ${autoMappedClassId}` : "new mapping, not yet mapped to a local class",
+      reason: via === "matched" ? `new mapping, adopted existing local class ${resolvedClassId}` : `new mapping, created local class ${resolvedClassId}`,
     };
   }
   return {
     kind: "course",
     ref: item.canvasCourseId,
     outcome: "updated",
-    reason: autoMappedClassId ? `auto-mapped to local class ${autoMappedClassId}` : "refreshed name/code",
+    reason: via ? `${via === "matched" ? "adopted existing local class" : "created local class"} ${resolvedClassId}` : "refreshed name/code",
   };
 }
 

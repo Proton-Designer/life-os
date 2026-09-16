@@ -232,7 +232,8 @@ export function CanvasSettings({
             <li>
               <span className="font-medium text-foreground">Connect an AI agent</span> (ChatGPT, Claude, Gemini, Perplexity) — create a
               personal access token in <a href="#connectors" className="underline underline-offset-2 hover:text-foreground">Connectors</a>{" "}
-              and have it import your Canvas data on a schedule. The import recipe is landing soon.
+              and have it import your Canvas data on a schedule. Courses, grades, and announcements it imports show up below, the same as a
+              token sync — including your classes getting created automatically.
             </li>
           </ul>
         </div>
@@ -284,38 +285,6 @@ export function CanvasSettings({
             </div>
           )}
 
-          {mappings.length > 0 ? (
-            <div className="flex flex-col gap-2 pt-2">
-              <span className="text-xs font-medium text-muted-foreground">Course mapping</span>
-              {mappings.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/30 p-2"
-                >
-                  <span className="text-sm">
-                    {m.canvasCourseName}
-                    {m.canvasCourseCode ? ` (${m.canvasCourseCode})` : ""}
-                  </span>
-                  <select
-                    className="rounded-md border border-border/40 bg-background px-2 py-1 text-xs"
-                    value={m.classId ?? ""}
-                    disabled={isPending}
-                    onChange={(e) => handleMappingChange(m.id, e.target.value)}
-                  >
-                    <option value="">Not mapped</option>
-                    {localClasses.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No courses synced yet — click &quot;Sync courses&quot;.</p>
-          )}
-
         </div>
       ) : path === "token" ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-4">
@@ -351,6 +320,43 @@ export function CanvasSettings({
               {isPending ? "Connecting…" : "Connect"}
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {/* CANVAS-LITE-03: unconditional, same reasoning as the Calendar feed
+          block below (CANVAS-LITE-01) -- a course seen via agent import
+          (CANVAS-LITE-02) or the ICS feed can be mapped/edited/unmapped
+          the same way a token-synced one can, so this can't live inside
+          the token-connected branch only. Previously nested inside
+          `path === "token" && status.connected`, which meant a no-token
+          user never saw their own mappings at all. "Not mapped" in the
+          dropdown now ALSO stamps dismissed_at (setCourseMapping's own
+          header) -- an explicit unlink here is how "removal sticks" for a
+          class the user doesn't want auto-imported again. */}
+      {mappings.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-4">
+          <span className="text-xs font-medium text-muted-foreground">Course mapping</span>
+          {mappings.map((m) => (
+            <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/30 p-2">
+              <span className="text-sm">
+                {m.canvasCourseName}
+                {m.canvasCourseCode ? ` (${m.canvasCourseCode})` : ""}
+              </span>
+              <select
+                className="rounded-md border border-border/40 bg-background px-2 py-1 text-xs"
+                value={m.classId ?? ""}
+                disabled={isPending}
+                onChange={(e) => handleMappingChange(m.id, e.target.value)}
+              >
+                <option value="">Not mapped</option>
+                {localClasses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
         </div>
       ) : null}
 

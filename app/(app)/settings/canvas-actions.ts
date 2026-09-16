@@ -6,6 +6,7 @@ import { encryptSecret, decryptSecret, isKeyStorageConfigured, last4 } from "@/l
 import { verifyCanvasToken, fetchCanvasCourses, fetchCanvasIcsFeed } from "@/lib/canvas/client";
 import { resolveCanvasConnectionCore, recordCanvasSyncOutcomeCore } from "@/lib/canvas/connection-core";
 import { reconcileCanvasIcsCore, type IcsReconcileResult } from "@/lib/canvas/ics-reconcile-core";
+import { autoImportCanvasCoursesAsClassesCore, type AutoImportCoursesResult } from "@/lib/canvas/course-auto-import-core";
 import { checkUrlSyntax, resolveSafeOutboundUrl, safeOrigin } from "@/lib/net/safe-outbound-url";
 import { getProfile } from "@/lib/supabase/auth";
 import { icsFeedDisplaySource } from "@/lib/canvas/ics-feed-display";
@@ -85,6 +86,20 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
 }
 
 /**
+ * CANVAS-LITE-03: "the user sees what happened... not a silent mutation of
+ * their data." Empty string (never a trailing " ()") when there is
+ * nothing to report -- e.g. every course was already linked, or there
+ * were no active courses at all.
+ */
+function formatImportSummary(result: AutoImportCoursesResult): string {
+  const parts: string[] = [];
+  if (result.created > 0) parts.push(`${result.created} class${result.created === 1 ? "" : "es"} added`);
+  if (result.adopted > 0) parts.push(`${result.adopted} matched to an existing class`);
+  if (result.skippedDismissed > 0) parts.push(`${result.skippedDismissed} previously removed, left alone`);
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
+/**
  * Verifies against Canvas BEFORE storing — same order as saveApiKey
  * (api-key-actions.ts): a mistyped token or URL must surface here, once, at
  * connect time, not as a silent "sync found nothing" later.
@@ -136,9 +151,27 @@ export async function connectCanvas(instanceUrl: string, rawToken: string): Prom
   );
   if (error) return { ok: false, message: "Couldn't save that connection. Try again." };
 
+  // CANVAS-LITE-03: "connecting Canvas must populate School by itself" --
+  // a single step, not connect-then-remember-to-click-Sync. A failure
+  // here is NOT a connection failure (the token itself is good and
+  // already saved) -- the user can always import via "Sync courses"
+  // afterward, so this degrades to an honest note, never a false "ok: false".
+  let importNote = " Couldn't import your courses yet -- try \"Sync courses\" below.";
+  try {
+    const coursesRes = await fetchCanvasCourses(url, token);
+    if (coursesRes.ok) {
+      const importResult = await autoImportCanvasCoursesAsClassesCore(supabase, userId, coursesRes.data);
+      importNote = formatImportSummary(importResult);
+    }
+  } catch {
+    // Same fallback message as coursesRes.ok === false above -- an
+    // unexpected throw here is still just "the import step didn't work
+    // this time," not evidence the connection itself is bad.
+  }
+
   revalidatePath("/settings");
   revalidatePath("/school");
-  return { ok: true, message: `Connected as ${check.data.name}.` };
+  return { ok: true, message: `Connected as ${check.data.name}.${importNote}` };
 }
 
 export async function disconnectCanvas(): Promise<CanvasActionResult> {
@@ -226,18 +259,16 @@ export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
     return { ok: false, message: res.message };
   }
 
-  const { error } = await supabase.from("canvas_course_mappings").upsert(
-    res.data.map((c) => ({
-      user_id: userId,
-      canvas_course_id: c.canvasCourseId,
-      canvas_course_name: c.name,
-      canvas_course_code: c.courseCode,
-      updated_at: new Date().toISOString(),
-    })),
-    { onConflict: "user_id,canvas_course_id" },
-  );
+  // CANVAS-LITE-03: this upsert USED TO just refresh name/code with
+  // class_id deliberately absent, leaving the user to hand-map every
+  // course. autoImportCanvasCoursesAsClassesCore does that same upsert
+  // PLUS the adopt-or-create resolution -- one call, not two, so this
+  // path and connectCanvas's own first-import step can never drift.
   const now = new Date().toISOString();
-  if (error) {
+  let importResult: AutoImportCoursesResult;
+  try {
+    importResult = await autoImportCanvasCoursesAsClassesCore(supabase, userId, res.data);
+  } catch {
     await supabase
       .from("canvas_connections")
       .update({ last_sync_error: "Fetched courses but couldn't save them.", updated_at: now })
@@ -252,10 +283,11 @@ export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
     .eq("user_id", userId);
 
   revalidatePath("/settings");
+  revalidatePath("/school");
   const message =
     res.data.length === 0
       ? "No active courses found on Canvas."
-      : `Synced ${res.data.length} course${res.data.length === 1 ? "" : "s"}.`;
+      : `Synced ${res.data.length} course${res.data.length === 1 ? "" : "s"}.${formatImportSummary(importResult)}`;
   return { ok: true, message };
 }
 
@@ -286,17 +318,26 @@ export async function getLocalClassOptions(): Promise<LocalClassOption[]> {
   return (data ?? []).map((c) => ({ id: c.id, label: c.short_name ?? c.code }));
 }
 
+/**
+ * CANVAS-LITE-03: an explicit unlink (`classId === null`) stamps
+ * `dismissed_at` so a future auto-import pass never re-links or
+ * re-creates a class for this Canvas course on its own -- "removal
+ * sticks." Choosing a REAL class (including re-choosing one after an
+ * unlink) is a deliberate act by the user, so it clears `dismissed_at` --
+ * the user is actively mapping this course again, not something
+ * auto-import should keep hands off of.
+ */
 export async function setCourseMapping(mappingId: string, classId: string | null): Promise<CanvasActionResult> {
   const { supabase, userId } = await requireUser();
   const { error } = await supabase
     .from("canvas_course_mappings")
-    .update({ class_id: classId, updated_at: new Date().toISOString() })
+    .update({ class_id: classId, dismissed_at: classId === null ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
     .eq("id", mappingId)
     .eq("user_id", userId);
   if (error) return { ok: false, message: "Couldn't update that mapping. Try again." };
   revalidatePath("/settings");
   revalidatePath("/school");
-  return { ok: true, message: "Mapping updated." };
+  return { ok: true, message: classId === null ? "Unlinked. Won't be re-imported automatically." : "Mapping updated." };
 }
 
 /**

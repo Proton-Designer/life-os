@@ -45,7 +45,7 @@ function makeClient(opts: { arraySeq?: Record<string, Resp[]>; maybeSingleSeq?: 
         calls.push({ table, method, args });
         return chain;
       };
-    for (const method of ["select", "eq", "in", "not", "update", "insert"]) chain[method] = vi.fn(record(method));
+    for (const method of ["select", "eq", "in", "not", "update", "insert", "order", "limit"]) chain[method] = vi.fn(record(method));
     chain.maybeSingle = vi.fn(async () => ({ data: (maybeSingleSeq[table] ?? []).shift() ?? null, error: null }));
     chain.single = vi.fn(async () => ({ data: (singleSeq[table] ?? []).shift() ?? { id: `${table}-new-id` }, error: null }));
     chain.then = (res: (v: Resp) => void) => res((arraySeq[table] ?? []).shift() ?? { data: [], error: null });
@@ -73,7 +73,10 @@ beforeEach(() => {
 });
 
 describe("runCanvasImportBatchCore — course items", () => {
-  it("a brand-new canvas_course_id is created, unmapped, when no local class matches", async () => {
+  // CANVAS-LITE-03 (supersedes CANVAS-LITE-02's own "never auto-creates a
+  // class" design for course items specifically): a brand-new course with
+  // no local match now gets a real class created, not left unmapped.
+  it("a brand-new canvas_course_id with no local match gets a new class CREATED, not left unmapped", async () => {
     const { client, calls } = makeClient({
       maybeSingleSeq: { canvas_course_mappings: [null] },
       arraySeq: { classes: [{ data: [{ id: "class-1", short_name: "Nothing Close", code: null }], error: null }] },
@@ -81,14 +84,27 @@ describe("runCanvasImportBatchCore — course items", () => {
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [{ kind: "course", canvasCourseId: "10", canvasCourseName: "Intro to Bio", canvasCourseCode: "BIO101" }]);
 
-    expect(batch.results).toEqual([{ kind: "course", ref: "10", outcome: "created", reason: "new mapping, not yet mapped to a local class" }]);
+    expect(batch.results).toEqual([{ kind: "course", ref: "10", outcome: "created", reason: "new mapping, created local class classes-new-id" }]);
     expect(batch.counts).toEqual({ created: 1, updated: 0, skipped: 0 });
-    const upsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
-    expect(upsert.args[0]).toMatchObject({ user_id: "user-1", canvas_course_id: "10", canvas_course_name: "Intro to Bio", canvas_course_code: "BIO101" });
-    expect(upsert.args[0]).not.toHaveProperty("class_id");
+    const classInsert = calls.find((c) => c.table === "classes" && c.method === "insert")!;
+    expect(classInsert.args[0]).toMatchObject({ user_id: "user-1", short_name: "Intro to Bio", code: "BIO101" });
+    const mappingUpsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
+    expect(mappingUpsert.args[0]).toMatchObject({ user_id: "user-1", canvas_course_id: "10", canvas_course_name: "Intro to Bio", canvas_course_code: "BIO101", class_id: "classes-new-id" });
   });
 
-  it("auto-maps to the single class whose short_name matches the Canvas course name, case-insensitively", async () => {
+  it("derives a code from the course name (initials) when Canvas sends no course_code", async () => {
+    const { client, calls } = makeClient({
+      maybeSingleSeq: { canvas_course_mappings: [null] },
+      arraySeq: { classes: [{ data: [], error: null }] },
+    });
+
+    await runCanvasImportBatchCore(client, "user-1", tz, now, [{ kind: "course", canvasCourseId: "10", canvasCourseName: "Organic Chemistry II", canvasCourseCode: null }]);
+
+    const classInsert = calls.find((c) => c.table === "classes" && c.method === "insert")!;
+    expect(classInsert.args[0]).toMatchObject({ code: "OCI" });
+  });
+
+  it("adopts (never duplicates) the single class whose short_name matches the Canvas course name, case-insensitively", async () => {
     const { client, calls } = makeClient({
       maybeSingleSeq: { canvas_course_mappings: [null] },
       arraySeq: { classes: [{ data: [{ id: "class-9", short_name: "intro to bio", code: null }], error: null }] },
@@ -96,12 +112,13 @@ describe("runCanvasImportBatchCore — course items", () => {
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [{ kind: "course", canvasCourseId: "10", canvasCourseName: "Intro to Bio", canvasCourseCode: null }]);
 
-    expect(batch.results[0]).toMatchObject({ outcome: "created", reason: "new mapping, auto-mapped to local class class-9" });
+    expect(batch.results[0]).toMatchObject({ outcome: "created", reason: "new mapping, adopted existing local class class-9" });
+    expect(calls.some((c) => c.table === "classes" && c.method === "insert")).toBe(false); // adopted, never created
     const upsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
     expect((upsert.args[0] as Record<string, unknown>).class_id).toBe("class-9");
   });
 
-  it("does NOT auto-map when two local classes both match -- ambiguous, stays unmapped", async () => {
+  it("creates a new class (never guesses) when two local classes are ambiguously matching", async () => {
     const { client, calls } = makeClient({
       maybeSingleSeq: { canvas_course_mappings: [null] },
       arraySeq: {
@@ -119,12 +136,12 @@ describe("runCanvasImportBatchCore — course items", () => {
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [{ kind: "course", canvasCourseId: "10", canvasCourseName: "Bio", canvasCourseCode: "BIO" }]);
 
-    expect(batch.results[0]).toMatchObject({ outcome: "created", reason: "new mapping, not yet mapped to a local class" });
+    expect(batch.results[0]).toMatchObject({ outcome: "created", reason: "new mapping, created local class classes-new-id" });
     const upsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
-    expect(upsert.args[0]).not.toHaveProperty("class_id");
+    expect((upsert.args[0] as Record<string, unknown>).class_id).toBe("classes-new-id");
   });
 
-  it("never re-attempts auto-map (or touches class_id at all) once a mapping already has one", async () => {
+  it("never re-resolves (or touches class_id at all) once a mapping already has one", async () => {
     const { client, calls } = makeClient({
       maybeSingleSeq: { canvas_course_mappings: [{ class_id: "class-1" }] },
     });
@@ -132,6 +149,22 @@ describe("runCanvasImportBatchCore — course items", () => {
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [{ kind: "course", canvasCourseId: "10", canvasCourseName: "Intro to Bio", canvasCourseCode: null }]);
 
     expect(batch.results[0]).toEqual({ kind: "course", ref: "10", outcome: "updated", reason: "refreshed name/code" });
+    const upsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
+    expect(upsert.args[0]).not.toHaveProperty("class_id");
+  });
+
+  // CANVAS-LITE-03: removal sticks -- a dismissed mapping (the user
+  // deleted/unlinked a class this import path created before) is never
+  // re-linked or re-created automatically, though its Canvas name/code
+  // cache still refreshes (same as an already-linked mapping).
+  it("a DISMISSED mapping never gets auto-linked or auto-created again -- removal sticks", async () => {
+    const { client, calls } = makeClient({
+      maybeSingleSeq: { canvas_course_mappings: [{ class_id: null, dismissed_at: "2026-09-16T00:00:00.000Z" }] },
+    });
+
+    const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [{ kind: "course", canvasCourseId: "10", canvasCourseName: "Intro to Bio", canvasCourseCode: "BIO101" }]);
+
+    expect(batch.results[0]).toEqual({ kind: "course", ref: "10", outcome: "updated", reason: "refreshed name/code (previously removed by the user, not re-linked)" });
     const upsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
     expect(upsert.args[0]).not.toHaveProperty("class_id");
   });

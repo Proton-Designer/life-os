@@ -367,6 +367,19 @@ export async function deleteClass(classId: string) {
     .single();
   if (fetchError) throw fetchError;
 
+  // CANVAS-LITE-03: stamp dismissed_at BEFORE the class itself is gone --
+  // the FK's own ON DELETE SET NULL (migration 210) nulls class_id the
+  // moment the class row disappears, which would lose which mapping row
+  // to mark. "Removal sticks": a class that only existed because
+  // auto-import created it must not reappear on the next connect/sync.
+  // A no-op update (0 rows) when this class was never Canvas-linked.
+  const { error: mappingDismissError } = await supabase
+    .from("canvas_course_mappings")
+    .update({ dismissed_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("class_id", classId);
+  if (mappingDismissError) throw mappingDismissError;
+
   const { error: eventsError } = await supabase
     .from("schedule_events")
     .delete()
