@@ -26,7 +26,16 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        "inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground",
+        // w-fit sizes this list to its own content, opting it out of ever
+        // shrinking to its parent's width -- with enough triggers (or long
+        // enough labels), that pushes the whole page wider than the
+        // viewport instead of scrolling internally (E2E-01, /settings
+        // overflowed at 320px on every phone-width screen). w-full lets it
+        // take its parent's actual width instead; overflow-x-auto is the
+        // fallback if the triggers' own whitespace-nowrap content still
+        // doesn't fit even then, so the scrollbar shows up here, not on
+        // the document.
+        "inline-flex h-9 w-full items-center justify-center overflow-x-auto rounded-lg bg-muted p-[3px] text-muted-foreground",
         className
       )}
       {...props}

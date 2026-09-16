@@ -36,10 +36,16 @@ test("generates a one-click connect link with the caller's own chosen scope, no 
   await checkReliably(connectors.getByRole("checkbox", { name: /Write/ }));
   await connectors.getByRole("button", { name: "Generate connect link" }).click();
 
-  await expect(connectors.getByText(/\/connect\//)).toBeVisible();
+  // Scoped to the <code> element specifically, not a bare getByText(/\/connect\//)
+  // -- the "Suggested message" paragraph right below it (components/settings/
+  // connector-settings.tsx) also embeds the same connect URL inline in its own
+  // sentence, so an unscoped text match resolves to both and is a strict-mode
+  // violation (E2E-01).
+  const connectLinkCode = connectors.locator("code", { hasText: "/connect/" });
+  await expect(connectLinkCode).toBeVisible();
   await expect(connectors.getByText(/single use, expires in 10 minutes/i)).toBeVisible();
 
-  const linkText = await connectors.locator("code", { hasText: "/connect/" }).innerText();
+  const linkText = await connectLinkCode.innerText();
   expect(linkText, "the connect URL is absolute (real origin), not a bare path").toMatch(/^https?:\/\/.+\/connect\/[A-Za-z0-9_-]+$/);
 
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({

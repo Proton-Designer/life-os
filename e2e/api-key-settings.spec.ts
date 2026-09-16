@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 import { settleRoute, fillReliably } from "./helpers";
 
 /**
@@ -52,6 +52,22 @@ async function openSettings(page: Page) {
   return section;
 }
 
+// UX-04: every provider panel now starts COLLAPSED unless a key is already
+// stored (Collapsible defaultOpen={!!stored}, components/settings/
+// api-key-settings.tsx) -- a fresh account has none stored, so nothing is
+// expanded on load and a provider's own fields (its password input) don't
+// exist in an interactable state until its own CollapsibleTrigger
+// (aria-label={p.label}) is clicked. Radix sets `hidden` on the closed
+// CollapsibleContent (confirmed in @radix-ui/react-collapsible's own
+// source, not assumed -- same reasoning e2e/settings-connector-
+// overflow.spec.ts documents for the connector token list).
+async function expandProvider(section: Locator, label: string) {
+  const trigger = section.getByRole("button", { name: label, exact: true });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+}
+
 test.describe("API key settings", () => {
   test("reads as optional, and never shows a stored key", async ({ page }) => {
     const section = await openSettings(page);
@@ -63,7 +79,10 @@ test.describe("API key settings", () => {
     expect(text).not.toMatch(/upgrade|unlock premium|pro plan|subscribe/i);
 
     // The input must be a password field — a key pasted in a plain text box
-    // sits visible in screen shares and screenshots.
+    // sits visible in screen shares and screenshots. UX-04 collapsed every
+    // unconnected provider by default, so one has to be expanded before its
+    // input exists in an interactable state.
+    await expandProvider(section, "DeepSeek");
     const input = section.locator('input[type="password"]');
     await expect(input.first()).toBeVisible();
 
@@ -73,6 +92,11 @@ test.describe("API key settings", () => {
 
   test("a bogus key is rejected BY THE PROVIDER, not just by shape", async ({ page }) => {
     const section = await openSettings(page);
+
+    // UX-04: DeepSeek's panel starts collapsed (unconnected by default),
+    // so its own fields don't exist in an interactable state until this
+    // click reveals them.
+    await expandProvider(section, "DeepSeek");
 
     // REGRESSION (found 2026-09-15, full-suite triage against ad2da1d):
     // multi-provider (Phase 1, 2026-09-14, lib/ai/providers.ts's PROVIDERS
