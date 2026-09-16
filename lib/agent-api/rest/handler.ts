@@ -189,7 +189,19 @@ function discoveryBody(url: URL) {
       query_string_tokens: "rejected (400)",
       cookies: "ignored",
     },
-    links: { self: base, me: `${base}/me`, capabilities: `${base}/capabilities`, actions: `${base}/actions`, mcp: `${url.origin}/api/mcp` },
+    links: {
+      self: base,
+      me: `${base}/me`,
+      capabilities: `${base}/capabilities`,
+      actions: `${base}/actions`,
+      mcp: `${url.origin}/api/mcp`,
+      // P4-20: account_agent_md needs a bearer token (the same one this
+      // response is already authenticated by); agent_md/llms_txt are the
+      // unauthenticated, zero-account-data version, reachable by anyone.
+      account_agent_md: `${base}/agent.md`,
+      agent_md: `${url.origin}/agent.md`,
+      llms_txt: `${url.origin}/llms.txt`,
+    },
     routes: [
       "GET  /me",
       "GET  /capabilities[?domain=]",
