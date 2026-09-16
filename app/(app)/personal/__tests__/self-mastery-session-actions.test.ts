@@ -373,6 +373,7 @@ describe("Self-Mastery session actions", () => {
         profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
         card_states: makeChain({ data: null, error: null, count: 5 }),
         reviews: makeChain({ data: [], error: null }),
+        work_sessions: makeChain({ data: { study_methods: ["retrieval"] }, error: null }),
       };
       fromImpl = (table) => tables[table];
       rpcMock.mockImplementationOnce(async () => ({
@@ -386,6 +387,46 @@ describe("Self-Mastery session actions", () => {
       expect(rpcMock).toHaveBeenCalledWith("complete_session", { p_session_id: "sess-1", p_book_strengths: {} });
       expect(result.dueTomorrow).toBe(5);
       expect(result.currentStreak).toBe(2);
+    });
+
+    // P3-03: study_methods is fetched alongside dueTomorrow/complete_session,
+    // read-only, never fabricated beyond what work_sessions actually has.
+    it("P3-03: passes through work_sessions.study_methods as studyMethods, unmodified", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        card_states: makeChain({ data: null, error: null, count: 0 }),
+        reviews: makeChain({ data: [], error: null }),
+        work_sessions: makeChain({ data: { study_methods: ["retrieval", "interleave"] }, error: null }),
+      };
+      fromImpl = (table) => tables[table];
+      rpcMock.mockImplementationOnce(async () => ({
+        data: { current_streak: 1, longest_streak: 1, freezes_available: 2, total_reviews: 1, total_sessions: 1 },
+        error: null,
+      }));
+      const { finishSession } = await import("../self-mastery-session-actions");
+
+      const result = await finishSession("sess-1");
+
+      expect(result.studyMethods).toEqual(["retrieval", "interleave"]);
+    });
+
+    it("P3-03: an empty study_methods array surfaces as empty, not fabricated", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        profiles: makeChain({ data: { timezone: "America/Chicago" }, error: null }),
+        card_states: makeChain({ data: null, error: null, count: 0 }),
+        reviews: makeChain({ data: [], error: null }),
+        work_sessions: makeChain({ data: { study_methods: [] }, error: null }),
+      };
+      fromImpl = (table) => tables[table];
+      rpcMock.mockImplementationOnce(async () => ({
+        data: { current_streak: 1, longest_streak: 1, freezes_available: 2, total_reviews: 1, total_sessions: 1 },
+        error: null,
+      }));
+      const { finishSession } = await import("../self-mastery-session-actions");
+
+      const result = await finishSession("sess-1");
+
+      expect(result.studyMethods).toEqual([]);
     });
 
     it("P2-17: computes real per-book retrievability for a book this session touched and passes it as p_book_strengths", async () => {
@@ -411,6 +452,7 @@ describe("Self-Mastery session actions", () => {
         }),
         reviews: makeChain({ data: [{ book_id: "book-1" }], error: null }),
         cards: makeChain({ data: [{ id: "card-1", book_id: "book-1" }], error: null }),
+        work_sessions: makeChain({ data: { study_methods: ["retrieval"] }, error: null }),
       };
       fromImpl = (table) => tables[table];
       rpcMock.mockImplementationOnce(async () => ({

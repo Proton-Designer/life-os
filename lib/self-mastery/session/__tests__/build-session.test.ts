@@ -25,7 +25,7 @@ import type { QueueEntry } from "../types";
 
 function makeChain(resolvedValue: { data: unknown; error: null } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "neq", "lte", "in", "single", "insert"]) {
+  for (const method of ["select", "eq", "neq", "lte", "in", "single", "insert", "update"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
@@ -37,6 +37,7 @@ function makeChain(resolvedValue: { data: unknown; error: null } = { data: null,
     in: ReturnType<typeof vi.fn>;
     single: ReturnType<typeof vi.fn>;
     insert: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -346,6 +347,179 @@ describe("submitSelfExplanation", () => {
 
     expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
     expect(result).toEqual({ id: "se-2", createdAt: "2026-09-08T12:00:00Z" });
+  });
+
+  // P3-03: "draft" is one of the six named study-method-modes taxonomy ids
+  // (lib/self-mastery/study-methods.ts) -- recorded on work_sessions.study_methods
+  // only for a real, non-skipped, session-attached submission.
+  it("records 'draft' in work_sessions.study_methods on a real, session-attached submission", async () => {
+    const seChain = makeChain({ data: { id: "se-3", created_at: "2026-09-08T12:00:00Z" }, error: null });
+    const wsChain = makeChain({ data: { study_methods: ["retrieval"] }, error: null });
+    const client = {
+      from: vi.fn((table: string) => (table === "work_sessions" ? wsChain : seChain)),
+    } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitSelfExplanation(client, {
+      userId: "user-1",
+      lessonId: "lesson-1",
+      sessionId: "sess-1",
+      prompt: "Put this in your own words",
+      response: "A real explanation",
+    });
+
+    expect(wsChain.update).toHaveBeenCalledWith({ study_methods: ["retrieval", "draft"] });
+  });
+
+  it("does NOT record 'draft' on a skip (response: null), even with a session attached -- a skip is not a draft", async () => {
+    const seChain = makeChain({ data: { id: "se-4", created_at: "2026-09-08T12:00:00Z" }, error: null });
+    const wsChain = makeChain({ data: { study_methods: [] }, error: null });
+    const client = {
+      from: vi.fn((table: string) => (table === "work_sessions" ? wsChain : seChain)),
+    } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitSelfExplanation(client, {
+      userId: "user-1",
+      lessonId: "lesson-1",
+      sessionId: "sess-1",
+      prompt: "Put this in your own words",
+      response: null,
+    });
+
+    expect(wsChain.update).not.toHaveBeenCalled();
+  });
+
+  it("does NOT re-write study_methods when 'draft' is already recorded -- union, not append", async () => {
+    const seChain = makeChain({ data: { id: "se-5", created_at: "2026-09-08T12:00:00Z" }, error: null });
+    const wsChain = makeChain({ data: { study_methods: ["retrieval", "draft"] }, error: null });
+    const client = {
+      from: vi.fn((table: string) => (table === "work_sessions" ? wsChain : seChain)),
+    } as unknown as Parameters<typeof hydrateQueueCards>[0];
+
+    await submitSelfExplanation(client, {
+      userId: "user-1",
+      lessonId: "lesson-1",
+      sessionId: "sess-1",
+      prompt: "Put this in your own words",
+      response: "Another real explanation",
+    });
+
+    expect(wsChain.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("P3-03: buildTodaysSession records which study methods it actually used", () => {
+  /**
+   * A full buildTodaysSession-compatible client whose get_session_queue RPC
+   * returns real, caller-supplied entries (every prior buildTodaysSession
+   * fixture in this file used an empty queue, which never exercises the new
+   * recordStudyMethods call at all -- these are the first that do).
+   */
+  function makeClient(opts: {
+    entries: { cardId: string | null; questionId: string | null; bookId: string | null; queuePosition: number; reason: "due" | "new" | "warm_up" }[];
+    cardsRows: { id: string; lesson_id: string; prompt_type: string; prompt: string }[];
+    questionsRows?: { id: string; class_id: string; prompt: string }[];
+  }) {
+    const studyMethodsUpdates: { study_methods: string[] }[] = [];
+    const makeTableChain = (table: string) => {
+      const target: Record<string, unknown> = {
+        single: async () => {
+          if (table === "user_settings") {
+            return { data: { session_target_minutes: 10, daily_new_limit: 10_000, ai_grading_enabled: false, desired_retention: 0.9 }, error: null };
+          }
+          if (table === "work_sessions") {
+            return { data: { study_methods: [] }, error: null };
+          }
+          return { data: null, error: null };
+        },
+        then: (res: (v: { data: unknown[]; count: number; error: null }) => unknown) => {
+          if (table === "cards") return Promise.resolve(res({ data: opts.cardsRows, count: opts.cardsRows.length, error: null }));
+          if (table === "questions") return Promise.resolve(res({ data: opts.questionsRows ?? [], count: (opts.questionsRows ?? []).length, error: null }));
+          return Promise.resolve(res({ data: [], count: 0, error: null }));
+        },
+        update: (payload: { study_methods: string[] }) => {
+          if (table === "work_sessions") studyMethodsUpdates.push(payload);
+          return proxy;
+        },
+      };
+      const proxy: unknown = new Proxy(target, {
+        get(t, prop) {
+          if (prop in t) return (t as Record<string | symbol, unknown>)[prop];
+          return () => proxy;
+        },
+      });
+      return proxy;
+    };
+
+    const client = {
+      from: vi.fn((table: string) => makeTableChain(table)),
+      rpc: vi.fn(async (fn: string) => {
+        if (fn === "start_session") {
+          return {
+            data: { id: "s1", user_id: "u1", local_date: "2026-09-14", started_at: "2026-09-14T00:00:00Z", ended_at: null, cards_reviewed: 0, new_cards_introduced: 0 },
+            error: null,
+          };
+        }
+        if (fn === "get_session_queue") {
+          return {
+            data: opts.entries.map((e) => ({ card_id: e.cardId, question_id: e.questionId, book_id: e.bookId, queue_position: e.queuePosition, reason: e.reason })),
+            error: null,
+          };
+        }
+        return { data: [], error: null };
+      }),
+    } as unknown as Parameters<typeof buildTodaysSession>[0];
+
+    return { client, studyMethodsUpdates };
+  }
+
+  const run = (opts: Parameters<typeof makeClient>[0]) => {
+    const { client, studyMethodsUpdates } = makeClient(opts);
+    return buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") }).then(() => studyMethodsUpdates);
+  };
+
+  it("records only 'retrieval' for a single-book session", async () => {
+    const updates = await run({
+      entries: [
+        { cardId: "c1", questionId: null, bookId: "book-a", queuePosition: 0, reason: "due" },
+        { cardId: "c2", questionId: null, bookId: "book-a", queuePosition: 1, reason: "due" },
+      ],
+      cardsRows: [
+        { id: "c1", lesson_id: "l1", prompt_type: "free_recall", prompt: "p1" },
+        { id: "c2", lesson_id: "l2", prompt_type: "free_recall", prompt: "p2" },
+      ],
+    });
+    expect(updates).toEqual([{ study_methods: ["retrieval"] }]);
+  });
+
+  it("records 'retrieval' AND 'interleave' when the plan spans more than one book", async () => {
+    const updates = await run({
+      entries: [
+        { cardId: "c1", questionId: null, bookId: "book-a", queuePosition: 0, reason: "due" },
+        { cardId: "c2", questionId: null, bookId: "book-b", queuePosition: 1, reason: "due" },
+      ],
+      cardsRows: [
+        { id: "c1", lesson_id: "l1", prompt_type: "free_recall", prompt: "p1" },
+        { id: "c2", lesson_id: "l2", prompt_type: "free_recall", prompt: "p2" },
+      ],
+    });
+    expect(updates).toEqual([{ study_methods: ["retrieval", "interleave"] }]);
+  });
+
+  it("records 'interleave' when cards and cross-domain questions both appear, even from a single book", async () => {
+    const updates = await run({
+      entries: [
+        { cardId: "c1", questionId: null, bookId: "book-a", queuePosition: 0, reason: "due" },
+        { cardId: null, questionId: "q1", bookId: null, queuePosition: 1, reason: "due" },
+      ],
+      cardsRows: [{ id: "c1", lesson_id: "l1", prompt_type: "free_recall", prompt: "p1" }],
+      questionsRows: [{ id: "q1", class_id: "class-1", prompt: "q-prompt" }],
+    });
+    expect(updates).toEqual([{ study_methods: ["retrieval", "interleave"] }]);
+  });
+
+  it("writes nothing when the queue is empty -- never fabricates a technique that didn't happen", async () => {
+    const updates = await run({ entries: [], cardsRows: [] });
+    expect(updates).toEqual([]);
   });
 });
 

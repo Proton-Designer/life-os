@@ -21,10 +21,12 @@ import {
   countDueTomorrow,
   fetchDueCardDetail,
   submitSelfExplanation as submitSelfExplanationCore,
+  fetchSessionStudyMethods,
   type LessonContext,
 } from "@/lib/self-mastery/session/build-session";
 import { seedMeditationsDeckForUser as seedMeditationsDeckForUserCore } from "@/lib/self-mastery/seed-meditations-deck";
 import type { BuiltSession, SessionCompletionResult } from "@/lib/self-mastery/session/types";
+import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
 import type { SelfMasterySummary } from "@/lib/home/build-candidates";
 
 /**
@@ -213,6 +215,8 @@ export async function revalidateAfterReview(): Promise<void> {
 
 export interface FinishSessionResult extends SessionCompletionResult {
   dueTomorrow: number;
+  /** P3-03: whichever named study techniques this session actually recorded (lib/self-mastery/study-methods.ts). Empty for a session that touched nothing. */
+  studyMethods: StudyMethodId[];
 }
 
 /**
@@ -229,12 +233,13 @@ export async function finishSession(sessionId: string): Promise<FinishSessionRes
   // — {} for a question-only/empty session is a legitimate no-op, not an
   // error (computeSessionBookStrengths's own contract).
   const bookStrengths = await computeSessionBookStrengths(supabase, userId, sessionId, new Date());
-  const [result, dueTomorrow] = await Promise.all([
+  const [result, dueTomorrow, studyMethods] = await Promise.all([
     completeTodaysSession(supabase, sessionId, bookStrengths),
     countDueTomorrow(supabase, userId, localDate, timezone),
+    fetchSessionStudyMethods(supabase, sessionId),
   ]);
   revalidatePath("/");
-  return { ...result, dueTomorrow };
+  return { ...result, dueTomorrow, studyMethods };
 }
 
 export interface LogSelfExplanationInput {

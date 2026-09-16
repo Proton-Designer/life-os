@@ -21,6 +21,7 @@ import { cardRetrievability, averageRetrievability, type CardStateForStrength } 
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
 import { loadNearestUpcomingExamsByClass, examIntensityMultiplier, applyExamIntensity, daysBetweenDateStrings } from "./exam-intensity";
+import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
 import type {
   BuiltSession,
   EffortfulWinMoment,
@@ -423,6 +424,44 @@ export async function fetchQuestionState(client: TypedClient, userId: string, qu
 }
 
 /** The one entry point session UIs call to load today's session — orchestrates settings, the length governor, start_session, get_session_queue, and card hydration. */
+/**
+ * Adds `methods` to `work_sessions.study_methods` for `sessionId`, union
+ * semantics (never drops what a previous call already recorded). Read-
+ * modify-write, not atomic — acceptable here (P3-03 scope decision): the
+ * only two callers are buildTodaysSession (once, at session creation) and
+ * submitSelfExplanation (once per interstitial, seconds apart at most), so
+ * a genuine concurrent double-write is vanishingly rare, and the worst case
+ * of one is a redundant id in the array, not a lost one — `studyMethodLabel`
+ * callers already read through a de-duplicated view since a chip row maps
+ * ids to labels, not the raw array length.
+ */
+async function recordStudyMethods(client: TypedClient, sessionId: string, methods: readonly StudyMethodId[]): Promise<void> {
+  if (methods.length === 0) return;
+  const { data, error } = await client.from("work_sessions").select("study_methods").eq("id", sessionId).single();
+  if (error) throw error;
+  const current = new Set<string>(data.study_methods ?? []);
+  let changed = false;
+  for (const m of methods) {
+    if (!current.has(m)) {
+      current.add(m);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  const { error: updateError } = await client
+    .from("work_sessions")
+    .update({ study_methods: [...current] })
+    .eq("id", sessionId);
+  if (updateError) throw updateError;
+}
+
+/** Read-only counterpart to `recordStudyMethods`, for the completion summary (self-mastery-session-actions.ts's `finishSession`). */
+export async function fetchSessionStudyMethods(client: TypedClient, sessionId: string): Promise<StudyMethodId[]> {
+  const { data, error } = await client.from("work_sessions").select("study_methods").eq("id", sessionId).single();
+  if (error) throw error;
+  return (data.study_methods ?? []) as StudyMethodId[];
+}
+
 export async function buildTodaysSession(
   client: TypedClient,
   input: { userId: string; localDate: string; now: Date }
@@ -517,6 +556,21 @@ export async function buildTodaysSession(
 
   const dueIncluded = entries.filter((e) => e.reason === "due" || e.reason === "warm_up").length;
   const overflowDueCount = Math.max(0, totalDueCount - dueIncluded);
+
+  // P3-03: name what this plan actually contains, once it's known. Never
+  // fabricated for an empty session (see study-methods.ts's own header) --
+  // "retrieval" only when there's something to retrieve, "interleave" only
+  // when the plan genuinely mixes more than one source (>1 distinct book,
+  // or cards alongside cross-domain questions), matching exactly what
+  // buildInterleavedSequence (build-card-sequence.ts) actually does with
+  // this same plan client-side.
+  const distinctBookIds = new Set(hydrated.map((c) => c.bookId));
+  const hasCards = hydrated.length > 0;
+  const hasQuestions = dueQuestions.length > 0;
+  const observedMethods: StudyMethodId[] = [];
+  if (hasCards || hasQuestions) observedMethods.push("retrieval");
+  if (distinctBookIds.size > 1 || (hasCards && hasQuestions)) observedMethods.push("interleave");
+  await recordStudyMethods(client, session.id, observedMethods);
 
   return { session, plan, settings, overflowDueCount, dueQuestions };
 }
@@ -789,5 +843,13 @@ export async function submitSelfExplanation(
     .select("id, created_at")
     .single();
   if (error) throw error;
+  // P3-03: "draft" is only recorded on a real, non-skipped attempt -- a
+  // skip (response: null) means the interstitial was presented but nothing
+  // was drafted, so it must not be counted as if it had happened. Sessionless
+  // callers (input.sessionId === null, e.g. an MCP-logged reflection with no
+  // app-tracked session) have no work_sessions row to attribute it to.
+  if (input.sessionId !== null && input.response !== null) {
+    await recordStudyMethods(client, input.sessionId, ["draft"]);
+  }
   return { id: data.id, createdAt: data.created_at };
 }

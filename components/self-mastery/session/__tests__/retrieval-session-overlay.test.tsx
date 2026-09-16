@@ -239,6 +239,7 @@ describe("RetrievalSessionOverlay", () => {
       freezeConsumed: null,
       effortfulWin: null,
       dueTomorrow: 0,
+      studyMethods: [],
     });
     const user = userEvent.setup();
     render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
@@ -271,6 +272,7 @@ describe("RetrievalSessionOverlay", () => {
       freezeConsumed: null,
       effortfulWin: null,
       dueTomorrow: 2,
+      studyMethods: [],
     });
     const user = userEvent.setup();
     render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
@@ -295,6 +297,7 @@ describe("RetrievalSessionOverlay", () => {
       freezeConsumed: null,
       effortfulWin: { kind: "deck_complete", bookId: "b1", bookTitle: "Meditations" },
       dueTomorrow: 3,
+      studyMethods: [],
     });
     const user = userEvent.setup();
     render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
@@ -306,6 +309,65 @@ describe("RetrievalSessionOverlay", () => {
 
     await waitFor(() => expect(screen.getByText(/Meditations/)).toBeInTheDocument());
     expect(screen.getByText("3 cards due tomorrow.")).toBeInTheDocument();
+  });
+
+  // P3-03: one compact line naming the taxonomy's own labels (Opus Lead
+  // ruling: same vocabulary everywhere, and nothing rendered for an empty
+  // array -- clutter was tonight's product complaint, so this must never
+  // become a row of greyed-out unavailable modes).
+  it("session-complete shows a single compact line of study-method labels when the session recorded any", async () => {
+    loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+    revealCardAnswerMock.mockResolvedValue("Answer text");
+    finishSessionMock.mockResolvedValue({
+      currentStreak: 1,
+      longestStreak: 1,
+      freezesAvailable: 0,
+      totalReviews: 1,
+      totalSessions: 1,
+      freezeConsumed: null,
+      effortfulWin: null,
+      dueTomorrow: 0,
+      studyMethods: ["retrieval", "interleave"],
+    });
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Easy" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Easy" }));
+
+    await waitFor(() => expect(screen.getByText("Session complete.")).toBeInTheDocument());
+    expect(screen.getByText("Retrieval · Interleave")).toBeInTheDocument();
+  });
+
+  it("session-complete renders no study-method line at all when the session recorded none", async () => {
+    loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "Only prompt")]));
+    revealCardAnswerMock.mockResolvedValue("Answer text");
+    finishSessionMock.mockResolvedValue({
+      currentStreak: 1,
+      longestStreak: 1,
+      freezesAvailable: 0,
+      totalReviews: 1,
+      totalSessions: 1,
+      freezeConsumed: null,
+      effortfulWin: null,
+      dueTomorrow: 0,
+      studyMethods: [],
+    });
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("Only prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Easy" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Easy" }));
+
+    await waitFor(() => expect(screen.getByText("Session complete.")).toBeInTheDocument());
+    // "Retrieval" alone would also match the dialog's own sr-only title
+    // ("Retrieval session") -- Interleave/Draft have no such collision and
+    // are enough to prove no chip line rendered.
+    expect(screen.queryByText(/Interleave|Draft/)).not.toBeInTheDocument();
   });
 
   describe("offline queue integration", () => {
@@ -325,6 +387,7 @@ describe("RetrievalSessionOverlay", () => {
         freezeConsumed: null,
         effortfulWin: null,
         dueTomorrow: 0,
+        studyMethods: [],
       });
       const user = userEvent.setup();
       render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
@@ -643,7 +706,7 @@ describe("RetrievalSessionOverlay", () => {
       revealQuestionAnswerMock.mockResolvedValue("Free Spaced Repetition Scheduler");
       finishSessionMock.mockResolvedValue({
         currentStreak: 1, longestStreak: 1, freezesAvailable: 0, totalReviews: 1, totalSessions: 1,
-        freezeConsumed: null, effortfulWin: null, dueTomorrow: 0,
+        freezeConsumed: null, effortfulWin: null, dueTomorrow: 0, studyMethods: [],
       });
       const user = userEvent.setup();
       render(<RetrievalSessionOverlay open onClose={vi.fn()} />);

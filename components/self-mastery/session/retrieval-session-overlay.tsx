@@ -32,6 +32,7 @@ import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/ans
 import { getCloserDayConnection } from "@/app/(app)/personal/closer-day-connection-actions";
 import type { LessonContext } from "@/lib/self-mastery/session/build-session";
 import type { BuiltSession } from "@/lib/self-mastery/session/types";
+import { studyMethodLabel } from "@/lib/self-mastery/study-methods";
 
 type Confidence = "sure" | "think_so" | "guessing";
 type Rating = 1 | 2 | 3 | 4;
@@ -696,6 +697,9 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                   </p>
                 )}
                 {completion.effortfulWin && <EffortfulWinCallout win={completion.effortfulWin} />}
+                {completion.studyMethods.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{completion.studyMethods.map(studyMethodLabel).join(" · ")}</p>
+                )}
                 <p className="text-sm text-muted-foreground">
                   {completion.dueTomorrow > 0
                     ? `${completion.dueTomorrow} card${completion.dueTomorrow === 1 ? "" : "s"} due tomorrow.`
