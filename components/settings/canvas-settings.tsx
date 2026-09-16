@@ -21,19 +21,6 @@ import {
 } from "@/app/(app)/settings/canvas-actions";
 import { icsFeedDisplaySource } from "@/lib/canvas/ics-feed-display";
 
-const DISCONNECTED_STATUS: CanvasConnectionStatus = {
-  connected: false,
-  instanceUrl: null,
-  tokenLast4: null,
-  canvasUserName: null,
-  tokenStatus: null,
-  lastSyncedAt: null,
-  lastSyncError: null,
-  icsFeedConnected: false,
-  icsFeedLast4: null,
-  lastIcsReconcileAt: null,
-};
-
 /**
  * Renders an ISO timestamp WITHOUT any timezone conversion (no `Date` local-
  * time formatting) — this Client Component's initial render also happens
@@ -133,7 +120,14 @@ export function CanvasSettings({
     startTransition(async () => {
       const res = await disconnectCanvas();
       setMessage({ ok: res.ok, text: res.message });
-      if (res.ok) setStatus(DISCONNECTED_STATUS);
+      // CANVAS-GAP-09: NOT a hardcoded disconnected-everything guess --
+      // disconnectCanvas (CANVAS-GAP-07) preserves an independent ICS feed
+      // when one exists, so assuming icsFeedConnected:false here would
+      // hide a feed that's still genuinely connected server-side.
+      // Re-fetching is the same "reflect the server's verdict, don't guess
+      // client-side" pattern this file already uses in handleSync's own
+      // failure path above.
+      if (res.ok) setStatus(await getCanvasConnectionStatus());
     });
   }
 

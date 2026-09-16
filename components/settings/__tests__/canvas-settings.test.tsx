@@ -14,7 +14,7 @@ vi.mock("@/app/(app)/settings/canvas-actions", () => ({
   reconcileCanvasIcs: vi.fn(),
 }));
 
-import { saveCanvasIcsFeedUrl, reconcileCanvasIcs, refreshCanvasCourses, importConcludedCanvasCourses, type CanvasConnectionStatus } from "@/app/(app)/settings/canvas-actions";
+import { saveCanvasIcsFeedUrl, reconcileCanvasIcs, refreshCanvasCourses, importConcludedCanvasCourses, disconnectCanvas, getCanvasConnectionStatus, type CanvasConnectionStatus } from "@/app/(app)/settings/canvas-actions";
 import { CanvasSettings } from "../canvas-settings";
 
 const CONNECTED_NO_FEED: CanvasConnectionStatus = {
@@ -301,5 +301,56 @@ describe("CanvasSettings -- Disconnect copy (CANVAS-GAP-07)", () => {
   it("with no ICS feed: says the token is removed and mappings are kept, without claiming a feed survives", () => {
     render(<CanvasSettings initialStatus={CONNECTED_NO_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
     expect(screen.getByText(/Disconnect removes the Canvas token\. Your course mappings are kept in case you reconnect later\./)).toBeInTheDocument();
+  });
+});
+
+// CANVAS-GAP-09: the CLIENT-side optimistic state after a successful
+// Disconnect must never hardcode icsFeedConnected:false -- disconnectCanvas
+// (CANVAS-GAP-07) genuinely preserves an independent ICS feed, so the UI
+// must reflect the server's real post-disconnect state, not a guess.
+describe("CanvasSettings -- post-disconnect state reflects a surviving ICS feed (CANVAS-GAP-09)", () => {
+  beforeEach(() => {
+    vi.mocked(disconnectCanvas).mockReset();
+    vi.mocked(getCanvasConnectionStatus).mockReset();
+  });
+
+  it("disconnecting an account with BOTH a token and an ICS feed still shows the ICS feed section immediately, no reload", async () => {
+    const user = userEvent.setup();
+    vi.mocked(disconnectCanvas).mockResolvedValue({ ok: true, message: "Token disconnected. Your calendar feed stays connected." });
+    const postDisconnectStatus: CanvasConnectionStatus = { ...CONNECTED_WITH_FEED, connected: false, instanceUrl: null, tokenLast4: null, tokenStatus: null };
+    vi.mocked(getCanvasConnectionStatus).mockResolvedValue(postDisconnectStatus);
+    render(<CanvasSettings initialStatus={CONNECTED_WITH_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(getCanvasConnectionStatus).toHaveBeenCalled());
+    // The ICS feed section (only rendered when icsFeedConnected) must still
+    // be there -- not the pre-GAP-09 bug where a hardcoded
+    // DISCONNECTED_STATUS hid it until a manual reload.
+    expect(await screen.findByText(new RegExp(`····${CONNECTED_WITH_FEED.icsFeedLast4}`))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reconcile now" })).toBeInTheDocument();
+  });
+
+  it("disconnecting an account with ONLY a token (no ICS feed) shows the plain connect form again", async () => {
+    const user = userEvent.setup();
+    vi.mocked(disconnectCanvas).mockResolvedValue({ ok: true, message: "Disconnected. Your course mappings are kept in case you reconnect later." });
+    vi.mocked(getCanvasConnectionStatus).mockResolvedValue({ ...CONNECTED_NO_FEED, connected: false, instanceUrl: null, tokenLast4: null, tokenStatus: null });
+    render(<CanvasSettings initialStatus={CONNECTED_NO_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(getCanvasConnectionStatus).toHaveBeenCalled());
+    expect(await screen.findByLabelText("Canvas instance URL")).toBeInTheDocument();
+  });
+
+  it("a failed disconnect never calls getCanvasConnectionStatus -- the status stays whatever it actually still is", async () => {
+    const user = userEvent.setup();
+    vi.mocked(disconnectCanvas).mockResolvedValue({ ok: false, message: "Couldn't disconnect. Try again." });
+    render(<CanvasSettings initialStatus={CONNECTED_WITH_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(screen.getByText("Couldn't disconnect. Try again.")).toBeInTheDocument());
+    expect(getCanvasConnectionStatus).not.toHaveBeenCalled();
   });
 });
