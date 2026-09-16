@@ -48,6 +48,7 @@ import {
 } from "@/lib/school/actions-core";
 import { createQuestionCore, updateQuestionCore, setQuestionActiveCore } from "@/lib/school/questions-core";
 import { confirmStagingBatchCore, updateStagedDeliverableCore, deleteStagedDeliverableCore } from "@/lib/school/staging-core";
+import { runCanvasImportBatchCore, CANVAS_IMPORT_MAX_ITEMS, type CanvasImportItem } from "@/lib/canvas/agent-import-core";
 import { submitPracticeTestAnswerCore, completePracticeTestCore } from "@/lib/school/practice-test-actions-core";
 import {
   quickLogExerciseCore,
@@ -323,6 +324,65 @@ function requireConfirmSets(patch: WritePatch): ConfirmSetInput[] {
     if (typeof r.reps !== "number") throw new ToolInputError(`patch.sets[${i}].reps must be a number.`);
     if (r.load !== null && typeof r.load !== "number") throw new ToolInputError(`patch.sets[${i}].load must be a number or null.`);
     return { exerciseId: r.exerciseId, exerciseName: r.exerciseName, position: r.position, sets: r.sets, reps: r.reps, load: (r.load as number | null) ?? null };
+  });
+}
+
+/**
+ * CANVAS-LITE-02's `patch.items` -- a discriminated union by `kind`,
+ * hand-validated field-by-field like `requireGradeBoundariesOrUndefined`/
+ * `requireConfirmSets` above (a caller-constructed array, not a single
+ * scalar the existing require-helpers already cover).
+ */
+function requireCanvasImportItems(patch: WritePatch): CanvasImportItem[] {
+  const raw = patch.items;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new ToolInputError(`patch.items is required and must be a non-empty array. Got: ${JSON.stringify(raw)}.`);
+  }
+  if (raw.length > CANVAS_IMPORT_MAX_ITEMS) {
+    throw new ToolInputError(`patch.items must contain at most ${CANVAS_IMPORT_MAX_ITEMS} items. Got ${raw.length}.`);
+  }
+  return raw.map((raw_item, index) => {
+    if (raw_item === null || typeof raw_item !== "object") {
+      throw new ToolInputError(`patch.items[${index}] must be an object. Got: ${JSON.stringify(raw_item)}.`);
+    }
+    const obj = raw_item as Record<string, unknown>;
+    const field = (name: string): string => {
+      const v = obj[name];
+      if (typeof v !== "string" || v.length === 0) throw new ToolInputError(`patch.items[${index}].${name} is required and must be a non-empty string. Got: ${JSON.stringify(v)}.`);
+      return v;
+    };
+    const optionalNullableField = (name: string): string | null => {
+      const v = obj[name];
+      if (v === undefined || v === null) return null;
+      if (typeof v !== "string") throw new ToolInputError(`patch.items[${index}].${name} must be a string or null. Got: ${JSON.stringify(v)}.`);
+      return v;
+    };
+    const optionalNullableNum = (name: string): number | null => {
+      const v = obj[name];
+      if (v === undefined || v === null) return null;
+      if (typeof v !== "number") throw new ToolInputError(`patch.items[${index}].${name} must be a number or null. Got: ${JSON.stringify(v)}.`);
+      return v;
+    };
+    if (obj.kind === "course") {
+      return { kind: "course", canvasCourseId: field("canvas_course_id"), canvasCourseName: field("canvas_course_name"), canvasCourseCode: optionalNullableField("canvas_course_code") };
+    }
+    if (obj.kind === "assessment") {
+      const pointsEarned = obj.points_earned;
+      if (typeof pointsEarned !== "number") throw new ToolInputError(`patch.items[${index}].points_earned is required and must be a number. Got: ${JSON.stringify(pointsEarned)}.`);
+      return {
+        kind: "assessment",
+        canvasCourseId: field("canvas_course_id"),
+        canvasAssignmentId: field("canvas_assignment_id"),
+        name: field("name"),
+        dueAt: optionalNullableField("due_at"),
+        pointsPossible: optionalNullableNum("points_possible"),
+        pointsEarned,
+      };
+    }
+    if (obj.kind === "announcement") {
+      return { kind: "announcement", canvasCourseId: field("canvas_course_id"), canvasAnnouncementId: field("canvas_announcement_id"), text: field("text") };
+    }
+    throw new ToolInputError(`patch.items[${index}].kind must be one of "course", "assessment", "announcement". Got: ${JSON.stringify(obj.kind)}.`);
   });
 }
 
@@ -1703,6 +1763,42 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           // on their own exception tables. The MCP write path never
           // hard-deletes, full stop, even for a narrowly-scoped exception
           // row. See docs/ai-connector/SCHOOL-WRITE-SCOPE-DECISIONS.md.
+        },
+      },
+      canvas_import: {
+        entity: "canvas_import",
+        actions: {
+          // CANVAS-LITE-02 -- the workaround for a school that blocks
+          // Canvas personal access tokens (CANVAS-LITE-01's own header):
+          // the user's own AI platform (GPT/Gemini/Perplexity/Claude, per
+          // the task's own "Why") runs a scheduled cloud task that logs
+          // into Canvas on its own side and sends one bulk batch here
+          // instead of many single writes. This handler never talks to
+          // Canvas and never sees a Canvas credential -- see
+          // lib/canvas/agent-import-core.ts's own header for the full
+          // design and why no migration/new tool was needed.
+          run_batch: {
+            action: "run_batch",
+            description:
+              "Bulk-import Canvas data an external agent already scraped on its own: course mappings, graded assignments, and announcements, in one call. Course items map a Canvas course to a local class (auto-mapping ONLY on an unambiguous name/code match against the user's own classes; never auto-creates a class). Assessment items reuse the exact never-overwrite-a-user-entered-grade guard and unambiguous-local-match rule the token-based Canvas sync already uses, and never auto-create a duplicate assessment (stages an unmatched one for review instead). Announcement items reuse the existing paste-an-announcement extraction pipeline. Every item gets its own outcome (created/updated/skipped, with a reason) -- never one opaque batch success. Capped at 200 items per call.",
+            patchShape:
+              "{ items: Array<" +
+              "{kind:'course', canvas_course_id:string, canvas_course_name:string, canvas_course_code?:string|null} | " +
+              "{kind:'assessment', canvas_course_id:string, canvas_assignment_id:string, name:string, due_at?:string|null, points_possible?:number|null, points_earned:number} | " +
+              "{kind:'announcement', canvas_course_id:string, canvas_announcement_id:string, text:string}" +
+              "> } -- max 200 items per call.",
+            idempotent: true,
+            idempotencyVerification:
+              "Every item kind keys on an existing unique constraint, never an invented id scheme: course items upsert canvas_course_mappings on (user_id, canvas_course_id) (lib/canvas/agent-import-core.ts's processCourseItem); assessment items delegate to processCanvasAssignment (lib/canvas/sync-core.ts, shared with the token-based sync loop), which either updates an already-linked/matched class_assessments row to the identical values or stages via staging_batches' partial-unique canvas_assignment_id tombstone, pre-filtered before insert since the insert itself has no ON CONFLICT; announcement items are pre-filtered against staging_batches' own canvas_announcement_id tombstone the same way before calling stageAnnouncementCore. A repeat of the identical batch reproduces the identical end state, reporting 'already staged'/'existing grade protected'/'refreshed' outcomes rather than a duplicate row.",
+            handler: async (ctx, patch) => {
+              const items = requireCanvasImportItems(patch);
+              const batch = await runCanvasImportBatchCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, items);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify(batch) }], structuredContent: { ...batch } },
+                summary: `Canvas import: ${batch.counts.created} created, ${batch.counts.updated} updated, ${batch.counts.skipped} skipped (${items.length} item${items.length === 1 ? "" : "s"} total)`,
+              };
+            },
+          },
         },
       },
     },

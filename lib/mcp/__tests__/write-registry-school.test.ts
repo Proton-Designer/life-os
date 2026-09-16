@@ -59,10 +59,13 @@ function makeClient(opts: { maybeSingleSeq?: Record<string, unknown[]>; singleSe
 const now = new Date("2026-09-08T20:00:00.000Z");
 
 describe("write-registry — school dispatch shape", () => {
-  it("school has exactly task/class/class_assessment/schedule_event/question/grade_category/staging/practice_test", () => {
+  it("school has exactly task/class/class_assessment/schedule_event/question/grade_category/staging/practice_test/canvas_import", () => {
     // P4-08 added question/grade_category/staging (write-coverage widening)
     // and practice_test (a9-confirmed scope addition, reusing P2-09's cores).
+    // CANVAS-LITE-02 added canvas_import (an external agent's bulk-import
+    // workaround for a school that blocks Canvas access tokens).
     expect(listWriteEntities("school").sort()).toEqual([
+      "canvas_import",
       "class",
       "class_assessment",
       "grade_category",
@@ -72,6 +75,10 @@ describe("write-registry — school dispatch shape", () => {
       "staging",
       "task",
     ]);
+  });
+
+  it("school.canvas_import has exactly run_batch", () => {
+    expect(listWriteActions("school", "canvas_import").sort()).toEqual(["run_batch"]);
   });
 
   it("school.task has add/edit/toggle, never remove — removeTaskCore is a real DELETE", () => {

@@ -46,9 +46,9 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   deen: "Prayer, adhkar, Qur'an, habits",
   work: "Targets, tasks, deep work",
   business: "Kill list, weekly goals",
-  school: "Classes, schedule, tasks, grades",
-  fitness: "Workouts, plans, body metrics",
-  self_mastery: "Books, lessons, cards, reviews",
+  school: "Classes, schedule, grades", // trimmed for the wire budget when canvas_import landed (CANVAS-LITE-02)
+  fitness: "Workouts, plans, metrics",
+  self_mastery: "Books, lessons, reviews",
   settings: "Profile, prefs, areas",
   checkins: "Check-ins, time allocation",
   distractions: "Triggers, plans, outcomes",
