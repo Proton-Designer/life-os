@@ -1291,6 +1291,37 @@ export type Database = {
         }
         Relationships: []
       }
+      end_of_hour_reflections: {
+        Row: {
+          card_id: string
+          id: string
+          logged_at: string
+          response: string | null
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          id?: string
+          logged_at?: string
+          response?: string | null
+          user_id?: string
+        }
+        Update: {
+          card_id?: string
+          id?: string
+          logged_at?: string
+          response?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "end_of_hour_reflections_card_fk"
+            columns: ["user_id", "card_id"]
+            referencedRelation: "reflection_cards"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       evening_closes: {
         Row: {
           closed_at: string
@@ -3086,6 +3117,7 @@ export type Database = {
           checkin_window_start: string
           created_at: string
           display_name: string | null
+          enabled_features: string[]
           evening_close_time: string
           hidden_features: string[]
           location_label: string | null
@@ -3113,6 +3145,7 @@ export type Database = {
           checkin_window_start?: string
           created_at?: string
           display_name?: string | null
+          enabled_features?: string[]
           evening_close_time?: string
           hidden_features?: string[]
           location_label?: string | null
@@ -3140,6 +3173,7 @@ export type Database = {
           checkin_window_start?: string
           created_at?: string
           display_name?: string | null
+          enabled_features?: string[]
           evening_close_time?: string
           hidden_features?: string[]
           location_label?: string | null
@@ -3266,6 +3300,36 @@ export type Database = {
           juz?: number | null
           pages_read?: number
           surah?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      reflection_cards: {
+        Row: {
+          active: boolean
+          content: string
+          created_at: string
+          id: string
+          kind: string
+          last_shown_at: string | null
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          content: string
+          created_at?: string
+          id?: string
+          kind: string
+          last_shown_at?: string | null
+          user_id?: string
+        }
+        Update: {
+          active?: boolean
+          content?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          last_shown_at?: string | null
           user_id?: string
         }
         Relationships: []
