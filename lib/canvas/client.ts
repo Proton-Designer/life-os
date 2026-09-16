@@ -184,6 +184,20 @@ export interface CanvasGradedAssignment {
   dueAt: string | null;
   pointsPossible: number | null;
   pointsEarned: number;
+  /**
+   * CANVAS-GAP-03 (ENG3's CANVAS-VERIFY-01 live probe): carried through
+   * verbatim, not interpreted here — `points`/`percent` are the only
+   * types whose `submission.score` is directly comparable to
+   * `points_possible` (Canvas's own UI shows `percent` as score/possible,
+   * same underlying scale as `points`; `pass_fail` is a fixed 0-or-full
+   * score with no partial-credit meaning; `letter_grade`/`gpa_scale` map
+   * through the COURSE's own grading scheme, which this app never
+   * fetches; `not_graded` was never a real grade). The actual guard lives
+   * where the write happens (`processCanvasAssignment`, sync-core.ts) so
+   * it applies identically to a Canvas-fetched assignment AND an
+   * agent-supplied one (CANVAS-LITE-02) — see that function's own header.
+   */
+  gradingType: string | null;
 }
 
 /**
@@ -195,7 +209,9 @@ export interface CanvasGradedAssignment {
  * here (not left to the caller): an ungraded/excused/missing submission
  * has no grade to sync, and P2-21's own scope is grade sync, not a general
  * due-date/assignment sync (that reads as P3-13's ICS-reconciliation
- * territory instead).
+ * territory instead). `grading_type` is NOT filtered here — see
+ * `CanvasGradedAssignment.gradingType`'s own header for why the guard
+ * lives one layer down instead.
  */
 export async function fetchCanvasGradedAssignments(instanceUrl: string, token: string, courseId: string): Promise<CanvasClientResult<CanvasGradedAssignment[]>> {
   const res = await canvasFetch(instanceUrl, token, `/api/v1/courses/${encodeURIComponent(courseId)}/assignments?include[]=submission&per_page=${ASSIGNMENTS_PER_PAGE}`);
@@ -206,16 +222,25 @@ export async function fetchCanvasGradedAssignments(instanceUrl: string, token: s
   }
   const graded: CanvasGradedAssignment[] = raw
     .filter(
-      (a): a is { id: number | string; name?: string; due_at?: string; points_possible?: number; submission?: { workflow_state?: string; score?: number } } =>
+      (a): a is { id: number | string; name?: string; due_at?: string; points_possible?: number; grading_type?: string; submission?: { workflow_state?: string; score?: number } } =>
         Boolean(a) && typeof a === "object" && "id" in a,
     )
     .filter((a) => a.submission?.workflow_state === "graded" && typeof a.submission?.score === "number")
+    // `not_graded` is structurally never a real grade (Canvas's own
+    // vocabulary, not this app's guess) -- excluded here exactly like an
+    // ungraded submission above, not merely left ungradable. Every OTHER
+    // unsafe grading_type (pass_fail, letter_grade, gpa_scale) is a real
+    // grade, just not points-comparable, so it still flows through for
+    // linking; only the points_earned/points_possible write is guarded,
+    // one layer down (see CanvasGradedAssignment.gradingType's header).
+    .filter((a) => a.grading_type !== "not_graded")
     .map((a) => ({
       canvasAssignmentId: String(a.id),
       name: a.name ?? `Assignment ${a.id}`,
       dueAt: a.due_at ?? null,
       pointsPossible: typeof a.points_possible === "number" ? a.points_possible : null,
       pointsEarned: a.submission!.score as number,
+      gradingType: typeof a.grading_type === "string" ? a.grading_type : null,
     }));
   return { ok: true, data: graded };
 }

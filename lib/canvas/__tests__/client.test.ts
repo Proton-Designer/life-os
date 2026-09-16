@@ -79,9 +79,9 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     safeFetchMock.mockResolvedValue(
       new Response(
         JSON.stringify([
-          { id: 1, name: "Essay 1", due_at: "2026-09-20T23:59:00Z", points_possible: 100, submission: { workflow_state: "graded", score: 92 } },
-          { id: 2, name: "Essay 2 (ungraded)", due_at: "2026-09-22T23:59:00Z", points_possible: 100, submission: { workflow_state: "unsubmitted" } },
-          { id: 3, name: "Essay 3 (graded, no score)", due_at: null, points_possible: 50, submission: { workflow_state: "graded" } },
+          { id: 1, name: "Essay 1", due_at: "2026-09-20T23:59:00Z", points_possible: 100, grading_type: "points", submission: { workflow_state: "graded", score: 92 } },
+          { id: 2, name: "Essay 2 (ungraded)", due_at: "2026-09-22T23:59:00Z", points_possible: 100, grading_type: "points", submission: { workflow_state: "unsubmitted" } },
+          { id: 3, name: "Essay 3 (graded, no score)", due_at: null, points_possible: 50, grading_type: "points", submission: { workflow_state: "graded" } },
         ]),
         { status: 200 },
       ),
@@ -89,10 +89,48 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     const res = await fetchCanvasGradedAssignments("https://school.instructure.com", "tok", "123");
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error("expected ok");
-    expect(res.data).toEqual([{ canvasAssignmentId: "1", name: "Essay 1", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 }]);
+    expect(res.data).toEqual([{ canvasAssignmentId: "1", name: "Essay 1", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92, gradingType: "points" }]);
     const url = String(safeFetchMock.mock.calls[0][0]);
     expect(url).toContain("/api/v1/courses/123/assignments");
     expect(url).toContain("include[]=submission");
+  });
+
+  // CANVAS-GAP-03 (ENG3's CANVAS-VERIFY-01 live probe): grading_type is
+  // carried through verbatim for every OTHER grading_type (the actual
+  // points-comparable guard lives in processCanvasAssignment, sync-core.ts,
+  // so it applies identically to a Canvas-fetched assignment and an
+  // agent-supplied one) -- but `not_graded` is structurally never a real
+  // grade at all, so it's excluded here exactly like an ungraded submission,
+  // never merely passed through as "ungradable".
+  it("carries grading_type through for a real (if not points-comparable) grade, but excludes not_graded entirely", async () => {
+    safeFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          { id: 1, name: "Points HW", due_at: null, points_possible: 100, grading_type: "points", submission: { workflow_state: "graded", score: 92 } },
+          { id: 2, name: "Percent Quiz", due_at: null, points_possible: 20, grading_type: "percent", submission: { workflow_state: "graded", score: 18 } },
+          { id: 3, name: "Pass/Fail Lab", due_at: null, points_possible: 10, grading_type: "pass_fail", submission: { workflow_state: "graded", score: 10 } },
+          { id: 4, name: "Letter Grade Paper", due_at: null, points_possible: 100, grading_type: "letter_grade", submission: { workflow_state: "graded", score: 88 } },
+          { id: 5, name: "GPA Scale Exam", due_at: null, points_possible: 100, grading_type: "gpa_scale", submission: { workflow_state: "graded", score: 75 } },
+          { id: 6, name: "Not Graded Reflection", due_at: null, points_possible: 0, grading_type: "not_graded", submission: { workflow_state: "graded", score: 0 } },
+        ]),
+        { status: 200 },
+      ),
+    );
+    const res = await fetchCanvasGradedAssignments("https://school.instructure.com", "tok", "123");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.map((a) => a.canvasAssignmentId)).toEqual(["1", "2", "3", "4", "5"]);
+    expect(res.data.map((a) => a.gradingType)).toEqual(["points", "percent", "pass_fail", "letter_grade", "gpa_scale"]);
+  });
+
+  it("an assignment with no grading_type at all carries gradingType: null, never assumed to be points", async () => {
+    safeFetchMock.mockResolvedValue(
+      new Response(JSON.stringify([{ id: 1, name: "Legacy Assignment", due_at: null, points_possible: 100, submission: { workflow_state: "graded", score: 92 } }]), { status: 200 }),
+    );
+    const res = await fetchCanvasGradedAssignments("https://school.instructure.com", "tok", "123");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data[0]!.gradingType).toBeNull();
   });
 
   it("fetchCanvasIcsFeed calls safeFetch with the raw feed URL (no /api/v1 path, no Bearer header) and returns the body text", async () => {
