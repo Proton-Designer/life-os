@@ -333,6 +333,17 @@ counts were stale. **Fixed:** all of the above, with counts from the new
 `npx tsx scripts/mcp-surface-counts.ts` instead of typed numbers. **Still open:** nothing
 regenerates those counts automatically. Re-run the script whenever the registries change.
 
+### `prayers.status` has no DB-level enum guard (found 2026-09-16, DFT8)
+**Found:** two `prayers` rows on shared test accounts had `status: 'pending'` — a value
+`markPrayerCore`'s own TypeScript signature (`"on_time" | "qada" | "missed"`) can never write, so
+these were leftover raw-insert seed debris, not reachable through the real app or MCP. **Why it
+matters:** `effectivePrayerStatus` treats any non-null, non-`'unlogged'` stored value as authoritative
+and returns it as-is — a stored `'pending'` freezes a day at "Pending" forever, even after its
+window closes, with nothing to ever re-derive it as `'missed'`. There is no Postgres CHECK
+constraint on `prayers.status` catching this at the DB layer; the guarantee is TypeScript-only.
+**Fixed:** deleted the two bad rows (not the schema). **Still open:** whether a CHECK constraint is
+worth adding is a real judgment call, not done here.
+
 <!--
 [ ] Under 200 lines   [ ] "Do not" lines filled in
 -->

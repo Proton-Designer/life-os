@@ -62,7 +62,7 @@ Exists so the user "can never fool themselves about whether they trained today."
 ## Constraints & gotchas
 
 - **Fitness had zero real production usage** as of the 2026-08-19 redesign — the entire current data model is a rebuild replacing "an attendance tracker never used."
-- **`fitness_cycle_anchor` has no write path anywhere in the running app** — confirmed by exhaustive grep, documented directly in `lib/mcp/registry.ts:584`. Cycle Progress is half-built; registered read-only in MCP "honestly," not fixed.
+- **STALE as of 2026-09-16 (Sonnet ENG 3, DFT8 live-verify): `fitness_cycle_anchor` DOES have a write path** — `app/(app)/fitness/page.tsx` (~line 193) upserts an anchor row the first time a user views the page while an active plan exists ("write on a read path," an insert-if-missing keyed on the plan's own creation date, not "today"). Confirmed live: seeding an active micro plan with zero prior anchor rows and loading `/fitness` correctly auto-created the anchor and rendered Cycle Progress. `registry.ts` is still honestly read-only from MCP's perspective (an agent cannot write it), which is a separate, still-true claim from "no write path in the app at all."
 - **`active_workout_plans`/`workout_schedule` are deliberately MCP-read-only.** A prior unqualified `ON DELETE SET NULL` made deleting an active plan impossible for weeks (migration 129); `workout_schedule` is fully wiped-and-regenerated on every plan mutation by a shim its own comment calls "the single highest-risk shim in the whole fitness redesign."
 - `rep_goals` has zero writers anywhere — a frozen historical artifact.
 - Plan-editing machinery (`savePlan`/`deletePlan`/`activatePlan`) is deliberately excluded from the MCP write surface — "known scar tissue."
