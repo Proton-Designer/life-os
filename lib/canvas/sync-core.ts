@@ -284,7 +284,7 @@ export async function syncCanvasGradesCore(supabase: SupabaseClient, userId: str
         confidence: 1,
         sourceSnippet: null,
       };
-      const batchId = await createStagingBatchCore(supabase, userId, course.classId, "canvas_assignment", undefined, assignment.canvasAssignmentId);
+      const batchId = await createStagingBatchCore(supabase, userId, course.classId, "canvas_assignment", undefined, undefined, assignment.canvasAssignmentId);
       await createStagedDeliverablesCore(supabase, userId, batchId, [item]);
       staged++;
     }

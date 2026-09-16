@@ -339,15 +339,33 @@ describe("createStagingBatchCore (P2-07)", () => {
     expect(row.raw_text).toBe("Quiz moved to Friday.");
   });
 
-  /** P2-21: migration 189's dedup marker -- undefined (every pre-existing caller) stores null; the Canvas poller is the only caller that ever supplies it. */
-  it("stores canvas_announcement_id when the poller supplies it, null otherwise", async () => {
+  /** P2-21: migration 189's dedup marker -- undefined (every pre-existing caller) stores null; the Canvas announcement poller is the only caller that ever supplies it. */
+  it("stores canvas_announcement_id when the announcement poller supplies it, null otherwise", async () => {
     const { client, tables } = createFakeDb();
     const withoutId = await createStagingBatchCore(client as never, "user-1", "class-1", "announcement", "Quiz moved to Friday.");
     expect(tables.staging_batches.find((b) => b.id === withoutId)!.canvas_announcement_id).toBeNull();
 
-    const withId = await createStagingBatchCore(client as never, "user-1", "class-1", "canvas_assignment", "New assignment from Canvas.", "canvas-announce-42");
+    const withId = await createStagingBatchCore(client as never, "user-1", "class-1", "announcement", "Quiz moved to Friday.", "canvas-announce-42");
     const row = tables.staging_batches.find((b) => b.id === withId)!;
     expect(row.canvas_announcement_id).toBe("canvas-announce-42");
+    expect(row.canvas_assignment_id).toBeNull();
+  });
+
+  /**
+   * P2-21/migration 194: a SEPARATE dedup marker for assignment staging --
+   * regression test for a real bug found during P3-13: the assignment ID
+   * was previously passed into the `canvasAnnouncementId` slot (6th param)
+   * by lib/canvas/sync-core.ts, so `canvas_assignment_id` was NEVER
+   * actually written despite the "tombstone" claim in P2-21's own Log.
+   * Asserts the two ID columns independently, and that supplying one never
+   * leaks into the other.
+   */
+  it("stores canvas_assignment_id (7th param) independently of canvas_announcement_id", async () => {
+    const { client, tables } = createFakeDb();
+    const batchId = await createStagingBatchCore(client as never, "user-1", "class-1", "canvas_assignment", undefined, undefined, "canvas-assignment-42");
+    const row = tables.staging_batches.find((b) => b.id === batchId)!;
+    expect(row.canvas_assignment_id).toBe("canvas-assignment-42");
+    expect(row.canvas_announcement_id).toBeNull();
     expect(row.source).toBe("canvas_assignment");
   });
 });

@@ -207,7 +207,10 @@ describe("syncCanvasGradesCore", () => {
     const result = await syncCanvasGradesCore(client, "user-1", tz, now);
 
     expect(result).toEqual({ ok: true, graded: 0, staged: 1 });
-    expect(createStagingBatchCoreMock).toHaveBeenCalledWith(client, "user-1", "class-1", "canvas_assignment", undefined, "assn-5");
+    // Regression (P3-13): the assignment ID must land in the 7th param
+    // (canvas_assignment_id), NOT the 6th (canvas_announcement_id) --
+    // see staging-core.ts's own header for the bug this call site used to have.
+    expect(createStagingBatchCoreMock).toHaveBeenCalledWith(client, "user-1", "class-1", "canvas_assignment", undefined, undefined, "assn-5");
     expect(createStagedDeliverablesCoreMock).toHaveBeenCalledWith(client, "user-1", "batch-new", [
       { name: "Quiz", type: "homework_assignment", date: null, confidence: 1, sourceSnippet: null },
     ]);

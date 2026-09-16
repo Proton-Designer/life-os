@@ -171,11 +171,36 @@ export async function createStagingBatchCore(
    * announcement poller (lib/canvas/sync-core.ts), so re-polling the same
    * Canvas announcement is a true INSERT...ON CONFLICT DO NOTHING no-op at
    * the database level. Undefined for every other caller, unchanged. */
-  canvasAnnouncementId?: string
+  canvasAnnouncementId?: string,
+  /** P2-21/migration 194: a SEPARATE dedup+tombstone marker (partial unique
+   * index on (user_id, canvas_assignment_id)) for an unmatched Canvas
+   * assignment staged via the REST grade-sync poller, and (P3-13) the ICS
+   * reconciler. Deliberately its own column/param, not folded into
+   * `canvasAnnouncementId` above -- a `"canvas_assignment"`-sourced batch
+   * and a `"canvas_announcement"`-sourced batch are deduped against two
+   * different Canvas ID spaces (an assignment ID and an announcement ID
+   * are never comparable), so writing one into the other's column would
+   * silently defeat both dedup indexes. FOUND AND FIXED here (P3-13):
+   * lib/canvas/sync-core.ts previously passed the assignment ID into the
+   * `canvasAnnouncementId` slot, so `staging_batches.canvas_assignment_id`
+   * was never actually written -- the "tombstone" property P2-21 claimed
+   * for assignment staging did not hold at HEAD. Neither existing test
+   * caught it: staging-core.test.ts asserted the wrong column for a
+   * `"canvas_assignment"` call, and sync-core.test.ts mocks this function
+   * entirely, so it only ever checked which arguments were PASSED, never
+   * which column they landed in. */
+  canvasAssignmentId?: string
 ): Promise<string> {
   const { data, error } = await supabase
     .from("staging_batches")
-    .insert({ user_id: userId, class_id: classId, source, raw_text: rawText ?? null, canvas_announcement_id: canvasAnnouncementId ?? null })
+    .insert({
+      user_id: userId,
+      class_id: classId,
+      source,
+      raw_text: rawText ?? null,
+      canvas_announcement_id: canvasAnnouncementId ?? null,
+      canvas_assignment_id: canvasAssignmentId ?? null,
+    })
     .select("id")
     .single();
   if (error) throw error;
