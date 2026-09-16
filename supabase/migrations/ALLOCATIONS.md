@@ -212,3 +212,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 | `204` | Sonnet ENG 2 (WIDGET-01), allocated by Opus Lead, 2026-09-15 | user_page_widgets: per-user per-domain widget layout (position, hidden) | allocated |
 | `205` | Sonnet ENG 1 (CANVAS-LITE-03), allocated by Opus Lead, 2026-09-15 | canvas_course_mappings.dismissed_at (removed-class tombstone) | allocated |
 | `206` | Sonnet ENG 1 (CANVAS-GAP-01), allocated by Opus Lead, 2026-09-16 | canvas_course_mappings computed grade snapshot columns | allocated |
+| `207` | Sonnet ENG 1 (P4-21), allocated by Opus Lead, 2026-09-16 | agent_connect_codes: single-use one-click agent connect codes (hashed, 10-min expiry) | allocated |
