@@ -210,3 +210,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 | `199` | Sonnet ENG 1 (P3-09), allocated by Opus Lead, 2026-09-15 | evening_closes (local_date closed marker, closed-vs-open day efficiency) | allocated |
 | `203` | Sonnet ENG 1 (P3-08), allocated by Opus Lead, 2026-09-15 | question_bank_shares (opt-in public share token per class, revocable) | allocated |
 | `204` | Sonnet ENG 2 (WIDGET-01), allocated by Opus Lead, 2026-09-15 | user_page_widgets: per-user per-domain widget layout (position, hidden) | allocated |
+| `205` | Sonnet ENG 1 (CANVAS-LITE-03), allocated by Opus Lead, 2026-09-15 | canvas_course_mappings.dismissed_at (removed-class tombstone) | allocated |
