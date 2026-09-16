@@ -146,6 +146,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
 
   // ── Distractions ────────────────────────────────────────────────────────
   "app/(app)/distractions/actions.ts#listTriggersForDomain": { read_only: true },
+  "app/(app)/distractions/actions.ts#listTopTriggersForQuickLog": { read_only: true, note: "cross-domain sibling of listTriggersForDomain (P3-02 quick-log chips)" },
   "app/(app)/distractions/actions.ts#getTodayDistractionCountForNow": { read_only: true },
   "app/(app)/distractions/actions.ts#getSessionDistractionCountForNow": { read_only: true },
   "app/(app)/distractions/actions.ts#logDistraction": { mcp: "distractions.event.log" },
