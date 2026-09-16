@@ -527,15 +527,27 @@ export default async function InsightsPage({
             // week and a lost afternoon are nothing alike (spec,
             // 2026-08-19). Wasted stays a neutral/muted color, never red:
             // it's information, not an accusation.
-            <DonutChart
-              slices={[
-                { label: "Signal", value: rangeSn.signalMinutes, colorVar: "--series-business" },
-                { label: "Other commitments", value: rangeSn.otherCommitmentsMinutes, colorVar: "--series-noise" },
-                { label: "Wasted", value: rangeSn.wastedMinutes, colorVar: "--series-other" },
-              ]}
-              centerLabel="Ratio"
-              centerValue={rangeSn.display}
-            />
+            <>
+              <DonutChart
+                slices={[
+                  { label: "Signal", value: rangeSn.signalMinutes, colorVar: "--series-business" },
+                  { label: "Other commitments", value: rangeSn.otherCommitmentsMinutes, colorVar: "--series-noise" },
+                  { label: "Wasted", value: rangeSn.wastedMinutes, colorVar: "--series-other" },
+                ]}
+                centerLabel="Ratio"
+                centerValue={rangeSn.display}
+              />
+              {/* UX-05: the rule itself (an unconfirmed Lock-In hour counts as
+                  Wasted regardless of real work done) is unchanged and stays
+                  in lib/checkins/session-hour-status.ts -- this only makes it
+                  visible. See that file's own header + docs/superpowers/specs/
+                  2026-08-19-missed-lockin-hours.md for why silence resolves to
+                  wasted rather than pending forever. */}
+              <p className="text-xs text-muted-foreground">
+                Wasted includes any Lock-In hour you never confirmed, not just idle time — during a
+                session, tap &quot;Still on it&quot; to keep a real work hour out of this count.
+              </p>
+            </>
           ) : (
             <EmptyState
               icon={Volume2}
@@ -580,7 +592,12 @@ export default async function InsightsPage({
             {wastedSegment && (
               <li className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-sm text-muted-foreground">
                 <span className="size-8 shrink-0" aria-hidden />
-                <span className="flex-1">Wasted</span>
+                <div className="flex flex-1 flex-col">
+                  <span>Wasted</span>
+                  {/* UX-05: same rule as the Signal:Noise panel above, restated
+                      briefly here since this row can be read on its own. */}
+                  <span className="text-xs">includes unconfirmed Lock-In hours, not just idle time</span>
+                </div>
                 <span className="font-mono font-medium tabular-nums">
                   {formatElapsedDuration(wastedSegment.minutes * 60_000)} · {Math.round(wastedSegment.pct)}%
                 </span>
