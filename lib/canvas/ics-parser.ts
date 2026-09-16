@@ -13,14 +13,26 @@ import { localDateString } from "@/lib/date-utils";
  * other iCalendar construct are ignored, not silently mishandled --
  * Canvas's own assignment-feed events are single, non-recurring VEVENTs.
  *
- * `canvasAssignmentId`/`canvasCourseId` are extracted from the event's
- * URL property against Canvas's stable, DOCUMENTED
- * `/courses/<id>/assignments/<id>` path shape -- deliberately NOT from
- * UID, whose exact format Canvas does not document or guarantee. An
- * event whose URL doesn't match (a course announcement, a plain calendar
- * event, a quiz without a direct assignment link) yields null IDs and is
- * filtered out by the caller (lib/canvas/ics-reconcile-core.ts) -- only
- * assignments participate in the staging/dedup pipeline at all.
+ * `canvasAssignmentId`/`canvasCourseId` are extracted from the event's URL
+ * property -- deliberately NOT from UID, whose exact format Canvas does
+ * not document or guarantee. An event whose URL doesn't match either shape
+ * below (a course announcement, a plain calendar event, a quiz without a
+ * direct assignment link) yields null IDs and is filtered out by the
+ * caller (lib/canvas/ics-reconcile-core.ts) -- only assignments
+ * participate in the staging/dedup pipeline at all.
+ *
+ * TWO URL SHAPES, CHECKED IN ORDER (CANVAS-GAP-08): the original code only
+ * ever matched `/courses/<id>/assignments/<id>` -- Canvas's own
+ * documented, stable path shape -- but a REAL per-user feed (sampled live,
+ * 143/143 events) never emits that; it emits
+ * `...?include_contexts=course_<id>...#assignment_<id>` instead (a query
+ * param for the course, a URL FRAGMENT for the assignment). The documented
+ * shape is checked first and kept working (a different Canvas instance or
+ * version might genuinely emit it), falling back to the real-observed
+ * shape. Both course AND assignment must match for either shape --
+ * `#calendar_event_<id>` (a plain calendar entry, not an assignment) must
+ * never yield a non-null canvasAssignmentId, matching the caller's own
+ * `canvasAssignmentId !== null && canvasCourseId !== null` filter.
  */
 
 export interface ParsedIcsEvent {
@@ -34,7 +46,25 @@ export interface ParsedIcsEvent {
   canvasAssignmentId: string | null;
 }
 
-const ASSIGNMENT_URL_PATTERN = /\/courses\/(\d+)\/assignments\/(\d+)/;
+/** Canvas's documented, stable path shape -- checked first. */
+const DOCUMENTED_ASSIGNMENT_URL_PATTERN = /\/courses\/(\d+)\/assignments\/(\d+)/;
+/** The shape a real per-user feed actually emits (sampled live, CANVAS-GAP-08): the course id lives in the `include_contexts=course_<id>` query param, the assignment id in the `#assignment_<id>` URL fragment. `#calendar_event_<id>` is a real fragment shape Canvas also emits for non-assignment entries -- it deliberately does NOT match this pattern. */
+const REAL_FEED_COURSE_PATTERN = /[?&]include_contexts=course_(\d+)/;
+const REAL_FEED_ASSIGNMENT_FRAGMENT_PATTERN = /#assignment_(\d+)/;
+
+/** Both course and assignment must resolve together, from the SAME shape -- a partial match (e.g. a course id with no assignment fragment) is not a usable Canvas assignment link. */
+function extractCanvasIds(url: string | null): { canvasCourseId: string | null; canvasAssignmentId: string | null } {
+  if (!url) return { canvasCourseId: null, canvasAssignmentId: null };
+
+  const documented = url.match(DOCUMENTED_ASSIGNMENT_URL_PATTERN);
+  if (documented) return { canvasCourseId: documented[1]!, canvasAssignmentId: documented[2]! };
+
+  const course = url.match(REAL_FEED_COURSE_PATTERN);
+  const assignment = url.match(REAL_FEED_ASSIGNMENT_FRAGMENT_PATTERN);
+  if (course && assignment) return { canvasCourseId: course[1]!, canvasAssignmentId: assignment[1]! };
+
+  return { canvasCourseId: null, canvasAssignmentId: null };
+}
 
 /** RFC 5545 line folding: a continuation line starts with a single space or tab, which is removed and the content appended to the previous line. */
 function unfoldLines(icsText: string): string[] {
@@ -76,14 +106,14 @@ export function parseCanvasIcsFeed(icsText: string): ParsedIcsEvent[] {
     }
     if (line === "END:VEVENT") {
       if (current) {
-        const match = current.url ? current.url.match(ASSIGNMENT_URL_PATTERN) : null;
+        const { canvasCourseId, canvasAssignmentId } = extractCanvasIds(current.url);
         events.push({
           uid: current.uid,
           summary: current.summary,
           dtstart: current.dtstart,
           url: current.url,
-          canvasCourseId: match ? match[1]! : null,
-          canvasAssignmentId: match ? match[2]! : null,
+          canvasCourseId,
+          canvasAssignmentId,
         });
       }
       current = null;

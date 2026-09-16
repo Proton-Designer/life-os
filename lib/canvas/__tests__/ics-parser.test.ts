@@ -76,6 +76,46 @@ describe("parseCanvasIcsFeed (P3-13)", () => {
   });
 });
 
+// CANVAS-GAP-08: the documented `/courses/<id>/assignments/<id>` shape
+// (tested above) never actually appears in a REAL per-user feed -- ENG3
+// live-sampled 143/143 real events and 0 matched it. The real shape is
+// `...?include_contexts=course_<id>...#assignment_<id>` (course in the
+// query string, assignment in the URL fragment). This URL is copied
+// verbatim from that live sample, not invented.
+describe("parseCanvasIcsFeed -- the REAL Canvas feed URL shape (CANVAS-GAP-08)", () => {
+  const REAL_ASSIGNMENT_URL = "https://uta.instructure.com/calendar?include_contexts=course_283243&month=08&year=2026#assignment_2336432";
+
+  it("extracts canvasCourseId/canvasAssignmentId from the real ?include_contexts=course_<id>#assignment_<id> shape", () => {
+    const feed = ["BEGIN:VEVENT", "UID:event-real-1@canvas.instructure.com", "SUMMARY:Real assignment", `URL;VALUE=URI:${REAL_ASSIGNMENT_URL}`, "END:VEVENT"].join("\r\n");
+    const events = parseCanvasIcsFeed(feed);
+    expect(events[0]!.canvasCourseId).toBe("283243");
+    expect(events[0]!.canvasAssignmentId).toBe("2336432");
+  });
+
+  it("a #calendar_event_<id> fragment (real shape, non-assignment) still yields canvasAssignmentId: null", () => {
+    const url = "https://uta.instructure.com/calendar?include_contexts=course_283243&month=08&year=2026#calendar_event_555";
+    const feed = ["BEGIN:VEVENT", "UID:event-real-2@canvas.instructure.com", "SUMMARY:Office hours", `URL;VALUE=URI:${url}`, "END:VEVENT"].join("\r\n");
+    const events = parseCanvasIcsFeed(feed);
+    expect(events[0]!.canvasAssignmentId).toBeNull();
+    expect(events[0]!.canvasCourseId).toBeNull();
+  });
+
+  it("the documented /courses/<id>/assignments/<id> shape still works (checked first, not removed)", () => {
+    const feed = ["BEGIN:VEVENT", "UID:event-documented@canvas.instructure.com", "URL:https://canvas.example.edu/courses/10/assignments/42", "END:VEVENT"].join("\r\n");
+    const events = parseCanvasIcsFeed(feed);
+    expect(events[0]!.canvasCourseId).toBe("10");
+    expect(events[0]!.canvasAssignmentId).toBe("42");
+  });
+
+  it("a course id with no assignment fragment (partial match) is not a usable link -- both null, not a half-filled id", () => {
+    const url = "https://uta.instructure.com/calendar?include_contexts=course_283243&month=08&year=2026";
+    const feed = ["BEGIN:VEVENT", "UID:event-real-3@canvas.instructure.com", `URL;VALUE=URI:${url}`, "END:VEVENT"].join("\r\n");
+    const events = parseCanvasIcsFeed(feed);
+    expect(events[0]!.canvasCourseId).toBeNull();
+    expect(events[0]!.canvasAssignmentId).toBeNull();
+  });
+});
+
 describe("icsDateStrToLocalDateString (P3-13)", () => {
   it("an all-day DTSTART (YYYYMMDD) maps directly, with no timezone conversion", () => {
     expect(icsDateStrToLocalDateString("20261010", "America/Chicago")).toBe("2026-10-10");
