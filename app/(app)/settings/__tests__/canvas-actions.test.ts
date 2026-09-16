@@ -221,3 +221,87 @@ describe("reconcileCanvasIcs -- course-import summary (CANVAS-LITE-04)", () => {
     expect(result.message).toBe("No new assignments found in your calendar feed.");
   });
 });
+
+// CANVAS-GAP-06: a genuinely no-token account (the user's own situation --
+// their school blocks Canvas access tokens) must be able to save an ICS
+// feed URL with ZERO prior canvas_connections row, and the resulting
+// status must never claim a token connection that doesn't exist.
+describe("saveCanvasIcsFeedUrl / getCanvasConnectionStatus -- token-less ICS accounts (CANVAS-GAP-06)", () => {
+  beforeEach(() => {
+    fromMock.mockClear();
+  });
+
+  it("saveCanvasIcsFeedUrl succeeds when NO canvas_connections row exists yet, via upsert not update", async () => {
+    const connectionsChain = makeChain({ data: null, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+
+    const { saveCanvasIcsFeedUrl } = await import("../canvas-actions");
+    const result = await saveCanvasIcsFeedUrl("https://school.instructure.com/feeds/calendars/user_abc123.ics");
+
+    expect(result.ok).toBe(true);
+    expect(connectionsChain.upsert).toHaveBeenCalled();
+    const payload = connectionsChain.upsert.mock.calls[0]![0] as Record<string, unknown>;
+    // Honest: no token fields fabricated to satisfy the (now-nullable) columns.
+    expect(payload).not.toHaveProperty("instance_url");
+    expect(payload).not.toHaveProperty("encrypted_token");
+    expect(payload).not.toHaveProperty("token_last4");
+    expect(payload).toHaveProperty("encrypted_ics_feed_url");
+    expect(payload).toHaveProperty("ics_feed_url_last4");
+  });
+
+  it("saveCanvasIcsFeedUrl still works (adopts the existing row) when a token connection already exists", async () => {
+    const connectionsChain = makeChain({ data: { user_id: "user-1" }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+
+    const { saveCanvasIcsFeedUrl } = await import("../canvas-actions");
+    const result = await saveCanvasIcsFeedUrl("https://school.instructure.com/feeds/calendars/user_abc123.ics");
+
+    expect(result.ok).toBe(true);
+    expect(connectionsChain.upsert).toHaveBeenCalled();
+  });
+
+  it("getCanvasConnectionStatus reports connected:false for an ICS-only row (instance_url null), even though a row exists", async () => {
+    const connectionsChain = makeChain({
+      data: {
+        instance_url: null,
+        token_last4: null,
+        canvas_user_name: null,
+        token_status: null,
+        last_synced_at: null,
+        last_sync_error: null,
+        ics_feed_url_last4: "c123",
+        last_ics_reconcile_at: null,
+      },
+      error: null,
+    });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+
+    const { getCanvasConnectionStatus } = await import("../canvas-actions");
+    const status = await getCanvasConnectionStatus();
+
+    expect(status.connected).toBe(false);
+    expect(status.icsFeedConnected).toBe(true);
+  });
+
+  it("getCanvasConnectionStatus still reports connected:true for a real token row", async () => {
+    const connectionsChain = makeChain({
+      data: {
+        instance_url: "https://school.instructure.com",
+        token_last4: "abcd",
+        canvas_user_name: "A Student",
+        token_status: "ok",
+        last_synced_at: null,
+        last_sync_error: null,
+        ics_feed_url_last4: null,
+        last_ics_reconcile_at: null,
+      },
+      error: null,
+    });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+
+    const { getCanvasConnectionStatus } = await import("../canvas-actions");
+    const status = await getCanvasConnectionStatus();
+
+    expect(status.connected).toBe(true);
+  });
+});

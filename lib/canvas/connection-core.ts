@@ -23,7 +23,12 @@ import { decryptSecret } from "@/lib/ai/encryption";
  */
 export async function resolveCanvasConnectionCore(supabase: SupabaseClient, userId: string): Promise<{ instanceUrl: string; token: string } | null> {
   const { data } = await supabase.from("canvas_connections").select("instance_url, encrypted_token").eq("user_id", userId).maybeSingle();
-  if (!data) return null;
+  // CANVAS-GAP-06 (migration 208): instance_url/encrypted_token are now
+  // nullable -- a row can exist for an ICS-feed-only connection with no
+  // token at all. This function's contract is "a usable Canvas API
+  // connection," and a token-less row is exactly as unusable as no row,
+  // so both return null the same way -- never call decryptSecret(null).
+  if (!data || data.instance_url === null || data.encrypted_token === null) return null;
   return { instanceUrl: data.instance_url, token: decryptSecret(data.encrypted_token) };
 }
 

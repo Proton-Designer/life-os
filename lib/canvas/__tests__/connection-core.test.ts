@@ -41,6 +41,19 @@ describe("resolveCanvasConnectionCore", () => {
     expect(conn).toEqual({ instanceUrl: "https://school.instructure.com", token: "enc-token" });
   });
 
+  // CANVAS-GAP-06 red-first: migration 208 makes instance_url/encrypted_token
+  // nullable so a token-less, ICS-feed-only row is representable. This
+  // function's own contract is "give me a usable Canvas API connection" --
+  // a row that exists but has no token is exactly as unusable as no row at
+  // all, and must return null the same way, never call decryptSecret(null).
+  it("returns null (not a decrypt attempt) for an ICS-only row that has no token", async () => {
+    const chain = makeChain({ data: { instance_url: null, encrypted_token: null }, error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+    const conn = await resolveCanvasConnectionCore(client, "user-1");
+    expect(conn).toBeNull();
+    expect(decryptSecretMock).not.toHaveBeenCalled();
+  });
+
   // A "decryption throws -> the call rejects" unit test here hit a Vitest
   // environment quirk (a throwing mockImplementation on this real, mocked
   // module path fails the test via what appears to be the runner's own

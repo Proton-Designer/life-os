@@ -80,7 +80,14 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
     };
   }
   return {
-    connected: true,
+    // CANVAS-GAP-06: a canvas_connections ROW existing is no longer the
+    // same thing as a TOKEN connection existing -- migration 208 lets an
+    // ICS-only row exist with instance_url null. `connected` must reflect
+    // the token specifically (canvas-settings.tsx's own `path === "token"
+    // && status.connected` branch, and defaultCanvasPath's `icsFeedConnected
+    // && !connected`, both rely on this to never show token-only
+    // affordances to a token-less account).
+    connected: data.instance_url !== null,
     instanceUrl: data.instance_url,
     tokenLast4: data.token_last4,
     canvasUserName: data.canvas_user_name,
@@ -428,13 +435,18 @@ export async function saveCanvasIcsFeedUrl(rawUrl: string): Promise<CanvasAction
   if (!resolved.ok) return { ok: false, message: resolved.message };
 
   const { supabase, userId } = await requireUser();
-  const { data: existing } = await supabase.from("canvas_connections").select("user_id").eq("user_id", userId).maybeSingle();
-  if (!existing) return { ok: false, message: "Connect Canvas first." };
-
-  const { error } = await supabase
-    .from("canvas_connections")
-    .update({ encrypted_ics_feed_url: encryptSecret(url), ics_feed_url_last4: last4(icsFeedDisplaySource(url)), updated_at: new Date().toISOString() })
-    .eq("user_id", userId);
+  // CANVAS-GAP-06: a token connection is NOT required to save a calendar
+  // feed URL -- migration 208 made instance_url/encrypted_token/
+  // token_last4/token_status nullable specifically so this row can exist
+  // for an ICS-only, genuinely no-token account. `upsert` (not `update`)
+  // creates the row when none exists yet; PostgREST's upsert only touches
+  // the columns present in this payload, so an EXISTING token connection's
+  // instance_url/encrypted_token/token_last4/token_status are left
+  // untouched when a token-connected user also saves a feed URL.
+  const { error } = await supabase.from("canvas_connections").upsert(
+    { user_id: userId, encrypted_ics_feed_url: encryptSecret(url), ics_feed_url_last4: last4(icsFeedDisplaySource(url)), updated_at: new Date().toISOString() },
+    { onConflict: "user_id" },
+  );
   if (error) return { ok: false, message: "Couldn't save that feed URL. Try again." };
 
   revalidatePath("/settings");
