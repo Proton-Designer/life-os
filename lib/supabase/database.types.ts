@@ -4342,6 +4342,7 @@ export type Database = {
           promotion_id: string | null
           rep_goal_id: string | null
           started_at: string
+          study_methods: string[]
           updated_at: string
           user_id: string
         }
@@ -4361,6 +4362,7 @@ export type Database = {
           promotion_id?: string | null
           rep_goal_id?: string | null
           started_at?: string
+          study_methods?: string[]
           updated_at?: string
           user_id?: string
         }
@@ -4380,6 +4382,7 @@ export type Database = {
           promotion_id?: string | null
           rep_goal_id?: string | null
           started_at?: string
+          study_methods?: string[]
           updated_at?: string
           user_id?: string
         }
@@ -4933,6 +4936,7 @@ export type Database = {
           promotion_id: string | null
           rep_goal_id: string | null
           started_at: string
+          study_methods: string[]
           updated_at: string
           user_id: string
         }
