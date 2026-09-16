@@ -1,17 +1,16 @@
 import type { CloseBlocker } from "@/lib/evening-close/evening-close";
 import type { ReviewItem } from "@/lib/distractions/types";
 import { CloseBlockerRewrite } from "./close-blocker-rewrite";
-import Link from "next/link";
 
 /**
  * Stage (a) of the evening close: account.
  *
  * A SERVER COMPONENT ON PURPOSE. It has no state and no handlers, so making it
  * a client component would only widen the bundle and open a boundary that
- * doesn't need to exist. The one interactive affordance is a `Link`, which is
- * a URL — not a callback passed across the boundary. AGENTS.md's rule bit this
- * project twice: a function prop from a Server Component survives `tsc` and
- * `vitest` and fails only in the browser.
+ * doesn't need to exist. The one interactive affordance is a same-page `#anchor`
+ * jump (GAP-02), which is a URL — not a callback passed across the boundary.
+ * AGENTS.md's rule bit this project twice: a function prop from a Server
+ * Component survives `tsc` and `vitest` and fails only in the browser.
  *
  * WHAT THIS SCREEN REFUSES. BOSS-VISION §6: the three-strikes forced rewrite
  * "blocks re-confirming a plan that has never worked… If the close makes that
@@ -66,14 +65,25 @@ export function CloseAccountStage({
         </div>
       )}
 
-      {/* Absent, not disabled, while blocked — see the note above. */}
+      {/* Absent, not disabled, while blocked — see the note above.
+          GAP-02 (ENG3's DAYCLOSE-DFT2 pass): this used to link to
+          `/close?stage=reflect`, but EveningClosePage takes no
+          searchParams at all — that query string could never affect
+          anything, and Reflect/Plan already render together with Account
+          the moment this becomes unblocked, so it was a permanent no-op
+          that read as a broken multi-stage wizard. Retargeted as an
+          honest same-page jump to Reflect's own heading (already has
+          `id="close-reflect-heading"`, close-reflect-stage.tsx) — same
+          "guide the eye downward" intent, but a real one. Plain `<a>`,
+          not next/link's `Link`, matching this app's other same-page
+          #anchor jumps (e.g. Settings' sticky section nav). */}
       {blocked ? null : (
-        <Link
-          href="/close?stage=reflect"
+        <a
+          href="#close-reflect-heading"
           className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
         >
           Continue
-        </Link>
+        </a>
       )}
     </section>
   );
