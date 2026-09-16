@@ -13,6 +13,8 @@ import { AiSpendCeilingSettings } from "@/components/settings/ai-spend-ceiling-s
 import { getMyMonthlySpendStatus } from "@/app/(app)/settings/ai-spend-actions";
 import { MODEL_CATALOG } from "@/lib/ai/model-catalog";
 import { ConnectorSettings } from "@/components/settings/connector-settings";
+import { WebhookSettings } from "@/components/settings/webhook-settings";
+import { getWebhookStatuses } from "@/app/(app)/settings/webhook-actions";
 import { getMcpTokenStatuses, getScheduledActions } from "@/app/(app)/settings/mcp-token-actions";
 import { CanvasSettings } from "@/components/settings/canvas-settings";
 import { getCanvasConnectionStatus, getCanvasCourseMappings, getLocalClassOptions } from "@/app/(app)/settings/canvas-actions";
@@ -43,6 +45,7 @@ const SECTIONS = [
   { id: "rescuetime", label: "RescueTime" },
   { id: "whoop", label: "Whoop" },
   { id: "connectors", label: "Connectors" },
+  { id: "webhooks", label: "Webhooks" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
 ];
@@ -92,6 +95,7 @@ export default async function SettingsPage() {
   const storageConfigured = isKeyStorageConfigured();
   const mcpTokens = await getMcpTokenStatuses();
   const scheduledActions = await getScheduledActions();
+  const webhooks = await getWebhookStatuses();
 
   // Multi-provider preference picker. `hasKey` deliberately only reflects
   // a STORED key, never the operator-funded fallback (even for an
@@ -214,6 +218,9 @@ export default async function SettingsPage() {
           </Panel>
           <Panel id="connectors" className="scroll-mt-24" title="Connectors">
             <ConnectorSettings initialTokens={mcpTokens} initialScheduledActions={scheduledActions} />
+          </Panel>
+          <Panel id="webhooks" className="scroll-mt-24" title="Webhooks">
+            <WebhookSettings initialWebhooks={webhooks} />
           </Panel>
         </div>
       </div>
