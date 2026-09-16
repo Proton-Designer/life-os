@@ -1284,6 +1284,36 @@ export type Database = {
         }
         Relationships: []
       }
+      fsrs_user_parameters: {
+        Row: {
+          created_at: string
+          loss: number | null
+          review_count_at_train: number
+          trained_at: string
+          updated_at: string
+          user_id: string
+          weights: number[]
+        }
+        Insert: {
+          created_at?: string
+          loss?: number | null
+          review_count_at_train: number
+          trained_at: string
+          updated_at?: string
+          user_id: string
+          weights: number[]
+        }
+        Update: {
+          created_at?: string
+          loss?: number | null
+          review_count_at_train?: number
+          trained_at?: string
+          updated_at?: string
+          user_id?: string
+          weights?: number[]
+        }
+        Relationships: []
+      }
       goal_milestones: {
         Row: {
           created_at: string
