@@ -243,6 +243,10 @@ export function ConnectorSettings({
             <code className="overflow-x-auto whitespace-nowrap rounded-md bg-muted/50 px-2 py-1.5 font-mono text-xs select-all">
               Authorization: Bearer &lt;token&gt;
             </code>
+            <p className="text-xs text-muted-foreground">
+              Full API guide, filled in for your own account:{" "}
+              <code className="rounded bg-muted/50 px-1 py-0.5 font-mono">{restUrl}/agent.md</code>
+            </p>
           </div>
 
           {justCreated ? (

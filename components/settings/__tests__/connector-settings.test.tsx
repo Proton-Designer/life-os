@@ -105,11 +105,12 @@ describe("ConnectorSettings tabs", () => {
     expect(screen.getByText(/\/api\/mcp/)).toBeInTheDocument();
   });
 
-  it("switching to 'Any agent' shows the REST base URL and the raw-token create form", async () => {
+  it("switching to 'Any agent' shows the REST base URL, its own agent.md guide link, and the raw-token create form", async () => {
     const user = userEvent.setup();
     render(<ConnectorSettings initialTokens={[]} initialScheduledActions={[]} />);
     await user.click(screen.getByRole("tab", { name: "Any agent" }));
-    expect(screen.getByText(/\/api\/v1/)).toBeInTheDocument();
+    expect(screen.getAllByText(/\/api\/v1/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/\/api\/v1\/agent\.md/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Label \(so you can tell tokens apart later\)/)).toBeInTheDocument();
   });
 });
