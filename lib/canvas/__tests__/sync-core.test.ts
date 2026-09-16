@@ -36,7 +36,8 @@ vi.mock("@/lib/school/staging-core", () => ({
   createStagedDeliverablesCore: (...args: unknown[]) => createStagedDeliverablesCoreMock(...args),
 }));
 
-const { syncCanvasAnnouncementsCore, syncCanvasGradesCore } = await import("../sync-core");
+const { syncCanvasAnnouncementsCore, syncCanvasGradesCore, processCanvasAssignment } = await import("../sync-core");
+type CanvasAssignmentSyncState = Parameters<typeof processCanvasAssignment>[5];
 
 /**
  * A per-table queue fake, same idiom as lib/habits/__tests__/actions-core.test.ts's
@@ -234,5 +235,104 @@ describe("syncCanvasGradesCore", () => {
     expect(result).toEqual({ ok: true, graded: 0, staged: 0 });
     expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
     expect(createStagedDeliverablesCoreMock).not.toHaveBeenCalled();
+  });
+});
+
+// CANVAS-LITE-02: processCanvasAssignment is now the shared per-assignment
+// decision function reused by both syncCanvasGradesCore's own loop (proven
+// unmodified above) AND the new agent bulk-import path
+// (lib/canvas/agent-import-core.ts) -- these tests assert the outcome
+// discriminant values directly, since agent-import-core.ts's per-item
+// PerItemOutcome mapping depends on them exactly.
+describe("processCanvasAssignment (CANVAS-LITE-02 extraction)", () => {
+  function makeState(overrides: Partial<CanvasAssignmentSyncState> = {}): CanvasAssignmentSyncState {
+    return { byCanvasId: new Map(), unlinked: [], alreadyStagedAssignmentIds: new Set(), ...overrides };
+  }
+
+  it('returns {outcome:"graded", via:"linked"} and updates when an already-linked assessment can be overwritten', async () => {
+    const { client, calls } = makeClient({});
+    const linked = { id: "a-1", canvasAssignmentId: "assn-1", name: "Essay", date: "2026-09-20", pointsEarned: null, pointsSource: null };
+    const state = makeState({ byCanvasId: new Map([["assn-1", linked]]) });
+
+    const outcome = await processCanvasAssignment(
+      client,
+      "user-1",
+      "class-1",
+      tz,
+      { canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 },
+      state,
+    );
+
+    expect(outcome).toEqual({ outcome: "graded", via: "linked" });
+    expect(calls.find((c) => c.table === "class_assessments" && c.method === "update")!.args[0]).toEqual({
+      points_earned: 92,
+      points_possible: 100,
+      points_source: "canvas",
+    });
+  });
+
+  it('returns {outcome:"protected", via:"linked"} and never writes when the existing grade is not Canvas-sourced', async () => {
+    const { client, calls } = makeClient({});
+    const linked = { id: "a-1", canvasAssignmentId: "assn-1", name: "Essay", date: "2026-09-20", pointsEarned: 100, pointsSource: null };
+    const state = makeState({ byCanvasId: new Map([["assn-1", linked]]) });
+
+    const outcome = await processCanvasAssignment(
+      client,
+      "user-1",
+      "class-1",
+      tz,
+      { canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 },
+      state,
+    );
+
+    expect(outcome).toEqual({ outcome: "protected", via: "linked" });
+    expect(calls.some((c) => c.table === "class_assessments" && c.method === "update")).toBe(false);
+  });
+
+  it('returns {outcome:"staged"} and removes nothing from unlinked when no unambiguous match exists', async () => {
+    const { client } = makeClient({});
+    const state = makeState({ unlinked: [{ id: "a-1", canvasAssignmentId: null, name: "Quiz A", date: "2026-09-01", pointsEarned: null, pointsSource: null }] });
+
+    const outcome = await processCanvasAssignment(
+      client,
+      "user-1",
+      "class-1",
+      tz,
+      { canvasAssignmentId: "assn-9", name: "Totally Different Title", dueAt: null, pointsPossible: 10, pointsEarned: 9 },
+      state,
+    );
+
+    expect(outcome).toEqual({ outcome: "staged" });
+    expect(state.unlinked).toHaveLength(1);
+  });
+
+  it('returns {outcome:"skipped", reason:"already_staged"} without staging again', async () => {
+    const { client } = makeClient({});
+    const state = makeState({ alreadyStagedAssignmentIds: new Set(["assn-already"]) });
+
+    const outcome = await processCanvasAssignment(
+      client,
+      "user-1",
+      "class-1",
+      tz,
+      { canvasAssignmentId: "assn-already", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8 },
+      state,
+    );
+
+    expect(outcome).toEqual({ outcome: "skipped", reason: "already_staged" });
+    expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
+  });
+
+  it('mutates state.unlinked in place on a matched grade, so a second call in the same batch cannot double-claim it', async () => {
+    const { client } = makeClient({});
+    const target = { id: "a-1", canvasAssignmentId: null, name: "Essay 1", date: "2026-09-01", pointsEarned: null, pointsSource: null };
+    const state = makeState({ unlinked: [target] });
+
+    const first = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-1", name: "essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88 }, state);
+    expect(first).toEqual({ outcome: "graded", via: "matched" });
+    expect(state.unlinked).toHaveLength(0);
+
+    const second = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-2", name: "essay 1", dueAt: null, pointsPossible: 50, pointsEarned: 40 }, state);
+    expect(second).toEqual({ outcome: "staged" });
   });
 });

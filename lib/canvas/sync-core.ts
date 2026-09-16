@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { localDateString } from "@/lib/date-utils";
-import { fetchCanvasAnnouncements, fetchCanvasGradedAssignments } from "@/lib/canvas/client";
+import { fetchCanvasAnnouncements, fetchCanvasGradedAssignments, type CanvasGradedAssignment } from "@/lib/canvas/client";
 import { resolveCanvasConnectionCore, recordCanvasSyncOutcomeCore } from "@/lib/canvas/connection-core";
 import { stageAnnouncementCore } from "@/lib/school/announcement-extraction-core";
 import { createStagingBatchCore, createStagedDeliverablesCore } from "@/lib/school/staging-core";
@@ -175,15 +175,103 @@ function canOverwriteGrade(existing: { pointsEarned: number | null; pointsSource
 }
 
 /**
- * Per mapped course, per graded Canvas assignment: (a) already linked by
- * canvas_assignment_id -> direct update, respecting the never-overwrite
- * guard; (b) unlinked but an UNAMBIGUOUS local match exists (exact
- * normalized title, or -- if that's ambiguous or absent -- a single
- * due-date match) among this class's still-unlinked assessments -> link +
- * grade, same guard; (c) no unambiguous match -> stage it (never
- * auto-create), deduped/tombstoned against a prior stage (pending OR
- * already rejected -- see migration 194's own header) via
- * staging_batches.canvas_assignment_id.
+ * Per-class state `processCanvasAssignment` reads and mutates across a run
+ * of assignments for that one class -- loaded ONCE per class (not once per
+ * assignment) by whichever caller is looping. `unlinked` shrinks in place
+ * as assignments get matched, so a second assignment in the same batch can
+ * never double-match an assessment a prior assignment already claimed.
+ */
+export interface CanvasAssignmentSyncState {
+  byCanvasId: Map<string, LocalAssessment>;
+  unlinked: LocalAssessment[];
+  alreadyStagedAssignmentIds: Set<string>;
+}
+
+export type ProcessCanvasAssignmentOutcome =
+  | { outcome: "graded"; via: "linked" | "matched" }
+  | { outcome: "protected"; via: "linked" | "matched" }
+  | { outcome: "staged" }
+  | { outcome: "skipped"; reason: "already_staged" };
+
+/**
+ * CANVAS-LITE-02 extraction (behavior-preserving) — the exact per-assignment
+ * decision logic that used to live inline in `syncCanvasGradesCore`'s own
+ * loop, now shared by BOTH that token-based sync loop and the new
+ * agent-bulk-import handler (lib/canvas/agent-import-core.ts) so the
+ * never-overwrite / unambiguous-match / staging-tombstone rule can never
+ * drift between the two paths: (a) already linked by canvas_assignment_id
+ * -> direct update, respecting the never-overwrite guard; (b) unlinked but
+ * an UNAMBIGUOUS local match exists (exact normalized title, or -- if
+ * that's ambiguous or absent -- a single due-date match) among this
+ * class's still-unlinked assessments -> link + grade, same guard; (c) no
+ * unambiguous match -> stage it (never auto-create), deduped/tombstoned
+ * against a prior stage (pending OR already rejected -- see migration
+ * 194's own header) via staging_batches.canvas_assignment_id.
+ */
+export async function processCanvasAssignment(
+  supabase: SupabaseClient,
+  userId: string,
+  classId: string,
+  timezone: string,
+  assignment: CanvasGradedAssignment,
+  state: CanvasAssignmentSyncState,
+): Promise<ProcessCanvasAssignmentOutcome> {
+  const linked = state.byCanvasId.get(assignment.canvasAssignmentId);
+  if (linked) {
+    if (canOverwriteGrade(linked)) {
+      const { error } = await supabase
+        .from("class_assessments")
+        .update({ points_earned: assignment.pointsEarned, points_possible: assignment.pointsPossible, points_source: "canvas" })
+        .eq("id", linked.id)
+        .eq("user_id", userId);
+      if (error) throw error;
+      return { outcome: "graded", via: "linked" };
+    }
+    return { outcome: "protected", via: "linked" };
+  }
+
+  const dueDateStr = assignment.dueAt ? localDateString(new Date(assignment.dueAt), timezone) : null;
+  const match = findUnambiguousLocalMatch(state.unlinked, assignment.name, dueDateStr);
+
+  if (match) {
+    const updatePayload: Record<string, unknown> = { canvas_assignment_id: assignment.canvasAssignmentId };
+    const canGrade = canOverwriteGrade(match);
+    if (canGrade) {
+      updatePayload.points_earned = assignment.pointsEarned;
+      updatePayload.points_possible = assignment.pointsPossible;
+      updatePayload.points_source = "canvas";
+    }
+    const { error } = await supabase.from("class_assessments").update(updatePayload).eq("id", match.id).eq("user_id", userId);
+    if (error) throw error;
+    state.unlinked = state.unlinked.filter((a) => a.id !== match.id);
+    return canGrade ? { outcome: "graded", via: "matched" } : { outcome: "protected", via: "matched" };
+  }
+
+  if (state.alreadyStagedAssignmentIds.has(assignment.canvasAssignmentId)) {
+    return { outcome: "skipped", reason: "already_staged" };
+  }
+
+  const item: ExtractedItem = {
+    name: assignment.name,
+    // No signal to infer a finer AssessmentType from Canvas's own
+    // assignment shape -- homework_assignment is this vocabulary's own
+    // catch-all default, and the review UI (unchanged, P2-07's own)
+    // lets the user correct it before confirming, same as any
+    // AI-extracted item's type already gets corrected today.
+    type: "homework_assignment",
+    date: assignment.dueAt ? localDateString(new Date(assignment.dueAt), timezone) : null,
+    confidence: 1,
+    sourceSnippet: null,
+  };
+  const batchId = await createStagingBatchCore(supabase, userId, classId, "canvas_assignment", undefined, undefined, assignment.canvasAssignmentId);
+  await createStagedDeliverablesCore(supabase, userId, batchId, [item]);
+  return { outcome: "staged" };
+}
+
+/**
+ * Per mapped course, per graded Canvas assignment: delegates the actual
+ * decision to `processCanvasAssignment` (see its own header) — this loop
+ * now owns only the per-course fetch/state-loading/counting.
  */
 export async function syncCanvasGradesCore(supabase: SupabaseClient, userId: string, timezone: string, now: Date): Promise<CanvasGradeSyncResult> {
   if (!(await connectedAndUsable(supabase, userId))) return { ok: false };
@@ -240,7 +328,7 @@ export async function syncCanvasGradesCore(supabase: SupabaseClient, userId: str
       pointsSource: r.points_source as string | null,
     }));
     const byCanvasId = new Map(assessments.filter((a) => a.canvasAssignmentId).map((a) => [a.canvasAssignmentId as string, a]));
-    let unlinked = assessments.filter((a) => !a.canvasAssignmentId);
+    const unlinked = assessments.filter((a) => !a.canvasAssignmentId);
 
     // Pre-filter Canvas assignments already staged-but-unconfirmed, same
     // avoid-a-wasted-write reasoning as the announcement path's own
@@ -256,55 +344,12 @@ export async function syncCanvasGradesCore(supabase: SupabaseClient, userId: str
     if (stagedError) throw stagedError;
     const alreadyStagedAssignmentIds = new Set((existingStaged ?? []).map((r) => r.canvas_assignment_id as string));
 
+    const state: CanvasAssignmentSyncState = { byCanvasId, unlinked, alreadyStagedAssignmentIds };
+
     for (const assignment of res.data) {
-      const linked = byCanvasId.get(assignment.canvasAssignmentId);
-      if (linked) {
-        if (canOverwriteGrade(linked)) {
-          const { error } = await supabase
-            .from("class_assessments")
-            .update({ points_earned: assignment.pointsEarned, points_possible: assignment.pointsPossible, points_source: "canvas" })
-            .eq("id", linked.id)
-            .eq("user_id", userId);
-          if (error) throw error;
-          graded++;
-        }
-        continue;
-      }
-
-      const dueDateStr = assignment.dueAt ? localDateString(new Date(assignment.dueAt), timezone) : null;
-      const match = findUnambiguousLocalMatch(unlinked, assignment.name, dueDateStr);
-
-      if (match) {
-        const updatePayload: Record<string, unknown> = { canvas_assignment_id: assignment.canvasAssignmentId };
-        if (canOverwriteGrade(match)) {
-          updatePayload.points_earned = assignment.pointsEarned;
-          updatePayload.points_possible = assignment.pointsPossible;
-          updatePayload.points_source = "canvas";
-        }
-        const { error } = await supabase.from("class_assessments").update(updatePayload).eq("id", match.id).eq("user_id", userId);
-        if (error) throw error;
-        unlinked = unlinked.filter((a) => a.id !== match!.id);
-        graded++;
-        continue;
-      }
-
-      if (alreadyStagedAssignmentIds.has(assignment.canvasAssignmentId)) continue;
-
-      const item: ExtractedItem = {
-        name: assignment.name,
-        // No signal to infer a finer AssessmentType from Canvas's own
-        // assignment shape -- homework_assignment is this vocabulary's own
-        // catch-all default, and the review UI (unchanged, P2-07's own)
-        // lets the user correct it before confirming, same as any
-        // AI-extracted item's type already gets corrected today.
-        type: "homework_assignment",
-        date: assignment.dueAt ? localDateString(new Date(assignment.dueAt), timezone) : null,
-        confidence: 1,
-        sourceSnippet: null,
-      };
-      const batchId = await createStagingBatchCore(supabase, userId, course.classId, "canvas_assignment", undefined, undefined, assignment.canvasAssignmentId);
-      await createStagedDeliverablesCore(supabase, userId, batchId, [item]);
-      staged++;
+      const outcome = await processCanvasAssignment(supabase, userId, course.classId, timezone, assignment, state);
+      if (outcome.outcome === "graded") graded++;
+      else if (outcome.outcome === "staged") staged++;
     }
   }
 
