@@ -8,6 +8,9 @@ vi.mock("@/lib/mcp/scheduler-runner", () => ({ processScheduledActions: (...args
 const processHourCompletionsMock = vi.fn(async (..._args: unknown[]) => ({ candidates: 0, notified: 0 }));
 vi.mock("@/lib/business/hour-completion", () => ({ processHourCompletions: (...args: unknown[]) => processHourCompletionsMock(...args) }));
 
+const processWebhookDeliveriesMock = vi.fn(async (..._args: unknown[]) => ({ attempted: 0, delivered: 0, retried: 0, failed: 0, disabled: 0 }));
+vi.mock("@/lib/mcp/webhook-dispatch", () => ({ processWebhookDeliveries: (...args: unknown[]) => processWebhookDeliveriesMock(...args) }));
+
 const { POST } = await import("../route");
 
 const ORIGINAL_SECRET = process.env.CRON_SECRET;
@@ -16,6 +19,7 @@ afterEach(() => {
   process.env.CRON_SECRET = ORIGINAL_SECRET;
   processScheduledActionsMock.mockClear();
   processHourCompletionsMock.mockClear();
+  processWebhookDeliveriesMock.mockClear();
 });
 
 function req(authHeader?: string) {
@@ -68,5 +72,21 @@ describe("POST /api/cron/scheduled-actions", () => {
     process.env.CRON_SECRET = "s3cr3t";
     await POST(req("Bearer wrong"));
     expect(processHourCompletionsMock).not.toHaveBeenCalled();
+  });
+
+  it("also runs the piggybacked webhook-dispatch drain (P4-22) and includes its counts", async () => {
+    process.env.CRON_SECRET = "s3cr3t";
+    processWebhookDeliveriesMock.mockResolvedValueOnce({ attempted: 4, delivered: 3, retried: 1, failed: 0, disabled: 0 });
+    const res = await POST(req("Bearer s3cr3t"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.webhookDeliveries).toEqual({ attempted: 4, delivered: 3, retried: 1, failed: 0, disabled: 0 });
+    expect(processWebhookDeliveriesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run the webhook-dispatch drain when auth fails", async () => {
+    process.env.CRON_SECRET = "s3cr3t";
+    await POST(req("Bearer wrong"));
+    expect(processWebhookDeliveriesMock).not.toHaveBeenCalled();
   });
 });

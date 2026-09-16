@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { processScheduledActions } from "@/lib/mcp/scheduler-runner";
 import { processHourCompletions } from "@/lib/business/hour-completion";
+import { processWebhookDeliveries } from "@/lib/mcp/webhook-dispatch";
 
 /**
  * L7's poll target — hit by a pg_cron + pg_net job every 5 minutes (the
@@ -43,5 +44,7 @@ export async function POST(request: Request) {
   // Piggybacked, not a separate cron registration -- see hour-completion.ts's
   // own header for why the existing 5-minute poll is the right home for this.
   const hourCompletions = await processHourCompletions(serviceClient);
-  return NextResponse.json({ success: true, at: new Date().toISOString(), ...result, hourCompletions });
+  // P4-22: outbound webhook delivery, same piggyback reasoning.
+  const webhookDeliveries = await processWebhookDeliveries(serviceClient);
+  return NextResponse.json({ success: true, at: new Date().toISOString(), ...result, hourCompletions, webhookDeliveries });
 }

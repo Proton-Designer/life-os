@@ -7,6 +7,7 @@ import { writeAuditRow, type McpAuditOutcome, type McpAuditTransport } from "@/l
 import { mintSessionJwt, buildUserScopedClient } from "@/lib/mcp/session";
 import { readMcpAuth, type AuthInfoLike } from "@/lib/mcp/auth-info";
 import { ToolInputError, ToolNotFoundError } from "@/lib/mcp/tool-input-error";
+import { enqueueWriteOkWebhookDeliveries } from "@/lib/mcp/webhook-dispatch";
 
 /**
  * The transport-neutral operation core (P4-02; design in the overnight
@@ -204,5 +205,16 @@ export async function executeOperation(
   }
 
   void touchLastUsed(serviceClient, auth.tokenId).catch(() => {}); // best-effort; never blocks or fails the call
+
+  // P4-22: enqueue webhook deliveries for a successful write only --
+  // best-effort, same posture as touchLastUsed above. Never inline
+  // delivery: this only ever inserts a queue row (or, for the common case
+  // of zero webhooks, one cheap select and nothing else); the actual HTTP
+  // delivery happens later, out of this request, via
+  // lib/mcp/webhook-dispatch.ts's processWebhookDeliveries.
+  if (toolName === "write" && outcome === "ok") {
+    void enqueueWriteOkWebhookDeliveries(serviceClient, auth.userId, { operation, summary: resultSummary }).catch(() => {});
+  }
+
   return result;
 }
