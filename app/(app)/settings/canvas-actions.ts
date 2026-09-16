@@ -2,10 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
-import { encryptSecret, isKeyStorageConfigured, last4 } from "@/lib/ai/encryption";
-import { verifyCanvasToken, fetchCanvasCourses } from "@/lib/canvas/client";
+import { encryptSecret, decryptSecret, isKeyStorageConfigured, last4 } from "@/lib/ai/encryption";
+import { verifyCanvasToken, fetchCanvasCourses, fetchCanvasIcsFeed } from "@/lib/canvas/client";
 import { resolveCanvasConnectionCore, recordCanvasSyncOutcomeCore } from "@/lib/canvas/connection-core";
+import { reconcileCanvasIcsCore, type IcsReconcileResult } from "@/lib/canvas/ics-reconcile-core";
 import { checkUrlSyntax, resolveSafeOutboundUrl, safeOrigin } from "@/lib/net/safe-outbound-url";
+import { getProfile } from "@/lib/supabase/auth";
+import { icsFeedDisplaySource } from "@/lib/canvas/ics-feed-display";
 
 /**
  * Bring-your-own Canvas connection management, mirroring api-key-actions.ts's
@@ -22,6 +25,10 @@ export interface CanvasConnectionStatus {
   tokenStatus: "ok" | "expired" | null;
   lastSyncedAt: string | null;
   lastSyncError: string | null;
+  /** P3-13 -- ICS calendar-feed reconciliation, opt-in and separate from the API connection above. */
+  icsFeedConnected: boolean;
+  icsFeedLast4: string | null;
+  lastIcsReconcileAt: string | null;
 }
 
 export interface CanvasActionResult {
@@ -46,7 +53,7 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
   const { supabase, userId } = await requireUser();
   const { data } = await supabase
     .from("canvas_connections")
-    .select("instance_url, token_last4, canvas_user_name, token_status, last_synced_at, last_sync_error")
+    .select("instance_url, token_last4, canvas_user_name, token_status, last_synced_at, last_sync_error, ics_feed_url_last4, last_ics_reconcile_at")
     .eq("user_id", userId)
     .maybeSingle();
   if (!data) {
@@ -58,6 +65,9 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
       tokenStatus: null,
       lastSyncedAt: null,
       lastSyncError: null,
+      icsFeedConnected: false,
+      icsFeedLast4: null,
+      lastIcsReconcileAt: null,
     };
   }
   return {
@@ -68,6 +78,9 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
     tokenStatus: data.token_status as "ok" | "expired",
     lastSyncedAt: data.last_synced_at,
     lastSyncError: data.last_sync_error,
+    icsFeedConnected: data.ics_feed_url_last4 !== null,
+    icsFeedLast4: data.ics_feed_url_last4,
+    lastIcsReconcileAt: data.last_ics_reconcile_at,
   };
 }
 
@@ -284,4 +297,102 @@ export async function setCourseMapping(mappingId: string, classId: string | null
   revalidatePath("/settings");
   revalidatePath("/school");
   return { ok: true, message: "Mapping updated." };
+}
+
+/**
+ * P3-13 -- saves the user's Canvas ICS calendar-feed URL. A SEPARATE
+ * credential from the API token above: the feed URL embeds its own
+ * secret in the query string, so the FULL url (not just its origin, per
+ * the Lead's ruling that this is a credential) is encrypted at rest via
+ * the same helpers `encrypted_token` uses. `token_last4` on the origin-only
+ * `instance_url` truncates for display purposes there; here the whole
+ * value is the secret, so `last4` is taken from the whole pasted string.
+ *
+ * SSRF: validated the same way `connectCanvas` validates `instanceUrl`
+ * (syntax + a real DNS resolution) -- re-validated again on every actual
+ * fetch by `fetchCanvasIcsFeed`'s own `safeFetch` call, same two-layer
+ * posture (connect-time + fetch-time) as the API connection.
+ */
+export async function saveCanvasIcsFeedUrl(rawUrl: string): Promise<CanvasActionResult> {
+  const url = rawUrl.trim();
+  if (!url) return { ok: false, message: "Paste your Canvas calendar feed URL." };
+  if (!isKeyStorageConfigured()) {
+    return { ok: false, message: "Key storage isn't configured on this deployment, so a feed URL can't be saved securely yet." };
+  }
+
+  const syntax = checkUrlSyntax(url);
+  if (!syntax.ok) return { ok: false, message: syntax.message };
+  const resolved = await resolveSafeOutboundUrl(url);
+  if (!resolved.ok) return { ok: false, message: resolved.message };
+
+  const { supabase, userId } = await requireUser();
+  const { data: existing } = await supabase.from("canvas_connections").select("user_id").eq("user_id", userId).maybeSingle();
+  if (!existing) return { ok: false, message: "Connect Canvas first." };
+
+  const { error } = await supabase
+    .from("canvas_connections")
+    .update({ encrypted_ics_feed_url: encryptSecret(url), ics_feed_url_last4: last4(icsFeedDisplaySource(url)), updated_at: new Date().toISOString() })
+    .eq("user_id", userId);
+  if (error) return { ok: false, message: "Couldn't save that feed URL. Try again." };
+
+  revalidatePath("/settings");
+  return { ok: true, message: "Calendar feed saved." };
+}
+
+export interface IcsReconcileActionResult extends CanvasActionResult {
+  summary?: IcsReconcileResult;
+}
+
+/** Rate-limit for the manual "Reconcile now" action (the Lead's ruling): the ICS feed is a full-term dump, not a small incremental poll. A plain cooldown timestamp, not a request-count limiter -- this is a single button one signed-in user can click, not a shared/high-volume endpoint. */
+const ICS_RECONCILE_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
+ * Manually-triggered (P3-13's own scoping decision, approved by the
+ * Lead) -- fetches the saved ICS feed, parses it, and reconciles against
+ * the SAME dedup marker the REST grade-sync poll uses. Never returns the
+ * decrypted feed URL, or any part of it, to the caller -- only a count
+ * summary.
+ */
+export async function reconcileCanvasIcs(): Promise<IcsReconcileActionResult> {
+  const { supabase, userId } = await requireUser();
+  const { data } = await supabase.from("canvas_connections").select("encrypted_ics_feed_url, last_ics_reconcile_at").eq("user_id", userId).maybeSingle();
+  if (!data || !data.encrypted_ics_feed_url) return { ok: false, message: "Save your Canvas calendar feed URL first." };
+
+  if (data.last_ics_reconcile_at) {
+    const elapsedMs = Date.now() - new Date(data.last_ics_reconcile_at).getTime();
+    if (elapsedMs < ICS_RECONCILE_COOLDOWN_MS) {
+      const waitSec = Math.ceil((ICS_RECONCILE_COOLDOWN_MS - elapsedMs) / 1000);
+      return { ok: false, message: `Reconciled recently -- try again in ${waitSec}s.` };
+    }
+  }
+
+  let feedUrl: string;
+  try {
+    feedUrl = decryptSecret(data.encrypted_ics_feed_url);
+  } catch {
+    return { ok: false, message: "Your saved calendar feed URL can't be read anymore. Paste it again." };
+  }
+
+  const fetchRes = await fetchCanvasIcsFeed(feedUrl);
+  if (!fetchRes.ok) return { ok: false, message: fetchRes.message };
+
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+
+  let summary: IcsReconcileResult;
+  try {
+    summary = await reconcileCanvasIcsCore(supabase, userId, timezone, fetchRes.data);
+  } catch {
+    return { ok: false, message: "Reconciliation failed unexpectedly. Try again." };
+  }
+
+  await supabase.from("canvas_connections").update({ last_ics_reconcile_at: new Date().toISOString() }).eq("user_id", userId);
+  revalidatePath("/settings");
+  revalidatePath("/school");
+
+  const parts: string[] = [];
+  if (summary.newlyStaged > 0) parts.push(`${summary.newlyStaged} new assignment${summary.newlyStaged === 1 ? "" : "s"} staged for your review`);
+  if (summary.linkedToExisting > 0) parts.push(`${summary.linkedToExisting} matched to an assessment you already entered`);
+  const message = parts.length === 0 ? "No new assignments found in your calendar feed." : `Found ${parts.join(" and ")}.`;
+  return { ok: true, message, summary };
 }

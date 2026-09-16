@@ -219,3 +219,59 @@ export async function fetchCanvasGradedAssignments(instanceUrl: string, token: s
     }));
   return { ok: true, data: graded };
 }
+
+/** 5 MB -- generous for a single user's term calendar (a few hundred VEVENTs is a few hundred KB), small enough that a malicious or misconfigured feed URL can't be used to exhaust memory/bandwidth on this server. */
+const ICS_FEED_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * P3-13 -- fetches the raw text of a Canvas ICS calendar feed.
+ *
+ * DELIBERATELY NOT `canvasFetch`: the feed URL is not an `/api/v1/...`
+ * path against a stored `instanceUrl`, and it carries its own embedded
+ * secret token in its query string rather than a Bearer header -- the
+ * URL IS the credential, per the Lead's ruling. Still goes through
+ * `safeFetch` (SSRF-guarded, re-validated on every call, same as every
+ * other outbound Canvas request in this module) since it's still a
+ * user-supplied URL this server fetches on the user's behalf.
+ *
+ * SIZE-CAPPED, STREAMED: an ICS feed is attacker-influenceable text (the
+ * Lead's explicit ruling) -- reads the response body incrementally and
+ * aborts the moment it exceeds `ICS_FEED_MAX_BYTES`, rather than buffering
+ * an unbounded body via `res.text()` first and checking after the fact.
+ */
+export async function fetchCanvasIcsFeed(feedUrl: string): Promise<CanvasClientResult<string>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await safeFetch(feedUrl, { headers: { Accept: "text/calendar" }, signal: controller.signal });
+    if (!res.ok) return { ok: false, message: `The calendar feed returned an error (HTTP ${res.status}).` };
+    if (!res.body) return { ok: true, data: await res.text() };
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let totalBytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > ICS_FEED_MAX_BYTES) {
+        await reader.cancel();
+        return { ok: false, message: "That calendar feed is larger than expected. Reconciliation stopped." };
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return { ok: true, data: text };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return { ok: false, message: "The calendar feed didn't respond in time." };
+    }
+    if (err instanceof Error && err.message) {
+      return { ok: false, message: err.message };
+    }
+    return { ok: false, message: "Couldn't reach that calendar feed." };
+  } finally {
+    clearTimeout(timeout);
+  }
+}

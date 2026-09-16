@@ -17,7 +17,7 @@ vi.mock("@/lib/net/safe-outbound-url", () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }));
 
-const { verifyCanvasToken, fetchCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments } = await import("@/lib/canvas/client");
+const { verifyCanvasToken, fetchCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments, fetchCanvasIcsFeed } = await import("@/lib/canvas/client");
 
 describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
   beforeEach(() => safeFetchMock.mockReset());
@@ -93,5 +93,40 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     const url = String(safeFetchMock.mock.calls[0][0]);
     expect(url).toContain("/api/v1/courses/123/assignments");
     expect(url).toContain("include[]=submission");
+  });
+
+  it("fetchCanvasIcsFeed calls safeFetch with the raw feed URL (no /api/v1 path, no Bearer header) and returns the body text", async () => {
+    safeFetchMock.mockResolvedValue(new Response("BEGIN:VCALENDAR\r\nEND:VCALENDAR", { status: 200 }));
+    const res = await fetchCanvasIcsFeed("https://school.instructure.com/feeds/calendars/user_abc123.ics");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data).toBe("BEGIN:VCALENDAR\r\nEND:VCALENDAR");
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(safeFetchMock.mock.calls[0][0]).toBe("https://school.instructure.com/feeds/calendars/user_abc123.ics");
+    expect((safeFetchMock.mock.calls[0][1] as { headers?: Record<string, string> }).headers).not.toHaveProperty("Authorization");
+  });
+
+  it("fetchCanvasIcsFeed rejects a non-ok status", async () => {
+    safeFetchMock.mockResolvedValue(new Response("", { status: 404 }));
+    const res = await fetchCanvasIcsFeed("https://school.instructure.com/feeds/calendars/user_abc123.ics");
+    expect(res.ok).toBe(false);
+  });
+
+  it("fetchCanvasIcsFeed aborts and reports an error once the streamed body exceeds the size cap, without buffering it all first", async () => {
+    // 6 MB of 'a' -- over the 5 MB cap -- streamed in 1 MB chunks so this
+    // proves the abort happens mid-stream, not only after a hypothetical
+    // full buffer-then-check.
+    const chunk = new TextEncoder().encode("a".repeat(1024 * 1024));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < 6; i++) controller.enqueue(chunk);
+        controller.close();
+      },
+    });
+    safeFetchMock.mockResolvedValue(new Response(stream, { status: 200 }));
+    const res = await fetchCanvasIcsFeed("https://school.instructure.com/feeds/calendars/user_abc123.ics");
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("expected rejection");
+    expect(res.message).toMatch(/larger than expected/i);
   });
 });

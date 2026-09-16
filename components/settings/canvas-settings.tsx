@@ -11,10 +11,13 @@ import {
   getCanvasConnectionStatus,
   getCanvasCourseMappings,
   setCourseMapping,
+  saveCanvasIcsFeedUrl,
+  reconcileCanvasIcs,
   type CanvasConnectionStatus,
   type CanvasCourseMapping,
   type LocalClassOption,
 } from "@/app/(app)/settings/canvas-actions";
+import { icsFeedDisplaySource } from "@/lib/canvas/ics-feed-display";
 
 const DISCONNECTED_STATUS: CanvasConnectionStatus = {
   connected: false,
@@ -24,6 +27,9 @@ const DISCONNECTED_STATUS: CanvasConnectionStatus = {
   tokenStatus: null,
   lastSyncedAt: null,
   lastSyncError: null,
+  icsFeedConnected: false,
+  icsFeedLast4: null,
+  lastIcsReconcileAt: null,
 };
 
 /**
@@ -58,6 +64,7 @@ export function CanvasSettings({
   const [mappings, setMappings] = useState(initialMappings);
   const [instanceUrl, setInstanceUrl] = useState("");
   const [token, setToken] = useState("");
+  const [icsFeedUrl, setIcsFeedUrl] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -78,6 +85,9 @@ export function CanvasSettings({
           tokenStatus: "ok",
           lastSyncedAt: status.lastSyncedAt, // reconnect doesn't itself sync — preserve prior history
           lastSyncError: null,
+          icsFeedConnected: status.icsFeedConnected,
+          icsFeedLast4: status.icsFeedLast4,
+          lastIcsReconcileAt: status.lastIcsReconcileAt,
         });
       }
     });
@@ -136,6 +146,26 @@ export function CanvasSettings({
     startTransition(async () => {
       const res = await setCourseMapping(mappingId, classId);
       if (!res.ok) setMessage({ ok: false, text: res.message });
+    });
+  }
+
+  function handleSaveIcsFeedUrl() {
+    const url = icsFeedUrl.trim();
+    startTransition(async () => {
+      const res = await saveCanvasIcsFeedUrl(url);
+      setMessage({ ok: res.ok, text: res.message });
+      if (res.ok) {
+        setIcsFeedUrl("");
+        setStatus((s) => ({ ...s, icsFeedConnected: true, icsFeedLast4: icsFeedDisplaySource(url).slice(-4) }));
+      }
+    });
+  }
+
+  function handleReconcileIcs() {
+    startTransition(async () => {
+      const res = await reconcileCanvasIcs();
+      setMessage({ ok: res.ok, text: res.message });
+      if (res.ok) setStatus((s) => ({ ...s, lastIcsReconcileAt: new Date().toISOString() }));
     });
   }
 
@@ -231,6 +261,52 @@ export function CanvasSettings({
           ) : (
             <p className="text-xs text-muted-foreground">No courses synced yet — click &quot;Sync courses&quot;.</p>
           )}
+
+          {!expired ? (
+            <div className="flex flex-col gap-2 border-t border-border/30 pt-3">
+              <span className="text-xs font-medium text-muted-foreground">Calendar feed reconciliation</span>
+              <p className="text-xs text-muted-foreground">
+                Optional: paste your Canvas calendar feed URL (Canvas &gt; Calendar &gt; &quot;Calendar Feed&quot;) to catch assignments the course
+                sync above might miss.
+              </p>
+              {status.icsFeedConnected ? (
+                <>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-mono text-xs text-muted-foreground">feed connected · ····{status.icsFeedLast4}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {status.lastIcsReconcileAt ? `Last reconciled ${formatSyncedAt(status.lastIcsReconcileAt)}` : "Never reconciled yet."}
+                  </p>
+                  <div>
+                    <Button size="sm" variant="outline" disabled={isPending} onClick={handleReconcileIcs}>
+                      Reconcile now
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="canvas-ics-url" className="sr-only">
+                    Canvas calendar feed URL
+                  </Label>
+                  <Input
+                    id="canvas-ics-url"
+                    type="password"
+                    placeholder="https://yourschool.instructure.com/feeds/calendars/user_....ics"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={icsFeedUrl}
+                    onChange={(e) => setIcsFeedUrl(e.target.value)}
+                    disabled={isPending || !storageConfigured}
+                  />
+                  <div>
+                    <Button size="sm" variant="outline" disabled={isPending || !storageConfigured || !icsFeedUrl.trim()} onClick={handleSaveIcsFeedUrl}>
+                      Save feed URL
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-4">

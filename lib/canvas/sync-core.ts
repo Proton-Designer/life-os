@@ -26,12 +26,13 @@ import type { ExtractedItem } from "@/lib/school/syllabus-extraction";
  * course B, rather than aborting the whole sync over one course's problem.
  */
 
-interface MappedCourse {
+export interface MappedCourse {
   canvasCourseId: string;
   classId: string;
 }
 
-async function getMappedCourses(supabase: SupabaseClient, userId: string): Promise<MappedCourse[]> {
+/** Exported for reuse by lib/canvas/ics-reconcile-core.ts (P3-13) -- the same course-mapping lookup, not a second query implementation. */
+export async function getMappedCourses(supabase: SupabaseClient, userId: string): Promise<MappedCourse[]> {
   const { data, error } = await supabase
     .from("canvas_course_mappings")
     .select("canvas_course_id, class_id")
@@ -131,7 +132,7 @@ export async function syncCanvasAnnouncementsCore(supabase: SupabaseClient, user
 
 export type CanvasGradeSyncResult = { ok: true; graded: number; staged: number } | { ok: false };
 
-interface LocalAssessment {
+export interface LocalAssessment {
   id: string;
   canvasAssignmentId: string | null;
   name: string;
@@ -143,6 +144,29 @@ interface LocalAssessment {
 /** Case-insensitive, whitespace-collapsed -- the same "close enough to be the same title" normalization this Lead ruling's "exact normalized title" phrase calls for, without being so loose it risks a false-positive match. */
 function normalizeTitle(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * The Lead's P2-21 ruling's exact match rule ("same class, exact
+ * normalized title, or a single due-date match"), extracted for reuse by
+ * lib/canvas/ics-reconcile-core.ts (P3-13, the Lead's explicit
+ * instruction: "it is the same function, so extract it rather than
+ * duplicating the logic") -- a user-typed assessment the REST sync never
+ * linked (so it's still `unlinked` here) should be LINKED by whichever
+ * Canvas discovery path finds it first, not offered as a rejectable
+ * staged duplicate. `dateStr` is a pre-resolved local date string so this
+ * function stays agnostic to which raw Canvas date format the caller
+ * converted it from (a REST `dueAt` ISO instant vs. an ICS `DTSTART`).
+ */
+export function findUnambiguousLocalMatch(unlinked: LocalAssessment[], name: string, dateStr: string | null): LocalAssessment | null {
+  const normalizedTarget = normalizeTitle(name);
+  const titleMatches = unlinked.filter((a) => normalizeTitle(a.name) === normalizedTarget);
+  if (titleMatches.length === 1) return titleMatches[0]!;
+  if (dateStr) {
+    const dateMatches = unlinked.filter((a) => a.date === dateStr);
+    if (dateMatches.length === 1) return dateMatches[0]!;
+  }
+  return null;
 }
 
 /** True only when overwriting points_earned is safe -- migration 189's own invariant, restated once here rather than inlined at each call site. */
@@ -247,14 +271,8 @@ export async function syncCanvasGradesCore(supabase: SupabaseClient, userId: str
         continue;
       }
 
-      const normalizedTarget = normalizeTitle(assignment.name);
-      const titleMatches = unlinked.filter((a) => normalizeTitle(a.name) === normalizedTarget);
-      let match: LocalAssessment | null = titleMatches.length === 1 ? titleMatches[0]! : null;
-      if (!match && assignment.dueAt) {
-        const dueDateStr = localDateString(new Date(assignment.dueAt), timezone);
-        const dateMatches = unlinked.filter((a) => a.date === dueDateStr);
-        match = dateMatches.length === 1 ? dateMatches[0]! : null;
-      }
+      const dueDateStr = assignment.dueAt ? localDateString(new Date(assignment.dueAt), timezone) : null;
+      const match = findUnambiguousLocalMatch(unlinked, assignment.name, dueDateStr);
 
       if (match) {
         const updatePayload: Record<string, unknown> = { canvas_assignment_id: assignment.canvasAssignmentId };
