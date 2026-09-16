@@ -295,6 +295,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/school/staging-actions.ts#updateStagedDeliverable": { mcp: "school.staging.update_deliverable" },
   "app/(app)/school/staging-actions.ts#deleteStagedDeliverable": { mcp: "school.staging.delete_deliverable", note: "pre-confirm only, per P4-08 AC" },
   "app/(app)/school/syllabus-extraction-actions.ts#extractSyllabusDeliverables": { excluded: "llm_spend: syllabus file extraction via LLM" },
+  "app/(app)/school/syllabus-extraction-actions.ts#importCanvasSyllabus": { excluded: "llm_spend: Canvas syllabus_body extraction via LLM, same shape as extractSyllabusDeliverables" },
 
   // ── Settings ────────────────────────────────────────────────────────────
   "app/(app)/settings/account-actions.ts#deleteMyAccount": { excluded: "hard_delete: deletes the whole account" },
