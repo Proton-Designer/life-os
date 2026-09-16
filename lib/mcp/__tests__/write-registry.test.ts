@@ -893,17 +893,17 @@ describe("habits.vote handlers", () => {
   });
 });
 
-describe("day.item handlers (P3-01)", () => {
+describe("day.routine_item handlers (P3-01)", () => {
   const now = new Date("2026-09-08T20:00:00.000Z");
 
   it("create REJECTS a missing label", async () => {
-    const action = getWriteAction("day", "item", "create")!;
+    const action = getWriteAction("day", "routine_item", "create")!;
     const client = makeTableClient({ morning_routine_items: makeChain() });
     await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/patch\.label/i);
   });
 
   it("create inserts a new item when under the ceiling", async () => {
-    const action = getWriteAction("day", "item", "create")!;
+    const action = getWriteAction("day", "routine_item", "create")!;
     const chain: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "insert"]) chain[m] = vi.fn(() => chain);
     chain.then = (resolve: (v: unknown) => void) => resolve({ data: null, count: 2, error: null }); // 2 active items -> under the ceiling
@@ -916,26 +916,26 @@ describe("day.item handlers (P3-01)", () => {
   });
 
   it("archive REQUIRES the top-level id", async () => {
-    const action = getWriteAction("day", "item", "archive")!;
+    const action = getWriteAction("day", "routine_item", "archive")!;
     const client = makeTableClient({ morning_routine_items: makeChain() });
     await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/requires the top-level.*id/i);
   });
 
   it("archive does NOT throw on 0 rows -- deliberate no-op matching the core's own design", async () => {
-    const action = getWriteAction("day", "item", "archive")!;
+    const action = getWriteAction("day", "routine_item", "archive")!;
     const client = makeTableClient({ morning_routine_items: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived-or-missing" }, {});
     expect(outcome.summary).toMatch(/already-archived-or-missing/);
   });
 
   it("check REJECTS a missing patch.date", async () => {
-    const action = getWriteAction("day", "item", "check")!;
+    const action = getWriteAction("day", "routine_item", "check")!;
     const client = makeTableClient({ morning_routine_checks: makeChain() });
     await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, {})).rejects.toThrow(/patch\.date/i);
   });
 
   it("check REJECTS a date other than local today", async () => {
-    const action = getWriteAction("day", "item", "check")!;
+    const action = getWriteAction("day", "routine_item", "check")!;
     const client = makeTableClient({ morning_routine_checks: makeChain() });
     await expect(
       action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2020-01-01" }),
@@ -943,14 +943,14 @@ describe("day.item handlers (P3-01)", () => {
   });
 
   it("check upserts for local today when the date matches", async () => {
-    const action = getWriteAction("day", "item", "check")!;
+    const action = getWriteAction("day", "routine_item", "check")!;
     const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/r-1/);
   });
 
   it("check translates a composite-FK violation (bad item id) into ToolNotFoundError", async () => {
-    const action = getWriteAction("day", "item", "check")!;
+    const action = getWriteAction("day", "routine_item", "check")!;
     const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: { code: "23503", message: "fk violation" } }) });
     await expect(
       action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "not-real" }, { date: "2026-09-08" }),
@@ -958,7 +958,7 @@ describe("day.item handlers (P3-01)", () => {
   });
 
   it("uncheck REJECTS a date other than local today", async () => {
-    const action = getWriteAction("day", "item", "uncheck")!;
+    const action = getWriteAction("day", "routine_item", "uncheck")!;
     const client = makeTableClient({ morning_routine_checks: makeChain() });
     await expect(
       action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2020-01-01" }),
@@ -966,7 +966,7 @@ describe("day.item handlers (P3-01)", () => {
   });
 
   it("uncheck deletes today's check when it exists (a no-op on 0 rows, not an error)", async () => {
-    const action = getWriteAction("day", "item", "uncheck")!;
+    const action = getWriteAction("day", "routine_item", "uncheck")!;
     const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/r-1/);

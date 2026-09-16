@@ -2802,9 +2802,15 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
       },
       // P3-01: nested under `day`, not a new top-level domain -- the
       // source inventory groups "Start Day tap" and "Morning Routine
-      // checklist" together under one Day Structure ritual.
-      item: {
-        entity: "item",
+      // checklist" together under one Day Structure ritual. Named
+      // `routine_item` (P4-31) -- P3-01 originally shipped this as the
+      // terser `item` only to fit the account-map's then-800-token wire
+      // budget; P4-31 raised that budget deliberately and restored the
+      // clearer name, since `item` alone (unlike `task`, `vote`, `goal`)
+      // doesn't say what it's an item OF without the domain name doing
+      // all the work.
+      routine_item: {
+        entity: "routine_item",
         actions: {
           create: {
             action: "create",

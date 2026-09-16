@@ -21,9 +21,47 @@ import type { UserDomainsState } from "@/lib/domains/get-user-domains";
  * disagree with the nav. `active_for_account` ANNOTATES only — read/write
  * never gate on it (OPEN_QUESTIONS [P4-03]).
  *
- * Budget: ≤800 tokens (measured in account-map.test.ts). Names only here;
- * list_capabilities(domain) carries fields, patch shapes and descriptions.
+ * Budget: ≤ACCOUNT_MAP_WIRE_TOKEN_BUDGET (measured in account-map.test.ts).
+ * Names only here; list_capabilities(domain) carries fields, patch shapes
+ * and descriptions.
  */
+
+/**
+ * P4-31 -- the wire-format token ceiling, deliberately raised from the
+ * original 800 (P4-03's own guess, never revisited against real growth).
+ * That number had already forced two real compromises in one night before
+ * this: P3-01 renamed day.routine_item -> day.item and shortened day's own
+ * one-liner just to fit (both restored by this same task), and
+ * CANVAS-LITE-02 trimmed three DOMAIN_ONE_LINERS strings after
+ * school.canvas_import pushed the map to 805. Both times the budget won
+ * and the clarity an agent actually reads lost -- backwards, since this
+ * map is the first thing an external agent sees on connect.
+ *
+ * Measured at the moment of this change (account-map.test.ts's own
+ * legacy/domains fixtures, with every trimmed string restored): ~815-820
+ * tokens for 16 domains, all currently READ-only or write-only, none with
+ * BOTH. P4-05..09 are about to add real READ coverage to roughly 8-10 of
+ * those domains at once (business.session_objective, day.day_start,
+ * deen.weekly_goal, fitness.custom_habit/habit_log, goals.goal/milestone,
+ * habits.identity_habit/vote, review.sleep_intent,
+ * school.grade_category/staging_batch/staged_deliverable/
+ * canvas_connection/canvas_course_mapping/lecture_recording/
+ * lecture_transcript, settings.ai_preference/rescuetime_connection,
+ * work.schedule_event/schedule_event_override/
+ * schedule_event_cancellation/rescuetime_daily_summary -- the exact list
+ * lib/mcp/__tests__/registry-coverage.test.ts already names as pending) --
+ * roughly 20+ new entity names landing in `read` arrays that are empty or
+ * short today. 1400 leaves ~580-585 tokens of headroom over today's
+ * measured usage: enough for that whole wave without forcing another
+ * reflexive trim, without being an arbitrary/unbounded number either.
+ *
+ * If a future domain's own read/write growth threatens THIS ceiling, the
+ * two-tier design this task's own AC offered as an alternative (a compact
+ * default + a detail call) is the right next move -- not shaving copy
+ * again. Nothing here should be shortened just to fit; raise this
+ * constant deliberately instead, with the same reasoning discipline.
+ */
+export const ACCOUNT_MAP_WIRE_TOKEN_BUDGET = 1400;
 
 export type AccountArea = "faith" | "body" | "learning" | "work" | "business" | "school";
 
@@ -46,9 +84,9 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   deen: "Prayer, adhkar, Qur'an, habits",
   work: "Targets, tasks, deep work",
   business: "Kill list, weekly goals",
-  school: "Classes, schedule, grades", // trimmed for the wire budget when canvas_import landed (CANVAS-LITE-02)
-  fitness: "Workouts, plans, metrics",
-  self_mastery: "Books, lessons, reviews",
+  school: "Classes, schedule, tasks, grades",
+  fitness: "Workouts, plans, body metrics",
+  self_mastery: "Books, lessons, cards, reviews",
   settings: "Profile, prefs, areas",
   checkins: "Check-ins, time allocation",
   distractions: "Triggers, plans, outcomes",
@@ -59,7 +97,7 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   // P4-07: write-only domains (no REGISTRY/read entry at all yet -- P4-05's
   // future territory). No `d.description` to fall back to for these (that
   // field only exists on a read DomainDef), so they need an explicit line.
-  day: "Start + routine", // P3-01 added day.item; kept short for the wire budget
+  day: "Morning day-start mark + routine checklist",
   goals: "Monthly goals + milestones",
   habits: "Identity habits + daily votes",
 };

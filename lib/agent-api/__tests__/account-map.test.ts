@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { REGISTRY } from "@/lib/mcp/registry";
 import { WRITE_REGISTRY } from "@/lib/mcp/write-registry";
+import { ACCOUNT_MAP_WIRE_TOKEN_BUDGET } from "../account-map";
 
 /**
  * P4-03 — the account map is ONE pure-of-its-inputs generator. Red first:
@@ -168,11 +169,11 @@ describe("buildAccountMap — capability sets", () => {
   it.each([
     ["legacy", LEGACY],
     ["domains", FAITH_SCHOOL],
-  ])("%s map, as sent on the wire, stays within the 800-token budget (estimate: ceil(chars / 3.5) of the minified JSON; no tokenizer is installed)", async (label, fixture) => {
+  ])(`%s map, as sent on the wire, stays within the ${ACCOUNT_MAP_WIRE_TOKEN_BUDGET}-token budget (P4-31; estimate: ceil(chars / 3.5) of the minified JSON; no tokenizer is installed)`, async (label, fixture) => {
     const { buildAccountMap, toAccountMapWire } = await import("../account-map");
     const wire = toAccountMapWire(await buildAccountMap(makeClient(fixture), "user-1", NOW));
     const chars = JSON.stringify(wire).length;
     const estimate = Math.ceil(chars / 3.5);
-    expect(estimate, `${label}: ${chars} chars ≈ ${estimate} tokens`).toBeLessThanOrEqual(800);
+    expect(estimate, `${label}: ${chars} chars ≈ ${estimate} tokens`).toBeLessThanOrEqual(ACCOUNT_MAP_WIRE_TOKEN_BUDGET);
   });
 });

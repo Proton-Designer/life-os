@@ -54,9 +54,9 @@ export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
   "habits.vote.cast",
   "habits.vote.retract",
   // P3-01
-  "day.item.archive",
-  "day.item.check",
-  "day.item.uncheck",
+  "day.routine_item.archive",
+  "day.routine_item.check",
+  "day.routine_item.uncheck",
   // P4-08
   "school.question.create",
   "school.question.update",
@@ -101,8 +101,8 @@ export const DATE_DEFAULTS_TO_TODAY: ReadonlySet<string> = new Set([
   "habits.vote.retract",
   // P3-01 -- same reasoning: checks may only ever be applied to local
   // today (assertRequestedDateIsToday rejects anything else).
-  "day.item.check",
-  "day.item.uncheck",
+  "day.routine_item.check",
+  "day.routine_item.uncheck",
 ]);
 
 /** Handlers that require patch.date where a silent "today" would be wrong. The agent must always send it. */
