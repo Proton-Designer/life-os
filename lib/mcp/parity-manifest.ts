@@ -208,6 +208,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/onboarding/actions.ts#completeOnboarding": { excluded: "onboarding_wizard: final step" },
 
   // ── Day start ───────────────────────────────────────────────────────────
+  "app/(app)/page-layout-actions.ts#getPageLayout": { read_only: true },
+  "app/(app)/page-layout-actions.ts#savePageLayout": { pending: "P4-cov-WIDGET", note: "arranging a user's own page is a legitimate agent write; hiding never deletes data" },
   "app/(app)/open/actions.ts#startDayAction": { mcp: "day.day_start.start" },
 
   // ── Timeboxing (P2-06) ──────────────────────────────────────────────────
