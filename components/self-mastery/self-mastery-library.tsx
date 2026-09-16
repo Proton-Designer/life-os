@@ -18,6 +18,7 @@ import { WeeklyRecapCard } from "./weekly-recap-card";
 import { getOverconfidenceVerdict } from "@/lib/self-mastery/get-overconfidence-verdict";
 import { OverconfidenceCard } from "./overconfidence-card";
 import { TeachBackPanel } from "./teach-back-panel";
+import { SemanticSearchPanel } from "./semantic-search-panel";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -72,6 +73,7 @@ export async function SelfMasteryLibrary() {
     <PageContainer>
       <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && canUpload ? <UploadBookDialog /> : null} />
 
+      {books.length > 0 ? <SemanticSearchPanel /> : null}
       <WeeklyRecapCard recap={weeklyRecap} />
       <OverconfidenceCard verdict={overconfidenceVerdict} />
       {/* P2-18 -- own book/lesson picker, doesn't need the fully-shaped
