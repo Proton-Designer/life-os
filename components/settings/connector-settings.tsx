@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { createMcpToken, revokeMcpToken, type McpTokenStatus } from "@/app/(app)/settings/mcp-token-actions";
 import { DEFAULT_TOKEN_EXPIRY, TOKEN_EXPIRY_CHOICES, TOKEN_EXPIRY_LABELS, isTokenExpiryChoice, type TokenExpiryChoice } from "@/lib/mcp/token-expiry";
 
@@ -174,7 +176,16 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
       </div>
 
       {tokens.length > 0 ? (
-        <div className="flex flex-col gap-2">
+        // UX-04: this list has no natural size cap -- the pass-1 audit found
+        // it rendering ~25 rows permanently visible on a shared test account.
+        // The create-token form above (the one action most people need) stays
+        // visible; the list of what already exists goes behind a reveal.
+        <Collapsible className="flex flex-col gap-2">
+          <CollapsibleTrigger className="group flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+            <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=closed]:-rotate-90" aria-hidden />
+            {tokens.length} token{tokens.length === 1 ? "" : "s"}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-col gap-2">
           {tokens.map((t) => (
             <div
               key={t.id}
@@ -207,7 +218,8 @@ export function ConnectorSettings({ initialTokens }: { initialTokens: McpTokenSt
               )}
             </div>
           ))}
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
       ) : (
         <p className="text-xs text-muted-foreground">No tokens yet.</p>
       )}

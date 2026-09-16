@@ -59,6 +59,11 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
 
   return (
     <div className="flex flex-col gap-8">
+      {/* UX-04: a shared eyebrow label reading Profile/Prayer/Check-ins/
+          Location as one visual group -- not merged into a single Panel,
+          since Location's atomic self-save deliberately cannot nest inside
+          this <form> (see its own comment below). */}
+      <span className="-mb-4 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Account</span>
       <form onSubmit={saveMain} className="contents">
       <Panel id="profile" className="scroll-mt-24" title="Profile">
         <div className="flex flex-col gap-4">

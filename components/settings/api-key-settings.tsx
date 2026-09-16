@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { saveApiKey, removeApiKey, testStoredKey, type KeyStatus } from "@/app/(app)/settings/api-key-actions";
 
 export interface ProviderInfo {
@@ -91,15 +93,23 @@ export function ApiKeySettings({
         const stored = statusFor(p.id);
         const res = result[p.id];
         return (
-          <div key={p.id} className="flex flex-col gap-3 rounded-xl border border-border/40 p-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-sm font-medium">{p.label}</span>
+          // UX-04: six providers stacked, always fully expanded, was one of
+          // the pass-1 audit's concrete findings. Collapsed by default;
+          // open by default only when connected, so a provider you've
+          // already set up still shows its status without a click.
+          <Collapsible key={p.id} defaultOpen={!!stored} className="flex flex-col gap-3 rounded-xl border border-border/40 p-4">
+            <CollapsibleTrigger className="group flex flex-wrap items-baseline justify-between gap-2 text-left" aria-label={p.label}>
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" aria-hidden />
+                {p.label}
+              </span>
               {stored ? (
                 <span className="font-mono text-xs text-muted-foreground">connected · ····{stored.last4}</span>
               ) : (
                 <span className="text-xs text-muted-foreground">not connected</span>
               )}
-            </div>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="flex flex-col gap-3">
 
             <p className="text-xs text-muted-foreground">{p.unlocks}</p>
 
@@ -151,7 +161,8 @@ export function ApiKeySettings({
             {res ? (
               <p className={`text-xs ${res.ok ? "text-muted-foreground" : "text-destructive"}`}>{res.message}</p>
             ) : null}
-          </div>
+            </CollapsibleContent>
+          </Collapsible>
         );
       })}
 
