@@ -314,6 +314,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/canvas-actions.ts#getCanvasCourseMappings": { read_only: true },
   "app/(app)/settings/canvas-actions.ts#getLocalClassOptions": { read_only: true },
   "app/(app)/settings/canvas-actions.ts#setCourseMapping": { pending: "P4-cov-P2-20", note: "course mapping is not a credential" },
+  "app/(app)/settings/canvas-actions.ts#importConcludedCanvasCourses": { pending: "P4-cov-P2-20", note: "opt-in concluded-course import; the stored Canvas token stays server-side and is never exposed" },
   "app/(app)/settings/canvas-actions.ts#saveCanvasIcsFeedUrl": { excluded: "credential: saves the Canvas ICS calendar-feed URL, a bearer secret in URL form" },
   "app/(app)/settings/canvas-actions.ts#reconcileCanvasIcs": { excluded: "credential: decrypts and fetches the stored ICS feed credential to run reconciliation" },
   "app/(app)/settings/whoop-actions.ts#getWhoopSettingsStatus": { read_only: true, note: "connection status and scopes only; no token material" },
