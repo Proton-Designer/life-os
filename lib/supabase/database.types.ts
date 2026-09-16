@@ -2596,6 +2596,36 @@ export type Database = {
         }
         Relationships: []
       }
+      page_layout_widgets: {
+        Row: {
+          config: NonNullable<Json>
+          created_at: string
+          domain_key: string
+          hidden: boolean
+          position: number
+          user_id: string
+          widget_key: string
+        }
+        Insert: {
+          config?: NonNullable<Json>
+          created_at?: string
+          domain_key: string
+          hidden?: boolean
+          position: number
+          user_id?: string
+          widget_key: string
+        }
+        Update: {
+          config?: NonNullable<Json>
+          created_at?: string
+          domain_key?: string
+          hidden?: boolean
+          position?: number
+          user_id?: string
+          widget_key?: string
+        }
+        Relationships: []
+      }
       pending_storage_deletions: {
         Row: {
           attempts: number
