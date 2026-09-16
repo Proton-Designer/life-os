@@ -4790,6 +4790,22 @@ export type Database = {
           name: string
         }[]
       }
+      match_source_chunks: {
+        Args: {
+          p_embedding_model: string
+          p_match_count?: number
+          p_query_embedding: string
+        }
+        Returns: {
+          book_id: string
+          book_title: string
+          id: string
+          page_end: number
+          page_start: number
+          similarity: number
+          text: string
+        }[]
+      }
       mcp_oauth_prune_stale_clients: {
         Args: Record<PropertyKey, never>
         Returns: number
