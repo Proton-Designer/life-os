@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { triggerFsrsTuning, FSRS_TUNING_MIN_REVIEWS, type FsrsTuningStatus } from "@/app/(app)/personal/fsrs-tuning-actions";
+import { triggerFsrsTuning } from "@/app/(app)/personal/fsrs-tuning-actions";
+import { FSRS_TUNING_MIN_REVIEWS } from "@/lib/self-mastery/fsrs-tuning-constants";
+import type { FsrsTuningStatus } from "@/lib/self-mastery/fsrs-tuning";
 
 /**
  * Renders an ISO timestamp WITHOUT any timezone conversion -- same

@@ -4,7 +4,6 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("@/app/(app)/personal/fsrs-tuning-actions", () => ({
   triggerFsrsTuning: vi.fn(),
-  FSRS_TUNING_MIN_REVIEWS: 1000,
 }));
 
 import { triggerFsrsTuning } from "@/app/(app)/personal/fsrs-tuning-actions";

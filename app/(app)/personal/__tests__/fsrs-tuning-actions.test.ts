@@ -10,7 +10,6 @@ const runFsrsTuningMock = vi.fn();
 vi.mock("@/lib/self-mastery/fsrs-tuning", () => ({
   getFsrsTuningStatus: (...args: unknown[]) => getFsrsTuningStatusCoreMock(...args),
   runFsrsTuning: (...args: unknown[]) => runFsrsTuningMock(...args),
-  FSRS_TUNING_MIN_REVIEWS: 1000,
 }));
 
 const { getFsrsTuningStatus, triggerFsrsTuning } = await import("../fsrs-tuning-actions");

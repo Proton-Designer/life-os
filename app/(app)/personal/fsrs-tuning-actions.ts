@@ -1,10 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/supabase/auth";
-import { getFsrsTuningStatus as getFsrsTuningStatusCore, runFsrsTuning, FSRS_TUNING_MIN_REVIEWS, type FsrsTuningStatus } from "@/lib/self-mastery/fsrs-tuning";
-
-export type { FsrsTuningStatus };
-export { FSRS_TUNING_MIN_REVIEWS };
+import { getFsrsTuningStatus as getFsrsTuningStatusCore, runFsrsTuning, type FsrsTuningStatus } from "@/lib/self-mastery/fsrs-tuning";
 
 export async function getFsrsTuningStatus(): Promise<FsrsTuningStatus> {
   const { supabase, userId } = await requireUser();

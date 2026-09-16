@@ -3,6 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fsrs, generatorParameters, createEmptyCard, checkParameters, default_w, type Card, type Grade } from "ts-fsrs";
 import { requireUser } from "@/lib/supabase/auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { FSRS_TUNING_MIN_REVIEWS } from "@/lib/self-mastery/fsrs-tuning-constants";
+
+export { FSRS_TUNING_MIN_REVIEWS };
 
 /**
  * P3-20 -- per-user FSRS parameter tuning, gated on >=1000 logged reviews
@@ -59,7 +62,6 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
  * any of the expensive replay work runs.
  */
 
-export const FSRS_TUNING_MIN_REVIEWS = 1000;
 const MAX_REVIEWS_FOR_TUNING = 5000;
 const MAX_ITERATIONS = 6;
 const INITIAL_STEP_FRACTION = 0.15;
