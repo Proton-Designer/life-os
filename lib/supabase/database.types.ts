@@ -95,6 +95,52 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_connect_codes: {
+        Row: {
+          code_hash: string
+          created_at: string
+          expires_at: string
+          id: string
+          label: string | null
+          minted_token_id: string | null
+          scopes: string[]
+          token_expiry_choice: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          code_hash: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          label?: string | null
+          minted_token_id?: string | null
+          scopes: string[]
+          token_expiry_choice: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Update: {
+          code_hash?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          label?: string | null
+          minted_token_id?: string | null
+          scopes?: string[]
+          token_expiry_choice?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_connect_codes_minted_token_id_fkey"
+            columns: ["minted_token_id"]
+            referencedRelation: "mcp_access_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_morning_briefs: {
         Row: {
           brief_date: string
