@@ -745,6 +745,40 @@ export type Database = {
           },
         ]
       }
+      class_question_shares: {
+        Row: {
+          class_id: string
+          created_at: string
+          id: string
+          revoked_at: string | null
+          token_hash: string
+          user_id: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          id?: string
+          revoked_at?: string | null
+          token_hash: string
+          user_id?: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          id?: string
+          revoked_at?: string | null
+          token_hash?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_question_shares_user_id_class_id_fkey"
+            columns: ["user_id", "class_id"]
+            referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       classes: {
         Row: {
           allowed_absences: number | null
