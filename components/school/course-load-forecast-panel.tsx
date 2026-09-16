@@ -1,6 +1,8 @@
+import { ChevronDown } from "lucide-react";
 import { addDaysToDateString, formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
-import type { CourseLoadForecast } from "@/lib/school/course-load-forecast";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import type { CourseLoadForecast, ForecastItem } from "@/lib/school/course-load-forecast";
 
 /**
  * Phase 2 #P2-10 — course-load forecasting with overflow warnings.
@@ -8,7 +10,14 @@ import type { CourseLoadForecast } from "@/lib/school/course-load-forecast";
  * #14), same honest-empty-state posture: `!forecast.hasAnyUpcomingWork`
  * renders a plain message, never an all-zero grid dressed up as a real
  * forecast.
+ *
+ * UX-06 -- same fix as deadline-risk-panel.tsx's own, applied to the other
+ * surface DFT7 found dumping 40+ items flat: `item.heavy` (already the
+ * panel's own "worth calling out" signal, used for the destructive-color
+ * weight badge) stays fully visible; everything else past a small count
+ * collapses behind an explicit "+N more", never a silent drop.
  */
+const VISIBLE_LIGHT_ITEM_CAP = 5;
 export function CourseLoadForecastPanel({ forecast, todayStr }: { forecast: CourseLoadForecast; todayStr: string }) {
   if (!forecast.hasAnyUpcomingWork) {
     // UX-03: the parent Panel (app/(app)/school/page.tsx) already renders
@@ -42,24 +51,53 @@ export function CourseLoadForecastPanel({ forecast, todayStr }: { forecast: Cour
             {week.itemCount === 0 ? (
               <p className="text-xs text-muted-foreground">Nothing due.</p>
             ) : (
-              <div className="flex flex-col gap-1">
-                {week.items.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="min-w-0 flex-1 truncate">
-                      {item.name} <span className="text-xs text-muted-foreground">· {item.className}</span>
-                    </span>
-                    {item.weightPct !== null && (
-                      <span className={cn("shrink-0 text-xs tabular-nums", item.heavy ? "font-medium text-destructive" : "text-muted-foreground")}>
-                        {item.weightPct}%
-                      </span>
+              (() => {
+                const heavyItems = week.items.filter((item) => item.heavy);
+                const lightItems = week.items.filter((item) => !item.heavy);
+                const visibleLight = lightItems.slice(0, VISIBLE_LIGHT_ITEM_CAP);
+                const hiddenLight = lightItems.slice(VISIBLE_LIGHT_ITEM_CAP);
+                return (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      {[...heavyItems, ...visibleLight].map((item) => (
+                        <CourseLoadItemRow key={item.id} item={item} />
+                      ))}
+                    </div>
+                    {hiddenLight.length > 0 && (
+                      <Collapsible className="flex flex-col gap-1">
+                        <CollapsibleTrigger className="group flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                          <ChevronDown className="size-3 shrink-0 transition-transform group-data-[state=closed]:-rotate-90" aria-hidden />
+                          +{hiddenLight.length} more
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="flex flex-col gap-1">
+                          {hiddenLight.map((item) => (
+                            <CourseLoadItemRow key={item.id} item={item} />
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
                     )}
-                  </div>
-                ))}
-              </div>
+                  </>
+                );
+              })()
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CourseLoadItemRow({ item }: { item: ForecastItem }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm">
+      <span className="min-w-0 flex-1 truncate">
+        {item.name} <span className="text-xs text-muted-foreground">· {item.className}</span>
+      </span>
+      {item.weightPct !== null && (
+        <span className={cn("shrink-0 text-xs tabular-nums", item.heavy ? "font-medium text-destructive" : "text-muted-foreground")}>
+          {item.weightPct}%
+        </span>
+      )}
     </div>
   );
 }

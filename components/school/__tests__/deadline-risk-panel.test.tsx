@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "../deadline-risk-panel";
 import { weekDatesFrom, addDaysToDateString, getWeekStartDate } from "@/lib/date-utils";
@@ -79,5 +80,56 @@ describe("DeadlineRiskPanel", () => {
   it.each(bands)("renders the %s band label on a row", (band) => {
     renderPanel([row({ id: "b1", risk: { score: 50, band } })]);
     expect(screen.getByTestId("deadline-risk-row-b1")).toHaveTextContent(band === "low" ? "Low" : band === "moderate" ? "Moderate" : band === "high" ? "High" : "Critical");
+  });
+
+  // UX-06: DFT7 found a class with 40+ assessments dumping every row flat
+  // with no hierarchy, the same "feature dump" problem at real volume.
+  describe("heavy volume (UX-06)", () => {
+    function manyLowSeverity(count: number, riskBand: RiskBand = "low") {
+      return Array.from({ length: count }, (_, i) =>
+        row({ id: `low-${i}`, name: `Low ${i}`, risk: { score: 10 + i, band: riskBand } })
+      );
+    }
+
+    it("shows every high/critical row directly, with no cap", () => {
+      const criticalRows = Array.from({ length: 12 }, (_, i) =>
+        row({ id: `crit-${i}`, name: `Critical ${i}`, risk: { score: 90 + i, band: "critical" } })
+      );
+      renderPanel(criticalRows);
+      for (const r of criticalRows) expect(screen.getByTestId(`deadline-risk-row-${r.id}`)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /more/i })).not.toBeInTheDocument();
+    });
+
+    it("does not show a '+N more' control when low-severity rows are at or under the visible cap", () => {
+      renderPanel(manyLowSeverity(5));
+      for (let i = 0; i < 5; i++) expect(screen.getByTestId(`deadline-risk-row-low-${i}`)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /more/i })).not.toBeInTheDocument();
+    });
+
+    it("caps low-severity rows behind a '+N more' control once past the cap, never dropping them", async () => {
+      const rows = manyLowSeverity(8);
+      renderPanel(rows);
+      // Sorted highest-score-first, so the 3 lowest scores (0,1,2) are the ones hidden.
+      for (let i = 3; i < 8; i++) expect(screen.getByTestId(`deadline-risk-row-low-${i}`)).toBeInTheDocument();
+      for (let i = 0; i < 3; i++) expect(screen.queryByTestId(`deadline-risk-row-low-${i}`)).not.toBeInTheDocument();
+      const trigger = screen.getByRole("button", { name: "+3 more" });
+      expect(trigger).toBeInTheDocument();
+
+      const user = userEvent.setup();
+      await user.click(trigger);
+      for (let i = 0; i < 3; i++) expect(screen.getByTestId(`deadline-risk-row-low-${i}`)).toBeInTheDocument();
+    });
+
+    it("keeps all high-severity rows visible AND caps low-severity rows in the same bucket", () => {
+      const rows = [
+        row({ id: "crit-a", risk: { score: 99, band: "critical" } }),
+        row({ id: "crit-b", risk: { score: 95, band: "critical" } }),
+        ...manyLowSeverity(7, "moderate"),
+      ];
+      renderPanel(rows);
+      expect(screen.getByTestId("deadline-risk-row-crit-a")).toBeInTheDocument();
+      expect(screen.getByTestId("deadline-risk-row-crit-b")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "+2 more" })).toBeInTheDocument();
+    });
   });
 });
