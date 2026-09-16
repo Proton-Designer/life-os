@@ -20,6 +20,15 @@ describe("CourseLoadForecastPanel (Phase 2 #P2-10)", () => {
     expect(screen.queryByTestId(/course-load-week-/)).not.toBeInTheDocument();
   });
 
+  // UX-03: the parent app/(app)/school/page.tsx already wraps this in
+  // <Panel title="Course load">, which renders the title unconditionally
+  // (components/ui/panel.tsx) -- this component's own empty-state heading
+  // printed it a second time, verbatim, directly underneath.
+  it("does not print its own title in the empty state -- the parent Panel already shows it", () => {
+    render(<CourseLoadForecastPanel forecast={forecast([week()], false)} todayStr={TODAY} />);
+    expect(screen.queryByText("Course load")).not.toBeInTheDocument();
+  });
+
   it("renders one row per week, including light weeks with 'Nothing due.'", () => {
     render(
       <CourseLoadForecastPanel

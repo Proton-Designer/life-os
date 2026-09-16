@@ -11,9 +11,11 @@ import type { PracticeVsRealBenchmark } from "@/lib/school/practice-vs-real-benc
  */
 export function PracticeVsRealBenchmarkPanel({ benchmark, todayStr }: { benchmark: PracticeVsRealBenchmark; todayStr: string }) {
   if (!benchmark.hasData) {
+    // UX-03: the parent Panel (app/(app)/school/page.tsx) already renders
+    // "Practice vs. real grade" as its own title unconditionally -- an
+    // inner heading here just repeated it verbatim.
     return (
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">Practice vs. real grade</h3>
         <p className="text-xs text-muted-foreground">Complete a practice test before a graded exam to see how it compared.</p>
       </div>
     );

@@ -29,6 +29,16 @@ describe("PracticeVsRealBenchmarkPanel (P3-12)", () => {
     expect(screen.getByText(/Complete a practice test before a graded exam/)).toBeInTheDocument();
   });
 
+  // UX-03: app/(app)/school/page.tsx already wraps this in
+  // <Panel title="Practice vs. real grade">, which renders the title
+  // unconditionally (components/ui/panel.tsx) -- this component's own
+  // empty-state heading printed it a second time, verbatim, directly
+  // underneath.
+  it("does not print its own title in the empty state -- the parent Panel already shows it", () => {
+    render(<PracticeVsRealBenchmarkPanel benchmark={benchmark([])} todayStr={TODAY} />);
+    expect(screen.queryByText("Practice vs. real grade")).not.toBeInTheDocument();
+  });
+
   it("renders the assessment name, class, both percentages, and the interval the practice score came from", () => {
     render(<PracticeVsRealBenchmarkPanel benchmark={benchmark([row()])} todayStr={TODAY} />);
     expect(screen.getByText(/Midterm/)).toBeInTheDocument();

@@ -62,9 +62,11 @@ export function DeadlineRiskPanel({
   })).filter((g) => g.items.length > 0);
 
   if (byBucket.length === 0) {
+    // UX-03: the parent Panel (app/(app)/school/page.tsx) already renders
+    // "Deadline risk" as its own title unconditionally -- an inner heading
+    // here just repeated it verbatim.
     return (
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">Deadline risk</h3>
         <p className="text-xs text-muted-foreground">No upcoming assessments across your classes.</p>
       </div>
     );

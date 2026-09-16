@@ -33,6 +33,15 @@ describe("DeadlineRiskPanel", () => {
     expect(screen.getByText(/no upcoming assessments/i)).toBeInTheDocument();
   });
 
+  // UX-03: app/(app)/school/page.tsx already wraps this in
+  // <Panel title="Deadline risk">, which renders the title unconditionally
+  // (components/ui/panel.tsx) -- this component's own empty-state heading
+  // printed it a second time, verbatim, directly underneath.
+  it("does not print its own title in the empty state -- the parent Panel already shows it", () => {
+    renderPanel([]);
+    expect(screen.queryByText("Deadline risk")).not.toBeInTheDocument();
+  });
+
   it("excludes an overdue assessment from render, same as the Task list's own convention", () => {
     renderPanel([row({ id: "past", dueDate: "2026-09-01", risk: { score: 90, band: "critical" } })]);
     expect(screen.queryByText("Assessment")).not.toBeInTheDocument();
