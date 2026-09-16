@@ -309,6 +309,14 @@ export function CanvasSettings({
               ) : null}
             </div>
           )}
+          {/* CANVAS-GAP-07: Disconnect only ever removes the token now --
+              say so plainly, and say what stays, rather than leaving it to
+              be discovered. Course mappings always survive either way. */}
+          <p className="text-xs text-muted-foreground">
+            {status.icsFeedConnected
+              ? "Disconnect removes only the Canvas token. Your calendar feed and course mappings stay connected."
+              : "Disconnect removes the Canvas token. Your course mappings are kept in case you reconnect later."}
+          </p>
 
         </div>
       ) : path === "token" ? (

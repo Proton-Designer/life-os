@@ -15,7 +15,7 @@ import type { CanvasCourseSummary } from "@/lib/canvas/client";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "update", "upsert"]) chain[method] = vi.fn(() => chain);
+  for (const method of ["select", "eq", "update", "upsert", "delete"]) chain[method] = vi.fn(() => chain);
   chain.maybeSingle = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
   return chain as Record<string, ReturnType<typeof vi.fn>>;
@@ -303,5 +303,59 @@ describe("saveCanvasIcsFeedUrl / getCanvasConnectionStatus -- token-less ICS acc
     const status = await getCanvasConnectionStatus();
 
     expect(status.connected).toBe(true);
+  });
+});
+
+// CANVAS-GAP-07: disconnectCanvas used to unconditionally DELETE the whole
+// row -- newly-reachable data loss now that a token-less ICS-only row is a
+// real state (CANVAS-GAP-06): a user with BOTH a token and an ICS feed
+// would lose the feed just by disconnecting the token.
+describe("disconnectCanvas -- preserves an independent ICS feed (CANVAS-GAP-07)", () => {
+  beforeEach(() => {
+    fromMock.mockClear();
+  });
+
+  it("a row with BOTH token and ICS feed: clears only the token fields, never deletes the row", async () => {
+    const connectionsChain = makeChain({ data: { encrypted_ics_feed_url: "enc-feed-url" }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+
+    const { disconnectCanvas } = await import("../canvas-actions");
+    const result = await disconnectCanvas();
+
+    expect(result.ok).toBe(true);
+    expect(connectionsChain.delete).not.toHaveBeenCalled();
+    expect(connectionsChain.update).toHaveBeenCalled();
+    const payload = connectionsChain.update.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toEqual(
+      expect.objectContaining({
+        instance_url: null,
+        encrypted_token: null,
+        token_last4: null,
+        canvas_user_id: null,
+        canvas_user_name: null,
+        token_status: null,
+        last_synced_at: null,
+        last_sync_error: null,
+      }),
+    );
+    // The ICS feed's own columns must never appear in this payload -- an
+    // absent key means PostgREST leaves the existing value untouched,
+    // which is the whole point; an explicit null here would be the same
+    // bug with extra steps.
+    expect(payload).not.toHaveProperty("encrypted_ics_feed_url");
+    expect(payload).not.toHaveProperty("ics_feed_url_last4");
+    expect(payload).not.toHaveProperty("last_ics_reconcile_at");
+  });
+
+  it("a row with ONLY a token, no ICS feed: deletes the row (old behavior)", async () => {
+    const connectionsChain = makeChain({ data: { encrypted_ics_feed_url: null }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+
+    const { disconnectCanvas } = await import("../canvas-actions");
+    const result = await disconnectCanvas();
+
+    expect(result.ok).toBe(true);
+    expect(connectionsChain.delete).toHaveBeenCalled();
+    expect(connectionsChain.update).not.toHaveBeenCalled();
   });
 });

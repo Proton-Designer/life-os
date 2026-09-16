@@ -189,8 +189,43 @@ export async function connectCanvas(instanceUrl: string, rawToken: string): Prom
   return { ok: true, message: `Connected as ${check.data.name}.${importNote}` };
 }
 
+/**
+ * CANVAS-GAP-07: disconnecting the TOKEN must never destroy an independent
+ * ICS feed connection (CANVAS-GAP-06 made a token-less, ICS-only row a
+ * real state) -- a full-row DELETE would silently lose the feed URL, the
+ * last reconcile time, and be indistinguishable from "never connected" on
+ * the next render. If an ICS feed exists, only the token-identity and
+ * token-sync-status columns are cleared (left as an honest all-absent
+ * token row, satisfying migration 208's own all-or-nothing CHECK);
+ * course mappings and the ICS feed's own columns are never touched. Only
+ * when there is NOTHING left to keep (no ICS feed either) does this fall
+ * back to the old delete-the-row behavior.
+ */
 export async function disconnectCanvas(): Promise<CanvasActionResult> {
   const { supabase, userId } = await requireUser();
+  const { data: existing } = await supabase.from("canvas_connections").select("encrypted_ics_feed_url").eq("user_id", userId).maybeSingle();
+
+  if (existing?.encrypted_ics_feed_url) {
+    const { error } = await supabase
+      .from("canvas_connections")
+      .update({
+        instance_url: null,
+        encrypted_token: null,
+        token_last4: null,
+        canvas_user_id: null,
+        canvas_user_name: null,
+        token_status: null,
+        last_synced_at: null,
+        last_sync_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId);
+    if (error) return { ok: false, message: "Couldn't disconnect. Try again." };
+    revalidatePath("/settings");
+    revalidatePath("/school");
+    return { ok: true, message: "Token disconnected. Your calendar feed stays connected." };
+  }
+
   const { error } = await supabase.from("canvas_connections").delete().eq("user_id", userId);
   if (error) return { ok: false, message: "Couldn't disconnect. Try again." };
   revalidatePath("/settings");

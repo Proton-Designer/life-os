@@ -290,3 +290,16 @@ describe("CanvasSettings -- concluded-courses offer (CANVAS-LITE-04)", () => {
     expect(screen.getByText("Imported 1 concluded course. (1 class added)")).toBeInTheDocument();
   });
 });
+
+// CANVAS-GAP-07: Disconnect must say plainly what it will and will not remove.
+describe("CanvasSettings -- Disconnect copy (CANVAS-GAP-07)", () => {
+  it("with an ICS feed also connected: says only the token is removed and the feed stays", () => {
+    render(<CanvasSettings initialStatus={CONNECTED_WITH_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+    expect(screen.getByText(/Disconnect removes only the Canvas token\. Your calendar feed and course mappings stay connected\./)).toBeInTheDocument();
+  });
+
+  it("with no ICS feed: says the token is removed and mappings are kept, without claiming a feed survives", () => {
+    render(<CanvasSettings initialStatus={CONNECTED_NO_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+    expect(screen.getByText(/Disconnect removes the Canvas token\. Your course mappings are kept in case you reconnect later\./)).toBeInTheDocument();
+  });
+});
