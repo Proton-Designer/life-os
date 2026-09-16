@@ -207,3 +207,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 | `196` | Sonnet ENG 1 (P3-18), allocated by Opus Lead, 2026-09-15 | whoop_connections (env-gated Whoop OAuth credential storage) | allocated |
 | `197` | Sonnet ENG 2 (P2-13D), allocated by Opus Lead, 2026-09-15 | Semantic search over own lessons/source_chunks (match RPC, pgvector) | allocated |
 | `198` | Sonnet ENG 1 (P3-03), allocated by Opus Lead, 2026-09-15 | work_sessions.study_methods text[] (named study-method taxonomy, learn-kind sessions) | allocated |
+| `199` | Sonnet ENG 1 (P3-09), allocated by Opus Lead, 2026-09-15 | evening_closes (local_date closed marker, closed-vs-open day efficiency) | allocated |
