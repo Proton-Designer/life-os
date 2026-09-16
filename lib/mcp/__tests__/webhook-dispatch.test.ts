@@ -2,7 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("@/lib/ai/encryption", () => ({
-  decryptSecret: (s: string) => s.replace(/^enc:/, ""),
+  decryptSecret: (s: string) => {
+    if (s === "corrupted") throw new Error("Unsupported state or unable to authenticate data");
+    return s.replace(/^enc:/, "");
+  },
 }));
 
 const safeFetchMock = vi.fn();
@@ -214,5 +217,32 @@ describe("processWebhookDeliveries", () => {
     const headers = (init as { headers: Record<string, string> }).headers;
     expect(headers["X-LifeOS-Webhook-Signature"]).toMatch(/^sha256=[0-9a-f]{64}$/);
     expect((init as { body: string }).body).toBe(JSON.stringify({ event: "write.ok", operation: "deen.prayer.log" }));
+  });
+
+  // Found live, during this task's own end-to-end verification pass (a
+  // malformed encrypted_secret on a real webhook row): decryptSecret can
+  // throw, and it used to be called OUTSIDE the try/catch -- an uncaught
+  // throw there crashed processWebhookDeliveries mid-loop, silently
+  // dropping every OTHER pending delivery in the same batch and 500ing the
+  // whole cron tick. Red-first: this test fails against the pre-fix code
+  // (the throw propagates out of processWebhookDeliveries instead of being
+  // caught and folded into the normal retry/fail state machine).
+  it("a decrypt failure (corrupted secret) is handled like any other delivery failure -- never crashes the whole batch", async () => {
+    const deliveryUpdate = updateSpy();
+    let deliveryCall = 0;
+    const client = makeClient({
+      mcp_webhook_deliveries: () => {
+        deliveryCall++;
+        return deliveryCall === 1 ? pendingChain([{ id: "d-1", webhook_id: "wh-1", payload: {}, attempt_count: 0 }]) : deliveryUpdate;
+      },
+      mcp_webhooks: () => webhookLookupChain({ url: "https://example.com/hook", encrypted_secret: "corrupted", failure_count: 0, active: true }),
+    });
+
+    const result = await processWebhookDeliveries(client, NOW);
+
+    expect(result).toEqual({ attempted: 1, delivered: 0, retried: 1, failed: 0, disabled: 0 });
+    expect(safeFetchMock).not.toHaveBeenCalled();
+    const payload = deliveryUpdate.update.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.last_error).toMatch(/unable to authenticate|decrypt/i);
   });
 });

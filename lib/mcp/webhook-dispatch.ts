@@ -103,10 +103,19 @@ export async function processWebhookDeliveries(serviceClient: SupabaseClient, no
 
     const body = JSON.stringify(delivery.payload);
     const timestamp = now.getTime().toString();
-    const signature = signWebhookPayload(decryptSecret(webhookRow.encrypted_secret), timestamp, body);
 
+    // decryptSecret can throw (a corrupted row, or an API_KEY_ENCRYPTION_SECRET
+    // rotation -- the exact scenario canvas-actions.ts's own refreshCanvasCourses
+    // already handles for Canvas tokens) -- this MUST stay inside the same
+    // try/catch as the delivery itself. An uncaught throw here would crash
+    // processWebhookDeliveries mid-loop, silently dropping every OTHER
+    // pending delivery in the same batch and 500ing the whole cron tick
+    // (found live, during this task's own verification pass -- not a
+    // hypothetical). Folds into the exact same retry/fail/auto-disable state
+    // machine as an HTTP failure: undecryptable is exactly as undeliverable.
     let errorMessage: string | null = null;
     try {
+      const signature = signWebhookPayload(decryptSecret(webhookRow.encrypted_secret), timestamp, body);
       const res = await safeFetch(webhookRow.url, { method: "POST", headers: webhookHeaders(timestamp, signature), body });
       if (!res.ok) errorMessage = `HTTP ${res.status}`;
     } catch (e) {
