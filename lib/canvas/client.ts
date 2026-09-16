@@ -67,8 +67,8 @@ function normalizeInstanceUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-async function canvasFetch(instanceUrl: string, token: string, path: string): Promise<CanvasClientResult<unknown>> {
-  const url = `${normalizeInstanceUrl(instanceUrl)}${path}`;
+/** Lowest-level fetch: takes a FULL url (not a path) so CANVAS-GAP-04's pagination follower can call it again with a next-page URL straight from Canvas's own Link header, exactly like the first call. Every call -- first page or not -- goes through `safeFetch`'s own re-validation; a Link header URL is never trusted blindly. */
+async function canvasFetchUrl(url: string, token: string): Promise<{ result: CanvasClientResult<unknown>; linkHeader: string | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -77,28 +77,74 @@ async function canvasFetch(instanceUrl: string, token: string, path: string): Pr
       signal: controller.signal,
     });
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, message: "Canvas rejected that token. Check the token and instance URL.", authExpired: true };
+      return { result: { ok: false, message: "Canvas rejected that token. Check the token and instance URL.", authExpired: true }, linkHeader: null };
     }
     if (!res.ok) {
-      return { ok: false, message: `Canvas returned an error (HTTP ${res.status}).` };
+      return { result: { ok: false, message: `Canvas returned an error (HTTP ${res.status}).` }, linkHeader: null };
     }
     const data = await res.json();
-    return { ok: true, data };
+    return { result: { ok: true, data }, linkHeader: res.headers.get("Link") };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      return { ok: false, message: "Canvas didn't respond in time. Check the instance URL." };
+      return { result: { ok: false, message: "Canvas didn't respond in time. Check the instance URL." }, linkHeader: null };
     }
     // safeFetch throws a specific, already user-safe message for a syntax
     // or SSRF rejection (e.g. "That host resolves to a private or internal
     // address, which isn't allowed.") — surface it directly rather than
     // flattening every failure into one generic string.
     if (err instanceof Error && err.message) {
-      return { ok: false, message: err.message };
+      return { result: { ok: false, message: err.message }, linkHeader: null };
     }
-    return { ok: false, message: "Couldn't reach that Canvas instance. Check the URL." };
+    return { result: { ok: false, message: "Couldn't reach that Canvas instance. Check the URL." }, linkHeader: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function canvasFetch(instanceUrl: string, token: string, path: string): Promise<CanvasClientResult<unknown>> {
+  const { result } = await canvasFetchUrl(`${normalizeInstanceUrl(instanceUrl)}${path}`, token);
+  return result;
+}
+
+/** RFC 5988 Link header, e.g. `<url1>; rel="current", <url2>; rel="next", <url3>; rel="last"` — returns the `rel="next"` URL, or null when there isn't one (the common, non-error "no more pages" case, and every response's own last page). */
+function parseNextLinkUrl(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (match) return match[1]!;
+  }
+  return null;
+}
+
+/**
+ * CANVAS-GAP-04 (ENG3's CANVAS-VERIFY-01 live probe, confirmed live):
+ * Canvas's list endpoints return real `Link` headers
+ * (`rel="current"/"first"/"last"`, and `rel="next"` when there is one) --
+ * `canvasFetch` alone trusted a single `per_page` to be enough and
+ * silently returned only that one page. This follows `rel="next"` until
+ * exhausted (or the hard cap below), accumulating every page's array into
+ * one -- used by every list-returning function in this file.
+ *
+ * CANVAS_MAX_PAGES=20 -- at this file's own per_page values (50-100),
+ * that's 1000-2000 items, comfortably above any realistic single Canvas
+ * account's course/assignment/announcement list, while still bounding
+ * worst-case request count against a misconfigured or malicious Link
+ * chain (a school-account integration, not an unbounded crawl).
+ */
+const CANVAS_MAX_PAGES = 20;
+async function canvasFetchAllPages(instanceUrl: string, token: string, initialPath: string): Promise<CanvasClientResult<unknown[]>> {
+  let url: string | null = `${normalizeInstanceUrl(instanceUrl)}${initialPath}`;
+  const items: unknown[] = [];
+  for (let page = 0; page < CANVAS_MAX_PAGES && url; page++) {
+    const { result, linkHeader } = await canvasFetchUrl(url, token);
+    if (!result.ok) return result;
+    if (!Array.isArray(result.data)) {
+      return { ok: false, message: "Canvas returned an unexpected list shape." };
+    }
+    items.push(...result.data);
+    url = parseNextLinkUrl(linkHeader);
+  }
+  return { ok: true, data: items };
 }
 
 /**
@@ -147,17 +193,16 @@ function mapCanvasCourses(raw: unknown): CanvasClientResult<CanvasCourseSummary[
  * default list, so "what am I taking right now" stays true of this
  * function's own contract.
  *
- * per_page=100 covers a normal course load without pagination; a user
- * enrolled in more than 100 active Canvas courses simultaneously is not a
- * real case this integration needs to handle on day one — logged as a
- * known gap rather than built speculatively.
+ * CANVAS-GAP-04: `per_page=${COURSES_PER_PAGE}` no longer means "the only
+ * page" -- `canvasFetchAllPages` follows Canvas's own Link header past it
+ * when there's more, up to that function's own hard cap.
  */
 export async function fetchCanvasCourses(instanceUrl: string, token: string): Promise<CanvasClientResult<CanvasCourseSummary[]>> {
   // CANVAS-GAP-01: `include[]=total_scores` embeds `enrollments[]` on each
   // course object, scoped to the calling token's OWN enrollment(s) for a
   // normal (non-admin) token -- confirmed live (ENG3's CANVAS-VERIFY-01),
   // not assumed from docs alone. Free on this same request, no second call.
-  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses?enrollment_state=active&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
+  const res = await canvasFetchAllPages(instanceUrl, token, `/api/v1/courses?enrollment_state=active&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
   if (!res.ok) return res;
   return mapCanvasCourses(res.data);
 }
@@ -172,7 +217,7 @@ export async function fetchCanvasCourses(instanceUrl: string, token: string): Pr
  * value for a concluded enrollment.
  */
 export async function fetchConcludedCanvasCourses(instanceUrl: string, token: string): Promise<CanvasClientResult<CanvasCourseSummary[]>> {
-  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses?enrollment_state=completed&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
+  const res = await canvasFetchAllPages(instanceUrl, token, `/api/v1/courses?enrollment_state=completed&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
   if (!res.ok) return res;
   return mapCanvasCourses(res.data);
 }
@@ -202,7 +247,7 @@ export interface CanvasAnnouncement {
  * index for idempotency, not on this call returning only-ever-new items.
  */
 export async function fetchCanvasAnnouncements(instanceUrl: string, token: string, courseId: string, sinceIso: string): Promise<CanvasClientResult<CanvasAnnouncement[]>> {
-  const res = await canvasFetch(
+  const res = await canvasFetchAllPages(
     instanceUrl,
     token,
     `/api/v1/announcements?context_codes[]=${encodeURIComponent(`course_${courseId}`)}&start_date=${encodeURIComponent(sinceIso)}&per_page=${ANNOUNCEMENTS_PER_PAGE}`,
@@ -213,7 +258,7 @@ export async function fetchCanvasAnnouncements(instanceUrl: string, token: strin
     return { ok: false, message: "Canvas returned an unexpected announcement list shape." };
   }
   const announcements: CanvasAnnouncement[] = raw
-    .filter((a): a is { id: number | string; title?: string; message?: string; posted_at?: string } => Boolean(a) && typeof a === "object" && "id" in a)
+    .filter((a): a is { id: number | string; title?: string; message?: string; posted_at?: string } => a !== null && typeof a === "object" && "id" in a)
     .map((a) => ({
       canvasAnnouncementId: String(a.id),
       title: a.title ?? "(untitled announcement)",
@@ -259,7 +304,7 @@ export interface CanvasGradedAssignment {
  * lives one layer down instead.
  */
 export async function fetchCanvasGradedAssignments(instanceUrl: string, token: string, courseId: string): Promise<CanvasClientResult<CanvasGradedAssignment[]>> {
-  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses/${encodeURIComponent(courseId)}/assignments?include[]=submission&per_page=${ASSIGNMENTS_PER_PAGE}`);
+  const res = await canvasFetchAllPages(instanceUrl, token, `/api/v1/courses/${encodeURIComponent(courseId)}/assignments?include[]=submission&per_page=${ASSIGNMENTS_PER_PAGE}`);
   if (!res.ok) return res;
   const raw = res.data;
   if (!Array.isArray(raw)) {
@@ -268,7 +313,7 @@ export async function fetchCanvasGradedAssignments(instanceUrl: string, token: s
   const graded: CanvasGradedAssignment[] = raw
     .filter(
       (a): a is { id: number | string; name?: string; due_at?: string; points_possible?: number; grading_type?: string; submission?: { workflow_state?: string; score?: number } } =>
-        Boolean(a) && typeof a === "object" && "id" in a,
+        a !== null && typeof a === "object" && "id" in a,
     )
     .filter((a) => a.submission?.workflow_state === "graded" && typeof a.submission?.score === "number")
     // `not_graded` is structurally never a real grade (Canvas's own

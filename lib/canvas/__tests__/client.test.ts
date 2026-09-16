@@ -225,3 +225,85 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     expect(res.message).toMatch(/larger than expected/i);
   });
 });
+
+// CANVAS-GAP-04 (ENG3's CANVAS-VERIFY-01 live probe): Canvas's list
+// endpoints return real Link headers; a single per_page request silently
+// returned only page 1. All four list-returning functions here share ONE
+// pagination-following implementation (canvasFetchAllPages) -- proven
+// thoroughly once (fetchCanvasCourses) and confirmed wired-in for the
+// other three without re-proving the mechanism each time.
+describe("Canvas client follows Link: rel=\"next\" pagination (CANVAS-GAP-04)", () => {
+  beforeEach(() => safeFetchMock.mockReset());
+
+  it("fetchCanvasCourses follows a single rel=\"next\" link and returns both pages' items combined", async () => {
+    safeFetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: 1, name: "Course A", course_code: "A101" }]), {
+          status: 200,
+          headers: { Link: '<https://school.instructure.com/api/v1/courses?page=2>; rel="next", <https://school.instructure.com/api/v1/courses?page=1>; rel="first"' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 2, name: "Course B", course_code: "B101" }]), { status: 200 }));
+
+    const res = await fetchCanvasCourses("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.map((c) => c.canvasCourseId)).toEqual(["1", "2"]);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+    // Re-validated through safeFetch exactly like page 1 -- the Link URL is never trusted blindly.
+    expect(String(safeFetchMock.mock.calls[1][0])).toBe("https://school.instructure.com/api/v1/courses?page=2");
+  });
+
+  it("stops cleanly when a page has no rel=\"next\" link at all -- the common, non-error case", async () => {
+    safeFetchMock.mockResolvedValueOnce(new Response(JSON.stringify([{ id: 1, name: "Course A", course_code: "A101" }]), { status: 200 }));
+    const res = await fetchCanvasCourses("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data).toHaveLength(1);
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops at the hard page cap rather than following a Link chain forever", async () => {
+    // A fresh Response per call -- a Response body can only be read once,
+    // and mockResolvedValue would return the SAME already-consumed
+    // instance on every subsequent call.
+    safeFetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify([{ id: 1, name: "Course", course_code: null }]), {
+          status: 200,
+          headers: { Link: '<https://school.instructure.com/api/v1/courses?page=2>; rel="next"' },
+        }),
+    );
+    const res = await fetchCanvasCourses("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(safeFetchMock).toHaveBeenCalledTimes(20); // CANVAS_MAX_PAGES
+    expect(res.data).toHaveLength(20);
+  });
+
+  it("fetchConcludedCanvasCourses, fetchCanvasAnnouncements, and fetchCanvasGradedAssignments all follow pagination too", async () => {
+    const twoPages = () =>
+      safeFetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 1 }]), { status: 200, headers: { Link: '<https://school.instructure.com/next>; rel="next"' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 2 }]), { status: 200 }));
+
+    twoPages();
+    const concluded = await fetchConcludedCanvasCourses("https://school.instructure.com", "tok");
+    expect(concluded.ok && concluded.data).toHaveLength(2);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+
+    safeFetchMock.mockReset();
+    twoPages();
+    const announcements = await fetchCanvasAnnouncements("https://school.instructure.com", "tok", "10", "2026-09-01T00:00:00.000Z");
+    expect(announcements.ok && announcements.data).toHaveLength(2);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+
+    safeFetchMock.mockReset();
+    twoPages();
+    await fetchCanvasGradedAssignments("https://school.instructure.com", "tok", "10");
+    // Neither fixture row has a graded submission, so both are filtered out
+    // downstream either way -- the call count is what actually proves both
+    // pages were fetched, not the (necessarily empty) mapped result.
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+  });
+});
