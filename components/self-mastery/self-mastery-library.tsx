@@ -17,6 +17,8 @@ import { getUlmWeeklyRecap } from "@/lib/self-mastery/weekly-retention-recap";
 import { WeeklyRecapCard } from "./weekly-recap-card";
 import { getOverconfidenceVerdict } from "@/lib/self-mastery/get-overconfidence-verdict";
 import { OverconfidenceCard } from "./overconfidence-card";
+import { getFsrsTuningStatus } from "@/lib/self-mastery/fsrs-tuning";
+import { FsrsTuningCard } from "./fsrs-tuning-card";
 import { TeachBackPanel } from "./teach-back-panel";
 import { SemanticSearchPanel } from "./semantic-search-panel";
 import type { LibraryBook } from "@/lib/self-mastery/types";
@@ -69,6 +71,11 @@ export async function SelfMasteryLibrary() {
   // than being duplicated on the School page too.
   const overconfidenceVerdict = await getOverconfidenceVerdict(supabase, userId);
 
+  // P3-20 -- per-user FSRS tuning status. Cross-cutting like
+  // OverconfidenceCard above (spans book cards + School's Question Bank
+  // reviews), so it lives here rather than being duplicated per surface.
+  const fsrsTuningStatus = await getFsrsTuningStatus(supabase, userId);
+
   return (
     <PageContainer>
       <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && canUpload ? <UploadBookDialog /> : null} />
@@ -76,6 +83,7 @@ export async function SelfMasteryLibrary() {
       {books.length > 0 ? <SemanticSearchPanel /> : null}
       <WeeklyRecapCard recap={weeklyRecap} />
       <OverconfidenceCard verdict={overconfidenceVerdict} />
+      <FsrsTuningCard status={fsrsTuningStatus} />
       {/* P2-18 -- own book/lesson picker, doesn't need the fully-shaped
           LibraryBook rows this page already fetched, just id/title of
           ready books (a teach-back target needs real lessons, and only a
