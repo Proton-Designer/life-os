@@ -27,7 +27,8 @@ and writes **zero audit rows** against an empty queue.
 
 Reverse with `select cron.unschedule('mcp-scheduled-actions-every-5min');`
 
-## 3. Exclude `/api/mcp` and `/.well-known/*` from Vercel bot protection (R10)
+## 3. Exclude `/api/mcp`, `/.well-known/*`, `/api/v1/*`, `/agent.md`, `/llms.txt`,
+`/agent-recipes/*` and `/connect/*` from Vercel bot protection (R10)
 
 Not blocking, but real. Twice tonight the production alias returned
 **403 "Vercel Security Checkpoint"** to every path, `/api/mcp` included — automatic
@@ -36,3 +37,11 @@ mitigation triggered by our own test volume. It cleared on its own both times.
 **An MCP client is not a browser and cannot solve a JavaScript challenge.** If this engages
 while a connector is live it does not degrade, it dies, and no code of ours can detect it
 because the request never arrives. A dashboard setting on Ayman's account.
+
+**List grew 2026-09-16 (P4-20/P4-21):** `/api/v1/*` (the REST adapter — a plain HTTP
+client hits this exactly like `/api/mcp`), `/agent.md` + `/llms.txt` + `/agent-recipes/*`
+(unauthenticated onboarding docs meant to be fetched by an agent, not a browser — the
+whole point of `llms.txt` is that a non-browser client requests it directly), and
+`/connect/*` (the one-click agent-connect exchange, P4-21 — an agent or the account
+owner's own browser opens this, but the exchange itself is a plain fetch/POST that would
+die the same way a JS challenge kills `/api/mcp`).
