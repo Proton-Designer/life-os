@@ -22,6 +22,11 @@ import { fakeServiceClient, fakeUserClient } from "./fake-db";
  * Plus the shared budget: MCP and REST count the same per-token audit rows.
  */
 
+// P4-22: after() needs a real Next.js request scope this in-process
+// harness doesn't provide -- without this mock it throws synchronously on
+// any successful write (same fix as app/api/mcp/__tests__/route.protocol.test.ts).
+vi.mock("next/server", () => ({ after: (task: () => unknown) => void task() }));
+
 vi.mock("@/lib/mcp/tokens", async () => {
   const actual = await vi.importActual<typeof import("@/lib/mcp/tokens")>("@/lib/mcp/tokens");
   return {

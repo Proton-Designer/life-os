@@ -20,6 +20,20 @@ vi.mock("@/lib/mcp/session", () => ({
   buildUserScopedClient: buildUserScopedClientMock,
 }));
 
+// P4-22: after() requires a real Next.js request scope (AsyncLocalStorage-
+// backed) that doesn't exist in a plain vitest run -- calling the REAL one
+// here would throw "after was called outside a request scope" the moment a
+// successful write test exercises it. Captures the scheduled callback
+// instead of running it, so a test can invoke it explicitly when it wants
+// to assert on what happens INSIDE the callback.
+const afterMock = vi.fn((_task: () => unknown) => {});
+vi.mock("next/server", () => ({ after: (task: () => unknown) => afterMock(task) }));
+
+const enqueueWriteOkWebhookDeliveriesMock = vi.fn(async (..._args: unknown[]) => {});
+vi.mock("@/lib/mcp/webhook-dispatch", () => ({
+  enqueueWriteOkWebhookDeliveries: (...args: unknown[]) => enqueueWriteOkWebhookDeliveriesMock(...args),
+}));
+
 function makeServiceClient(opts: { rateLimited?: boolean; auditInsertError?: unknown } = {}) {
   const inserts: Record<string, unknown>[] = [];
   const events: string[] = [];
@@ -64,6 +78,46 @@ function op(overrides: Partial<import("../execute").OperationSpec> = {}): import
 beforeEach(() => {
   mintSessionJwtMock.mockClear();
   buildUserScopedClientMock.mockClear();
+  afterMock.mockClear();
+  enqueueWriteOkWebhookDeliveriesMock.mockClear();
+});
+
+describe("executeOperation — P4-22 webhook enqueue", () => {
+  it("a successful write schedules the enqueue via after(), never as a bare unawaited promise", async () => {
+    const { client } = makeServiceClient();
+    const { executeOperation } = await import("../execute");
+    const spec = op({ toolName: "write", operation: "deen.prayer.log", requiredScope: "write" });
+
+    await executeOperation(client, GOOD_AUTH, spec, "mcp");
+
+    expect(afterMock).toHaveBeenCalledTimes(1);
+    // The callback itself isn't run by executeOperation -- after() owns
+    // that. Invoking it here proves it really calls through to the real
+    // enqueue function with the right (userId, operation, summary), not
+    // just that SOMETHING was scheduled.
+    const scheduled = afterMock.mock.calls[0]![0] as () => unknown;
+    await scheduled();
+    expect(enqueueWriteOkWebhookDeliveriesMock).toHaveBeenCalledWith(client, "user-1", { operation: "deen.prayer.log", summary: "returned 0 prayer(s)" });
+  });
+
+  it("a successful READ never schedules an enqueue -- only toolName:write triggers it", async () => {
+    const { client } = makeServiceClient();
+    const { executeOperation } = await import("../execute");
+
+    await executeOperation(client, GOOD_AUTH, op(), "mcp"); // op()'s default toolName is "read"
+
+    expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("a FAILED write never schedules an enqueue -- only outcome:ok triggers it", async () => {
+    const { client } = makeServiceClient();
+    const { executeOperation } = await import("../execute");
+    const spec = op({ toolName: "write", operation: "deen.prayer.log", requiredScope: "write", run: vi.fn(async () => { throw new Error("boom"); }) });
+
+    await executeOperation(client, GOOD_AUTH, spec, "mcp");
+
+    expect(afterMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("executeOperation — success", () => {

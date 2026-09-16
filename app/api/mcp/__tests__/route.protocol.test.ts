@@ -23,6 +23,12 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
  * client — runs for real.
  */
 
+// P4-22: after() (lib/agent-api/execute.ts's own webhook-enqueue scheduling)
+// needs a real Next.js request scope this in-process harness doesn't
+// provide (same "no server, no port" gap the header above already names)
+// -- without this mock it throws synchronously on any successful write.
+vi.mock("next/server", () => ({ after: (task: () => unknown) => void task() }));
+
 vi.mock("@/lib/mcp/tokens", async () => {
   const actual = await vi.importActual<typeof import("@/lib/mcp/tokens")>("@/lib/mcp/tokens");
   return {

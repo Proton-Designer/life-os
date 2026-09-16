@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { tokenHasScope, touchLastUsed, type McpScope } from "@/lib/mcp/tokens";
@@ -207,13 +208,29 @@ export async function executeOperation(
   void touchLastUsed(serviceClient, auth.tokenId).catch(() => {}); // best-effort; never blocks or fails the call
 
   // P4-22: enqueue webhook deliveries for a successful write only --
-  // best-effort, same posture as touchLastUsed above. Never inline
-  // delivery: this only ever inserts a queue row (or, for the common case
-  // of zero webhooks, one cheap select and nothing else); the actual HTTP
-  // delivery happens later, out of this request, via
-  // lib/mcp/webhook-dispatch.ts's processWebhookDeliveries.
+  // best-effort, never blocks or fails the call, same posture as
+  // touchLastUsed above. Never inline delivery: this only ever inserts a
+  // queue row (or, for the common case of zero webhooks, one cheap select
+  // and nothing else); the actual HTTP delivery happens later, out of this
+  // request, via lib/mcp/webhook-dispatch.ts's processWebhookDeliveries.
+  //
+  // WRAPPED IN after(), NOT a bare unawaited `void promise.catch()` --
+  // found live, during this task's own end-to-end verification: a bare
+  // fire-and-forget promise is not reliably run to completion on Vercel
+  // once the response has been sent (this function does a SELECT then an
+  // INSERT, two round trips; zero deliveries were ever enqueued in a real
+  // prod request despite the identical-shaped touchLastUsed call above it
+  // succeeding, which is consistent with the runtime freezing shortly
+  // after the response, before the second round trip lands).
+  // `after()` (next/server, stable since Next 15) is Next's own answer to
+  // this exact problem — it keeps the serverless function alive for
+  // exactly this kind of post-response background work. Every current
+  // caller of executeOperation (MCP route, REST routes, the cron-driven
+  // scheduler runner) genuinely runs inside a real Next.js request scope,
+  // which is `after()`'s own hard requirement -- confirmed by reading
+  // every caller, not assumed.
   if (toolName === "write" && outcome === "ok") {
-    void enqueueWriteOkWebhookDeliveries(serviceClient, auth.userId, { operation, summary: resultSummary }).catch(() => {});
+    after(() => enqueueWriteOkWebhookDeliveries(serviceClient, auth.userId, { operation, summary: resultSummary }).catch(() => {}));
   }
 
   return result;
