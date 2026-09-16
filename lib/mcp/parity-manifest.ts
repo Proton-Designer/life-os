@@ -258,6 +258,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/school/class-actions.ts#addClassAssessment": { mcp: "school.class_assessment.add" },
   "app/(app)/school/class-actions.ts#deleteClassAssessment": { excluded: "hard_delete: DELETEs an assessment" },
   "app/(app)/school/class-actions.ts#updateClassAssessment": { mcp: "school.class_assessment.edit" },
+  "app/(app)/self-mastery/search-actions.ts#searchSelfMasteryLibrary": { pending: "P4-cov-P2-13D", note: "semantic search over the caller's own lessons/chunks (P2-13D); owner-scoped by match_source_chunks' auth.uid filter" },
   "app/(app)/school/class-share-actions.ts#createClassShare": { excluded: "credential: mints a bearer share link that exposes a question bank publicly" },
   "app/(app)/school/class-share-actions.ts#revokeClassShare": { excluded: "credential: revokes that bearer share link" },
   "app/(app)/school/class-share-actions.ts#getClassShareStatus": { read_only: true },
