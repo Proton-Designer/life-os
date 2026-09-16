@@ -2380,6 +2380,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const { desiredRetention } = await loadSessionSettings(ctx.userClient, ctx.userId);
               const result = await submitQuestionReview(ctx.userClient, {
                 desiredRetention,
+                userId: ctx.userId,
                 currentState,
                 questionId,
                 sessionId: null,

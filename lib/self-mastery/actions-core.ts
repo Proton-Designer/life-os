@@ -72,6 +72,7 @@ export async function gradeReviewCore(supabase: SupabaseClient<Database>, userId
 
   const { reviewId, scheduledDays } = await submitCardReview(supabase, {
     desiredRetention,
+    userId,
     currentState,
     cardId: input.cardId,
     sessionId: null,

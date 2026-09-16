@@ -160,7 +160,7 @@ describe("self_mastery write actions never reach lessons/cards/source_chunks", (
    * quietly starts reaching for a fourth table (excluded or not) now fails
    * this test too, which "not.toContain" could never catch.
    */
-  it("touches exactly card_states/user_settings/lesson_promotions/lesson_verdicts/self_explanations and rpc submit_review -- nothing else, and never lessons/cards/source_chunks", async () => {
+  it("touches exactly card_states/user_settings/fsrs_user_parameters/lesson_promotions/lesson_verdicts/self_explanations and rpc submit_review -- nothing else, and never lessons/cards/source_chunks", async () => {
     const touchedTables = new Set<string>();
     const rpcCalls: string[] = [];
     const client = {
@@ -192,7 +192,11 @@ describe("self_mastery write actions never reach lessons/cards/source_chunks", (
     // below is meaningless (either the recorder is broken, or a handler
     // reached for something unanticipated).
     expect(touchedTables.size).toBeGreaterThan(0);
-    expect([...touchedTables].sort()).toEqual(["card_states", "lesson_promotions", "lesson_verdicts", "self_explanations", "user_settings"]);
+    // P3-20: submitCardReview now reads fsrs_user_parameters (a SELECT-only
+    // lookup for the caller's own tuned weights, gated on >=1000 reviews)
+    // on every review.grade call -- a real, expected, reviewed addition to
+    // this closed surface, not a regression.
+    expect([...touchedTables].sort()).toEqual(["card_states", "fsrs_user_parameters", "lesson_promotions", "lesson_verdicts", "self_explanations", "user_settings"]);
     expect(rpcCalls).toEqual(["submit_review"]);
 
     // Now the exclusion is a real claim: this is the WHOLE set, and none

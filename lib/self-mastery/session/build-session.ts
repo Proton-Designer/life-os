@@ -16,6 +16,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { getScheduler, toFsrsCard, toRpcNextState, computeNextState, type DbCardState } from "@/lib/self-mastery/fsrs-scheduler";
+import { getUserFsrsWeights } from "@/lib/self-mastery/fsrs-tuning";
 import { cardRetrievability, averageRetrievability, type CardStateForStrength } from "@/lib/self-mastery/memory-strength";
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
@@ -524,6 +525,8 @@ export interface SubmitCardReviewInput {
   /** The caller's user_settings.desired_retention. Omitting it falls back to the
    * FSRS default, which is correct ONLY where there is no user context. */
   desiredRetention?: number;
+  /** P3-20: looked up for the caller's own tuned FSRS weights, if any (>=1000 reviews gate). Required, not optional -- every real call site already has this in scope from its own requireUser()/ctx.userId. */
+  userId: string;
   currentState: DbCardState | null;
   cardId: string;
   /** Nullable — `submit_review`'s own SQL param accepts null (081_ulm_soft_delete_and_purge.sql: `if p_session_id is not null then update work_sessions...`), for a caller with no work_sessions row to attribute the review to (e.g. an MCP-graded review, which has no app-tracked study session). The generated RPC Args type marks this required regardless — same generator limitation already noted below for p_ai_feedback/p_ai_suggested_rating/p_next_state — so null is passed with the same `as unknown as string` cast, not by making this field genuinely optional at the call site. */
@@ -554,6 +557,8 @@ export interface SubmittedReview {
  */
 export interface SubmitQuestionReviewInput {
   desiredRetention?: number;
+  /** P3-20: looked up for the caller's own tuned FSRS weights, if any (>=1000 reviews gate). Required, not optional -- every real call site already has this in scope from its own requireUser()/ctx.userId. */
+  userId: string;
   currentState: DbCardState | null;
   questionId: string;
   sessionId: string | null;
@@ -569,7 +574,8 @@ export interface SubmitQuestionReviewInput {
 
 /** Question-path twin of `submitCardReview` -- same FSRS computation, submitted through `submit_question_review` (161) instead of `submit_review`. See that migration's header for why a sibling RPC, not an overload. */
 export async function submitQuestionReview(client: TypedClient, input: SubmitQuestionReviewInput): Promise<SubmittedReview> {
-  const scheduler = getScheduler(input.desiredRetention);
+  const weights = await getUserFsrsWeights(client, input.userId);
+  const scheduler = getScheduler(input.desiredRetention, weights);
   const current = toFsrsCard(input.currentState, input.now);
   const { card: nextCard, scheduledDays } = computeNextState(scheduler, current, input.rating, input.now);
   const nextState = toRpcNextState(nextCard);
@@ -605,7 +611,8 @@ export async function submitCardReview(client: TypedClient, input: SubmitCardRev
   //
   // Exactly the chokepoint-bypass shape AGENTS.md records for the prayer-time
   // fix: when a value is fixed at one call site, grep for the ones that skip it.
-  const scheduler = getScheduler(input.desiredRetention);
+  const weights = await getUserFsrsWeights(client, input.userId);
+  const scheduler = getScheduler(input.desiredRetention, weights);
   const current = toFsrsCard(input.currentState, input.now);
   const { card: nextCard, scheduledDays } = computeNextState(scheduler, current, input.rating, input.now);
   const nextState = toRpcNextState(nextCard);

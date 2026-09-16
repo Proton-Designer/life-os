@@ -121,6 +121,7 @@ export async function gradeCard(input: GradeCardInput): Promise<{ scheduledDays:
   const { desiredRetention } = await loadSessionSettings(supabase, userId);
   const { scheduledDays } = await submitCardReview(supabase, {
     desiredRetention,
+    userId,
     currentState,
     cardId: input.cardId,
     sessionId: input.sessionId,
@@ -168,6 +169,7 @@ export async function gradeQuestion(input: GradeQuestionInput): Promise<{ schedu
   const { desiredRetention } = await loadSessionSettings(supabase, userId);
   const { scheduledDays } = await submitQuestionReview(supabase, {
     desiredRetention,
+    userId,
     currentState,
     questionId: input.questionId,
     sessionId: input.sessionId,

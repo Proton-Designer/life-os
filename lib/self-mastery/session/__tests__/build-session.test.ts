@@ -1,4 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+// P3-20: submitCardReview/submitQuestionReview now look up the caller's own
+// tuned FSRS weights on every call -- mocked here so these tests (which
+// exercise the RPC-submission behavior, not the tuning lookup) don't need
+// a real `.from("fsrs_user_parameters")` chain on every fake client below.
+// lib/self-mastery/__tests__/fsrs-tuning.test.ts covers getUserFsrsWeights
+// itself.
+vi.mock("@/lib/self-mastery/fsrs-tuning", () => ({
+  getUserFsrsWeights: vi.fn(async () => undefined),
+}));
 import {
   hydrateQueueCards,
   fetchCardAnswer,
@@ -204,6 +213,7 @@ describe("submitCardReview", () => {
     const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
 
     await submitCardReview(client, {
+      userId: "user-1",
       currentState: null,
       cardId: "c1",
       sessionId: "sess-1",
@@ -229,6 +239,7 @@ describe("submitCardReview", () => {
     const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
 
     await submitCardReview(client, {
+      userId: "user-1",
       currentState: null,
       cardId: "c1",
       sessionId: "sess-1",
@@ -250,6 +261,7 @@ describe("submitCardReview", () => {
     const client = { rpc } as unknown as Parameters<typeof hydrateQueueCards>[0];
 
     await submitCardReview(client, {
+      userId: "user-1",
       currentState: null,
       cardId: "c1",
       sessionId: "sess-1",
@@ -448,6 +460,7 @@ describe("desired_retention actually reaches the scheduler", () => {
     const client = { rpc } as unknown as Parameters<typeof submitCardReview>[0];
     const result = await submitCardReview(client, {
       desiredRetention,
+      userId: "user-1",
       currentState: {
         stability: 10,
         difficulty: 5,

@@ -67,12 +67,29 @@ const TS_TO_DB_STATE: Record<State, DbFsrsState> = {
 // to be "fixed" a second time for a call site where it was never broken.
 export const DEFAULT_REQUEST_RETENTION = 0.9;
 
-const schedulerCache = new Map<number, FSRS>();
-export function getScheduler(requestRetention: number = DEFAULT_REQUEST_RETENTION): FSRS {
-  let scheduler = schedulerCache.get(requestRetention);
+/**
+ * P3-20: optional per-user tuned weights (`fsrs_user_parameters.weights`,
+ * gated on >=1000 logged reviews -- see lib/self-mastery/fsrs-tuning.ts).
+ * `undefined` rides ts-fsrs's own library default `w`, exactly today's
+ * behavior for every user below the gate.
+ *
+ * CACHE KEY MUST INCLUDE `w`, NOT JUST `requestRetention`: this cache is a
+ * single process-wide Map serving every user's requests. Once two users
+ * can have DIFFERENT weight vectors at the SAME retention value, keying
+ * on retention alone would silently hand user B a scheduler built from
+ * user A's tuned weights (or vice versa) -- a real cross-user bug this
+ * task's own existence creates the precondition for, not a hypothetical.
+ */
+const schedulerCache = new Map<string, FSRS>();
+function schedulerCacheKey(requestRetention: number, w?: readonly number[]): string {
+  return `${requestRetention}:${w ? w.join(",") : "default"}`;
+}
+export function getScheduler(requestRetention: number = DEFAULT_REQUEST_RETENTION, w?: readonly number[]): FSRS {
+  const key = schedulerCacheKey(requestRetention, w);
+  let scheduler = schedulerCache.get(key);
   if (!scheduler) {
-    scheduler = fsrs(generatorParameters({ request_retention: requestRetention, enable_fuzz: false }));
-    schedulerCache.set(requestRetention, scheduler);
+    scheduler = fsrs(generatorParameters({ request_retention: requestRetention, enable_fuzz: false, ...(w ? { w: w as number[] } : {}) }));
+    schedulerCache.set(key, scheduler);
   }
   return scheduler;
 }

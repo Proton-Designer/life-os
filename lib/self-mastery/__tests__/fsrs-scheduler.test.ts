@@ -60,6 +60,28 @@ describe("getScheduler + computeNextState — desired_retention actually reaches
   it("defaults to 0.9 (the brief's stated default) when no retention is passed -- the pinned call sites (memory-strength.ts) rely on this", () => {
     expect(getScheduler()).toBe(getScheduler(DEFAULT_REQUEST_RETENTION));
   });
+
+  /**
+   * P3-20 regression: this cache is process-wide, shared across every
+   * user's requests. Once two users can carry DIFFERENT tuned weight
+   * vectors at the SAME retention value, keying the cache on retention
+   * alone would hand one user's request a scheduler built from a
+   * DIFFERENT user's weights -- confirmed here by proving two distinct
+   * weight vectors at the identical retention produce two distinct
+   * scheduler instances, and that passing the SAME weight vector twice
+   * still hits the cache (no needless rebuild).
+   */
+  it("never shares a cache entry across different weight vectors at the SAME retention value", () => {
+    const w1 = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61, 0.0, 0.5, 0.0, 0.5];
+    const w2 = [...w1.slice(0, -1), 1.5];
+    const withWeightsA1 = getScheduler(0.9, w1);
+    const withWeightsA2 = getScheduler(0.9, w1);
+    const withWeightsB = getScheduler(0.9, w2);
+    const withNoWeights = getScheduler(0.9);
+    expect(withWeightsA1).toBe(withWeightsA2);
+    expect(withWeightsA1).not.toBe(withWeightsB);
+    expect(withWeightsA1).not.toBe(withNoWeights);
+  });
 });
 
 /**

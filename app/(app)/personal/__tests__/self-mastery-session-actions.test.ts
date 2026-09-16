@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// P3-20: submitCardReview/submitQuestionReview (build-session.ts) now look
+// up the caller's own tuned FSRS weights on every call -- mocked here so
+// these tests (which exercise gradeCard/gradeQuestion's own orchestration,
+// not the tuning lookup) don't need a real `.from("fsrs_user_parameters")`
+// response on every fake client below. lib/self-mastery/__tests__/
+// fsrs-tuning.test.ts covers getUserFsrsWeights itself.
+vi.mock("@/lib/self-mastery/fsrs-tuning", () => ({
+  getUserFsrsWeights: vi.fn(async () => undefined),
+}));
+
 function makeChain(resolvedValue: { data: unknown; error: null; count?: number } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
   for (const method of ["select", "eq", "neq", "gte", "lt", "lte", "order", "limit", "in"]) {
