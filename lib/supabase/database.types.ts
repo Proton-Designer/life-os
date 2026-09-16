@@ -2455,6 +2455,103 @@ export type Database = {
           },
         ]
       }
+      mcp_webhook_deliveries: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          delivered_at: string | null
+          event: string
+          id: string
+          last_error: string | null
+          next_attempt_at: string
+          payload: NonNullable<Json>
+          status: string
+          user_id: string
+          webhook_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          delivered_at?: string | null
+          event: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          payload: NonNullable<Json>
+          status?: string
+          user_id: string
+          webhook_id: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          delivered_at?: string | null
+          event?: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          payload?: NonNullable<Json>
+          status?: string
+          user_id?: string
+          webhook_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_webhook_deliveries_webhook_id_fkey"
+            columns: ["webhook_id"]
+            referencedRelation: "mcp_webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mcp_webhooks: {
+        Row: {
+          active: boolean
+          created_at: string
+          encrypted_secret: string
+          event: string
+          failure_count: number
+          id: string
+          last_delivery_at: string | null
+          last_delivery_error: string | null
+          last_delivery_status: string | null
+          secret_last4: string
+          updated_at: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          encrypted_secret: string
+          event?: string
+          failure_count?: number
+          id?: string
+          last_delivery_at?: string | null
+          last_delivery_error?: string | null
+          last_delivery_status?: string | null
+          secret_last4: string
+          updated_at?: string
+          url: string
+          user_id?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          encrypted_secret?: string
+          event?: string
+          failure_count?: number
+          id?: string
+          last_delivery_at?: string | null
+          last_delivery_error?: string | null
+          last_delivery_status?: string | null
+          secret_last4?: string
+          updated_at?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mcp_widgets: {
         Row: {
           created_at: string
