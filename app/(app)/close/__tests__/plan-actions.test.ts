@@ -32,7 +32,13 @@ vi.mock("@/lib/supabase/auth", () => ({
 
 let calls: Call[] = [];
 let nextChain = () => makeChain({ data: null, error: null }, calls);
-const fromMock = vi.fn(() => nextChain());
+// P3-09: evening_closes gets its OWN untracked chain, not the shared `calls`
+// array -- every existing assertion in this file was written assuming
+// `tasks` is the only table involved (e.g. "never an upsert"), and
+// savePlanRanks's new recordEveningCloseCore call is a genuine upsert
+// against a DIFFERENT table. Routing it separately keeps those assertions
+// accurate without threading table names through `calls` everywhere else.
+const fromMock = vi.fn((table: string) => (table === "evening_closes" ? makeChain({ data: null, error: null }) : nextChain()));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({ from: fromMock })),
 }));
@@ -137,6 +143,56 @@ describe("plan-actions", () => {
       const { savePlanRanks } = await import("../plan-actions");
       const res = await savePlanRanks(["a"], "a");
       expect(res).toEqual({ error: expect.stringContaining("Try Finish again") });
+    });
+  });
+
+  // P3-09: the ONE always-fires signal of "the evening close actually
+  // happened" -- commit() (close-plan-stage.tsx) calls savePlanRanks on
+  // Finish unconditionally, even with zero starred/crowned items.
+  describe("savePlanRanks records the closed day (P3-09)", () => {
+    it("mode 'tonight' (the default) records TODAY's local date as closed after a successful save", async () => {
+      nextChain = () => makeChain({ data: [{ id: "row" }], error: null }, calls);
+      const eveningClosesCalls: Call[] = [];
+      fromMock.mockImplementation((table: string) =>
+        table === "evening_closes" ? makeChain({ data: null, error: null }, eveningClosesCalls) : nextChain()
+      );
+      const { savePlanRanks } = await import("../plan-actions");
+
+      await savePlanRanks(["a"], "a");
+
+      const upsertCall = eveningClosesCalls.find((c) => c.method === "upsert");
+      expect(upsertCall).toBeDefined();
+      // FIXED_NOW (2026-09-14T22:00Z) is 2026-09-14 17:00 America/Chicago --
+      // TODAY's own local date, never `plannedDate` (tomorrow, "2026-09-15").
+      expect(upsertCall!.args[0]).toEqual({ user_id: "user-1", local_date: "2026-09-14", closed_at: FIXED_NOW.toISOString() });
+      expect(upsertCall!.args[1]).toEqual({ onConflict: "user_id,local_date", ignoreDuplicates: true });
+    });
+
+    it("mode 'today' (a next-morning replan) does NOT record a closed day -- it fixes yesterday's plan, it isn't tonight's ceremony", async () => {
+      nextChain = () => makeChain({ data: [{ id: "row" }], error: null }, calls);
+      const eveningClosesCalls: Call[] = [];
+      fromMock.mockImplementation((table: string) =>
+        table === "evening_closes" ? makeChain({ data: null, error: null }, eveningClosesCalls) : nextChain()
+      );
+      const { savePlanRanks } = await import("../plan-actions");
+
+      await savePlanRanks(["a"], "a", "today");
+
+      expect(eveningClosesCalls).toHaveLength(0);
+    });
+
+    it("does NOT record a closed day when the plan save itself failed", async () => {
+      nextChain = () => makeChain({ data: null, error: { message: "boom" } }, calls);
+      const eveningClosesCalls: Call[] = [];
+      fromMock.mockImplementation((table: string) =>
+        table === "evening_closes" ? makeChain({ data: null, error: null }, eveningClosesCalls) : nextChain()
+      );
+      const { savePlanRanks } = await import("../plan-actions");
+
+      const res = await savePlanRanks(["a"], "a");
+
+      expect("error" in res).toBe(true);
+      expect(eveningClosesCalls).toHaveLength(0);
     });
   });
 

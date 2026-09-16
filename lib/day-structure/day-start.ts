@@ -30,6 +30,30 @@ export async function getTodayDayStart(
 }
 
 /**
+ * Wake marks for every `local_date` in `[startDate, endDateExclusive)` —
+ * P3-09's Weekly Review closed-vs-open split needs a whole week's worth,
+ * not just today's. Keyed by `local_date` (a date string, matching the
+ * column's own storage — `startDate`/`endDateExclusive` are the caller's
+ * already-resolved local calendar dates, same as every other range query
+ * in this codebase, never raw `Date` bounds).
+ */
+export async function getDayStartsForRange(
+  supabase: SupabaseClient,
+  userId: string,
+  startDate: string,
+  endDateExclusive: string
+): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from("day_starts")
+    .select("local_date, woke_at")
+    .eq("user_id", userId)
+    .gte("local_date", startDate)
+    .lt("local_date", endDateExclusive);
+  if (error) throw error;
+  return new Map((data ?? []).map((row) => [row.local_date as string, row.woke_at as string]));
+}
+
+/**
  * Idempotent Start Day tap (#33). "Tapping twice on the same local day does
  * not create a second mark or move the first" is a DATABASE guarantee, not
  * an app-layer one: `day_starts` has a `unique (user_id, local_date)`

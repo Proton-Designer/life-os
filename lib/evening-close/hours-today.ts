@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveLocalTime } from "@/lib/date-utils";
+import { resolveLocalTime, localDateString } from "@/lib/date-utils";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
 
 /**
@@ -101,6 +101,40 @@ export async function getHoursByKindForRange(
 
   const totalMinutes = Object.values(byKind).reduce((a, b) => a + b, 0);
   return { totalMinutes, byKind };
+}
+
+/**
+ * P3-09: the same `counts_toward_hours`-filtered session set as
+ * `getHoursByKindForRange`, bucketed by the LOCAL calendar date each
+ * session started on (`localDateString`, the caller's own `timezone` —
+ * never a UTC slice of `started_at`) instead of by `kind`. Weekly Review's
+ * closed-vs-open efficiency split needs a per-day figure to pair with that
+ * day's own wake/close marks; the range total this file already returns
+ * elsewhere can't be un-summed back into days.
+ */
+export async function getHoursByDayForRange(
+  supabase: SupabaseClient,
+  userId: string,
+  startIso: string,
+  endIso: string,
+  timezone: string,
+  now: Date
+): Promise<Record<string, number>> {
+  const { data } = await supabase
+    .from("work_sessions")
+    .select("started_at, ended_at")
+    .eq("user_id", userId)
+    .eq("counts_toward_hours", true)
+    .gte("started_at", startIso)
+    .lt("started_at", endIso);
+
+  const byDay: Record<string, number> = {};
+  for (const row of (data ?? []) as { started_at: string; ended_at: string | null }[]) {
+    const localDate = localDateString(new Date(row.started_at), timezone);
+    const minutes = computeFocusTimeMinutes([{ startedAt: new Date(row.started_at), endedAt: row.ended_at ? new Date(row.ended_at) : null }], now);
+    byDay[localDate] = (byDay[localDate] ?? 0) + minutes;
+  }
+  return byDay;
 }
 
 /**

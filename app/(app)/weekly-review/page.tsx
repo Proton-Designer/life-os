@@ -5,7 +5,9 @@ import { Panel } from "@/components/ui/panel";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, resolveLocalTime, formatShortDate, addDaysToDateString } from "@/lib/date-utils";
-import { getHoursByKindForRange, getEndedRecallMinutesForRange } from "@/lib/evening-close/hours-today";
+import { getHoursByKindForRange, getEndedRecallMinutesForRange, getHoursByDayForRange } from "@/lib/evening-close/hours-today";
+import { getDayStartsForRange } from "@/lib/day-structure/day-start";
+import { getEveningClosesForRange, bucketEfficiencyByClosedDay } from "@/lib/day-structure/closed-day";
 import { daysBetweenDateStrings } from "@/lib/habits/decay-score";
 import { getDistractionPareto } from "@/lib/weekly-review/pareto";
 import { getHabitWeeklySummaries } from "@/lib/weekly-review/habit-summary";
@@ -56,9 +58,15 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
   const endIso = resolveLocalTime(range.endDateExclusive, "00:00", timezone).toISOString();
   const weekDayCount = daysBetweenDateStrings(range.startDate, range.endDateExclusive);
 
-  const [hours, recallMinutes, pareto, habitSummaries, narrative, forecastableAssessments] = await Promise.all([
+  const [hours, recallMinutes, hoursByDay, dayStarts, eveningCloses, pareto, habitSummaries, narrative, forecastableAssessments] = await Promise.all([
     getHoursByKindForRange(supabase, user.id, startIso, endIso, new Date()),
     getEndedRecallMinutesForRange(supabase, user.id, startIso, endIso),
+    // P3-09: per-day hours, paired below with that day's own wake/close
+    // marks for the closed-vs-open efficiency split -- the range total
+    // above can't be un-summed back into individual days.
+    getHoursByDayForRange(supabase, user.id, startIso, endIso, timezone, new Date()),
+    getDayStartsForRange(supabase, user.id, range.startDate, range.endDateExclusive),
+    getEveningClosesForRange(supabase, user.id, range.startDate, range.endDateExclusive),
     getDistractionPareto(supabase, user.id),
     getHabitWeeklySummaries(supabase, user.id, range.startDate, range.endDateExclusive, todayStr, timezone),
     // P2-03's AI weekly narrative -- keyed on `range.startDate`, so it only
@@ -76,6 +84,23 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
     getForecastableAssessments(supabase, user.id),
   ]);
   const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr);
+
+  // P3-09: one entry per calendar date in the reviewed range, pairing that
+  // day's hours with its own wake/close marks (or nulls, if that day never
+  // had one) -- bucketEfficiencyByClosedDay is the pure function that turns
+  // this into the closed-vs-open split.
+  const daysInRange: string[] = [];
+  for (let d = range.startDate; d !== range.endDateExclusive; d = addDaysToDateString(d, 1)) {
+    daysInRange.push(d);
+  }
+  const efficiency = bucketEfficiencyByClosedDay(
+    daysInRange.map((localDate) => ({
+      localDate,
+      hoursMinutes: hoursByDay[localDate] ?? 0,
+      wokeAtIso: dayStarts.get(localDate) ?? null,
+      closedAtIso: eveningCloses.get(localDate) ?? null,
+    }))
+  );
 
   const lastDayInclusive = addDaysToDateString(range.endDateExclusive, -1);
 
@@ -99,6 +124,7 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
         weekDayCount={weekDayCount}
         hours={hours}
         recallMinutes={recallMinutes}
+        efficiency={efficiency}
         pareto={pareto}
         habitSummaries={habitSummaries}
       />

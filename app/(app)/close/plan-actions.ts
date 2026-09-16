@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { localDateString } from "@/lib/date-utils";
+import { recordEveningCloseCore } from "@/lib/day-structure/closed-day";
 import {
   planningDateForCore,
   dumpLineCore,
@@ -64,12 +66,12 @@ export type { PlanMode, SeedLine, SeedSource, ClaimedSeed };
  * it — the numbers just drift.
  */
 
-async function planningDateFor(mode: PlanMode = "tonight"): Promise<{ userId: string; plannedDate: string } | null> {
+async function planningDateFor(mode: PlanMode = "tonight"): Promise<{ userId: string; plannedDate: string; timezone: string } | null> {
   const user = await getAuthedUser();
   if (!user) return null;
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  return { userId: user.id, plannedDate: planningDateForCore(mode, new Date(), timezone) };
+  return { userId: user.id, plannedDate: planningDateForCore(mode, new Date(), timezone), timezone };
 }
 
 /** THIN WRAPPER over dumpLineCore (lib/night-plan/plan-actions-core.ts, P4-07) — the MCP write tool calls the same core. */
@@ -181,6 +183,18 @@ export async function savePlanRanks(
   const supabase = await createClient();
   const result = await savePlanRanksCore(supabase, ctx.userId, ctx.plannedDate, starred, crowned);
   if (!("ok" in result)) return result;
+
+  // P3-09: this is the one place the evening-close ritual's plan stage
+  // ALWAYS commits (commit(), close-plan-stage.tsx, calls this on Finish
+  // unconditionally, even with zero starred/crowned items) -- the honest
+  // anchor for "closed day." Only for the real evening-close flow
+  // (mode: "tonight"), never "replan" (a next-morning fixup of yesterday's
+  // plan must not retroactively mark today closed), and keyed to TODAY's
+  // own local date, not `ctx.plannedDate` (which is tomorrow for "tonight").
+  if (mode === "tonight") {
+    const now = new Date();
+    await recordEveningCloseCore(supabase, ctx.userId, localDateString(now, ctx.timezone), now);
+  }
 
   // #29: this used to revalidate only /close and / — a same-day replan
   // launched from /open (via /close/replan) returned to a stale cached

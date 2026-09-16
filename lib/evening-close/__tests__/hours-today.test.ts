@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getHoursByKindForRange, getEndedRecallMinutesForRange } from "../hours-today";
+import { getHoursByKindForRange, getEndedRecallMinutesForRange, getHoursByDayForRange } from "../hours-today";
 
 type Resp = { data: unknown };
 type Call = { method: string; args: unknown[] };
@@ -137,5 +137,41 @@ describe("getEndedRecallMinutesForRange — #46's separate Recall line, never su
     const { client } = makeClient({ data: [] });
     const minutes = await getEndedRecallMinutesForRange(client, "user-1", startIso, endIso);
     expect(minutes).toBe(0);
+  });
+});
+
+describe("getHoursByDayForRange — P3-09's per-day breakdown for Weekly Review's closed-vs-open split", () => {
+  it("is counts_toward_hours-filtered, same as every other hours query in this file", async () => {
+    const { client, calls } = makeClient({ data: [] });
+    await getHoursByDayForRange(client, "user-1", startIso, endIso, "UTC", now);
+    expect(calls.some((c) => c.method === "eq" && c.args[0] === "counts_toward_hours" && c.args[1] === true)).toBe(true);
+  });
+
+  it("buckets sessions by the LOCAL date each one started on, not by kind", async () => {
+    const { client } = makeClient({
+      data: [
+        { started_at: "2026-09-08T09:00:00.000Z", ended_at: "2026-09-08T09:25:00.000Z" }, // 25 min, Sep 8
+        { started_at: "2026-09-09T09:00:00.000Z", ended_at: "2026-09-09T09:15:00.000Z" }, // 15 min, Sep 9
+        { started_at: "2026-09-09T18:00:00.000Z", ended_at: "2026-09-09T18:10:00.000Z" }, // 10 min, same Sep 9
+      ],
+    });
+    const byDay = await getHoursByDayForRange(client, "user-1", startIso, endIso, "UTC", now);
+    expect(byDay).toEqual({ "2026-09-08": 25, "2026-09-09": 25 });
+  });
+
+  it("buckets by the caller's timezone, not UTC -- a late-evening session doesn't spill into the next UTC day", async () => {
+    // 2026-09-08T23:30 America/Chicago (UTC-5 in September) is 2026-09-09T04:30Z --
+    // a UTC-only bucketing would misfile this as Sep 9.
+    const { client } = makeClient({
+      data: [{ started_at: "2026-09-09T04:30:00.000Z", ended_at: "2026-09-09T04:45:00.000Z" }],
+    });
+    const byDay = await getHoursByDayForRange(client, "user-1", startIso, endIso, "America/Chicago", now);
+    expect(byDay).toEqual({ "2026-09-08": 15 });
+  });
+
+  it("returns an empty object, never throws, for an empty range", async () => {
+    const { client } = makeClient({ data: [] });
+    const byDay = await getHoursByDayForRange(client, "user-1", startIso, endIso, "UTC", now);
+    expect(byDay).toEqual({});
   });
 });

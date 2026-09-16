@@ -4,6 +4,7 @@ import { formatHoursMinutes } from "@/lib/evening-close/format-hours";
 import type { HoursByKind } from "@/lib/evening-close/hours-today";
 import type { ParetoBar } from "@/lib/weekly-review/pareto";
 import type { HabitWeeklySummary } from "@/lib/weekly-review/habit-summary";
+import type { EfficiencyByClosedDay } from "@/lib/day-structure/closed-day";
 
 /**
  * The Weekly Review screen (#46/#47/#48) — a pure Server Component, no
@@ -43,15 +44,38 @@ function Bar({ pct, className }: { pct: number; className: string }) {
   );
 }
 
+/**
+ * P3-09: one line, not a new panel (Opus Lead's instruction). Closed days
+ * get a real average (lib/day-structure/closed-day.ts's own header
+ * explains why open days never get a fabricated number instead of a
+ * count: no honest end-of-day anchor exists for a day that was never
+ * closed). Omits the closed-days clause when there are none that week
+ * (never "0% avg on 0 closed days," the same honest-absence posture as
+ * this page's own narrative panel), and returns null entirely when the
+ * week has neither closed nor open days to say anything real about.
+ */
+function formatEfficiencyLine(efficiency: EfficiencyByClosedDay): string | null {
+  const { closedAvgPercent, closedCount, openCount } = efficiency;
+  const closedClause = closedAvgPercent !== null ? `${closedAvgPercent}% avg on ${closedCount} closed day${closedCount === 1 ? "" : "s"}` : null;
+  const openClause = openCount > 0 ? `${openCount} open day${openCount === 1 ? "" : "s"} (efficiency unavailable)` : null;
+  if (closedClause && openClause) return `Efficiency: ${closedClause} · ${openClause}`;
+  if (closedClause) return `Efficiency: ${closedClause}`;
+  if (openClause) return `Efficiency: ${openClause}, none closed`;
+  return null;
+}
+
 function HoursSection({
   totalMinutes,
   byKind,
   recallMinutes,
+  efficiency,
 }: {
   totalMinutes: number;
   byKind: HoursByKind;
   recallMinutes: number;
+  efficiency: EfficiencyByClosedDay;
 }) {
+  const efficiencyLine = formatEfficiencyLine(efficiency);
   const max = Math.max(1, ...COUNTING_KIND_ORDER.map((k) => byKind[k] ?? 0));
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
@@ -82,6 +106,7 @@ function HoursSection({
         <span>{KIND_LABEL.learn} time (not counted toward Hours)</span>
         <span className="font-medium tabular-nums text-foreground">{formatHoursMinutes(recallMinutes)}</span>
       </div>
+      {efficiencyLine && <p className="text-xs text-muted-foreground">{efficiencyLine}</p>}
     </section>
   );
 }
@@ -140,6 +165,7 @@ export function WeeklyReviewView({
   weekDayCount,
   hours,
   recallMinutes,
+  efficiency,
   pareto,
   habitSummaries,
 }: {
@@ -147,6 +173,7 @@ export function WeeklyReviewView({
   weekDayCount: number;
   hours: { totalMinutes: number; byKind: HoursByKind };
   recallMinutes: number;
+  efficiency: EfficiencyByClosedDay;
   pareto: ParetoBar[];
   habitSummaries: HabitWeeklySummary[];
 }) {
@@ -169,7 +196,7 @@ export function WeeklyReviewView({
           This week so far
         </Link>
       </div>
-      <HoursSection totalMinutes={hours.totalMinutes} byKind={hours.byKind} recallMinutes={recallMinutes} />
+      <HoursSection totalMinutes={hours.totalMinutes} byKind={hours.byKind} recallMinutes={recallMinutes} efficiency={efficiency} />
       <ParetoSection bars={pareto} />
       <HabitScoreSection summaries={habitSummaries} weekDayCount={weekDayCount} />
     </div>

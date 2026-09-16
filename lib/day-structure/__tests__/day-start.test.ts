@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getTodayDayStart, markDayStarted } from "../day-start";
+import { getTodayDayStart, markDayStarted, getDayStartsForRange } from "../day-start";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "upsert"]) {
+  for (const method of ["select", "eq", "upsert", "gte", "lt"]) {
     chain[method] = vi.fn(() => chain);
   }
   chain.maybeSingle = vi.fn(async () => resolvedValue);
@@ -81,5 +81,46 @@ describe("markDayStarted — idempotent Start Day tap (#33)", () => {
     const client = { from: vi.fn(() => dayStarts) } as unknown as SupabaseClient;
 
     await expect(markDayStarted(client, "user-1", "UTC", new Date())).rejects.toThrow("db down");
+  });
+});
+
+describe("getDayStartsForRange — P3-09's per-day wake marks for a review week", () => {
+  it("returns a Map keyed by local_date, scoped to the given range", async () => {
+    const dayStarts = makeChain({
+      data: [
+        { local_date: "2026-09-08", woke_at: "2026-09-08T13:00:00.000Z" },
+        { local_date: "2026-09-10", woke_at: "2026-09-10T12:30:00.000Z" },
+      ],
+      error: null,
+    });
+    const client = { from: vi.fn(() => dayStarts) } as unknown as SupabaseClient;
+
+    const result = await getDayStartsForRange(client, "user-1", "2026-09-08", "2026-09-15");
+
+    expect(dayStarts.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(dayStarts.gte).toHaveBeenCalledWith("local_date", "2026-09-08");
+    expect(dayStarts.lt).toHaveBeenCalledWith("local_date", "2026-09-15");
+    expect(result).toEqual(
+      new Map([
+        ["2026-09-08", "2026-09-08T13:00:00.000Z"],
+        ["2026-09-10", "2026-09-10T12:30:00.000Z"],
+      ])
+    );
+  });
+
+  it("returns an empty Map, never null/undefined, when no day in range has a wake mark", async () => {
+    const dayStarts = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => dayStarts) } as unknown as SupabaseClient;
+
+    const result = await getDayStartsForRange(client, "user-1", "2026-09-08", "2026-09-15");
+
+    expect(result.size).toBe(0);
+  });
+
+  it("throws rather than swallowing a query error", async () => {
+    const dayStarts = makeChain({ data: null, error: new Error("boom") });
+    const client = { from: vi.fn(() => dayStarts) } as unknown as SupabaseClient;
+
+    await expect(getDayStartsForRange(client, "user-1", "2026-09-08", "2026-09-15")).rejects.toThrow("boom");
   });
 });
