@@ -169,6 +169,33 @@ export function findUnambiguousLocalMatch(unlinked: LocalAssessment[], name: str
   return null;
 }
 
+export interface LocalClassRow {
+  id: string;
+  shortName: string | null;
+  code: string | null;
+}
+
+/**
+ * CANVAS-LITE-02/03 — the course-level analog of `findUnambiguousLocalMatch`
+ * above: same normalization, same "exactly one candidate or nothing" rule,
+ * now shared by CANVAS-LITE-02's agent-import course items AND
+ * CANVAS-LITE-03's Canvas-native connect/sync auto-import (one
+ * implementation, not two, same discipline as `processCanvasAssignment`).
+ * Matches when the Canvas course's own name/code equals EXACTLY ONE of the
+ * user's classes' short_name/code, case-insensitively; anything ambiguous
+ * or absent returns null rather than guessing.
+ */
+export function findUnambiguousClassMatch(classes: LocalClassRow[], courseName: string, courseCode: string | null): LocalClassRow | null {
+  const candidates = [normalizeTitle(courseName), ...(courseCode ? [normalizeTitle(courseCode)] : [])];
+  const matches = classes.filter((c) => {
+    const fields = [c.shortName ? normalizeTitle(c.shortName) : null, c.code ? normalizeTitle(c.code) : null].filter((f): f is string => f !== null);
+    return fields.some((f) => candidates.includes(f));
+  });
+  const uniqueIds = new Set(matches.map((c) => c.id));
+  if (uniqueIds.size !== 1) return null;
+  return matches[0]!;
+}
+
 /** True only when overwriting points_earned is safe -- migration 189's own invariant, restated once here rather than inlined at each call site. */
 function canOverwriteGrade(existing: { pointsEarned: number | null; pointsSource: string | null }): boolean {
   return existing.pointsEarned === null || existing.pointsSource === "canvas";
