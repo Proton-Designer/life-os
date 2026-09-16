@@ -4228,6 +4228,42 @@ export type Database = {
         }
         Relationships: []
       }
+      whoop_connections: {
+        Row: {
+          access_token_last4: string
+          connected_at: string
+          created_at: string
+          encrypted_access_token: string
+          encrypted_refresh_token: string
+          scope: string
+          token_expires_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_last4: string
+          connected_at?: string
+          created_at?: string
+          encrypted_access_token: string
+          encrypted_refresh_token: string
+          scope: string
+          token_expires_at: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_last4?: string
+          connected_at?: string
+          created_at?: string
+          encrypted_access_token?: string
+          encrypted_refresh_token?: string
+          scope?: string
+          token_expires_at?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       work_session_objectives: {
         Row: {
           completed: boolean
