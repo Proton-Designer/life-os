@@ -18,6 +18,8 @@ import { CanvasSettings } from "@/components/settings/canvas-settings";
 import { getCanvasConnectionStatus, getCanvasCourseMappings, getLocalClassOptions } from "@/app/(app)/settings/canvas-actions";
 import { RescueTimeSettings } from "@/components/settings/rescuetime-settings";
 import { getRescueTimeConnectionStatus } from "@/app/(app)/settings/rescuetime-actions";
+import { WhoopSettings } from "@/components/settings/whoop-settings";
+import { getWhoopSettingsStatus } from "@/app/(app)/settings/whoop-actions";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
 import { resolveThemePreset } from "@/lib/theme-presets";
@@ -39,6 +41,7 @@ const SECTIONS = [
   { id: "ai", label: "AI features" },
   { id: "canvas", label: "Canvas" },
   { id: "rescuetime", label: "RescueTime" },
+  { id: "whoop", label: "Whoop" },
   { id: "connectors", label: "Connectors" },
   { id: "security", label: "Security" },
   { id: "data", label: "Data" },
@@ -112,6 +115,7 @@ export default async function SettingsPage() {
   const canvasMappings = await getCanvasCourseMappings();
   const localClasses = await getLocalClassOptions();
   const rescueTimeStatus = await getRescueTimeConnectionStatus();
+  const whoopStatus = await getWhoopSettingsStatus();
 
   return (
     <PageContainer>
@@ -203,6 +207,9 @@ export default async function SettingsPage() {
           </Panel>
           <Panel id="rescuetime" className="scroll-mt-24" title="RescueTime">
             <RescueTimeSettings initialStatus={rescueTimeStatus} storageConfigured={storageConfigured} />
+          </Panel>
+          <Panel id="whoop" className="scroll-mt-24" title="Whoop">
+            <WhoopSettings initialStatus={whoopStatus} />
           </Panel>
           <Panel id="connectors" className="scroll-mt-24" title="Connectors">
             <ConnectorSettings initialTokens={mcpTokens} />
