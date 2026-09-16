@@ -5,6 +5,7 @@ import { Plus, Search } from "lucide-react";
 import {
   createTriggerAndLog,
   listTriggersForDomain,
+  listTopTriggersForQuickLog,
   logDistraction,
   getSessionDistractionCountForNow,
 } from "@/app/(app)/distractions/actions";
@@ -34,6 +35,9 @@ const DOMAIN_LABEL: Record<DistractionDomain, string> = {
 const TIERS = [1, 2, 3] as const;
 type Tier = (typeof TIERS)[number];
 const TIER_LABEL: Record<Tier, string> = { 1: "Light", 2: "Moderate", 3: "Heavy" };
+
+/** P3-02 (docs/audits/2026-09-13-three-app-feature-audit.md #35 -- "Distraction counter (+1→6 chips→back, 2 taps)"): up to this many of the user's own most-frequent triggers, cross-domain, shown as one-tap chips. */
+const QUICK_CHIP_COUNT = 6;
 
 // Same cadence as topbar.tsx's own DistractionCountBadge (#50) — one
 // established idiom for "a client component polls a server action for a
@@ -87,7 +91,7 @@ function SessionDistractionCounter({ sessionId, bump }: { sessionId: string; bum
 const TEXTAREA_CLASS =
   "rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
 
-type Step = "domain" | "triggers";
+type Step = "quick" | "domain" | "triggers";
 
 /** Which domain a Lock-In session implies, so capture never re-asks a
  * question the session already answered (Ayman, 2026-09-10: "if im doing
@@ -104,7 +108,7 @@ export function DistractionCaptureDialog() {
   const inferredDomain = inferDomainFromSession(session);
 
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<Step>("domain");
+  const [step, setStep] = useState<Step>("quick");
   const [domain, setDomain] = useState<DistractionDomain | null>(null);
   const [triggers, setTriggers] = useState<TriggerSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -117,9 +121,13 @@ export function DistractionCaptureDialog() {
   // #52: bumped after every successful log so SessionDistractionCounter
   // re-polls immediately instead of waiting out its own 60s tick.
   const [sessionLogBump, setSessionLogBump] = useState(0);
+  // P3-02: the "+1" quick-log step's own chip list (cross-domain, ranked
+  // the SAME way the domain-scoped step already ranks -- rankTriggersForCapture).
+  const [quickTriggers, setQuickTriggers] = useState<TriggerSummary[]>([]);
+  const [quickLoading, setQuickLoading] = useState(false);
 
   function reset() {
-    setStep("domain");
+    setStep("quick");
     setDomain(null);
     setTriggers([]);
     setSearch("");
@@ -127,6 +135,7 @@ export function DistractionCaptureDialog() {
     setNewName("");
     setNewDescription("");
     setTier(null);
+    setQuickTriggers([]);
   }
 
   function handleOpenChange(next: boolean) {
@@ -137,12 +146,31 @@ export function DistractionCaptureDialog() {
   // Keyed to `open` becoming true, not folded into reset()/the close
   // handler above — the mirror of a bug the Opus Lead's other engineer
   // already caught on the session-setup dialog. reset() always returns to
-  // the plain domain picker on close; this effect re-applies the
-  // active-session skip on every fresh open, so it can never go stale
-  // between one open and the next.
+  // the "quick" chip step on close; this effect re-applies the
+  // active-session skip (or loads the quick chips) on every fresh open, so
+  // neither can go stale between one open and the next.
+  //
+  // P3-02: an active Lock-In/Deep Study session keeps its OWN pre-existing
+  // fast path unchanged (straight to that domain's own trigger list --
+  // already validated, already fewer taps than the generic case). The
+  // NEW quick-chip step only applies with no active session, replacing
+  // what used to be a domain-picker landing screen.
   useEffect(() => {
-    if (!open || !inferredDomain) return;
-    selectDomain(inferredDomain);
+    if (!open) return;
+    if (inferredDomain) {
+      selectDomain(inferredDomain);
+      return;
+    }
+    setStep("quick");
+    setQuickLoading(true);
+    listTopTriggersForQuickLog().then((list) => {
+      setQuickTriggers(list);
+      setQuickLoading(false);
+      // Nothing to show as chips yet (first-ever use) -- the full
+      // domain->create flow is the only option, so land there directly
+      // rather than showing an empty chip screen.
+      if (list.length === 0) setStep("domain");
+    });
     // selectDomain is a stable function declaration re-created each render,
     // not a dependency that should re-trigger this — only open/inferredDomain should.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,8 +224,9 @@ export function DistractionCaptureDialog() {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <div className="flex items-center gap-2">
         <DialogTrigger asChild>
-          <Button type="button" variant="outline" size="sm">
-            Distractions
+          {/* P3-02: "+1" is the spec's own entry gesture (docs/audits/2026-09-13-three-app-feature-audit.md #35). aria-label carries the meaning for assistive tech, same posture the Lock-In "Lock In" buttons already established for a short visible label. */}
+          <Button type="button" variant="outline" size="sm" aria-label="Log a distraction">
+            +1
           </Button>
         </DialogTrigger>
         {/* #52: only rendered during an active Lock-In/Deep Study session —
@@ -205,6 +234,38 @@ export function DistractionCaptureDialog() {
         {session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
       </div>
       <DialogContent className={cn("sm:max-w-md", domain === "deen" && step === "triggers" && "sm:max-w-lg")}>
+        {step === "quick" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>What happened?</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-3">
+              {quickLoading ? (
+                <p className="px-2 py-6 text-center text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {rankTriggersForCapture(quickTriggers)
+                    .slice(0, QUICK_CHIP_COUNT)
+                    .map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => handleTapTrigger(t.id)}
+                        className="flex flex-col items-center gap-1.5 rounded-lg border border-border/40 p-3 text-center transition-colors hover:bg-accent/40"
+                      >
+                        <IconChip icon={DOMAIN_ICON[t.domain]} accent={DOMAIN_ACCENT[t.domain]} size="md" />
+                        <span className="line-clamp-2 text-xs font-medium">{t.name}</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+              <Button type="button" variant="ghost" size="sm" onClick={() => setStep("domain")}>
+                More options
+              </Button>
+            </div>
+          </>
+        )}
+
         {step === "domain" && (
           <>
             <DialogHeader>

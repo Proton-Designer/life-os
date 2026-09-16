@@ -88,7 +88,10 @@ test("a distraction logged during a Lock-In session shows a live '1 this session
     await startDeepWorkSession(page, `e2e-lockin-distraction-count-${Date.now()}`);
     const view = overlay(page);
 
-    await view.getByRole("button", { name: "Distractions" }).click();
+    // P3-02: visible label is now "+1" (accessible name "Log a distraction"
+    // via aria-label) -- an active Deep Work session still infers the
+    // domain and skips straight to the trigger list, unchanged.
+    await view.getByRole("button", { name: "Log a distraction" }).click();
     // MUST be scoped by name, not a bare page.getByRole("dialog") — the
     // Lock-In overlay itself is ALSO role="dialog" (name "Deep Work —
     // locked in") and stays legitimately visible the whole time this

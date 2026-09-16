@@ -36,9 +36,25 @@ async function deleteTestTriggerIfPresent(page: Page, baseURL: string | undefine
   expect(res.ok()).toBe(true);
 }
 
+/**
+ * P3-02: with no active Lock-In session, the dialog now opens on a
+ * "+1"-driven quick-chip step ("What happened?") when the account already
+ * has triggers, instead of landing on the domain picker directly -- every
+ * test in this file wants the domain-first flow specifically (they're
+ * testing domain/trigger-list mechanics, not the new fast path), so this
+ * steps through "More options" when that's what appeared. A genuinely
+ * fresh account with zero triggers skips the chip step automatically
+ * (the dialog's own empty-fallback) and lands on the domain picker
+ * directly, which this also handles.
+ */
 async function openCaptureDialog(page: Page) {
-  await page.getByRole("button", { name: "Distractions", exact: true }).click();
+  await page.getByRole("button", { name: "Log a distraction" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByText("What happened?").or(page.getByText("What's the domain?"))).toBeVisible();
+  if (await page.getByText("What happened?").isVisible()) {
+    await page.getByRole("button", { name: "More options" }).click();
+  }
+  await expect(page.getByText("What's the domain?")).toBeVisible();
 }
 
 async function readHomeDistractionsCount(page: Page): Promise<number> {

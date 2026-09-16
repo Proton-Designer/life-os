@@ -44,6 +44,7 @@ const { getTodayDistractionCountForNowMock } = vi.hoisted(() => ({ getTodayDistr
 vi.mock("@/app/(app)/distractions/actions", () => ({
   getTodayDistractionCountForNow: (...args: unknown[]) => getTodayDistractionCountForNowMock(...args),
   listTriggersForDomain: vi.fn(async () => []),
+  listTopTriggersForQuickLog: vi.fn(async () => []),
   logDistraction: vi.fn(async () => {}),
   createTriggerAndLog: vi.fn(async () => {}),
 }));
@@ -173,9 +174,11 @@ describe("Topbar", () => {
     await waitFor(() => expect(getWeekCalendar).toHaveBeenCalledTimes(2));
   });
 
-  it("shows the Distractions button in the topbar", () => {
+  it("shows the distraction quick-log button in the topbar", () => {
+    // P3-02: visible label is now "+1"; accessible name is "Log a
+    // distraction" (aria-label overrides text content for getByRole).
     renderTopbar();
-    expect(screen.getByRole("button", { name: /distractions/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log a distraction" })).toBeInTheDocument();
   });
 
   // #50: the top bar's Distractions control used to render with no

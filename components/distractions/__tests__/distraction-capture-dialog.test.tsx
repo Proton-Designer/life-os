@@ -3,9 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const listTriggersForDomainMock = vi.fn();
+const listTopTriggersForQuickLogMock = vi.fn();
+const logDistractionMock = vi.fn(async (..._args: unknown[]) => {});
 vi.mock("@/app/(app)/distractions/actions", () => ({
   listTriggersForDomain: (...args: unknown[]) => listTriggersForDomainMock(...args),
-  logDistraction: vi.fn(async () => {}),
+  listTopTriggersForQuickLog: (...args: unknown[]) => listTopTriggersForQuickLogMock(...args),
+  logDistraction: (...args: unknown[]) => logDistractionMock(...args),
   createTriggerAndLog: vi.fn(async () => {}),
 }));
 
@@ -45,45 +48,97 @@ function renderDialog(session: ActiveWorkSession | null = null) {
 
 async function openDialog() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Distractions" }));
+  // The visible label is "+1" (the spec's own entry gesture), but
+  // aria-label="Log a distraction" is what testing-library's accessible-
+  // name computation actually returns for getByRole, since an aria-label
+  // overrides a button's own text content.
+  await user.click(screen.getByRole("button", { name: "Log a distraction" }));
   return user;
+}
+
+function trigger(overrides: Partial<{ id: string; domain: "deen" | "business" | "school" | "fitness" | "co_op"; name: string; totalCount: number }> = {}) {
+  return {
+    id: "t1",
+    domain: "business" as const,
+    name: "Phone",
+    description: null,
+    totalCount: 5,
+    todayCount: 0,
+    lastOccurredAtIso: null,
+    createdDate: "2026-09-01",
+    currentPlan: null,
+    ...overrides,
+  };
 }
 
 describe("DistractionCaptureDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listTriggersForDomainMock.mockResolvedValue([]);
+    listTopTriggersForQuickLogMock.mockResolvedValue([]);
     localStorage.clear();
   });
 
-  // The Opus Lead's own framing: this is the regression risk that matters
-  // most. Standalone use (topbar, the review dialog) must be untouched.
-  describe("no active session — unchanged from before", () => {
-    it("still opens on the domain picker, not a skipped step", async () => {
+  // P3-02 (docs/audits/2026-09-13-three-app-feature-audit.md #35): the
+  // reshaped "+1 -> 6 chips -> back" flow. This REPLACES the old
+  // "no session -> domain picker first" default -- that behavior is
+  // intentionally changed by this task, not a regression.
+  describe("no active session — the new quick-chip step", () => {
+    it("with existing triggers: opens on the chip step, not the domain picker", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t1", name: "Phone" })]);
       renderDialog(null);
       await openDialog();
+      expect(await screen.findByText("What happened?")).toBeInTheDocument();
+      expect(screen.queryByText("What's the domain?")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Phone" })).toBeInTheDocument();
+    });
+
+    it("shows at most 6 chips, ranked the same way the domain-scoped step ranks (totalCount desc)", async () => {
+      const many = Array.from({ length: 8 }, (_, i) => trigger({ id: `t${i}`, name: `Trigger ${i}`, totalCount: 8 - i }));
+      listTopTriggersForQuickLogMock.mockResolvedValue(many);
+      renderDialog(null);
+      await openDialog();
+      await screen.findByText("What happened?");
+      expect(screen.getByRole("button", { name: "Trigger 0" })).toBeInTheDocument(); // highest totalCount
+      expect(screen.queryByRole("button", { name: "Trigger 7" })).not.toBeInTheDocument(); // 8th-ranked, cut
+    });
+
+    it("tapping a chip logs against that trigger and closes -- 2 taps total (open + chip)", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t1", name: "Phone" })]);
+      renderDialog(null);
+      const user = await openDialog();
+      await user.click(await screen.findByRole("button", { name: "Phone" }));
+      expect(logDistractionMock).toHaveBeenCalledWith("t1", undefined, null);
+    });
+
+    it("'More options' falls back to the full domain->trigger flow, unchanged", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger()]);
+      renderDialog(null);
+      const user = await openDialog();
+      await screen.findByText("What happened?");
+      await user.click(screen.getByRole("button", { name: "More options" }));
       expect(screen.getByText("What's the domain?")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Deen" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Business" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "School" })).toBeInTheDocument();
     });
 
-    it("still requires tapping a domain to reach the triggers step", async () => {
+    it("a first-time user with ZERO triggers skips the empty chip screen and lands on the domain picker directly", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([]);
       renderDialog(null);
-      const user = await openDialog();
-      await user.click(screen.getByRole("button", { name: "Business" }));
-      expect(await screen.findByRole("heading", { name: "Business" })).toBeInTheDocument();
-      expect(screen.queryByText(/Inferred from/)).not.toBeInTheDocument();
-    });
-
-    it("closing and reopening with no session still lands on the domain picker", async () => {
-      renderDialog(null);
-      const user = await openDialog();
-      await user.click(screen.getByRole("button", { name: "Business" }));
-      await screen.findByRole("heading", { name: "Business" });
-      await user.keyboard("{Escape}");
       await openDialog();
-      expect(screen.getByText("What's the domain?")).toBeInTheDocument();
+      expect(await screen.findByText("What's the domain?")).toBeInTheDocument();
+      expect(screen.queryByText("What happened?")).not.toBeInTheDocument();
+    });
+
+    it("closing and reopening with no session lands back on the quick-chip step, not a stale domain picker", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger()]);
+      renderDialog(null);
+      let user = await openDialog();
+      await screen.findByText("What happened?");
+      await user.click(screen.getByRole("button", { name: "More options" }));
+      await screen.findByText("What's the domain?");
+      await user.keyboard("{Escape}");
+      user = await openDialog();
+      expect(await screen.findByText("What happened?")).toBeInTheDocument();
     });
   });
 

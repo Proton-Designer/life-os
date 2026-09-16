@@ -149,7 +149,7 @@ test.describe("Lock-In full-screen session view", () => {
     await expect(view.getByText(/\d{1,2}:\d{2}\s*(AM|PM)?/i).first()).toBeVisible();
 
     // The three controls.
-    await expect(view.getByRole("button", { name: "Distractions" })).toBeVisible();
+    await expect(view.getByRole("button", { name: "Log a distraction" })).toBeVisible();
     await expect(view.getByRole("button", { name: /^End Session$/i })).toBeVisible();
     await expect(view.getByRole("button", { name: "Minimize session" })).toBeVisible();
   });
@@ -201,7 +201,10 @@ test.describe("Lock-In full-screen session view", () => {
   test("Distractions opens from inside the view and closes back to it", async ({ page }) => {
     await startSession(page, "Deep Work");
     const view = overlay(page);
-    await view.getByRole("button", { name: "Distractions" }).click();
+    // P3-02: visible label is now "+1" (accessible name "Log a distraction"
+    // via aria-label) -- an active session still infers the domain and
+    // skips straight to the trigger list, unchanged.
+    await view.getByRole("button", { name: "Log a distraction" }).click();
 
     // components/distractions/distraction-capture-dialog.tsx now INFERS the
     // domain from the active session (2026-09-10, Ayman/Opus Lead: "one

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
-import { getTriggersForDomain, getTodayDistractionCount, getSessionDistractionCount } from "@/lib/distractions/queries";
+import { getTriggersForDomain, getAllTriggers, getTodayDistractionCount, getSessionDistractionCount } from "@/lib/distractions/queries";
 import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
 import type { TablesInsert } from "@/lib/supabase/database.types";
 
@@ -22,6 +22,21 @@ export async function listTriggersForDomain(domain: DistractionDomain): Promise<
   const { supabase, userId } = await requireUser();
   const date = await todayForUser(supabase, userId);
   return getTriggersForDomain(supabase, userId, date, domain);
+}
+
+/**
+ * P3-02 -- the "+1" quick-log step's own data source: EVERY trigger
+ * across every domain, cross-domain, exactly like Home's Action Plan
+ * dialog already reads (`getAllTriggers`, app/(app)/page.tsx) -- no new
+ * query. The dialog itself calls `rankTriggersForCapture` (the SAME
+ * ranking the domain-scoped step already uses) and slices to the top 6,
+ * so this action stays a plain data fetch, not a second place ranking
+ * logic could drift.
+ */
+export async function listTopTriggersForQuickLog(): Promise<TriggerSummary[]> {
+  const { supabase, userId } = await requireUser();
+  const date = await todayForUser(supabase, userId);
+  return getAllTriggers(supabase, userId, date);
 }
 
 /**
