@@ -9,6 +9,7 @@ import {
   connectCanvas,
   disconnectCanvas,
   refreshCanvasCourses,
+  importConcludedCanvasCourses,
   getCanvasConnectionStatus,
   getCanvasCourseMappings,
   setCourseMapping,
@@ -85,6 +86,8 @@ export function CanvasSettings({
   const [token, setToken] = useState("");
   const [icsFeedUrl, setIcsFeedUrl] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // CANVAS-LITE-04: a fresh number every sync, never persisted -- 0/null hides the offer.
+  const [concludedCount, setConcludedCount] = useState(0);
   const [isPending, startTransition] = useTransition();
 
   function handleConnect() {
@@ -140,6 +143,7 @@ export function CanvasSettings({
         const res = await refreshCanvasCourses();
         setMessage({ ok: res.ok, text: res.message });
         if (res.ok) {
+          setConcludedCount(res.concludedCount ?? 0);
           setMappings(await getCanvasCourseMappings());
           setStatus((s) => ({ ...s, lastSyncedAt: new Date().toISOString(), lastSyncError: null, tokenStatus: "ok" }));
         } else {
@@ -155,6 +159,19 @@ export function CanvasSettings({
         // Action (a transport failure, not a Canvas-sync one) must still surface
         // a message here rather than leave the panel silently stuck mid-sync.
         setMessage({ ok: false, text: err instanceof Error ? err.message : "Sync failed unexpectedly. Try again." });
+      }
+    });
+  }
+
+  // CANVAS-LITE-04: a deliberate, separate action from Sync -- a concluded
+  // course is never imported automatically.
+  function handleImportConcluded() {
+    startTransition(async () => {
+      const res = await importConcludedCanvasCourses();
+      setMessage({ ok: res.ok, text: res.message });
+      if (res.ok) {
+        setConcludedCount(0);
+        setMappings(await getCanvasCourseMappings());
       }
     });
   }
@@ -282,6 +299,14 @@ export function CanvasSettings({
               <Button size="sm" variant="ghost" disabled={isPending} onClick={handleDisconnect}>
                 Disconnect
               </Button>
+              {/* CANVAS-LITE-04: "state the count and offer to import them,
+                  rather than skipping silently" -- a concluded course is
+                  never auto-imported, only on this explicit click. */}
+              {concludedCount > 0 ? (
+                <Button size="sm" variant="outline" disabled={isPending} onClick={handleImportConcluded}>
+                  Import {concludedCount} concluded course{concludedCount === 1 ? "" : "s"}
+                </Button>
+              ) : null}
             </div>
           )}
 

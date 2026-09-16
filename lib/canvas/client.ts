@@ -117,11 +117,35 @@ export async function verifyCanvasToken(instanceUrl: string, token: string): Pro
   return { ok: true, data: { canvasUserId: String(raw.id), name: raw.name } };
 }
 
+type RawCanvasCourse = { id: number | string; name?: string; course_code?: string; enrollments?: { computed_current_score?: number; computed_final_score?: number; computed_current_letter_grade?: string }[] };
+
+function mapCanvasCourses(raw: unknown): CanvasClientResult<CanvasCourseSummary[]> {
+  if (!Array.isArray(raw)) {
+    return { ok: false, message: "Canvas returned an unexpected course list shape." };
+  }
+  const courses: CanvasCourseSummary[] = raw
+    .filter((c): c is RawCanvasCourse => Boolean(c) && typeof c === "object" && "id" in c)
+    .map((c) => {
+      const enrollment = c.enrollments?.[0];
+      return {
+        canvasCourseId: String(c.id),
+        name: c.name ?? `Course ${c.id}`,
+        courseCode: c.course_code ?? null,
+        computedCurrentScore: typeof enrollment?.computed_current_score === "number" ? enrollment.computed_current_score : null,
+        computedFinalScore: typeof enrollment?.computed_final_score === "number" ? enrollment.computed_final_score : null,
+        computedCurrentLetterGrade: typeof enrollment?.computed_current_letter_grade === "string" ? enrollment.computed_current_letter_grade : null,
+      };
+    });
+  return { ok: true, data: courses };
+}
+
 /**
  * Active-enrollment courses only (`enrollment_state=active`) — a BYO sync
- * is for "what am I taking right now", not a full historical archive.
- * Widening this to include concluded/inactive enrollments is a real future
- * option (P2-22 territory: expiry/sync-status screen), not in scope here.
+ * is for "what am I taking right now" by default. Concluded/inactive
+ * enrollments are a real, separate, opt-in fetch now (CANVAS-LITE-04) --
+ * `fetchConcludedCanvasCourses` below -- never silently folded into this
+ * default list, so "what am I taking right now" stays true of this
+ * function's own contract.
  *
  * per_page=100 covers a normal course load without pagination; a user
  * enrolled in more than 100 active Canvas courses simultaneously is not a
@@ -135,27 +159,22 @@ export async function fetchCanvasCourses(instanceUrl: string, token: string): Pr
   // not assumed from docs alone. Free on this same request, no second call.
   const res = await canvasFetch(instanceUrl, token, `/api/v1/courses?enrollment_state=active&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
   if (!res.ok) return res;
-  const raw = res.data;
-  if (!Array.isArray(raw)) {
-    return { ok: false, message: "Canvas returned an unexpected course list shape." };
-  }
-  const courses: CanvasCourseSummary[] = raw
-    .filter(
-      (c): c is { id: number | string; name?: string; course_code?: string; enrollments?: { computed_current_score?: number; computed_final_score?: number; computed_current_letter_grade?: string }[] } =>
-        Boolean(c) && typeof c === "object" && "id" in c,
-    )
-    .map((c) => {
-      const enrollment = c.enrollments?.[0];
-      return {
-        canvasCourseId: String(c.id),
-        name: c.name ?? `Course ${c.id}`,
-        courseCode: c.course_code ?? null,
-        computedCurrentScore: typeof enrollment?.computed_current_score === "number" ? enrollment.computed_current_score : null,
-        computedFinalScore: typeof enrollment?.computed_final_score === "number" ? enrollment.computed_final_score : null,
-        computedCurrentLetterGrade: typeof enrollment?.computed_current_letter_grade === "string" ? enrollment.computed_current_letter_grade : null,
-      };
-    });
-  return { ok: true, data: courses };
+  return mapCanvasCourses(res.data);
+}
+
+/**
+ * CANVAS-LITE-04: concluded/inactive courses, fetched ONLY when the caller
+ * explicitly asks (the Settings "N concluded courses skipped -- import
+ * them?" offer, or the user clicking through it) -- never merged into
+ * `fetchCanvasCourses`'s own default active-only list, and never fetched
+ * automatically on every sync (an extra Canvas API call the common case
+ * doesn't need). `enrollment_state=completed` is Canvas's own documented
+ * value for a concluded enrollment.
+ */
+export async function fetchConcludedCanvasCourses(instanceUrl: string, token: string): Promise<CanvasClientResult<CanvasCourseSummary[]>> {
+  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses?enrollment_state=completed&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
+  if (!res.ok) return res;
+  return mapCanvasCourses(res.data);
 }
 
 const ANNOUNCEMENTS_PER_PAGE = 50;

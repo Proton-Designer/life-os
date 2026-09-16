@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { CanvasCourseSummary } from "@/lib/canvas/client";
 
 /**
  * P2-22 04-verification failure (a9, live against production): a fixture
@@ -23,7 +24,8 @@ function makeChain(resolvedValue: { data: unknown; error: unknown }) {
 let fromImpl: (table: string) => ReturnType<typeof makeChain>;
 const fromMock = vi.fn((table: string) => fromImpl(table));
 const requireUserMock = vi.fn(async () => ({ supabase: { from: fromMock } as unknown as SupabaseClient, userId: "user-1" }));
-vi.mock("@/lib/supabase/auth", () => ({ requireUser: () => requireUserMock() }));
+const getProfileMock = vi.fn(async () => ({ timezone: "America/Chicago" }));
+vi.mock("@/lib/supabase/auth", () => ({ requireUser: () => requireUserMock(), getProfile: () => getProfileMock() }));
 
 const decryptSecretMock = vi.fn((s: string) => s);
 vi.mock("@/lib/ai/encryption", () => ({
@@ -34,9 +36,23 @@ vi.mock("@/lib/ai/encryption", () => ({
 }));
 
 const fetchCanvasCoursesMock = vi.fn();
+const fetchConcludedCanvasCoursesMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true; data: CanvasCourseSummary[] }> => ({ ok: true, data: [] }));
+const fetchCanvasIcsFeedMock = vi.fn();
 vi.mock("@/lib/canvas/client", () => ({
   verifyCanvasToken: vi.fn(),
   fetchCanvasCourses: (...args: unknown[]) => fetchCanvasCoursesMock(...args),
+  fetchConcludedCanvasCourses: (...args: unknown[]) => fetchConcludedCanvasCoursesMock(...args),
+  fetchCanvasIcsFeed: (...args: unknown[]) => fetchCanvasIcsFeedMock(...args),
+}));
+
+const autoImportCanvasCoursesAsClassesCoreMock = vi.fn(async (..._args: unknown[]) => ({ created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 }));
+vi.mock("@/lib/canvas/course-auto-import-core", () => ({
+  autoImportCanvasCoursesAsClassesCore: (...args: unknown[]) => autoImportCanvasCoursesAsClassesCoreMock(...args),
+}));
+
+const reconcileCanvasIcsCoreMock = vi.fn();
+vi.mock("@/lib/canvas/ics-reconcile-core", () => ({
+  reconcileCanvasIcsCore: (...args: unknown[]) => reconcileCanvasIcsCoreMock(...args),
 }));
 
 vi.mock("@/lib/net/safe-outbound-url", () => ({
@@ -86,5 +102,122 @@ describe("refreshCanvasCourses failure handling (P2-22 04-verification fix)", ()
     // Not marked expired -- an unrelated exception isn't evidence the token is bad.
     const updateCall = connectionsChain.update.mock.calls.find((c) => "last_sync_error" in c[0]);
     expect(updateCall?.[0]).not.toHaveProperty("token_status");
+  });
+});
+
+// CANVAS-LITE-04: "state the count and offer to import them, rather than
+// skipping silently" -- concluded/inactive courses.
+describe("refreshCanvasCourses / importConcludedCanvasCourses -- concluded courses (CANVAS-LITE-04)", () => {
+  beforeEach(() => {
+    fromMock.mockClear();
+    fetchCanvasCoursesMock.mockReset();
+    fetchConcludedCanvasCoursesMock.mockReset();
+    autoImportCanvasCoursesAsClassesCoreMock.mockClear();
+    decryptSecretMock.mockImplementation((s: string) => s);
+  });
+
+  it("refreshCanvasCourses reports the concluded count without failing the sync when the concluded fetch itself fails", async () => {
+    const connectionsChain = makeChain({ data: { instance_url: "https://school.instructure.com", encrypted_token: "enc" }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+    fetchCanvasCoursesMock.mockResolvedValue({ ok: true, data: [] });
+    fetchConcludedCanvasCoursesMock.mockRejectedValue(new Error("boom"));
+
+    const { refreshCanvasCourses } = await import("../canvas-actions");
+    const result = await refreshCanvasCourses();
+
+    expect(result.ok).toBe(true);
+    expect(result.concludedCount).toBe(0);
+    expect(result.message).toBe("No active courses found on Canvas.");
+  });
+
+  it("refreshCanvasCourses states the concluded count in the message and on the result", async () => {
+    const connectionsChain = makeChain({ data: { instance_url: "https://school.instructure.com", encrypted_token: "enc" }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+    fetchCanvasCoursesMock.mockResolvedValue({ ok: true, data: [] });
+    fetchConcludedCanvasCoursesMock.mockResolvedValue({ ok: true, data: [{ canvasCourseId: "30", name: "Old Course", courseCode: null, computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null }] });
+
+    const { refreshCanvasCourses } = await import("../canvas-actions");
+    const result = await refreshCanvasCourses();
+
+    expect(result.concludedCount).toBe(1);
+    expect(result.message).toBe("No active courses found on Canvas. 1 concluded course skipped.");
+  });
+
+  it("importConcludedCanvasCourses runs the fetched concluded courses through the shared auto-import core and reports the summary", async () => {
+    const connectionsChain = makeChain({ data: { instance_url: "https://school.instructure.com", encrypted_token: "enc" }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+    fetchConcludedCanvasCoursesMock.mockResolvedValue({ ok: true, data: [{ canvasCourseId: "30", name: "Old Course", courseCode: null, computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null }] });
+    autoImportCanvasCoursesAsClassesCoreMock.mockResolvedValue({ created: 1, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 });
+
+    const { importConcludedCanvasCourses } = await import("../canvas-actions");
+    const result = await importConcludedCanvasCourses();
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toBe("Imported 1 concluded course. (1 class added)");
+    expect(autoImportCanvasCoursesAsClassesCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", [
+      { canvasCourseId: "30", name: "Old Course", courseCode: null, computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null },
+    ]);
+  });
+
+  it("importConcludedCanvasCourses reports honestly when there are none, without calling the auto-import core at all", async () => {
+    const connectionsChain = makeChain({ data: { instance_url: "https://school.instructure.com", encrypted_token: "enc" }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+    fetchConcludedCanvasCoursesMock.mockResolvedValue({ ok: true, data: [] });
+
+    const { importConcludedCanvasCourses } = await import("../canvas-actions");
+    const result = await importConcludedCanvasCourses();
+
+    expect(result).toEqual({ ok: true, message: "No concluded courses found." });
+    expect(autoImportCanvasCoursesAsClassesCoreMock).not.toHaveBeenCalled();
+  });
+});
+
+// CANVAS-LITE-04: the same honest course-import summary the token path's
+// connectCanvas/refreshCanvasCourses already show must also appear here --
+// a no-token student sees identical reporting.
+describe("reconcileCanvasIcs -- course-import summary (CANVAS-LITE-04)", () => {
+  beforeEach(() => {
+    fromMock.mockClear();
+    fetchCanvasIcsFeedMock.mockReset();
+    reconcileCanvasIcsCoreMock.mockReset();
+  });
+
+  it("appends the course-import summary to the assignment message", async () => {
+    const connectionsChain = makeChain({ data: { encrypted_ics_feed_url: "enc-url", last_ics_reconcile_at: null }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+    fetchCanvasIcsFeedMock.mockResolvedValue({ ok: true, data: "BEGIN:VCALENDAR\r\nEND:VCALENDAR" });
+    reconcileCanvasIcsCoreMock.mockResolvedValue({
+      parsedAssignmentEvents: 3,
+      alreadyCovered: 0,
+      linkedToExisting: 0,
+      unmapped: 0,
+      newlyStaged: 2,
+      courseImport: { created: 1, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 },
+    });
+
+    const { reconcileCanvasIcs } = await import("../canvas-actions");
+    const result = await reconcileCanvasIcs();
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toBe("Found 2 new assignments staged for your review. (1 class added)");
+  });
+
+  it("reports no assignments AND no course changes honestly, without a stray trailing note", async () => {
+    const connectionsChain = makeChain({ data: { encrypted_ics_feed_url: "enc-url", last_ics_reconcile_at: null }, error: null });
+    fromImpl = (table) => (table === "canvas_connections" ? connectionsChain : makeChain({ data: null, error: null }));
+    fetchCanvasIcsFeedMock.mockResolvedValue({ ok: true, data: "BEGIN:VCALENDAR\r\nEND:VCALENDAR" });
+    reconcileCanvasIcsCoreMock.mockResolvedValue({
+      parsedAssignmentEvents: 0,
+      alreadyCovered: 0,
+      linkedToExisting: 0,
+      unmapped: 0,
+      newlyStaged: 0,
+      courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 },
+    });
+
+    const { reconcileCanvasIcs } = await import("../canvas-actions");
+    const result = await reconcileCanvasIcs();
+
+    expect(result.message).toBe("No new assignments found in your calendar feed.");
   });
 });

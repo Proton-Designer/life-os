@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseCanvasIcsFeed, icsDateStrToLocalDateString } from "@/lib/canvas/ics-parser";
 import { getMappedCourses, findUnambiguousLocalMatch, type LocalAssessment } from "@/lib/canvas/sync-core";
+import { autoImportCanvasCoursesAsClassesCore, type AutoImportCoursesResult } from "@/lib/canvas/course-auto-import-core";
 import { createStagingBatchCore, createStagedDeliverablesCore } from "@/lib/school/staging-core";
 import type { ExtractedItem } from "@/lib/school/syllabus-extraction";
 
@@ -38,6 +39,20 @@ export interface IcsReconcileResult {
   linkedToExisting: number;
   unmapped: number;
   newlyStaged: number;
+  /**
+   * CANVAS-LITE-04: a course seen ONLY through the ICS feed (never
+   * token-connected, never agent-imported) now goes through the SAME
+   * shared `autoImportCanvasCoursesAsClassesCore` the token path uses --
+   * this is the no-token student's own primary case (their school blocks
+   * access tokens entirely), so `unmapped` above should trend toward zero
+   * over time instead of silently accumulating. The feed carries no
+   * course name at all (only a numeric id parsed from each assignment's
+   * URL, per ics-parser.ts's own documented-shape-only posture) or a
+   * computed grade, so an auto-created class here gets an honest
+   * placeholder name (`Canvas course <id>`) -- editable afterwards,
+   * same as any other class (CANVAS-LITE-03's own code-editability change).
+   */
+  courseImport: AutoImportCoursesResult;
 }
 
 interface ParsedAssignmentEvent {
@@ -57,8 +72,38 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
       dateStr: e.dtstart ? icsDateStrToLocalDateString(e.dtstart, timezone) : null,
     }));
 
-  const result: IcsReconcileResult = { parsedAssignmentEvents: parsedEvents.length, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 0 };
+  const EMPTY_COURSE_IMPORT: AutoImportCoursesResult = { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 };
+  const result: IcsReconcileResult = {
+    parsedAssignmentEvents: parsedEvents.length,
+    alreadyCovered: 0,
+    linkedToExisting: 0,
+    unmapped: 0,
+    newlyStaged: 0,
+    courseImport: EMPTY_COURSE_IMPORT,
+  };
   if (parsedEvents.length === 0) return result;
+
+  // CANVAS-LITE-04: every Canvas course id this feed mentions goes through
+  // the SAME shared auto-import core the token path uses, BEFORE mapping
+  // resolution below -- so a course seen for the first time via the feed
+  // is immediately available to link/stage its own assignments in this
+  // same run, not just on a second reconcile. The feed carries no course
+  // name/code/computed-grade at all (ics-parser.ts's own header: only a
+  // numeric id is documented-shape-reliable), so an honest placeholder
+  // name is used -- editable afterwards, same as any other class.
+  const uniqueCourseIds = [...new Set(parsedEvents.map((e) => e.canvasCourseId))];
+  result.courseImport = await autoImportCanvasCoursesAsClassesCore(
+    supabase,
+    userId,
+    uniqueCourseIds.map((canvasCourseId) => ({
+      canvasCourseId,
+      name: `Canvas course ${canvasCourseId}`,
+      courseCode: null,
+      computedCurrentScore: null,
+      computedFinalScore: null,
+      computedCurrentLetterGrade: null,
+    })),
+  );
 
   const courses = await getMappedCourses(supabase, userId);
   const classIdByCourseId = new Map(courses.map((c) => [c.canvasCourseId, c.classId]));

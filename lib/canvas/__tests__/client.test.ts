@@ -17,7 +17,7 @@ vi.mock("@/lib/net/safe-outbound-url", () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }));
 
-const { verifyCanvasToken, fetchCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments, fetchCanvasIcsFeed } = await import("@/lib/canvas/client");
+const { verifyCanvasToken, fetchCanvasCourses, fetchConcludedCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments, fetchCanvasIcsFeed } = await import("@/lib/canvas/client");
 
 describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
   beforeEach(() => safeFetchMock.mockReset());
@@ -80,6 +80,21 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error("expected ok");
     expect(res.data[0]).toMatchObject({ computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null });
+  });
+
+  // CANVAS-LITE-04: a separate, opt-in fetch -- never merged into
+  // fetchCanvasCourses' own default active-only list.
+  it("fetchConcludedCanvasCourses requests enrollment_state=completed, a separate call from the active list", async () => {
+    safeFetchMock.mockResolvedValue(new Response(JSON.stringify([{ id: 30, name: "Old Course", course_code: "HIST-1301" }]), { status: 200 }));
+    const res = await fetchConcludedCanvasCourses("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data).toEqual([
+      { canvasCourseId: "30", name: "Old Course", courseCode: "HIST-1301", computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null },
+    ]);
+    const url = String(safeFetchMock.mock.calls[0][0]);
+    expect(url).toContain("enrollment_state=completed");
+    expect(url).not.toContain("enrollment_state=active");
   });
 
   it("surfaces a safeFetch rejection (SSRF-blocked target) as a clean {ok:false} result, never throws to the caller", async () => {

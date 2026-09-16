@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { encryptSecret, decryptSecret, isKeyStorageConfigured, last4 } from "@/lib/ai/encryption";
-import { verifyCanvasToken, fetchCanvasCourses, fetchCanvasIcsFeed } from "@/lib/canvas/client";
+import { verifyCanvasToken, fetchCanvasCourses, fetchConcludedCanvasCourses, fetchCanvasIcsFeed } from "@/lib/canvas/client";
 import { resolveCanvasConnectionCore, recordCanvasSyncOutcomeCore } from "@/lib/canvas/connection-core";
 import { reconcileCanvasIcsCore, type IcsReconcileResult } from "@/lib/canvas/ics-reconcile-core";
 import { autoImportCanvasCoursesAsClassesCore, type AutoImportCoursesResult } from "@/lib/canvas/course-auto-import-core";
@@ -35,6 +35,14 @@ export interface CanvasConnectionStatus {
 export interface CanvasActionResult {
   ok: boolean;
   message: string;
+  /**
+   * CANVAS-LITE-04: how many concluded/inactive courses were found but
+   * skipped (only set by `refreshCanvasCourses`, undefined everywhere
+   * else) -- lets Settings offer "N concluded courses -- import them?"
+   * rather than silently skipping them, without persisting a count
+   * anywhere (a fresh number every sync).
+   */
+  concludedCount?: number;
 }
 
 export interface CanvasCourseMapping {
@@ -284,11 +292,64 @@ export async function refreshCanvasCourses(): Promise<CanvasActionResult> {
 
   revalidatePath("/settings");
   revalidatePath("/school");
+
+  // CANVAS-LITE-04: "state the count and offer to import them, rather
+  // than skipping silently." Best-effort and non-blocking -- a failure
+  // fetching the concluded list must never fail (or even taint the
+  // message of) a sync that itself succeeded; it's extra information,
+  // not part of the sync's own contract.
+  let concludedCount = 0;
+  try {
+    const concludedRes = await fetchConcludedCanvasCourses(conn.instanceUrl, conn.token);
+    if (concludedRes.ok) concludedCount = concludedRes.data.length;
+  } catch {
+    // Silently 0 -- the active-course sync above already succeeded and reported.
+  }
+
   const message =
-    res.data.length === 0
-      ? "No active courses found on Canvas."
-      : `Synced ${res.data.length} course${res.data.length === 1 ? "" : "s"}.${formatImportSummary(importResult)}`;
-  return { ok: true, message };
+    (res.data.length === 0 ? "No active courses found on Canvas." : `Synced ${res.data.length} course${res.data.length === 1 ? "" : "s"}.${formatImportSummary(importResult)}`) +
+    (concludedCount > 0 ? ` ${concludedCount} concluded course${concludedCount === 1 ? "" : "s"} skipped.` : "");
+  return { ok: true, message, concludedCount };
+}
+
+/**
+ * CANVAS-LITE-04: the explicit "import them" side of the concluded-courses
+ * offer above -- a separate action, not automatic, since importing a
+ * concluded course's classes is a deliberate choice (they're not "what
+ * I'm taking right now"). Reuses the exact same shared auto-import core,
+ * so a concluded course adopts/never-duplicates a hand-made class exactly
+ * like an active one does.
+ */
+export async function importConcludedCanvasCourses(): Promise<CanvasActionResult> {
+  const { supabase, userId } = await requireUser();
+
+  let conn: Awaited<ReturnType<typeof resolveCanvasConnectionCore>>;
+  try {
+    conn = await resolveCanvasConnectionCore(supabase, userId);
+  } catch {
+    return { ok: false, message: "Your saved Canvas token can't be read anymore. Reconnect." };
+  }
+  if (!conn) return { ok: false, message: "Connect Canvas first." };
+
+  let res: Awaited<ReturnType<typeof fetchConcludedCanvasCourses>>;
+  try {
+    res = await fetchConcludedCanvasCourses(conn.instanceUrl, conn.token);
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : "Couldn't fetch concluded courses. Try again." };
+  }
+  if (!res.ok) return { ok: false, message: res.message };
+  if (res.data.length === 0) return { ok: true, message: "No concluded courses found." };
+
+  let importResult: AutoImportCoursesResult;
+  try {
+    importResult = await autoImportCanvasCoursesAsClassesCore(supabase, userId, res.data);
+  } catch {
+    return { ok: false, message: "Fetched concluded courses but couldn't save them. Try again." };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/school");
+  return { ok: true, message: `Imported ${res.data.length} concluded course${res.data.length === 1 ? "" : "s"}.${formatImportSummary(importResult)}` };
 }
 
 export async function getCanvasCourseMappings(): Promise<CanvasCourseMapping[]> {
@@ -434,6 +495,11 @@ export async function reconcileCanvasIcs(): Promise<IcsReconcileActionResult> {
   const parts: string[] = [];
   if (summary.newlyStaged > 0) parts.push(`${summary.newlyStaged} new assignment${summary.newlyStaged === 1 ? "" : "s"} staged for your review`);
   if (summary.linkedToExisting > 0) parts.push(`${summary.linkedToExisting} matched to an assessment you already entered`);
-  const message = parts.length === 0 ? "No new assignments found in your calendar feed." : `Found ${parts.join(" and ")}.`;
+  // CANVAS-LITE-04: the SAME honest course-import summary the token path's
+  // connectCanvas/refreshCanvasCourses already show -- a no-token student
+  // (whose school blocks Canvas tokens entirely) sees the exact same
+  // "what happened to my classes" reporting the token path gets.
+  const message =
+    (parts.length === 0 ? "No new assignments found in your calendar feed." : `Found ${parts.join(" and ")}.`) + formatImportSummary(summary.courseImport);
   return { ok: true, message, summary };
 }

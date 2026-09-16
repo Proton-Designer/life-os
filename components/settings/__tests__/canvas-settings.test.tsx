@@ -6,6 +6,7 @@ vi.mock("@/app/(app)/settings/canvas-actions", () => ({
   connectCanvas: vi.fn(),
   disconnectCanvas: vi.fn(),
   refreshCanvasCourses: vi.fn(),
+  importConcludedCanvasCourses: vi.fn(),
   getCanvasConnectionStatus: vi.fn(),
   getCanvasCourseMappings: vi.fn(async () => []),
   setCourseMapping: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock("@/app/(app)/settings/canvas-actions", () => ({
   reconcileCanvasIcs: vi.fn(),
 }));
 
-import { saveCanvasIcsFeedUrl, reconcileCanvasIcs, type CanvasConnectionStatus } from "@/app/(app)/settings/canvas-actions";
+import { saveCanvasIcsFeedUrl, reconcileCanvasIcs, refreshCanvasCourses, importConcludedCanvasCourses, type CanvasConnectionStatus } from "@/app/(app)/settings/canvas-actions";
 import { CanvasSettings } from "../canvas-settings";
 
 const CONNECTED_NO_FEED: CanvasConnectionStatus = {
@@ -90,7 +91,7 @@ describe("CanvasSettings -- ICS calendar-feed reconciliation (P3-13)", () => {
     vi.mocked(reconcileCanvasIcs).mockResolvedValue({
       ok: true,
       message: "Found 2 new assignments from your calendar feed, staged for your review.",
-      summary: { parsedAssignmentEvents: 5, alreadyCovered: 3, linkedToExisting: 0, unmapped: 0, newlyStaged: 2 },
+      summary: { parsedAssignmentEvents: 5, alreadyCovered: 3, linkedToExisting: 0, unmapped: 0, newlyStaged: 2, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } },
     });
     const user = userEvent.setup();
     render(<CanvasSettings initialStatus={CONNECTED_WITH_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
@@ -251,5 +252,41 @@ describe("CanvasSettings -- course mapping list is reachable regardless of token
     await user.selectOptions(screen.getByRole("combobox"), "");
 
     await waitFor(() => expect(setCourseMapping).toHaveBeenCalledWith("map-1", null));
+  });
+});
+
+// CANVAS-LITE-04: "state the count and offer to import them, rather than
+// skipping silently" -- concluded/inactive courses.
+describe("CanvasSettings -- concluded-courses offer (CANVAS-LITE-04)", () => {
+  beforeEach(() => {
+    vi.mocked(refreshCanvasCourses).mockReset();
+    vi.mocked(importConcludedCanvasCourses).mockReset();
+  });
+
+  it("offers to import concluded courses after a sync that finds some, and hides the offer when there are none", async () => {
+    vi.mocked(refreshCanvasCourses).mockResolvedValue({ ok: true, message: "Synced 3 courses. 2 concluded courses skipped.", concludedCount: 2 });
+    const user = userEvent.setup();
+    render(<CanvasSettings initialStatus={CONNECTED_NO_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+
+    expect(screen.queryByRole("button", { name: /Import \d concluded/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sync courses" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Import 2 concluded courses" })).toBeInTheDocument());
+  });
+
+  it("clicking the offer calls importConcludedCanvasCourses and hides the offer again once done", async () => {
+    vi.mocked(refreshCanvasCourses).mockResolvedValue({ ok: true, message: "Synced 3 courses.", concludedCount: 1 });
+    vi.mocked(importConcludedCanvasCourses).mockResolvedValue({ ok: true, message: "Imported 1 concluded course. (1 class added)" });
+    const user = userEvent.setup();
+    render(<CanvasSettings initialStatus={CONNECTED_NO_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
+
+    await user.click(screen.getByRole("button", { name: "Sync courses" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Import 1 concluded course" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Import 1 concluded course" }));
+
+    expect(importConcludedCanvasCourses).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Import \d concluded/ })).not.toBeInTheDocument());
+    expect(screen.getByText("Imported 1 concluded course. (1 class added)")).toBeInTheDocument();
   });
 });
