@@ -61,12 +61,26 @@ export interface EfficiencyByClosedDay {
 /**
  * Pure, unit-testable bucketing — no DB access, no `Date.now()`.
  *
- * A day counts as CLOSED only with BOTH a wake mark and a close mark: that
- * pair gives a real, bounded delta (`computeDeltaMinutes(wokeAt, closedAt)`)
- * to divide hours by. A day counts as OPEN only with a wake mark and NO
- * close mark — engaged with, never finished. A day with neither mark is
- * out of scope for this split entirely (nothing in Day Structure's ritual
+ * A day counts as CLOSED whenever it has a close mark, period — `closedCount`
+ * means "the evening-close ritual ran this day," matching the Weekly Review
+ * line's own literal wording ("N closed days"), never "N days that happened
+ * to produce a usable percent." A day counts as OPEN only with a wake mark
+ * and NO close mark — engaged with, never finished. A day with neither mark
+ * is out of scope for this split entirely (nothing in Day Structure's ritual
  * layer happened that day), not silently folded into "open."
+ *
+ * GAP-03 (ENG3's DAYCLOSE-DFT2 pass, found live the night P3-09 shipped): the
+ * evening-close ritual has no gate requiring a same-day Start Day tap first
+ * — it is reachable at any time — so a real `evening_closes` row with no
+ * `day_starts` row is a real, ordinary case, not a data error. The original
+ * version checked `wokeAtIso === null` and `continue`d before ever looking
+ * at `closedAtIso`, which dropped that day from BOTH counts, identical to a
+ * day where nothing happened at all — a real close silently vanishing from
+ * a number the UI presents as a plain count. Fixed by checking `closedAtIso`
+ * first: closedCount increments for ANY close mark; the average is computed
+ * ONLY from closed days that also have a wake mark (a real, bounded delta
+ * to divide hours by) — a close without a wake, or one whose delta is
+ * unusable, still counts as closed, it just contributes no percent.
  *
  * WHY OPEN DAYS GET NO FABRICATED PERCENT (P3-09, Opus Lead's own check
  * before approving this): the existing Efficiency metric's only other
@@ -78,21 +92,25 @@ export interface EfficiencyByClosedDay {
  * here rather than reinventing it means a closed day with a non-positive
  * delta (closed_at before woke_at — should never happen, but not asserted
  * away) is excluded from the average the same way `computeEfficiency`
- * already treats "no meaningful denominator" everywhere else: null, not 0%.
+ * already treats "no meaningful denominator" everywhere else: null, not 0%
+ * — and, since GAP-03, still correctly counted as closed regardless.
  */
 export function bucketEfficiencyByClosedDay(days: readonly DayForEfficiencySplit[]): EfficiencyByClosedDay {
   const closedPercents: number[] = [];
+  let closedCount = 0;
   let openCount = 0;
   for (const day of days) {
-    if (day.wokeAtIso === null) continue;
-    if (day.closedAtIso === null) {
-      openCount++;
+    if (day.closedAtIso !== null) {
+      closedCount++;
+      if (day.wokeAtIso !== null) {
+        const deltaMinutes = computeDeltaMinutes(day.wokeAtIso, new Date(day.closedAtIso));
+        const efficiency = computeEfficiency(day.hoursMinutes, deltaMinutes);
+        if (efficiency !== null) closedPercents.push(efficiency.percent);
+      }
       continue;
     }
-    const deltaMinutes = computeDeltaMinutes(day.wokeAtIso, new Date(day.closedAtIso));
-    const efficiency = computeEfficiency(day.hoursMinutes, deltaMinutes);
-    if (efficiency !== null) closedPercents.push(efficiency.percent);
+    if (day.wokeAtIso !== null) openCount++;
   }
   const closedAvgPercent = closedPercents.length === 0 ? null : Math.round(closedPercents.reduce((a, b) => a + b, 0) / closedPercents.length);
-  return { closedAvgPercent, closedCount: closedPercents.length, openCount };
+  return { closedAvgPercent, closedCount, openCount };
 }

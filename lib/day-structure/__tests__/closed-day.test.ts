@@ -99,11 +99,40 @@ describe("bucketEfficiencyByClosedDay", () => {
     expect(result).toEqual({ closedAvgPercent: 50, closedCount: 1, openCount: 1 });
   });
 
-  it("a closed day whose delta produces no meaningful efficiency (closed_at before woke_at) is excluded from the average, not counted as 0%", () => {
+  it("a closed day whose delta produces no meaningful efficiency (closed_at before woke_at) is excluded from the AVERAGE but still counts as closed", () => {
     const result = bucketEfficiencyByClosedDay([
       day({ wokeAtIso: "2026-09-08T15:00:00.000Z", closedAtIso: "2026-09-08T13:00:00.000Z", hoursMinutes: 60 }),
     ]);
-    expect(result).toEqual({ closedAvgPercent: null, closedCount: 0, openCount: 0 });
+    // GAP-03 (ENG3's DAYCLOSE-DFT2 pass): closedCount means "this day was
+    // closed," not "this day contributed a percent" -- a real close must
+    // never disappear from the count just because its own delta was
+    // unusable. closedAvgPercent still correctly excludes it (no
+    // fabricated 0%), same as before.
+    expect(result).toEqual({ closedAvgPercent: null, closedCount: 1, openCount: 0 });
+  });
+
+  // GAP-03 (ENG3's DAYCLOSE-DFT2-findings.md): a real evening_closes row
+  // with NO day_starts row (the evening close is a completely separate
+  // flow, reachable at any time, with no same-day Start Day gate) was
+  // dropped from BOTH counts by the old `if (wokeAtIso === null) continue`
+  // ordering -- identical to a day where nothing happened at all, even
+  // though a real close happened. The UI renders this as "N closed days"
+  // literally, so a real close must never be invisible from that count.
+  it("a day closed WITHOUT ever being started still counts as closed, not silently dropped", () => {
+    const result = bucketEfficiencyByClosedDay([day({ closedAtIso: "2026-09-08T22:00:00.000Z", wokeAtIso: null, hoursMinutes: 45 })]);
+    expect(result).toEqual({ closedAvgPercent: null, closedCount: 1, openCount: 0 });
+  });
+
+  it("a mix including a close-without-wake day: closed count reflects every real close, average only from days with a real delta", () => {
+    const result = bucketEfficiencyByClosedDay([
+      // real delta -> 50%
+      day({ localDate: "d1", wokeAtIso: "2026-09-08T13:00:00.000Z", closedAtIso: "2026-09-08T15:00:00.000Z", hoursMinutes: 60 }),
+      // closed, never started -> counts as closed, no percent
+      day({ localDate: "d2", closedAtIso: "2026-09-09T22:00:00.000Z", wokeAtIso: null, hoursMinutes: 20 }),
+      // open (started, never closed)
+      day({ localDate: "d3", wokeAtIso: "2026-09-10T13:00:00.000Z", hoursMinutes: 10 }),
+    ]);
+    expect(result).toEqual({ closedAvgPercent: 50, closedCount: 2, openCount: 1 });
   });
 
   it("an empty week reports all-null/zero, never throws", () => {
