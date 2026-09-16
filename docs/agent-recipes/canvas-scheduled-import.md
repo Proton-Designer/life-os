@@ -51,7 +51,7 @@ number of the three item shapes below.
   "patch": {
     "items": [
       { "kind": "course", "canvas_course_id": "10231", "canvas_course_name": "Organic Chemistry II", "canvas_course_code": "CHEM-2412" },
-      { "kind": "assessment", "canvas_course_id": "10231", "canvas_assignment_id": "88213", "name": "Problem Set 4", "due_at": "2026-09-22T23:59:00Z", "points_possible": 20, "points_earned": 18 },
+      { "kind": "assessment", "canvas_course_id": "10231", "canvas_assignment_id": "88213", "name": "Problem Set 4", "due_at": "2026-09-22T23:59:00Z", "points_possible": 20, "points_earned": 18, "grading_type": "points" },
       { "kind": "announcement", "canvas_course_id": "10231", "canvas_announcement_id": "55021", "text": "The midterm has moved to Friday the 26th; you'll need a calculator." }
     ]
   }
@@ -78,6 +78,15 @@ Field notes:
 - `due_at`/`points_possible` are optional and nullable; `points_earned` is
   required for an `assessment` item (there's nothing to import for a grade
   that doesn't exist yet — wait for a real numeric score).
+- `grading_type` is optional but matters: send Canvas's own assignment
+  `grading_type` value verbatim. Only `"points"` and `"percent"` actually
+  apply the grade — every other value (`pass_fail`, `letter_grade`,
+  `gpa_scale`, `not_graded`, or omitted entirely) still links the
+  assignment to the local assessment (so it's found next time and can be
+  graded by hand) but never writes a number into it. This is deliberate:
+  a pass/fail or letter-grade assignment's raw score is not directly
+  comparable to a points total, and guessing would risk feeding a
+  meaningless number into grade-weighted math.
 
 ## 4. Read the per-item result
 

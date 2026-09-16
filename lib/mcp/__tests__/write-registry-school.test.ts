@@ -31,6 +31,8 @@ function makeClient(opts: { maybeSingleSeq?: Record<string, unknown[]>; singleSe
     });
     chain.order = vi.fn(() => chain);
     chain.limit = vi.fn(() => chain);
+    chain.not = vi.fn(() => chain);
+    chain.in = vi.fn(() => chain);
     chain.insert = vi.fn((row: Record<string, unknown>) => {
       calls[table].insert.push(row);
       return chain;
@@ -379,5 +381,54 @@ describe("school.schedule_event.cancel_occurrence — 'cancel this one instance'
     await expect(
       action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "event-1" }, { date: "2026-09-15" }),
     ).rejects.toThrow(/domain/i);
+  });
+});
+
+// CANVAS-LITE-02's patch.items validation -- every case here throws
+// BEFORE ctx.userClient is ever touched (a bad database stub would still
+// pass), so a minimal client is enough. The deep business-logic behavior
+// (course auto-map, never-overwrite, CANVAS-GAP-03's grading_type guard)
+// is covered end-to-end in lib/canvas/__tests__/agent-import-core.test.ts.
+describe("school.canvas_import.run_batch — patch.items validation", () => {
+  const action = () => getWriteAction("school", "canvas_import", "run_batch")!;
+  const ctx = { userClient: {} as never, userId: "user-1", timezone: "UTC", now };
+
+  it("rejects a missing/non-array patch.items", async () => {
+    await expect(action().handler(ctx, {})).rejects.toThrow(/patch\.items is required and must be a non-empty array/);
+    await expect(action().handler(ctx, { items: "not-an-array" })).rejects.toThrow(/patch\.items is required and must be a non-empty array/);
+    await expect(action().handler(ctx, { items: [] })).rejects.toThrow(/patch\.items is required and must be a non-empty array/);
+  });
+
+  it("rejects more than 200 items", async () => {
+    const items = Array.from({ length: 201 }, (_, i) => ({ kind: "announcement", canvas_course_id: "10", canvas_announcement_id: `a${i}`, text: "x" }));
+    await expect(action().handler(ctx, { items })).rejects.toThrow(/must contain at most 200 items/);
+  });
+
+  it("rejects an unrecognized item kind", async () => {
+    await expect(action().handler(ctx, { items: [{ kind: "bogus" }] })).rejects.toThrow(/kind must be one of "course", "assessment", "announcement"/);
+  });
+
+  it("rejects an assessment item missing points_earned", async () => {
+    await expect(
+      action().handler(ctx, { items: [{ kind: "assessment", canvas_course_id: "10", canvas_assignment_id: "assn-1", name: "Essay" }] }),
+    ).rejects.toThrow(/points_earned is required and must be a number/);
+  });
+
+  it("accepts an assessment item with grading_type omitted (defaults to null, never guessed)", async () => {
+    // Reaches the real core (no course mapping exists), which is fine --
+    // this test is only proving validation itself doesn't reject the
+    // patch for omitting grading_type.
+    const { client } = makeClient({});
+    const outcome = await action().handler(
+      { userClient: client, userId: "user-1", timezone: "UTC", now },
+      { items: [{ kind: "assessment", canvas_course_id: "10", canvas_assignment_id: "assn-1", name: "Essay", points_earned: 92 }] },
+    );
+    expect(textOf(outcome)).toMatchObject({ results: [{ kind: "assessment", ref: "assn-1", outcome: "skipped", reason: "course not mapped to a local class" }] });
+  });
+
+  it("rejects a non-string, non-null grading_type", async () => {
+    await expect(
+      action().handler(ctx, { items: [{ kind: "assessment", canvas_course_id: "10", canvas_assignment_id: "assn-1", name: "Essay", points_earned: 92, grading_type: 5 }] }),
+    ).rejects.toThrow(/grading_type must be a string or null/);
   });
 });

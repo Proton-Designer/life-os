@@ -377,6 +377,11 @@ function requireCanvasImportItems(patch: WritePatch): CanvasImportItem[] {
         dueAt: optionalNullableField("due_at"),
         pointsPossible: optionalNullableNum("points_possible"),
         pointsEarned,
+        // CANVAS-GAP-03: omitted -> null -> never auto-graded (see
+        // CanvasImportAssessmentItem's own header) -- an absent grading
+        // type is treated exactly like an unrecognized one, never assumed
+        // to be "points".
+        gradingType: optionalNullableField("grading_type"),
       };
     }
     if (obj.kind === "announcement") {
@@ -1780,13 +1785,13 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           run_batch: {
             action: "run_batch",
             description:
-              "Bulk-import Canvas data an external agent already scraped on its own: course mappings, graded assignments, and announcements, in one call. Course items map a Canvas course to a local class (auto-mapping ONLY on an unambiguous name/code match against the user's own classes; never auto-creates a class). Assessment items reuse the exact never-overwrite-a-user-entered-grade guard and unambiguous-local-match rule the token-based Canvas sync already uses, and never auto-create a duplicate assessment (stages an unmatched one for review instead). Announcement items reuse the existing paste-an-announcement extraction pipeline. Every item gets its own outcome (created/updated/skipped, with a reason) -- never one opaque batch success. Capped at 200 items per call.",
+              "Bulk-import Canvas data an external agent already scraped on its own: course mappings, graded assignments, and announcements, in one call. Course items map a Canvas course to a local class (auto-mapping ONLY on an unambiguous name/code match against the user's own classes; never auto-creates a class). Assessment items reuse the exact never-overwrite-a-user-entered-grade guard and unambiguous-local-match rule the token-based Canvas sync already uses, and never auto-create a duplicate assessment (stages an unmatched one for review instead). An assessment's grading_type must be 'points' or 'percent' for a grade to be applied -- omit it, or send pass_fail/letter_grade/gpa_scale/not_graded, and the item is skipped as ungradable rather than risking a numerically-real but semantically-wrong grade (the assignment can still be linked for later). Announcement items reuse the existing paste-an-announcement extraction pipeline. Every item gets its own outcome (created/updated/skipped, with a reason) -- never one opaque batch success. Capped at 200 items per call.",
             patchShape:
               "{ items: Array<" +
               "{kind:'course', canvas_course_id:string, canvas_course_name:string, canvas_course_code?:string|null} | " +
-              "{kind:'assessment', canvas_course_id:string, canvas_assignment_id:string, name:string, due_at?:string|null, points_possible?:number|null, points_earned:number} | " +
+              "{kind:'assessment', canvas_course_id:string, canvas_assignment_id:string, name:string, due_at?:string|null, points_possible?:number|null, points_earned:number, grading_type?:string|null} | " +
               "{kind:'announcement', canvas_course_id:string, canvas_announcement_id:string, text:string}" +
-              "> } -- max 200 items per call.",
+              "> } -- max 200 items per call. grading_type must be 'points' or 'percent' to actually apply a grade; anything else (including omitted) links without grading.",
             idempotent: true,
             idempotencyVerification:
               "Every item kind keys on an existing unique constraint, never an invented id scheme: course items upsert canvas_course_mappings on (user_id, canvas_course_id) (lib/canvas/agent-import-core.ts's processCourseItem); assessment items delegate to processCanvasAssignment (lib/canvas/sync-core.ts, shared with the token-based sync loop), which either updates an already-linked/matched class_assessments row to the identical values or stages via staging_batches' partial-unique canvas_assignment_id tombstone, pre-filtered before insert since the insert itself has no ON CONFLICT; announcement items are pre-filtered against staging_batches' own canvas_announcement_id tombstone the same way before calling stageAnnouncementCore. A repeat of the identical batch reproduces the identical end state, reporting 'already staged'/'existing grade protected'/'refreshed' outcomes rather than a duplicate row.",

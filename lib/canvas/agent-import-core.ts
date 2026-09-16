@@ -41,6 +41,14 @@ export interface CanvasImportAssessmentItem {
   dueAt: string | null;
   pointsPossible: number | null;
   pointsEarned: number;
+  /**
+   * CANVAS-GAP-03: optional, defaults to `null` (never auto-grades) when
+   * omitted -- an agent that doesn't state a grading type gets the SAME
+   * conservative treatment as an unrecognized Canvas type, never an
+   * assumed "points". See processCanvasAssignment's own header
+   * (lib/canvas/sync-core.ts) for the full per-type reasoning.
+   */
+  gradingType: string | null;
 }
 
 export interface CanvasImportAnnouncementItem {
@@ -197,13 +205,20 @@ async function processAssessmentItems(
       userId,
       classId,
       timezone,
-      { canvasAssignmentId: item.canvasAssignmentId, name: item.name, dueAt: item.dueAt, pointsPossible: item.pointsPossible, pointsEarned: item.pointsEarned },
+      { canvasAssignmentId: item.canvasAssignmentId, name: item.name, dueAt: item.dueAt, pointsPossible: item.pointsPossible, pointsEarned: item.pointsEarned, gradingType: item.gradingType },
       state,
     );
     if (outcome.outcome === "graded") {
       results.push({ kind: "assessment", ref: item.canvasAssignmentId, outcome: "updated", reason: `grade recorded (${outcome.via} to an existing assessment)` });
     } else if (outcome.outcome === "protected") {
       results.push({ kind: "assessment", ref: item.canvasAssignmentId, outcome: "skipped", reason: "existing grade was entered by hand; Canvas value not applied" });
+    } else if (outcome.outcome === "ungradable") {
+      results.push({
+        kind: "assessment",
+        ref: item.canvasAssignmentId,
+        outcome: "skipped",
+        reason: "grading type isn't points-comparable (pass/fail, letter grade, GPA scale, or not stated) -- no grade applied",
+      });
     } else if (outcome.outcome === "staged") {
       results.push({ kind: "assessment", ref: item.canvasAssignmentId, outcome: "created", reason: "no unambiguous local match; staged for review" });
     } else {

@@ -142,7 +142,7 @@ describe("runCanvasImportBatchCore — assessment items", () => {
     const { client } = makeClient({ arraySeq: { canvas_course_mappings: [{ data: [], error: null }] } });
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
-      { kind: "assessment", canvasCourseId: "unmapped-course", canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 90 },
+      { kind: "assessment", canvasCourseId: "unmapped-course", canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 90, gradingType: "points" },
     ]);
 
     expect(batch.results).toEqual([{ kind: "assessment", ref: "assn-1", outcome: "skipped", reason: "course not mapped to a local class" }]);
@@ -159,7 +159,7 @@ describe("runCanvasImportBatchCore — assessment items", () => {
     });
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
-      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-1", name: "Essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88 },
+      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-1", name: "Essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88, gradingType: "points" },
     ]);
 
     expect(batch.results).toEqual([{ kind: "assessment", ref: "assn-1", outcome: "updated", reason: "grade recorded (matched to an existing assessment)" }]);
@@ -178,7 +178,7 @@ describe("runCanvasImportBatchCore — assessment items", () => {
     });
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
-      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 40 },
+      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 40, gradingType: "points" },
     ]);
 
     expect(batch.results).toEqual([{ kind: "assessment", ref: "assn-1", outcome: "skipped", reason: "existing grade was entered by hand; Canvas value not applied" }]);
@@ -195,7 +195,7 @@ describe("runCanvasImportBatchCore — assessment items", () => {
     });
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
-      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-9", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8 },
+      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-9", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8, gradingType: "points" },
     ]);
 
     expect(batch.results).toEqual([{ kind: "assessment", ref: "assn-9", outcome: "created", reason: "no unambiguous local match; staged for review" }]);
@@ -214,11 +214,34 @@ describe("runCanvasImportBatchCore — assessment items", () => {
     });
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
-      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-9", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8 },
+      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-9", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8, gradingType: "points" },
     ]);
 
     expect(batch.results).toEqual([{ kind: "assessment", ref: "assn-9", outcome: "skipped", reason: "already staged from a prior import" }]);
     expect(batch.counts).toEqual({ created: 0, updated: 0, skipped: 1 });
+  });
+
+  // CANVAS-GAP-03: an agent that doesn't state a grading_type (or states
+  // one that isn't points-comparable) must never get an auto-applied
+  // grade, the exact same treatment as an unrecognized Canvas type.
+  it.each([undefined, null, "pass_fail", "letter_grade"])("grading_type %s on a matched assessment links it but never writes a grade", async (gradingType) => {
+    const { client, calls } = makeClient({
+      arraySeq: {
+        canvas_course_mappings: [{ data: [{ canvas_course_id: "10", class_id: "class-1" }], error: null }],
+        class_assessments: [{ data: [{ id: "a-1", canvas_assignment_id: null, name: "essay 1", date: "2026-09-01", points_earned: null, points_source: null }], error: null }],
+        staging_batches: [{ data: [], error: null }],
+      },
+    });
+
+    const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
+      { kind: "assessment", canvasCourseId: "10", canvasAssignmentId: "assn-1", name: "Essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88, gradingType: gradingType ?? null },
+    ]);
+
+    expect(batch.results).toEqual([
+      { kind: "assessment", ref: "assn-1", outcome: "skipped", reason: "grading type isn't points-comparable (pass/fail, letter grade, GPA scale, or not stated) -- no grade applied" },
+    ]);
+    const update = calls.find((c) => c.table === "class_assessments" && c.method === "update")!;
+    expect(update.args[0]).toEqual({ canvas_assignment_id: "assn-1" }); // linked, no points_* fields
   });
 });
 
@@ -291,7 +314,7 @@ describe("runCanvasImportBatchCore — mixed batch", () => {
 
     const batch = await runCanvasImportBatchCore(client, "user-1", tz, now, [
       { kind: "course", canvasCourseId: "10", canvasCourseName: "New Course", canvasCourseCode: null },
-      { kind: "assessment", canvasCourseId: "20", canvasAssignmentId: "assn-1", name: "Quiz", dueAt: null, pointsPossible: 10, pointsEarned: 9 },
+      { kind: "assessment", canvasCourseId: "20", canvasAssignmentId: "assn-1", name: "Quiz", dueAt: null, pointsPossible: 10, pointsEarned: 9, gradingType: "points" },
     ]);
 
     expect(batch.counts).toEqual({ created: 1, updated: 1, skipped: 0 });
