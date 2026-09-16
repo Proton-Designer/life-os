@@ -46,6 +46,15 @@ vi.mock("@/app/(app)/school/announcement-actions", () => ({
   getAnnouncementHistory: vi.fn(async () => []),
 }));
 
+// P3-08 -- QuestionBankPanel (mounted below) now mounts ClassShareSection,
+// which fetches its own share status on mount.
+vi.mock("@/app/(app)/school/class-share-actions", () => ({
+  createClassShare: vi.fn(async () => ({ rawToken: "unused-in-these-tests" })),
+  revokeClassShare: vi.fn(async () => {}),
+  getClassShareStatus: vi.fn(async () => ({ active: false, createdAt: null })),
+  getSharePreview: vi.fn(async () => ({ className: "unused", questions: [] })),
+}));
+
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
 

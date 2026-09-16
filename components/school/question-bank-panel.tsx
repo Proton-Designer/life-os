@@ -18,6 +18,8 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ClassShareSection } from "@/components/school/class-share-section";
+import { PublicQuestionBankDrill } from "@/components/school/public-question-bank-drill";
 
 export type QuestionBankQuestion = {
   id: string;
@@ -154,6 +156,7 @@ export function QuestionBankPanel({
   const [isPending, startTransition] = useTransition();
   const [isDrafting, startDrafting] = useTransition();
   const [showRetired, setShowRetired] = useState(false);
+  const [drillOpen, setDrillOpen] = useState(false);
   const [formMode, setFormMode] = useState<"closed" | "add" | { editingId: string } | "ai_paste" | "ai_review" | "transcript_pick">("closed");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +404,19 @@ export function QuestionBankPanel({
           )}
         </div>
       </div>
+
+      <ClassShareSection classId={classId} />
+
+      {active.length > 0 && (
+        <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={() => setDrillOpen((v) => !v)}>
+          {drillOpen ? "Hide drill" : "Drill this bank"}
+        </Button>
+      )}
+      {drillOpen && (
+        <PublicQuestionBankDrill
+          questions={active.map((q) => ({ prompt: q.prompt, answer: q.answer, topic: q.topic }))}
+        />
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

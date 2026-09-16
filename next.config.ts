@@ -35,6 +35,19 @@ const nextConfig: NextConfig = {
       dynamic: 60,
     },
   },
+  // P3-08: the public share-view route is a user's own study material,
+  // never a public search result. app/share/[token]/page.tsx already sets
+  // the <meta name="robots"> tag via its own `metadata` export; a Server
+  // Component can't add an arbitrary response HEADER directly, so the
+  // matching X-Robots-Tag lives here instead, scoped only to this one path.
+  async headers() {
+    return [
+      {
+        source: "/share/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

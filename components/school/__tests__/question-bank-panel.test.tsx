@@ -31,6 +31,18 @@ vi.mock("@/app/(app)/school/question-actions", () => ({
   setQuestionActive: (id: string, active: boolean) => setQuestionActive(id, active),
 }));
 
+// P3-08: QuestionBankPanel now mounts ClassShareSection, which fetches its
+// own share status on mount -- mocked here so these pre-existing tests
+// (none of which are about sharing) never make a real, unmocked
+// requireUser()/createClient() call. See class-share-section.test.tsx for
+// the Share section's own behavior.
+vi.mock("@/app/(app)/school/class-share-actions", () => ({
+  createClassShare: vi.fn(async () => ({ rawToken: "unused-in-these-tests" })),
+  revokeClassShare: vi.fn(async () => {}),
+  getClassShareStatus: vi.fn(async () => ({ active: false, createdAt: null })),
+  getSharePreview: vi.fn(async () => ({ className: "unused", questions: [] })),
+}));
+
 type DraftOutcome =
   | { status: "drafted"; drafts: { prompt: string; answer: string; topic: string | null; sourceSnippet: string | null }[]; truncated: boolean }
   | { status: "no_key" }
