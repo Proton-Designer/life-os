@@ -62,6 +62,25 @@ interface ParsedAssignmentEvent {
   dateStr: string | null;
 }
 
+/**
+ * CANVAS-LITE-04 (Lead follow-up, live UX concern): Canvas's own per-user
+ * ICS feed commonly suffixes each assignment's SUMMARY with the course in
+ * square brackets (e.g. "Homework 3 [CS 3345.001]") -- a real, commonly-
+ * observed Canvas convention, though (like UID, per ics-parser.ts's own
+ * header) not part of the documented shape the assignment URL's
+ * `/courses/<id>/` path is. Used ONLY as a nicer label when present;
+ * never trusted as an id, and the numeric-id placeholder remains the
+ * honest fallback when no bracket suffix appears at all. Either way the
+ * resulting class name/code is editable afterwards (CANVAS-LITE-03's own
+ * code-editability change) — this only changes the DEFAULT, never a
+ * dead end.
+ */
+function extractCourseLabelFromSummary(summary: string | null): string | null {
+  if (!summary) return null;
+  const match = summary.match(/\[([^[\]]+)\]\s*$/);
+  return match ? match[1]!.trim() || null : null;
+}
+
 export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: string, timezone: string, icsText: string): Promise<IcsReconcileResult> {
   const parsedEvents: ParsedAssignmentEvent[] = parseCanvasIcsFeed(icsText)
     .filter((e) => e.canvasAssignmentId !== null && e.canvasCourseId !== null)
@@ -87,22 +106,33 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
   // the SAME shared auto-import core the token path uses, BEFORE mapping
   // resolution below -- so a course seen for the first time via the feed
   // is immediately available to link/stage its own assignments in this
-  // same run, not just on a second reconcile. The feed carries no course
-  // name/code/computed-grade at all (ics-parser.ts's own header: only a
-  // numeric id is documented-shape-reliable), so an honest placeholder
-  // name is used -- editable afterwards, same as any other class.
+  // same run, not just on a second reconcile. The feed carries no
+  // computed-grade at all, and no course name/code THROUGH ANY DOCUMENTED
+  // FIELD -- only the bracket-suffix convention above, when present.
+  const labelByCourseId = new Map<string, string>();
+  for (const event of parsedEvents) {
+    if (labelByCourseId.has(event.canvasCourseId)) continue;
+    const label = extractCourseLabelFromSummary(event.summary);
+    if (label) labelByCourseId.set(event.canvasCourseId, label);
+  }
   const uniqueCourseIds = [...new Set(parsedEvents.map((e) => e.canvasCourseId))];
   result.courseImport = await autoImportCanvasCoursesAsClassesCore(
     supabase,
     userId,
-    uniqueCourseIds.map((canvasCourseId) => ({
-      canvasCourseId,
-      name: `Canvas course ${canvasCourseId}`,
-      courseCode: null,
-      computedCurrentScore: null,
-      computedFinalScore: null,
-      computedCurrentLetterGrade: null,
-    })),
+    uniqueCourseIds.map((canvasCourseId) => {
+      const label = labelByCourseId.get(canvasCourseId) ?? null;
+      return {
+        canvasCourseId,
+        // A real-looking label (e.g. "CS 3345.001") when the feed's own
+        // bracket convention gave us one; an honest, clearly-a-placeholder
+        // name otherwise -- never a guess dressed up as a real course name.
+        name: label ?? `Canvas course ${canvasCourseId}`,
+        courseCode: label,
+        computedCurrentScore: null,
+        computedFinalScore: null,
+        computedCurrentLetterGrade: null,
+      };
+    }),
   );
 
   const courses = await getMappedCourses(supabase, userId);

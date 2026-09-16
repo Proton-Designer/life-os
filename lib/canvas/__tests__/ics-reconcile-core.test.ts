@@ -121,6 +121,46 @@ describe("reconcileCanvasIcsCore (P3-13)", () => {
       ]);
     });
 
+    // Opus Lead follow-up (live UX concern): the numeric placeholder is
+    // honest but ugly for a no-token user -- prefer Canvas's own commonly-
+    // observed "Title [Course Code]" SUMMARY suffix when the feed has one.
+    it("prefers a course label parsed from the SUMMARY's bracket suffix over the numeric placeholder, when present", async () => {
+      const { client } = makeClient({ class_assessments: [{ data: [], error: null }], staging_batches: [{ data: [], error: null }] });
+      await reconcileCanvasIcsCore(
+        client,
+        "user-1",
+        tz,
+        feedWith([{ assignmentId: "42", courseId: "10", summary: "Homework 3 [CS 3345.001]", dtstart: "20261005T235900Z" }]),
+      );
+
+      const courses = autoImportCanvasCoursesAsClassesCoreMock.mock.calls[0]![2];
+      expect(courses).toEqual([{ canvasCourseId: "10", name: "CS 3345.001", courseCode: "CS 3345.001", computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null }]);
+    });
+
+    it("falls back to the honest placeholder when no event for a course has a bracket suffix", async () => {
+      const { client } = makeClient({ class_assessments: [{ data: [], error: null }], staging_batches: [{ data: [], error: null }] });
+      await reconcileCanvasIcsCore(client, "user-1", tz, feedWith([{ assignmentId: "42", courseId: "10", summary: "Homework 3 (no brackets here)", dtstart: "20261005T235900Z" }]));
+
+      const courses = autoImportCanvasCoursesAsClassesCoreMock.mock.calls[0]![2];
+      expect(courses).toEqual([{ canvasCourseId: "10", name: "Canvas course 10", courseCode: null, computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null }]);
+    });
+
+    it("uses the FIRST event's bracket label for a course when multiple events disagree, rather than crashing or picking randomly", async () => {
+      const { client } = makeClient({ class_assessments: [{ data: [], error: null }], staging_batches: [{ data: [], error: null }] });
+      await reconcileCanvasIcsCore(
+        client,
+        "user-1",
+        tz,
+        feedWith([
+          { assignmentId: "42", courseId: "10", summary: "Homework 3 [CS 3345.001]", dtstart: "20261005T235900Z" },
+          { assignmentId: "43", courseId: "10", summary: "Homework 4 (no brackets this time)", dtstart: "20261006T235900Z" },
+        ]),
+      );
+
+      const courses = autoImportCanvasCoursesAsClassesCoreMock.mock.calls[0]![2];
+      expect(courses).toEqual([{ canvasCourseId: "10", name: "CS 3345.001", courseCode: "CS 3345.001", computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null }]);
+    });
+
     it("surfaces the auto-import result in the reconcile summary -- the user sees what happened to their courses, not just their assignments", async () => {
       autoImportCanvasCoursesAsClassesCoreMock.mockResolvedValue({ created: 1, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 });
       getMappedCoursesMock.mockResolvedValue([{ canvasCourseId: "10", classId: "newly-created-class" }]);
