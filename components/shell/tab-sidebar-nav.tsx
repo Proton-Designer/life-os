@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat, CalendarCheck } from "lucide-react";
+import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat, CalendarCheck, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
@@ -39,6 +39,10 @@ const MORE_ITEMS: NavItem[] = [
   // route redirects into /close's own review stage). Kept in step with
   // tab-mobile-island.tsx.
   { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
+  // UX-02, 2026-09-15: /business existed but had no entry in EITHER
+  // domains-mode renderer — the exact gap Worries/Goals/Habits had above,
+  // just missed in that pass. Kept in step with tab-mobile-island.tsx.
+  { href: "/business", label: "Business", icon: Target, accent: "business" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

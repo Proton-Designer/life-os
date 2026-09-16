@@ -12,6 +12,7 @@ import {
   Flag,
   Repeat,
   CalendarCheck,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -53,6 +54,10 @@ const MORE_ITEMS: NavItem[] = [
   // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review — NOT /review. Kept in
   // step with tab-sidebar-nav.tsx.
   { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
+  // UX-02, 2026-09-15: /business existed but had no entry in EITHER
+  // domains-mode renderer — the exact gap Worries/Goals/Habits had above,
+  // just missed in that pass. Kept in step with tab-sidebar-nav.tsx.
+  { href: "/business", label: "Business", icon: Target, accent: "business" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 
