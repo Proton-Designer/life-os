@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import type { Database } from "@/lib/supabase/database.types";
 import { THEME_PRESET_IDS, isThemePresetId, type ThemePresetId } from "@/lib/theme-presets";
 import { isFeatureId, type FeatureId } from "@/lib/features";
+import { isOptInFeatureId, type OptInFeatureId } from "@/lib/opt-in-features";
 
 // Every user-editable profiles column. `pin` is a virtual field — a raw PIN
 // gets hashed before storage, never persisted as-is.
@@ -50,6 +51,11 @@ export type ProfileUpdatable = Partial<{
   // toggle. No app-layer validation needed: it's a plain boolean, and the
   // DB column already has a NOT NULL default.
   sleep_reminder_enabled: boolean;
+  // Migration 250 (P3-05, overnight run 2026-09-15/16) -- the opposite
+  // direction of hidden_features above: turns ON a new, default-OFF
+  // feature rather than hiding an existing one. Shared by P3-05
+  // (cards_library) and P3-11 (estimate_vs_actual, not yet built).
+  enabled_features: OptInFeatureId[];
 }>;
 
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;
@@ -82,6 +88,13 @@ export async function updateProfile(fields: ProfileUpdatable): Promise<void> {
     const bad = values.filter((v) => !isFeatureId(v));
     if (bad.length > 0) {
       throw new Error(`Unknown feature id(s) in hidden_features: ${bad.join(", ")}.`);
+    }
+  }
+  if ("enabled_features" in update) {
+    const values = update.enabled_features as string[];
+    const bad = values.filter((v) => !isOptInFeatureId(v));
+    if (bad.length > 0) {
+      throw new Error(`Unknown feature id(s) in enabled_features: ${bad.join(", ")}.`);
     }
   }
   if ("ai_monthly_spend_cap_usd" in update) {

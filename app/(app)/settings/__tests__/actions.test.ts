@@ -144,6 +144,28 @@ describe("updateProfile", () => {
     });
   });
 
+  // P3-05/P3-11 (migration 250) -- mirror of hidden_features above, opposite direction.
+  describe("enabled_features (P3-05, migration 250)", () => {
+    it("accepts a real enabled_features list and writes it through", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ enabled_features: ["cards_library"] });
+
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ enabled_features: ["cards_library"] }), expect.anything());
+    });
+
+    it("rejects enabled_features containing an unknown id before ever calling upsert", async () => {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await expect(updateProfile({ enabled_features: ["cards_library", "not-real"] } as never)).rejects.toThrow(/enabled_features/);
+      expect(chain.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe("ai_monthly_spend_cap_usd (P2-01, migration 181)", () => {
     it("accepts a positive cap and writes it through", async () => {
       const chain = makeChain();

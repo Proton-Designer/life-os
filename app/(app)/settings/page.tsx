@@ -24,8 +24,10 @@ import { WhoopSettings } from "@/components/settings/whoop-settings";
 import { getWhoopSettingsStatus } from "@/app/(app)/settings/whoop-actions";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
+import { OptInFeaturesSettings } from "@/components/settings/opt-in-features-settings";
 import { resolveThemePreset } from "@/lib/theme-presets";
 import { sanitizeHiddenFeatures } from "@/lib/features";
+import { sanitizeEnabledFeatures } from "@/lib/opt-in-features";
 import { PROVIDERS, PROVIDER_IDS } from "@/lib/ai/providers";
 import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 import { PageContainer } from "@/components/shell/page-container";
@@ -81,6 +83,9 @@ export default async function SettingsPage() {
   // hidden_features above (not yet in generated database.types.ts at the
   // time this is written).
   const sleepReminderEnabled = (profile as { sleep_reminder_enabled?: boolean } | null)?.sleep_reminder_enabled ?? false;
+  // Migration 250 (P3-05/P3-11) -- applied and in the generated types, no
+  // defensive cast needed like the fields above.
+  const enabledFeatures = sanitizeEnabledFeatures(profile?.enabled_features);
 
   // Plain serializable values only across the RSC boundary — the provider
   // registry is const-asserted, so it is spread into a plain array here rather
@@ -167,6 +172,9 @@ export default async function SettingsPage() {
           </Panel>
           <Panel id="features" className="scroll-mt-24" title="Features">
             <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
+          </Panel>
+          <Panel id="optional-features" className="scroll-mt-24" title="Optional features">
+            <OptInFeaturesSettings initialEnabled={enabledFeatures} />
           </Panel>
           <Panel id="notifications" className="scroll-mt-24" title="Notifications">
             <div className="flex flex-col gap-4">
