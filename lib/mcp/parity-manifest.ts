@@ -224,6 +224,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/self-mastery-session-actions.ts#revealLessonContext": { read_only: true },
   "app/(app)/personal/self-mastery-session-actions.ts#revealQuestionAnswer": { read_only: true },
   "app/(app)/personal/self-mastery-session-actions.ts#gradeCard": { mcp: "self_mastery.review.grade" },
+  "app/(app)/personal/fsrs-tuning-actions.ts#getFsrsTuningStatus": { read_only: true },
+  "app/(app)/personal/fsrs-tuning-actions.ts#triggerFsrsTuning": { excluded: "scope_ruling: P3-20's board file sets mcp_surface: no; an agent-triggerable retune is out of scope" },
   "app/(app)/personal/self-mastery-session-actions.ts#gradeQuestion": { mcp: "self_mastery.question_review.grade" },
   "app/(app)/personal/self-mastery-session-actions.ts#fetchCurrentCardState": { read_only: true },
   "app/(app)/personal/self-mastery-session-actions.ts#fetchCurrentQuestionState": { read_only: true },
