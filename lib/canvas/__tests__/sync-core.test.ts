@@ -135,7 +135,7 @@ describe("syncCanvasGradesCore", () => {
       canvas_course_mappings: [{ data: [{ canvas_course_id: "10", class_id: "class-1" }], error: null }],
       class_assessments: [{ data: [{ id: "a-1", canvas_assignment_id: "assn-1", name: "Essay", date: "2026-09-20", points_earned: null, points_source: null }], error: null }],
     });
-    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 }] });
+    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92, gradingType: "points" }] });
 
     const result = await syncCanvasGradesCore(client, "user-1", tz, now);
 
@@ -150,7 +150,7 @@ describe("syncCanvasGradesCore", () => {
       canvas_course_mappings: [{ data: [{ canvas_course_id: "10", class_id: "class-1" }], error: null }],
       class_assessments: [{ data: [{ id: "a-1", canvas_assignment_id: "assn-1", name: "Essay", date: "2026-09-20", points_earned: 100, points_source: null }], error: null }],
     });
-    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 }] });
+    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92, gradingType: "points" }] });
 
     const result = await syncCanvasGradesCore(client, "user-1", tz, now);
 
@@ -164,7 +164,7 @@ describe("syncCanvasGradesCore", () => {
       canvas_course_mappings: [{ data: [{ canvas_course_id: "10", class_id: "class-1" }], error: null }],
       class_assessments: [{ data: [{ id: "a-1", canvas_assignment_id: "assn-1", name: "Essay", date: "2026-09-20", points_earned: 80, points_source: "canvas" }], error: null }],
     });
-    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 }] });
+    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92, gradingType: "points" }] });
 
     await syncCanvasGradesCore(client, "user-1", tz, now);
 
@@ -179,7 +179,7 @@ describe("syncCanvasGradesCore", () => {
       class_assessments: [{ data: [{ id: "a-1", canvas_assignment_id: null, name: "  Essay 1  ", date: "2026-09-01", points_earned: null, points_source: null }], error: null }],
       staging_batches: [{ data: [], error: null }],
     });
-    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-9", name: "essay 1", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 88 }] });
+    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-9", name: "essay 1", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 88, gradingType: "points" }] });
 
     const result = await syncCanvasGradesCore(client, "user-1", tz, now);
 
@@ -203,7 +203,7 @@ describe("syncCanvasGradesCore", () => {
       ],
       staging_batches: [{ data: [], error: null }],
     });
-    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-5", name: "Quiz", dueAt: null, pointsPossible: 10, pointsEarned: 9 }] });
+    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-5", name: "Quiz", dueAt: null, pointsPossible: 10, pointsEarned: 9, gradingType: "points" }] });
 
     const result = await syncCanvasGradesCore(client, "user-1", tz, now);
 
@@ -228,7 +228,7 @@ describe("syncCanvasGradesCore", () => {
       // still pending review or was fully rejected.
       staging_batches: [{ data: [{ canvas_assignment_id: "assn-already-staged" }], error: null }],
     });
-    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-already-staged", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8 }] });
+    fetchCanvasGradedAssignmentsMock.mockResolvedValue({ ok: true, data: [{ canvasAssignmentId: "assn-already-staged", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8, gradingType: "points" }] });
 
     const result = await syncCanvasGradesCore(client, "user-1", tz, now);
 
@@ -259,7 +259,7 @@ describe("processCanvasAssignment (CANVAS-LITE-02 extraction)", () => {
       "user-1",
       "class-1",
       tz,
-      { canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 },
+      { canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92, gradingType: "points" },
       state,
     );
 
@@ -281,7 +281,7 @@ describe("processCanvasAssignment (CANVAS-LITE-02 extraction)", () => {
       "user-1",
       "class-1",
       tz,
-      { canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92 },
+      { canvasAssignmentId: "assn-1", name: "Essay", dueAt: "2026-09-20T23:59:00Z", pointsPossible: 100, pointsEarned: 92, gradingType: "points" },
       state,
     );
 
@@ -298,7 +298,7 @@ describe("processCanvasAssignment (CANVAS-LITE-02 extraction)", () => {
       "user-1",
       "class-1",
       tz,
-      { canvasAssignmentId: "assn-9", name: "Totally Different Title", dueAt: null, pointsPossible: 10, pointsEarned: 9 },
+      { canvasAssignmentId: "assn-9", name: "Totally Different Title", dueAt: null, pointsPossible: 10, pointsEarned: 9, gradingType: "points" },
       state,
     );
 
@@ -315,7 +315,7 @@ describe("processCanvasAssignment (CANVAS-LITE-02 extraction)", () => {
       "user-1",
       "class-1",
       tz,
-      { canvasAssignmentId: "assn-already", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8 },
+      { canvasAssignmentId: "assn-already", name: "Reading Response", dueAt: null, pointsPossible: 10, pointsEarned: 8, gradingType: "points" },
       state,
     );
 
@@ -328,11 +328,82 @@ describe("processCanvasAssignment (CANVAS-LITE-02 extraction)", () => {
     const target = { id: "a-1", canvasAssignmentId: null, name: "Essay 1", date: "2026-09-01", pointsEarned: null, pointsSource: null };
     const state = makeState({ unlinked: [target] });
 
-    const first = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-1", name: "essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88 }, state);
+    const first = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-1", name: "essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88, gradingType: "points" }, state);
     expect(first).toEqual({ outcome: "graded", via: "matched" });
     expect(state.unlinked).toHaveLength(0);
 
-    const second = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-2", name: "essay 1", dueAt: null, pointsPossible: 50, pointsEarned: 40 }, state);
+    const second = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-2", name: "essay 1", dueAt: null, pointsPossible: 50, pointsEarned: 40, gradingType: "points" }, state);
     expect(second).toEqual({ outcome: "staged" });
+  });
+});
+
+// CANVAS-GAP-03: the never-overwrite guard and the points-comparable
+// guard are independent -- an ungradable type must never write a grade
+// regardless of whether the existing local row could otherwise be
+// overwritten, and a linkable-but-ungradable assignment still gets
+// LINKED (so a later regrade to a comparable type, or a hand-entered
+// grade, both work normally) -- it just never gets graded from this data.
+describe("processCanvasAssignment — CANVAS-GAP-03 grading_type guard", () => {
+  function makeState(overrides: Partial<CanvasAssignmentSyncState> = {}): CanvasAssignmentSyncState {
+    return { byCanvasId: new Map(), unlinked: [], alreadyStagedAssignmentIds: new Set(), ...overrides };
+  }
+
+  it.each(["pass_fail", "letter_grade", "gpa_scale", null])(
+    'returns {outcome:"ungradable", via:"linked"} for grading_type %s on an already-linked assessment, and never writes points',
+    async (gradingType) => {
+      const { client, calls } = makeClient({});
+      const linked = { id: "a-1", canvasAssignmentId: "assn-1", name: "Essay", date: "2026-09-20", pointsEarned: null, pointsSource: null };
+      const state = makeState({ byCanvasId: new Map([["assn-1", linked]]) });
+
+      const outcome = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 92, gradingType }, state);
+
+      expect(outcome).toEqual({ outcome: "ungradable", via: "linked" });
+      expect(calls.some((c) => c.table === "class_assessments" && c.method === "update")).toBe(false);
+    },
+  );
+
+  it('returns {outcome:"ungradable", via:"matched"} and STILL LINKS (but never grades) an unambiguous match with a non-points-comparable grading_type', async () => {
+    const { client, calls } = makeClient({});
+    const target = { id: "a-1", canvasAssignmentId: null, name: "Essay 1", date: "2026-09-01", pointsEarned: null, pointsSource: null };
+    const state = makeState({ unlinked: [target] });
+
+    const outcome = await processCanvasAssignment(
+      client,
+      "user-1",
+      "class-1",
+      tz,
+      { canvasAssignmentId: "assn-1", name: "essay 1", dueAt: null, pointsPossible: 100, pointsEarned: 88, gradingType: "pass_fail" },
+      state,
+    );
+
+    expect(outcome).toEqual({ outcome: "ungradable", via: "matched" });
+    const update = calls.find((c) => c.table === "class_assessments" && c.method === "update")!;
+    expect(update.args[0]).toEqual({ canvas_assignment_id: "assn-1" }); // linked, but no points_* fields at all
+    expect(state.unlinked).toHaveLength(0); // still claimed, so it can't also be staged as a duplicate
+  });
+
+  it('"ungradable" wins over the never-overwrite guard question entirely -- a null/unrecognized grading_type never writes points even when the existing grade IS overwritable', async () => {
+    const { client, calls } = makeClient({});
+    // pointsEarned: null, pointsSource: null -- canOverwriteGrade would be TRUE here; the point of this test is that gradability is checked independently and wins.
+    const linked = { id: "a-1", canvasAssignmentId: "assn-1", name: "Essay", date: "2026-09-20", pointsEarned: null, pointsSource: null };
+    const state = makeState({ byCanvasId: new Map([["assn-1", linked]]) });
+
+    const outcome = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 92, gradingType: null }, state);
+
+    expect(outcome).toEqual({ outcome: "ungradable", via: "linked" });
+    expect(calls.some((c) => c.table === "class_assessments")).toBe(false);
+  });
+
+  it("points and percent are both gradable -- the guard is an allowlist of exactly two types, not just 'has some grading_type'", async () => {
+    const { client } = makeClient({});
+    const linkedPoints = { id: "a-1", canvasAssignmentId: "assn-1", name: "Essay", date: "2026-09-20", pointsEarned: null, pointsSource: null };
+    const statePoints = makeState({ byCanvasId: new Map([["assn-1", linkedPoints]]) });
+    const outcomePoints = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-1", name: "Essay", dueAt: null, pointsPossible: 100, pointsEarned: 92, gradingType: "points" }, statePoints);
+    expect(outcomePoints).toEqual({ outcome: "graded", via: "linked" });
+
+    const linkedPercent = { id: "a-2", canvasAssignmentId: "assn-2", name: "Quiz", date: "2026-09-20", pointsEarned: null, pointsSource: null };
+    const statePercent = makeState({ byCanvasId: new Map([["assn-2", linkedPercent]]) });
+    const outcomePercent = await processCanvasAssignment(client, "user-1", "class-1", tz, { canvasAssignmentId: "assn-2", name: "Quiz", dueAt: null, pointsPossible: 20, pointsEarned: 18, gradingType: "percent" }, statePercent);
+    expect(outcomePercent).toEqual({ outcome: "graded", via: "linked" });
   });
 });

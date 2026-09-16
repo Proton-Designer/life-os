@@ -175,6 +175,20 @@ function canOverwriteGrade(existing: { pointsEarned: number | null; pointsSource
 }
 
 /**
+ * CANVAS-GAP-03: the only two Canvas `grading_type`s whose `submission.score`
+ * is directly comparable to `points_possible` -- see
+ * `CanvasGradedAssignment.gradingType`'s own header in client.ts for the
+ * full per-type reasoning. `null` (missing/unrecognized, including every
+ * agent-supplied item that didn't state one) is deliberately NOT treated
+ * as "points" by default -- absence of information must never be guessed
+ * into a grade.
+ */
+const POINTS_COMPARABLE_GRADING_TYPES = new Set(["points", "percent"]);
+function isPointsComparable(gradingType: string | null): boolean {
+  return gradingType !== null && POINTS_COMPARABLE_GRADING_TYPES.has(gradingType);
+}
+
+/**
  * Per-class state `processCanvasAssignment` reads and mutates across a run
  * of assignments for that one class -- loaded ONCE per class (not once per
  * assignment) by whichever caller is looping. `unlinked` shrinks in place
@@ -190,6 +204,7 @@ export interface CanvasAssignmentSyncState {
 export type ProcessCanvasAssignmentOutcome =
   | { outcome: "graded"; via: "linked" | "matched" }
   | { outcome: "protected"; via: "linked" | "matched" }
+  | { outcome: "ungradable"; via: "linked" | "matched" }
   | { outcome: "staged" }
   | { outcome: "skipped"; reason: "already_staged" };
 
@@ -216,8 +231,11 @@ export async function processCanvasAssignment(
   assignment: CanvasGradedAssignment,
   state: CanvasAssignmentSyncState,
 ): Promise<ProcessCanvasAssignmentOutcome> {
+  const gradable = isPointsComparable(assignment.gradingType);
+
   const linked = state.byCanvasId.get(assignment.canvasAssignmentId);
   if (linked) {
+    if (!gradable) return { outcome: "ungradable", via: "linked" };
     if (canOverwriteGrade(linked)) {
       const { error } = await supabase
         .from("class_assessments")
@@ -235,7 +253,7 @@ export async function processCanvasAssignment(
 
   if (match) {
     const updatePayload: Record<string, unknown> = { canvas_assignment_id: assignment.canvasAssignmentId };
-    const canGrade = canOverwriteGrade(match);
+    const canGrade = gradable && canOverwriteGrade(match);
     if (canGrade) {
       updatePayload.points_earned = assignment.pointsEarned;
       updatePayload.points_possible = assignment.pointsPossible;
@@ -244,7 +262,8 @@ export async function processCanvasAssignment(
     const { error } = await supabase.from("class_assessments").update(updatePayload).eq("id", match.id).eq("user_id", userId);
     if (error) throw error;
     state.unlinked = state.unlinked.filter((a) => a.id !== match.id);
-    return canGrade ? { outcome: "graded", via: "matched" } : { outcome: "protected", via: "matched" };
+    if (canGrade) return { outcome: "graded", via: "matched" };
+    return { outcome: gradable ? "protected" : "ungradable", via: "matched" };
   }
 
   if (state.alreadyStagedAssignmentIds.has(assignment.canvasAssignmentId)) {
