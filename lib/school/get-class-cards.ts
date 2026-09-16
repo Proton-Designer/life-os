@@ -49,6 +49,8 @@ export type ClassCardData = {
    * never be threaded into that path.
    */
   canvasComputedGrade: { currentScore: number | null; finalScore: number | null; currentLetterGrade: string | null; syncedAt: string } | null;
+  /** CANVAS-GAP-02 -- true when this class has ANY canvas_course_mappings row, independent of whether a computed grade has ever synced. Drives whether SyllabusPanel offers "Import from Canvas" alongside the existing manual PDF upload. */
+  canvasLinked: boolean;
   tasksDueThisWeek: number;
   upcomingAssessment: { name: string; date: string } | null;
   /** `classes.difficulty_rating` (migration 105). Null for every class until a rating
@@ -412,8 +414,16 @@ export async function getClassCards(
   // so a plain Map (last-wins) is fine, not a per-class array like the
   // maps above.
   const canvasComputedGradeByClass = new Map<string, NonNullable<ClassCardData["canvasComputedGrade"]>>();
+  // CANVAS-GAP-02 -- a row's mere PRESENCE here means this class is
+  // Canvas-linked, regardless of whether a computed-grade snapshot has
+  // ever synced (a class linked via the ICS-feed/agent-import paths, or
+  // one whose course happens to report no computed grade at all, is still
+  // linked) -- drives whether the Syllabus panel offers "Import from Canvas".
+  const canvasLinkedClassIds = new Set<string>();
   for (const g of canvasGradeRows ?? []) {
-    if (!g.class_id || !g.computed_grade_synced_at) continue;
+    if (!g.class_id) continue;
+    canvasLinkedClassIds.add(g.class_id);
+    if (!g.computed_grade_synced_at) continue;
     canvasComputedGradeByClass.set(g.class_id, {
       currentScore: g.computed_current_score,
       finalScore: g.computed_final_score,
@@ -519,6 +529,7 @@ export async function getClassCards(
       targetGradePct: c.target_grade_pct,
       hasSyllabus: c.syllabus_path !== null,
       canvasComputedGrade: canvasComputedGradeByClass.get(c.id) ?? null,
+      canvasLinked: canvasLinkedClassIds.has(c.id),
       tasksDueThisWeek: tasks.filter((t) => t.dueDate !== null && t.dueDate >= weekStart && t.dueDate <= weekEnd).length,
       upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,
       assessments,

@@ -97,6 +97,7 @@ describe("getClassCards", () => {
         targetGradePct: null,
         hasSyllabus: true,
         canvasComputedGrade: null,
+        canvasLinked: false,
         tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
         assessments: [
@@ -146,6 +147,7 @@ describe("getClassCards", () => {
         targetGradePct: null,
         hasSyllabus: false,
         canvasComputedGrade: null,
+        canvasLinked: false,
         tasksDueThisWeek: 0,
         upcomingAssessment: null,
         assessments: [],
@@ -448,6 +450,24 @@ describe("getClassCards", () => {
       });
       const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
       expect(result[0]!.canvasComputedGrade).toEqual({ currentScore: 91.4, finalScore: 88.2, currentLetterGrade: "A-", syncedAt: "2026-09-16T04:00:00.000Z" });
+      expect(result[0]!.canvasLinked).toBe(true);
+    });
+
+    // CANVAS-GAP-02 -- canvasLinked drives the "Import from Canvas" button
+    // and must be true even when the class has NEVER synced a computed
+    // grade (an ICS-feed/agent-import-linked class, or one whose course
+    // reports no computed grade at all) -- it's a mapping-row-presence
+    // signal, not a computed-grade-presence one.
+    it("canvasLinked is true even when linked but no computed-grade snapshot has ever synced", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        canvas_course_mappings: [{ class_id: "c1", computed_current_score: null, computed_final_score: null, computed_current_letter_grade: null, computed_grade_synced_at: null }],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.canvasLinked).toBe(true);
+      expect(result[0]!.canvasComputedGrade).toBeNull();
     });
 
     it("is null (not a half-filled object) when linked but never actually synced yet", async () => {

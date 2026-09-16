@@ -335,6 +335,25 @@ export async function fetchCanvasGradedAssignments(instanceUrl: string, token: s
   return { ok: true, data: graded };
 }
 
+/**
+ * CANVAS-GAP-02 (ENG3's CANVAS-VERIFY-01 live probe, confirmed live):
+ * `/api/v1/courses/:id?include[]=syllabus_body` returns the course's own
+ * syllabus as HTML -- a token-connected user's syllabus is already
+ * sitting in Canvas, so requiring a separate manual PDF upload is
+ * unnecessary friction for exactly the users who connected a token for
+ * LESS manual work. Returns `null` (not an error, not an empty string)
+ * when Canvas has no syllabus body at all for this course -- Canvas
+ * genuinely allows an empty one, and the caller needs to tell "nothing to
+ * import" apart from "the fetch failed."
+ */
+export async function fetchCanvasCourseSyllabus(instanceUrl: string, token: string, canvasCourseId: string): Promise<CanvasClientResult<string | null>> {
+  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses/${encodeURIComponent(canvasCourseId)}?include[]=syllabus_body`);
+  if (!res.ok) return res;
+  const raw = res.data as { syllabus_body?: string | null };
+  const body = typeof raw.syllabus_body === "string" ? raw.syllabus_body.trim() : "";
+  return { ok: true, data: body === "" ? null : body };
+}
+
 /** 5 MB -- generous for a single user's term calendar (a few hundred VEVENTs is a few hundred KB), small enough that a malicious or misconfigured feed URL can't be used to exhaust memory/bandwidth on this server. */
 const ICS_FEED_MAX_BYTES = 5 * 1024 * 1024;
 

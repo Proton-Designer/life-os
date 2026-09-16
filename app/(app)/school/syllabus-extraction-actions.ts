@@ -7,6 +7,9 @@ import { loadPdf, extractPages } from "@/lib/self-mastery/ingestion/pdf";
 import { repairExtractedPages } from "@/lib/self-mastery/ingestion/text-repair";
 import { extractDeliverablesFromText } from "@/lib/school/syllabus-extraction";
 import { createStagingBatchCore, createStagedDeliverablesCore } from "@/lib/school/staging-core";
+import { resolveCanvasConnectionCore } from "@/lib/canvas/connection-core";
+import { fetchCanvasCourseSyllabus } from "@/lib/canvas/client";
+import { importCanvasSyllabusCore, type CanvasSyllabusImportOutcome } from "@/lib/canvas/syllabus-import-core";
 
 /**
  * Phase 1 #16 — syllabus upload → AI extraction, the action-layer wiring. Reads
@@ -93,4 +96,47 @@ export async function extractSyllabusDeliverables(classId: string, formData: For
 
   revalidatePath("/school");
   return { outcome: "extracted", batchId, itemCount: result.items.length, truncated: result.truncated };
+}
+
+/**
+ * CANVAS-GAP-02 — the token-connected counterpart to `extractSyllabusDeliverables`
+ * above: SAME extraction pipeline and staging outcome shape, sourced from
+ * Canvas's own `syllabus_body` instead of an uploaded PDF. An ADDITIONAL
+ * path, never a replacement -- `extractSyllabusDeliverables` above is
+ * completely unaffected and still the only option for a class with no
+ * Canvas link, or whose Canvas syllabus is empty/unhelpful.
+ */
+export type CanvasSyllabusImportActionOutcome =
+  | CanvasSyllabusImportOutcome
+  | { outcome: "not_connected" }
+  | { outcome: "not_mapped" }
+  | { outcome: "fetch_failed"; message: string };
+
+export async function importCanvasSyllabus(classId: string): Promise<CanvasSyllabusImportActionOutcome> {
+  const { supabase, userId } = await requireUser();
+
+  let conn: Awaited<ReturnType<typeof resolveCanvasConnectionCore>>;
+  try {
+    conn = await resolveCanvasConnectionCore(supabase, userId);
+  } catch {
+    return { outcome: "not_connected" };
+  }
+  if (!conn) return { outcome: "not_connected" };
+
+  const { data: mapping } = await supabase.from("canvas_course_mappings").select("canvas_course_id").eq("user_id", userId).eq("class_id", classId).maybeSingle();
+  if (!mapping) return { outcome: "not_mapped" };
+
+  let syllabusRes: Awaited<ReturnType<typeof fetchCanvasCourseSyllabus>>;
+  try {
+    syllabusRes = await fetchCanvasCourseSyllabus(conn.instanceUrl, conn.token, mapping.canvas_course_id);
+  } catch (err) {
+    return { outcome: "fetch_failed", message: err instanceof Error ? err.message : "Couldn't fetch the syllabus. Try again." };
+  }
+  if (!syllabusRes.ok) return { outcome: "fetch_failed", message: syllabusRes.message };
+
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  const result = await importCanvasSyllabusCore(supabase, userId, classId, timezone, new Date(), syllabusRes.data);
+  if (result.outcome === "extracted") revalidatePath("/school");
+  return result;
 }

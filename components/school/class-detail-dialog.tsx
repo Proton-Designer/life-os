@@ -596,7 +596,7 @@ export function ClassDetailDialog({
             />
           </div>
           <div className="rounded-2xl border border-border/40 bg-card p-4">
-            <SyllabusPanel classId={classData.id} hasSyllabus={classData.hasSyllabus} editing={editing} />
+            <SyllabusPanel classId={classData.id} hasSyllabus={classData.hasSyllabus} canvasLinked={classData.canvasLinked} editing={editing} />
           </div>
           <div className="rounded-2xl border border-border/40 bg-card p-4">
             <AnnouncementPanel classId={classData.id} editing={editing} />

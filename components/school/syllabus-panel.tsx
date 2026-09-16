@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { uploadClassSyllabus, removeClassSyllabus, getClassSyllabusUrl } from "@/app/(app)/school/class-actions";
-import { extractSyllabusDeliverables } from "@/app/(app)/school/syllabus-extraction-actions";
+import { extractSyllabusDeliverables, importCanvasSyllabus } from "@/app/(app)/school/syllabus-extraction-actions";
 import { Button } from "@/components/ui/button";
 import { SyllabusViewerDialog, type SyllabusViewerResult } from "@/components/school/syllabus-viewer-dialog";
 
@@ -13,6 +13,21 @@ const EXTRACTION_OUTCOME_MESSAGE: Record<string, string> = {
   no_key: "Add an API key in Settings to extract deliverables automatically, or add them manually below.",
   unavailable: "AI extraction isn't available right now — try again shortly, or add deliverables manually below.",
   parse_failed: "Couldn't make sense of the extraction result — try again, or add deliverables manually below.",
+};
+
+// CANVAS-GAP-02 -- the manual-PDF EXTRACTION_OUTCOME_MESSAGE above doesn't
+// cover this path's own outcomes (empty/not_connected/not_mapped/fetch_failed),
+// and "no_key"/"unavailable"/"parse_failed" need slightly different copy
+// here (there's no "add them manually below" file-upload framing to point at
+// in the same way -- the manual PDF upload button is a separate, always-visible
+// affordance right below this one, not something this message needs to name).
+const CANVAS_IMPORT_OUTCOME_MESSAGE: Record<string, string> = {
+  empty: "Canvas doesn't have a syllabus for this course yet — try the manual upload below instead.",
+  not_connected: "Connect Canvas in Settings first.",
+  not_mapped: "This class isn't mapped to a Canvas course yet — map it in Settings' Course mapping list.",
+  no_key: "Add an API key in Settings to extract deliverables automatically.",
+  unavailable: "AI extraction isn't available right now — try again shortly.",
+  parse_failed: "Couldn't make sense of the extraction result — try again.",
 };
 
 /**
@@ -30,10 +45,13 @@ const EXTRACTION_OUTCOME_MESSAGE: Record<string, string> = {
 export function SyllabusPanel({
   classId,
   hasSyllabus,
+  canvasLinked = false,
   editing = true,
 }: {
   classId: string;
   hasSyllabus: boolean;
+  /** CANVAS-GAP-02 -- true when this class has a Canvas course mapping (get-class-cards.ts). Gates the "Import from Canvas" button; the manual PDF path below is unaffected either way. */
+  canvasLinked?: boolean;
   editing?: boolean;
 }) {
   const router = useRouter();
@@ -41,6 +59,7 @@ export function SyllabusPanel({
   const extractInputRef = useRef<HTMLInputElement>(null);
   const [isPending, startTransition] = useTransition();
   const [isExtracting, startExtracting] = useTransition();
+  const [isImportingFromCanvas, startImportingFromCanvas] = useTransition();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerResult, setViewerResult] = useState<SyllabusViewerResult | null>(null);
@@ -99,6 +118,31 @@ export function SyllabusPanel({
     });
   }
 
+  /**
+   * CANVAS-GAP-02 -- an ADDITIONAL path alongside `handleExtractFileChosen`
+   * above, never a replacement: this class's own upload/extract-from-PDF
+   * affordances are completely unaffected either way. Feeds the SAME
+   * staging-review pipeline (syllabus-import-core.ts reuses
+   * extractDeliverablesFromText directly), so the confirm/reject UI below
+   * needs no changes regardless of which path produced the batch.
+   */
+  function handleImportFromCanvas() {
+    setExtractionMessage(null);
+    startImportingFromCanvas(async () => {
+      const result = await importCanvasSyllabus(classId);
+      if (result.outcome === "extracted" && result.itemCount === 0) {
+        setExtractionMessage(null); // the review panel's own #19 empty state covers this once it renders
+      } else if (result.outcome === "fetch_failed") {
+        setExtractionMessage(result.message);
+      } else if (result.outcome !== "extracted") {
+        setExtractionMessage(CANVAS_IMPORT_OUTCOME_MESSAGE[result.outcome] ?? "Import didn't work — try again.");
+      } else if (result.truncated) {
+        setExtractionMessage(`Extracted ${result.itemCount} item${result.itemCount === 1 ? "" : "s"} — this syllabus was long, so only the first part was read. Check for anything missing.`);
+      }
+      router.refresh();
+    });
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <h3 className="text-sm font-medium">Syllabus</h3>
@@ -111,16 +155,26 @@ export function SyllabusPanel({
       />
       <input ref={extractInputRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={handleExtractFileChosen} />
       {editing && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isExtracting}
-          onClick={() => extractInputRef.current?.click()}
-          className="self-start"
-        >
-          {isExtracting ? "Extracting…" : "Extract deliverables from PDF"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isExtracting}
+            onClick={() => extractInputRef.current?.click()}
+            className="self-start"
+          >
+            {isExtracting ? "Extracting…" : "Extract deliverables from PDF"}
+          </Button>
+          {/* CANVAS-GAP-02 -- an ADDITIONAL path, only shown once this class
+              is Canvas-linked; the PDF button above stays available either
+              way (a Canvas syllabus can be empty/unhelpful). */}
+          {canvasLinked && (
+            <Button type="button" variant="outline" size="sm" disabled={isImportingFromCanvas} onClick={handleImportFromCanvas} className="self-start">
+              {isImportingFromCanvas ? "Importing…" : "Import from Canvas"}
+            </Button>
+          )}
+        </div>
       )}
       {extractionMessage && <p className="text-xs text-muted-foreground">{extractionMessage}</p>}
       {hasSyllabus ? (

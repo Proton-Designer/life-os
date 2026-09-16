@@ -17,7 +17,9 @@ vi.mock("@/lib/net/safe-outbound-url", () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }));
 
-const { verifyCanvasToken, fetchCanvasCourses, fetchConcludedCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments, fetchCanvasIcsFeed } = await import("@/lib/canvas/client");
+const { verifyCanvasToken, fetchCanvasCourses, fetchConcludedCanvasCourses, fetchCanvasAnnouncements, fetchCanvasGradedAssignments, fetchCanvasCourseSyllabus, fetchCanvasIcsFeed } = await import(
+  "@/lib/canvas/client"
+);
 
 describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
   beforeEach(() => safeFetchMock.mockReset());
@@ -150,6 +152,37 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     const url = String(safeFetchMock.mock.calls[0][0]);
     expect(url).toContain("/api/v1/courses/123/assignments");
     expect(url).toContain("include[]=submission");
+  });
+
+  // CANVAS-GAP-02 (ENG3's CANVAS-VERIFY-01 live probe): a token-connected
+  // user's syllabus is already sitting in Canvas as fetchable HTML.
+  describe("fetchCanvasCourseSyllabus", () => {
+    it("returns the raw syllabus_body HTML when Canvas has one", async () => {
+      safeFetchMock.mockResolvedValue(new Response(JSON.stringify({ id: 10, syllabus_body: "<p>Exam 1 on <strong>Oct 5</strong></p>" }), { status: 200 }));
+      const res = await fetchCanvasCourseSyllabus("https://school.instructure.com", "tok", "10");
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data).toBe("<p>Exam 1 on <strong>Oct 5</strong></p>");
+      const url = String(safeFetchMock.mock.calls[0][0]);
+      expect(url).toContain("/api/v1/courses/10");
+      expect(url).toContain("include[]=syllabus_body");
+    });
+
+    it("returns null (not an error, not an empty string) when Canvas has no syllabus body at all -- Canvas genuinely allows an empty one", async () => {
+      safeFetchMock.mockResolvedValue(new Response(JSON.stringify({ id: 10, syllabus_body: "" }), { status: 200 }));
+      const res = await fetchCanvasCourseSyllabus("https://school.instructure.com", "tok", "10");
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data).toBeNull();
+    });
+
+    it("returns null when the field is missing from the response entirely", async () => {
+      safeFetchMock.mockResolvedValue(new Response(JSON.stringify({ id: 10 }), { status: 200 }));
+      const res = await fetchCanvasCourseSyllabus("https://school.instructure.com", "tok", "10");
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data).toBeNull();
+    });
   });
 
   // CANVAS-GAP-03 (ENG3's CANVAS-VERIFY-01 live probe): grading_type is

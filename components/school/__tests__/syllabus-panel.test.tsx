@@ -2,13 +2,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { SyllabusPanel } from "../syllabus-panel";
-import type { SyllabusExtractionOutcome } from "@/app/(app)/school/syllabus-extraction-actions";
+import type { SyllabusExtractionOutcome, CanvasSyllabusImportActionOutcome } from "@/app/(app)/school/syllabus-extraction-actions";
 
 const extractSyllabusDeliverablesMock = vi.fn(
   async (..._args: unknown[]): Promise<SyllabusExtractionOutcome> => ({ outcome: "extracted", batchId: "b1", itemCount: 2, truncated: false })
 );
+const importCanvasSyllabusMock = vi.fn(async (..._args: unknown[]): Promise<CanvasSyllabusImportActionOutcome> => ({ outcome: "extracted", batchId: "b1", itemCount: 2, truncated: false }));
 vi.mock("@/app/(app)/school/syllabus-extraction-actions", () => ({
   extractSyllabusDeliverables: (...args: unknown[]) => extractSyllabusDeliverablesMock(...args),
+  importCanvasSyllabus: (...args: unknown[]) => importCanvasSyllabusMock(...args),
 }));
 vi.mock("@/app/(app)/school/class-actions", () => ({
   uploadClassSyllabus: vi.fn(async () => {}),
@@ -89,5 +91,70 @@ describe("SyllabusPanel — Phase 1 #16 extraction trigger", () => {
 
     await waitFor(() => expect(extractSyllabusDeliverablesMock).toHaveBeenCalled());
     expect(screen.queryByText(/add an api key|couldn't read|isn't available|couldn't make sense/i)).not.toBeInTheDocument();
+  });
+});
+
+// CANVAS-GAP-02 -- an ADDITIONAL path, only shown once this class is
+// Canvas-linked; the manual PDF trigger above is unaffected either way.
+describe("SyllabusPanel — Import from Canvas (CANVAS-GAP-02)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows the Canvas import trigger only when canvasLinked and editing", () => {
+    const { rerender } = render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked={false} editing />);
+    expect(screen.queryByRole("button", { name: "Import from Canvas" })).not.toBeInTheDocument();
+
+    rerender(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing />);
+    expect(screen.getByRole("button", { name: "Import from Canvas" })).toBeInTheDocument();
+  });
+
+  it("hides the Canvas import trigger outside edit mode even when linked, same gating as the rest of this panel", () => {
+    render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing={false} />);
+    expect(screen.queryByRole("button", { name: "Import from Canvas" })).not.toBeInTheDocument();
+  });
+
+  it("clicking it calls importCanvasSyllabus with the class id", async () => {
+    const user = userEvent.setup();
+    render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing />);
+
+    await user.click(screen.getByRole("button", { name: "Import from Canvas" }));
+
+    await waitFor(() => expect(importCanvasSyllabusMock).toHaveBeenCalledWith("c1"));
+  });
+
+  it("shows an honest message when Canvas has no syllabus for this course", async () => {
+    importCanvasSyllabusMock.mockResolvedValueOnce({ outcome: "empty" });
+    const user = userEvent.setup();
+    render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing />);
+
+    await user.click(screen.getByRole("button", { name: "Import from Canvas" }));
+
+    expect(await screen.findByText(/canvas doesn't have a syllabus for this course yet/i)).toBeInTheDocument();
+  });
+
+  it("surfaces the fetch's own message on fetch_failed, not a generic one", async () => {
+    importCanvasSyllabusMock.mockResolvedValueOnce({ outcome: "fetch_failed", message: "Canvas rejected that token." });
+    const user = userEvent.setup();
+    render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing />);
+
+    await user.click(screen.getByRole("button", { name: "Import from Canvas" }));
+
+    expect(await screen.findByText("Canvas rejected that token.")).toBeInTheDocument();
+  });
+
+  it("says nothing extra on a successful import with items -- the review panel elsewhere covers it", async () => {
+    const user = userEvent.setup();
+    render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing />);
+
+    await user.click(screen.getByRole("button", { name: "Import from Canvas" }));
+
+    await waitFor(() => expect(importCanvasSyllabusMock).toHaveBeenCalled());
+    expect(screen.queryByText(/canvas doesn't have a syllabus|connect canvas|isn't mapped|add an api key|isn't available|couldn't make sense/i)).not.toBeInTheDocument();
+  });
+
+  it("does not disturb the manual PDF trigger, which stays available regardless of canvasLinked", () => {
+    render(<SyllabusPanel classId="c1" hasSyllabus={false} canvasLinked editing />);
+    expect(screen.getByRole("button", { name: "Extract deliverables from PDF" })).toBeInTheDocument();
   });
 });

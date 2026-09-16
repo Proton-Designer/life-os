@@ -42,8 +42,8 @@ export async function getMappedCourses(supabase: SupabaseClient, userId: string)
   return (data ?? []).map((r) => ({ canvasCourseId: r.canvas_course_id as string, classId: r.class_id as string }));
 }
 
-/** Canvas announcement `message` is HTML -- a minimal strip-to-text, same posture as feeding any other untrusted free text into the LLM extraction step (announcement-extraction.ts's own prompt already handles informal, messy phrasing). Not a full HTML parser: good enough for "readable plain text," not byte-perfect. */
-function stripHtml(html: string): string {
+/** Canvas announcement `message` is HTML -- a minimal strip-to-text, same posture as feeding any other untrusted free text into the LLM extraction step (announcement-extraction.ts's own prompt already handles informal, messy phrasing). Not a full HTML parser: good enough for "readable plain text," not byte-perfect. Exported for reuse by CANVAS-GAP-02's own syllabus_body import -- same "untrusted Canvas HTML into the extraction prompt" shape, one implementation. */
+export function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
