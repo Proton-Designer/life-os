@@ -41,6 +41,9 @@ import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AreaChart } from "@/components/charts/area-chart";
 import { ConsistencyGrid } from "@/components/charts/consistency-grid";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
 const PRAYERS: { name: PrayerName; label: string }[] = [
   { name: "fajr", label: "Fajr" },
@@ -88,6 +91,7 @@ export default async function DeenPage() {
     { data: habitLogRows },
     { data: currentFocusRow },
     { data: sunnahLogRows },
+    layout,
   ] = await Promise.all([
     // One 60-day range query serves today's status, the 30-day consistency
     // grid, the streak, and the 7-day qada catch-up count — sliced in
@@ -128,7 +132,9 @@ export default async function DeenPage() {
       .eq("week_start_date", weekStart)
       .maybeSingle(),
     supabase.from("sunnah_logs").select("prayer_name, slot, completed").eq("user_id", userId).eq("date", dateStr).eq("completed", true),
+    getPageLayout("deen"),
   ]);
+  const layoutMap = buildLayoutMap(layout);
 
   const allPrayerRows = prayerHistoryRows ?? [];
 
@@ -327,7 +333,7 @@ export default async function DeenPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Deen" />
+      <PageHeader title="Deen" actions={<WidgetManagerButton domainKey="deen" />} />
 
       <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
         {nextPrayerItem ? (
@@ -386,10 +392,18 @@ export default async function DeenPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
-        <div id="prayers" className="lg:col-span-5 scroll-mt-20">
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="deen" variant="text" />
+        </div>
+      ) : null}
+
+      {/* WIDGET-02: salah/quran/reflection/habit_builder are independently
+          reorderable/hideable widgets now (registry), so each is its own
+          full-width LayoutSlot rather than a fixed side-by-side pair. */}
+      <LayoutSlot layout={layoutMap} widgetKey="salah">
+        <div id="prayers" className="scroll-mt-20">
           <Panel
-            className="h-full"
             title="Salah"
             heroValue={`${salahDoneCount}/5`}
             caption={salahCaption}
@@ -419,47 +433,46 @@ export default async function DeenPage() {
             </ul>
           </Panel>
         </div>
-        <div className="lg:col-span-7">
-          <Panel
-            className="h-full"
-            title="Qur'an"
-            heroValue={quranTarget ? `${weekPagesRead}/${quranTarget}` : weekPagesRead}
-            delta={
-              pagesDelta === 0
-                ? undefined
-                : { direction: pagesDelta > 0 ? "up" : "down", text: `${pagesDelta > 0 ? "+" : ""}${pagesDelta} vs last week` }
-            }
-            caption="pages read this week"
-          >
-            <div className="flex flex-col gap-4">
-              {latestSession ? (
-                <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} />
-              ) : (
-                <EmptyState
-                  icon={BookOpen}
-                  message="No Qur'an sessions logged yet"
-                  action={{ label: "Log your first session", href: "#quran-pages" }}
-                />
-              )}
-              <QuranCard
-                currentSurah={latestSession?.surah ?? null}
-                currentJuz={latestSession?.juz ?? null}
-                sessionDates={recentSessionDates}
-                todayStr={dateStr}
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="quran">
+        <Panel
+          title="Qur'an"
+          heroValue={quranTarget ? `${weekPagesRead}/${quranTarget}` : weekPagesRead}
+          delta={
+            pagesDelta === 0
+              ? undefined
+              : { direction: pagesDelta > 0 ? "up" : "down", text: `${pagesDelta > 0 ? "+" : ""}${pagesDelta} vs last week` }
+          }
+          caption="pages read this week"
+        >
+          <div className="flex flex-col gap-4">
+            {latestSession ? (
+              <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} />
+            ) : (
+              <EmptyState
+                icon={BookOpen}
+                message="No Qur'an sessions logged yet"
+                action={{ label: "Log your first session", href: "#quran-pages" }}
               />
-            </div>
-          </Panel>
-        </div>
-      </div>
+            )}
+            <QuranCard
+              currentSurah={latestSession?.surah ?? null}
+              currentJuz={latestSession?.juz ?? null}
+              sessionDates={recentSessionDates}
+              todayStr={dateStr}
+            />
+          </div>
+        </Panel>
+      </LayoutSlot>
 
-      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-4">
-          <Panel className="h-full" title="Reflection">
-            <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} timezone={timezone} />
-          </Panel>
-        </div>
-        <div id="habit-builder" className="lg:col-span-8">
-          <Panel className="h-full" title="Habit Builder">
+      <LayoutSlot layout={layoutMap} widgetKey="reflection">
+        <Panel title="Reflection">
+          <ReflectionTracker entries={reflectionEntries} todayStr={dateStr} timezone={timezone} />
+        </Panel>
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="habit_builder">
+        <div id="habit-builder">
+          <Panel title="Habit Builder">
             <HabitBuilder
               todayStr={dateStr}
               habits={deenHabits}
@@ -468,15 +481,17 @@ export default async function DeenPage() {
             />
           </Panel>
         </div>
-      </div>
+      </LayoutSlot>
 
-      <Panel
-        title="Prayer consistency, last 30 days"
-        heroValue={hasTrackableConsistencyDay ? `${onTimeRate}%` : "No data yet"}
-        caption={hasTrackableConsistencyDay ? "On-time rate over the window" : "Tracking started today"}
-      >
-        <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} showDateLabels />
-      </Panel>
+      <LayoutSlot layout={layoutMap} widgetKey="prayer_consistency">
+        <Panel
+          title="Prayer consistency, last 30 days"
+          heroValue={hasTrackableConsistencyDay ? `${onTimeRate}%` : "No data yet"}
+          caption={hasTrackableConsistencyDay ? "On-time rate over the window" : "Tracking started today"}
+        >
+          <ConsistencyGrid rows={consistencyRows} statusStyle={PRAYER_STATUS_STYLE} showDateLabels />
+        </Panel>
+      </LayoutSlot>
     </PageContainer>
   );
 }

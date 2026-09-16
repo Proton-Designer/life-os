@@ -6,6 +6,9 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { getActiveHabitsWithStatus, getPausedHabits } from "@/lib/habits/queries";
 import { HabitList } from "@/components/habits/habit-list";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
 /**
  * The Habits page (#39/#40/#41) — the first real reader for
@@ -28,18 +31,28 @@ export default async function HabitsPage() {
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
 
-  const [habits, pausedHabits] = await Promise.all([
+  const [habits, pausedHabits, layout] = await Promise.all([
     getActiveHabitsWithStatus(supabase, user.id, todayStr, timezone),
     getPausedHabits(supabase, user.id),
+    getPageLayout("habits"),
   ]);
+  const layoutMap = buildLayoutMap(layout);
 
   return (
     <PageContainer>
       <PageHeader
         title="Habits"
         description="Vote once a day for who you're becoming. Up to seven identities — the database refuses an eighth."
+        actions={<WidgetManagerButton domainKey="habits" />}
       />
-      <HabitList habits={habits} pausedHabits={pausedHabits} today={todayStr} />
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="habits" variant="text" />
+        </div>
+      ) : null}
+      <LayoutSlot layout={layoutMap} widgetKey="habit_list">
+        <HabitList habits={habits} pausedHabits={pausedHabits} today={todayStr} />
+      </LayoutSlot>
     </PageContainer>
   );
 }

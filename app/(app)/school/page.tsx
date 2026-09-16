@@ -34,6 +34,9 @@ import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import { getClassCards } from "@/lib/school/get-class-cards";
 import { ClassCard } from "@/components/school/class-card";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
@@ -78,7 +81,7 @@ export default async function SchoolPage() {
   // getClassCards/getSchoolTodayFeed depend only on userId/weekStart/dateStr (known
   // before any of the three queries below resolve), so both join this wave instead of
   // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems, transcriptionAvailability, practiceBenchmarkInputs] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems, transcriptionAvailability, practiceBenchmarkInputs, layout] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -104,7 +107,11 @@ export default async function SchoolPage() {
     // (not built from classCards, which doesn't fetch practice_tests at
     // all) — see get-practice-benchmark-inputs.ts's own header.
     getPracticeBenchmarkInputs(supabase, userId),
+    // WIDGET-02 -- this user's saved widget layout for /school, registry
+    // defaults filled in for anything never customized.
+    getPageLayout("school"),
   ]);
+  const layoutMap = buildLayoutMap(layout);
 
   const cancelledDates = await getCancelledDatesByEvent(
     supabase,
@@ -310,7 +317,7 @@ export default async function SchoolPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="School" />
+      <PageHeader title="School" actions={<WidgetManagerButton domainKey="school" />} />
 
       <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-4">
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
@@ -362,10 +369,17 @@ export default async function SchoolPage() {
         </div>
       </div>
 
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="school" variant="text" />
+        </div>
+      ) : null}
+
       {/* Task list sits directly under the three KPI modules and ABOVE the
           per-class cards (Ayman, 2026-09-10): the cross-class view of what
           is actually due is the reason to open this screen, and the class
           cards are the drill-down from it, not the other way round. */}
+      <LayoutSlot layout={layoutMap} widgetKey="task_list">
       <Panel
         id="tasks"
         className="scroll-mt-20"
@@ -389,17 +403,21 @@ export default async function SchoolPage() {
       >
         <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
       </Panel>
+      </LayoutSlot>
 
       {/* Phase 1 #15 — day-level, sits above #14's wider window: "what does school look
           like today" is a narrower, more urgent question than "what's coming up." */}
+      <LayoutSlot layout={layoutMap} widgetKey="school_today">
       <Panel title="School today" heroValue={`${schoolTodayItems.length}`} caption="due today across your classes">
         <SchoolTodayPanel items={schoolTodayItems} />
       </Panel>
+      </LayoutSlot>
 
       {/* Phase 1 #14 — the cross-class risk rollup the Task list doesn't provide (it's
           date-ordered, not risk-ranked, and only ever shows tasks, not assessments).
           Sits beside the Task list rather than inside it: different unit (assessments,
           not tasks) and a different ordering principle (risk, not date). */}
+      <LayoutSlot layout={layoutMap} widgetKey="deadline_risk">
       <Panel
         title="Deadline risk"
         heroValue={`${highRiskCount}`}
@@ -413,12 +431,14 @@ export default async function SchoolPage() {
           horizonStr={horizonStr}
         />
       </Panel>
+      </LayoutSlot>
 
       {/* Phase 2 #P2-10 — course-load forecast. Sits beside Deadline risk:
           that panel ranks INDIVIDUAL items by risk within a short window;
           this one shows the SHAPE of the next six weeks so a cluster of
           assessments is visible before any one of them is individually
           "at risk." */}
+      <LayoutSlot layout={layoutMap} widgetKey="course_load">
       <Panel
         title="Course load"
         heroValue={`${overflowWeekCount}`}
@@ -426,20 +446,24 @@ export default async function SchoolPage() {
       >
         <CourseLoadForecastPanel forecast={courseLoadForecast} todayStr={dateStr} />
       </Panel>
+      </LayoutSlot>
 
       {/* P3-12 — practice-test vs real-grade benchmarking. Always rendered,
           same as Course load/Deadline risk on this page -- the panel's own
           !hasData branch shows an honest "not enough data yet" message
           rather than this page hiding the panel outright. */}
+      <LayoutSlot layout={layoutMap} widgetKey="practice_vs_real">
       <Panel title="Practice vs. real grade">
         <PracticeVsRealBenchmarkPanel benchmark={practiceVsRealBenchmark} todayStr={dateStr} />
       </Panel>
+      </LayoutSlot>
 
       {/* Item 6b (Ayman, verbatim): "a module card for every single class
           im taking," below the top mini modules. Cards are visibly
           non-uniform by design — Lin Alg (MATH 2418) has no room/instructor/
           syllabus/tasks/assessment yet, so `items-start` keeps a short card
           short instead of CSS Grid stretching it to match its row. */}
+      <LayoutSlot layout={layoutMap} widgetKey="class_cards">
       {classCards.length > 0 && (
         <div data-testid="class-cards-grid" className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {classCards.map((c) => (
@@ -454,7 +478,9 @@ export default async function SchoolPage() {
           ))}
         </div>
       )}
+      </LayoutSlot>
 
+      <LayoutSlot layout={layoutMap} widgetKey="this_weeks_classes">
       <Panel
         title="This week's classes"
         heroValue={`${scheduledThisWeekCount}`}
@@ -475,6 +501,7 @@ export default async function SchoolPage() {
       >
         <ClassScheduleWeek events={classScheduleEvents} weekDates={weekDates} todayStr={dateStr} />
       </Panel>
+      </LayoutSlot>
     </PageContainer>
   );
 }

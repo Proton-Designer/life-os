@@ -24,6 +24,9 @@ import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import { RankedBars, type RankedBarsItem } from "@/components/charts/ranked-bars";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { AreaChart } from "@/components/charts/area-chart";
@@ -175,6 +178,7 @@ export default async function InsightsPage({
     { data: recapCheckinRows },
     { data: previousDeenGoal },
     domainWeights,
+    layout,
   ] = await Promise.all([
     getFocusMap(userId, range, anchor),
     getInsightsKpis(userId, weekStart, previousWeekStart, timezone),
@@ -218,6 +222,7 @@ export default async function InsightsPage({
       .eq("week_start_date", previousWeekStart)
       .maybeSingle(),
     getUserDomainWeights(userId),
+    getPageLayout("insights"),
   ]);
 
   // P3-19 -- deliberately NOT joined into the Promise.all wave above: a
@@ -293,25 +298,29 @@ export default async function InsightsPage({
   const mostFocusedAccent: AccentToken = kpis.mostFocusedDomain
     ? (SEGMENT_ACCENT[kpis.mostFocusedDomain] ?? "info")
     : "neutral";
+  const layoutMap = buildLayoutMap(layout);
 
   return (
     <PageContainer>
       <PageHeader
         title="Insights"
         actions={
-          <div className="flex gap-2 text-sm">
-            <Link
-              href="/insights?range=day"
-              className={cn("rounded-full px-3 py-1", range === "day" ? "bg-accent" : "text-muted-foreground")}
-            >
-              Day
-            </Link>
-            <Link
-              href="/insights?range=week"
-              className={cn("rounded-full px-3 py-1", range === "week" ? "bg-accent" : "text-muted-foreground")}
-            >
-              Week
-            </Link>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-2 text-sm">
+              <Link
+                href="/insights?range=day"
+                className={cn("rounded-full px-3 py-1", range === "day" ? "bg-accent" : "text-muted-foreground")}
+              >
+                Day
+              </Link>
+              <Link
+                href="/insights?range=week"
+                className={cn("rounded-full px-3 py-1", range === "week" ? "bg-accent" : "text-muted-foreground")}
+              >
+                Week
+              </Link>
+            </div>
+            <WidgetManagerButton domainKey="insights" />
           </div>
         }
       />
@@ -356,11 +365,18 @@ export default async function InsightsPage({
         </div>
       </div>
 
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="insights" variant="text" />
+        </div>
+      ) : null}
+
       {/* Moved from Home (2026-08-17 day-shape spec) — a completion-percent
           trend is a pattern-over-time chart, which belongs here per Ayman's
           own "metrics belong in Insights, not Home" rule. Independent of
           the day/week range toggle above: always the trailing 7 days,
           matching what this chart showed on Home. */}
+      <LayoutSlot layout={layoutMap} widgetKey="this_week_trend">
       <Panel
         title="This week"
         heroValue={`${weeklyAvgPct}%`}
@@ -376,7 +392,9 @@ export default async function InsightsPage({
           unit="%"
         />
       </Panel>
+      </LayoutSlot>
 
+      <LayoutSlot layout={layoutMap} widgetKey="signal_noise_by_week">
       {hasAnySnWeekData ? (
         <Panel
           title="Signal:Noise by week"
@@ -397,6 +415,7 @@ export default async function InsightsPage({
           />
         </Panel>
       )}
+      </LayoutSlot>
 
       {/* Week over week (2026-08-20: relocated from the removed Weekly
           Planning page, whole and unchanged — its goal-editing half moved
@@ -466,6 +485,7 @@ export default async function InsightsPage({
         </div>
       </div>
 
+      <LayoutSlot layout={layoutMap} widgetKey="week_over_week">
       <Panel title="Week over week">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <SmallMultiple
@@ -486,44 +506,47 @@ export default async function InsightsPage({
           <SmallMultiple label="Signal:Noise" bars={recapSnBars} colorVar="--series-business" />
         </div>
       </Panel>
+      </LayoutSlot>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-7">
-          <Panel title="Focus Map">
-            {hasFocusData ? (
-              <RankedBars items={rankedItems} />
-            ) : (
-              <p className="py-8 text-center text-xs text-muted-foreground">No check-ins answered in this range yet</p>
-            )}
-          </Panel>
-        </div>
-        <div className="lg:col-span-5">
-          <Panel title="Signal:Noise">
-            {hasSnData ? (
-              // Noise split into two slices, never merged — a heavy school
-              // week and a lost afternoon are nothing alike (spec,
-              // 2026-08-19). Wasted stays a neutral/muted color, never red:
-              // it's information, not an accusation.
-              <DonutChart
-                slices={[
-                  { label: "Signal", value: rangeSn.signalMinutes, colorVar: "--series-business" },
-                  { label: "Other commitments", value: rangeSn.otherCommitmentsMinutes, colorVar: "--series-noise" },
-                  { label: "Wasted", value: rangeSn.wastedMinutes, colorVar: "--series-other" },
-                ]}
-                centerLabel="Ratio"
-                centerValue={rangeSn.display}
-              />
-            ) : (
-              <EmptyState
-                icon={Volume2}
-                message="No allocation check-ins answered in this range yet"
-                action={{ label: "Start a Lock-In session", href: "/business" }}
-              />
-            )}
-          </Panel>
-        </div>
-      </div>
+      {/* WIDGET-02: focus_map/signal_noise are independently reorderable/
+          hideable widgets now (registry), so each is its own full-width
+          LayoutSlot rather than a fixed side-by-side pair. */}
+      <LayoutSlot layout={layoutMap} widgetKey="focus_map">
+        <Panel title="Focus Map">
+          {hasFocusData ? (
+            <RankedBars items={rankedItems} />
+          ) : (
+            <p className="py-8 text-center text-xs text-muted-foreground">No check-ins answered in this range yet</p>
+          )}
+        </Panel>
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="signal_noise">
+        <Panel title="Signal:Noise">
+          {hasSnData ? (
+            // Noise split into two slices, never merged — a heavy school
+            // week and a lost afternoon are nothing alike (spec,
+            // 2026-08-19). Wasted stays a neutral/muted color, never red:
+            // it's information, not an accusation.
+            <DonutChart
+              slices={[
+                { label: "Signal", value: rangeSn.signalMinutes, colorVar: "--series-business" },
+                { label: "Other commitments", value: rangeSn.otherCommitmentsMinutes, colorVar: "--series-noise" },
+                { label: "Wasted", value: rangeSn.wastedMinutes, colorVar: "--series-other" },
+              ]}
+              centerLabel="Ratio"
+              centerValue={rangeSn.display}
+            />
+          ) : (
+            <EmptyState
+              icon={Volume2}
+              message="No allocation check-ins answered in this range yet"
+              action={{ label: "Start a Lock-In session", href: "/business" }}
+            />
+          )}
+        </Panel>
+      </LayoutSlot>
 
+      <LayoutSlot layout={layoutMap} widgetKey="per_domain">
       <Panel title="Per-domain">
         {domainSegments.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">No per-domain data in this range yet</p>
@@ -566,15 +589,18 @@ export default async function InsightsPage({
           </ul>
         )}
       </Panel>
+      </LayoutSlot>
 
       {/* P3-19 -- RescueTime daily productive-vs-distracting breakdown.
           Placed last, own top-level Panel: unlike everything above (all
           derived from this app's own tables), this is BYOK third-party data
           -- optional, off by default, no fabricated zero when disconnected
           (RescueTimePanel's own "connect in Settings" prompt handles that). */}
+      <LayoutSlot layout={layoutMap} widgetKey="rescuetime">
       <Panel title="RescueTime">
         <RescueTimePanel initialData={rescueTimeData} />
       </Panel>
+      </LayoutSlot>
     </PageContainer>
   );
 }

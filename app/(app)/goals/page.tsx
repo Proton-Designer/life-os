@@ -7,6 +7,9 @@ import { localDateString } from "@/lib/date-utils";
 import { listGoalsForMonth } from "@/lib/goals/actions-core";
 import { getMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
 import { GoalBoard } from "@/components/goals/goal-board";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
 /**
  * The Goals page (#43/#44) — the first real reader for
@@ -31,15 +34,24 @@ export default async function GoalsPage() {
   const todayStr = localDateString(now, timezone);
   const monthStart = monthStartFor(todayStr);
 
-  const [goals, milestones] = await Promise.all([
+  const [goals, milestones, layout] = await Promise.all([
     listGoalsForMonth(supabase, user.id, monthStart),
     getMilestonesForMonth(supabase, user.id, monthStart),
+    getPageLayout("goals"),
   ]);
+  const layoutMap = buildLayoutMap(layout);
 
   return (
     <PageContainer>
-      <PageHeader title="Goals" />
-      <GoalBoard monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
+      <PageHeader title="Goals" actions={<WidgetManagerButton domainKey="goals" />} />
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="goals" variant="text" />
+        </div>
+      ) : null}
+      <LayoutSlot layout={layoutMap} widgetKey="goal_board">
+        <GoalBoard monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
+      </LayoutSlot>
     </PageContainer>
   );
 }

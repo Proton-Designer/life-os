@@ -17,6 +17,9 @@ import { WeeklyReviewView } from "@/components/weekly-review/weekly-review-view"
 import { getForecastableAssessments } from "@/lib/school/get-forecastable-assessments";
 import { computeCourseLoadForecast } from "@/lib/school/course-load-forecast";
 import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
 /**
  * The Weekly Review page (#46/#47/#48) — NOT at `/review` (that route is a
@@ -58,7 +61,7 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
   const endIso = resolveLocalTime(range.endDateExclusive, "00:00", timezone).toISOString();
   const weekDayCount = daysBetweenDateStrings(range.startDate, range.endDateExclusive);
 
-  const [hours, recallMinutes, hoursByDay, dayStarts, eveningCloses, pareto, habitSummaries, narrative, forecastableAssessments] = await Promise.all([
+  const [hours, recallMinutes, hoursByDay, dayStarts, eveningCloses, pareto, habitSummaries, narrative, forecastableAssessments, layout] = await Promise.all([
     getHoursByKindForRange(supabase, user.id, startIso, endIso, new Date()),
     getEndedRecallMinutesForRange(supabase, user.id, startIso, endIso),
     // P3-09: per-day hours, paired below with that day's own wake/close
@@ -82,8 +85,10 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
     // header for why this is a separate, leaner query than /school's own
     // classCards reuse.
     getForecastableAssessments(supabase, user.id),
+    getPageLayout("weekly_review"),
   ]);
   const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr);
+  const layoutMap = buildLayoutMap(layout);
 
   // P3-09: one entry per calendar date in the reviewed range, pairing that
   // day's hours with its own wake/close marks (or nulls, if that day never
@@ -113,12 +118,21 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
             ? `${formatShortDate(range.startDate, todayStr)} – today`
             : `${formatShortDate(range.startDate, todayStr)} – ${formatShortDate(lastDayInclusive, todayStr)}`
         }
+        actions={<WidgetManagerButton domainKey="weekly_review" />}
       />
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="weekly_review" variant="text" />
+        </div>
+      ) : null}
+      <LayoutSlot layout={layoutMap} widgetKey="your_week">
       {narrative ? (
         <Panel title="Your week">
           <p className="whitespace-pre-line text-sm text-muted-foreground">{narrative}</p>
         </Panel>
       ) : null}
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="review">
       <WeeklyReviewView
         soFar={soFar}
         weekDayCount={weekDayCount}
@@ -128,16 +142,19 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
         pareto={pareto}
         habitSummaries={habitSummaries}
       />
+      </LayoutSlot>
       {/* P3-10: only when there's real signal in the full 6-week horizon --
           same "only show real content" posture the narrative panel above
           already takes on this page, distinct from /school's own always-show
           (with an honest empty-state message) posture, which fits a
           School-focused page better than this broader review surface. */}
+      <LayoutSlot layout={layoutMap} widgetKey="course_load">
       {courseLoadForecast.hasAnyUpcomingWork ? (
         <Panel title="Course load">
           <CourseLoadForecastPanel forecast={courseLoadForecast} todayStr={todayStr} />
         </Panel>
       ) : null}
+      </LayoutSlot>
     </PageContainer>
   );
 }

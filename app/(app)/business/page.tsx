@@ -18,6 +18,9 @@ import type { StoredSessionHour } from "@/components/business/lock-in-session";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
 export default async function BusinessPage() {
   const supabase = await createClient();
@@ -32,7 +35,7 @@ export default async function BusinessPage() {
   const weekStart = getWeekStartDate(dateStr);
   const thirtyDaysAgoIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [slots, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate, completedGoals] =
+  const [slots, { data: weeklyGoal }, anyActiveSession, { data: workSessionRows }, incompleteByDate, completedGoals, layout] =
     await Promise.all([
       getKillListSlots(userId, dateStr),
       supabase
@@ -67,7 +70,9 @@ export default async function BusinessPage() {
       // status='done'), not weekly_goals (no completion lifecycle there).
       // See lib/business/completed-goals.ts's header.
       getCompletedBusinessGoals(supabase, userId),
+      getPageLayout("business"),
     ]);
+  const layoutMap = buildLayoutMap(layout);
 
   const killListCompletedToday = slots.filter((s) => s.completed).length;
 
@@ -111,15 +116,26 @@ export default async function BusinessPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Business" />
+      <PageHeader title="Business" actions={<WidgetManagerButton domainKey="business" />} />
+
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="business" variant="text" />
+        </div>
+      ) : null}
 
       {/* Restructure (2026-08-26 night batch 3, per Ayman, verbatim): "put
           the lock in button inside the Focus time today module, shift the
           minute count to the left and add the lock in button on the right
           of that." The vacated cell becomes the new Incompleted Tasks
           module below. FocusTimeCard is a client component so its layout
-          can react to LIVE session state (see its own doc comment). */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          can react to LIVE session state (see its own doc comment).
+          WIDGET-02: focus_time/incomplete_tasks are independently
+          reorderable/hideable widgets now (registry), so each is its own
+          full-width LayoutSlot rather than a fixed side-by-side pair --
+          the two-column grid stays as each widget's OWN internal layout
+          rather than the two being locked together. */}
+      <LayoutSlot layout={layoutMap} widgetKey="focus_time">
         <FocusTimeCard
           sessionsTodayCount={sessionsToday.length}
           focusMinutesToday={focusMinutesToday}
@@ -127,11 +143,13 @@ export default async function BusinessPage() {
           initialStoredHours={initialStoredHours}
           timezone={timezone}
         />
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="incomplete_tasks">
         <IncompleteTasksModule initialGroups={incompleteByDate} todayStr={dateStr} />
-      </div>
+      </LayoutSlot>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div id="kill-list" className="lg:col-span-6 scroll-mt-20">
+      <LayoutSlot layout={layoutMap} widgetKey="kill_list">
+        <div id="kill-list" className="scroll-mt-20">
           <Panel
             title="Today's kill list"
             heroValue={`${killListCompletedToday}/3`}
@@ -141,22 +159,24 @@ export default async function BusinessPage() {
             <KillList date={dateStr} slots={slots} />
           </Panel>
         </div>
-        <div className="lg:col-span-6">
-          <GoalCard
-            title="This week's goal"
-            domain="business"
-            headline={weeklyGoal?.headline ?? ""}
-            milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
-            locked={false}
-            onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
-            emptyStateFraming={
-              <>The one outcome this week is actually about — everything else should serve it.</>
-            }
-          />
-        </div>
-      </div>
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="weekly_goal">
+        <GoalCard
+          title="This week's goal"
+          domain="business"
+          headline={weeklyGoal?.headline ?? ""}
+          milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
+          locked={false}
+          onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
+          emptyStateFraming={
+            <>The one outcome this week is actually about — everything else should serve it.</>
+          }
+        />
+      </LayoutSlot>
 
-      <CompletedGoalsArchive goals={completedGoals} todayStr={dateStr} />
+      <LayoutSlot layout={layoutMap} widgetKey="completed_goals_archive">
+        <CompletedGoalsArchive goals={completedGoals} todayStr={dateStr} />
+      </LayoutSlot>
     </PageContainer>
   );
 }

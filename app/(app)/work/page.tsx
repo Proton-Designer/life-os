@@ -18,6 +18,9 @@ import { WorkHoursEditorDialog, type PermanentWorkRow, type OneOffWorkRow } from
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import { TargetsStrip } from "@/components/co-op/targets-strip";
 import { PipelineBoard } from "@/components/co-op/pipeline-board";
 import { PipelinePanelControls } from "@/components/co-op/pipeline-panel-controls";
@@ -39,7 +42,7 @@ export default async function CoOpPage() {
   const weekDates = weekDatesFrom(weekStart);
   const nextWeekDates = weekDatesFrom(addDaysToDateString(weekStart, 7));
 
-  const [{ data: eventRows }, { data: targetRows }, { data: completedTargetRows }] = await Promise.all([
+  const [{ data: eventRows }, { data: targetRows }, { data: completedTargetRows }, layout] = await Promise.all([
     supabase
       .from("schedule_events")
       .select("id, is_recurring, day_of_week, event_time, end_time, event_date")
@@ -61,7 +64,9 @@ export default async function CoOpPage() {
       .eq("user_id", userId)
       .eq("status", "done")
       .order("completed_at", { ascending: false }),
+    getPageLayout("work"),
   ]);
+  const layoutMap = buildLayoutMap(layout);
 
   const targets: CoopTargetRow[] = (targetRows ?? []).map((t) => ({
     id: t.id,
@@ -136,7 +141,7 @@ export default async function CoOpPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Work" />
+      <PageHeader title="Work" actions={<WidgetManagerButton domainKey="work" />} />
 
       {/* Thin schedule strip (batch 5, item 2) — replaces the old "Work
           schedule" Panel entirely; deliberately not a <Panel>, since
@@ -174,6 +179,13 @@ export default async function CoOpPage() {
 
       <TargetsStrip rows={targets} completedGoals={completedTargets} todayStr={dateStr} />
 
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="work" variant="text" />
+        </div>
+      ) : null}
+
+      <LayoutSlot layout={layoutMap} widgetKey="pipeline">
       {currentTarget && (
         <PipelineProvider targetId={currentTarget.id} initialTasks={pipelineTasks} timezone={timezone}>
           <Panel
@@ -187,6 +199,7 @@ export default async function CoOpPage() {
           </Panel>
         </PipelineProvider>
       )}
+      </LayoutSlot>
     </PageContainer>
   );
 }

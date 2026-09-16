@@ -21,6 +21,9 @@ import { getFsrsTuningStatus } from "@/lib/self-mastery/fsrs-tuning";
 import { FsrsTuningCard } from "./fsrs-tuning-card";
 import { TeachBackPanel } from "./teach-back-panel";
 import { SemanticSearchPanel } from "./semantic-search-panel";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -75,21 +78,49 @@ export async function SelfMasteryLibrary() {
   // OverconfidenceCard above (spans book cards + School's Question Bank
   // reviews), so it lives here rather than being duplicated per surface.
   const fsrsTuningStatus = await getFsrsTuningStatus(supabase, userId);
+  const layout = await getPageLayout("self_mastery");
+  const layoutMap = buildLayoutMap(layout);
 
   return (
     <PageContainer>
-      <PageHeader title="Self-Mastery" description="Reading, learning, spaced review." actions={books.length > 0 && canUpload ? <UploadBookDialog /> : null} />
+      <PageHeader
+        title="Self-Mastery"
+        description="Reading, learning, spaced review."
+        actions={
+          <div className="flex items-center gap-2">
+            {books.length > 0 && canUpload ? <UploadBookDialog /> : null}
+            <WidgetManagerButton domainKey="self_mastery" />
+          </div>
+        }
+      />
 
-      {books.length > 0 ? <SemanticSearchPanel /> : null}
-      <WeeklyRecapCard recap={weeklyRecap} />
-      <OverconfidenceCard verdict={overconfidenceVerdict} />
-      <FsrsTuningCard status={fsrsTuningStatus} />
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="self_mastery" variant="text" />
+        </div>
+      ) : null}
+
+      <LayoutSlot layout={layoutMap} widgetKey="search">
+        {books.length > 0 ? <SemanticSearchPanel /> : null}
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="weekly_recap">
+        <WeeklyRecapCard recap={weeklyRecap} />
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="overconfidence">
+        <OverconfidenceCard verdict={overconfidenceVerdict} />
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="fsrs_tuning">
+        <FsrsTuningCard status={fsrsTuningStatus} />
+      </LayoutSlot>
       {/* P2-18 -- own book/lesson picker, doesn't need the fully-shaped
           LibraryBook rows this page already fetched, just id/title of
           ready books (a teach-back target needs real lessons, and only a
           "ready" book has any). */}
-      <TeachBackPanel books={books.filter((b) => b.status === "ready").map((b) => ({ id: b.id, title: b.title }))} />
+      <LayoutSlot layout={layoutMap} widgetKey="teach_back">
+        <TeachBackPanel books={books.filter((b) => b.status === "ready").map((b) => ({ id: b.id, title: b.title }))} />
+      </LayoutSlot>
 
+      <LayoutSlot layout={layoutMap} widgetKey="library">
       {books.length === 0 ? (
         // Not the generic EmptyState primitive — its action contract is a
         // plain href/onClick, and this action needs to open the upload
@@ -154,6 +185,7 @@ export async function SelfMasteryLibrary() {
           ))}
         </div>
       )}
+      </LayoutSlot>
     </PageContainer>
   );
 }

@@ -16,6 +16,9 @@ import { CycleProgressPanel, type BenchmarkDelta } from "@/components/fitness/cy
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import { confirmPlanSession, logWeight, logWaist, quickLogExercise, logCycleBenchmark } from "./actions";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -344,9 +347,12 @@ export default async function FitnessPage() {
     )
   );
 
+  const layout = await getPageLayout("fitness");
+  const layoutMap = buildLayoutMap(layout);
+
   return (
     <PageContainer>
-      <PageHeader title="Fitness" />
+      <PageHeader title="Fitness" actions={<WidgetManagerButton domainKey="fitness" />} />
 
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-2.5">
         <span className="min-w-0 truncate text-sm font-medium">
@@ -364,27 +370,37 @@ export default async function FitnessPage() {
         </Link>
       </div>
 
-      <Panel title="Daily Log">
-        <DailyLogPanel
-          date={dateStr}
-          items={pendingItems}
-          sessionDetailsBySessionId={sessionDetailsBySessionId}
-          benchmarkExercises={benchmarkExercises}
-          onLogExercise={quickLogExercise.bind(null, dateStr)}
-          onConfirmSession={confirmPlanSession}
-          onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
-        />
-      </Panel>
-
-      <Panel title="This week">
-        <div className="flex flex-col gap-4">
-          <VolumeHero
-            volume={volume}
-            adherence={weekScheduledSessionCount > 0 ? { confirmed: weekConfirmedSessionCount, scheduled: weekScheduledSessionCount } : null}
-          />
-          <ThisWeekCalendar days={thisWeekDays} />
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="fitness" variant="text" />
         </div>
-      </Panel>
+      ) : null}
+
+      <LayoutSlot layout={layoutMap} widgetKey="daily_log">
+        <Panel title="Daily Log">
+          <DailyLogPanel
+            date={dateStr}
+            items={pendingItems}
+            sessionDetailsBySessionId={sessionDetailsBySessionId}
+            benchmarkExercises={benchmarkExercises}
+            onLogExercise={quickLogExercise.bind(null, dateStr)}
+            onConfirmSession={confirmPlanSession}
+            onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
+          />
+        </Panel>
+      </LayoutSlot>
+
+      <LayoutSlot layout={layoutMap} widgetKey="this_week">
+        <Panel title="This week">
+          <div className="flex flex-col gap-4">
+            <VolumeHero
+              volume={volume}
+              adherence={weekScheduledSessionCount > 0 ? { confirmed: weekConfirmedSessionCount, scheduled: weekScheduledSessionCount } : null}
+            />
+            <ThisWeekCalendar days={thisWeekDays} />
+          </div>
+        </Panel>
+      </LayoutSlot>
 
       {/* BodyModule (weight/waist, each with its own on-demand "Log"
           affordance) is unconditional here — 2026-08-25/26 batch 2, item 3:
@@ -392,27 +408,29 @@ export default async function FitnessPage() {
           since it's no longer gated behind a cycle at all. Only the
           cycle-specific content below it (benchmark deltas, "Log cycle
           benchmarks") stays gated on an active plan's cycle existing. */}
-      <Panel title="Cycle Progress checks">
-        <div className="flex flex-col gap-3">
-          <BodyModule
-            weightAvg7d={weightAvg7d}
-            waist={waist}
-            onLogWeight={logWeight.bind(null, dateStr)}
-            onLogWaist={logWaist.bind(null, dateStr)}
-          />
-          {cycle ? (
-            <CycleProgressPanel
-              cycleNumber={cycle.cycleNumber}
-              daysLeft={cycle.daysLeft}
-              deltas={deltas}
-              benchmarkExercises={benchmarkExercises}
-              onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
+      <LayoutSlot layout={layoutMap} widgetKey="cycle_progress">
+        <Panel title="Cycle Progress checks">
+          <div className="flex flex-col gap-3">
+            <BodyModule
+              weightAvg7d={weightAvg7d}
+              waist={waist}
+              onLogWeight={logWeight.bind(null, dateStr)}
+              onLogWaist={logWaist.bind(null, dateStr)}
             />
-          ) : (
-            <p className="text-sm text-muted-foreground">Activate a workout plan to start tracking cycles.</p>
-          )}
-        </div>
-      </Panel>
+            {cycle ? (
+              <CycleProgressPanel
+                cycleNumber={cycle.cycleNumber}
+                daysLeft={cycle.daysLeft}
+                deltas={deltas}
+                benchmarkExercises={benchmarkExercises}
+                onLogBenchmark={logCycleBenchmark.bind(null, dateStr)}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Activate a workout plan to start tracking cycles.</p>
+            )}
+          </div>
+        </Panel>
+      </LayoutSlot>
     </PageContainer>
   );
 }

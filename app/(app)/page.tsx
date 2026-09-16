@@ -39,6 +39,9 @@ import { getMySleepIntentForToday } from "@/app/(app)/close/sleep-intent-actions
 import { SleepIntentCard } from "@/components/home/sleep-intent-card";
 import { getMyMorningRoutineChecklist } from "@/app/(app)/morning-routine/actions";
 import { MorningRoutineCard } from "@/components/home/morning-routine-card";
+import { getPageLayout } from "@/app/(app)/page-layout-actions";
+import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -79,6 +82,7 @@ export default async function HomePage() {
     morningBrief,
     sleepIntent,
     morningRoutineItems,
+    layout,
   ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -121,7 +125,16 @@ export default async function HomePage() {
       // P3-01: user-defined checklist, tz-correct check-off -- see
       // lib/morning-routine/actions-core.ts's own header for why.
       getMyMorningRoutineChecklist(),
+      getPageLayout("home"),
     ]);
+  const layoutMap = buildLayoutMap(layout);
+  // WIDGET-02 exception, stated rather than silently applied: session_entry's
+  // POSITION is not user-configurable -- selfMasteryRanksFirst (below) is a
+  // real-time arbiter decision about whether this belongs above or below the
+  // Now/Focus grid, and a saved layout `position` has no way to express "only
+  // sometimes first." Hiding it entirely is still fully honored (a user who
+  // never wants this card can turn it off), just not its rank among the rest.
+  const sessionEntryHidden = layoutMap.get("session_entry")?.hidden ?? false;
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
   // makes Self-Mastery disappear the moment the group row is archived.
@@ -229,79 +242,102 @@ export default async function HomePage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Home" />
+      <PageHeader title="Home" actions={<WidgetManagerButton domainKey="home" />} />
 
       <InProgressBanner items={inProgressItems} />
 
-      {morningBrief ? (
-        <Panel title="Your morning brief">
-          <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
-        </Panel>
+      {allWidgetsHidden(layout) ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Every widget on this page is hidden. <WidgetManagerButton domainKey="home" variant="text" />
+        </div>
       ) : null}
 
-      <MorningRoutineCard initialItems={morningRoutineItems} />
+      <LayoutSlot layout={layoutMap} widgetKey="morning_brief">
+        {morningBrief ? (
+          <Panel title="Your morning brief">
+            <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
+          </Panel>
+        ) : null}
+      </LayoutSlot>
 
-      <SleepIntentCard initialBedtime={sleepIntent} />
+      <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
+        <MorningRoutineCard initialItems={morningRoutineItems} />
+      </LayoutSlot>
+
+      <LayoutSlot layout={layoutMap} widgetKey="sleep_intent">
+        <SleepIntentCard initialBedtime={sleepIntent} />
+      </LayoutSlot>
 
       {/* Position responds to the real arbiter ranking (A2 wiring), not
           a fixed layout slot -- Self-Mastery only renders first when it
-          genuinely outranks the current top of the five-domain list.
-          See selfMasteryRanksFirst's own comment above. */}
-      {selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
+          genuinely outranks the current top of the five-domain list. See
+          selfMasteryRanksFirst's own comment above and sessionEntryHidden's
+          own comment on why this widget's ORDER is deliberately not
+          user-configurable even though its VISIBILITY is (WIDGET-02). */}
+      {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
 
-      <WeeklyGoalsHeader
-        deen={deenGoal}
-        business={businessGoal}
-        onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
-        onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
-        showPlanningNudge={showPlanningNudge}
-        showDeen={hasFaith}
-        showBusiness={hasWork}
-      />
+      <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
+        <WeeklyGoalsHeader
+          deen={deenGoal}
+          business={businessGoal}
+          onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
+          onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
+          showPlanningNudge={showPlanningNudge}
+          showDeen={hasFaith}
+          showBusiness={hasWork}
+        />
+      </LayoutSlot>
 
-      <DomainStatusStack snapshots={snapshots} title="Sector progress" visibleDomains={visibleSectorDomains} />
+      <LayoutSlot layout={layoutMap} widgetKey="domain_status">
+        <DomainStatusStack snapshots={snapshots} title="Sector progress" visibleDomains={visibleSectorDomains} />
+      </LayoutSlot>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-8">
-          <Panel title="Now">
-            <NextActions
-              items={items}
-              weights={weights}
-              completedToday={completedToday}
-              isFreshInstall={isFreshInstall}
-              nowIso={now.toISOString()}
-            />
-          </Panel>
-        </div>
-        <div className="lg:col-span-4">
-          <Panel title="Focus">
-            <FocusModule
-              deepWorkMinutes={extras.deepWork.minutes}
-              deepWorkSessions={extras.deepWork.sessions}
-              deepStudyMinutes={extras.deepStudy.minutes}
-              deepStudySessions={extras.deepStudy.sessions}
-              distractionsToday={distractionsToday}
-              triggers={triggers}
-            />
-          </Panel>
-        </div>
-      </div>
-
-      {!selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
-
-      <Panel title="The day's shape">
-        {ribbonLayout ? (
-          <DayRibbon layout={ribbonLayout} todayStr={dateStr} timezone={timezone} />
-        ) : (
-          <EmptyState
-            icon={Inbox}
-            message="Set your location in Settings to see today's prayer-anchored timeline"
-            action={{ label: "Go to Settings", href: "/settings" }}
+      {/* WIDGET-02: now/focus are independently reorderable/hideable
+          widgets now (registry), so each is its own full-width LayoutSlot
+          rather than a fixed side-by-side pair. */}
+      <LayoutSlot layout={layoutMap} widgetKey="now">
+        <Panel title="Now">
+          <NextActions
+            items={items}
+            weights={weights}
+            completedToday={completedToday}
+            isFreshInstall={isFreshInstall}
+            nowIso={now.toISOString()}
           />
-        )}
-      </Panel>
+        </Panel>
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="focus">
+        <Panel title="Focus">
+          <FocusModule
+            deepWorkMinutes={extras.deepWork.minutes}
+            deepWorkSessions={extras.deepWork.sessions}
+            deepStudyMinutes={extras.deepStudy.minutes}
+            deepStudySessions={extras.deepStudy.sessions}
+            distractionsToday={distractionsToday}
+            triggers={triggers}
+          />
+        </Panel>
+      </LayoutSlot>
 
-      <McpWidgetsPanel widgets={mcpWidgets} />
+      {!sessionEntryHidden && !selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
+
+      <LayoutSlot layout={layoutMap} widgetKey="day_shape">
+        <Panel title="The day's shape">
+          {ribbonLayout ? (
+            <DayRibbon layout={ribbonLayout} todayStr={dateStr} timezone={timezone} />
+          ) : (
+            <EmptyState
+              icon={Inbox}
+              message="Set your location in Settings to see today's prayer-anchored timeline"
+              action={{ label: "Go to Settings", href: "/settings" }}
+            />
+          )}
+        </Panel>
+      </LayoutSlot>
+
+      <LayoutSlot layout={layoutMap} widgetKey="mcp_widgets">
+        <McpWidgetsPanel widgets={mcpWidgets} />
+      </LayoutSlot>
     </PageContainer>
   );
 }
