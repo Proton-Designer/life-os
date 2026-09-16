@@ -96,6 +96,7 @@ describe("getClassCards", () => {
         difficultyRating: null,
         targetGradePct: null,
         hasSyllabus: true,
+        canvasComputedGrade: null,
         tasksDueThisWeek: 2, // t1 + t2 fall within the 2026-08-24 week; t3 doesn't
         upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" }, // nearest, not just first
         assessments: [
@@ -144,6 +145,7 @@ describe("getClassCards", () => {
         difficultyRating: null,
         targetGradePct: null,
         hasSyllabus: false,
+        canvasComputedGrade: null,
         tasksDueThisWeek: 0,
         upcomingAssessment: null,
         assessments: [],
@@ -420,6 +422,54 @@ describe("getClassCards", () => {
       const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
       const c2 = result.find((r) => r.id === "c2")!;
       expect(c2.pendingStagingBatch).toBeNull();
+    });
+  });
+
+  // CANVAS-GAP-01 -- Canvas's own computed course grade, display-only.
+  describe("canvasComputedGrade", () => {
+    function classRow(id: string) {
+      return { id, short_name: "DSA", code: "CS-3345-HON", room: null, instructor: null, syllabus_path: null, difficulty_rating: null, confidence_rating: null, target_grade_pct: null, term: null, late_policy: null, attendance_policy: null, allowed_absences: null, grade_boundaries: null };
+    }
+
+    it("is null for a class with no Canvas link at all", async () => {
+      const supabase = makeFakeSupabase({ classes: [classRow("c1")], tasks: [], class_assessments: [], canvas_course_mappings: [] });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.canvasComputedGrade).toBeNull();
+    });
+
+    it("carries the score/letter-grade/sync-time through for a linked class", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        canvas_course_mappings: [
+          { class_id: "c1", computed_current_score: 91.4, computed_final_score: 88.2, computed_current_letter_grade: "A-", computed_grade_synced_at: "2026-09-16T04:00:00.000Z" },
+        ],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.canvasComputedGrade).toEqual({ currentScore: 91.4, finalScore: 88.2, currentLetterGrade: "A-", syncedAt: "2026-09-16T04:00:00.000Z" });
+    });
+
+    it("is null (not a half-filled object) when linked but never actually synced yet", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [],
+        canvas_course_mappings: [{ class_id: "c1", computed_current_score: null, computed_final_score: null, computed_current_letter_grade: null, computed_grade_synced_at: null }],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.canvasComputedGrade).toBeNull();
+    });
+
+    it("never attributes another class's computed grade to a class with none of its own", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1"), { ...classRow("c2"), id: "c2" }],
+        tasks: [],
+        class_assessments: [],
+        canvas_course_mappings: [{ class_id: "c1", computed_current_score: 91.4, computed_final_score: null, computed_current_letter_grade: null, computed_grade_synced_at: "2026-09-16T04:00:00.000Z" }],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result.find((r) => r.id === "c2")!.canvasComputedGrade).toBeNull();
     });
   });
 });

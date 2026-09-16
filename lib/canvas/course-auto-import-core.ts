@@ -55,13 +55,21 @@ async function createAutoImportedClass(supabase: SupabaseClient, userId: string,
 }
 
 /**
- * Per active Canvas course: already linked -> untouched; mapping exists
- * but dismissed (the user deleted/unlinked what auto-import created
- * before) -> skipped, removal sticks; otherwise -> `findUnambiguousClassMatch`
- * against the user's own classes (adopt a hand-made class, never
- * duplicate it) or, failing that, a brand-new class via `createClassCore`.
- * Either way the mapping row is upserted with the resolved `class_id` so
- * the NEXT call for the same course is the already-linked no-op case.
+ * Per active Canvas course: already linked -> class_id untouched; mapping
+ * exists but dismissed (the user deleted/unlinked what auto-import
+ * created before) -> resolution skipped, removal sticks; otherwise ->
+ * `findUnambiguousClassMatch` against the user's own classes (adopt a
+ * hand-made class, never duplicate it) or, failing that, a brand-new
+ * class via `createClassCore`.
+ *
+ * CANVAS-GAP-01: EVERY course's mapping row is upserted every call now,
+ * not just an unresolved one -- name/code AND the computed-grade snapshot
+ * (`computedCurrentScore`/`computedFinalScore`/`computedCurrentLetterGrade`,
+ * `computed_grade_synced_at`) must stay fresh on every sync regardless of
+ * link state, or an already-linked course's grade snapshot would go stale
+ * forever after the first link. `class_id` is the only field that stays
+ * scoped to the unresolved subset -- an already-linked or dismissed
+ * mapping's `class_id` is never touched (omitted from that payload).
  */
 export async function autoImportCanvasCoursesAsClassesCore(supabase: SupabaseClient, userId: string, courses: CanvasCourseSummary[]): Promise<AutoImportCoursesResult> {
   const result: AutoImportCoursesResult = { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 };
@@ -78,36 +86,55 @@ export async function autoImportCanvasCoursesAsClassesCore(supabase: SupabaseCli
   if (mappingError) throw mappingError;
   const mappingByCourse = new Map((mappingRows ?? []).map((r) => [r.canvas_course_id as string, r]));
 
-  const toResolve = courses.filter((course) => {
-    const mapping = mappingByCourse.get(course.canvasCourseId);
-    if (!mapping) return true; // never seen before -- needs resolving
-    if (mapping.class_id) {
-      result.alreadyLinked++;
-      return false;
-    }
-    if (mapping.dismissed_at) {
-      result.skippedDismissed++;
-      return false;
-    }
-    return true; // seen, unlinked, not dismissed -- try to resolve
-  });
-  if (toResolve.length === 0) return result;
+  const needsResolution = new Set(
+    courses
+      .filter((course) => {
+        const mapping = mappingByCourse.get(course.canvasCourseId);
+        if (!mapping) return true; // never seen before
+        if (mapping.class_id) {
+          result.alreadyLinked++;
+          return false;
+        }
+        if (mapping.dismissed_at) {
+          result.skippedDismissed++;
+          return false;
+        }
+        return true; // seen, unlinked, not dismissed
+      })
+      .map((c) => c.canvasCourseId),
+  );
 
-  const { data: classRows, error: classesError } = await supabase.from("classes").select("id, short_name, code").eq("user_id", userId);
-  if (classesError) throw classesError;
-  const localClasses: LocalClassRow[] = (classRows ?? []).map((c) => ({ id: c.id as string, shortName: c.short_name as string | null, code: c.code as string }));
+  let localClasses: LocalClassRow[] = [];
+  if (needsResolution.size > 0) {
+    const { data: classRows, error: classesError } = await supabase.from("classes").select("id, short_name, code").eq("user_id", userId);
+    if (classesError) throw classesError;
+    localClasses = (classRows ?? []).map((c) => ({ id: c.id as string, shortName: c.short_name as string | null, code: c.code as string }));
+  }
 
   const now = new Date().toISOString();
-  for (const course of toResolve) {
-    const match = findUnambiguousClassMatch(localClasses, course.name, course.courseCode);
-    const classId = match ? match.id : await createAutoImportedClass(supabase, userId, course);
-    const { error } = await supabase.from("canvas_course_mappings").upsert(
-      { user_id: userId, canvas_course_id: course.canvasCourseId, canvas_course_name: course.name, canvas_course_code: course.courseCode, class_id: classId, updated_at: now },
-      { onConflict: "user_id,canvas_course_id" },
-    );
+  for (const course of courses) {
+    const upsertPayload: Record<string, unknown> = {
+      user_id: userId,
+      canvas_course_id: course.canvasCourseId,
+      canvas_course_name: course.name,
+      canvas_course_code: course.courseCode,
+      computed_current_score: course.computedCurrentScore,
+      computed_final_score: course.computedFinalScore,
+      computed_current_letter_grade: course.computedCurrentLetterGrade,
+      computed_grade_synced_at: now,
+      updated_at: now,
+    };
+
+    if (needsResolution.has(course.canvasCourseId)) {
+      const match = findUnambiguousClassMatch(localClasses, course.name, course.courseCode);
+      const classId = match ? match.id : await createAutoImportedClass(supabase, userId, course);
+      upsertPayload.class_id = classId;
+      if (match) result.adopted++;
+      else result.created++;
+    }
+
+    const { error } = await supabase.from("canvas_course_mappings").upsert(upsertPayload, { onConflict: "user_id,canvas_course_id" });
     if (error) throw error;
-    if (match) result.adopted++;
-    else result.created++;
   }
   return result;
 }

@@ -58,6 +58,7 @@ function classData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     lectures: [],
     categories: [],
     hasSyllabus: false,
+    canvasComputedGrade: null,
     tasksDueThisWeek: 3,
     upcomingAssessment: { name: "Quiz 2", date: "2026-09-10" },
     difficultyRating: null,

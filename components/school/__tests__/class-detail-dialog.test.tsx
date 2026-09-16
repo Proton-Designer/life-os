@@ -74,6 +74,7 @@ function baseClassData(overrides: Partial<ClassCardData> = {}): ClassCardData {
     pendingStagingBatch: null,
     lectures: [],
     hasSyllabus: false,
+    canvasComputedGrade: null,
     tasksDueThisWeek: 0,
     upcomingAssessment: null,
     difficultyRating: null,
@@ -557,5 +558,51 @@ describe("ClassDetailDialog", () => {
     expect(screen.getByRole("button", { name: "Save Lin Alg" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("STAGED-BUT-UNSAVED")).toBeInTheDocument();
     expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  // CANVAS-GAP-01: a course-level snapshot from Canvas itself, clearly
+  // labelled with its own sync time, never mistaken for the grade ledger's
+  // own computed number.
+  describe("Canvas computed grade (CANVAS-GAP-01)", () => {
+    it("renders nothing at all for a class with no Canvas link", () => {
+      render(<ClassDetailDialog open onOpenChange={vi.fn()} classData={baseClassData({ canvasComputedGrade: null })} timezone="America/Chicago" />);
+      expect(screen.queryByText(/Canvas, as of/)).not.toBeInTheDocument();
+    });
+
+    it("shows the numeric current score, preferred over the letter grade, labelled with its sync time", () => {
+      render(
+        <ClassDetailDialog
+          open
+          onOpenChange={vi.fn()}
+          classData={baseClassData({ canvasComputedGrade: { currentScore: 91.4, finalScore: 88.2, currentLetterGrade: "A-", syncedAt: "2026-09-16T04:00:00.000Z" } })}
+          timezone="America/Chicago"
+        />
+      );
+      expect(screen.getByText("Canvas, as of 2026-09-16 04:00 UTC: 91.4%")).toBeInTheDocument();
+    });
+
+    it("falls back to the letter grade when Canvas reports no numeric score", () => {
+      render(
+        <ClassDetailDialog
+          open
+          onOpenChange={vi.fn()}
+          classData={baseClassData({ canvasComputedGrade: { currentScore: null, finalScore: null, currentLetterGrade: "B+", syncedAt: "2026-09-16T04:00:00.000Z" } })}
+          timezone="America/Chicago"
+        />
+      );
+      expect(screen.getByText("Canvas, as of 2026-09-16 04:00 UTC: B+")).toBeInTheDocument();
+    });
+
+    it("shows an honest 'no grade reported yet' rather than a fabricated 0% when linked but Canvas has nothing at all", () => {
+      render(
+        <ClassDetailDialog
+          open
+          onOpenChange={vi.fn()}
+          classData={baseClassData({ canvasComputedGrade: { currentScore: null, finalScore: null, currentLetterGrade: null, syncedAt: "2026-09-16T04:00:00.000Z" } })}
+          timezone="America/Chicago"
+        />
+      );
+      expect(screen.getByText("Canvas, as of 2026-09-16 04:00 UTC: no grade reported yet")).toBeInTheDocument();
+    });
   });
 });

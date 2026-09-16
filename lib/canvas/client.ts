@@ -37,6 +37,19 @@ export interface CanvasCourseSummary {
   canvasCourseId: string;
   name: string;
   courseCode: string | null;
+  /**
+   * CANVAS-GAP-01 (ENG3's CANVAS-VERIFY-01 live probe): the instructor-
+   * computed running/final grade for the CURRENT user's own enrollment,
+   * confirmed live against a real Canvas instance via
+   * `include[]=total_scores`. All three independently nullable -- Canvas
+   * omits them when the course/enrollment doesn't compute one (no
+   * fabricated 0%/"—" here; the caller decides how to render an absence).
+   * A course-level SNAPSHOT, never touched against or compared with any
+   * single `class_assessments` row.
+   */
+  computedCurrentScore: number | null;
+  computedFinalScore: number | null;
+  computedCurrentLetterGrade: string | null;
 }
 
 /**
@@ -116,19 +129,32 @@ export async function verifyCanvasToken(instanceUrl: string, token: string): Pro
  * known gap rather than built speculatively.
  */
 export async function fetchCanvasCourses(instanceUrl: string, token: string): Promise<CanvasClientResult<CanvasCourseSummary[]>> {
-  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses?enrollment_state=active&per_page=${COURSES_PER_PAGE}`);
+  // CANVAS-GAP-01: `include[]=total_scores` embeds `enrollments[]` on each
+  // course object, scoped to the calling token's OWN enrollment(s) for a
+  // normal (non-admin) token -- confirmed live (ENG3's CANVAS-VERIFY-01),
+  // not assumed from docs alone. Free on this same request, no second call.
+  const res = await canvasFetch(instanceUrl, token, `/api/v1/courses?enrollment_state=active&include[]=total_scores&per_page=${COURSES_PER_PAGE}`);
   if (!res.ok) return res;
   const raw = res.data;
   if (!Array.isArray(raw)) {
     return { ok: false, message: "Canvas returned an unexpected course list shape." };
   }
   const courses: CanvasCourseSummary[] = raw
-    .filter((c): c is { id: number | string; name?: string; course_code?: string } => Boolean(c) && typeof c === "object" && "id" in c)
-    .map((c) => ({
-      canvasCourseId: String(c.id),
-      name: c.name ?? `Course ${c.id}`,
-      courseCode: c.course_code ?? null,
-    }));
+    .filter(
+      (c): c is { id: number | string; name?: string; course_code?: string; enrollments?: { computed_current_score?: number; computed_final_score?: number; computed_current_letter_grade?: string }[] } =>
+        Boolean(c) && typeof c === "object" && "id" in c,
+    )
+    .map((c) => {
+      const enrollment = c.enrollments?.[0];
+      return {
+        canvasCourseId: String(c.id),
+        name: c.name ?? `Course ${c.id}`,
+        courseCode: c.course_code ?? null,
+        computedCurrentScore: typeof enrollment?.computed_current_score === "number" ? enrollment.computed_current_score : null,
+        computedFinalScore: typeof enrollment?.computed_final_score === "number" ? enrollment.computed_final_score : null,
+        computedCurrentLetterGrade: typeof enrollment?.computed_current_letter_grade === "string" ? enrollment.computed_current_letter_grade : null,
+      };
+    });
   return { ok: true, data: courses };
 }
 

@@ -74,6 +74,25 @@ function toDrafts(boundaries: ClassCardData["gradeBoundaries"]): GradeBoundaryDr
 }
 
 /**
+ * CANVAS-GAP-01 -- Canvas's own computed grade, DISPLAY-ONLY (never wired
+ * into anything below that reads points_earned). Prefers the numeric
+ * current score (what a student actually checks); falls back to the
+ * letter grade when Canvas reports one but no numeric score; an honest
+ * "no grade reported yet" when it's linked but Canvas has nothing at all
+ * -- never a fabricated 0%.
+ */
+function formatCanvasComputedGrade(g: NonNullable<ClassCardData["canvasComputedGrade"]>): string {
+  if (g.currentScore !== null) return `${g.currentScore}%`;
+  if (g.currentLetterGrade !== null) return g.currentLetterGrade;
+  return "no grade reported yet";
+}
+
+/** Same no-timezone-conversion reasoning as canvas-settings.tsx's own `formatSyncedAt` -- this Client Component's initial render also happens during SSR. */
+function formatCanvasSyncedAt(iso: string): string {
+  return `${iso.replace("T", " ").slice(0, 16)} UTC`;
+}
+
+/**
  * The expanded class view (B1/B2/B3 redesign, 2026-08-26 afternoon batch).
  *
  * B3 (instant load): renders straight from `classData.assessments`/`.tasks`
@@ -629,6 +648,16 @@ export function ClassDetailDialog({
             targetGradePct={classData.targetGradePct}
             gradeBoundaries={classData.gradeBoundaries}
           />
+          {/* CANVAS-GAP-01 -- a course-level SNAPSHOT from Canvas itself,
+              clearly labelled with its own sync time so it can never be
+              mistaken for the grade this ledger just computed from
+              individual assessments above. Renders nothing at all for a
+              class with no Canvas link (never a fabricated line). */}
+          {classData.canvasComputedGrade ? (
+            <p className="mt-2 border-t border-border/30 pt-2 text-xs text-muted-foreground">
+              Canvas, as of {formatCanvasSyncedAt(classData.canvasComputedGrade.syncedAt)}: {formatCanvasComputedGrade(classData.canvasComputedGrade)}
+            </p>
+          ) : null}
         </div>
 
         {/* Phase 1 #13 — computeScenario's first production caller (previously zero

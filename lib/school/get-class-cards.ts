@@ -38,6 +38,17 @@ export type ClassCardData = {
    * (never a fabricated default; see that column's own comment). */
   gradeBoundaries: { letter: string; minPct: number }[];
   hasSyllabus: boolean;
+  /**
+   * CANVAS-GAP-01 -- Canvas's OWN instructor-computed course grade, a
+   * snapshot as of `syncedAt`, DISPLAY-ONLY. `null` when this class has no
+   * Canvas link at all (never fabricated). When linked, an object whose
+   * three score fields are independently nullable too (Canvas itself
+   * reports nothing for a course/enrollment it doesn't compute one for --
+   * never coalesced to 0). Never read by risk/load/benchmark math, which
+   * all key off `assessments[].pointsEarned` instead -- this field must
+   * never be threaded into that path.
+   */
+  canvasComputedGrade: { currentScore: number | null; finalScore: number | null; currentLetterGrade: string | null; syncedAt: string } | null;
   tasksDueThisWeek: number;
   upcomingAssessment: { name: string; date: string } | null;
   /** `classes.difficulty_rating` (migration 105). Null for every class until a rating
@@ -210,6 +221,7 @@ export async function getClassCards(
     { data: categoryRows, error: categoryError },
     { data: batchRows, error: batchError },
     { data: lectureRows, error: lectureError },
+    { data: canvasGradeRows, error: canvasGradeError },
   ] = await Promise.all([
     supabase
       .from("tasks")
@@ -254,6 +266,14 @@ export async function getClassCards(
       .eq("user_id", userId)
       .in("class_id", classIds)
       .order("created_at", { ascending: false }),
+    // CANVAS-GAP-01 -- Canvas's own instructor-computed course grade,
+    // display-only (never joined against class_assessments/points_earned
+    // anywhere in this file or its callers).
+    supabase
+      .from("canvas_course_mappings")
+      .select("class_id, computed_current_score, computed_final_score, computed_current_letter_grade, computed_grade_synced_at")
+      .eq("user_id", userId)
+      .in("class_id", classIds),
   ]);
   if (taskError) throw taskError;
   if (assessmentError) throw assessmentError;
@@ -261,6 +281,7 @@ export async function getClassCards(
   if (categoryError) throw categoryError;
   if (batchError) throw batchError;
   if (lectureError) throw lectureError;
+  if (canvasGradeError) throw canvasGradeError;
 
   // Dependent on batchRows resolving first (which batch ids exist), so this can't join
   // the Promise.all wave above — same "the next query needs the prior one's ids" shape
@@ -386,6 +407,21 @@ export async function getClassCards(
     categoriesByClass.set(c.class_id, list);
   }
 
+  // CANVAS-GAP-01 -- at most one canvas_course_mappings row per class_id
+  // in practice (a class is adopted/created by exactly one Canvas course),
+  // so a plain Map (last-wins) is fine, not a per-class array like the
+  // maps above.
+  const canvasComputedGradeByClass = new Map<string, NonNullable<ClassCardData["canvasComputedGrade"]>>();
+  for (const g of canvasGradeRows ?? []) {
+    if (!g.class_id || !g.computed_grade_synced_at) continue;
+    canvasComputedGradeByClass.set(g.class_id, {
+      currentScore: g.computed_current_score,
+      finalScore: g.computed_final_score,
+      currentLetterGrade: g.computed_current_letter_grade,
+      syncedAt: g.computed_grade_synced_at,
+    });
+  }
+
   type RawQuestion = {
     id: string;
     prompt: string;
@@ -482,6 +518,7 @@ export async function getClassCards(
       difficultyRating: c.difficulty_rating,
       targetGradePct: c.target_grade_pct,
       hasSyllabus: c.syllabus_path !== null,
+      canvasComputedGrade: canvasComputedGradeByClass.get(c.id) ?? null,
       tasksDueThisWeek: tasks.filter((t) => t.dueDate !== null && t.dueDate >= weekStart && t.dueDate <= weekEnd).length,
       upcomingAssessment: upcomingAssessment ? { name: upcomingAssessment.name, date: upcomingAssessment.date } : null,
       assessments,

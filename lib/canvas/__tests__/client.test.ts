@@ -30,14 +30,56 @@ describe("Canvas client routes through the SSRF-safe fetch wrapper", () => {
     expect(String(safeFetchMock.mock.calls[0][0])).toContain("/api/v1/users/self");
   });
 
-  it("fetchCanvasCourses calls safeFetch, not raw fetch", async () => {
+  it("fetchCanvasCourses calls safeFetch, not raw fetch, and requests include[]=total_scores", async () => {
     safeFetchMock.mockResolvedValue(
       new Response(JSON.stringify([{ id: 10, name: "Math", course_code: "MATH101" }]), { status: 200 }),
     );
     const res = await fetchCanvasCourses("https://school.instructure.com", "tok");
     expect(res.ok).toBe(true);
     expect(safeFetchMock).toHaveBeenCalledTimes(1);
-    expect(String(safeFetchMock.mock.calls[0][0])).toContain("/api/v1/courses");
+    const url = String(safeFetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/v1/courses");
+    expect(url).toContain("include[]=total_scores");
+  });
+
+  // CANVAS-GAP-01 (ENG3's CANVAS-VERIFY-01 live probe): confirmed live --
+  // enrollments[] is embedded per course, scoped to the caller's own
+  // enrollment for a normal (non-admin) token.
+  it("fetchCanvasCourses carries the computed current/final score and letter grade through from enrollments[0]", async () => {
+    safeFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            id: 10,
+            name: "Organic Chemistry II",
+            course_code: "CHEM-2412",
+            enrollments: [{ computed_current_score: 91.4, computed_final_score: 88.2, computed_current_letter_grade: "A-" }],
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    const res = await fetchCanvasCourses("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data).toEqual([
+      {
+        canvasCourseId: "10",
+        name: "Organic Chemistry II",
+        courseCode: "CHEM-2412",
+        computedCurrentScore: 91.4,
+        computedFinalScore: 88.2,
+        computedCurrentLetterGrade: "A-",
+      },
+    ]);
+  });
+
+  it("fetchCanvasCourses never fabricates a computed grade -- absent enrollments/score/letter grade all stay null", async () => {
+    safeFetchMock.mockResolvedValue(new Response(JSON.stringify([{ id: 11, name: "No Grades Yet", course_code: "PHYS-1301" }]), { status: 200 }));
+    const res = await fetchCanvasCourses("https://school.instructure.com", "tok");
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data[0]).toMatchObject({ computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null });
   });
 
   it("surfaces a safeFetch rejection (SSRF-blocked target) as a clean {ok:false} result, never throws to the caller", async () => {
