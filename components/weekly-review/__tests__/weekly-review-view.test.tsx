@@ -43,4 +43,25 @@ describe("WeeklyReviewView — P3-09 efficiency-by-closed-day line", () => {
     render(<WeeklyReviewView {...baseProps({ closedAvgPercent: null, closedCount: 0, openCount: 0 })} />);
     expect(screen.queryByText(/Efficiency:/)).not.toBeInTheDocument();
   });
+
+  // GAP-03, second half (ENG3's live-verify on c7beb30): closed-day.ts's own
+  // count/average split (fixed in f1e7075) was never carried into this view
+  // -- the old closedClause was gated on closedAvgPercent !== null alone, so
+  // a real close with no usable average (closedCount=1, closedAvgPercent=
+  // null) rendered NO efficiency line at all, same invisible-close symptom
+  // moved from the data layer to the view layer.
+  it("shows the closed-day count even when no usable average exists for it -- a close must never render as if it never happened", () => {
+    render(<WeeklyReviewView {...baseProps({ closedAvgPercent: null, closedCount: 1, openCount: 0 })} />);
+    expect(screen.getByText("Efficiency: 1 closed day, efficiency unavailable")).toBeInTheDocument();
+  });
+
+  it("plural closed-day count with no usable average", () => {
+    render(<WeeklyReviewView {...baseProps({ closedAvgPercent: null, closedCount: 2, openCount: 0 })} />);
+    expect(screen.getByText("Efficiency: 2 closed days, efficiency unavailable")).toBeInTheDocument();
+  });
+
+  it("combines a no-average closed count with an open-day count", () => {
+    render(<WeeklyReviewView {...baseProps({ closedAvgPercent: null, closedCount: 1, openCount: 1 })} />);
+    expect(screen.getByText("Efficiency: 1 closed day, efficiency unavailable · 1 open day (efficiency unavailable)")).toBeInTheDocument();
+  });
 });

@@ -53,10 +53,24 @@ function Bar({ pct, className }: { pct: number; className: string }) {
  * (never "0% avg on 0 closed days," the same honest-absence posture as
  * this page's own narrative panel), and returns null entirely when the
  * week has neither closed nor open days to say anything real about.
+ *
+ * GAP-03, second half: a closedCount>0 day can still have no usable
+ * average (closed-day.ts's own count/average split, f1e7075 -- e.g. a
+ * close with no same-day wake mark, or an invalid wake-to-close delta).
+ * Gating the whole clause on closedAvgPercent !== null made that exact
+ * close invisible here even after the data layer counted it correctly --
+ * the same "a real close renders as if it never happened" symptom, moved
+ * from the data layer to the view layer. closedCount alone must be able
+ * to render a clause.
  */
 function formatEfficiencyLine(efficiency: EfficiencyByClosedDay): string | null {
   const { closedAvgPercent, closedCount, openCount } = efficiency;
-  const closedClause = closedAvgPercent !== null ? `${closedAvgPercent}% avg on ${closedCount} closed day${closedCount === 1 ? "" : "s"}` : null;
+  const closedClause =
+    closedAvgPercent !== null
+      ? `${closedAvgPercent}% avg on ${closedCount} closed day${closedCount === 1 ? "" : "s"}`
+      : closedCount > 0
+        ? `${closedCount} closed day${closedCount === 1 ? "" : "s"}, efficiency unavailable`
+        : null;
   const openClause = openCount > 0 ? `${openCount} open day${openCount === 1 ? "" : "s"} (efficiency unavailable)` : null;
   if (closedClause && openClause) return `Efficiency: ${closedClause} · ${openClause}`;
   if (closedClause) return `Efficiency: ${closedClause}`;
