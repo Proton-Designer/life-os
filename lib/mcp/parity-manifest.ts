@@ -308,6 +308,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/canvas-actions.ts#setCourseMapping": { pending: "P4-cov-P2-20", note: "course mapping is not a credential" },
   "app/(app)/settings/canvas-actions.ts#saveCanvasIcsFeedUrl": { excluded: "credential: saves the Canvas ICS calendar-feed URL, a bearer secret in URL form" },
   "app/(app)/settings/canvas-actions.ts#reconcileCanvasIcs": { excluded: "credential: decrypts and fetches the stored ICS feed credential to run reconciliation" },
+  "app/(app)/settings/whoop-actions.ts#getWhoopSettingsStatus": { read_only: true, note: "connection status and scopes only; no token material" },
+  "app/(app)/settings/whoop-actions.ts#disconnectWhoop": { excluded: "credential: disconnects a wearable-data OAuth credential" },
   "app/(app)/settings/rescuetime-actions.ts#connectRescueTime": { excluded: "credential: BYOK RescueTime API key save" },
   "app/(app)/settings/rescuetime-actions.ts#disconnectRescueTime": { excluded: "credential: removes the stored RescueTime key" },
   "app/(app)/settings/rescuetime-actions.ts#getRescueTimeConnectionStatus": { pending: "P4-cov-P3-19", note: "no-secret status read" },
