@@ -13,7 +13,7 @@ import { AiSpendCeilingSettings } from "@/components/settings/ai-spend-ceiling-s
 import { getMyMonthlySpendStatus } from "@/app/(app)/settings/ai-spend-actions";
 import { MODEL_CATALOG } from "@/lib/ai/model-catalog";
 import { ConnectorSettings } from "@/components/settings/connector-settings";
-import { getMcpTokenStatuses } from "@/app/(app)/settings/mcp-token-actions";
+import { getMcpTokenStatuses, getScheduledActions } from "@/app/(app)/settings/mcp-token-actions";
 import { CanvasSettings } from "@/components/settings/canvas-settings";
 import { getCanvasConnectionStatus, getCanvasCourseMappings, getLocalClassOptions } from "@/app/(app)/settings/canvas-actions";
 import { RescueTimeSettings } from "@/components/settings/rescuetime-settings";
@@ -91,6 +91,7 @@ export default async function SettingsPage() {
   const keyStatuses = await getApiKeyStatuses();
   const storageConfigured = isKeyStorageConfigured();
   const mcpTokens = await getMcpTokenStatuses();
+  const scheduledActions = await getScheduledActions();
 
   // Multi-provider preference picker. `hasKey` deliberately only reflects
   // a STORED key, never the operator-funded fallback (even for an
@@ -212,7 +213,7 @@ export default async function SettingsPage() {
             <WhoopSettings initialStatus={whoopStatus} />
           </Panel>
           <Panel id="connectors" className="scroll-mt-24" title="Connectors">
-            <ConnectorSettings initialTokens={mcpTokens} />
+            <ConnectorSettings initialTokens={mcpTokens} initialScheduledActions={scheduledActions} />
           </Panel>
         </div>
       </div>
