@@ -195,10 +195,10 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
 
   // ── Morning routine (P3-01) ─────────────────────────────────────────────
   "app/(app)/morning-routine/actions.ts#getMyMorningRoutineChecklist": { read_only: true },
-  "app/(app)/morning-routine/actions.ts#createMorningRoutineItem": { mcp: "day.item.create" },
-  "app/(app)/morning-routine/actions.ts#archiveMorningRoutineItem": { mcp: "day.item.archive" },
-  "app/(app)/morning-routine/actions.ts#checkMorningRoutineItem": { mcp: "day.item.check" },
-  "app/(app)/morning-routine/actions.ts#uncheckMorningRoutineItem": { mcp: "day.item.uncheck", note: "undo-shaped delete of today's own check only" },
+  "app/(app)/morning-routine/actions.ts#createMorningRoutineItem": { mcp: "day.routine_item.create" },
+  "app/(app)/morning-routine/actions.ts#archiveMorningRoutineItem": { mcp: "day.routine_item.archive" },
+  "app/(app)/morning-routine/actions.ts#checkMorningRoutineItem": { mcp: "day.routine_item.check" },
+  "app/(app)/morning-routine/actions.ts#uncheckMorningRoutineItem": { mcp: "day.routine_item.uncheck", note: "undo-shaped delete of today's own check only" },
 
   // ── Onboarding ──────────────────────────────────────────────────────────
   "app/(app)/onboarding/actions.ts#saveDomainSelection": { excluded: "onboarding_wizard: step 1 domain picker" },
