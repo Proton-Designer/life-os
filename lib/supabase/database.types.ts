@@ -1196,6 +1196,30 @@ export type Database = {
         }
         Relationships: []
       }
+      evening_closes: {
+        Row: {
+          closed_at: string
+          created_at: string
+          id: string
+          local_date: string
+          user_id: string
+        }
+        Insert: {
+          closed_at?: string
+          created_at?: string
+          id?: string
+          local_date: string
+          user_id?: string
+        }
+        Update: {
+          closed_at?: string
+          created_at?: string
+          id?: string
+          local_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       exercises: {
         Row: {
           archived: boolean
