@@ -51,12 +51,12 @@ describe("GET /connect/[code]", () => {
     expect(exchangeConnectCodeCore).not.toHaveBeenCalled();
   });
 
-  it("404s markdown for an invalid code (unknown/expired/used all collapse into exchangeConnectCodeCore's single {ok:false})", async () => {
+  it("410s markdown for an invalid code (unknown/expired/used all collapse into exchangeConnectCodeCore's single {ok:false})", async () => {
     exchangeConnectCodeCore.mockResolvedValueOnce({ ok: false });
 
     const response = await GET(new Request("https://lifeos.example.com/connect/bad-code"), params("bad-code"));
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(410);
     expect(response.headers.get("content-type")).toContain("text/markdown");
     expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
     const body = await response.text();
@@ -90,12 +90,12 @@ describe("POST /connect/[code]", () => {
     expect(exchangeConnectCodeCore).not.toHaveBeenCalled();
   });
 
-  it("404s the SAME JSON shape for unknown/expired/used codes (no enumeration signal)", async () => {
+  it("410s the SAME JSON shape for unknown/expired/used codes (no enumeration signal)", async () => {
     exchangeConnectCodeCore.mockResolvedValueOnce({ ok: false });
 
     const response = await POST(new Request("https://lifeos.example.com/connect/bad-code", { method: "POST" }), params("bad-code"));
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(410);
     const body = await response.json();
     expect(body.error).toBe("invalid_or_expired");
   });

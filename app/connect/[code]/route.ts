@@ -116,7 +116,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ code
     });
   }
   if (outcome.kind === "invalid") {
-    return new Response(NOT_VALID_MARKDOWN, { status: 404, headers: withNoIndex({ "content-type": "text/markdown; charset=utf-8" }) });
+    return new Response(NOT_VALID_MARKDOWN, { status: 410, headers: withNoIndex({ "content-type": "text/markdown; charset=utf-8" }) });
   }
   return new Response(successMarkdown(origin, outcome.result), { status: 200, headers: withNoIndex({ "content-type": "text/markdown; charset=utf-8" }) });
 }
@@ -133,7 +133,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ cod
     });
   }
   if (outcome.kind === "invalid") {
-    return new Response(JSON.stringify(NOT_VALID_JSON), { status: 404, headers: withNoIndex({ "content-type": "application/json" }) });
+    return new Response(JSON.stringify(NOT_VALID_JSON), { status: 410, headers: withNoIndex({ "content-type": "application/json" }) });
   }
   return new Response(JSON.stringify(successJson(origin, outcome.result)), { status: 200, headers: withNoIndex({ "content-type": "application/json" }) });
 }
