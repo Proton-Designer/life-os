@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { markDayStarted } from "@/lib/day-structure/day-start";
@@ -21,6 +22,20 @@ import { markDayStarted } from "@/lib/day-structure/day-start";
  * Day... leads to today's shape." Tap budget: landing on /open is tap one,
  * this is tap two, and it lands directly on the day-at-a-glance screen
  * rather than a third tap being required to find it.
+ *
+ * REVALIDATE BEFORE REDIRECT, NOT AFTER (first-use trust bug, 2026-09-18):
+ * `redirect()` works by THROWING — a `revalidatePath` call placed after it
+ * is dead code that never runs. Without a revalidate, anyone who visited
+ * /open/today earlier in the session (a real path — that page is documented
+ * as reachable at any point in the day, not only as this redirect's target)
+ * has it sitting in the client Router Cache from before today's wake mark
+ * existed. This tap creates the mark, redirects there, and the cache serves
+ * the STALE "Start day hasn't been tapped yet" empty state anyway — the
+ * write is fine (idempotent, confirmed by a later read), but the screen
+ * reads as "the button didn't work" on the very first thing a new user does
+ * with Day Structure. Revalidates /open too: that page's own diff banner
+ * also reads today's plan/wake state and is just as reachable from a stale
+ * client cache on a repeat visit.
  */
 export async function startDayAction(): Promise<void> {
   const user = await getAuthedUser();
@@ -31,5 +46,7 @@ export async function startDayAction(): Promise<void> {
   const supabase = await createClient();
 
   await markDayStarted(supabase, user.id, timezone, new Date());
+  revalidatePath("/open");
+  revalidatePath("/open/today");
   redirect("/open/today");
 }
