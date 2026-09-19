@@ -31,5 +31,12 @@ export async function signUp(formData: FormData) {
   // 16KB of scripts and ZERO visible content — every new signup landed on a
   // blank page. Redirecting straight here removes the chain, and it is always
   // the correct destination for an account that cannot yet have a profile.
+  //
+  // DELIBERATELY NO revalidatePath HERE (Opus Lead ruling, 2026-09-18, swept
+  // alongside the same class of bug in signIn/signOut/completeOnboarding):
+  // every unauthenticated visit to /onboarding redirects to /login first
+  // (app/(app)/layout.tsx), so a brand-new account can have no pre-existing
+  // stale cache entry for it to land on. Not an oversight — checked and
+  // ruled out.
   redirect("/onboarding");
 }

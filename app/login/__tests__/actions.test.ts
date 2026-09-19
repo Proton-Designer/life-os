@@ -15,10 +15,16 @@ vi.mock("next/navigation", () => ({
   redirect: redirectMock,
 }));
 
+const revalidatePathMock = vi.fn();
+vi.mock("next/cache", () => ({
+  revalidatePath: (...args: unknown[]) => revalidatePathMock(...args),
+}));
+
 describe("signIn", () => {
   beforeEach(() => {
     signInWithPasswordMock.mockReset();
     redirectMock.mockClear();
+    revalidatePathMock.mockClear();
   });
 
   afterEach(() => {
@@ -73,5 +79,36 @@ describe("signIn", () => {
     formData.set("next", "//evil.example.com/steal");
     await expect(signIn(formData)).rejects.toThrow("NEXT_REDIRECT");
     expect(redirectMock).toHaveBeenCalledWith("/");
+  });
+
+  // Privacy fix (Opus Lead ruling, 2026-09-18), not just staleness: on a
+  // shared device, or a logout-then-login-as-a-different-user, the client
+  // Router Cache can still hold the PREVIOUS session's rendered "/" --
+  // serving user A's Home to user B is a privacy issue, not a "the button
+  // didn't work" trust issue. This is the test that encodes that risk
+  // directly: a stale entry from a previous session must be discarded on
+  // this one's login, not merely "eventually refreshed."
+  it("discards any previously cached page content before redirecting -- a stale entry from a PREVIOUS session must never be served to this one", async () => {
+    signInWithPasswordMock.mockResolvedValue({ error: null });
+    const { signIn } = await import("../actions");
+    const formData = new FormData();
+    formData.set("email", "test@example.com");
+    formData.set("password", "correct-password");
+
+    await expect(signIn(formData)).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(revalidatePathMock).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("does not revalidate anything on a failed sign-in -- no session was established, nothing to discard", async () => {
+    signInWithPasswordMock.mockResolvedValue({ error: { message: "Invalid login credentials" } });
+    const { signIn } = await import("../actions");
+    const formData = new FormData();
+    formData.set("email", "test@example.com");
+    formData.set("password", "wrong-password");
+
+    await signIn(formData);
+
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 });

@@ -47,8 +47,9 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
+const revalidatePathMock = vi.fn();
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: (...args: unknown[]) => revalidatePathMock(...args),
 }));
 
 const redirectMock = vi.fn(() => {
@@ -308,6 +309,7 @@ describe("signOut", () => {
   beforeEach(() => {
     signOutMock.mockClear();
     redirectMock.mockClear();
+    revalidatePathMock.mockClear();
   });
 
   it("calls supabase auth.signOut and redirects to /login", async () => {
@@ -317,5 +319,22 @@ describe("signOut", () => {
 
     expect(signOutMock).toHaveBeenCalled();
     expect(redirectMock).toHaveBeenCalledWith("/login");
+  });
+
+  // Privacy fix (Opus Lead ruling, 2026-09-18), not just staleness: this is
+  // the moment a departing user's cached content should be actively
+  // discarded, not left for whoever uses this device next. Without this,
+  // the client Router Cache can still hold THIS user's rendered "/" after
+  // sign-out -- and if a different user then signs in on the same device,
+  // signIn's own revalidate (app/login/actions.ts) only proves a stale
+  // entry gets busted on the way IN; this proves the departing side does
+  // its part too, so neither leg of a shared-device handoff depends on the
+  // other alone.
+  it("discards previously cached page content on sign-out, before redirecting", async () => {
+    const { signOut } = await import("../actions");
+
+    await expect(signOut()).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(revalidatePathMock).toHaveBeenCalledWith("/", "layout");
   });
 });

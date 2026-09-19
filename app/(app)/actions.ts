@@ -32,9 +32,22 @@ export async function markNotificationReadForNow(notificationKey: string, nowIso
   await markNotificationRead(userId, notificationKey, dateStr);
 }
 
+/**
+ * PRIVACY fix (Opus Lead ruling, 2026-09-18), not just staleness, and the
+ * other half of the same fix as app/login/actions.ts's signIn: this is the
+ * moment a departing user's cached content should be actively discarded,
+ * not left sitting in the client Router Cache for whoever uses this device
+ * next. signIn's own revalidate only proves a stale entry gets busted on
+ * the way IN to a new session — this proves the departing side does its
+ * part too, so a shared-device handoff isn't relying on one leg alone.
+ * Layout-level, same reasoning as signIn/completeOnboarding: the nav shell
+ * itself is per-account. Before redirect() — it works by throwing, so a
+ * call placed after it never runs.
+ */
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut();
+  revalidatePath("/", "layout");
   redirect("/login");
 }
 
