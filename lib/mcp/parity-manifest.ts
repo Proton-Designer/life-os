@@ -29,6 +29,15 @@
  *
  * Seeded 2026-09-15 from .claude/overnight/run-20260915-0011/p4-audit/
  * capability-surface.md's write parity matrix, re-verified against source.
+ *
+ * COVERAGE IS NO LONGER SERVER-ACTION-ONLY (P4-33, 2026-09-19). Until then,
+ * a key could only ever be a `"use server"` function path, because that is
+ * all `parity-scan.ts` looks at — so a write op reachable ONLY through
+ * `write()`, `widget_manage` or `scheduler_manage` needed no decision and
+ * the guard still reported clean. The scan is no longer the sole source of
+ * keys: `listAllWriteOps()` (write-registry.ts) enumerates every write op,
+ * and parity.test.ts now demands a decision for each. Op-name-keyed entries
+ * live in their own section at the end of the map.
  */
 
 export const EXCLUSION_CATEGORIES = [
@@ -339,8 +348,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/mcp-token-actions.ts#createMcpToken": { excluded: "credential: mints a PAT" },
   "app/(app)/settings/mcp-token-actions.ts#getAuditEntriesForToken": { read_only: true },
   "app/(app)/settings/mcp-token-actions.ts#getScheduledActions": { read_only: true },
-  "app/(app)/settings/mcp-token-actions.ts#pauseScheduledAction": { pending: "P4-cov-SCHEDULES" },
-  "app/(app)/settings/mcp-token-actions.ts#cancelScheduledAction": { pending: "P4-cov-SCHEDULES" },
+  "app/(app)/settings/mcp-token-actions.ts#pauseScheduledAction": { mcp: "scheduler.scheduled_action.pause", note: "P4-33: was pending P4-cov-SCHEDULES, but scheduler_manage(\"pause\") has been live and calls the SAME pauseScheduledActionCore this action does -- the entry described shipped work as unshipped" },
+  "app/(app)/settings/mcp-token-actions.ts#cancelScheduledAction": { mcp: "scheduler.scheduled_action.cancel", note: "P4-33: was pending P4-cov-SCHEDULES, but scheduler_manage(\"cancel\") has been live and calls the SAME cancelScheduledActionCore this action does" },
   "app/(app)/settings/mcp-token-actions.ts#createAgentConnectLink": { excluded: "credential: mints a single-use connect code that exchanges for an agent PAT" },
   "app/(app)/settings/mcp-token-actions.ts#revokeMcpToken": { excluded: "credential: revokes a PAT" },
   "app/(app)/settings/weekday-baseline-actions.ts#saveWeekdayBaselines": { mcp: "settings.user_setting.set_weekday_baselines" },
@@ -393,6 +402,24 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "lib/capture/actions.ts#captureDump": { pending: "P4-07", note: "worry/note dump: review.night_plan_task.dump" },
   "lib/promotions/actions.ts#promoteLesson": { mcp: "self_mastery.lesson.promote" },
   "lib/promotions/actions.ts#recordVerdict": { mcp: "self_mastery.lesson_promotion.record_verdict" },
+
+  // ── MCP-only write ops (P4-33) ──────────────────────────────────────────
+  // Keyed by OP NAME, not by a Server Action path: these capabilities reach
+  // the database through `write()` / `widget_manage` / `scheduler_manage`
+  // with no `"use server"` function anywhere in the tree. parity-scan.ts
+  // short-circuits on files lacking "use server", so for the whole life of
+  // this manifest the guard was structurally unable to see them and reported
+  // clean. Every one below was ALREADY LIVE the whole time — P4-33 found a
+  // documentation gap, not a coverage gap, which is exactly why an absence
+  // result from a guard is worth nothing until the guard is shown to fire.
+  "deen.weekly_goal.save": { mcp: "deen.weekly_goal.save", note: "the deen half of app/(app)/actions.ts#saveWeeklyGoal, whose own entry can only name the business op" },
+  "school.schedule_event.set_override": { mcp: "school.schedule_event.set_override" },
+  "school.canvas_import.run_batch": { mcp: "school.canvas_import.run_batch", note: "distinct from canvas-actions.ts#importConcludedCanvasCourses, which stays pending P4-cov-P2-20" },
+  "widgets.widget.create": { mcp: "widgets.widget.create", note: "via widget_manage; same tool as the already-declared widgets.widget.delete" },
+  "widgets.widget.update": { mcp: "widgets.widget.update", note: "via widget_manage" },
+  "scheduler.scheduled_action.create": { mcp: "scheduler.scheduled_action.create", note: "via scheduler_manage" },
+  "scheduler.scheduled_action.cancel": { mcp: "scheduler.scheduled_action.cancel", note: "via scheduler_manage" },
+  "scheduler.scheduled_action.pause": { mcp: "scheduler.scheduled_action.pause", note: "via scheduler_manage" },
 };
 
 /** Every manifest key still pending on `taskId` — the checklist for that task's builder. */

@@ -89,22 +89,16 @@ function opsDeclaredAsMcp(manifest: Record<string, ParityDecision>): Set<string>
 /**
  * P4-33 known debt: live write ops found undeclared when this guard was
  * extended (2026-09-19), reported to the Lead (steward of parity-manifest.ts)
- * for a decision instead of fixed inline here. SHRINK-ONLY: remove a line the
+ * for a decision instead of fixed inline here. All 8 originally filed here
+ * now carry a manifest decision (2026-09-19) — empty, not deleted, so the
+ * same escape hatch exists if a future extension of this guard (a third
+ * dedicated tool, say) needs one again. SHRINK-ONLY: remove a line the
  * moment its op gets a real manifest decision — "the P4-33 known-gap
  * allowlist only contains ops that still lack a decision" below fails the
  * moment one hasn't been removed. Never add a new op to this list; a new gap
  * must be resolved with a manifest decision, not grandfathered in.
  */
-const KNOWN_UNRESOLVED_P4_33_GAPS = new Set([
-  "deen.weekly_goal.save",
-  "school.schedule_event.set_override",
-  "school.canvas_import.run_batch",
-  "widgets.widget.create",
-  "widgets.widget.update",
-  "scheduler.scheduled_action.create",
-  "scheduler.scheduled_action.cancel",
-  "scheduler.scheduled_action.pause",
-]);
+const KNOWN_UNRESOLVED_P4_33_GAPS = new Set<string>([]);
 
 const HOW_TO_DECIDE = [
   `Add one line per export to PARITY_MANIFEST in ${MANIFEST_PATH}, choosing EXACTLY ONE decision:`,
@@ -250,14 +244,29 @@ describe("MCP parity manifest", () => {
     }
   });
 
-  it("no manifest entry names a Server Action that no longer exists", () => {
-    const stale = Object.keys(PARITY_MANIFEST).filter((k) => !scannedKeys.has(k));
+  it("no manifest entry names a Server Action that no longer exists, or an op-name key for an op that doesn't exist (P4-33)", () => {
+    // A key is legitimate two ways now, not one: a scanned "use server" export
+    // path (the original shape), or a live op name from liveWriteOps() (P4-33's
+    // op-name-keyed entries, which can never appear in scannedKeys — that set
+    // holds only export paths, by construction). A key matching NEITHER is
+    // genuinely stale, exactly as before.
+    const liveOps = new Set(liveWriteOps());
+    const stale = Object.keys(PARITY_MANIFEST).filter((k) => !scannedKeys.has(k) && !liveOps.has(k));
     if (stale.length > 0) {
       throw new Error(
-        `${stale.length} manifest entr(ies) in ${MANIFEST_PATH} name an export that no longer exists (renamed, moved, deleted, or no longer async/"use server"). ` +
-          `Remove or re-key them:\n${stale.map((k) => `  ${JSON.stringify(k)}`).join("\n")}\n`,
+        `${stale.length} manifest entr(ies) in ${MANIFEST_PATH} name neither an existing "use server" export nor a live write op ` +
+          `(renamed, moved, deleted, no longer async/"use server", or a typo'd op name). Remove or re-key them:\n${stale.map((k) => `  ${JSON.stringify(k)}`).join("\n")}\n`,
       );
     }
+  });
+
+  it("the stale-key check above still catches a key that is neither a real export nor a real op (P4-33 control)", () => {
+    const liveOps = new Set(liveWriteOps());
+    const junkKey = "foo.bar.baz";
+    expect(scannedKeys.has(junkKey)).toBe(false);
+    expect(liveOps.has(junkKey)).toBe(false);
+    const wouldBeCaught = !scannedKeys.has(junkKey) && !liveOps.has(junkKey);
+    expect(wouldBeCaught).toBe(true);
   });
 
   it("every decision is exactly one well-formed shape that resolves", () => {
