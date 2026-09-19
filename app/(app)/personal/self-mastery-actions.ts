@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom } from "@/lib/self-mastery/untyped-from";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
+import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
 
 /**
  * The provenance drill-down's second block ("In context, from the book") —
@@ -32,30 +33,47 @@ export interface UploadBookError {
   ok: false;
   message: string;
 }
-
-const BOOKS_BUCKET = "books";
-const MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024; // 200MB, matching ULM's own limit
-const GENERIC_UPLOAD_ERROR = "Something went wrong uploading that file. Please try again.";
-
-function validateBookFile(file: File): string | null {
-  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-  if (!isPdf) return "That doesn't look like a PDF. Please choose a .pdf file.";
-  if (file.size === 0) return "That file is empty.";
-  if (file.size > MAX_FILE_SIZE_BYTES) {
-    return `That file is too large (${Math.round(file.size / (1024 * 1024))}MB, max 200MB).`;
-  }
-  return null;
+export interface PrepareBookUploadResult {
+  ok: true;
+  bookId: string;
+  path: string;
+  token: string;
 }
 
+const BOOKS_BUCKET = "books";
+const GENERIC_UPLOAD_ERROR = "Something went wrong uploading that file. Please try again.";
+
 /**
- * Creates the `books` row, uploads the PDF to storage, then enqueues an
- * `ingestion_jobs` row for the worker — same three-step shape as ULM's
- * createBookAndUploadJob. Requires the `books` storage bucket to actually
- * exist (it does not yet in the scratch DB as of this writing — flagged to
- * the Lead separately; this function is correct against the schema, but
- * the upload step will fail until the bucket is provisioned).
+ * Step 1 of 2 (URGENT prod fix, 2026-09-19 -- BRIEF-pdf-upload.md): the old
+ * single-action `uploadBook(formData)` sent the PDF bytes as part of the
+ * Server Action's own request body. Next 16.3.5 hardcodes that body's
+ * default cap at 1MB (verified in the INSTALLED package, not from memory --
+ * node_modules/next/dist/server/app-render/action-handler.js:519), and
+ * next.config.ts never raises `serverActions.bodySizeLimit`, so the runtime
+ * rejected every book PDF over 1MB BEFORE this function ever ran --
+ * `uploadBook` and its 200MB `validateBookFile` message could never be
+ * reached for a real book, and the thrown rejection had no try/catch in
+ * upload-book-dialog.tsx, so it rendered as the crash Ayman saw on
+ * production. Same shape as school/lecture-actions.ts's
+ * prepareLectureUpload/finalizeLectureUpload (P3-14): this mints a signed
+ * UPLOAD url; the browser uploads straight to Storage (see
+ * upload-book-dialog.tsx), so the PDF bytes never pass through a Server
+ * Action's request body at all, then calls finalizeBookUpload below once
+ * that succeeds.
+ *
+ * Every guard uploadBook used to run before touching `books` runs here
+ * first, unchanged: driver-down, no usable key, no title. Size is checked
+ * against BOOK_MAX_BYTES (50 MiB -- see that file's header for why 200MB
+ * was never honest even before this bug: it's a project-wide Supabase
+ * Storage account ceiling, not a Next/Vercel limit, so raising
+ * bodySizeLimit alone would not have fixed this).
  */
-export async function uploadBook(formData: FormData): Promise<UploadBookResult | UploadBookError> {
+export async function prepareBookUpload(
+  title: string,
+  author: string,
+  ingestionMode: "standard" | "batch",
+  fileSizeBytes: number
+): Promise<PrepareBookUploadResult | UploadBookError> {
   const { supabase, userId } = await requireUser();
 
   // Refuse on the SERVER, not only by hiding the button. Without a worker to
@@ -77,32 +95,29 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
     return { ok: false, message: ingestionNoKeyMessage(keyCheck.providerLabel) };
   }
 
-  const file = formData.get("file");
-  const title = String(formData.get("title") ?? "").trim();
-  const author = String(formData.get("author") ?? "").trim();
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return { ok: false, message: "Give this book a title." };
+
+  if (!(fileSizeBytes > 0)) return { ok: false, message: "That file is empty." };
+  if (fileSizeBytes > BOOK_MAX_BYTES) return { ok: false, message: BOOK_MAX_SIZE_MESSAGE };
+
   // P2-14B: narrowed defensively, same posture as worker-stages.ts's own
   // getIngestionMode -- anything other than the literal "batch" degrades
   // to "standard" (the DB column's own default), never the other way
   // around. Set once here, at upload time; never changed mid-ingest
   // (migration 187's own header).
-  const rawIngestionMode = formData.get("ingestion_mode");
-  const ingestionMode: "standard" | "batch" = rawIngestionMode === "batch" ? "batch" : "standard";
-
-  if (!(file instanceof File)) return { ok: false, message: "No file provided" };
-  const validationError = validateBookFile(file);
-  if (validationError) return { ok: false, message: validationError };
-  if (!title) return { ok: false, message: "Give this book a title." };
+  const resolvedIngestionMode: "standard" | "batch" = ingestionMode === "batch" ? "batch" : "standard";
 
   const { data: inserted, error: insertError } = await untypedFrom(supabase, "books")
     .insert({
       user_id: userId,
-      title,
-      author: author || null,
+      title: trimmedTitle,
+      author: author.trim() || null,
       status: "uploading",
       stage: "queued",
       progress_pct: 0,
-      file_size_bytes: file.size,
-      ingestion_mode: ingestionMode,
+      file_size_bytes: fileSizeBytes,
+      ingestion_mode: resolvedIngestionMode,
     })
     .select("id")
     .single()
@@ -112,17 +127,68 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
   const bookId = inserted.id;
   const path = `${userId}/${bookId}.pdf`;
 
-  const { error: uploadError } = await supabase.storage.from(BOOKS_BUCKET).upload(path, file, {
-    contentType: "application/pdf",
-    upsert: false,
-  });
-  if (uploadError) {
+  const { data: signed, error: signError } = await supabase.storage.from(BOOKS_BUCKET).createSignedUploadUrl(path);
+  if (signError) {
+    // Same "delete the orphan row" posture uploadBook always had for a
+    // failed upload -- just moved earlier, since minting the URL is now
+    // the step that can fail before any bytes move.
+    await untypedFrom(supabase, "books").delete().eq("id", bookId);
+    return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  }
+
+  return { ok: true, bookId, path, token: signed.token };
+}
+
+/**
+ * Step 2 of 2: called after the browser's own direct-to-Storage upload
+ * succeeds. Never trusts anything the client claims about what it
+ * uploaded — re-reads the real object from Storage (list, not the client's
+ * File object) for its actual size/mime, same posture as
+ * finalizeLectureUpload. Recomputes the expected path from THIS request's
+ * own authenticated userId + the bookId argument rather than trusting the
+ * client-supplied `path` outright: a mismatch means the caller is trying to
+ * finalize an object it was never issued a signed-upload token for.
+ * Requires the row to still be "uploading" — refuses to re-finalize a book
+ * that's already past this step (double-submit, stale retry).
+ *
+ * Preserves everything uploadBook used to do after a successful upload:
+ * flip to "processing", enqueue the `ingestion_jobs` row.
+ */
+export async function finalizeBookUpload(bookId: string, path: string): Promise<UploadBookResult | UploadBookError> {
+  const { supabase, userId } = await requireUser();
+
+  const expectedPath = `${userId}/${bookId}.pdf`;
+  if (path !== expectedPath) return { ok: false, message: GENERIC_UPLOAD_ERROR };
+
+  const { data: bookRow, error: bookFetchError } = await untypedFrom(supabase, "books")
+    .select("id, status")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle()
+    .returns<{ id: string; status: string } | null>();
+  if (bookFetchError || !bookRow) return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  if (bookRow.status !== "uploading") return { ok: false, message: GENERIC_UPLOAD_ERROR };
+
+  const filename = `${bookId}.pdf`;
+  const { data: listing, error: listError } = await supabase.storage.from(BOOKS_BUCKET).list(userId, { search: filename });
+  if (listError) return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  const object = listing?.find((f) => f.name === filename);
+  if (!object) return { ok: false, message: "Upload not found -- it may have failed or expired" };
+
+  const metadata = object.metadata as { size?: number; mimetype?: string } | null;
+  const sizeBytes = metadata?.size ?? 0;
+  const mimeType = metadata?.mimetype ?? "application/octet-stream";
+  // Belt-and-suspenders on top of the bucket's own policies (which already
+  // gate WHO can write here, not what) -- doesn't assume the client-side
+  // check in upload-book-dialog.tsx can never be bypassed.
+  if (mimeType !== "application/pdf" || sizeBytes <= 0 || sizeBytes > BOOK_MAX_BYTES) {
+    await supabase.storage.from(BOOKS_BUCKET).remove([path]);
     await untypedFrom(supabase, "books").delete().eq("id", bookId);
     return { ok: false, message: GENERIC_UPLOAD_ERROR };
   }
 
   const { error: updateError } = await untypedFrom(supabase, "books")
-    .update({ file_path: path, status: "processing" })
+    .update({ file_path: path, status: "processing", file_size_bytes: sizeBytes })
     .eq("id", bookId);
   if (updateError) return { ok: false, message: GENERIC_UPLOAD_ERROR };
 
@@ -136,4 +202,40 @@ export async function uploadBook(formData: FormData): Promise<UploadBookResult |
   revalidatePath("/personal/self_mastery");
   revalidatePath("/");
   return { ok: true, bookId };
+}
+
+/**
+ * The new orphan risk the client-side upload hop introduces (URGENT
+ * pdf-upload fix): prepareBookUpload now inserts the `books` row BEFORE
+ * the file ever reaches Storage, so a failure between then and a
+ * successful finalizeBookUpload — the direct-to-storage PUT itself
+ * failing, the tab closing mid-upload, a network error calling finalize —
+ * used to be impossible (the old uploadBook did the insert and the upload
+ * in one atomic Server Action call) and is now a real path to a "books"
+ * row stuck at status "uploading" forever, pointing at nothing. The client
+ * calls this in every failure branch after prepareBookUpload succeeds (see
+ * upload-book-dialog.tsx) so that never happens silently.
+ *
+ * Guarded by status = "uploading": if the row already progressed past that
+ * (finalize already succeeded, or a concurrent call is mid-finalize), this
+ * is a safe no-op rather than deleting a book that's actually fine.
+ */
+export async function cancelBookUpload(bookId: string): Promise<void> {
+  const { supabase, userId } = await requireUser();
+
+  const { data: bookRow } = await untypedFrom(supabase, "books")
+    .select("id, status")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle()
+    .returns<{ id: string; status: string } | null>();
+  if (!bookRow || bookRow.status !== "uploading") return;
+
+  const path = `${userId}/${bookId}.pdf`;
+  // Best-effort, same posture as removeLectureRecording: the row is the
+  // source of truth for whether this book exists to the user, so a failure
+  // removing a storage object that may never have been written (upload
+  // failed before any bytes landed) is an orphaned object, not lost data.
+  await supabase.storage.from(BOOKS_BUCKET).remove([path]);
+  await untypedFrom(supabase, "books").delete().eq("id", bookId);
 }

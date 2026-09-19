@@ -1,23 +1,20 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * `uploadBook`'s key-side refusal (2026-09-15, the Lead's fix, Addition A's
- * sibling): the driver-heartbeat check alone (`isIngestionAvailable`) says
- * nothing about whether THIS user's own resolved AI provider has a usable
- * key behind it -- see `hasUsableIngestionKey`'s own header in
- * lib/ai/gateway.ts. `hasUsableIngestionKey` and `isIngestionAvailable` are
- * mocked here (they have their own dedicated tests); the thing THESE tests
- * must prove is that `uploadBook` actually consults them, in the right
- * order, and refuses BEFORE ever touching `books` -- an upload that reaches
- * the insert with no usable key is exactly the "strands at processing
- * forever" bug this whole gate exists to prevent, just via the key path.
+ * URGENT pdf-upload fix (2026-09-19, BRIEF-pdf-upload.md): `uploadBook`
+ * used to accept the PDF as part of its own FormData request body, which
+ * Next 16.3.5 caps at 1MB by default -- every real book crashed before
+ * this file ever ran. Replaced with a three-hop direct-to-Storage flow
+ * (prepareBookUpload -> browser uploads straight to Storage ->
+ * finalizeBookUpload), same shape as school/lecture-actions.ts's
+ * prepareLectureUpload/finalizeLectureUpload. `uploadBook` no longer
+ * exists; the pre-upload gates it used to run (driver-down, no usable key,
+ * no title) now run in prepareBookUpload, still before `books` is ever
+ * touched.
  */
 
-const requireUserMock = vi.fn();
-vi.mock("@/lib/supabase/auth", () => ({
-  requireUser: () => requireUserMock(),
-}));
+const revalidatePathMock = vi.fn();
+vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathMock(path) }));
 
 const isIngestionAvailableMock = vi.fn();
 vi.mock("@/lib/self-mastery/ingestion-availability", () => ({
@@ -32,130 +29,305 @@ vi.mock("@/lib/ai/gateway", () => ({
     providerLabel ? `Add an API key for ${providerLabel} in Settings to process books.` : "Add an AI provider key in Settings to process books.",
 }));
 
-function fakeFile(): File {
-  return new File(["%PDF-1.4 fake"], "book.pdf", { type: "application/pdf" });
+// Same "thenable chain" shape as lecture-actions.test.ts's own fake.
+function makeChain(result: { data: unknown; error: unknown }) {
+  const chain: Record<string, unknown> = {};
+  for (const method of ["select", "insert", "update", "delete", "eq", "single", "maybeSingle", "returns"]) {
+    chain[method] = vi.fn(() => chain);
+  }
+  chain.then = (resolve: (v: { data: unknown; error: unknown }) => void) => resolve(result);
+  return chain;
 }
 
-function formDataFor(file: File, title = "A Book"): FormData {
-  const fd = new FormData();
-  fd.set("file", file);
-  fd.set("title", title);
-  return fd;
-}
+let fromResults: Record<string, { data: unknown; error: unknown }> = {};
+const fromMock = vi.fn((table: string) => makeChain(fromResults[table] ?? { data: null, error: null }));
 
-describe("uploadBook", () => {
-  let fromMock: ReturnType<typeof vi.fn>;
+const createSignedUploadUrlMock = vi.fn(async (_path: string) => ({
+  data: { path: "unused", token: "upload-token-abc" } as { path: string; token: string } | null,
+  error: null as { message: string } | null,
+}));
+const listMock = vi.fn(
+  async (_dir: string, _opts: { search: string }) =>
+    ({ data: [] as { name: string; metadata: Record<string, unknown> | null }[], error: null as { message: string } | null })
+);
+const removeMock = vi.fn(async (_paths: string[]) => ({ error: null as { message: string } | null }));
 
+const requireUserMock = vi.fn(async () => ({
+  supabase: {
+    from: fromMock,
+    storage: {
+      from: () => ({
+        createSignedUploadUrl: createSignedUploadUrlMock,
+        list: listMock,
+        remove: removeMock,
+      }),
+    },
+  },
+  userId: "user-1",
+}));
+vi.mock("@/lib/supabase/auth", () => ({
+  requireUser: () => requireUserMock(),
+}));
+
+describe("self-mastery-actions -- direct-to-storage book upload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fromMock = vi.fn(() => {
-      throw new Error("uploadBook must not touch `books` when an earlier gate refuses");
-    });
-    requireUserMock.mockResolvedValue({ supabase: { from: fromMock } as unknown as SupabaseClient, userId: "user-1" });
-  });
-
-  it("THE REGRESSION GUARD: refuses with a provider-specific message and never touches `books` when the resolved provider has no usable key", async () => {
-    isIngestionAvailableMock.mockResolvedValue(true);
-    hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "Claude" });
-    const { uploadBook } = await import("../self-mastery-actions");
-
-    const result = await uploadBook(formDataFor(fakeFile()));
-
-    expect(result).toEqual({ ok: false, message: "Add an API key for Claude in Settings to process books." });
-    expect(fromMock).not.toHaveBeenCalled();
-  });
-
-  it("falls back to a generic message when the preference itself couldn't be resolved (no providerLabel)", async () => {
-    isIngestionAvailableMock.mockResolvedValue(true);
-    hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: undefined });
-    const { uploadBook } = await import("../self-mastery-actions");
-
-    const result = await uploadBook(formDataFor(fakeFile()));
-
-    expect(result).toEqual({ ok: false, message: "Add an AI provider key in Settings to process books." });
-    expect(fromMock).not.toHaveBeenCalled();
-  });
-
-  it("the driver-down message wins over the key check -- hasUsableIngestionKey is never even called", async () => {
-    isIngestionAvailableMock.mockResolvedValue(false);
-    const { uploadBook } = await import("../self-mastery-actions");
-
-    const result = await uploadBook(formDataFor(fakeFile()));
-
-    expect(result).toEqual({ ok: false, message: "driver down message" });
-    expect(hasUsableIngestionKeyMock).not.toHaveBeenCalled();
-    expect(fromMock).not.toHaveBeenCalled();
-  });
-
-  it("a usable key clears both gates and proceeds to touch `books`", async () => {
+    fromResults = { books: { data: { id: "book-1" }, error: null } };
     isIngestionAvailableMock.mockResolvedValue(true);
     hasUsableIngestionKeyMock.mockResolvedValue({ usable: true, providerLabel: "DeepSeek" });
-    // Past both gates, uploadBook reaches the real insert chain -- give it one
-    // that fails cleanly rather than throwing, so this test only asserts the
-    // gates were cleared (both mocks were consulted), not the full upload flow.
-    fromMock = vi.fn(() => ({
-      insert: () => ({ select: () => ({ single: () => ({ returns: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }) }),
-    }));
-    requireUserMock.mockResolvedValue({ supabase: { from: fromMock } as unknown as SupabaseClient, userId: "user-1" });
-    const { uploadBook } = await import("../self-mastery-actions");
-
-    const result = await uploadBook(formDataFor(fakeFile()));
-
-    expect(hasUsableIngestionKeyMock).toHaveBeenCalledWith(expect.anything(), "user-1");
-    expect(fromMock).toHaveBeenCalledWith("books");
-    expect(result.ok).toBe(false); // the insert itself was made to fail above; only the gate-clearing is under test
+    createSignedUploadUrlMock.mockResolvedValue({ data: { path: "unused", token: "upload-token-abc" }, error: null });
+    listMock.mockResolvedValue({ data: [], error: null });
+    removeMock.mockResolvedValue({ error: null });
   });
 
-  /** P2-14B: the batch-mode selector's own reader-cited destination -- proves the form field actually reaches the insert, not just that a UI control exists. */
-  describe("ingestion_mode threading (P2-14B)", () => {
-    function captureInsertPayload(): { fromMock: ReturnType<typeof vi.fn>; getPayload: () => Record<string, unknown> | undefined } {
-      let payload: Record<string, unknown> | undefined;
-      const fromMockLocal = vi.fn(() => ({
-        insert: (p: Record<string, unknown>) => {
-          payload = p;
-          return { select: () => ({ single: () => ({ returns: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }) };
-        },
-      }));
-      return { fromMock: fromMockLocal, getPayload: () => payload };
-    }
+  describe("prepareBookUpload", () => {
+    it("mints a signed upload url under <user_id>/<book_id>.pdf after inserting the books row", async () => {
+      const { prepareBookUpload } = await import("../self-mastery-actions");
 
+      const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
+
+      expect(fromMock).toHaveBeenCalledWith("books");
+      expect(createSignedUploadUrlMock).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "upload-token-abc" });
+    });
+
+    // The whole point of this fix: a file far larger than Next's 1MB Server
+    // Action body cap must still work, because its bytes never travel
+    // through this function's own request body at all -- prepareBookUpload
+    // only ever receives a `number` (fileSizeBytes), never a File/FormData.
+    it("succeeds for a file far larger than Next's old 1MB server-action body cap", async () => {
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Big Book", "", "standard", 40 * 1024 * 1024);
+
+      expect(result.ok).toBe(true);
+    });
+
+    it("THE REGRESSION GUARD: refuses with a provider-specific message and never touches `books` when the resolved provider has no usable key", async () => {
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "Claude" });
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
+
+      expect(result).toEqual({ ok: false, message: "Add an API key for Claude in Settings to process books." });
+      expect(fromMock).not.toHaveBeenCalled();
+      expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+    });
+
+    it("falls back to a generic message when the preference itself couldn't be resolved (no providerLabel)", async () => {
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: undefined });
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
+
+      expect(result).toEqual({ ok: false, message: "Add an AI provider key in Settings to process books." });
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    it("the driver-down message wins over the key check -- hasUsableIngestionKey is never even called", async () => {
+      isIngestionAvailableMock.mockResolvedValue(false);
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
+
+      expect(result).toEqual({ ok: false, message: "driver down message" });
+      expect(hasUsableIngestionKeyMock).not.toHaveBeenCalled();
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a blank title before touching `books`", async () => {
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("   ", "", "standard", 5_000_000);
+
+      expect(result).toEqual({ ok: false, message: "Give this book a title." });
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a zero-byte file before touching `books`", async () => {
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 0);
+
+      expect(result).toEqual({ ok: false, message: "That file is empty." });
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    // The real, honest limit (URGENT pdf-upload fix): a project-wide
+    // Supabase Storage account ceiling of 50 MiB, not the old, never-
+    // honored 200MB promise. Pinned to lib/self-mastery/book-upload-
+    // limits.ts's exact constant/message, not a re-typed literal.
+    it("rejects an oversize file with the honest 50MB message, without inserting a row", async () => {
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+      const { BOOK_MAX_SIZE_MESSAGE } = await import("@/lib/self-mastery/book-upload-limits");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 51 * 1024 * 1024);
+
+      expect(result).toEqual({ ok: false, message: BOOK_MAX_SIZE_MESSAGE });
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    it("accepts a 49MB file", async () => {
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 49 * 1024 * 1024);
+
+      expect(result.ok).toBe(true);
+    });
+
+    it("deletes the just-inserted row if minting the signed url fails, rather than stranding it", async () => {
+      createSignedUploadUrlMock.mockResolvedValue({ data: null, error: { message: "storage down" } });
+      const { prepareBookUpload } = await import("../self-mastery-actions");
+
+      const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
+
+      expect(result.ok).toBe(false);
+      expect(fromMock).toHaveBeenCalledWith("books");
+      // insert then delete -- both against `books`, no other table touched.
+      expect(fromMock.mock.calls.every(([table]) => table === "books")).toBe(true);
+    });
+
+    describe("ingestion_mode threading (P2-14B, preserved)", () => {
+      function captureInsertPayload() {
+        let payload: Record<string, unknown> | undefined;
+        fromResults.books = { data: { id: "book-1" }, error: null };
+        fromMock.mockImplementation((table: string) => {
+          if (table !== "books") return makeChain(fromResults[table] ?? { data: null, error: null });
+          const chain = makeChain(fromResults.books!);
+          chain.insert = vi.fn((p: Record<string, unknown>) => {
+            payload = p;
+            return chain;
+          });
+          return chain;
+        });
+        return { getPayload: () => payload };
+      }
+
+      it("defaults to 'standard' when omitted", async () => {
+        const { getPayload } = captureInsertPayload();
+        const { prepareBookUpload } = await import("../self-mastery-actions");
+
+        await prepareBookUpload("A Book", "", "standard", 5_000_000);
+
+        expect(getPayload()?.ingestion_mode).toBe("standard");
+      });
+
+      it("threads 'batch' through when the dialog set it", async () => {
+        const { getPayload } = captureInsertPayload();
+        const { prepareBookUpload } = await import("../self-mastery-actions");
+
+        await prepareBookUpload("A Book", "", "batch", 5_000_000);
+
+        expect(getPayload()?.ingestion_mode).toBe("batch");
+      });
+
+      it("an unrecognized value degrades to 'standard'", async () => {
+        const { getPayload } = captureInsertPayload();
+        const { prepareBookUpload } = await import("../self-mastery-actions");
+
+        // @ts-expect-error -- exercising the defensive narrowing against a bad value
+        await prepareBookUpload("A Book", "", "something-else", 5_000_000);
+
+        expect(getPayload()?.ingestion_mode).toBe("standard");
+      });
+    });
+  });
+
+  describe("finalizeBookUpload", () => {
     beforeEach(() => {
-      isIngestionAvailableMock.mockResolvedValue(true);
-      hasUsableIngestionKeyMock.mockResolvedValue({ usable: true, providerLabel: "DeepSeek" });
+      fromResults.books = { data: { id: "book-1", status: "uploading" }, error: null };
     });
 
-    it("defaults to 'standard' when the form omits ingestion_mode entirely", async () => {
-      const { fromMock: localFrom, getPayload } = captureInsertPayload();
-      requireUserMock.mockResolvedValue({ supabase: { from: localFrom } as unknown as SupabaseClient, userId: "user-1" });
-      const { uploadBook } = await import("../self-mastery-actions");
+    it("rejects a path that doesn't match this user's own deterministic <user_id>/<book_id>.pdf, without touching Storage", async () => {
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
 
-      await uploadBook(formDataFor(fakeFile()));
+      const result = await finalizeBookUpload("book-1", "user-2/book-1.pdf");
 
-      expect(getPayload()?.ingestion_mode).toBe("standard");
+      expect(result.ok).toBe(false);
+      expect(listMock).not.toHaveBeenCalled();
     });
 
-    it("threads 'batch' through when the dialog set it", async () => {
-      const { fromMock: localFrom, getPayload } = captureInsertPayload();
-      requireUserMock.mockResolvedValue({ supabase: { from: localFrom } as unknown as SupabaseClient, userId: "user-1" });
-      const { uploadBook } = await import("../self-mastery-actions");
-      const fd = formDataFor(fakeFile());
-      fd.set("ingestion_mode", "batch");
+    it("refuses to finalize a row that isn't in status 'uploading' (already finalized, or not found)", async () => {
+      fromResults.books = { data: { id: "book-1", status: "processing" }, error: null };
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
 
-      await uploadBook(fd);
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
 
-      expect(getPayload()?.ingestion_mode).toBe("batch");
+      expect(result.ok).toBe(false);
+      expect(listMock).not.toHaveBeenCalled();
     });
 
-    it("an unrecognized value degrades to 'standard', never trusted verbatim -- same defensive posture as worker-stages.ts's own getIngestionMode", async () => {
-      const { fromMock: localFrom, getPayload } = captureInsertPayload();
-      requireUserMock.mockResolvedValue({ supabase: { from: localFrom } as unknown as SupabaseClient, userId: "user-1" });
-      const { uploadBook } = await import("../self-mastery-actions");
-      const fd = formDataFor(fakeFile());
-      fd.set("ingestion_mode", "something-else");
+    it("rejects when the uploaded object can't be found (upload never completed or expired)", async () => {
+      listMock.mockResolvedValue({ data: [], error: null });
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
 
-      await uploadBook(fd);
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
 
-      expect(getPayload()?.ingestion_mode).toBe("standard");
+      expect(result).toEqual({ ok: false, message: "Upload not found -- it may have failed or expired" });
+    });
+
+    it("re-reads the real object metadata from Storage (not client input), flips to processing, and enqueues an ingestion job", async () => {
+      listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 40 * 1024 * 1024, mimetype: "application/pdf" } }], error: null });
+      fromResults.ingestion_jobs = { data: null, error: null };
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
+
+      expect(result).toEqual({ ok: true, bookId: "book-1" });
+      expect(fromMock).toHaveBeenCalledWith("ingestion_jobs");
+      expect(revalidatePathMock).toHaveBeenCalledWith("/personal/self_mastery");
+      expect(revalidatePathMock).toHaveBeenCalledWith("/");
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    it("removes the object and deletes the row when the real object's mime type fails validation (bypassed the client-side check)", async () => {
+      listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 1024, mimetype: "text/plain" } }], error: null });
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
+
+      expect(result.ok).toBe(false);
+      expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+    });
+
+    it("removes the object and deletes the row when the real object exceeds the size ceiling", async () => {
+      listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 51 * 1024 * 1024, mimetype: "application/pdf" } }], error: null });
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
+
+      expect(result.ok).toBe(false);
+      expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+    });
+  });
+
+  describe("cancelBookUpload -- the new orphan-cleanup risk this fix introduces", () => {
+    it("removes the storage object and deletes the row when the book is still 'uploading'", async () => {
+      fromResults.books = { data: { id: "book-1", status: "uploading" }, error: null };
+      const { cancelBookUpload } = await import("../self-mastery-actions");
+
+      await cancelBookUpload("book-1");
+
+      expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+      expect(fromMock).toHaveBeenCalledWith("books");
+    });
+
+    it("is a no-op for a book that already progressed past 'uploading' -- never deletes a book that's actually fine", async () => {
+      fromResults.books = { data: { id: "book-1", status: "processing" }, error: null };
+      const { cancelBookUpload } = await import("../self-mastery-actions");
+
+      await cancelBookUpload("book-1");
+
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op for a book id that doesn't exist or isn't this user's", async () => {
+      fromResults.books = { data: null, error: null };
+      const { cancelBookUpload } = await import("../self-mastery-actions");
+
+      await cancelBookUpload("book-missing");
+
+      expect(removeMock).not.toHaveBeenCalled();
     });
   });
 });

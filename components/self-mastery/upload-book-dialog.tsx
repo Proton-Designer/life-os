@@ -7,7 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { uploadBook } from "@/app/(app)/personal/self-mastery-actions";
+import { prepareBookUpload, finalizeBookUpload, cancelBookUpload } from "@/app/(app)/personal/self-mastery-actions";
+import { createClient } from "@/lib/supabase/client";
+import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
+
+// Hardcoded, not imported -- self-mastery-actions.ts is a "use server"
+// module and can only export async functions, so it can't export this
+// constant for a Client Component to import. Same convention
+// lecture-panel.tsx uses for its own "lectures" bucket name.
+const BOOKS_BUCKET = "books";
+
+const UPLOAD_FAILED_MESSAGE = "Upload failed — try again.";
 
 export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
   const router = useRouter();
@@ -36,6 +46,15 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
   }
 
   function handlePickFile(picked: File) {
+    // Client-side size check FIRST (same posture as lecture-panel.tsx's own
+    // P3-14 04-verification finding, and the same real limit -- see
+    // lib/self-mastery/book-upload-limits.ts's header): reject before ever
+    // showing the title/author form for a file that's going to fail, not
+    // after minting a signed URL for it.
+    if (picked.size > BOOK_MAX_BYTES) {
+      setError(BOOK_MAX_SIZE_MESSAGE);
+      return;
+    }
     setFile(picked);
     setError(null);
     if (!title.trim()) {
@@ -43,6 +62,18 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
     }
   }
 
+  /**
+   * Three hops (URGENT pdf-upload fix, 2026-09-19 -- BRIEF-pdf-upload.md):
+   * prepare (Server Action -- validates every existing guard, mints a
+   * signed upload url, and inserts the `books` row up front) -> the browser
+   * uploads the actual PDF bytes straight to Storage, never through a
+   * Server Action's own request body -> finalize (Server Action -- re-reads
+   * the real object and only then flips status to "processing"). A failure
+   * at the upload or finalize hop, after prepare already created a row,
+   * calls cancelBookUpload so a book never gets stuck at "uploading"
+   * forever with nothing behind it -- see that function's own header for
+   * why this risk is new.
+   */
   function handleSubmit() {
     if (!file) {
       setError("Choose a PDF to get started.");
@@ -50,18 +81,38 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
     }
     setError(null);
     startTransition(async () => {
-      const formData = new FormData();
-      formData.set("file", file);
-      formData.set("title", title.trim());
-      formData.set("author", author.trim());
-      formData.set("ingestion_mode", ingestionMode);
-      const result = await uploadBook(formData);
-      if (!result.ok) {
-        setError(result.message);
+      const prepared = await prepareBookUpload(title.trim(), author.trim(), ingestionMode, file.size);
+      if (!prepared.ok) {
+        setError(prepared.message);
         return;
       }
-      handleOpenChange(false);
-      router.push(`/personal/self_mastery/${result.bookId}`);
+      const { bookId, path, token } = prepared;
+      try {
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage
+          .from(BOOKS_BUCKET)
+          .uploadToSignedUrl(path, token, file, { contentType: "application/pdf" });
+        if (uploadError) throw uploadError;
+
+        const result = await finalizeBookUpload(bookId, path);
+        if (!result.ok) {
+          await cancelBookUpload(bookId).catch(() => {});
+          setError(result.message);
+          return;
+        }
+        handleOpenChange(false);
+        router.push(`/personal/self_mastery/${result.bookId}`);
+      } catch (err) {
+        await cancelBookUpload(bookId).catch(() => {});
+        // Storage's own raw rejection for an over-limit object (this can
+        // still happen despite the client-side pre-check above, e.g. a
+        // stale/lowered limit the client hasn't refreshed) reads as
+        // "exceeded the maximum allowed size" -- mapped to the same
+        // friendly, actionable message rather than shown verbatim. Same
+        // mapping lecture-panel.tsx's own handleFileChosen uses.
+        const message = err instanceof Error ? err.message : UPLOAD_FAILED_MESSAGE;
+        setError(/exceeded the maximum allowed size/i.test(message) ? BOOK_MAX_SIZE_MESSAGE : message);
+      }
     });
   }
 
