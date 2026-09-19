@@ -23,16 +23,34 @@ describe("OnboardingWizard", () => {
     expect(screen.getByTestId("onboarding-next")).toBeDisabled();
   });
 
-  it("walks into Personal Growth with all three subdomains preselected", async () => {
+  // Ayman, 2026-09-19: "When Faith is pressed it automatically assumes Muslim."
+  // Selecting Personal Growth must not decide a user's religion for them, so
+  // faith starts OFF while the two non-confessional subdomains stay ON. The
+  // assertion is deliberately three-way rather than just faith=false: the
+  // failure we care about is faith flipping back on, but the failure we'd
+  // MISS with a narrower test is someone "fixing" this by defaulting
+  // everything off, which would quietly change a different screen's behaviour.
+  it("walks into Personal Growth with faith NOT preselected, the other two on", async () => {
     const user = userEvent.setup();
     render(<OnboardingWizard />);
     await user.click(screen.getByTestId("domain-option-personal_growth"));
     await user.click(screen.getByTestId("onboarding-next"));
 
     expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "personal_growth-subdomains");
-    expect(screen.getByTestId("subdomain-option-faith")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("subdomain-option-faith")).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByTestId("subdomain-option-self_mastery")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("subdomain-option-fitness")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("lets a user opt INTO faith deliberately", async () => {
+    const user = userEvent.setup();
+    render(<OnboardingWizard />);
+    await user.click(screen.getByTestId("domain-option-personal_growth"));
+    await user.click(screen.getByTestId("onboarding-next"));
+
+    // Not preselected is the requirement; unreachable would be a new bug.
+    await user.click(screen.getByTestId("subdomain-option-faith"));
+    expect(screen.getByTestId("subdomain-option-faith")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("refuses to remove the last remaining subdomain", async () => {
@@ -41,9 +59,9 @@ describe("OnboardingWizard", () => {
     await user.click(screen.getByTestId("domain-option-personal_growth"));
     await user.click(screen.getByTestId("onboarding-next"));
 
-    await user.click(screen.getByTestId("subdomain-option-faith"));
+    // Faith is off by default now, so the walk down to one starts from two:
+    // remove self_mastery, leaving fitness, then try to remove fitness too.
     await user.click(screen.getByTestId("subdomain-option-self_mastery"));
-    // Two removed, one (fitness) left — try to remove the last one too.
     await user.click(screen.getByTestId("subdomain-option-fitness"));
 
     expect(screen.getByTestId("subdomain-minimum-warning")).toBeInTheDocument();
