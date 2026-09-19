@@ -198,6 +198,16 @@ describe("P4-33: the guard is no longer blind to MCP-only write ops (positive co
 describe("MCP parity manifest", () => {
   const scan = scanServerActionExports(SCAN_ROOT);
   const scannedKeys = new Set(scan.exports.map((e) => e.key));
+  const liveOps = new Set(liveWriteOps());
+  /**
+   * The ONE predicate for "is this manifest key legitimate" — the real
+   * stale-key check below and its control both call this, not a hand-copied
+   * restatement of it. A control that reimplements the logic it's meant to
+   * verify passes even after the real predicate is weakened or broken; only
+   * a shared function (or running the real filter, as the control does)
+   * keeps the control load-bearing (P4-33 review, round 2).
+   */
+  const isStaleKey = (k: string): boolean => !scannedKeys.has(k) && !liveOps.has(k);
 
   it("every exported Server Action has an MCP decision", () => {
     const missing = scan.exports.filter((e) => !(e.key in PARITY_MANIFEST));
@@ -250,8 +260,7 @@ describe("MCP parity manifest", () => {
     // op-name-keyed entries, which can never appear in scannedKeys — that set
     // holds only export paths, by construction). A key matching NEITHER is
     // genuinely stale, exactly as before.
-    const liveOps = new Set(liveWriteOps());
-    const stale = Object.keys(PARITY_MANIFEST).filter((k) => !scannedKeys.has(k) && !liveOps.has(k));
+    const stale = Object.keys(PARITY_MANIFEST).filter(isStaleKey);
     if (stale.length > 0) {
       throw new Error(
         `${stale.length} manifest entr(ies) in ${MANIFEST_PATH} name neither an existing "use server" export nor a live write op ` +
@@ -260,13 +269,30 @@ describe("MCP parity manifest", () => {
     }
   });
 
+  it("the enumerators feeding the stale-key check are non-empty (an empty one would make every key stale, or none) (P4-33)", () => {
+    // The exact failure mode this whole task is about: a check that examines
+    // nothing reports success. A bad SCAN_ROOT or a broken liveWriteOps()
+    // must fail LOUDLY here, not silently pass every key (or fail all of
+    // them) in the test above.
+    expect(scannedKeys.size).toBeGreaterThan(150);
+    expect(liveOps.size).toBeGreaterThan(90);
+  });
+
   it("the stale-key check above still catches a key that is neither a real export nor a real op (P4-33 control)", () => {
-    const liveOps = new Set(liveWriteOps());
     const junkKey = "foo.bar.baz";
     expect(scannedKeys.has(junkKey)).toBe(false);
     expect(liveOps.has(junkKey)).toBe(false);
-    const wouldBeCaught = !scannedKeys.has(junkKey) && !liveOps.has(junkKey);
-    expect(wouldBeCaught).toBe(true);
+    // Calls the SAME predicate the real check uses, not a reimplementation of
+    // it — a weakened or inverted predicate breaks this control too, which is
+    // the only reason to have one.
+    expect(isStaleKey(junkKey)).toBe(true);
+
+    // Stronger still: exercise the real check's actual code path end to end,
+    // on a copy of the real manifest with the junk key inserted, and assert
+    // it surfaces in the real filter's output.
+    const manifestWithJunk = { ...PARITY_MANIFEST, [junkKey]: { read_only: true as const } };
+    const staleWithJunk = Object.keys(manifestWithJunk).filter(isStaleKey);
+    expect(staleWithJunk).toContain(junkKey);
   });
 
   it("every decision is exactly one well-formed shape that resolves", () => {
