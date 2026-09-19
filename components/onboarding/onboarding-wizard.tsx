@@ -24,15 +24,10 @@ export function OnboardingWizard({
   initialSelectedDomains = [],
   domainsWithData = [],
   initialFaithConfig = null,
-  ingestionAvailable = false,
 }: {
   initialSelectedDomains?: DomainKey[];
   domainsWithData?: DomainKey[];
   initialFaithConfig?: FaithConfig | null;
-  /** Plain boolean, not a function — a server-computed value crossing the RSC
-   * boundary. See AGENTS.md on never passing a function from a Server to a
-   * Client Component. */
-  ingestionAvailable?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("domains");
   const [selectedDomains, setSelectedDomains] = useState<DomainKey[]>(initialSelectedDomains);
@@ -134,9 +129,23 @@ export function OnboardingWizard({
         <DomainSelectStep selected={selectedDomains} onToggle={toggleDomain} onNext={startWalk} />
       ) : null}
 
-      {phase === "walk" && selectedDomains[walkIndex] === "personal_growth" ? (
+      {/* ONB item 5 (Ayman): "when the back arrow is pressed during onboarding
+          it sends the user back to the 'What's part of Personal …' screen, not
+          the screen directly before they were."
+          Each step already handled ITS OWN internal back correctly. The fault
+          was here: a step was unmounted the moment walkIndex moved off it, so
+          walking back re-mounted it fresh at its first screen. Worse than the
+          navigation complaint, it also silently discarded every answer given in
+          that domain — and since the wizard re-saves on the way forward, a
+          back-then-forward would overwrite real answers with defaults.
+          Fix: mount every selected domain's step for the whole walk and let
+          `active` decide which one renders. An inactive step returns null after
+          its hooks have run, so React keeps its state. Verified there is not a
+          single useEffect in any step or sub-step, so nothing runs while hidden;
+          if one is ever added, this decision has to be revisited. */}
+      {phase === "walk" && selectedDomains.includes("personal_growth") ? (
         <PersonalGrowthStep
-          ingestionAvailable={ingestionAvailable}
+          active={selectedDomains[walkIndex] === "personal_growth"}
           onBack={backWithinWalk}
           onNext={(subs) => finishCurrentDomain("personal_growth", subs)}
           progressTotal={progressTotal}
@@ -144,8 +153,9 @@ export function OnboardingWizard({
         />
       ) : null}
 
-      {phase === "walk" && selectedDomains[walkIndex] === "work" ? (
+      {phase === "walk" && selectedDomains.includes("work") ? (
         <WorkStep
+          active={selectedDomains[walkIndex] === "work"}
           onBack={backWithinWalk}
           onNext={(drafts: WorkSubdomainDraft[]) =>
             finishCurrentDomain(
@@ -158,8 +168,9 @@ export function OnboardingWizard({
         />
       ) : null}
 
-      {phase === "walk" && selectedDomains[walkIndex] === "school" ? (
+      {phase === "walk" && selectedDomains.includes("school") ? (
         <SchoolStep
+          active={selectedDomains[walkIndex] === "school"}
           onBack={backWithinWalk}
           onNext={() => finishCurrentDomain("school", [])}
           progressTotal={progressTotal}

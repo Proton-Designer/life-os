@@ -47,11 +47,15 @@ export function WorkStep({
   onNext,
   progressTotal,
   progressIndex,
+  active = true,
 }: {
   onBack: () => void;
   onNext: (drafts: WorkSubdomainDraft[]) => void;
   progressTotal: number;
   progressIndex: number;
+  /** ONB item 5 — see PersonalGrowthStep's note. Mounted-but-hidden so the
+   * drafts list and the phase survive walking back to another domain. */
+  active?: boolean;
 }) {
   const accent = TOP_DOMAIN_META.work.accent;
   const [drafts, setDrafts] = useState<WorkSubdomainDraft[]>([]);
@@ -75,6 +79,9 @@ export function WorkStep({
     setDrafts((prev) => [...prev, { key, label: draftName.trim(), kind: draftKind, widgets: [] }]);
     setPhase("list");
   }
+
+  // ONB item 5: mounted but not shown -- drafts and phase survive.
+  if (!active) return null;
 
   if (phase === "kind") {
     return (

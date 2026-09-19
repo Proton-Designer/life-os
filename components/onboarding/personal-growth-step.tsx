@@ -22,18 +22,19 @@ export function PersonalGrowthStep({
   onNext,
   progressTotal,
   progressIndex,
-  ingestionAvailable = false,
+  active = true,
 }: {
   onBack: () => void;
   onNext: (subs: SubdomainInput[]) => void;
   progressTotal: number;
   progressIndex: number;
-  /** ONB item 4 removed SelfMasteryStep's own ingestion-gated affordance, so
-   * this prop is no longer forwarded anywhere and does nothing here. Kept
-   * declared, not removed, only because the wizard (not owned by this file)
-   * still passes it — dropping the prop type would break that call site.
-   * Safe for the wizard's own owner to also stop passing it. */
-  ingestionAvailable?: boolean;
+  /** ONB item 5: the wizard keeps every selected domain's step MOUNTED and
+   * flips this instead of unmounting, so walking back into a domain restores
+   * the screen you were on and the answers you gave. Defaults true so the
+   * step renders normally when used standalone (its own tests do this).
+   * The null return must stay below the hooks — returning before them would
+   * break the rules of hooks, and it is the mounted state we are protecting. */
+  active?: boolean;
 }) {
   const accent = TOP_DOMAIN_META.personal_growth.accent;
   // ONB item 3: Faith is the app's only religious-practice track (deen:
@@ -130,6 +131,10 @@ export function PersonalGrowthStep({
       setPhase(order[idx - 1]);
     }
   }
+
+  // ONB item 5: mounted but not shown. All hooks above have already run, so
+  // this step's phase and collected answers survive a trip to another domain.
+  if (!active) return null;
 
   if (phase === "faith") {
     return (

@@ -53,6 +53,42 @@ describe("OnboardingWizard", () => {
     expect(screen.getByTestId("subdomain-option-faith")).toHaveAttribute("aria-pressed", "true");
   });
 
+  // ONB item 5 (Ayman): "when the back arrow is pressed during onboarding it
+  // sends the user back to the 'What's part of Personal …' screen, not the
+  // screen directly before they were."
+  //
+  // Each step already handled its own INTERNAL back. The fault was cross-domain:
+  // leaving a domain unmounted its step, so returning re-mounted it fresh at its
+  // first screen — which is literally the "What's part of Personal Growth?"
+  // screen. The regression this locks is subtle: every step-level back test
+  // passes either way, because none of them ever leaves the domain and comes
+  // back. Only a cross-domain round trip can see it.
+  it("returns to the screen you were actually on when walking back into a domain", async () => {
+    const user = userEvent.setup();
+    render(<OnboardingWizard />);
+
+    await user.click(screen.getByTestId("domain-option-personal_growth"));
+    await user.click(screen.getByTestId("domain-option-work"));
+    await user.click(screen.getByTestId("onboarding-next"));
+
+    // Walk Personal Growth to its end: subdomains -> self_mastery -> fitness.
+    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "personal_growth-subdomains");
+    await user.click(screen.getByTestId("onboarding-next"));
+    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "personal_growth-self_mastery");
+    await user.click(screen.getByTestId("selfmastery-continue"));
+    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "personal_growth-fitness");
+
+    // Choosing a fitness style finishes the domain and moves the walk to Work.
+    await user.click(screen.getByTestId("fitness-style-adhoc"));
+    expect(await screen.findByTestId("onboarding-step")).toHaveAttribute("data-step", "work-list");
+
+    // Back from Work's FIRST screen crosses the domain boundary. It must land
+    // on the fitness screen we actually left, not Personal Growth's opener.
+    await user.click(screen.getByTestId("onboarding-back"));
+    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "personal_growth-fitness");
+    expect(screen.getByTestId("onboarding-step")).not.toHaveAttribute("data-step", "personal_growth-subdomains");
+  });
+
   it("refuses to remove the last remaining subdomain", async () => {
     const user = userEvent.setup();
     render(<OnboardingWizard />);

@@ -38,11 +38,15 @@ export function SchoolStep({
   onNext,
   progressTotal,
   progressIndex,
+  active = true,
 }: {
   onBack: () => void;
   onNext: () => void;
   progressTotal: number;
   progressIndex: number;
+  /** ONB item 5 — see PersonalGrowthStep's note. Mounted-but-hidden so the
+   * chosen source, staged classes and uploads survive leaving this domain. */
+  active?: boolean;
 }) {
   const accent = TOP_DOMAIN_META.school.accent;
   const [phase, setPhase] = useState<Phase>("source");
@@ -111,6 +115,9 @@ export function SchoolStep({
       setBusy(false);
     }
   }
+
+  // ONB item 5: mounted but not shown -- staged classes and phase survive.
+  if (!active) return null;
 
   if (phase === "source") {
     const chooseSource = (source: SchoolSource) => setPhase(source);
