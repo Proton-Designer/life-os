@@ -366,8 +366,17 @@ describe("castHabitVoteCore / retractHabitVoteCore — today-only, server-enforc
     expect(upserts[0]!.args[1]).toMatchObject({ ignoreDuplicates: true });
   });
 
-  it("retracts today's vote via a direct delete, never a read-then-branch", async () => {
-    const { client, calls } = makeClient({ habit_votes: [{ data: null, error: null }] });
+  // P4-34's fix adds ONE read against identity_habits (existence only,
+  // never branched on vote state) before the delete -- "never a
+  // read-then-branch" here is specifically about habit_votes' OWN state
+  // (the SET-not-toggle doctrine this describe block's own header cites),
+  // which this test still proves: no `select` call against habit_votes
+  // itself, regardless of the new identity_habits existence check.
+  it("retracts today's vote via a direct delete, never a read-then-branch on the VOTE's own state", async () => {
+    const { client, calls } = makeClient({
+      identity_habits: [{ data: { id: "h1" }, error: null }],
+      habit_votes: [{ data: null, error: null }],
+    });
     await retractHabitVoteCore(client, "user-1", "h1", today, now, tz);
 
     expect(calls.habit_votes!.some((c) => c.method === "select")).toBe(false);
@@ -376,6 +385,40 @@ describe("castHabitVoteCore / retractHabitVoteCore — today-only, server-enforc
     expect(eqArgs).toContainEqual(["user_id", "user-1"]);
     expect(eqArgs).toContainEqual(["habit_id", "h1"]);
     expect(eqArgs).toContainEqual(["date", today]);
+  });
+
+  // P4-34 (habits.vote.retract): retractHabitVoteCore's DELETE is scoped by
+  // (user_id, habit_id, date) against habit_votes, not identity_habits -- a
+  // DELETE never raises an FK violation for a WHERE-clause miss (unlike
+  // castHabitVoteCore's upsert, which genuinely does), so a bad/cross-tenant
+  // habitId previously matched zero rows and reported success identically
+  // to a legitimate "nothing to retract today" no-op. Both cases below
+  // produce the IDENTICAL "no such habit" result from the SAME
+  // user_id-scoped existence read -- account A retracting a vote against
+  // account B's habit id is indistinguishable from account A retracting
+  // against an id that never existed.
+  it("throws a clean not-found for a cross-tenant habit id instead of silently matching zero rows", async () => {
+    const { client, calls } = makeClient({ identity_habits: [{ data: null, error: null }] });
+    await expect(retractHabitVoteCore(client, "user-1", "belongs-to-account-b", today, now, tz)).rejects.toThrow(
+      /No identity habit found with id "belongs-to-account-b"/
+    );
+    expect(calls.habit_votes ?? []).toHaveLength(0); // never reaches the delete
+  });
+
+  it("throws a clean not-found for the caller's own stale/deleted habit id -- the common, non-adversarial case", async () => {
+    const { client, calls } = makeClient({ identity_habits: [{ data: null, error: null }] });
+    await expect(retractHabitVoteCore(client, "user-1", "deleted-earlier", today, now, tz)).rejects.toThrow(
+      /No identity habit found with id "deleted-earlier"/
+    );
+    expect(calls.habit_votes ?? []).toHaveLength(0);
+  });
+
+  it("a real habit with nothing to retract today stays a silent no-op -- NOT an error", async () => {
+    const { client } = makeClient({
+      identity_habits: [{ data: { id: "h1" }, error: null }],
+      habit_votes: [{ data: null, error: null }],
+    });
+    await expect(retractHabitVoteCore(client, "user-1", "h1", today, now, tz)).resolves.toBeUndefined();
   });
 
   // THE RULED SECURITY PROPERTY: a request for anything but the caller's

@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { localDateString } from "@/lib/date-utils";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 type TypedClient = SupabaseClient<Database>;
 
@@ -287,6 +288,18 @@ export async function castHabitVoteCore(
  * matches zero rows (nothing to retract, or already retracted by an
  * overlapping call) is not an error -- same SET-not-toggle reasoning as
  * `castHabitVoteCore` above.
+ *
+ * P4-34: the DELETE above is scoped by (user_id, habit_id, date) against
+ * `habit_votes`, not `identity_habits` -- a DELETE never raises an FK
+ * violation for a WHERE-clause miss the way `castHabitVoteCore`'s upsert
+ * genuinely does, so the registry handler's FK-violation catch that used to
+ * wrap this call was dead code: a bad/cross-tenant `habitId` silently
+ * matched zero rows on the vote table and reported success. This existence
+ * check is the split ENG-A's triage calls for: confirm the HABIT is real
+ * first (scoped by user_id, same tenancy scope the delete itself uses),
+ * THEN let the delete's own zero-or-more-rows result stay a true no-op
+ * either way -- "already retracted" and "never voted today" both still
+ * succeed silently; only "no such habit" now errors.
  */
 export async function retractHabitVoteCore(
   supabase: TypedClient,
@@ -297,6 +310,10 @@ export async function retractHabitVoteCore(
   timezone: string
 ): Promise<void> {
   assertRequestedDateIsToday(requestedDate, now, timezone);
+  const { data: habit, error: habitError } = await supabase.from("identity_habits").select("id").eq("id", habitId).eq("user_id", userId).maybeSingle();
+  if (habitError) throw habitError;
+  if (!habit) throw new ToolNotFoundError(`No identity habit found with id "${habitId}".`);
+
   const today = localDateString(now, timezone);
   const { error } = await supabase.from("habit_votes").delete().eq("user_id", userId).eq("habit_id", habitId).eq("date", today);
   if (error) throw error;
