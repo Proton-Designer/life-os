@@ -101,6 +101,39 @@ available on this environment now lives at `$HOME/.local/pgsql/env.sh` (see
 
 ---
 
+## 2026-09-19 — Fixing "write reports success on zero rows" the obvious way would have traded a truthfulness bug for an id-enumeration leak
+
+P4-34: 16 MCP write actions ran `.update(patch).eq("id", id).eq("user_id",
+userId)` and returned a cheerful `{id, updated_at}` whether or not any row
+matched. A stale id, a typo, or **another tenant's id** all got "done."
+Worse, it poisoned `mcp_audit_log`: the same id in the same account logged
+`error / "No class found"` for a read and `ok / "edited class"` for an edit
+— the audit record contradicted itself, so the log could not be used as an
+oracle for what actually happened.
+
+The obvious fix — read the row first, then update — is the wrong one. A
+separate existence check is a *second* query, and unless it repeats the
+tenancy scope exactly it can answer "that row exists, just not yours,"
+which is an **id-enumeration oracle**. That is strictly worse than the bug
+being fixed: false success wastes an agent's turn, enumeration leaks other
+tenants' ids.
+**What works:** chain `.select("id")` onto the update the action already
+ran (`lib/mcp/require-row-updated.ts`), and throw `ToolNotFoundError` on
+zero rows. The existence check *is* the scoped write, so "belongs to
+someone else" and "does not exist" fail the identical query and return
+byte-identical errors. No second question, nothing to leak.
+**Two shapes this helper cannot fix**, and hand-rolling them is correct:
+an INSERT (`confirmPlanSessionCore`) needs its check *before* the insert,
+not wrapped around it; a DELETE whose zero-row result is ambiguous
+(`retractHabitVoteCore` — "no such habit" vs "nothing to retract today")
+needs a real existence read against the *other* table.
+**Verifying it:** diff the two error messages byte-for-byte; do not
+eyeball them. And prove the positive control first — a harness that errors
+on everything is indistinguishable from a correct fix if you only ever
+test bad ids.
+
+---
+
 ## Patterns that do not work in this codebase
 
 - **Treating a stated "practiced" claim from an external source as equally
@@ -113,6 +146,14 @@ available on this environment now lives at `$HOME/.local/pgsql/env.sh` (see
   repeated, demonstrated behavior — not a viral restatement.
 - **Deciding "is this dead code?" from directory-scoped or comment-blind
   tooling alone in this repo.** See the lesson above.
+- **Adding a standalone existence check in front of a tenancy-scoped
+  write.** Chain `.select()` onto the write instead — see the 2026-09-19
+  lesson above for why the standalone read is an enumeration oracle.
+- **Reading an MCP call's HTTP status to decide whether a control fired.**
+  `lib/mcp/tool-wrapper.ts` returns denials as `isError` inside a normal
+  200, so status is structurally incapable of telling throttled/refused
+  apart from allowed. Parse the payload, or test the underlying RPC. REST
+  (`/api/v1`) does use real status codes; MCP does not.
 
 <!--
 [ ] Under 200 lines
