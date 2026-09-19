@@ -1,28 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SessionEntryCard } from "../session-entry-card";
 
 const loadTodaysSessionMock = vi.fn(async () => new Promise(() => {})); // never resolves -- just proving it opens
-const retryStarterDeckSeedMock = vi.fn();
 
 vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
   loadTodaysSession: () => loadTodaysSessionMock(),
-  retryStarterDeckSeed: () => retryStarterDeckSeedMock(),
 }));
 
-const refreshMock = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 
-function due(overrides: Partial<{ dueCount: number; newCount: number; estimatedMinutes: number; starterDeckMissing: boolean }>) {
-  return { dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: false, ...overrides };
+function due(overrides: Partial<{ dueCount: number; newCount: number; estimatedMinutes: number; hasBooks: boolean }>) {
+  return { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: true, ...overrides };
 }
 
 describe("SessionEntryCard", () => {
   beforeEach(() => {
     loadTodaysSessionMock.mockClear();
-    retryStarterDeckSeedMock.mockReset();
-    refreshMock.mockClear();
+    pushMock.mockClear();
   });
 
   it("renders nothing when dueSummary is null (unauthenticated/render-path degrade)", () => {
@@ -68,50 +65,32 @@ describe("SessionEntryCard", () => {
     expect(loadTodaysSessionMock).toHaveBeenCalled();
   });
 
-  // Boss ruling, R7: a starter-deck seed that never landed must be visible
-  // and recoverable, never silently identical to "you're caught up."
-  describe("starterDeckMissing (a seed that never landed, or was never attempted)", () => {
-    it("renders its own distinct copy -- never the caught-up state's copy", () => {
-      render(<SessionEntryCard dueSummary={due({ starterDeckMissing: true })} />);
-      expect(screen.getByText("Your starter deck didn't load")).toBeInTheDocument();
-      expect(screen.getByText("Retry")).toBeInTheDocument();
+  // ONB item 11: the automatic Marcus Aurelius starter-deck seed onboarding
+  // used to create is gone, so zero books is now always a genuine empty
+  // state -- never a failure signal. This is the exact regression this task
+  // risks: a zero-books user must NEVER see the old "Your starter deck
+  // didn't load" / "Retry" copy, which would now be permanently wrong for
+  // every new Self-Mastery user (there is no seed left to fail).
+  describe("empty library (zero books -- no starter deck was ever auto-created)", () => {
+    it("shows an honest 'add a book' prompt, never the old failure/retry copy", () => {
+      render(<SessionEntryCard dueSummary={due({ hasBooks: false })} />);
+      expect(screen.getByText("Add a book to get started")).toBeInTheDocument();
+      expect(screen.getByText("Add book")).toBeInTheDocument();
+      // The regression control: none of the old starter-deck-failure UI survives.
+      expect(screen.queryByText(/starter deck/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("Retry")).not.toBeInTheDocument();
       expect(screen.queryByText("Nothing due today")).not.toBeInTheDocument();
       expect(screen.queryByText("Review anyway")).not.toBeInTheDocument();
     });
 
-    it("tapping it retries the seed instead of opening the session overlay", async () => {
-      retryStarterDeckSeedMock.mockResolvedValue({ ok: true });
+    it("tapping it navigates to the library to add a book, instead of opening the session overlay", async () => {
       const user = userEvent.setup();
-      render(<SessionEntryCard dueSummary={due({ starterDeckMissing: true })} />);
+      render(<SessionEntryCard dueSummary={due({ hasBooks: false })} />);
 
-      await user.click(screen.getByRole("button", { name: /starter deck/ }));
+      await user.click(screen.getByRole("button", { name: /add a book/i }));
 
-      expect(retryStarterDeckSeedMock).toHaveBeenCalled();
+      expect(pushMock).toHaveBeenCalledWith("/self-mastery");
       expect(loadTodaysSessionMock).not.toHaveBeenCalled();
-    });
-
-    it("a successful retry refreshes Home so the card can flip out of the failed state", async () => {
-      retryStarterDeckSeedMock.mockResolvedValue({ ok: true });
-      const user = userEvent.setup();
-      render(<SessionEntryCard dueSummary={due({ starterDeckMissing: true })} />);
-
-      await user.click(screen.getByRole("button", { name: /starter deck/ }));
-
-      await waitFor(() => expect(refreshMock).toHaveBeenCalled());
-    });
-
-    it("a failed retry shows an inline message and stays retryable, never crashes or opens the overlay", async () => {
-      retryStarterDeckSeedMock.mockResolvedValue({ ok: false });
-      const user = userEvent.setup();
-      render(<SessionEntryCard dueSummary={due({ starterDeckMissing: true })} />);
-
-      await user.click(screen.getByRole("button", { name: /starter deck/ }));
-
-      await waitFor(() => expect(screen.getByText(/couldn't/i)).toBeInTheDocument());
-      expect(refreshMock).not.toHaveBeenCalled();
-      expect(loadTodaysSessionMock).not.toHaveBeenCalled();
-      // Still tappable -- the retry itself failing must not strand the user.
-      expect(screen.getByRole("button", { name: /starter deck/ })).not.toBeDisabled();
     });
   });
 });

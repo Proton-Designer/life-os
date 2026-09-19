@@ -12,30 +12,28 @@
  * finding one layer past where the previous fix looked.
  *
  * Extracted as a pure function (same reasoning as compute-domain-visibility.ts,
- * this page's own sibling extraction) so the one subtle case — NOT gating on
- * `starterDeckMissing` — is unit-tested directly rather than only implied by
- * the page rendering correctly in practice.
+ * this page's own sibling extraction) so this stays unit-tested directly
+ * rather than only implied by the page rendering correctly in practice.
+ *
+ * [ONB item 11, 2026-09-19] This interface used to also carry
+ * `starterDeckMissing`, and this file's own header used to document, at
+ * length, why `shouldShowSessionEntry` must NOT gate on it (doing so would
+ * have surfaced a "Your starter deck didn't load" retry to a School-only
+ * user who never wanted Self-Mastery at all). That whole caution is now
+ * moot rather than relevant-but-satisfied: the automatic starter-deck seed
+ * it was protecting against the fallout of no longer exists (see
+ * self-mastery-session-actions.ts's own history), so there is no
+ * `starterDeckMissing`-shaped field left to be tempted to gate on. This
+ * function's own logic never actually read that field either way — it was
+ * always `dueCount > 0 || newCount > 0` alone — so nothing here changes
+ * except the interface losing a field it never used.
  */
 export interface SessionEntryDueSummary {
   dueCount: number;
   newCount: number;
-  starterDeckMissing: boolean;
 }
 
-/**
- * `hasSelfMastery` preserves every existing behavior for a real Self-Mastery
- * user unchanged, including the `starterDeckMissing` retry nudge.
- *
- * The OR clause is deliberately `dueCount > 0 || newCount > 0`, NOT
- * `!starterDeckMissing` or "has any dueSummary at all" — `starterDeckMissing`
- * fires whenever the account has zero books AND zero due/new items, which is
- * ALSO the exact shape of a School-only user who has never opened Self-
- * Mastery. Showing the entry card on that shape would surface "Your starter
- * deck didn't load" to someone who never wanted a starter deck — a worse bug
- * than the one being fixed. Requiring a genuine due-or-new count excludes
- * that shape by construction: `starterDeckMissing` is only ever true when
- * this OR clause is already false.
- */
+/** `hasSelfMastery` preserves every existing behavior for a real Self-Mastery user unchanged. */
 export function shouldShowSessionEntry(hasSelfMastery: boolean, dueSummary: SessionEntryDueSummary | null): boolean {
   const hasDueOrNewItems = !!dueSummary && (dueSummary.dueCount > 0 || dueSummary.newCount > 0);
   return hasSelfMastery || hasDueOrNewItems;

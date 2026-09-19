@@ -43,17 +43,12 @@ const revalidatePathMock = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath: (...args: unknown[]) => revalidatePathMock(...args) }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn(() => { throw new Error("REDIRECT"); }) }));
 vi.mock("@/app/(app)/settings/actions", () => ({ updateProfile: vi.fn(async () => undefined) }));
-const seedMeditationsDeckForUserMock = vi.fn(async () => ({ seeded: true, alreadySeeded: false, bookId: "book-1", lessonCount: 12, cardCount: 47 }));
-vi.mock("@/lib/self-mastery/seed-meditations-deck", () => ({
-  seedMeditationsDeckForUser: () => seedMeditationsDeckForUserMock(),
-}));
 
 describe("Onboarding actions", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();
     fromMock.mockClear();
     rpcMock.mockClear();
-    seedMeditationsDeckForUserMock.mockClear();
     revalidatePathMock.mockClear();
   });
 
@@ -381,32 +376,13 @@ describe("Onboarding actions", () => {
       );
     });
 
-    it("calls seedMeditationsDeckForUser unconditionally -- the RPC itself gates on whether the user kept Self-Mastery, not this function", async () => {
-      const chain = makeChain({ data: null, error: null, count: 1 });
-      fromImpl = () => chain;
-      const { completeOnboarding } = await import("../actions");
-
-      await expect(completeOnboarding({})).rejects.toThrow("REDIRECT");
-
-      expect(seedMeditationsDeckForUserMock).toHaveBeenCalled();
-    });
-
-    it("a seeding failure never blocks the redirect -- reaching the app for the first time must not depend on Self-Mastery's seed succeeding", async () => {
-      const chain = makeChain({ data: null, error: null, count: 1 });
-      fromImpl = () => chain;
-      seedMeditationsDeckForUserMock.mockRejectedValueOnce(new Error("seed RPC exploded"));
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const { completeOnboarding } = await import("../actions");
-
-      // Still redirects (the mock throws "REDIRECT") despite the seed
-      // failure -- not a generic unhandled rejection from the seed error.
-      await expect(completeOnboarding({})).rejects.toThrow("REDIRECT");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("seedMeditationsDeckForUser failed"),
-        expect.any(Error)
-      );
-      consoleErrorSpy.mockRestore();
-    });
+    // ONB item 11: completeOnboarding used to call seedMeditationsDeckForUser
+    // unconditionally here (swallowing its failure so a seed error could
+    // never block the redirect) -- removed along with the automatic Marcus
+    // Aurelius starter deck it seeded. See lib/home/__tests__ and
+    // components/self-mastery/session/__tests__/session-entry-card.test.tsx
+    // for the coverage that replaces it: a zero-books account is now a
+    // first-class empty state, not a failure this function needs to log.
 
     // First-use trust bug (Boss-reported, 2026-09-18, same shape as
     // app/(app)/open/actions.ts's startDayAction): completing onboarding

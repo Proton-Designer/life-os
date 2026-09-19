@@ -141,8 +141,7 @@ export default async function HomePage() {
   const hasSelfMastery = hasArea(domainsState, "learning");
 
   // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's
-  // own header for the full mechanism and why this is NOT the same as
-  // checking dueSummary?.starterDeckMissing.
+  // own header for the full mechanism.
   const showSessionEntry = shouldShowSessionEntry(hasSelfMastery, dueSummary);
 
   // Body-level gating (Opus Lead finding, stranger-journey e2e): the nav

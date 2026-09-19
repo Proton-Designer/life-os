@@ -67,7 +67,7 @@ describe("Self-Mastery session actions", () => {
       expect(fromMock).not.toHaveBeenCalled();
     });
 
-    it("returns zero without querying user_settings when nothing is due and nothing is new, and flags starterDeckMissing when the user has zero books at all", async () => {
+    it("returns zero without querying user_settings when nothing is due and nothing is new, and hasBooks:false when the user has zero books at all", async () => {
       const dueChain = makeChain({ data: null, error: null, count: 0 });
       const newChain = makeChain({ data: null, error: null, count: 0 });
       const booksChain = makeChain({ data: null, error: null, count: 0 });
@@ -84,18 +84,16 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      // Boss ruling, R7: the onboarding seed step's own failure is
-      // deliberately swallowed (completeOnboarding never blocks reaching
-      // the app), so by the time Home ever renders, seeding has already
-      // been attempted -- zero due, zero new, AND zero books at all is the
-      // reliable, structural signal that it never landed. This must not
-      // read identically to "genuinely caught up" (which always has at
-      // least one book).
-      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: true });
+      // ONB item 11: zero due, zero new, AND zero books is now always a
+      // genuine empty state (no book ever added) -- not the R7-era failure
+      // signal it used to be, since there's no more automatic starter-deck
+      // seed to fail. Still must not read identically to "genuinely caught
+      // up" (which always has at least one book) -- see hasBooks below.
+      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: false });
       expect(fromMock).not.toHaveBeenCalledWith("user_settings");
     });
 
-    it("does NOT flag starterDeckMissing when nothing is due/new but the user has at least one book -- a genuinely caught-up deck, not a failed seed", async () => {
+    it("hasBooks:true when nothing is due/new but the user has at least one book -- a genuinely caught-up deck, not an empty library", async () => {
       const dueChain = makeChain({ data: null, error: null, count: 0 });
       const newChain = makeChain({ data: null, error: null, count: 0 });
       const booksChain = makeChain({ data: null, error: null, count: 1 });
@@ -112,7 +110,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: false });
+      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: true });
     });
 
     it("reads session_target_minutes from user_settings when cards are due", async () => {
@@ -133,7 +131,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 12, newCount: 4, estimatedMinutes: 15, starterDeckMissing: false });
+      expect(result).toEqual({ dueCount: 12, newCount: 4, estimatedMinutes: 15, hasBooks: true });
     });
 
     it("falls back to the column default (8) when no user_settings row exists yet", async () => {
@@ -154,7 +152,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 3, newCount: 0, estimatedMinutes: 8, starterDeckMissing: false });
+      expect(result).toEqual({ dueCount: 3, newCount: 0, estimatedMinutes: 8, hasBooks: true });
     });
 
     it("shows a fresh deck's never-reviewed cards even when dueCount is 0 -- day one, not caught up", async () => {
@@ -175,7 +173,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 0, newCount: 12, estimatedMinutes: 8, starterDeckMissing: false });
+      expect(result).toEqual({ dueCount: 0, newCount: 12, estimatedMinutes: 8, hasBooks: true });
     });
   });
 
@@ -196,13 +194,13 @@ describe("Self-Mastery session actions", () => {
       expect(fromMock).not.toHaveBeenCalled();
     });
 
-    it("hasCandidate: false when nothing is due and nothing is new (genuinely caught up, or a starter deck that never seeded) -- and never fetches due-card detail", async () => {
+    it("hasCandidate: false when nothing is due and nothing is new (genuinely caught up, or an empty library) -- and never fetches due-card detail", async () => {
       fromImpl = () => {
         throw new Error("fetchDueCardDetail must not run when there is no candidate");
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: false });
+      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: false });
 
       expect(result).toEqual({ hasCandidate: false, dueAt: null, decay: null, cost: null });
     });
@@ -224,7 +222,7 @@ describe("Self-Mastery session actions", () => {
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput({ dueCount: 3, newCount: 0, estimatedMinutes: 15, starterDeckMissing: false });
+      const result = await getSelfMasteryCandidateInput({ dueCount: 3, newCount: 0, estimatedMinutes: 15, hasBooks: true });
 
       expect(result.hasCandidate).toBe(true);
       expect(result.dueAt).toEqual(new Date(dueCardRow.due_at));
@@ -240,35 +238,9 @@ describe("Self-Mastery session actions", () => {
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 12, estimatedMinutes: 8, starterDeckMissing: false });
+      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 12, estimatedMinutes: 8, hasBooks: true });
 
       expect(result).toEqual({ hasCandidate: true, dueAt: null, decay: null, cost: 8 });
-    });
-  });
-
-  describe("retryStarterDeckSeed (Boss ruling, R7: a seed failure must be visible and recoverable, never silent)", () => {
-    it("calls the same seed RPC seedMeditationsDeckForUser uses, and revalidates Home on success", async () => {
-      rpcMock.mockResolvedValueOnce({
-        data: { seeded: true, alreadySeeded: false, bookId: "book-1", lessonCount: 12, cardCount: 47 },
-        error: null,
-      });
-      const { revalidatePath } = await import("next/cache");
-      const { retryStarterDeckSeed } = await import("../self-mastery-session-actions");
-
-      const result = await retryStarterDeckSeed();
-
-      expect(rpcMock).toHaveBeenCalledWith("seed_meditations_deck", expect.objectContaining({ p_lessons: expect.anything() }));
-      expect(result).toEqual({ ok: true });
-      expect(revalidatePath).toHaveBeenCalledWith("/");
-    });
-
-    it("a repeated RPC failure returns ok:false rather than throwing -- the retry button itself must never crash the page", async () => {
-      rpcMock.mockRejectedValueOnce(new Error("still down"));
-      const { retryStarterDeckSeed } = await import("../self-mastery-session-actions");
-
-      const result = await retryStarterDeckSeed();
-
-      expect(result).toEqual({ ok: false });
     });
   });
 
@@ -346,10 +318,9 @@ describe("Self-Mastery session actions", () => {
       };
       fromImpl = (table) => tables[table];
       // mockRejectedValueOnce (not a resolved {data:null, error:{...}} object) --
-      // matches this file's own established convention for simulating a failed
-      // RPC (see retryStarterDeckSeed's own failure test above), and sidesteps
-      // rpcMock's return-type inference being locked to `error: null` from its
-      // first literal.
+      // this file's own established convention for simulating a failed RPC,
+      // sidestepping rpcMock's return-type inference being locked to
+      // `error: null` from its first literal.
       rpcMock.mockRejectedValueOnce(new Error("submit_question_review: no card_states row for question q1 / user user-1"));
       const { gradeQuestion } = await import("../self-mastery-session-actions");
 

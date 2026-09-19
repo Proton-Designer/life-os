@@ -24,7 +24,6 @@ import {
   fetchSessionStudyMethods,
   type LessonContext,
 } from "@/lib/self-mastery/session/build-session";
-import { seedMeditationsDeckForUser as seedMeditationsDeckForUserCore } from "@/lib/self-mastery/seed-meditations-deck";
 import type { BuiltSession, SessionCompletionResult } from "@/lib/self-mastery/session/types";
 import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
 import type { SelfMasterySummary } from "@/lib/home/build-candidates";
@@ -285,23 +284,24 @@ export interface DueSummary {
   newCount: number;
   estimatedMinutes: number;
   /**
-   * true only when nothing is due, nothing is new, AND the user has zero
-   * books at all (Boss ruling, R7: a silent onboarding-seed failure must
-   * become a visible signal, not a screen indistinguishable from "caught
-   * up"). completeOnboarding calls seedMeditationsDeckForUser exactly
-   * once, synchronously, before Home can ever render, and deliberately
-   * swallows its failure rather than blocking the user's first reach of
-   * the app -- so by the time this function ever runs, seeding has
-   * definitely already been attempted. Zero books for an account that
-   * kept Self-Mastery therefore reliably means it failed (or, for an
-   * account that added Self-Mastery after onboarding, was never attempted
-   * -- the same "no deck yet" state, fixed the same way: retry). Never
-   * true once a book exists, regardless of how caught-up its cards are --
-   * an existing book with zero due/new cards is a real, legitimate "you're
-   * done for now," not a failure. See session-entry-card.tsx for the
-   * distinct copy this drives.
+   * Whether the account has at least one book at all. Distinguishes a
+   * genuinely empty library (never added a book -- show a real "add a
+   * book" prompt) from a caught-up one (an existing book with nothing
+   * currently due/new -- show "Nothing due today") when dueCount and
+   * newCount are both zero. See session-entry-card.tsx for the distinct
+   * copy this drives.
+   *
+   * [ONB item 11, 2026-09-19] This field used to be `starterDeckMissing`:
+   * onboarding auto-seeded a sample Marcus Aurelius deck for every
+   * Self-Mastery account, and zero books was the reliable signal that
+   * seed had failed (Boss ruling R7: "a seed failure must be visible,
+   * never silent"), driving a "Your starter deck didn't load" retry
+   * nudge. Ayman removed the automatic seed (a new account showing "47
+   * cards ready to start" out of nowhere was itself the bug) -- R7 is
+   * moot now, not overturned: there is no seed left to fail, so zero
+   * books is always a genuine, first-class empty state.
    */
-  starterDeckMissing: boolean;
+  hasBooks: boolean;
 }
 
 export async function getDueSummary(): Promise<DueSummary | null> {
@@ -314,7 +314,7 @@ export async function getDueSummary(): Promise<DueSummary | null> {
   ]);
   if (dueCount === 0 && newCount === 0) {
     const { count } = await supabase.from("books").select("id", { count: "exact", head: true }).eq("user_id", user.id);
-    return { dueCount: 0, newCount: 0, estimatedMinutes: 0, starterDeckMissing: (count ?? 0) === 0 };
+    return { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: (count ?? 0) > 0 };
   }
   const { data } = await supabase
     .from("user_settings")
@@ -325,7 +325,7 @@ export async function getDueSummary(): Promise<DueSummary | null> {
   // default (066), not re-derived here, so this stays the one place that
   // default lives.
   const estimatedMinutes = data?.session_target_minutes ?? 8;
-  return { dueCount, newCount, estimatedMinutes, starterDeckMissing: false };
+  return { dueCount, newCount, estimatedMinutes, hasBooks: true };
 }
 
 /**
@@ -333,7 +333,7 @@ export async function getDueSummary(): Promise<DueSummary | null> {
  * restated item 1's admission gate generalized): `hasCandidate` is the
  * gate -- true only when there's something real to offer (dueCount or
  * newCount > 0, the same condition getDueSummary itself uses to decide
- * "nothing to show"). A starter deck that never seeded, or a genuinely
+ * "nothing to show"). An account with zero books, or a genuinely
  * caught-up account, both correctly produce hasCandidate: false here --
  * there is no real Self-Mastery work to rank in either case, which is
  * different from "we don't know" (R37's distinction, restated for this
@@ -368,23 +368,4 @@ export async function getSelfMasteryCandidateInput(summary: DueSummary | null): 
     decay: detail.lowestRetrievability,
     cost: summary.estimatedMinutes,
   };
-}
-
-/**
- * Home's visible retry for a starter deck that never seeded (Boss ruling,
- * R7 -- "a seed failure must be visible... never silent"). Safe to call any
- * number of times: seed_meditations_deck (the RPC underneath) is
- * idempotent and self-gates on the self_mastery subdomain, so a repeat
- * call either seeds a genuinely missing deck or is a documented no-op --
- * it never duplicates a book that already exists.
- */
-export async function retryStarterDeckSeed(): Promise<{ ok: boolean }> {
-  const { supabase } = await requireUser();
-  try {
-    const result = await seedMeditationsDeckForUserCore(supabase);
-    revalidatePath("/");
-    return { ok: result.seeded };
-  } catch {
-    return { ok: false };
-  }
 }

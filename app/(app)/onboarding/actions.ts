@@ -6,7 +6,6 @@ import { requireUser, getAuthedUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { updateProfile, type ProfileUpdatable } from "@/app/(app)/settings/actions";
 import type { Json } from "@/lib/supabase/database.types";
-import { seedMeditationsDeckForUser } from "@/lib/self-mastery/seed-meditations-deck";
 
 /**
  * Every key `user_domains.key` may legally hold — the TypeScript mirror of
@@ -382,21 +381,18 @@ export async function completeOnboarding(
 
   await updateProfile({ ...fields, onboarding_completed: true });
 
-  // Seeds the sample Meditations deck for anyone who kept Self-Mastery —
-  // the RPC itself gates on user_subdomains (self_mastery, non-archived),
-  // so this is called unconditionally rather than pre-checking here, per
-  // the same "push the applicability check down to the thing that owns
-  // the answer" reasoning as everything else in this file. A seeding
-  // failure must never prevent someone from reaching the app for the
-  // first time — same render-path-never-blocks discipline as
-  // getUserDomains()/getOnboardingState() degrading rather than throwing,
-  // applied here to a write instead of a read. Logged, not silently
-  // swallowed, so a real failure is still discoverable.
-  try {
-    await seedMeditationsDeckForUser(supabase);
-  } catch (err) {
-    console.error("completeOnboarding: seedMeditationsDeckForUser failed", err);
-  }
+  // ONB item 11 (Ayman): removed the automatic Marcus Aurelius "Meditations"
+  // starter-deck seed that used to run here unconditionally for anyone who
+  // kept Self-Mastery -- a new account showed "47 cards ready to start" out
+  // of nowhere, with no book the user ever chose. This is not a casual
+  // reversal of the prior ruling that a seed failure must be visible, never
+  // silent (R7, self-mastery-session-actions.ts's own history) -- that
+  // ruling is now moot, not overturned, because there is no seed left to
+  // fail. Zero books is a genuine, honest empty state for every new
+  // Self-Mastery user now (see getDueSummary's `hasBooks`), not evidence of
+  // a failed write. Existing accounts that were already seeded keep their
+  // decks -- deleting user data (and any real study progress on it) is
+  // Ayman's call, not made here.
 
   revalidatePath("/", "layout");
   redirect("/");
