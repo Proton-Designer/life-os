@@ -2,14 +2,16 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const listMyReflectionCardsMock = vi.fn();
+const entryStateMock = vi.fn();
 const startEndOfHourRitualMock = vi.fn();
 const submitEndOfHourReflectionMock = vi.fn();
 vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
-  listMyReflectionCards: (...args: unknown[]) => listMyReflectionCardsMock(...args),
+  getEndOfHourEntryState: (...args: unknown[]) => entryStateMock(...args),
   startEndOfHourRitual: (...args: unknown[]) => startEndOfHourRitualMock(...args),
   submitEndOfHourReflection: (...args: unknown[]) => submitEndOfHourReflectionMock(...args),
 }));
+
+const NUDGE = "Add a reflection card in Settings to unlock the End-of-Hour ritual.";
 
 import { EndOfHourReflection } from "../end-of-hour-reflection";
 
@@ -26,36 +28,57 @@ const CARD = {
 
 describe("EndOfHourReflection", () => {
   beforeEach(() => {
-    listMyReflectionCardsMock.mockReset();
+    entryStateMock.mockReset();
     startEndOfHourRitualMock.mockReset();
     submitEndOfHourReflectionMock.mockReset();
   });
 
-  it("renders nothing before the hour is up, and never even fetches cards", () => {
+  it("renders nothing before the hour is up, and never even fetches state", () => {
     render(<EndOfHourReflection elapsedMinutes={30} intervals={INTERVALS} />);
     expect(screen.queryByRole("button", { name: "Reflect" })).not.toBeInTheDocument();
-    expect(listMyReflectionCardsMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(NUDGE)).not.toBeInTheDocument();
+    expect(entryStateMock).not.toHaveBeenCalled();
   });
 
-  // listMyReflectionCards() itself returns [] both when cards_library is
-  // off AND when it's on with zero cards saved yet -- same UI outcome
-  // either way (nothing to reflect on right now), so this one scenario
-  // covers both real-world causes.
-  it("renders nothing once the hour is up if there are no cards to show", async () => {
-    listMyReflectionCardsMock.mockResolvedValue([]);
+  // GAP-06: the previous version of this suite asserted that "flag off" and
+  // "flag on, zero cards" were one scenario because listMyReflectionCards()
+  // returned [] for both. That conflation was fine while the empty branch
+  // rendered NOTHING. It stopped being fine the moment the branch says
+  // something: a first-run nudge shown to a user who never enabled the
+  // feature is advertising, on a banner every user sees. These are now two
+  // distinct tests because they are two distinct populations.
+  it("renders nothing once the hour is up when the cards_library flag is OFF", async () => {
+    entryStateMock.mockResolvedValue({ enabled: false, hasCards: false });
     render(<EndOfHourReflection elapsedMinutes={65} intervals={INTERVALS} />);
-    await waitFor(() => expect(listMyReflectionCardsMock).toHaveBeenCalled());
+    await waitFor(() => expect(entryStateMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Reflect" })).not.toBeInTheDocument();
+    expect(screen.queryByText(NUDGE)).not.toBeInTheDocument();
+  });
+
+  it("explains the prerequisite when the flag is ON but the account has zero cards", async () => {
+    entryStateMock.mockResolvedValue({ enabled: true, hasCards: false });
+    render(<EndOfHourReflection elapsedMinutes={65} intervals={INTERVALS} />);
+    expect(await screen.findByText(NUDGE)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reflect" })).not.toBeInTheDocument();
+  });
+
+  it("renders nothing if the state fetch fails, rather than guessing", async () => {
+    entryStateMock.mockRejectedValue(new Error("network"));
+    render(<EndOfHourReflection elapsedMinutes={65} intervals={INTERVALS} />);
+    await waitFor(() => expect(entryStateMock).toHaveBeenCalled());
+    expect(screen.queryByText(NUDGE)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reflect" })).not.toBeInTheDocument();
   });
 
   it("shows a Reflect trigger once the hour is up and at least one card exists", async () => {
-    listMyReflectionCardsMock.mockResolvedValue([CARD]);
+    entryStateMock.mockResolvedValue({ enabled: true, hasCards: true });
     render(<EndOfHourReflection elapsedMinutes={61} intervals={INTERVALS} />);
     expect(await screen.findByRole("button", { name: "Reflect" })).toBeInTheDocument();
+    expect(screen.queryByText(NUDGE)).not.toBeInTheDocument();
   });
 
   it("opening the ritual fetches the recap + next card, and submitting logs it", async () => {
-    listMyReflectionCardsMock.mockResolvedValue([CARD]);
+    entryStateMock.mockResolvedValue({ enabled: true, hasCards: true });
     startEndOfHourRitualMock.mockResolvedValue({
       ok: true,
       message: "Ready.",
@@ -83,7 +106,7 @@ describe("EndOfHourReflection", () => {
   // that card was archived elsewhere in the meantime -- the dialog itself
   // must still degrade honestly rather than assume `card` is always set.
   it("when the ritual comes back with no card, says so and disables submit", async () => {
-    listMyReflectionCardsMock.mockResolvedValue([CARD]);
+    entryStateMock.mockResolvedValue({ enabled: true, hasCards: true });
     startEndOfHourRitualMock.mockResolvedValue({
       ok: true,
       message: "Ready.",

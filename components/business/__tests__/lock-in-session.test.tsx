@@ -16,13 +16,15 @@ vi.mock("@/app/(app)/checkin/session-hour-actions", () => ({
 }));
 
 // LockInSession now renders EndOfHourReflection (P3-05), which derives its
-// own visibility from listMyReflectionCards() -- mocked empty by default
-// (matching both the flag's own real default AND a fresh/off account) so
-// it renders nothing here and every existing assertion below is
-// unaffected. end-of-hour-reflection.test.tsx covers that component's own
+// own visibility from getEndOfHourEntryState() -- mocked flag-OFF by
+// default (the flag's own real default) so it renders nothing here and
+// every existing assertion below is unaffected. GAP-06: this mock now has
+// to say WHICH empty state it is, because flag-off renders nothing while
+// flag-on-with-zero-cards renders a nudge.
+// end-of-hour-reflection.test.tsx covers that component's own
 // behavior directly.
 vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
-  listMyReflectionCards: vi.fn(async () => []),
+  getEndOfHourEntryState: vi.fn(async () => ({ enabled: false, hasCards: false })),
   startEndOfHourRitual: vi.fn(),
   submitEndOfHourReflection: vi.fn(),
 }));

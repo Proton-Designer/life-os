@@ -46,6 +46,27 @@ export async function listMyReflectionCards(): Promise<ReflectionCard[]> {
   return listActiveCardsCore(ctx.supabase, ctx.userId);
 }
 
+/**
+ * GAP-06 -- the End-of-Hour entry point needs to tell "the flag is off" apart
+ * from "the flag is on but this account has no cards yet", which
+ * `listMyReflectionCards` deliberately cannot: it returns `[]` for both.
+ * That conflation is correct for *hiding* the entry (either way there is
+ * nothing to reflect on) and wrong the moment the empty branch wants to SAY
+ * something -- a first-run nudge shown to someone who never enabled the
+ * feature is unsolicited advertising for it.
+ *
+ * One round trip, same as the `listMyReflectionCards` call it replaces at
+ * that call site: the flag read already happens inside the gate, so
+ * reporting it costs nothing extra. Returns presence, never card contents --
+ * the caller only needs a boolean and has no business holding the rows.
+ */
+export async function getEndOfHourEntryState(): Promise<{ enabled: boolean; hasCards: boolean }> {
+  const ctx = await requireCardsLibraryEnabled();
+  if (!ctx) return { enabled: false, hasCards: false };
+  const cards = await listActiveCardsCore(ctx.supabase, ctx.userId);
+  return { enabled: true, hasCards: cards.length > 0 };
+}
+
 export interface EndOfHourRecapResult {
   ok: boolean;
   message: string;

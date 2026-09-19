@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { listMyReflectionCards, startEndOfHourRitual, submitEndOfHourReflection } from "@/app/(app)/personal/reflection-cards-actions";
+import { getEndOfHourEntryState, startEndOfHourRitual, submitEndOfHourReflection } from "@/app/(app)/personal/reflection-cards-actions";
 import type { HourRecap, HourWorkInterval, ReflectionCard, ReflectionCardKind } from "@/lib/reflection-cards/types";
 
 const KIND_LABEL: Record<ReflectionCardKind, string> = {
@@ -25,20 +25,29 @@ type Phase = "closed" | "recap" | "submitted";
  * Hour" completing at 60 real minutes, both the minimized Lock-In panel
  * and the full-screen overlay.
  *
- * Visibility is derived from listMyReflectionCards() rather than a
- * dedicated "is the flag on" check or a prop threaded down from a Server
- * Component: both callers of this component sit many layers inside the
- * app-wide LockInOverlayProvider (lock-in-overlay-context.tsx), and
- * threading a boolean flag that deep would mean touching AppShell,
+ * Visibility comes from getEndOfHourEntryState() rather than a prop
+ * threaded down from a Server Component: both callers sit many layers
+ * inside the app-wide LockInOverlayProvider (lock-in-overlay-context.tsx),
+ * and threading a boolean that deep would mean touching AppShell,
  * AppShellChrome, business/page.tsx AND wherever the Home Focus module
  * mounts LockInPanel, for one manually-triggered, off-by-default feature.
- * listMyReflectionCards is itself flag-gated server-side (returns `[]`
- * when `cards_library` is off, same as a disabled user with zero cards) --
- * so "no cards came back" already implies "nothing to reflect on right
- * now" regardless of WHY, and reusing it avoids a second, near-duplicate
- * Server Action just to answer a boolean. Checked once, only after the
- * hour is actually up (never before) -- no point paying the round trip on
- * every session that never reaches 60 minutes.
+ * Checked once, only after the hour is actually up (never before) -- no
+ * point paying the round trip on every session that never reaches 60
+ * minutes.
+ *
+ * GAP-06 -- why this is NOT listMyReflectionCards() any more. That call
+ * returns `[]` both when `cards_library` is off and when it is on with zero
+ * cards, and the original version of this component leaned on that: "no
+ * cards came back" implied "nothing to reflect on", regardless of why.
+ * That was sound while the empty branch rendered NOTHING. It stopped being
+ * sound the moment the branch needed to SAY something -- a first-run nudge
+ * shown to someone who never enabled the feature is advertising for it, on
+ * a banner every user sees. So the three states are now distinct:
+ *   flag off            -> null (unchanged; must stay null)
+ *   flag on, no cards   -> a line naming the prerequisite
+ *   flag on, >=1 card   -> the ritual trigger (unchanged)
+ * getEndOfHourEntryState() answers that in ONE round trip, the same cost as
+ * the call it replaced, and returns booleans rather than card contents.
  */
 export function EndOfHourReflection({
   elapsedMinutes,
@@ -48,6 +57,7 @@ export function EndOfHourReflection({
   intervals: HourWorkInterval[];
 }) {
   const [checked, setChecked] = useState(false);
+  const [enabled, setEnabled] = useState(false);
   const [hasCards, setHasCards] = useState(false);
   const [phase, setPhase] = useState<Phase>("closed");
   const [recap, setRecap] = useState<HourRecap | null>(null);
@@ -59,12 +69,29 @@ export function EndOfHourReflection({
   useEffect(() => {
     if (checked || elapsedMinutes < 60) return;
     setChecked(true);
-    listMyReflectionCards()
-      .then((cards) => setHasCards(cards.length > 0))
-      .catch(() => setHasCards(false));
+    getEndOfHourEntryState()
+      .then((state) => {
+        setEnabled(state.enabled);
+        setHasCards(state.hasCards);
+      })
+      .catch(() => {
+        setEnabled(false);
+        setHasCards(false);
+      });
   }, [checked, elapsedMinutes]);
 
-  if (elapsedMinutes < 60 || !hasCards) return null;
+  if (elapsedMinutes < 60) return null;
+  // GAP-06: the flag being off still renders nothing -- a nudge for a feature
+  // the user never enabled is advertising, and this banner is on a screen
+  // every user sees. Only the enabled-but-empty case gets the explanation.
+  if (!enabled) return null;
+  if (!hasCards) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Add a reflection card in Settings to unlock the End-of-Hour ritual.
+      </p>
+    );
+  }
 
   function openRitual() {
     setError(null);

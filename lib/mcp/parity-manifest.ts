@@ -239,6 +239,10 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/fsrs-tuning-actions.ts#getFsrsTuningStatus": { read_only: true },
   "app/(app)/personal/fsrs-tuning-actions.ts#triggerFsrsTuning": { excluded: "scope_ruling: P3-20's board file sets mcp_surface: no; an agent-triggerable retune is out of scope" },
   "app/(app)/personal/reflection-cards-actions.ts#listMyReflectionCards": { read_only: true },
+  // GAP-06: reports flag-enabled + card-presence as two booleans so the
+  // End-of-Hour entry can tell "feature off" from "on but empty". Reads only,
+  // returns no card contents.
+  "app/(app)/personal/reflection-cards-actions.ts#getEndOfHourEntryState": { read_only: true },
   "app/(app)/personal/reflection-cards-actions.ts#createReflectionCard": { pending: "P4-cov-P3-05" },
   "app/(app)/personal/reflection-cards-actions.ts#archiveReflectionCard": { pending: "P4-cov-P3-05" },
   "app/(app)/personal/reflection-cards-actions.ts#startEndOfHourRitual": { pending: "P4-cov-P3-05" },
