@@ -16,6 +16,7 @@ import {
   startTodaysSession,
   submitCardReview,
   submitSelfExplanation,
+  recordTeachBackUsage,
   countDueCards,
   countNewCards,
 } from "../build-session";
@@ -402,6 +403,53 @@ describe("submitSelfExplanation", () => {
       prompt: "Put this in your own words",
       response: "Another real explanation",
     });
+
+    expect(wsChain.update).not.toHaveBeenCalled();
+  });
+});
+
+// P3-03: "recite" (Teach-Back mode) was named `status: "active"` in
+// study-methods.ts with a real implementedAt citation, but nothing ever
+// called recordStudyMethods with it -- evaluateTeachBack
+// (lib/self-mastery/teach-back.ts) is deliberately ephemeral (no
+// persistence of its own) and Teach-Back mode is deliberately standalone
+// from this file's retrieval overlay (components/self-mastery/
+// teach-back-panel.tsx's own header), so it never had a sessionId to
+// attribute "recite" to the way submitSelfExplanation's "draft" does.
+// recordTeachBackUsage is the bridge: ensures today's session exists
+// (startTodaysSession -- the same idempotent resume-or-create RPC
+// buildTodaysSession itself calls) and tags "recite" onto it.
+describe("P3-03: recordTeachBackUsage records 'recite' via today's session", () => {
+  function makeClient(opts: { rpcData: Record<string, unknown>; wsChain: ReturnType<typeof makeChain> }) {
+    const rpc = vi.fn(async () => ({ data: opts.rpcData, error: null }));
+    return { rpc, from: vi.fn(() => opts.wsChain) } as unknown as Parameters<typeof hydrateQueueCards>[0];
+  }
+
+  const RPC_SESSION_ROW = {
+    id: "sess-teach-1",
+    user_id: "user-1",
+    local_date: "2026-09-18",
+    started_at: "2026-09-18T12:00:00Z",
+    ended_at: null,
+    cards_reviewed: 0,
+    new_cards_introduced: 0,
+  };
+
+  it("ensures today's session exists and records 'recite' on work_sessions.study_methods", async () => {
+    const wsChain = makeChain({ data: { study_methods: ["retrieval"] }, error: null });
+    const client = makeClient({ rpcData: RPC_SESSION_ROW, wsChain });
+
+    await recordTeachBackUsage(client, "2026-09-18");
+
+    expect((client as unknown as { rpc: ReturnType<typeof vi.fn> }).rpc).toHaveBeenCalledWith("start_session", { p_local_date: "2026-09-18" });
+    expect(wsChain.update).toHaveBeenCalledWith({ study_methods: ["retrieval", "recite"] });
+  });
+
+  it("does NOT re-write study_methods when 'recite' is already recorded -- union, not append", async () => {
+    const wsChain = makeChain({ data: { study_methods: ["retrieval", "recite"] }, error: null });
+    const client = makeClient({ rpcData: RPC_SESSION_ROW, wsChain });
+
+    await recordTeachBackUsage(client, "2026-09-18");
 
     expect(wsChain.update).not.toHaveBeenCalled();
   });

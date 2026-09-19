@@ -1,7 +1,9 @@
 "use server";
 
-import { requireUser } from "@/lib/supabase/auth";
+import { requireUser, getProfile } from "@/lib/supabase/auth";
+import { localDateString } from "@/lib/date-utils";
 import { evaluateTeachBack } from "@/lib/self-mastery/teach-back";
+import { recordTeachBackUsage } from "@/lib/self-mastery/session/build-session";
 
 /** P2-18 — the action-layer wiring for Teach-Back mode's entry (lesson picker) and evaluation. */
 
@@ -45,5 +47,15 @@ export async function submitTeachBack(lessonId: string, explanation: string): Pr
   if (result.status !== "evaluated") {
     return { outcome: result.status };
   }
+
+  // P3-03: "recite" is only recorded on a genuine evaluated outcome (a real
+  // explanation AND real gap feedback -- study-methods.ts's own
+  // description) -- see recordTeachBackUsage's own header for why this
+  // needs its own bridge rather than reusing submitSelfExplanation's
+  // sessionId-based pattern directly.
+  const profile = await getProfile();
+  const timezone = profile?.timezone ?? "UTC";
+  await recordTeachBackUsage(supabase, localDateString(new Date(), timezone));
+
   return { outcome: "evaluated", followUpQuestions: result.followUpQuestions, gapFeedback: result.gapFeedback };
 }

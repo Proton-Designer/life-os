@@ -2,8 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const requireUserMock = vi.fn(async () => ({ supabase: {} as unknown as SupabaseClient, userId: "user-1" }));
+const getProfileMock = vi.fn(async () => ({ timezone: "America/Chicago" }) as { timezone: string | null } | null);
 vi.mock("@/lib/supabase/auth", () => ({
   requireUser: () => requireUserMock(),
+  getProfile: () => getProfileMock(),
 }));
 
 const evaluateTeachBackMock = vi.fn();
@@ -11,11 +13,23 @@ vi.mock("@/lib/self-mastery/teach-back", () => ({
   evaluateTeachBack: (...args: unknown[]) => evaluateTeachBackMock(...args),
 }));
 
+// P3-03: "recite" is recorded via this bridge on a genuine evaluated
+// outcome only -- see recordTeachBackUsage's own header
+// (lib/self-mastery/session/build-session.ts) and build-session.test.ts
+// for the recording behavior itself; this file only proves submitTeachBack
+// calls it (or doesn't) at the right times.
+const recordTeachBackUsageMock = vi.fn();
+vi.mock("@/lib/self-mastery/session/build-session", () => ({
+  recordTeachBackUsage: (...args: unknown[]) => recordTeachBackUsageMock(...args),
+}));
+
 const { getTeachableLessons, submitTeachBack } = await import("../teach-back-actions");
 
 beforeEach(() => {
   requireUserMock.mockClear();
+  getProfileMock.mockClear();
   evaluateTeachBackMock.mockReset();
+  recordTeachBackUsageMock.mockClear();
 });
 
 describe("getTeachableLessons", () => {
@@ -70,5 +84,41 @@ describe("submitTeachBack", () => {
     evaluateTeachBackMock.mockResolvedValue({ status: "no_key" });
     const result = await submitTeachBack("lesson-1", "A real explanation of the lesson content.");
     expect(result).toEqual({ outcome: "no_key" });
+  });
+
+  // P3-03 regression guard: "recite" was named active in study-methods.ts
+  // but nothing ever called recordStudyMethods with it. These prove
+  // submitTeachBack now bridges to it via recordTeachBackUsage, on a
+  // genuine evaluated outcome only -- matching study-methods.ts's own
+  // description ("teaching a lesson back... AND getting gap feedback").
+  it("records 'recite' usage (via today's local date) on a genuine evaluated outcome", async () => {
+    evaluateTeachBackMock.mockResolvedValue({ status: "evaluated", followUpQuestions: ["q1"], gapFeedback: "fb" });
+    const supabase = {} as unknown as SupabaseClient;
+    requireUserMock.mockResolvedValue({ supabase, userId: "user-1" });
+
+    await submitTeachBack("lesson-1", "A real explanation of the lesson content.");
+
+    expect(recordTeachBackUsageMock).toHaveBeenCalledTimes(1);
+    expect(recordTeachBackUsageMock).toHaveBeenCalledWith(supabase, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+  });
+
+  it("does NOT record 'recite' when the explanation was too short to reach evaluateTeachBack", async () => {
+    await submitTeachBack("lesson-1", "too short");
+    expect(recordTeachBackUsageMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT record 'recite' on a non-evaluated status (no_key/unavailable/parse_failed) -- nothing was actually taught back", async () => {
+    evaluateTeachBackMock.mockResolvedValue({ status: "parse_failed" });
+    await submitTeachBack("lesson-1", "A real explanation of the lesson content.");
+    expect(recordTeachBackUsageMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to UTC when the profile has no timezone set", async () => {
+    evaluateTeachBackMock.mockResolvedValue({ status: "evaluated", followUpQuestions: ["q1"], gapFeedback: "fb" });
+    getProfileMock.mockResolvedValue(null);
+
+    await submitTeachBack("lesson-1", "A real explanation of the lesson content.");
+
+    expect(recordTeachBackUsageMock).toHaveBeenCalledTimes(1);
   });
 });

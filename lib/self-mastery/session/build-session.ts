@@ -862,3 +862,39 @@ export async function submitSelfExplanation(
   }
   return { id: data.id, createdAt: data.created_at };
 }
+
+/**
+ * P3-03's bridge for Teach-Back mode (lib/self-mastery/teach-back.ts's
+ * evaluateTeachBack): "recite" was named `status: "active"` in
+ * study-methods.ts with a real implementedAt citation, but nothing ever
+ * called recordStudyMethods with it. evaluateTeachBack is deliberately
+ * ephemeral -- no persistence of its own (see its own header) -- so unlike
+ * submitSelfExplanation it has no sessionId to attribute "recite" to; and
+ * Teach-Back mode is deliberately standalone from this file's own
+ * retrieval overlay (components/self-mastery/teach-back-panel.tsx's own
+ * header: "Deliberately standalone, not woven into the FSRS retrieval
+ * session overlay"), so there is no in-progress BuiltSession to reuse
+ * either.
+ *
+ * This ensures TODAY's session exists (startTodaysSession -- the same
+ * idempotent resume-or-create RPC buildTodaysSession itself calls, "safe
+ * to call every time the screen mounts" per its own doc; safe here too
+ * since this only ever runs after a genuine completed teach-back
+ * evaluation, never a passive read) and tags "recite" onto it, same
+ * union/never-drops semantics as every other recordStudyMethods call. The
+ * standalone UI decision is about interaction flow, not about whether the
+ * day's work_sessions bookkeeping row reflects what the user actually did
+ * today -- a completion summary reached later the same day should show
+ * "recite" the same as if the technique had been used from inside the
+ * overlay.
+ *
+ * Callers should only call this on a genuine "evaluated" outcome (a real
+ * explanation AND real gap feedback) -- study-methods.ts's own description
+ * of "recite" is "teaching a lesson back... AND getting gap feedback",
+ * matching exactly; a too-short/no-key/unavailable/parse-failed attempt
+ * produced nothing to count.
+ */
+export async function recordTeachBackUsage(client: TypedClient, localDate: string): Promise<void> {
+  const session = await startTodaysSession(client, localDate);
+  await recordStudyMethods(client, session.id, ["recite"]);
+}
