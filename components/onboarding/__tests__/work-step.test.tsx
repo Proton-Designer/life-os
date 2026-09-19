@@ -6,6 +6,9 @@ import type { WorkSubdomainDraft } from "../types";
 
 // ONB item 7: reorder (kind before name), rename (Job -> Position), and an
 // "Add Later" escape hatch from the forced minimum-one-subdomain rule.
+// ONB item 8b: the widget-picker sub-step is gone (Ayman ruled it inert --
+// see known-issues.md T-0002) -- naming a subdomain now finalizes the draft
+// directly, no intermediate "what should this screen show?" screen.
 describe("WorkStep — ONB item 7", () => {
   function noop() {}
 
@@ -35,16 +38,16 @@ describe("WorkStep — ONB item 7", () => {
     expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "work-kind");
   });
 
-  it("Back from the widgets screen returns to name, not to kind", async () => {
+  it("naming a subdomain and hitting Continue goes straight to the list -- no widget-picker sub-step", async () => {
     const user = userEvent.setup();
     render(<WorkStep onBack={noop} onNext={noop} progressTotal={4} progressIndex={1} />);
     await user.click(screen.getByTestId("work-add-subdomain"));
     await user.click(screen.getByTestId("work-kind-position"));
     await user.type(screen.getByTestId("work-subdomain-name"), "Acme Inc");
     await user.click(screen.getByTestId("onboarding-next"));
-    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "work-widgets");
-    await user.click(screen.getByTestId("onboarding-back"));
-    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "work-name");
+    expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "work-list");
+    expect(screen.queryByTestId("widget-picker")).not.toBeInTheDocument();
+    expect(screen.queryByText("What should this screen show?")).not.toBeInTheDocument();
   });
 
   it('shows "Position", not "Job", as the kind label and testId', async () => {
@@ -64,7 +67,6 @@ describe("WorkStep — ONB item 7", () => {
     await user.click(screen.getByTestId("work-kind-position"));
     await user.type(screen.getByTestId("work-subdomain-name"), "Acme Inc");
     await user.click(screen.getByTestId("onboarding-next"));
-    await user.click(screen.getByTestId("widget-picker-confirm"));
     expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "work-list");
     expect(screen.getByText("Position")).toBeInTheDocument();
     expect(screen.queryByText("job")).not.toBeInTheDocument();
@@ -78,7 +80,6 @@ describe("WorkStep — ONB item 7", () => {
     await user.click(screen.getByTestId("work-kind-position"));
     await user.type(screen.getByTestId("work-subdomain-name"), "Acme Inc");
     await user.click(screen.getByTestId("onboarding-next"));
-    await user.click(screen.getByTestId("widget-picker-confirm"));
     await user.click(screen.getByTestId("onboarding-next"));
     expect(captured).toEqual([expect.objectContaining({ kind: "job", label: "Acme Inc" })]);
   });
@@ -99,7 +100,6 @@ describe("WorkStep — ONB item 7", () => {
     await user.click(screen.getByTestId("work-kind-position"));
     await user.type(screen.getByTestId("work-subdomain-name"), "Acme Inc");
     await user.click(screen.getByTestId("onboarding-next"));
-    await user.click(screen.getByTestId("widget-picker-confirm"));
     expect(screen.queryByTestId("work-add-later")).not.toBeInTheDocument();
     expect(screen.getByTestId("onboarding-next")).not.toBeDisabled();
   });

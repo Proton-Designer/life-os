@@ -199,56 +199,67 @@ phase's own acceptance criteria — it is unrelated to `database.types.ts`.
 one-line fixture fix (`midterm_final` → `final_midterm`) by whoever owns
 `lib/mcp/**`.
 
-### Onboarding's Work widget picker collects a selection nothing consumes
-**Area:** `components/onboarding/work-step.tsx`, `widget-picker.tsx`,
-`widget-catalogue.ts` · **Severity:** product-visible, not a crash
-**Symptom:** the Work subdomain onboarding step ("What should this screen
-show?") lets a user pick from 11 widgets, but the choice has zero effect on
-what ever renders, for all 11, regardless of which are picked.
-**Cause:** traced the full path. `WorkStep` stores the selection into
+### T-0002 (per-subdomain Work data scoping) is still open — onboarding's inert widget picker has been REMOVED, not fixed
+**Area:** `lib/domains/user-domains-core.ts:72`, `app/(app)/work/[subdomain]/page.tsx`,
+`app/(app)/work/[subdomain]/layout.tsx` · **Severity:** architectural gap,
+still real
+**Was:** the Work subdomain onboarding step ("What should this screen
+show?") let a user pick from 11 widgets, but the choice had zero effect on
+what ever rendered, for all 11, regardless of which were picked. Full trace
+(kept for history): `WorkStep` stored the selection into
 `WorkSubdomainDraft.widgets` → `app/(app)/onboarding/actions.ts`'s
-`saveSubdomains` writes it into `user_subdomains.widgets` (a JSON column) →
+`saveSubdomains` wrote it into `user_subdomains.widgets` (a JSON column) →
 `lib/domains/user-domains-core.ts:72` is the ONLY place outside onboarding
 and tests that ever reads `.widgets` off a subdomain row, and it only maps
 the column straight through into the returned state object — nothing reads
 it after that. `app/(app)/work/[subdomain]/page.tsx` re-renders the same
 `WorkPage` regardless of which subdomain (or its stored widgets) is active.
-Root cause: T-0002 (per-subdomain data scoping on `coop_targets`/
-`coop_tasks`) hasn't landed — confirmed by an existing, honest comment and
-UI note already in `work/[subdomain]/layout.tsx`: "Your subdomains share
-one Work pipeline for now — per-subdomain separation is coming."
-**Workaround:** none — this is a known, already-flagged architectural gap,
-not new breakage. The onboarding picker is the ONE place that doesn't
-admit it: it implies a real per-subdomain choice that the app elsewhere
-openly says it can't yet honor.
-**Do not:** treat this as 11 independent per-widget stub/real judgments —
-it's one consumption-side gap that makes the whole step inert regardless
-of any individual widget's own status.
+**Fixed (the symptom, not the cause):** Ayman ruled (a) on item 8 — remove
+the affordance rather than leave a fake choice standing. `components/
+onboarding/work-step.tsx`'s widget-picker sub-step, `widget-picker.tsx`,
+and `widget-catalogue.ts` are deleted (ONB item 8b, 2026-09-19). Naming a
+Work subdomain in onboarding now finalizes the draft directly with an empty
+`widgets: []` — honest, since nothing downstream ever read a non-empty
+value anyway. `WorkSubdomainDraft.widgets`, `SubdomainInput.widgets`, and
+the `user_subdomains.widgets` column all stay — they're generic
+per-subdomain architecture (`onboarding-wizard.tsx`, `actions.ts`,
+`user-domains-core.ts`), not solely fed by the deleted picker, so removing
+them was out of scope and would have been a second, larger cut this task
+didn't ask for.
+**Root cause (still open):** T-0002 (per-subdomain data scoping on
+`coop_targets`/`coop_tasks`) hasn't landed — confirmed by an existing,
+honest comment and UI note already in `work/[subdomain]/layout.tsx`: "Your
+subdomains share one Work pipeline for now — per-subdomain separation is
+coming." **This matters MORE now, not less**, per Ayman's own framing: the
+UI no longer even hints a per-subdomain feature is coming, so if T-0002
+ever lands, whoever builds it needs to know there is currently zero UI
+scaffolding pointing at it.
+**Do not:** resurrect a widget picker in onboarding, or any other per-
+subdomain widget-selection UI, until T-0002 actually lands and something
+reads the choice.
 **Tracked:** found 2026-09-19 (Sonnet ENG 3, ONB item 8 audit), confirmed
-independently by Opus Lead. Ayman is ruling on what the picker should do
-in the meantime (T-0002 itself is explicitly not being built as part of
-that punch list) — see `.claude/overnight/run-20260915-0011/ONB-PLAN.md`
-and `OPEN_QUESTIONS.md`.
+independently by Opus Lead. Symptom removed 2026-09-19 (Sonnet ENG 3, ONB
+item 8b, per Ayman's ruling relayed via Opus Lead in
+`.claude/overnight/run-20260915-0011/BRIEF-eng3-item8.md`) — see
+`.claude/overnight/run-20260915-0011/ONB-PLAN.md` and `OPEN_QUESTIONS.md`
+for the original ruling thread.
 
-### `widget-catalogue.ts` cites a source document that doesn't exist in this repo
-**Area:** `components/onboarding/widget-catalogue.ts` · **Severity:**
-documentation-integrity defect, independent of whether the widgets work
-**Symptom:** the file's header comment attributes its contents to
-"Engineer 2's cross-cutting systems research (2026-09-01): the confirmed-
-drop-in and confirmed-real-gap findings recorded in DECISIONS.md D-010/
-D-011."
-**Cause:** unverified citation. Grepped the full working tree and `git log
---all` for `DECISIONS.md`, `D-010`, and `D-011` — none exist anywhere in
-this repo or its history. `.brain/memory/decisions.md` (the project's real
-decisions log) has no entries with those IDs either.
-**Workaround:** none needed to use the catalogue; the concern is trust in
-its stated provenance, not its function.
-**Do not:** cite D-010/D-011 as a real, checkable source for why a given
-widget's default is what it is — treat the catalogue's defaults as
-un-sourced until/unless the real research doc is found or reconstructed.
-**Tracked:** found 2026-09-19 (Sonnet ENG 3, ONB item 8 audit) while
-auditing `widget-catalogue.ts` for item 8. Checked, not editorialized on
-how the stale citation got there.
+### `widget-catalogue.ts` cited a source document that didn't exist in this repo — resolved by removal
+**Area:** was `components/onboarding/widget-catalogue.ts`, now deleted ·
+**Severity:** was documentation-integrity defect, independent of whether
+the widgets worked
+**Was:** the file's header comment attributed its contents to "Engineer 2's
+cross-cutting systems research (2026-09-01): the confirmed-drop-in and
+confirmed-real-gap findings recorded in DECISIONS.md D-010/D-011." Grepped
+the full working tree and `git log --all` for `DECISIONS.md`, `D-010`, and
+`D-011` at the time — none existed anywhere in this repo or its history.
+**Resolved:** the file was deleted whole (ONB item 8b, 2026-09-19) along
+with the widget picker it backed — confirmed via grep that nothing outside
+onboarding imported `WORK_WIDGET_CATALOGUE`/`defaultWidgetIdsFor`, so
+nothing else needed the (unsourced) catalogue either. No live file left to
+carry a stale citation.
+**Tracked:** found 2026-09-19 (Sonnet ENG 3, ONB item 8 audit); resolved
+2026-09-19 (Sonnet ENG 3, ONB item 8b).
 
 ## Deliberate constraints that look like bugs
 

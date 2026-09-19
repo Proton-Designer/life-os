@@ -82,3 +82,4 @@ Claude outputs/
 # login. Deleted before this task closes; ignored so a stray broad `git
 # add` can never ship it in the meantime.
 /app/dev-preview-onb7/
+/app/dev-preview-widget02/

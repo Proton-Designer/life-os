@@ -44,12 +44,17 @@ surfaced in `work/[subdomain]/layout.tsx` saying so.
 **Planned:** per-subdomain scoping of `coop_targets`/`coop_tasks` (T-0002),
 so each Work subdomain's page reflects only its own data — not yet built.
 **Rule while this gap exists:** don't assume a Work subdomain's stored
-`widgets` selection (from onboarding) drives anything — see the paired
-known-issues.md entry ("Onboarding's Work widget picker collects a
-selection nothing consumes"). Building the picker to *look* more correct
-without T-0002 landing first would just move the honesty gap, not close it.
+`widgets` column (still written as `[]` from onboarding, still generic
+per-subdomain architecture) drives anything — see the paired
+known-issues.md entry ("T-0002 (per-subdomain Work data scoping) is still
+open — onboarding's inert widget picker has been REMOVED, not fixed").
+Ayman ruled (ONB item 8) to remove onboarding's widget-picker step
+entirely rather than build it to *look* more correct without T-0002
+landing first — that would have just moved the honesty gap, not closed it.
+Building a NEW per-subdomain widget-selection UI anywhere still requires
+T-0002 first.
 **Found:** 2026-09-19, Sonnet ENG 3, ONB item 8 audit — confirmed
-independently by Opus Lead.
+independently by Opus Lead. Picker removed 2026-09-19, ONB item 8b.
 
 ### AI provider: DeepSeek-only, multi-provider planned but not shipped
 **Old / current:** `lib/ai/providers.ts` supports DeepSeek only.

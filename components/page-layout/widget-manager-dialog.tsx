@@ -126,7 +126,13 @@ export function WidgetManagerDialog({
         {!loadError && draft === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
 
         {draft !== null ? (
-          <ul className="flex flex-1 flex-col gap-2 overflow-y-auto">
+          // ONB item 7 (layout): min-h-0 is load-bearing here, not decorative --
+          // a flex child's default min-height is "auto" (fits its content), which
+          // overrides this list's own overflow-y-auto and lets the parent
+          // DialogContent's overflow-hidden clip the last card instead of the
+          // list scrolling it into view. pr-2 keeps every card's content and the
+          // hide/show Switch clear of the scrollbar instead of tucked under it.
+          <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-2">
             {draft.map((item, index) => (
               <li
                 key={item.widgetKey}
@@ -138,7 +144,7 @@ export function WidgetManagerDialog({
                   setDragIndex(null);
                 }}
                 onDragEnd={() => setDragIndex(null)}
-                className="flex items-start gap-2 rounded-lg border border-border/40 p-2"
+                className="flex shrink-0 items-start gap-2 rounded-lg border border-border/40 p-2"
               >
                 <GripVertical className="mt-1 size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
                 <div className="min-w-0 flex-1">

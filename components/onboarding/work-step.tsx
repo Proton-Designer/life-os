@@ -7,12 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StepShell } from "./step-shell";
 import { OptionCard } from "./option-card";
-import { WidgetPicker } from "./widget-picker";
 import { TOP_DOMAIN_META } from "./domain-meta";
-import { defaultWidgetIdsFor } from "./widget-catalogue";
 import type { WorkSubdomainDraft, WorkSubdomainKind } from "./types";
 
-type Phase = "list" | "kind" | "name" | "widgets";
+type Phase = "list" | "kind" | "name";
 
 function slugify(label: string): string {
   return (
@@ -31,12 +29,19 @@ function slugify(label: string): string {
 const KIND_LABEL: Record<WorkSubdomainKind, string> = { job: "Position", business: "Business" };
 
 // Work -> repeatable: create one or more subdomains. Each one: "position or
-// business?" -> name it -> widget picker (all preselected) -- ONB item 7
-// reordered this from name-then-kind to kind-then-name (Ayman: pick the
-// shape first, then name the specific thing). At least one is required to
-// hit Continue, matching Personal Growth's minimum-one rule in spirit (you
-// picked Work, you get something to show for it) -- "Add Later" (item 7) is
-// the explicit escape hatch for someone who doesn't want to commit right now.
+// business?" -> name it -- ONB item 7 reordered this from name-then-kind to
+// kind-then-name (Ayman: pick the shape first, then name the specific
+// thing). At least one is required to hit Continue, matching Personal
+// Growth's minimum-one rule in spirit (you picked Work, you get something to
+// show for it) -- "Add Later" (item 7) is the explicit escape hatch for
+// someone who doesn't want to commit right now.
+//
+// ONB item 8b: there used to be a third sub-step here, "what should this
+// screen show?" (a widget picker). Ayman ruled it out -- the selection was
+// provably inert, since no per-subdomain renderer exists yet to honor it
+// (T-0002, still open, see known-issues.md). Naming a subdomain now
+// finalizes the draft directly with an empty widgets set; do not resurrect
+// a picker here until T-0002 lands and something actually reads the choice.
 export function WorkStep({
   onBack,
   onNext,
@@ -64,10 +69,10 @@ export function WorkStep({
     setDrafts((prev) => prev.filter((d) => d.key !== key));
   }
 
-  function confirmWidgets(widgetIds: string[]) {
+  function confirmName() {
     if (!draftKind) return;
     const key = slugify(draftName);
-    setDrafts((prev) => [...prev, { key, label: draftName.trim(), kind: draftKind, widgets: widgetIds }]);
+    setDrafts((prev) => [...prev, { key, label: draftName.trim(), kind: draftKind, widgets: [] }]);
     setPhase("list");
   }
 
@@ -135,7 +140,7 @@ export function WorkStep({
               type="button"
               data-testid="onboarding-next"
               disabled={!draftName.trim()}
-              onClick={() => setPhase("widgets")}
+              onClick={confirmName}
             >
               Continue
             </Button>
@@ -155,27 +160,6 @@ export function WorkStep({
             autoFocus
           />
         </div>
-      </StepShell>
-    );
-  }
-
-  if (phase === "widgets" && draftKind) {
-    return (
-      <StepShell
-        stepId="work-widgets"
-        accent={accent}
-        icon={Briefcase}
-        eyebrow={`Work · ${draftName}`}
-        progressTotal={progressTotal}
-        progressIndex={progressIndex}
-        footer={
-          <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("name")} className="self-start">
-            Back
-          </Button>
-        }
-      >
-        <h1 className="text-xl font-semibold">What should this screen show?</h1>
-        <WidgetPicker accent={accent} defaultSelectedIds={defaultWidgetIdsFor(draftKind)} onConfirm={confirmWidgets} />
       </StepShell>
     );
   }
