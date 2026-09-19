@@ -17,8 +17,14 @@ import { RetrievalSessionOverlay } from "./retrieval-session-overlay";
  */
 export function SessionEntryCard({
   dueSummary,
+  selfMasteryHref = "/self-mastery",
 }: {
   dueSummary: { dueCount: number; newCount: number; estimatedMinutes: number; hasBooks: boolean } | null;
+  /** Where the "Add a book" banner below sends a user with an empty library.
+   * A domains-mode account keeping Self-Mastery belongs at /personal/self_mastery
+   * (the four-tab Personal shell); everyone else falls back to the standalone
+   * legacy page, which is the only Self-Mastery entry a legacy account has. */
+  selfMasteryHref?: string;
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -38,7 +44,7 @@ export function SessionEntryCard({
     return (
       <button
         type="button"
-        onClick={() => router.push("/self-mastery")}
+        onClick={() => router.push(selfMasteryHref)}
         className="flex w-full items-center gap-3 rounded-2xl border border-border/40 bg-card p-4 text-left transition-colors hover:bg-accent/50"
       >
         <IconChip icon={BookOpen} accent="business" />

@@ -83,7 +83,7 @@ describe("SessionEntryCard", () => {
       expect(screen.queryByText("Review anyway")).not.toBeInTheDocument();
     });
 
-    it("tapping it navigates to the library to add a book, instead of opening the session overlay", async () => {
+    it("tapping it navigates to the standalone legacy library by default (no selfMasteryHref given)", async () => {
       const user = userEvent.setup();
       render(<SessionEntryCard dueSummary={due({ hasBooks: false })} />);
 
@@ -91,6 +91,21 @@ describe("SessionEntryCard", () => {
 
       expect(pushMock).toHaveBeenCalledWith("/self-mastery");
       expect(loadTodaysSessionMock).not.toHaveBeenCalled();
+    });
+
+    // Home bug: this banner used to hardcode "/self-mastery" regardless of
+    // account mode, so a domains-mode account landed on the standalone
+    // legacy page with no Personal tab switcher, instead of the Personal
+    // section's own Self-Mastery tab. The href is now computed by the
+    // caller (app/(app)/page.tsx, from getUserDomains()'s mode) and passed
+    // straight through here.
+    it("tapping it navigates to the domains-mode Personal tab when the caller supplies that href", async () => {
+      const user = userEvent.setup();
+      render(<SessionEntryCard dueSummary={due({ hasBooks: false })} selfMasteryHref="/personal/self_mastery" />);
+
+      await user.click(screen.getByRole("button", { name: /add a book/i }));
+
+      expect(pushMock).toHaveBeenCalledWith("/personal/self_mastery");
     });
   });
 });

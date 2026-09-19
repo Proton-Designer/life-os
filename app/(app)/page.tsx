@@ -140,6 +140,17 @@ export default async function HomePage() {
   // makes Self-Mastery disappear the moment the group row is archived.
   const hasSelfMastery = hasArea(domainsState, "learning");
 
+  // SessionEntryCard's own "Add a book" banner used to hardcode "/self-mastery"
+  // regardless of account mode -- correct for a legacy account (there is no
+  // Personal tab to land it in), but for a domains-mode account it skipped
+  // the four-tab shell entirely and landed on the standalone legacy page,
+  // missing the Faith/Fitness/Self-Mastery switcher a domains-mode user
+  // expects on every other Personal screen. Falls back to the legacy route
+  // whenever mode isn't "domains" or Self-Mastery isn't actually kept, since
+  // /personal/self_mastery would just redirect away in either case anyway
+  // (see personal/[subdomain]/layout.tsx).
+  const selfMasteryHref = domainsState.mode === "domains" && hasSelfMastery ? "/personal/self_mastery" : "/self-mastery";
+
   // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's
   // own header for the full mechanism.
   const showSessionEntry = shouldShowSessionEntry(hasSelfMastery, dueSummary);
@@ -273,7 +284,7 @@ export default async function HomePage() {
           selfMasteryRanksFirst's own comment above and sessionEntryHidden's
           own comment on why this widget's ORDER is deliberately not
           user-configurable even though its VISIBILITY is (WIDGET-02). */}
-      {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
+      {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} selfMasteryHref={selfMasteryHref} />}
 
       <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
         <WeeklyGoalsHeader
@@ -318,7 +329,7 @@ export default async function HomePage() {
         </Panel>
       </LayoutSlot>
 
-      {!sessionEntryHidden && !selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
+      {!sessionEntryHidden && !selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} selfMasteryHref={selfMasteryHref} />}
 
       <LayoutSlot layout={layoutMap} widgetKey="day_shape">
         <Panel title="The day's shape">
