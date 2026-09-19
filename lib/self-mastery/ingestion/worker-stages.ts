@@ -62,6 +62,7 @@ import { computeTargetLessonCount } from "./merge";
 import { buildSectionInsertPlan } from "./persist-sections";
 import { repairExtractedPages } from "./text-repair";
 import { notifyBookReady } from "@/lib/notifications/book-ready-notification";
+import { gcBookPdfAfterIngestion } from "./book-pdf-gc";
 
 type IngestStage = Database["public"]["Enums"]["ingest_stage"];
 type IngestionJobRow = Database["public"]["Tables"]["ingestion_jobs"]["Row"];
@@ -890,10 +891,12 @@ async function finalizingStage(ctx: StageContext): Promise<StageWorkResult> {
     return { nextStage: "failed", nextChunkIndex: null };
   }
 
-  const { error: updateError } = await ctx.supabase
+  const { data: readyBook, error: updateError } = await ctx.supabase
     .from("books")
     .update({ status: "ready", ready_at: new Date().toISOString(), progress_pct: 100, lesson_count: count })
-    .eq("id", ctx.job.book_id);
+    .eq("id", ctx.job.book_id)
+    .select("file_path")
+    .single();
   if (updateError) throw updateError;
 
   // #6: "your book is ready" push. NON-FATAL BY DESIGN (Opus Lead
@@ -905,6 +908,19 @@ async function finalizingStage(ctx: StageContext): Promise<StageWorkResult> {
     await notifyBookReady(ctx.supabase, ctx.job.user_id, ctx.job.book_id);
   } catch (notifyError) {
     console.error(`notifyBookReady failed for book ${ctx.job.book_id}:`, notifyError);
+  }
+
+  // BRIEF-pdf-gc.md: the PDF is a transient input, not durable data --
+  // reaching THIS branch (book.status just durably set to "ready") is the
+  // pipeline's own genuinely terminal success state, well past chunking's
+  // own retry window (see book-pdf-gc.ts's header for the full argument).
+  // Never fatal to this stage -- see that file's own header.
+  if (readyBook.file_path) {
+    await gcBookPdfAfterIngestion(ctx.supabase, {
+      bookId: ctx.job.book_id,
+      userId: ctx.job.user_id,
+      filePath: readyBook.file_path,
+    });
   }
 
   return { nextStage: "done", nextChunkIndex: null };

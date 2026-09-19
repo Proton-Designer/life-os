@@ -21,6 +21,27 @@ tokens_est: 2300
 
 ## Active
 
+### `pending_storage_deletions` has no sweep -- enqueuing a row deletes nothing
+**Area:** Storage cleanup (`pending_storage_deletions`, migration 081) · **Severity:** slows work, no data loss risk today
+**Symptom:** a row landing in `pending_storage_deletions` (e.g. a book PDF
+whose direct Storage delete failed -- `lib/self-mastery/ingestion/book-pdf-gc.ts`)
+sits there forever. `confirm_storage_deleted(path)` exists to dequeue a row
+once a client's own delete succeeds, but nothing ever calls it for a queued
+row, and no worker/cron sweeps the table to retry the underlying Storage
+delete.
+**Cause:** migration 081 shipped the table plus `confirm_storage_deleted`/
+`purge_user_data` as the intended enqueue -> delete -> confirm design, with
+"a worker sweep retrying leftovers" explicitly deferred, not built. Grepped
+before relying on this (BRIEF-pdf-gc.md): confirmed nothing in this codebase
+reads from this table at all.
+**Workaround:** none automated. A row here means a real orphaned object in
+the `books` bucket; clean it up by hand (Storage dashboard + a manual
+`confirm_storage_deleted` call or row delete) until the sweep exists.
+**Do not:** assume enqueuing a path here has any effect on its own --
+`book-pdf-gc.ts` deletes directly and only enqueues on failure, precisely
+because enqueue-alone is a no-op today.
+**Tracked:** BRIEF-pdf-gc.md (2026-09-19) -- building the sweep was explicitly out of scope for that task.
+
 ### `SUPABASE_LEGACY_JWT_SECRET` is a single point of failure with no monitoring
 **Area:** MCP connector auth (`lib/mcp/session.ts`) · **Severity:** blocks work if triggered
 **Symptom:** if this key is ever revoked in Supabase, every MCP connector
