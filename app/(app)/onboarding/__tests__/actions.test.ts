@@ -39,7 +39,8 @@ const fromMock = vi.fn((table: string) => fromImpl(table));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({ auth: { getClaims: getClaimsMock }, from: fromMock, rpc: rpcMock })),
 }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const revalidatePathMock = vi.fn();
+vi.mock("next/cache", () => ({ revalidatePath: (...args: unknown[]) => revalidatePathMock(...args) }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn(() => { throw new Error("REDIRECT"); }) }));
 vi.mock("@/app/(app)/settings/actions", () => ({ updateProfile: vi.fn(async () => undefined) }));
 const seedMeditationsDeckForUserMock = vi.fn(async () => ({ seeded: true, alreadySeeded: false, bookId: "book-1", lessonCount: 12, cardCount: 47 }));
@@ -53,6 +54,7 @@ describe("Onboarding actions", () => {
     fromMock.mockClear();
     rpcMock.mockClear();
     seedMeditationsDeckForUserMock.mockClear();
+    revalidatePathMock.mockClear();
   });
 
   describe("saveDomainSelection", () => {
@@ -404,6 +406,26 @@ describe("Onboarding actions", () => {
         expect.any(Error)
       );
       consoleErrorSpy.mockRestore();
+    });
+
+    // First-use trust bug (Boss-reported, 2026-09-18, same shape as
+    // app/(app)/open/actions.ts's startDayAction): completing onboarding
+    // writes onboarding_completed=true then redirects to "/" -- a brand-new
+    // user's very first look at the app. Without a revalidate, "/" (and the
+    // nav shell rendered by app/(app)/layout.tsx, which is what actually
+    // decides legacy vs domains mode) can still be sitting in the client
+    // Router Cache from the brief pre-redirect window the layout's own
+    // header documents (AuthedShell can render /onboarding's children
+    // before its own redirect fires) -- landing a finished user on what
+    // looks like an unfinished app.
+    it("revalidates the shared app layout before redirecting", async () => {
+      const chain = makeChain({ data: null, error: null, count: 1 });
+      fromImpl = () => chain;
+      const { completeOnboarding } = await import("../actions");
+
+      await expect(completeOnboarding({})).rejects.toThrow("REDIRECT");
+
+      expect(revalidatePathMock).toHaveBeenCalledWith("/", "layout");
     });
   });
 });

@@ -346,6 +346,22 @@ export async function getOnboardingState(): Promise<{
  * up with onboarding_completed = true and zero domains. This is the only
  * writer of that flag, so the check belongs here, before updateProfile —
  * not trusted to have already been enforced by whichever step ran last.
+ *
+ * REVALIDATE THE SHARED LAYOUT BEFORE REDIRECTING (first-use trust bug,
+ * 2026-09-18, same shape as app/(app)/open/actions.ts's startDayAction):
+ * `redirect()` works by throwing, so a revalidate placed after it is dead
+ * code. This is the FIRST screen a brand-new user ever sees after signup —
+ * a stale client Router Cache entry for "/" (or, per this layout's own
+ * header comment, a brief pre-redirect render of /onboarding's children
+ * that can precede AuthedShell's own redirect) would land them on what
+ * looks like an unfinished app: Home rendering as though onboarding never
+ * happened, in the wrong (legacy vs domains) nav shape. `updateProfile`
+ * below already revalidates the layout on its own whenever
+ * `onboarding_completed` is among the written fields (see that function's
+ * own reasoning) — it always is here — but this call stays explicit rather
+ * than relying on that as an implementation detail of a function this one
+ * merely calls: the ordering guarantee (revalidate before redirect) belongs
+ * to whichever function actually redirects.
  */
 export async function completeOnboarding(
   fields: Omit<ProfileUpdatable, "pin" | "pin_hash" | "onboarding_completed">
@@ -382,5 +398,6 @@ export async function completeOnboarding(
     console.error("completeOnboarding: seedMeditationsDeckForUser failed", err);
   }
 
+  revalidatePath("/", "layout");
   redirect("/");
 }
