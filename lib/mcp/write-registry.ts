@@ -874,7 +874,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           edit: {
             action: "edit",
-            description: "Edit an existing target/stretch goal's title and/or deadline. Requires the top-level id.",
+            description: "Edit an existing target/stretch goal's title and/or deadline. Requires the top-level id -- a bad or cross-tenant id is rejected with a clean not-found.",
             patchShape: "{ title?: string, deadline?: string|null }",
             idempotent: true,
             idempotencyVerification: "editTargetCore UPDATEs title/deadline to the exact given values (never reads-then-inverts, never derives from now) -- a retry writes the identical row.",
@@ -950,7 +950,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           edit: {
             action: "edit",
-            description: "Edit an existing task's title and/or deadline. Requires the top-level id.",
+            description: "Edit an existing task's title and/or deadline. Requires the top-level id -- a bad or cross-tenant id is rejected with a clean not-found.",
             patchShape: "{ title?: string, deadline?: string|null }",
             idempotent: true,
             idempotencyVerification: "editTaskCore (lib/coop/tasks-core.ts) UPDATEs title/deadline to the exact given values -- a retry writes the identical row.",
@@ -1012,7 +1012,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               };
               acc[action] = {
                 action,
-                description: `${action[0].toUpperCase()}${action.slice(1)} a task one pipeline stage. Requires the top-level id and patch.current_status${action === "unblock" ? " (the status to restore)" : ""}.`,
+                description: `${action[0].toUpperCase()}${action.slice(1)} a task one pipeline stage. Requires the top-level id and patch.current_status${action === "unblock" ? " (the status to restore)" : ""} -- a bad or cross-tenant id is rejected with a clean not-found.`,
                 patchShape: "{ current_status: 'backlog'|'in_progress'|'review'|'complete'|'blocked' }",
                 ...idempotencyByAction[action],
                 handler: async (ctx: WriteContext, patch: WritePatch) => {
@@ -1337,7 +1337,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           edit: {
             action: "edit",
             description:
-              "Edit a class's short_name/room/instructor/term/late_policy/attendance_policy/allowed_absences/grade_boundaries (migration 152). Requires the top-level id. Widened in P4-08 (WIRING only -- updateClassCore already accepted every one of these fields).",
+              "Edit a class's short_name/room/instructor/term/late_policy/attendance_policy/allowed_absences/grade_boundaries (migration 152). Requires the top-level id -- a bad or cross-tenant id is rejected with a clean not-found. Widened in P4-08 (WIRING only -- updateClassCore already accepted every one of these fields).",
             patchShape:
               "{ short_name?: string|null, room?: string|null, instructor?: string|null, term?: string|null, late_policy?: string|null, attendance_policy?: string|null, allowed_absences?: number|null, grade_boundaries?: {letter:string,minPct:number}[]|null }",
             idempotent: true,
@@ -1864,7 +1864,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           confirm_plan_session: {
             action: "confirm_plan_session",
-            description: "Confirm a routine plan's session for a date. Requires the top-level id (the plan_sessions row's id). Idempotent: a repeat confirm of the same plan session/date is a no-op, not an error.",
+            description: "Confirm a routine plan's session for a date. Requires the top-level id (the plan_sessions row's id) -- a bad or cross-tenant id is rejected with a clean not-found. Idempotent: a repeat confirm of the same plan session/date is a no-op, not an error.",
             patchShape: "{ date: string, session_name: string, sets: ConfirmSetInput[] }",
             idempotent: true,
             idempotencyVerification:
@@ -1974,7 +1974,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           archive: {
             action: "archive",
-            description: "Archive an exercise (never a hard delete -- workout_exercises/session_sets reference it with no cascade). Requires the top-level id.",
+            description: "Archive an exercise (never a hard delete -- workout_exercises/session_sets reference it with no cascade). Requires the top-level id -- a bad or cross-tenant id is rejected with a clean not-found.",
             patchShape: "{}",
             idempotent: true,
             idempotencyVerification: "archiveExerciseCore sets archived=true unconditionally (never reads-then-inverts) -- a retry sets the identical value.",
@@ -1997,7 +1997,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           rename: {
             action: "rename",
-            description: "Rename a workout template. Requires the top-level id.",
+            description: "Rename a workout template. Requires the top-level id -- a bad or cross-tenant id is rejected with a clean not-found.",
             patchShape: "{ name: string }",
             idempotent: true,
             idempotencyVerification: "renameWorkoutCore sets name to the exact given value -- a retry writes the identical row.",
@@ -2013,7 +2013,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           archive: {
             action: "archive",
-            description: "Archive a workout template (never a hard delete). Requires the top-level id.",
+            description: "Archive a workout template (never a hard delete). Requires the top-level id -- a bad or cross-tenant id is rejected with a clean not-found.",
             patchShape: "{}",
             idempotent: true,
             idempotencyVerification: "archiveWorkoutCore sets archived=true unconditionally -- a retry sets the identical value.",
@@ -3057,19 +3057,25 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           retract: {
             action: "retract",
-            description: "Retract today's vote for a habit, if one exists. Same today-only restriction as cast. Requires the top-level id (the habit).",
+            description:
+              "Retract today's vote for a habit, if one exists. Same today-only restriction as cast. Requires the top-level id (the habit) -- a bad or cross-tenant id is rejected with a clean not-found.",
             patchShape: "{ date?: string }",
             idempotent: true,
-            idempotencyVerification: "retractHabitVoteCore deletes matching (user_id,habit_id,date) -- 0 rows on retry (nothing to retract, or already retracted) is a no-op, same SET-not-toggle reasoning as castHabitVoteCore.",
+            idempotencyVerification:
+              "retractHabitVoteCore checks the habit exists (P4-34), then deletes matching (user_id,habit_id,date) -- 0 rows on retry (nothing to retract, or already retracted) is a no-op, same SET-not-toggle reasoning as castHabitVoteCore.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               const date = requireString(patch, "date");
-              try {
-                await retractHabitVoteCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
-              } catch (err) {
-                if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No identity habit found with id "${id}".`);
-                throw err;
-              }
+              // P4-34: NO try/catch here -- unlike cast (a genuine upsert,
+              // where a bad habit_id really does raise 23503), retract's
+              // DELETE never raises an FK violation for a WHERE-clause
+              // miss. A catch here that only ever looked for FK_VIOLATION
+              // was dead code (verified: no test could make it fire) that
+              // looked protective without being so. retractHabitVoteCore
+              // now throws its own clean ToolNotFoundError directly (a real
+              // existence check against identity_habits, scoped by
+              // user_id), which reaches the caller unchanged.
+              await retractHabitVoteCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id, date, voted: false }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), date, voted: false } },
                 summary: `retracted today's vote for habit ${id}`,

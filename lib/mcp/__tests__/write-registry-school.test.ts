@@ -51,7 +51,11 @@ function makeClient(opts: { maybeSingleSeq?: Record<string, unknown[]>; singleSe
     });
     chain.maybeSingle = vi.fn(async () => ({ data: (maybeSingleSeq[table] ?? []).shift() ?? null, error: null }));
     chain.single = vi.fn(async () => ({ data: (singleSeq[table] ?? []).shift() ?? { id: "new-id" }, error: null }));
-    chain.then = (resolve: (v: { error: null }) => void) => resolve({ error: null });
+    // P4-34's requireRowUpdated (school.class.edit -> updateClassCore)
+    // chains .select("id") onto an UPDATE and reads this `data` to detect a
+    // zero-row match -- defaults to a non-empty row so every existing test
+    // here keeps passing unchanged.
+    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: [{ id: "row-1" }], error: null });
     return chain;
   });
 

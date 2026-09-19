@@ -887,9 +887,26 @@ describe("habits.vote handlers", () => {
 
   it("retract deletes today's vote when it exists (a no-op on 0 rows, not an error)", async () => {
     const action = getWriteAction("habits", "vote", "retract")!;
-    const client = makeTableClient({ habit_votes: makeChain({ data: null, error: null }) });
+    // P4-34: retractHabitVoteCore now reads identity_habits first (existence
+    // only) before the delete -- a real habit here.
+    const client = makeTableClient({
+      identity_habits: makeChain({ data: { id: "h-1" }, error: null }),
+      habit_votes: makeChain({ data: null, error: null }),
+    });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "h-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/h-1/);
+  });
+
+  // P4-34: the registry handler's own FK-violation catch around retract was
+  // dead code (a DELETE never raises an FK violation for a WHERE-clause
+  // miss) -- this proves the core's OWN ToolNotFoundError now reaches the
+  // caller directly, with no registry-level translation needed.
+  it("retract throws a clean not-found for a bad/cross-tenant habit id, with no FK-violation translation involved", async () => {
+    const action = getWriteAction("habits", "vote", "retract")!;
+    const client = makeTableClient({ identity_habits: makeChain({ data: null, error: null }) });
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "not-real" }, { date: "2026-09-08" }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
   });
 });
 

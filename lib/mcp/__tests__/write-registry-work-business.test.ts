@@ -28,9 +28,19 @@ function makeClient(opts: { maybeSingle?: unknown; insertId?: string; rpcError?:
       insertCalls.push(row);
       return { then: (r: (v: { error: null }) => void) => r({ error: null }) };
     });
-    chain.maybeSingle = vi.fn(async () => ({ data: opts.maybeSingle ?? null, error: null }));
+    // "maybeSingle" in opts (not `??`) so an EXPLICIT `maybeSingle: null`
+    // (a real "no such row" case some tests below deliberately construct)
+    // stays null, while an omitted key defaults to a non-null placeholder
+    // -- needed since P4-34's fix to setStatusCore/blockTaskCore/
+    // unblockTaskCore now null-checks this same read for row existence,
+    // and most tests here don't care about that read's exact shape.
+    chain.maybeSingle = vi.fn(async () => ({ data: "maybeSingle" in opts ? opts.maybeSingle : {}, error: null }));
     chain.single = vi.fn(async () => ({ data: { id: opts.insertId ?? "new-id" }, error: null }));
-    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: [], error: null });
+    // P4-34's requireRowUpdated (work.target.edit) chains .select("id") onto
+    // an UPDATE and reads this `data` to detect a zero-row match --
+    // defaults to a non-empty row so every existing test here keeps
+    // passing unchanged.
+    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: [{ id: "row-1" }], error: null });
     return chain;
   });
   const rpc = vi.fn((fn: string, args: unknown) => {
