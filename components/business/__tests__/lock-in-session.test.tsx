@@ -15,6 +15,18 @@ vi.mock("@/app/(app)/checkin/session-hour-actions", () => ({
   setSessionHourStatus: (...args: unknown[]) => setSessionHourStatusMock(...args),
 }));
 
+// LockInSession now renders EndOfHourReflection (P3-05), which derives its
+// own visibility from listMyReflectionCards() -- mocked empty by default
+// (matching both the flag's own real default AND a fresh/off account) so
+// it renders nothing here and every existing assertion below is
+// unaffected. end-of-hour-reflection.test.tsx covers that component's own
+// behavior directly.
+vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
+  listMyReflectionCards: vi.fn(async () => []),
+  startEndOfHourRitual: vi.fn(),
+  submitEndOfHourReflection: vi.fn(),
+}));
+
 // Ending is centralized in the Lock-In overlay provider (batch 3) —
 // LockInSession no longer calls endWorkSession itself, it delegates to
 // whatever onEndSession the caller passes in.

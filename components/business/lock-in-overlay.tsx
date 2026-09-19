@@ -9,11 +9,13 @@ import { goalProgress } from "@/lib/business/session-goal";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
 import { HourCompleteBanner } from "./hour-complete-banner";
+import { EndOfHourReflection } from "./end-of-hour-reflection";
 import { LockInKillList } from "./lock-in-kill-list";
 import { LockInObjectives } from "./lock-in-objectives";
 import { LockInCheckin } from "./lock-in-checkin";
 import type { KillListSlotData } from "./kill-list";
 import type { SessionObjective } from "@/lib/business/session-objectives";
+import type { HourWorkInterval } from "@/lib/reflection-cards/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -138,6 +140,15 @@ export function LockInOverlay({
   // null and must render pixel-for-pixel as it did before this feature —
   // bare elapsed counter, no `/ goal`, no progress bar, the old
   // LockInKillList. isGoalBased is that one boolean gate for all of it.
+  // No per-hour resolveSessionHours data at this layer (LockInCheckin owns
+  // that internally) -- a single honest-enough interval covering the last
+  // real 60 minutes, assumed real work since that's what a Lock-In session
+  // IS. Less precise than lock-in-session.tsx's own mostRecentHourAsInterval
+  // (which reads the actual confirmed/wasted hour status), acceptable for
+  // a manually-triggered, off-by-default feature -- not worth threading
+  // LockInCheckin's internal state up through this component for.
+  const hourInterval: HourWorkInterval[] =
+    minutes >= 60 ? [{ domain: session.kind, minutes: Math.min(minutes, 60), isDistraction: false }] : [];
   const isGoalBased = session.goalMinutes !== null;
   const progress = isGoalBased ? goalProgress(session.startedAtIso, session.goalMinutes as number, now) : null;
   // At most one custom objective (DB-enforced) — pulled out to render as
@@ -247,6 +258,7 @@ export function LockInOverlay({
             {isGoalBased && progress && <GoalProgressBar fraction={progress.fraction} />}
             <p className="font-mono text-lg tabular-nums text-foreground/70">{clockLabel}</p>
             <HourCompleteBanner elapsedMinutes={minutes} />
+            <EndOfHourReflection elapsedMinutes={minutes} intervals={hourInterval} />
 
             {session.kind === "deep_work" && !isGoalBased && (
               <LockInKillList

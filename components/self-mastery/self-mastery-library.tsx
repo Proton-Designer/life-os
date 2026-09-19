@@ -24,6 +24,9 @@ import { SemanticSearchPanel } from "./semantic-search-panel";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
 import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
+import { hasOptInFeature } from "@/lib/opt-in-features";
+import { listMyReflectionCards } from "@/app/(app)/personal/reflection-cards-actions";
+import { CardsLibraryPanel } from "@/components/self-mastery/reflection-cards/cards-library-panel";
 import type { LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
@@ -80,6 +83,22 @@ export async function SelfMasteryLibrary() {
   const fsrsTuningStatus = await getFsrsTuningStatus(supabase, userId);
   const layout = await getPageLayout("self_mastery");
   const layoutMap = buildLayoutMap(layout);
+
+  // P3-05 -- the cards library + End-of-Hour ritual's UI half. Mounted
+  // here rather than as its own route: it's flag-gated, off by default,
+  // and reflection-cards-actions.ts's own Server Actions already
+  // revalidatePath("/self-mastery") -- a strong signal the actions were
+  // written expecting to live on THIS surface. Renders on BOTH doors into
+  // this component (this file's own header: /self-mastery legacy-mode
+  // route AND /personal/self_mastery domains-mode route), so the flag
+  // reads identically in both navs without any nav-specific wiring.
+  // Not part of the LayoutSlot/widget-manager system above (deliberate,
+  // not an oversight): that registry is for permanent per-page panels, and
+  // this section's very existence is already conditional on an opt-in
+  // flag most accounts will never turn on -- registering it there would
+  // let a user "hide" a panel that was never going to render anyway.
+  const cardsLibraryEnabled = hasOptInFeature(profile?.enabled_features, "cards_library");
+  const reflectionCards = cardsLibraryEnabled ? await listMyReflectionCards() : [];
 
   return (
     <PageContainer>
@@ -186,6 +205,8 @@ export async function SelfMasteryLibrary() {
         </div>
       )}
       </LayoutSlot>
+
+      {cardsLibraryEnabled ? <CardsLibraryPanel initialCards={reflectionCards} /> : null}
     </PageContainer>
   );
 }

@@ -8,11 +8,13 @@ import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { SessionHourConfirm } from "./session-hour-confirm";
 import { SessionHourList } from "./session-hour-list";
 import { HourCompleteBanner } from "./hour-complete-banner";
+import { EndOfHourReflection } from "./end-of-hour-reflection";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { featuredCardStyle } from "@/lib/featured-card-style";
+import { mostRecentHourAsInterval } from "@/lib/business/hour-recap-intervals";
 
 const POLL_MS = 60 * 1000;
 const INTERVAL_MINUTES = 60;
@@ -85,6 +87,10 @@ export function LockInSession({
   );
   const elapsed = formatElapsedDuration(now.getTime() - startedAt.getTime());
   const elapsedMinutes = elapsedMinutesSince(startedAtIso, now);
+  // "deep_work" hardcoded, not a prop: this component only ever renders for
+  // a deep_work session (LockInPanel's own branch, the IconChip/
+  // DOMAIN_ICON.business above already bake in the same assumption).
+  const hourIntervals = useMemo(() => mostRecentHourAsInterval(resolved, "deep_work"), [resolved]);
 
   async function handleEndSession() {
     setIsEnding(true);
@@ -141,6 +147,9 @@ export function LockInSession({
       </div>
 
       <HourCompleteBanner elapsedMinutes={elapsedMinutes} />
+      <div className="flex justify-end">
+        <EndOfHourReflection elapsedMinutes={elapsedMinutes} intervals={hourIntervals} />
+      </div>
 
       <SessionHourList hours={resolved} onEdit={editHour} timezone={timezone} disabled={isConfirming} />
 

@@ -17,6 +17,16 @@ vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
   getAllocationQueueForNow: (...args: unknown[]) => getAllocationQueueForNowMock(...args),
   saveAllocationCheckin: (...args: unknown[]) => saveAllocationCheckinMock(...args),
 }));
+// LockInOverlay now renders EndOfHourReflection (P3-05), which derives its
+// own visibility from listMyReflectionCards() -- mocked empty by default
+// (matching both the flag's own real default AND a fresh/off account) so
+// it renders nothing here and every existing assertion below is
+// unaffected. end-of-hour-reflection.test.tsx covers its own behavior.
+vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
+  listMyReflectionCards: vi.fn(async () => []),
+  startEndOfHourRitual: vi.fn(),
+  submitEndOfHourReflection: vi.fn(),
+}));
 
 import { LockInOverlay } from "../lock-in-overlay";
 import { LockInOverlayProvider, type ActiveWorkSession } from "../lock-in-overlay-context";
