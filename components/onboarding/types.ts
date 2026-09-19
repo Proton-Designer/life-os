@@ -9,7 +9,9 @@ export type PersonalSubdomainKey = "faith" | "self_mastery" | "fitness";
 
 export type WorkSubdomainKind = "job" | "business";
 
-export type SchoolSource = "upload" | "manual" | "canvas";
+// ONB item 10: "upload a syllabus" is no longer a top-level source -- folded
+// into "manual" as an optional per-class attachment (see school-step.tsx).
+export type SchoolSource = "manual" | "canvas";
 
 export interface SubdomainInput {
   key: string;
