@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClassCore, updateClassCore, addClassAssessmentCore, updateClassAssessmentCore } from "../actions-core";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
@@ -45,8 +46,13 @@ describe("createClassCore", () => {
 });
 
 describe("updateClassCore", () => {
+  // P4-34's requireRowUpdated chains .select("id") onto the update and reads
+  // its result to detect a zero-row match -- every test in this block that
+  // expects a normal, successful edit passes a non-empty row back so that
+  // check doesn't fire. The two tests below that DO care about a zero-row
+  // result pass `[]` explicitly.
   it("updates short_name/room/instructor, scoped to id and user_id", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "class-1" }], error: null });
     const from = vi.fn(() => chain);
     const client = { from } as unknown as SupabaseClient;
 
@@ -67,7 +73,7 @@ describe("updateClassCore", () => {
   // compiles and is correct today and needs no further code change once
   // migration 152 is applied.
   it("passes term through untouched (undefined when omitted, a real value or null when provided)", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "class-1" }], error: null });
     const from = vi.fn(() => chain);
     const client = { from } as unknown as SupabaseClient;
 
@@ -79,6 +85,27 @@ describe("updateClassCore", () => {
       instructor: undefined,
       term: "Fall 2026",
     });
+  });
+
+  // P4-34: both cases below produce the IDENTICAL zero-row result from the
+  // same user_id-scoped query -- account A editing account B's class id is
+  // indistinguishable from account A editing an id that never existed.
+  it("throws a clean not-found for a cross-tenant id (account A editing account B's class) instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    await expect(
+      updateClassCore(client, "user-1", "belongs-to-account-b", { shortName: "Renamed" })
+    ).rejects.toThrow(/No class found with id "belongs-to-account-b"/);
+  });
+
+  it("throws a clean not-found for the caller's own stale/deleted id -- the common, non-adversarial case", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+
+    await expect(updateClassCore(client, "user-1", "deleted-earlier", { shortName: "Renamed" })).rejects.toThrow(
+      /No class found with id "deleted-earlier"/
+    );
   });
 });
 
@@ -255,5 +282,45 @@ describe("updateClassAssessmentCore", () => {
     await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20" });
     const call = assessmentsChain.update.mock.calls[0]![0] as Record<string, unknown>;
     expect(call).not.toHaveProperty("points_possible");
+  });
+
+  // P4-34 message-shape normalization (Category F, ENG-A's triage) -- this
+  // was NEVER a false-success bug: the pre-read below already uses
+  // .single(), which throws for a zero-row result, so a bad/cross-tenant
+  // top-level id already fails closed. The defect is only in the SHAPE of
+  // that failure -- a raw, untranslated PostgREST error (code PGRST116)
+  // instead of the same clean ToolNotFoundError every other not-found case
+  // in this registry uses, which an AI caller can't self-correct from the
+  // same way. Both a cross-tenant id and the caller's own stale id hit the
+  // SAME .single() call, scoped by user_id, so they produce the identical
+  // translated error either way.
+  it("throws a clean ToolNotFoundError, not a raw PostgREST error, for a cross-tenant id (account A editing account B's assessment)", async () => {
+    const assessmentsChain = makeChain({ data: null, error: { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" } });
+    const client = { from: vi.fn(() => assessmentsChain) } as unknown as SupabaseClient;
+
+    await expect(
+      updateClassAssessmentCore(client, "user-1", "belongs-to-account-b", { name: "x", type: "quiz", date: "2026-10-20" })
+    ).rejects.toThrow(ToolNotFoundError);
+    await expect(
+      updateClassAssessmentCore(client, "user-1", "belongs-to-account-b", { name: "x", type: "quiz", date: "2026-10-20" })
+    ).rejects.toThrow(/No class assessment found with id "belongs-to-account-b"/);
+  });
+
+  it("throws a clean ToolNotFoundError for the caller's own stale/deleted id -- the common, non-adversarial case", async () => {
+    const assessmentsChain = makeChain({ data: null, error: { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" } });
+    const client = { from: vi.fn(() => assessmentsChain) } as unknown as SupabaseClient;
+
+    await expect(
+      updateClassAssessmentCore(client, "user-1", "deleted-earlier", { name: "x", type: "quiz", date: "2026-10-20" })
+    ).rejects.toThrow(/No class assessment found with id "deleted-earlier"/);
+  });
+
+  it("still propagates a genuinely different fetch error raw -- only the zero-row (PGRST116) shape gets translated", async () => {
+    const assessmentsChain = makeChain({ data: null, error: { code: "08006", message: "connection reset" } });
+    const client = { from: vi.fn(() => assessmentsChain) } as unknown as SupabaseClient;
+
+    await expect(
+      updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "x", type: "quiz", date: "2026-10-20" })
+    ).rejects.toThrow("connection reset");
   });
 });

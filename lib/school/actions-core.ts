@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/assessment-types";
+import { requireRowUpdated } from "@/lib/mcp/require-row-updated";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 export { ASSESSMENT_TYPES, type AssessmentType };
 
@@ -119,11 +121,19 @@ export interface UpdateClassInput {
   gradeBoundaries?: { letter: string; minPct: number }[] | null;
 }
 
-/** short_name (Opus Lead: must be editable, never seed-only), room, instructor, term, late/attendance policy, allowed absences, grade boundaries. */
+/**
+ * short_name (Opus Lead: must be editable, never seed-only), room, instructor, term, late/attendance policy, allowed absences, grade boundaries.
+ *
+ * P4-34 (this IS the spec's own cited example, actions-core.ts:124): a bad,
+ * stale, or cross-tenant `classId` now throws a clean not-found (via the
+ * shared requireRowUpdated helper) instead of silently matching zero rows
+ * and reporting success.
+ */
 export async function updateClassCore(supabase: SupabaseClient, userId: string, classId: string, input: UpdateClassInput): Promise<void> {
-  const { error } = await supabase
-    .from("classes")
-    .update({
+  await requireRowUpdated(
+    supabase,
+    "classes",
+    {
       short_name: input.shortName,
       code: input.code,
       room: input.room,
@@ -133,10 +143,11 @@ export async function updateClassCore(supabase: SupabaseClient, userId: string, 
       attendance_policy: input.attendancePolicy,
       allowed_absences: input.allowedAbsences,
       ...(input.gradeBoundaries !== undefined ? { grade_boundaries: input.gradeBoundaries } : {}),
-    })
-    .eq("id", classId)
-    .eq("user_id", userId);
-  if (error) throw error;
+    },
+    classId,
+    userId,
+    `No class found with id "${classId}".`
+  );
 }
 
 // ASSESSMENT_TYPES/AssessmentType moved to lib/school/assessment-types.ts (a client-safe
@@ -265,7 +276,22 @@ export async function updateClassAssessmentCore(
     .eq("id", assessmentId)
     .eq("user_id", userId)
     .single();
-  if (fetchError) throw fetchError;
+  if (fetchError) {
+    // P4-34 message-shape normalization (Category F, ENG-A's triage,
+    // 2026-09-19): this read is ALREADY scoped by user_id, so `.single()`
+    // (not `.maybeSingle()`) already fails closed for a bad/cross-tenant
+    // assessmentId -- PGRST116 is Postgrest's own code for "the query
+    // returned zero (or more than one) row where exactly one was
+    // required." Translated to the same clean ToolNotFoundError every
+    // other not-found case in this registry uses, instead of a raw,
+    // untranslated Postgrest error an AI caller can't self-correct from.
+    // Any OTHER fetch failure (a real infra error) stays a raw throw,
+    // unchanged -- only the "genuinely zero rows" shape gets translated.
+    if ((fetchError as { code?: string }).code === "PGRST116") {
+      throw new ToolNotFoundError(`No class assessment found with id "${assessmentId}".`);
+    }
+    throw fetchError;
+  }
 
   const { error } = await supabase
     .from("class_assessments")
