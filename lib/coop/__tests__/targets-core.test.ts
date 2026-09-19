@@ -2,7 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore, getActiveTargetQueueCore } from "../targets-core";
 
-function makeClient(opts: { queue?: unknown[]; rpcError?: unknown; before?: { position: number } | null; promoted?: { id: string; deadline: string | null } | null; newId?: string } = {}) {
+function makeClient(opts: {
+  queue?: unknown[];
+  rpcError?: unknown;
+  before?: { position: number } | null;
+  promoted?: { id: string; deadline: string | null } | null;
+  newId?: string;
+  /** editTargetCore's UPDATE...SELECT result -- P4-34's requireRowUpdated reads this to decide zero-rows-matched. Defaults to a non-empty row so every pre-existing test here (none of which cares about this) keeps passing unchanged; a test that DOES care passes `[]` to simulate a bad/stale/cross-tenant id. */
+  updateResult?: unknown[];
+} = {}) {
   const insertCalls: Record<string, unknown>[] = [];
   const rpcCalls: { fn: string; args: unknown }[] = [];
   // completeTargetCore makes TWO separate `.from("coop_targets")...maybeSingle()`
@@ -12,19 +20,24 @@ function makeClient(opts: { queue?: unknown[]; rpcError?: unknown; before?: { po
   let maybeSingleCallCount = 0;
   const from = vi.fn((_table: string) => {
     const chain: Record<string, unknown> = {};
+    let isUpdate = false;
     for (const m of ["select", "eq", "not"]) chain[m] = vi.fn(() => chain);
     chain.insert = vi.fn((row: Record<string, unknown>) => {
       insertCalls.push(row);
       return chain; // chainable -- addTargetCore/addStretchGoalCore do .insert(...).select("id").single()
     });
     chain.single = vi.fn(async () => ({ data: { id: opts.newId ?? "new-id" }, error: null }));
-    chain.update = vi.fn(() => chain);
+    chain.update = vi.fn(() => {
+      isUpdate = true;
+      return chain;
+    });
     chain.maybeSingle = vi.fn(async () => {
       maybeSingleCallCount += 1;
       const data = maybeSingleCallCount === 1 ? (opts.before ?? null) : (opts.promoted ?? null);
       return { data, error: null };
     });
-    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: opts.queue ?? [], error: null });
+    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) =>
+      resolve({ data: isUpdate ? (opts.updateResult ?? [{ id: "row-1" }]) : (opts.queue ?? []), error: null });
     return chain;
   });
   const rpc = vi.fn((fn: string, args: unknown) => {
@@ -97,6 +110,27 @@ describe("editTargetCore", () => {
     const fromSpy = client.from as unknown as ReturnType<typeof vi.fn>;
     await editTargetCore(client, "user-1", "t1", { title: "   " });
     expect(fromSpy).not.toHaveBeenCalled();
+  });
+
+  // P4-34: a plain .update() with no result check reported success for a
+  // bad, stale, or cross-tenant id -- the update matched zero rows and
+  // nothing told the caller. Both cases below produce the IDENTICAL
+  // zero-row result from the same user_id-scoped query (requireRowUpdated's
+  // own enumeration-safety property) -- account A editing account B's
+  // target id is indistinguishable from account A editing an id that never
+  // existed at all, which is exactly what must be true.
+  it("throws a clean not-found for a cross-tenant id (account A editing account B's target) instead of reporting success", async () => {
+    const { client } = makeClient({ updateResult: [] });
+    await expect(editTargetCore(client, "user-1", "belongs-to-account-b", { title: "Renamed" })).rejects.toThrow(
+      /No target found with id "belongs-to-account-b"/
+    );
+  });
+
+  it("throws a clean not-found for the caller's own stale/deleted id -- the common, non-adversarial case", async () => {
+    const { client } = makeClient({ updateResult: [] });
+    await expect(editTargetCore(client, "user-1", "deleted-earlier", { title: "Renamed" })).rejects.toThrow(
+      /No target found with id "deleted-earlier"/
+    );
   });
 });
 

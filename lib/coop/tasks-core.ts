@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { nextStage, previousStage, type CoopTaskStatus } from "./tasks";
+import { requireRowUpdated } from "@/lib/mcp/require-row-updated";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 /**
  * R5 core(supabase, userId, ...) extraction for the Work pipeline's
@@ -25,6 +27,7 @@ export async function addAgendaTaskCore(supabase: SupabaseClient, targetId: stri
   return data.id;
 }
 
+/** P4-34: a bad, stale, or cross-tenant `id` now throws a clean not-found (via the shared requireRowUpdated helper) instead of silently matching zero rows and reporting success. Same posture as lib/coop/targets-core.ts's editTargetCore. */
 export async function editTaskCore(
   supabase: SupabaseClient,
   userId: string,
@@ -39,8 +42,7 @@ export async function editTaskCore(
   }
   if (fields.deadline !== undefined) patch.deadline = fields.deadline;
   if (Object.keys(patch).length === 0) return;
-  const { error } = await supabase.from("coop_tasks").update(patch).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await requireRowUpdated(supabase, "coop_tasks", patch, id, userId, `No task found with id "${id}".`);
 }
 
 /**
@@ -61,6 +63,13 @@ export async function editTaskCore(
  */
 async function setStatusCore(supabase: SupabaseClient, userId: string, id: string, status: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
   const { data: current } = await supabase.from("coop_tasks").select("status, completed_at").eq("id", id).eq("user_id", userId).maybeSingle();
+  // P4-34: this read is ALREADY scoped by id + user_id for the idempotency
+  // check above -- it just never had its zero-row result checked, so a
+  // bad/stale/cross-tenant id fell through with `current` undefined and the
+  // UPDATE below silently matched zero rows while still reporting success.
+  // No new query added: reusing this same read is what keeps a cross-tenant
+  // id and a truly nonexistent id producing the identical thrown error.
+  if (!current) throw new ToolNotFoundError(`No task found with id "${id}".`);
   const completedAt =
     status === "complete" ? (current?.status === "complete" ? current.completed_at : new Date().toISOString()) : null;
   const { error } = await supabase
@@ -108,6 +117,8 @@ export async function blockTaskCore(
 ): Promise<void> {
   const trimmedReason = reason?.trim();
   const { data: current } = await supabase.from("coop_tasks").select("status, blocked_since").eq("id", id).eq("user_id", userId).maybeSingle();
+  // P4-34: same reuse-the-existing-read fix as setStatusCore above.
+  if (!current) throw new ToolNotFoundError(`No task found with id "${id}".`);
   const blockedSince = current?.status === "blocked" && current.blocked_since ? current.blocked_since : new Date().toISOString();
   const { error } = await supabase
     .from("coop_tasks")
@@ -133,6 +144,8 @@ export async function blockTaskCore(
  */
 export async function unblockTaskCore(supabase: SupabaseClient, userId: string, id: string, blockedFrom: Exclude<CoopTaskStatus, "blocked">): Promise<void> {
   const { data: current } = await supabase.from("coop_tasks").select("status, completed_at").eq("id", id).eq("user_id", userId).maybeSingle();
+  // P4-34: same reuse-the-existing-read fix as setStatusCore above.
+  if (!current) throw new ToolNotFoundError(`No task found with id "${id}".`);
   const completedAt =
     blockedFrom === "complete" ? (current?.status === "complete" ? current.completed_at : new Date().toISOString()) : null;
   const { error } = await supabase

@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { nextStretchPosition, nextTargetPosition, splitTargetsAndStretch, type CoopTargetRow } from "./targets";
+import { requireRowUpdated } from "@/lib/mcp/require-row-updated";
 
 /**
  * R5's core(supabase, userId, ...) extraction for the Work Targets strip —
@@ -57,6 +58,14 @@ export async function addStretchGoalCore(supabase: SupabaseClient, userId: strin
   return data.id;
 }
 
+/**
+ * P4-34: a bad, stale, or cross-tenant `id` now throws a clean not-found
+ * (via the shared requireRowUpdated helper) instead of silently matching
+ * zero rows and reporting success — see that helper's own header for the
+ * enumeration-safety property this preserves. Only reaches the DB write at
+ * all once `patch` is non-empty; the blank-title and nothing-given no-ops
+ * above stay exactly as they were (never a reason to reject a real id).
+ */
 export async function editTargetCore(
   supabase: SupabaseClient,
   userId: string,
@@ -71,8 +80,7 @@ export async function editTargetCore(
   }
   if (fields.deadline !== undefined) patch.deadline = fields.deadline;
   if (Object.keys(patch).length === 0) return;
-  const { error } = await supabase.from("coop_targets").update(patch).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await requireRowUpdated(supabase, "coop_targets", patch, id, userId, `No target found with id "${id}".`);
 }
 
 export interface CompleteTargetResult {

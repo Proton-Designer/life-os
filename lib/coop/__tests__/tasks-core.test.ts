@@ -11,7 +11,11 @@ import { addAgendaTaskCore, editTaskCore, returnTaskToReviewCore, advanceTaskCor
  * for the first time pass a `currentRow` that is NOT already there yet;
  * retry tests (below, using `makeStatefulClient`) prove the preserving side.
  */
-function makeClient(currentRow: Record<string, unknown> | null = null) {
+function makeClient(
+  currentRow: Record<string, unknown> | null = null,
+  /** editTaskCore's UPDATE...SELECT result (P4-34's requireRowUpdated) -- defaults to a non-empty row so every pre-existing test here keeps passing unchanged; a test that cares about a bad/stale/cross-tenant id passes `[]`. Unread by setStatusCore/blockTaskCore/unblockTaskCore, which reuse `currentRow` above for their own existence check instead. */
+  updateResult: unknown[] = [{ id: "row-1" }]
+) {
   const insertCalls: Record<string, unknown>[] = [];
   const updateCalls: Record<string, unknown>[] = [];
   const from = vi.fn(() => {
@@ -28,7 +32,7 @@ function makeClient(currentRow: Record<string, unknown> | null = null) {
       updateCalls.push(row);
       return chain;
     });
-    chain.then = (resolve: (v: { error: null }) => void) => resolve({ error: null });
+    chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: updateResult, error: null });
     return chain;
   });
   return { client: { from } as unknown as SupabaseClient, insertCalls, updateCalls };
@@ -88,6 +92,23 @@ describe("editTaskCore", () => {
     const { client, updateCalls } = makeClient();
     await editTaskCore(client, "user-1", "task-1", {});
     expect(updateCalls).toHaveLength(0);
+  });
+
+  // P4-34: both cases below produce the IDENTICAL zero-row result from the
+  // same user_id-scoped query -- account A editing account B's task id is
+  // indistinguishable from account A editing an id that never existed.
+  it("throws a clean not-found for a cross-tenant id (account A editing account B's task) instead of reporting success", async () => {
+    const { client } = makeClient(null, []);
+    await expect(editTaskCore(client, "user-1", "belongs-to-account-b", { title: "Renamed" })).rejects.toThrow(
+      /No task found with id "belongs-to-account-b"/
+    );
+  });
+
+  it("throws a clean not-found for the caller's own stale/deleted id -- the common, non-adversarial case", async () => {
+    const { client } = makeClient(null, []);
+    await expect(editTaskCore(client, "user-1", "deleted-earlier", { title: "Renamed" })).rejects.toThrow(
+      /No task found with id "deleted-earlier"/
+    );
   });
 });
 
@@ -163,6 +184,41 @@ describe("status transitions — advance/retreat/block/unblock, all sharing the 
     const { client, updateCalls } = makeClient({ status: "complete", completed_at: "2026-09-01T00:00:00.000Z" });
     await returnTaskToReviewCore(client, "user-1", "task-1");
     expect(updateCalls[0]).toEqual({ status: "review", completed_at: null });
+  });
+
+  // P4-34: setStatusCore/blockTaskCore/unblockTaskCore already read the row
+  // (scoped by id + user_id) BEFORE writing, to decide whether to stamp a
+  // fresh timestamp -- but the read's result was never null-checked, so a
+  // bad, stale, or cross-tenant id fell through with `current` undefined,
+  // computed a plausible-looking patch, and the UPDATE silently matched
+  // zero rows while still reporting success. The fix reuses this SAME
+  // already-scoped read rather than adding a second, differently-scoped
+  // query -- no new query at all, so there is no way for it to leak
+  // "belongs to someone else" vs. "doesn't exist."
+  describe("P4-34 -- a bad, stale, or cross-tenant id throws a clean not-found instead of silently matching zero rows", () => {
+    it("advanceTaskCore (via setStatusCore)", async () => {
+      const { client, updateCalls } = makeClient(null); // null: this id matches no row for this user
+      await expect(advanceTaskCore(client, "user-1", "not-mine", "backlog")).rejects.toThrow(/No task found with id "not-mine"/);
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    it("retreatTaskCore (via setStatusCore)", async () => {
+      const { client, updateCalls } = makeClient(null);
+      await expect(retreatTaskCore(client, "user-1", "not-mine", "in_progress")).rejects.toThrow(/No task found with id "not-mine"/);
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    it("blockTaskCore", async () => {
+      const { client, updateCalls } = makeClient(null);
+      await expect(blockTaskCore(client, "user-1", "not-mine", "in_progress")).rejects.toThrow(/No task found with id "not-mine"/);
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    it("unblockTaskCore", async () => {
+      const { client, updateCalls } = makeClient(null);
+      await expect(unblockTaskCore(client, "user-1", "not-mine", "review")).rejects.toThrow(/No task found with id "not-mine"/);
+      expect(updateCalls).toHaveLength(0);
+    });
   });
 });
 
