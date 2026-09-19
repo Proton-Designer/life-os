@@ -56,9 +56,20 @@ describe("TabSidebarNav", () => {
       ["Goals", "/goals"],
       ["Habits", "/habits"],
       ["Weekly Review", "/weekly-review"],
+      ["Today", "/open"],
       ["Settings", "/settings"],
     ] as const) {
       expect(screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") })).toHaveAttribute("href", href);
     }
+  });
+
+  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure) had zero
+  // click-path in EITHER domains-mode renderer -- the exact dead-end shape
+  // UX-02 already fixed for /business above, just a different route. Kept
+  // in step with tab-mobile-island.tsx per this file's own MORE_ITEMS
+  // doc comment.
+  it("links Today to /open under SYSTEM", () => {
+    render(<TabSidebarNav variant="expanded" navDomainState={DOMAIN_STATE} />);
+    expect(screen.getByRole("link", { name: /^today$/i })).toHaveAttribute("href", "/open");
   });
 });

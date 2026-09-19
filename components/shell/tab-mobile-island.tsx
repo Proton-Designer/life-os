@@ -13,6 +13,7 @@ import {
   Repeat,
   CalendarCheck,
   Target,
+  Sunrise,
   type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -58,6 +59,10 @@ const MORE_ITEMS: NavItem[] = [
   // domains-mode renderer — the exact gap Worries/Goals/Habits had above,
   // just missed in that pass. Kept in step with tab-sidebar-nav.tsx.
   { href: "/business", label: "Business", icon: Target, accent: "business" },
+  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure), same
+  // dead-end shape Business had above (UX-02). Kept in step with
+  // tab-sidebar-nav.tsx.
+  { href: "/open", label: "Today", icon: Sunrise, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

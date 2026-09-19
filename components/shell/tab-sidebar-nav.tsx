@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat, CalendarCheck, Target } from "lucide-react";
+import { TrendingUp, Settings, type LucideIcon, CalendarDays, ClipboardCheck, AlertCircle, Flag, Repeat, CalendarCheck, Target, Sunrise } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
@@ -43,6 +43,13 @@ const MORE_ITEMS: NavItem[] = [
   // domains-mode renderer — the exact gap Worries/Goals/Habits had above,
   // just missed in that pass. Kept in step with tab-mobile-island.tsx.
   { href: "/business", label: "Business", icon: Target, accent: "business" },
+  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure -- Start
+  // Day, the Delta clock, Efficiency, Merged Today) had zero click-path in
+  // EITHER domains-mode renderer -- the ONLY inbound link anywhere in the
+  // app was /open/today's own empty-state button, unreachable without
+  // already being there. Same dead-end shape Business had above (UX-02).
+  // Kept in step with tab-mobile-island.tsx.
+  { href: "/open", label: "Today", icon: Sunrise, accent: "info" },
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

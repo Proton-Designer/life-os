@@ -50,6 +50,14 @@ const PRIMARY_ITEMS: {
 // explicit rather than "every SECTIONS item," so it needed its own line.
 //
 // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review, same reason again.
+//
+// Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure), same
+// reason again -- SECTIONS gained the entry in sidebar-nav.tsx's REVIEW
+// group, and this filter is explicit rather than "every SECTIONS item," so
+// it needed its own line here too.
+//
+// 2026-09-18: /close ("Review"), same reason again -- see this file's own
+// header comment below for why the legacy nav no longer omits it.
 const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
   (item) =>
     item.href === "/insights" ||
@@ -57,7 +65,9 @@ const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
     item.href === "/worries" ||
     item.href === "/goals" ||
     item.href === "/habits" ||
-    item.href === "/weekly-review"
+    item.href === "/weekly-review" ||
+    item.href === "/open" ||
+    item.href === "/close"
 );
 
 function isActive(pathname: string, href: string) {
@@ -66,16 +76,22 @@ function isActive(pathname: string, href: string) {
 }
 
 /**
- * LEGACY NAV — deliberately does NOT carry the Review grouping (R68).
+ * LEGACY NAV — does not carry the domains-mode pair's exact Review grouping
+ * (R68; that pair also lists Calendar, which this nav still doesn't).
  *
- * The domains-mode pair (tab-mobile-island.tsx / tab-sidebar-nav.tsx) lists
- * Review -> /close, Insights, Calendar, Settings. This one does not, and that
- * is a decision rather than an oversight: Ayman's own account is legacy mode,
- * and his instruction was to keep it as it is for now. M6 protects that.
+ * STALE AS OF 2026-09-18, CORRECTED HERE (same correction as
+ * sidebar-nav.tsx's own copy of this comment — read that one for the full
+ * reasoning): this used to justify the gap below as deliberate because
+ * "Ayman's own account is legacy mode." That premise is false —
+ * `getUserDomainsForUser` (lib/domains/user-domains-core.ts) puts an account
+ * in legacy mode only when it has zero active `user_domains` rows, and his
+ * accounts have them, so they are in domains mode. He has since asked for
+ * these gaps closed.
  *
- * The consequence, stated so nobody has to rediscover it: /close and /open are
- * NOT reachable from this nav. They work by URL. When his account migrates to
- * domains mode the grouping arrives with it, and this comment can go.
+ * /close and /open are now BOTH reachable from this nav's own More popover
+ * (MORE_ITEMS above, sourced from sidebar-nav.tsx's SECTIONS) — the 6-of-38
+ * accounts still genuinely in legacy mode were the only ones actually
+ * blocked by the old gap.
  */
 export function MobileIsland({ hiddenFeatures = [] }: { hiddenFeatures?: FeatureId[] }) {
   const pathname = usePathname();

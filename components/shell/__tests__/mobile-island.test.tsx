@@ -67,6 +67,27 @@ describe("MobileIsland", () => {
     expect(screen.getByRole("link", { name: /^weekly review$/i })).toHaveAttribute("href", "/weekly-review");
   });
 
+  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open joined SECTIONS' REVIEW
+  // group in sidebar-nav.tsx -- this is the proof it's actually reachable on
+  // legacy mobile too, not just added there and silently dropped by this
+  // file's own explicit href allowlist (same gap Habits/Weekly Review had).
+  it("also reveals Today under More, linked to /open", async () => {
+    const user = userEvent.setup();
+    render(<MobileIsland />);
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: /^today$/i })).toHaveAttribute("href", "/open");
+  });
+
+  // 2026-09-18: /close joined SECTIONS' REVIEW group in sidebar-nav.tsx --
+  // same reachability proof as Today above, for /close's own allowlist
+  // addition here.
+  it("also reveals Review under More, linked to /close", async () => {
+    const user = userEvent.setup();
+    render(<MobileIsland />);
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: /^review$/i })).toHaveAttribute("href", "/close");
+  });
+
   it("also reveals the Ask AI platform links under More, without growing the fixed icon row", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);

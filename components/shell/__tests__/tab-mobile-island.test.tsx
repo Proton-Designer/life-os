@@ -60,9 +60,20 @@ describe("TabMobileIsland", () => {
       ["Goals", "/goals"],
       ["Habits", "/habits"],
       ["Weekly Review", "/weekly-review"],
+      ["Today", "/open"],
       ["Settings", "/settings"],
     ] as const) {
       expect(screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") })).toHaveAttribute("href", href);
     }
+  });
+
+  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: same gap as tab-sidebar-nav.tsx's
+  // own test -- /open (Day Structure) is fully functional but reachable only
+  // by direct URL on domains-mode mobile too.
+  it("reveals Today under More, linked to /open", async () => {
+    const user = userEvent.setup();
+    render(<TabMobileIsland navDomainState={DOMAIN_STATE} />);
+    await user.click(screen.getByTestId("tab-mobile-island-item-more"));
+    expect(screen.getByRole("link", { name: /^today$/i })).toHaveAttribute("href", "/open");
   });
 });
