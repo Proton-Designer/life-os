@@ -199,6 +199,57 @@ phase's own acceptance criteria — it is unrelated to `database.types.ts`.
 one-line fixture fix (`midterm_final` → `final_midterm`) by whoever owns
 `lib/mcp/**`.
 
+### Onboarding's Work widget picker collects a selection nothing consumes
+**Area:** `components/onboarding/work-step.tsx`, `widget-picker.tsx`,
+`widget-catalogue.ts` · **Severity:** product-visible, not a crash
+**Symptom:** the Work subdomain onboarding step ("What should this screen
+show?") lets a user pick from 11 widgets, but the choice has zero effect on
+what ever renders, for all 11, regardless of which are picked.
+**Cause:** traced the full path. `WorkStep` stores the selection into
+`WorkSubdomainDraft.widgets` → `app/(app)/onboarding/actions.ts`'s
+`saveSubdomains` writes it into `user_subdomains.widgets` (a JSON column) →
+`lib/domains/user-domains-core.ts:72` is the ONLY place outside onboarding
+and tests that ever reads `.widgets` off a subdomain row, and it only maps
+the column straight through into the returned state object — nothing reads
+it after that. `app/(app)/work/[subdomain]/page.tsx` re-renders the same
+`WorkPage` regardless of which subdomain (or its stored widgets) is active.
+Root cause: T-0002 (per-subdomain data scoping on `coop_targets`/
+`coop_tasks`) hasn't landed — confirmed by an existing, honest comment and
+UI note already in `work/[subdomain]/layout.tsx`: "Your subdomains share
+one Work pipeline for now — per-subdomain separation is coming."
+**Workaround:** none — this is a known, already-flagged architectural gap,
+not new breakage. The onboarding picker is the ONE place that doesn't
+admit it: it implies a real per-subdomain choice that the app elsewhere
+openly says it can't yet honor.
+**Do not:** treat this as 11 independent per-widget stub/real judgments —
+it's one consumption-side gap that makes the whole step inert regardless
+of any individual widget's own status.
+**Tracked:** found 2026-09-19 (Sonnet ENG 3, ONB item 8 audit), confirmed
+independently by Opus Lead. Ayman is ruling on what the picker should do
+in the meantime (T-0002 itself is explicitly not being built as part of
+that punch list) — see `.claude/overnight/run-20260915-0011/ONB-PLAN.md`
+and `OPEN_QUESTIONS.md`.
+
+### `widget-catalogue.ts` cites a source document that doesn't exist in this repo
+**Area:** `components/onboarding/widget-catalogue.ts` · **Severity:**
+documentation-integrity defect, independent of whether the widgets work
+**Symptom:** the file's header comment attributes its contents to
+"Engineer 2's cross-cutting systems research (2026-09-01): the confirmed-
+drop-in and confirmed-real-gap findings recorded in DECISIONS.md D-010/
+D-011."
+**Cause:** unverified citation. Grepped the full working tree and `git log
+--all` for `DECISIONS.md`, `D-010`, and `D-011` — none exist anywhere in
+this repo or its history. `.brain/memory/decisions.md` (the project's real
+decisions log) has no entries with those IDs either.
+**Workaround:** none needed to use the catalogue; the concern is trust in
+its stated provenance, not its function.
+**Do not:** cite D-010/D-011 as a real, checkable source for why a given
+widget's default is what it is — treat the catalogue's defaults as
+un-sourced until/unless the real research doc is found or reconstructed.
+**Tracked:** found 2026-09-19 (Sonnet ENG 3, ONB item 8 audit) while
+auditing `widget-catalogue.ts` for item 8. Checked, not editorialized on
+how the stale citation got there.
+
 ## Deliberate constraints that look like bugs
 
 ### `checkin-scheduler.tsx` / `checkin-scheduler-loader.tsx` are unmounted, not dead

@@ -36,6 +36,21 @@ the request never arrives when it triggers, so no code of ours can see it.
 
 ## Partially migrated
 
+### T-0002 — per-subdomain data scoping for Work (coop_targets/coop_tasks) not shipped
+**Old / current:** every Work subdomain shows the exact same shared pipeline/
+targets/kill-list data (`app/(app)/work/[subdomain]/page.tsx` re-renders the
+plain `WorkPage` regardless of subdomain), with an honest note already
+surfaced in `work/[subdomain]/layout.tsx` saying so.
+**Planned:** per-subdomain scoping of `coop_targets`/`coop_tasks` (T-0002),
+so each Work subdomain's page reflects only its own data — not yet built.
+**Rule while this gap exists:** don't assume a Work subdomain's stored
+`widgets` selection (from onboarding) drives anything — see the paired
+known-issues.md entry ("Onboarding's Work widget picker collects a
+selection nothing consumes"). Building the picker to *look* more correct
+without T-0002 landing first would just move the honesty gap, not close it.
+**Found:** 2026-09-19, Sonnet ENG 3, ONB item 8 audit — confirmed
+independently by Opus Lead.
+
 ### AI provider: DeepSeek-only, multi-provider planned but not shipped
 **Old / current:** `lib/ai/providers.ts` supports DeepSeek only.
 **Planned:** `docs/ai-connector/PROGRAM-PLAN.md` records a ruling to
