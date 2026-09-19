@@ -735,11 +735,15 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       [{ class_id: "c1", date: "2026-09-15", type: "exam", name: "Midterm" }], // 1 day away -> 3.0x
       10
     );
-    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     // baseline 30 * 3.0 = 90, but the absolute ceiling (20 min / 20s = 60) caps it.
     expect(totalLimit).toBe(60);
+    // The effect was real and silent -- BuiltSession.examIntensity is what
+    // finally names it for the UI (retrieval-session-overlay.tsx), without
+    // this test's own capacity math above being its only observable trace.
+    expect(result.examIntensity).toEqual({ daysUntilExam: 1, multiplier: 3.0, assessmentName: "Midterm", assessmentType: "exam" });
   });
 
   it("uses the MAX multiplier across classes, never a product of several -- three imminent exams must not compound", async () => {
@@ -795,9 +799,23 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
 
   it("does not scale capacity at all when no class has an upcoming exam-type assessment", async () => {
     const { client, queueCalls } = makeSessionClient([], 10);
-    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     expect(totalLimit).toBe(30); // baseline only, multiplier 1.0
+    expect(result.examIntensity).toBeNull();
+  });
+
+  it("names the MOST URGENT class's assessment as the driving one when several classes have exams -- matching the MAX, never a blend of several", async () => {
+    const { client } = makeSessionClient(
+      [
+        { class_id: "c1", date: "2026-09-15", type: "exam", name: "Exam 1" }, // 1 day -> 3.0x
+        { class_id: "c2", date: "2026-09-16", type: "final_midterm", name: "Exam 2" }, // 2 days -> 2.5x
+      ],
+      10
+    );
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    expect(result.examIntensity).toEqual({ daysUntilExam: 1, multiplier: 3.0, assessmentName: "Exam 1", assessmentType: "exam" });
   });
 });

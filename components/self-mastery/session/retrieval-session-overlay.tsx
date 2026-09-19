@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Mic, Sparkles, Target, X } from "lucide-react";
+import { Flame, Mic, Sparkles, Target, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDictation } from "@/components/shared/use-dictation";
@@ -33,6 +33,7 @@ import { getCloserDayConnection } from "@/app/(app)/personal/closer-day-connecti
 import type { LessonContext } from "@/lib/self-mastery/session/build-session";
 import type { BuiltSession } from "@/lib/self-mastery/session/types";
 import { studyMethodLabel } from "@/lib/self-mastery/study-methods";
+import { describeExamIntensity } from "@/lib/self-mastery/session/exam-intensity";
 
 type Confidence = "sure" | "think_so" | "guessing";
 type Rating = 1 | 2 | 3 | 4;
@@ -106,6 +107,14 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   const timerRef = useRef<TimerState>(startTimer(Date.now()));
   const nextInterstitialAtRef = useRef(rollNextInterstitialGap());
   const cardsSinceInterstitialRef = useRef(0);
+
+  // Phase 1 #27's own gap, closed: the exam-intensity multiplier already
+  // shaped this session's capacity (build-session.ts) but named nowhere the
+  // user could see it. `null` for the overwhelming majority of sessions
+  // (no known exam, or one too far out to boost anything) -- rendered as
+  // nothing at all, same "renders nothing when nothing changed" posture as
+  // the diff banner on /open.
+  const examIntensityLabel = describeExamIntensity(built?.examIntensity ?? null);
 
   const currentItem = sequence[cardIndex] ?? null;
   // `.id`/`.prompt`/`.reason`/`.queuePosition` are shared by SessionCard and
@@ -488,6 +497,22 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
               <X />
             </Button>
           </div>
+
+          {/* Phase 1 #27's countdown, named honestly rather than left silent
+              -- see describeExamIntensity's own header for why this can be
+              null (no known exam, or one too far out to have boosted
+              anything). Persistent, not dismissible, unlike the transient
+              error banner below: this describes the session's actual shape
+              for as long as it's true, not a one-off event. */}
+          {examIntensityLabel && (phase === "card" || phase === "revealed") && (
+            <div
+              role="status"
+              className="mt-2 flex items-center gap-2 rounded-lg border border-accent-warning/30 bg-accent-warning/10 px-3 py-2 text-sm text-accent-warning"
+            >
+              <Flame className="size-4 shrink-0" aria-hidden />
+              <span>{examIntensityLabel}</span>
+            </div>
+          )}
 
           {/* A transient, dismissible banner -- distinct from the full-page
               "error" phase below, which is for a load/finish failure that

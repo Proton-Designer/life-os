@@ -88,6 +88,41 @@ export function applyExamIntensity(baseLimit: number, multiplier: number): numbe
   return Math.max(baseLimit, Math.floor(baseLimit * multiplier));
 }
 
+/**
+ * The single assessment driving `buildTodaysSession`'s capacity multiplier
+ * (the MAX across the caller's classes -- see build-session.ts's own "WHY
+ * MAX, NOT A PRODUCT" comment), carried alongside the multiplier itself so a
+ * UI can name it. Never a second source of truth for the number: this is
+ * always the SAME multiplier `examIntensityMultiplier` already computed for
+ * that assessment's `daysUntilExam`.
+ */
+export interface ExamIntensityInfo {
+  daysUntilExam: number;
+  multiplier: number;
+  assessmentName: string;
+  assessmentType: string;
+}
+
+/**
+ * Phase 1 #27's own gap, closed: the multiplier was wired into scheduling
+ * capacity from day one but named nowhere a user could see, so a real effect
+ * was completely silent. This is the one plain-language line the UI
+ * (RetrievalSessionOverlay) renders verbatim -- it does not touch the
+ * scheduling math above, only states its result.
+ *
+ * `null` in, `null` out: nothing to say when there is no known exam, and
+ * nothing to say at the baseline multiplier either (1.0 means no active
+ * boost) -- same "renders nothing when nothing changed" posture as
+ * lib/night-plan/diff-banner.ts's own computeOpenDiff.
+ */
+export function describeExamIntensity(info: ExamIntensityInfo | null): string | null {
+  if (!info || info.multiplier <= 1.0) return null;
+  const label = info.assessmentType === "final_midterm" ? "Final/midterm" : "Exam";
+  const when = info.daysUntilExam <= 0 ? "today" : info.daysUntilExam === 1 ? "in 1 day" : `in ${info.daysUntilExam} days`;
+  const multiplierLabel = Number.isInteger(info.multiplier) ? `${info.multiplier}×` : `${info.multiplier.toFixed(1)}×`;
+  return `${label} ${when} — study capacity boosted ${multiplierLabel}`;
+}
+
 interface AssessmentRow {
   class_id: string;
   date: string;

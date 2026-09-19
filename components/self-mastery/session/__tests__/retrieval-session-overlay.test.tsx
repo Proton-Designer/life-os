@@ -61,13 +61,18 @@ function question(id: string, prompt: string, reason: SessionQuestion["reason"] 
   return { id, classId: "class-1", prompt, reason, queuePosition };
 }
 
-function builtSession(cards: SessionCard[], dueQuestions: SessionQuestion[] = []): BuiltSession {
+function builtSession(
+  cards: SessionCard[],
+  dueQuestions: SessionQuestion[] = [],
+  examIntensity: BuiltSession["examIntensity"] = null
+): BuiltSession {
   return {
     session: { id: "sess-1", userId: "user-1", localDate: "2026-09-01", startedAt: "2026-09-01T12:00:00Z", endedAt: null, cardsReviewed: 0, newCardsIntroduced: 0 },
     plan: { warmUp: [], due: cards, fresh: [], closer: null },
     settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
     overflowDueCount: 0,
     dueQuestions,
+    examIntensity,
   };
 }
 
@@ -119,6 +124,27 @@ describe("RetrievalSessionOverlay", () => {
 
     await waitFor(() => expect(screen.getByText("What is the generation effect?")).toBeInTheDocument());
     expect(revealCardAnswerMock).not.toHaveBeenCalled();
+  });
+
+  // Phase 1 #27's own gap, closed: the exam-intensity multiplier was wired
+  // into scheduling capacity but named nowhere a user could see. This is the
+  // one surface that shows it, in plain language, honestly reflecting
+  // BuiltSession.examIntensity -- never a second computation of it.
+  it("names the exam-intensity countdown and boost when the session was built with one", async () => {
+    loadTodaysSessionMock.mockResolvedValue(
+      builtSession([card("c1", "A card")], [], { daysUntilExam: 2, multiplier: 2.5, assessmentName: "Midterm 1", assessmentType: "exam" })
+    );
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("Exam in 2 days — study capacity boosted 2.5×")).toBeInTheDocument());
+  });
+
+  it("shows no exam-intensity banner at all when the session has none", async () => {
+    loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "A card")], [], null));
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("A card")).toBeInTheDocument());
+    expect(screen.queryByText(/study capacity boosted/)).not.toBeInTheDocument();
   });
 
   it("P2-16: offers no Dictate control when the browser has no SpeechRecognition, and shows/wires one that appends to the typed answer when it does", async () => {

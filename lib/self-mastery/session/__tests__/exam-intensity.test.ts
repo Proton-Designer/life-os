@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyExamIntensity,
   daysBetweenDateStrings,
+  describeExamIntensity,
   examIntensityMultiplier,
   loadNearestUpcomingExamsByClass,
 } from "../exam-intensity";
@@ -67,6 +68,49 @@ describe("applyExamIntensity", () => {
 
   it("is a true no-op at the baseline multiplier", () => {
     expect(applyExamIntensity(7, 1.0)).toBe(7);
+  });
+});
+
+describe("describeExamIntensity", () => {
+  // Phase 1 #27's own gap: the multiplier was wired into scheduling capacity
+  // from day one but named nowhere a user could see -- this is the
+  // plain-language line the one UI surface that shows it renders verbatim.
+  it("is null when there is no known exam", () => {
+    expect(describeExamIntensity(null)).toBeNull();
+  });
+
+  it("is null at the baseline multiplier -- nothing to say when there's no active boost", () => {
+    expect(describeExamIntensity({ daysUntilExam: 30, multiplier: 1.0, assessmentName: "Final", assessmentType: "exam" })).toBeNull();
+  });
+
+  it("states the countdown and the multiplier in plain language for an imminent exam", () => {
+    expect(describeExamIntensity({ daysUntilExam: 3, multiplier: 2.5, assessmentName: "Midterm 1", assessmentType: "exam" })).toBe(
+      "Exam in 3 days — study capacity boosted 2.5×"
+    );
+  });
+
+  it("singularizes 1 day", () => {
+    expect(describeExamIntensity({ daysUntilExam: 1, multiplier: 3.0, assessmentName: "Final", assessmentType: "exam" })).toBe(
+      "Exam in 1 day — study capacity boosted 3×"
+    );
+  });
+
+  it("says 'today' for a same-day exam, not 'in 0 days'", () => {
+    expect(describeExamIntensity({ daysUntilExam: 0, multiplier: 3.0, assessmentName: "Final", assessmentType: "exam" })).toBe(
+      "Exam today — study capacity boosted 3×"
+    );
+  });
+
+  it("labels a final_midterm-type assessment distinctly from a plain exam", () => {
+    expect(
+      describeExamIntensity({ daysUntilExam: 2, multiplier: 2.5, assessmentName: "Final", assessmentType: "final_midterm" })
+    ).toBe("Final/midterm in 2 days — study capacity boosted 2.5×");
+  });
+
+  it("formats a whole-number multiplier without a trailing .0", () => {
+    expect(describeExamIntensity({ daysUntilExam: 7, multiplier: 2.0, assessmentName: "Exam", assessmentType: "exam" })).toBe(
+      "Exam in 7 days — study capacity boosted 2×"
+    );
   });
 });
 

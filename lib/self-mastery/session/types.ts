@@ -1,6 +1,8 @@
 // Shared shapes for the retrieval session — ported/adapted from ULM's
 // packages/core/src/session/index.ts.
 
+import type { ExamIntensityInfo } from "./exam-intensity";
+
 export type PromptType = "free_recall" | "application" | "cloze" | "why";
 
 export type QueueReason = "warm_up" | "due" | "new";
@@ -104,6 +106,15 @@ export interface BuiltSession {
    * so that population is not silently dropped the day it stops being zero.
    */
   dueQuestions: SessionQuestion[];
+  /**
+   * Phase 1 #27 -- the assessment driving this session's exam-intensity
+   * capacity multiplier (exam-intensity.ts), or `null` when there is none
+   * or it's at baseline (1.0, no active boost). `describeExamIntensity`
+   * turns this into the plain-language line RetrievalSessionOverlay shows;
+   * this field exists so the multiplier that was already wired into
+   * capacity is not silent to the user who is actually experiencing it.
+   */
+  examIntensity: ExamIntensityInfo | null;
 }
 
 /** A freeze auto-consumed a gap covering this `complete_session` call. Present only on the call where consumption actually happened. */

@@ -20,7 +20,7 @@ import { getUserFsrsWeights } from "@/lib/self-mastery/fsrs-tuning";
 import { cardRetrievability, averageRetrievability, type CardStateForStrength } from "@/lib/self-mastery/memory-strength";
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
-import { loadNearestUpcomingExamsByClass, examIntensityMultiplier, applyExamIntensity, daysBetweenDateStrings } from "./exam-intensity";
+import { loadNearestUpcomingExamsByClass, examIntensityMultiplier, applyExamIntensity, daysBetweenDateStrings, type ExamIntensityInfo } from "./exam-intensity";
 import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
 import type {
   BuiltSession,
@@ -514,12 +514,21 @@ export async function buildTodaysSession(
     input.userId,
     input.localDate
   );
-  const maxIntensityMultiplier =
-    examsByClass.size === 0
-      ? 1.0
-      : Math.max(
-          ...[...examsByClass.values()].map((a) => examIntensityMultiplier(daysBetweenDateStrings(input.localDate, a.date)))
-        );
+  // Tracks the SAME max-across-classes multiplier the capacity math uses
+  // (never a product of several -- see the comment above this block), plus
+  // which assessment produced it. This is purely for NAMING the multiplier
+  // to the user (describeExamIntensity, rendered in
+  // retrieval-session-overlay.tsx) -- never a second source of truth for
+  // the number itself, which stays maxIntensityMultiplier below.
+  let examIntensity: ExamIntensityInfo | null = null;
+  for (const a of examsByClass.values()) {
+    const daysUntilExam = daysBetweenDateStrings(input.localDate, a.date);
+    const multiplier = examIntensityMultiplier(daysUntilExam);
+    if (!examIntensity || multiplier > examIntensity.multiplier) {
+      examIntensity = { daysUntilExam, multiplier, assessmentName: a.name, assessmentType: a.type };
+    }
+  }
+  const maxIntensityMultiplier = examIntensity?.multiplier ?? 1.0;
   const intensifiedCapacity = applyExamIntensity(baseCapacity, maxIntensityMultiplier);
 
   // ABSOLUTE CEILING (Opus Lead required addition): the source spec's own
@@ -572,7 +581,7 @@ export async function buildTodaysSession(
   if (distinctBookIds.size > 1 || (hasCards && hasQuestions)) observedMethods.push("interleave");
   await recordStudyMethods(client, session.id, observedMethods);
 
-  return { session, plan, settings, overflowDueCount, dueQuestions };
+  return { session, plan, settings, overflowDueCount, dueQuestions, examIntensity };
 }
 
 export interface SubmitCardReviewInput {
