@@ -12,7 +12,7 @@ import { TOP_DOMAIN_META } from "./domain-meta";
 import { defaultWidgetIdsFor } from "./widget-catalogue";
 import type { WorkSubdomainDraft, WorkSubdomainKind } from "./types";
 
-type Phase = "list" | "name" | "kind" | "widgets";
+type Phase = "list" | "kind" | "name" | "widgets";
 
 function slugify(label: string): string {
   return (
@@ -24,10 +24,19 @@ function slugify(label: string): string {
   );
 }
 
-// Work -> repeatable: create one or more subdomains. Each one: name it ->
-// "business or job?" -> widget picker (all preselected). At least one is
-// required, matching Personal Growth's minimum-one rule in spirit (you
-// picked Work, you get something to show for it).
+// ONB item 7: "Job" -> "Position" is a display-only rename. The underlying
+// WorkSubdomainKind value stays "job" -- that's the data contract shared
+// with app/(app)/onboarding/actions.ts (Lead/ENG1 territory, not touched
+// here), and drafts already saved under "job" must keep resolving.
+const KIND_LABEL: Record<WorkSubdomainKind, string> = { job: "Position", business: "Business" };
+
+// Work -> repeatable: create one or more subdomains. Each one: "position or
+// business?" -> name it -> widget picker (all preselected) -- ONB item 7
+// reordered this from name-then-kind to kind-then-name (Ayman: pick the
+// shape first, then name the specific thing). At least one is required to
+// hit Continue, matching Personal Growth's minimum-one rule in spirit (you
+// picked Work, you get something to show for it) -- "Add Later" (item 7) is
+// the explicit escape hatch for someone who doesn't want to commit right now.
 export function WorkStep({
   onBack,
   onNext,
@@ -48,7 +57,7 @@ export function WorkStep({
   function startNewSubdomain() {
     setDraftName("");
     setDraftKind(null);
-    setPhase("name");
+    setPhase("kind");
   }
 
   function removeDraft(key: string) {
@@ -62,48 +71,6 @@ export function WorkStep({
     setPhase("list");
   }
 
-  if (phase === "name") {
-    return (
-      <StepShell
-        stepId="work-name"
-        accent={accent}
-        icon={Briefcase}
-        eyebrow="Work"
-        progressTotal={progressTotal}
-        progressIndex={progressIndex}
-        footer={
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("list")}>
-              Back
-            </Button>
-            <Button
-              type="button"
-              data-testid="onboarding-next"
-              disabled={!draftName.trim()}
-              onClick={() => setPhase("kind")}
-            >
-              Continue
-            </Button>
-          </div>
-        }
-      >
-        <h1 className="text-xl font-semibold">What do you want to call it?</h1>
-        <p className="text-sm text-muted-foreground">A job, a client, a business — whatever you&apos;re tracking.</p>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="work-subdomain-name">Name</Label>
-          <Input
-            id="work-subdomain-name"
-            data-testid="work-subdomain-name"
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            placeholder="e.g. Acme Inc, Freelance design"
-            autoFocus
-          />
-        </div>
-      </StepShell>
-    );
-  }
-
   if (phase === "kind") {
     return (
       <StepShell
@@ -114,23 +81,23 @@ export function WorkStep({
         progressTotal={progressTotal}
         progressIndex={progressIndex}
         footer={
-          <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("name")} className="self-start">
+          <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("list")} className="self-start">
             Back
           </Button>
         }
       >
-        <h1 className="text-xl font-semibold">Business or job?</h1>
+        <h1 className="text-xl font-semibold">Position or business?</h1>
         <div className="flex flex-col gap-2">
           <OptionCard
-            testId="work-kind-job"
+            testId="work-kind-position"
             icon={Users}
             accent={accent}
-            label="Job"
+            label="Position"
             description="Employed, shift or salaried work."
             selected={draftKind === "job"}
             onToggle={() => {
               setDraftKind("job");
-              setPhase("widgets");
+              setPhase("name");
             }}
           />
           <OptionCard
@@ -142,8 +109,50 @@ export function WorkStep({
             selected={draftKind === "business"}
             onToggle={() => {
               setDraftKind("business");
-              setPhase("widgets");
+              setPhase("name");
             }}
+          />
+        </div>
+      </StepShell>
+    );
+  }
+
+  if (phase === "name") {
+    return (
+      <StepShell
+        stepId="work-name"
+        accent={accent}
+        icon={Briefcase}
+        eyebrow="Work"
+        progressTotal={progressTotal}
+        progressIndex={progressIndex}
+        footer={
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("kind")}>
+              Back
+            </Button>
+            <Button
+              type="button"
+              data-testid="onboarding-next"
+              disabled={!draftName.trim()}
+              onClick={() => setPhase("widgets")}
+            >
+              Continue
+            </Button>
+          </div>
+        }
+      >
+        <h1 className="text-xl font-semibold">What do you want to call it?</h1>
+        <p className="text-sm text-muted-foreground">A position, a client, a business — whatever you&apos;re tracking.</p>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="work-subdomain-name">Name</Label>
+          <Input
+            id="work-subdomain-name"
+            data-testid="work-subdomain-name"
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            placeholder="e.g. Acme Inc, Freelance design"
+            autoFocus
           />
         </div>
       </StepShell>
@@ -160,7 +169,7 @@ export function WorkStep({
         progressTotal={progressTotal}
         progressIndex={progressIndex}
         footer={
-          <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("kind")} className="self-start">
+          <Button type="button" variant="outline" data-testid="onboarding-back" onClick={() => setPhase("name")} className="self-start">
             Back
           </Button>
         }
@@ -180,10 +189,15 @@ export function WorkStep({
       progressTotal={progressTotal}
       progressIndex={progressIndex}
       footer={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" data-testid="onboarding-back" onClick={onBack}>
             Back
           </Button>
+          {drafts.length === 0 ? (
+            <Button type="button" variant="outline" data-testid="work-add-later" onClick={() => onNext([])}>
+              Add Later
+            </Button>
+          ) : null}
           <Button type="button" data-testid="onboarding-next" disabled={drafts.length === 0} onClick={() => onNext(drafts)}>
             Continue
           </Button>
@@ -191,14 +205,14 @@ export function WorkStep({
       }
     >
       <h1 className="text-xl font-semibold">Set up Work</h1>
-      <p className="text-sm text-muted-foreground">Add at least one job or business to track here.</p>
+      <p className="text-sm text-muted-foreground">Add at least one position or business to track here.</p>
       {drafts.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {drafts.map((d) => (
             <li key={d.key} className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2">
               <div className="flex flex-col">
                 <span className="text-sm font-medium">{d.label}</span>
-                <span className="text-xs text-muted-foreground capitalize">{d.kind}</span>
+                <span className="text-xs text-muted-foreground">{KIND_LABEL[d.kind]}</span>
               </div>
               <button
                 type="button"
@@ -214,7 +228,7 @@ export function WorkStep({
       ) : null}
       <Button type="button" variant="outline" data-testid="work-add-subdomain" onClick={startNewSubdomain} className="self-start gap-1.5">
         <Plus className="size-4" />
-        Add {drafts.length > 0 ? "another" : "a job or business"}
+        Add {drafts.length > 0 ? "another" : "a position or business"}
       </Button>
     </StepShell>
   );

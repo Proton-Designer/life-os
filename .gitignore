@@ -74,3 +74,11 @@ Claude outputs/
 # scripts/gen-database-types.sh (Docker-free database.types.ts regeneration).
 # Machine-local, reproducible from the script -- never commit it.
 /.local/pgmeta-gen/
+.phase1-ops/
+
+# ONB item 7 layout repro: an unauthenticated dev-only preview route
+# (outside the (app) auth-gated group on purpose) rendering onboarding
+# internals directly, for narrow-width screenshot testing without signup/
+# login. Deleted before this task closes; ignored so a stray broad `git
+# add` can never ship it in the meantime.
+/app/dev-preview-onb7/
