@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { AuthSubmitButton } from "@/components/auth/submit-button";
 import { signUp } from "./actions";
 
 export default async function SignUpPage({
@@ -79,9 +79,7 @@ export default async function SignUpPage({
               {message}
             </p>
           )}
-          <Button type="submit" className="w-full">
-            Sign up
-          </Button>
+          <AuthSubmitButton label="Sign up" pendingLabel="Signing up…" />
         </form>
         <p className="mt-4 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
