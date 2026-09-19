@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { AuthSubmitButton } from "@/components/auth/submit-button";
 import { signIn } from "./actions";
 import { safeNextPath } from "@/lib/auth/safe-next";
 
@@ -63,9 +63,7 @@ export default async function LoginPage({
               {error}
             </p>
           )}
-          <Button type="submit" className="w-full">
-            Sign in
-          </Button>
+          <AuthSubmitButton label="Sign in" pendingLabel="Signing in…" />
         </form>
         <p className="mt-4 text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
