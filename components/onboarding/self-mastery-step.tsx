@@ -1,75 +1,28 @@
 "use client";
 
-import { useRef, useState } from "react";
 import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StepShell } from "./step-shell";
 import { PERSONAL_SUBDOMAIN_META } from "./domain-meta";
-import { stubStoreSelfMasteryUpload } from "./self-mastery-upload-stub";
 
-type Phase = "ask" | "uploading" | "confirmed";
-
-// Collects nothing on the primary path (ULM lead's ruling on
-// PHASE-1-SPEC.md) — "Continue" advances immediately. "Add a book" is an
-// inline, entirely optional side door; a successful pick advances into a
-// short honest confirmation ("check back whenever," no promised
-// notification, since none exists) rather than blocking on the ~hour-long
-// ingestion pipeline.
+// ONB item 4: onboarding used to offer an inline "Add a book" side door
+// (file upload -> stub ingestion -> a "reading your book" confirmation
+// screen). Books are added in-app, not during onboarding — removed
+// entirely, not merely hidden, so there is no disabled/dead control left
+// behind. Collects nothing (ULM lead's ruling on PHASE-1-SPEC.md):
+// "Continue" is the one action and it advances immediately.
 export function SelfMasteryStep({
   onBack,
   onNext,
   progressTotal,
   progressIndex,
-  ingestionAvailable = false,
 }: {
   onBack: () => void;
   onNext: () => void;
   progressTotal: number;
   progressIndex: number;
-  /** False until a model provider is configured and a worker consumes
-   * `ingestion_jobs`. Offering "Add a book" without one accepts the file and
-   * strands the book at "processing" forever — a broken promise in the user's
-   * first ninety seconds. See lib/self-mastery/ingestion-availability.ts. */
-  ingestionAvailable?: boolean;
 }) {
   const accent = PERSONAL_SUBDOMAIN_META.self_mastery.accent;
-  const [phase, setPhase] = useState<Phase>("ask");
-  const [fileName, setFileName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  async function handleFile(file: File) {
-    setPhase("uploading");
-    setFileName(file.name);
-    await stubStoreSelfMasteryUpload(file);
-    setPhase("confirmed");
-  }
-
-  if (phase === "confirmed") {
-    return (
-      <StepShell
-        stepId="personal_growth-self_mastery-confirm"
-        accent={accent}
-        icon={BookOpen}
-        eyebrow="Personal Growth · Self-Mastery"
-        progressTotal={progressTotal}
-        progressIndex={progressIndex}
-        footer={
-          <Button type="button" data-testid="onboarding-next" onClick={onNext} className="self-start">
-            Continue
-          </Button>
-        }
-      >
-        <div data-testid="selfmastery-upload-confirm" className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold">Reading your book.</h1>
-          <p className="text-sm text-muted-foreground">
-            Your first lessons will be ready in a few minutes — the rest of the book keeps processing after that.
-            Check Self-Mastery whenever you like; nothing is waiting on you.
-          </p>
-          {fileName ? <p className="text-xs text-muted-foreground">{fileName}</p> : null}
-        </div>
-      </StepShell>
-    );
-  }
 
   return (
     <StepShell
@@ -84,31 +37,9 @@ export function SelfMasteryStep({
           <Button type="button" variant="outline" data-testid="onboarding-back" onClick={onBack}>
             Back
           </Button>
-          <Button type="button" data-testid="selfmastery-continue" onClick={onNext} disabled={phase === "uploading"}>
+          <Button type="button" data-testid="selfmastery-continue" onClick={onNext}>
             Continue
           </Button>
-          {ingestionAvailable ? (
-            <Button
-              type="button"
-              variant="ghost"
-              data-testid="selfmastery-add-book"
-              disabled={phase === "uploading"}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {phase === "uploading" ? "Adding…" : "Add a book"}
-            </Button>
-          ) : null}
-          <input
-            ref={fileInputRef}
-            type="file"
-            data-testid="selfmastery-file-input"
-            accept=".pdf,.epub,.txt"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleFile(file);
-            }}
-          />
         </div>
       }
     >

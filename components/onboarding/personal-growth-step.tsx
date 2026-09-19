@@ -12,9 +12,10 @@ import type { FaithConfig, FitnessConfig, PersonalSubdomainKey, SubdomainInput }
 
 type Phase = "select" | PersonalSubdomainKey;
 
-// Personal Growth: pick subdomains (all 3 preselected, minimum 1 kept), then
-// walk the kept ones in a fixed order asking each one's own question (Faith
-// and Fitness have one; Self-Mastery's primary path asks nothing).
+// Personal Growth: pick subdomains (Fitness + Self-Mastery preselected,
+// Faith is not — ONB item 3 — minimum 1 kept), then walk the kept ones in a
+// fixed order asking each one's own question (Faith and Fitness have one;
+// Self-Mastery's primary path asks nothing).
 export function PersonalGrowthStep({
   onBack,
   onNext,
@@ -26,10 +27,25 @@ export function PersonalGrowthStep({
   onNext: (subs: SubdomainInput[]) => void;
   progressTotal: number;
   progressIndex: number;
+  /** ONB item 4 removed SelfMasteryStep's own ingestion-gated affordance, so
+   * this prop is no longer forwarded anywhere and does nothing here. Kept
+   * declared, not removed, only because the wizard (not owned by this file)
+   * still passes it — dropping the prop type would break that call site.
+   * Safe for the wizard's own owner to also stop passing it. */
   ingestionAvailable?: boolean;
 }) {
   const accent = TOP_DOMAIN_META.personal_growth.accent;
-  const [kept, setKept] = useState<Set<PersonalSubdomainKey>>(new Set(PERSONAL_SUBDOMAIN_ORDER));
+  // ONB item 3: Faith is the app's only religious-practice track (deen:
+  // prayer times, Qur'an, adhkar) -- preselecting it, as Fitness/Self-Mastery
+  // are, defaults every new account to practicing Islam without ever asking.
+  // Only Faith starts unchosen; the user must actively opt in. Fitness and
+  // Self-Mastery carry no such assumption and keep the original default.
+  // Safe to leave unset: profiles.location_lat/location_lng have been
+  // nullable with no default since the baseline schema, and
+  // lib/home/get-priority-items.ts already gates prayer-window computation
+  // on `!= null` (R18(4): "no location set" is an absent, already-handled
+  // state, not a crash).
+  const [kept, setKept] = useState<Set<PersonalSubdomainKey>>(new Set(PERSONAL_SUBDOMAIN_ORDER.filter((k) => k !== "faith")));
   const [showMinWarning, setShowMinWarning] = useState(false);
   const [phase, setPhase] = useState<Phase>("select");
   const [faithConfig, setFaithConfig] = useState<FaithConfig | null>(null);
@@ -108,7 +124,6 @@ export function PersonalGrowthStep({
   if (phase === "self_mastery") {
     return (
       <SelfMasteryStep
-        ingestionAvailable={ingestionAvailable}
         onBack={() => backFrom("self_mastery")}
         onNext={() => advancePast("self_mastery")}
         progressTotal={progressTotal}
