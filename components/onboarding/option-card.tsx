@@ -46,8 +46,31 @@ export function OptionCard({
   size?: "md" | "sm";
 }) {
   const [justPressed, setJustPressed] = useState(false);
+  const [seenSelected, setSeenSelected] = useState(selected);
+
+  // ac21642 shipped this guard as `if (!selected) setJustPressed(true)` and a
+  // comment claiming that prevented a DEselected toggle from looking selected.
+  // It did not, and the comment was worse than no comment because it told the
+  // next reader not to check. That guard stops justPressed being RE-ARMED on
+  // the deselecting click; it never CLEARED the `true` left over from the
+  // earlier selecting click. So `selected || justPressed` stayed true forever
+  // and any toggle card stuck visually selected after its first press.
+  // Caught by ENG 1 in review (verify test below), not by me.
+  //
+  // The fix is to stop treating the press as state that outlives the parent's
+  // answer: the moment `selected` actually changes, the parent has responded
+  // and the transient press has served its purpose. Adjusting state during
+  // render is React's own documented pattern for deriving from props, and is
+  // correct here where an effect would paint one stale frame first.
+  if (seenSelected !== selected) {
+    setSeenSelected(selected);
+    if (justPressed) setJustPressed(false);
+  }
+
   // What the user SEES. `selected` stays the accessibility/assertion truth —
   // a transient press must not lie in aria-pressed or in what Playwright reads.
+  // A NAVIGATION TRIGGER (fitness style, school source) never changes
+  // `selected`, so its press correctly stays lit while the wizard advances.
   const looksSelected = selected || justPressed;
 
   function handleClick() {
