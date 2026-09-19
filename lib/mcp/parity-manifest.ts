@@ -188,6 +188,12 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/fitness/workouts/plan-actions.ts#activatePlan": { pending: "P4-29" },
   "app/(app)/fitness/workouts/plan-actions.ts#deactivateSlot": { pending: "P4-29" },
   "app/(app)/fitness/workouts/template-actions.ts#createPlanFromTemplate": { pending: "P4-29" },
+  // ONB item 6 follow-up: this IS the onboarding fitness step's own effect, the
+  // same category as saveDomainSelection/saveSubdomains/completeOnboarding above
+  // — an agent should never invoke the wizard's step by name. The real capability
+  // it composes (createPlanFromTemplate, deactivateSlot) already carries its own
+  // `pending: P4-29` decision, so excluding this wrapper hides nothing.
+  "app/(app)/fitness/workouts/template-actions.ts#applyOnboardingFitnessChoice": { excluded: "onboarding_wizard: fitness style step (ONB item 6 follow-up)" },
 
   // ── Goals / identity habits ─────────────────────────────────────────────
   "app/(app)/goals/actions.ts#createGoalAction": { mcp: "goals.goal.create" },
