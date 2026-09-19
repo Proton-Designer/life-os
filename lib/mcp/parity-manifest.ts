@@ -236,7 +236,19 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/answer-feedback-actions.ts#parseFeedbackForTest": { read_only: true, note: "pure parser exported for tests" },
   "app/(app)/personal/closer-day-connection-actions.ts#getCloserDayConnection": { excluded: "llm_spend: P2-15 closer-prompt day connection via gatewayChat; same shape as getAnswerFeedback just above, the agent can make this same connection itself" },
   "app/(app)/personal/self-mastery-actions.ts#fetchSourceChunkText": { read_only: true },
-  "app/(app)/personal/self-mastery-actions.ts#uploadBook": { excluded: "file_upload: book file upload plus ingestion LLM spend" },
+  // uploadBook was split into prepare/finalize/cancel so the PDF bytes go
+  // straight to Storage instead of through a Server Action body (Next caps that
+  // at 1 MB, which crashed every real book upload in production). Same access
+  // decision as the single function it replaces, deliberately kept across all
+  // three: an agent still cannot upload a book. Worth stating explicitly —
+  // splitting a multipart-only action into JSON-shaped steps is exactly the kind
+  // of refactor that can quietly turn an agent-unreachable operation into a
+  // reachable one, so the exclusion has to be carried to every piece, not just
+  // the one that still smells like a file upload. finalize also enqueues
+  // ingestion LLM spend, which is its own reason.
+  "app/(app)/personal/self-mastery-actions.ts#prepareBookUpload": { excluded: "file_upload: mints a signed upload URL for a book PDF" },
+  "app/(app)/personal/self-mastery-actions.ts#finalizeBookUpload": { excluded: "file_upload: finalizes a book PDF upload and enqueues ingestion LLM spend" },
+  "app/(app)/personal/self-mastery-actions.ts#cancelBookUpload": { excluded: "file_upload: cleanup for a failed/orphaned book PDF upload" },
   "app/(app)/personal/self-mastery-session-actions.ts#loadTodaysSession": { excluded: "ui_scaffold: get-or-create of today's review session via start_session RPC; self_mastery.review.grade works without it" },
   "app/(app)/personal/self-mastery-session-actions.ts#revealCardAnswer": { read_only: true },
   "app/(app)/personal/self-mastery-session-actions.ts#revealLessonContext": { read_only: true },
