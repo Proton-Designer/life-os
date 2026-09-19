@@ -125,6 +125,93 @@ async function getIngestionMode(ctx: StageContext): Promise<"standard" | "batch"
 }
 
 /**
+ * PERF-1 (2026-09-19, BRIEF-perf-concurrency.md): bounded concurrency for
+ * the two per-item LLM stages below (`extractingLessonsStage`,
+ * `generatingCardsStage` only -- NOT `mergingStage`/`verifyGroundingStage`,
+ * which are whole-book/heuristic, not per-item LLM calls). Every concurrent
+ * call sends the EXACT SAME prompt/tokens/model a sequential run would send
+ * for that same chunk/lesson -- concurrency only overlaps independent
+ * network calls already in flight; it never batches, merges, or changes
+ * what gets asked. Only wall-clock changes, never cost or output
+ * distribution (per the brief's own framing -- this is not a quality
+ * tradeoff and must not become one).
+ *
+ * No documented DeepSeek rate limit exists anywhere in this repo (grepped
+ * `lib/ai/**`, `docs/ai-connector/**` before picking this number) -- the
+ * default below is a deliberately conservative guess, not a measured
+ * ceiling, exactly as the brief allows when no documented limit can be
+ * found. `1` reproduces today's exact sequential behavior (see each
+ * stage's own fetch-branching below); tune via env with no redeploy.
+ */
+const DEFAULT_INGESTION_CONCURRENCY = 3;
+function getIngestionConcurrency(): number {
+  const raw = Number(process.env.SELF_MASTERY_INGESTION_CONCURRENCY ?? DEFAULT_INGESTION_CONCURRENCY);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
+}
+
+/** Splits `items` into contiguous groups of at most `size` each, in order -- the tail group may be shorter. `size <= 1` is one item per group (used by standard mode, where each "unit of work" is a single chunk/lesson, same as batch mode's `BATCH_SIZE_*`-sized groups). */
+function groupInOrder<T>(items: readonly T[], size: number): T[][] {
+  if (size <= 1) return items.map((item) => [item]);
+  const groups: T[][] = [];
+  for (let i = 0; i < items.length; i += size) groups.push(items.slice(i, i + size));
+  return groups;
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight at once, returning
+ * results in INPUT ORDER regardless of completion order.
+ *
+ * ORDER (the brief's own "most likely silent bug"): results are written by
+ * INDEX (`results[i] = ...`), never by push -- push-order was the
+ * pre-concurrency assumption `perChunkCandidates`/`perLessonCards` relied
+ * on, and it silently breaks the moment two items can finish out of order.
+ * `mapWithConcurrency` is the one place that reordering-under-concurrency
+ * risk is handled; every caller gets back an array already in the order it
+ * gave, with no ordering responsibility of its own.
+ *
+ * FAIL-CLOSED, NO PARTIAL RESULT: the first rejection stops every worker
+ * from picking up a NEW item and this function rethrows that same error --
+ * it never returns a partial array, so a caller cannot accidentally read
+ * some-but-not-all results. This matches both stages' existing all-or-
+ * nothing posture (their DB write loops only ever run after every model
+ * call for the whole invocation has already succeeded) -- concurrency
+ * changes how many items can be IN FLIGHT AT ONCE when one fails (up to
+ * `limit - 1` siblings may already be mid-call and are left to finish
+ * rather than cancelled -- there is no cancellation signal threaded through
+ * `DeepSeekProvider`/`gatewayChat`, and adding one is out of this task's
+ * scope), but never changes whether a failure can produce a partial WRITE:
+ * a sibling's already-in-flight result is computed and then discarded,
+ * exactly like never having called `fn` on it, because this function never
+ * returns from a failed call.
+ */
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  let failure: { error: unknown } | undefined;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (failure) return;
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        results[i] = await fn(items[i] as T, i);
+      } catch (error) {
+        failure ??= { error };
+        return;
+      }
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  if (failure) throw failure.error;
+  return results;
+}
+
+/**
  * `queued`/`extracting_text`/`parsing_structure`/`chunking` collapsed into
  * ONE handler, registered for all four `ingest_stage` values below. THE
  * REASON: those first three stages have no handler anywhere in this repo
@@ -381,6 +468,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
   const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
   const mode = await getIngestionMode(ctx);
   const batchSize = mode === "batch" ? BATCH_SIZE_EXTRACT : 1;
+  const concurrency = getIngestionConcurrency();
 
   // section_id selected alongside the rest (item 8): chunkingStage already
   // writes it onto every source_chunks row (see buildSectionInsertPlan
@@ -390,9 +478,11 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
   // migration 064 onward.
   type ChunkRow = { id: string; text: string; page_start: number | null; page_end: number | null; section_id: string | null };
   let chunkRows: ChunkRow[];
-  if (batchSize === 1) {
-    // EXACT original query/shape (standard mode) -- byte-for-byte
-    // unchanged so an existing book's cost/call pattern never moves.
+  if (batchSize === 1 && concurrency === 1) {
+    // EXACT original query/shape (standard mode, concurrency=1) --
+    // byte-for-byte unchanged so an existing book's cost/call pattern never
+    // moves when concurrency is left at its safest, most conservative
+    // setting (PERF-1, 2026-09-19, BRIEF-perf-concurrency.md).
     const { data: chunkRow, error: chunkError } = await ctx.supabase
       .from("source_chunks")
       .select("id, text, page_start, page_end, section_id")
@@ -403,13 +493,20 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
     if (chunkError) throw chunkError;
     chunkRows = chunkRow ? [chunkRow] : [];
   } else {
-    // P2-14 batch mode: fetch up to BATCH_SIZE_EXTRACT rows at once.
+    // PERF-1: fetch up to `batchSize * concurrency` rows -- `concurrency`
+    // independent calls in flight at once, each covering `batchSize` chunks
+    // (1 in standard mode, BATCH_SIZE_EXTRACT in batch mode -- "in batch
+    // mode each unit of work is already a 4-chunk combined call; run
+    // several of THOSE concurrently", per the brief). At concurrency=1 this
+    // range is identical to the pre-PERF-1 batch-mode fetch above (batchSize
+    // * 1 = batchSize); only the array-vs-maybeSingle client-side shape
+    // differs for standard mode, never the query itself.
     const { data, error: chunkError } = await ctx.supabase
       .from("source_chunks")
       .select("id, text, page_start, page_end, section_id")
       .eq("book_id", ctx.job.book_id)
       .order("sort_order", { ascending: true })
-      .range(chunkIndex, chunkIndex + batchSize - 1);
+      .range(chunkIndex, chunkIndex + batchSize * concurrency - 1);
     if (chunkError) throw chunkError;
     chunkRows = data ?? [];
   }
@@ -419,50 +516,78 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
     return { nextStage: "merging", nextChunkIndex: null };
   }
 
-  const provider = resolveIngestionProvider(ctx);
-  let tokensIn = 0;
-  let tokensOut = 0;
-  const recordUsage = () => {
-    if (provider.lastUsage) {
-      tokensIn += provider.lastUsage.promptTokens;
-      tokensOut += provider.lastUsage.completionTokens;
-    }
-  };
+  // PERF-1: one "unit of work" per group -- a lone chunk in standard mode, a
+  // combined extractLessonsBatch call for up to BATCH_SIZE_EXTRACT chunks in
+  // batch mode. Groups run with at most `concurrency` in flight at once;
+  // mapWithConcurrency both bounds that and reassembles results back into
+  // chunkRows' own order regardless of which group's call finishes first --
+  // see that function's own header for why this is the part most likely to
+  // go wrong. Each group gets its OWN provider instance (resolved inside
+  // runExtractionGroup, not hoisted above this loop): DeepSeekProvider/
+  // DevShimProvider both report token usage via a single mutable
+  // `lastUsage` field set by the most recently settled call, so two groups
+  // sharing one instance while running concurrently could attribute one
+  // group's tokens to another -- constructing fresh per group (cheap; both
+  // classes are stateless besides `lastUsage`) makes that race impossible
+  // rather than merely unlikely.
+  async function runExtractionGroup(chunkGroup: ChunkRow[]): Promise<{ candidates: CandidateLesson[][]; tokensIn: number; tokensOut: number }> {
+    const provider = resolveIngestionProvider(ctx);
+    let tokensIn = 0;
+    let tokensOut = 0;
+    const recordUsage = () => {
+      if (provider.lastUsage) {
+        tokensIn += provider.lastUsage.promptTokens;
+        tokensOut += provider.lastUsage.completionTokens;
+      }
+    };
 
-  const inputs = chunkRows.map((c) => ({
-    chunkText: c.text,
-    pageStart: c.page_start ?? 0,
-    pageEnd: c.page_end ?? c.page_start ?? 0,
-    sourceChunkId: c.id,
-  }));
+    const groupInputs = chunkGroup.map((c) => ({
+      chunkText: c.text,
+      pageStart: c.page_start ?? 0,
+      pageEnd: c.page_end ?? c.page_start ?? 0,
+      sourceChunkId: c.id,
+    }));
 
-  const perChunkCandidates: CandidateLesson[][] = [];
-  if (batchSize > 1 && chunkRows.length > 1 && provider instanceof DeepSeekProvider) {
-    // P2-14: ONE combined call for the whole batch. A `null` slot (a
-    // malformed or wrong-length response, per extractLessonsBatch's own
-    // header) falls back to the single-item call for exactly that chunk --
-    // never silently dropped.
-    const batchResult = await provider.extractLessonsBatch(inputs);
-    recordUsage();
-    for (let i = 0; i < inputs.length; i++) {
-      const result = batchResult.perChunk[i];
-      if (result !== null && result !== undefined) {
-        perChunkCandidates.push(result);
-      } else {
-        const single = await provider.extractLessons(inputs[i]!);
+    const groupCandidates: CandidateLesson[][] = [];
+    if (batchSize > 1 && chunkGroup.length > 1 && provider instanceof DeepSeekProvider) {
+      // P2-14: ONE combined call for the whole group. A `null` slot (a
+      // malformed or wrong-length response, per extractLessonsBatch's own
+      // header) falls back to the single-item call for exactly that chunk --
+      // never silently dropped. This fallback stays sequential within the
+      // group -- only the space BETWEEN groups is where PERF-1 adds
+      // concurrency, not within one already-batched call's own retry path.
+      const batchResult = await provider.extractLessonsBatch(groupInputs);
+      recordUsage();
+      for (let i = 0; i < groupInputs.length; i++) {
+        const result = batchResult.perChunk[i];
+        if (result !== null && result !== undefined) {
+          groupCandidates.push(result);
+        } else {
+          const single = await provider.extractLessons(groupInputs[i]!);
+          recordUsage();
+          groupCandidates.push(single);
+        }
+      }
+    } else {
+      // Standard mode (or a lone leftover chunk at the tail of a book) --
+      // same one-call-per-chunk shape as before batch mode existed.
+      for (const input of groupInputs) {
+        const candidates = await provider.extractLessons(input);
         recordUsage();
-        perChunkCandidates.push(single);
+        groupCandidates.push(candidates);
       }
     }
-  } else {
-    // Standard mode (or a lone leftover chunk at the tail of a book) --
-    // same one-call-per-chunk shape as before batch mode existed.
-    for (const input of inputs) {
-      const candidates = await provider.extractLessons(input);
-      recordUsage();
-      perChunkCandidates.push(candidates);
-    }
+    return { candidates: groupCandidates, tokensIn, tokensOut };
   }
+
+  const chunkGroups = groupInOrder(chunkRows, batchSize);
+  const groupResults = await mapWithConcurrency(chunkGroups, concurrency, runExtractionGroup);
+  // Flatten in chunkGroups' own order (mapWithConcurrency already restored
+  // that), which is chunkRows' order, since chunkGroups is a contiguous,
+  // in-order slicing of chunkRows -- see groupInOrder.
+  const perChunkCandidates: CandidateLesson[][] = groupResults.flatMap((g) => g.candidates);
+  const tokensIn = groupResults.reduce((sum, g) => sum + g.tokensIn, 0);
+  const tokensOut = groupResults.reduce((sum, g) => sum + g.tokensOut, 0);
 
   for (let i = 0; i < chunkRows.length; i++) {
     const chunkRow = chunkRows[i]!;
@@ -640,6 +765,7 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
   const chunkIndex = ctx.job.cursor_chunk_index ?? 0;
   const mode = await getIngestionMode(ctx);
   const batchSize = mode === "batch" ? BATCH_SIZE_CARDS : 1;
+  const concurrency = getIngestionConcurrency();
 
   type LessonRow = {
     id: string;
@@ -653,9 +779,11 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
     source_chunk_id: string | null;
   };
   let lessonRows: LessonRow[];
-  if (batchSize === 1) {
-    // EXACT original query/shape (standard mode) -- byte-for-byte
-    // unchanged so an existing book's cost/call pattern never moves.
+  if (batchSize === 1 && concurrency === 1) {
+    // EXACT original query/shape (standard mode, concurrency=1) --
+    // byte-for-byte unchanged so an existing book's cost/call pattern never
+    // moves when concurrency is left at its safest, most conservative
+    // setting (PERF-1, 2026-09-19, BRIEF-perf-concurrency.md).
     const { data: lessonRow, error: lessonError } = await ctx.supabase
       .from("lessons")
       .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id")
@@ -667,14 +795,20 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
     if (lessonError) throw lessonError;
     lessonRows = lessonRow ? [lessonRow] : [];
   } else {
-    // P2-14 batch mode: fetch up to BATCH_SIZE_CARDS rank-ordered lessons.
+    // PERF-1: fetch up to `batchSize * concurrency` rank-ordered lessons --
+    // `concurrency` independent calls in flight at once, each covering
+    // `batchSize` lessons (1 in standard mode, BATCH_SIZE_CARDS in batch
+    // mode). At concurrency=1 this range is identical to the pre-PERF-1
+    // batch-mode fetch above (batchSize * 1 = batchSize); only the
+    // array-vs-maybeSingle client-side shape differs for standard mode,
+    // never the query itself.
     const { data, error: lessonError } = await ctx.supabase
       .from("lessons")
       .select("id, title, core_claim, mechanism, action_template, evidence_strength, provenance_quote, page_ref, source_chunk_id")
       .eq("book_id", ctx.job.book_id)
       .not("rank", "is", null)
       .order("rank", { ascending: true })
-      .range(chunkIndex, chunkIndex + batchSize - 1);
+      .range(chunkIndex, chunkIndex + batchSize * concurrency - 1);
     if (lessonError) throw lessonError;
     lessonRows = data ?? [];
   }
@@ -683,53 +817,73 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
     return { nextStage: "finalizing", nextChunkIndex: null };
   }
 
-  const provider = resolveIngestionProvider(ctx);
-  let tokensIn = 0;
-  let tokensOut = 0;
-  const recordUsage = () => {
-    if (provider.lastUsage) {
-      tokensIn += provider.lastUsage.promptTokens;
-      tokensOut += provider.lastUsage.completionTokens;
-    }
-  };
+  // PERF-1: one "unit of work" per group -- a lone lesson in standard mode,
+  // a combined generateCardsBatch call for up to BATCH_SIZE_CARDS lessons in
+  // batch mode. See extractingLessonsStage's own PERF-1 comment (identical
+  // reasoning, mirrored here) for why groups run through mapWithConcurrency
+  // rather than a bare loop, and why each group resolves its own provider
+  // instance instead of sharing one hoisted above this loop.
+  async function runCardsGroup(lessonGroup: LessonRow[]): Promise<{ cards: GeneratedCard[][]; tokensIn: number; tokensOut: number }> {
+    const provider = resolveIngestionProvider(ctx);
+    let tokensIn = 0;
+    let tokensOut = 0;
+    const recordUsage = () => {
+      if (provider.lastUsage) {
+        tokensIn += provider.lastUsage.promptTokens;
+        tokensOut += provider.lastUsage.completionTokens;
+      }
+    };
 
-  const candidates: CandidateLesson[] = lessonRows.map((lessonRow) => ({
-    title: lessonRow.title,
-    coreClaim: lessonRow.core_claim ?? "",
-    mechanism: lessonRow.mechanism ?? "",
-    actionTemplate: lessonRow.action_template ?? "",
-    evidenceStrength: lessonRow.evidence_strength ?? "author_anecdote",
-    provenanceQuote: lessonRow.provenance_quote,
-    pageRef: lessonRow.page_ref ?? 0,
-    sourceChunkId: lessonRow.source_chunk_id ?? "",
-  }));
+    const groupCandidates: CandidateLesson[] = lessonGroup.map((lessonRow) => ({
+      title: lessonRow.title,
+      coreClaim: lessonRow.core_claim ?? "",
+      mechanism: lessonRow.mechanism ?? "",
+      actionTemplate: lessonRow.action_template ?? "",
+      evidenceStrength: lessonRow.evidence_strength ?? "author_anecdote",
+      provenanceQuote: lessonRow.provenance_quote,
+      pageRef: lessonRow.page_ref ?? 0,
+      sourceChunkId: lessonRow.source_chunk_id ?? "",
+    }));
 
-  const perLessonCards: GeneratedCard[][] = [];
-  if (batchSize > 1 && lessonRows.length > 1 && provider instanceof DeepSeekProvider) {
-    // P2-14: ONE combined call for the whole batch. A `null` slot falls
-    // back to the single-item call (with its own free_recall/cloze
-    // guarantee) for exactly that lesson -- never silently dropped.
-    const batchResult = await provider.generateCardsBatch(candidates.map((lesson) => ({ lesson })));
-    recordUsage();
-    for (let i = 0; i < candidates.length; i++) {
-      const result = batchResult.perLesson[i];
-      if (result !== null && result !== undefined) {
-        perLessonCards.push(result);
-      } else {
-        const single = await provider.generateCards({ lesson: candidates[i]! });
+    const groupCards: GeneratedCard[][] = [];
+    if (batchSize > 1 && lessonGroup.length > 1 && provider instanceof DeepSeekProvider) {
+      // P2-14: ONE combined call for the whole group. A `null` slot falls
+      // back to the single-item call (with its own free_recall/cloze
+      // guarantee) for exactly that lesson -- never silently dropped. This
+      // fallback stays sequential within the group, same reasoning as
+      // extractingLessonsStage's own runExtractionGroup.
+      const batchResult = await provider.generateCardsBatch(groupCandidates.map((lesson) => ({ lesson })));
+      recordUsage();
+      for (let i = 0; i < groupCandidates.length; i++) {
+        const result = batchResult.perLesson[i];
+        if (result !== null && result !== undefined) {
+          groupCards.push(result);
+        } else {
+          const single = await provider.generateCards({ lesson: groupCandidates[i]! });
+          recordUsage();
+          groupCards.push(single);
+        }
+      }
+    } else {
+      // Standard mode (or a lone leftover lesson at the tail of a book) --
+      // same one-call-per-lesson shape as before batch mode existed.
+      for (const lesson of groupCandidates) {
+        const cards = await provider.generateCards({ lesson });
         recordUsage();
-        perLessonCards.push(single);
+        groupCards.push(cards);
       }
     }
-  } else {
-    // Standard mode (or a lone leftover lesson at the tail of a book) --
-    // same one-call-per-lesson shape as before batch mode existed.
-    for (const lesson of candidates) {
-      const cards = await provider.generateCards({ lesson });
-      recordUsage();
-      perLessonCards.push(cards);
-    }
+    return { cards: groupCards, tokensIn, tokensOut };
   }
+
+  const lessonGroups = groupInOrder(lessonRows, batchSize);
+  const groupResults = await mapWithConcurrency(lessonGroups, concurrency, runCardsGroup);
+  // Flatten in lessonGroups' own order (mapWithConcurrency already restored
+  // that), which is lessonRows' order, since lessonGroups is a contiguous,
+  // in-order slicing of lessonRows -- see groupInOrder.
+  const perLessonCards: GeneratedCard[][] = groupResults.flatMap((g) => g.cards);
+  const tokensIn = groupResults.reduce((sum, g) => sum + g.tokensIn, 0);
+  const tokensOut = groupResults.reduce((sum, g) => sum + g.tokensOut, 0);
 
   for (let i = 0; i < lessonRows.length; i++) {
     const lessonRow = lessonRows[i]!;
