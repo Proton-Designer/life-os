@@ -155,15 +155,31 @@ describe("buildAccountMap — capability sets", () => {
   });
 
   it("the wire form carries exactly the same content: each domain row round-trips to the named object", async () => {
-    const { buildAccountMap, toAccountMapWire, ACCOUNT_MAP_DOMAIN_FIELDS } = await import("../account-map");
+    const { buildAccountMap, toAccountMapWire } = await import("../account-map");
     const map = await buildAccountMap(makeClient(FAITH_SCHOOL), "user-1", NOW);
     const wire = toAccountMapWire(map);
     expect(wire.domain_fields).toEqual(["one_line", "active_for_account", "read", "write", "views"]);
-    const rebuilt = Object.fromEntries(Object.entries(wire.domains).map(([name, row]) => [name, Object.fromEntries(ACCOUNT_MAP_DOMAIN_FIELDS.map((f, i) => [f, row[i]]))]));
-    expect(rebuilt).toEqual(map.domains);
     const { domains: _w, domain_fields: _f, ...wireRest } = wire;
     const { domains: _m, ...mapRest } = map;
     expect(wireRest).toEqual(mapRest);
+  });
+
+  it("P4-37: fromAccountMapWire is the real inverse of toAccountMapWire -- no consumer should ever hand-index a row again", async () => {
+    const { buildAccountMap, toAccountMapWire, fromAccountMapWire } = await import("../account-map");
+    const map = await buildAccountMap(makeClient(FAITH_SCHOOL), "user-1", NOW);
+    const wire = toAccountMapWire(map);
+    expect(fromAccountMapWire(wire)).toEqual(map);
+  });
+
+  it("P4-37: the decoder is genuinely wired to ACCOUNT_MAP_DOMAIN_FIELDS, not a hardcoded index -- perturbing the field order changes the decode", async () => {
+    // The exact shape of the bug this exists to prevent: a decoder with
+    // `row[2]` in it would decode identically no matter what domain_fields
+    // says, which is indistinguishable from not deriving from it at all.
+    const { buildAccountMap, toAccountMapWire, fromAccountMapWire } = await import("../account-map");
+    const map = await buildAccountMap(makeClient(FAITH_SCHOOL), "user-1", NOW);
+    const wire = toAccountMapWire(map);
+    const perturbed = { ...wire, domain_fields: ["one_line", "read", "active_for_account", "write", "views"] as unknown as typeof wire.domain_fields };
+    expect(fromAccountMapWire(perturbed)).not.toEqual(map);
   });
 
   it.each([

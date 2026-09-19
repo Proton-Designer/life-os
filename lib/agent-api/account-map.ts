@@ -6,6 +6,17 @@ import { localDateString } from "@/lib/date-utils";
 import { getUserDomainsForUser } from "@/lib/domains/user-domains-core";
 import { hasArea, type Area } from "@/lib/domains/area-vocabulary";
 import type { UserDomainsState } from "@/lib/domains/get-user-domains";
+import type { AccountArea, AccountMap, AccountMapDomain } from "./account-map-wire";
+
+/**
+ * The wire codec (types, `toAccountMapWire`, `fromAccountMapWire`) lives in
+ * account-map-wire.ts, NOT here, and is re-exported below for every existing
+ * consumer of this module. That split exists so a plain script with no
+ * bundler alias for `"server-only"` can import the real decoder directly
+ * (P4-37) instead of hand-indexing the wire format itself, which is exactly
+ * what produced P4-37's bug in the first place.
+ */
+export * from "./account-map-wire";
 
 /**
  * THE account map (P4-03): one generator for everything an external agent
@@ -63,8 +74,6 @@ import type { UserDomainsState } from "@/lib/domains/get-user-domains";
  */
 export const ACCOUNT_MAP_WIRE_TOKEN_BUDGET = 1400;
 
-export type AccountArea = "faith" | "body" | "learning" | "work" | "business" | "school";
-
 /** Which MCP domains each user-facing area covers. Registry domains not listed here are always on. */
 export const AREA_VOCABULARY: Record<AccountArea, string[]> = {
   faith: ["deen"],
@@ -101,27 +110,6 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   goals: "Monthly goals + milestones",
   habits: "Identity habits + daily votes",
 };
-
-export interface AccountMapDomain {
-  one_line: string;
-  active_for_account: boolean;
-  read: string[];
-  /** Entities with at least one write action; the actions and patch shapes are in list_capabilities(domain). */
-  write: string[];
-  /** Computed decide-views (P4-27). Empty until built. */
-  views: string[];
-}
-
-export interface AccountMap {
-  today: { local_date: string; timezone: string; local_time: string; timezone_note?: string };
-  mode: "legacy" | "domains";
-  /** Areas this account tracks, in area order. Legacy accounts see everything, so all are listed. */
-  active_areas: AccountArea[];
-  vocabulary_map: Record<AccountArea, string[]>;
-  /** Keyed by MCP domain name (the name read/write/list_capabilities take). */
-  domains: Record<string, AccountMapDomain>;
-  next: string;
-}
 
 function activeAreas(state: UserDomainsState): AccountArea[] {
   if (state.mode === "legacy") return [...AREA_ORDER];
@@ -197,27 +185,3 @@ export async function buildAccountMap(client: SupabaseClient, userId: string, no
   };
 }
 
-export const ACCOUNT_MAP_DOMAIN_FIELDS = ["one_line", "active_for_account", "read", "write", "views"] as const;
-
-export type AccountMapWire = Omit<AccountMap, "domains"> & {
-  domain_fields: typeof ACCOUNT_MAP_DOMAIN_FIELDS;
-  domains: Record<string, [string, boolean, string[], string[], string[]]>;
-};
-
-/**
- * The map as an agent receives it over the wire: identical content, but each
- * domain is a row in `domain_fields` order instead of an object repeating the
- * five key names. That repetition was ~30% of the payload (13 domains × ~70
- * chars) and grows with every domain, which would push the map past its
- * 800-token budget as read/write coverage lands (P4-05..09). Code consumers
- * (and P4-20's agent.md) use the named `AccountMap`; only the serialization
- * is compact. A test round-trips one into the other.
- */
-export function toAccountMapWire(map: AccountMap): AccountMapWire {
-  const domains: AccountMapWire["domains"] = {};
-  for (const [name, d] of Object.entries(map.domains)) {
-    domains[name] = [d.one_line, d.active_for_account, d.read, d.write, d.views];
-  }
-  const { domains: _named, ...rest } = map;
-  return { ...rest, domain_fields: ACCOUNT_MAP_DOMAIN_FIELDS, domains };
-}

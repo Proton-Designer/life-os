@@ -46,6 +46,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { fromAccountMapWire, type AccountMapWire } from "@/lib/agent-api/account-map-wire";
 
 loadEnv({ path: path.resolve(__dirname, "../.env.local") });
 
@@ -371,30 +372,66 @@ async function runAccountSuite(who: string, userId: string, expectedMode: "legac
 
     let todayLocalDate: string | null = null;
     let mode: string | null = null;
-    let readableDomains: Record<string, string[]> = {};
+    // `write.length > 0` distinguishes two real, different-shaped empty-read
+    // cases (P4-37 review): day/goals/habits are genuinely write-only (a
+    // read surface is future work); calendar/home are permanent aggregate
+    // domains with NEITHER a read nor a write entity of their own, by
+    // deliberate design (registry.ts's own comment on them) -- reporting
+    // both as "write-only" would be a second false claim in the same fix.
+    let readableDomains: Record<string, { read: string[]; write: string[] }> = {};
 
     if (mcp) {
       const caps = await mcpTool(mcp, "list_capabilities", {});
-      const capsBody = caps.json as { domains?: Record<string, { read: string[] }>; today?: { local_date: string }; mode?: string } | null;
+      // P4-37: this used to be cast as `Record<string, { read: string[] }>` --
+      // a shape the wire does NOT have (each domain is a positional array,
+      // not a named object; see account-map-wire.ts). That false cast is why
+      // tsc never caught `def.read` always being `undefined`: it described a
+      // shape the data doesn't have instead of the real one. Typed honestly
+      // as `AccountMapWire` and decoded with the real, tested inverse of
+      // toAccountMapWire, not a hand-index.
+      const capsBody = caps.json as AccountMapWire | null;
       check(who, "MCP list_capabilities()", !caps.isError && !!capsBody?.domains, caps.text.slice(0, 150));
       todayLocalDate = capsBody?.today?.local_date ?? null;
       mode = capsBody?.mode ?? null;
-      for (const [d, def] of Object.entries(capsBody?.domains ?? {})) readableDomains[d] = def.read ?? [];
+      if (capsBody?.domains) {
+        const decoded = fromAccountMapWire(capsBody);
+        for (const [d, def] of Object.entries(decoded.domains)) readableDomains[d] = { read: def.read, write: def.write };
+      }
       if (expectedMode) check(who, `MCP list_capabilities() mode is "${expectedMode}"`, mode === expectedMode, `got "${mode}"`);
     }
 
     const restCaps = await restCall(raw, "GET", "capabilities");
     check(who, "REST GET /capabilities", restCaps.status === 200, `status ${restCaps.status}`);
     if (restCaps.status === 200) {
-      const body = restCaps.json as { domains?: Record<string, { read: string[] }>; today?: { local_date: string }; mode?: string } | null;
+      // Same wire shape as MCP's list_capabilities (both dispatch through
+      // buildOperationSpec -> listCapabilitiesTool -> toAccountMapWire), so
+      // the same honest type applies here too, even though this block only
+      // reads the top-level `today`/`mode` fields (never positionally
+      // encoded) and doesn't currently touch `.domains`.
+      const body = restCaps.json as AccountMapWire | null;
       todayLocalDate ??= body?.today?.local_date ?? null;
       if (expectedMode) check(who, `REST GET /capabilities mode is "${expectedMode}"`, body?.mode === expectedMode, `got "${body?.mode}"`);
     }
 
     // ---- one read per domain, both transports (generic -- no patch needed) ----
-    for (const [domain, reads] of Object.entries(readableDomains)) {
+    for (const [domain, { read: reads, write: writes }] of Object.entries(readableDomains)) {
       const entity = reads[0];
-      if (!entity) continue;
+      if (!entity) {
+        // P4-37: this used to be a bare `continue` -- an invisible skip for
+        // ANY empty-read domain, while this script's own header promises
+        // "one read per domain." PASS-recorded, not FAIL: both cases below
+        // are real, known properties of the app today, not harness defects.
+        // Only reachable now for a domain that TRULY has no read entity --
+        // fixing the decode above (this task's other half) is what makes
+        // that true; before it, every domain landed here, including ones
+        // with real reads.
+        const reason =
+          writes.length > 0
+            ? "write-only domain, no read surface exists yet" // day/goals/habits today -- P4-05's future territory
+            : "aggregate domain with no entity of its own -- read through the domains it aggregates"; // calendar/home today, permanent by design (registry.ts)
+        check(who, `read ${domain} (skipped -- ${reason})`, true);
+        continue;
+      }
       if (mcp) {
         const r = await mcpTool(mcp, "read", { domain, entity });
         check(who, `MCP read(${domain}.${entity})`, !r.isError, r.text.slice(0, 120));
