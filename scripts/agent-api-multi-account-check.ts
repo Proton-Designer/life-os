@@ -566,6 +566,19 @@ async function main() {
 
     if (runners.length >= 2) {
       await crossAccountProbe({ who: runners[0].who, userId: runners[0].userId }, { who: runners[1].who, userId: runners[1].userId });
+    } else {
+      // P4-36: this used to be an invisible skip -- a one-account (or
+      // zero-account) run emitted NOTHING here and still exited 0, so "ran
+      // the tenancy harness, green" and "ran the tenancy harness, never
+      // tested tenancy" were byte-identical output. Matches the :479
+      // precedent (an explicit, visible, PASS-recorded skip, not a FAIL --
+      // a single-account run is a legitimate mode) so a reader of the
+      // output cannot mistake this run for one that exercised tenancy.
+      check(
+        runners[0]?.who ?? "cross-account",
+        `cross-account probe (skipped -- only ${runners.length} account${runners.length === 1 ? "" : "s"} supplied, cross-account refusal NOT tested)`,
+        true,
+      );
     }
   } finally {
     if (freshUserId) await deleteFreshAccount(freshUserId);
