@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { nextStretchPosition, nextTargetPosition, splitTargetsAndStretch, type CoopTargetRow } from "./targets";
 import { requireRowUpdated } from "@/lib/mcp/require-row-updated";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 /**
  * R5's core(supabase, userId, ...) extraction for the Work Targets strip —
@@ -88,9 +89,19 @@ export interface CompleteTargetResult {
   promotedNeedsDeadline: boolean;
 }
 
+/**
+ * P4-38: `before === null` (no row at all -- bad id or another tenant's)
+ * and `before.position === null` (row exists, already completed) used to
+ * be conflated by `before?.position ?? null` into the same "no promotion"
+ * path. Split here: only the first throws. The RPC's own idempotency
+ * guard (migration 028: "already completed ... idempotent no-op") still
+ * governs the already-completed case below unchanged -- this only ends
+ * the case where the id was never valid to begin with.
+ */
 export async function completeTargetCore(supabase: SupabaseClient, userId: string, id: string): Promise<CompleteTargetResult> {
   const { data: before } = await supabase.from("coop_targets").select("position").eq("id", id).eq("user_id", userId).maybeSingle();
-  const vacatedPosition = before?.position ?? null;
+  if (before === null) throw new ToolNotFoundError(`No target found with id "${id}".`);
+  const vacatedPosition = before.position ?? null;
 
   const { error } = await supabase.rpc("complete_target", { p_target_id: id });
   if (error) throw error;

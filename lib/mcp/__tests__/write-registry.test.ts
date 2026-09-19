@@ -747,11 +747,39 @@ describe("goals.goal handlers", () => {
     ).rejects.toThrow(/patch\.status/i);
   });
 
-  it("set_status does NOT throw ToolNotFoundError on 0 rows -- a deliberate no-op, matching the core's own design", async () => {
+  // P4-38: the existence check (this handler's own maybeSingle, before
+  // calling completeGoal/dropGoal) and the core's own status='active'-
+  // scoped update are two DIFFERENT questions now. "does the row exist for
+  // this user" (existence check) is what gates not-found; "is it already
+  // resolved" (the core's own state-scoped update) stays a calm no-op.
+  it("set_status still succeeds as a calm no-op when the goal exists but is already resolved (P4-38)", async () => {
     const action = getWriteAction("goals", "goal", "set_status")!;
-    const client = makeTableClient({ goals: makeChain({ data: null, error: null }) }); // update matches 0 rows, no error surfaced by the mock
-    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-done-or-missing" }, { status: "done" });
-    expect(outcome.summary).toMatch(/already-done-or-missing/);
+    const client = makeTableClient({ goals: makeChain({ data: { id: "already-done" }, error: null }) }); // existence check finds the row
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-done" }, { status: "done" });
+    expect(outcome.summary).toMatch(/already-done/);
+  });
+
+  it("set_status throws ToolNotFoundError for a bad or cross-tenant id (P4-38) -- no longer an invisible no-op", async () => {
+    const action = getWriteAction("goals", "goal", "set_status")!;
+    const client = makeTableClient({ goals: makeChain({ data: null, error: null }) }); // existence check finds nothing
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "bad-or-foreign" }, { status: "done" }),
+    ).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  // The enumeration-safety property, byte-diffed rather than eyeballed:
+  // a never-existed id and another tenant's id both fail the SAME
+  // id+user_id-scoped existence check, so they MUST produce the identical
+  // thrown error.
+  it("never-existed and another tenant's id produce a byte-identical error (P4-38 enumeration-safety control)", async () => {
+    const action = getWriteAction("goals", "goal", "set_status")!;
+    const run = () => {
+      const client = makeTableClient({ goals: makeChain({ data: null, error: null }) });
+      return action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "same-id" }, { status: "done" }).catch((e) => e.message);
+    };
+    const [a, b] = await Promise.all([run(), run()]);
+    expect(a).toBe(b);
+    expect(a).toBe('No goal found with id "same-id".');
   });
 });
 
@@ -831,11 +859,28 @@ describe("habits.identity_habit handlers", () => {
     await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/requires the top-level.*id/i);
   });
 
-  it("archive does NOT throw on 0 rows -- deliberate no-op matching the core's own design", async () => {
+  it("archive still succeeds as a calm no-op when the habit exists but is already archived (P4-38)", async () => {
+    const action = getWriteAction("habits", "identity_habit", "archive")!;
+    const client = makeTableClient({ identity_habits: makeChain({ data: { id: "already-archived" }, error: null }) }); // existence check finds the row
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived" }, {});
+    expect(outcome.summary).toMatch(/already-archived/);
+  });
+
+  it("archive throws ToolNotFoundError for a bad or cross-tenant id (P4-38) -- no longer an invisible no-op", async () => {
     const action = getWriteAction("habits", "identity_habit", "archive")!;
     const client = makeTableClient({ identity_habits: makeChain({ data: null, error: null }) });
-    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived-or-missing" }, {});
-    expect(outcome.summary).toMatch(/already-archived-or-missing/);
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "bad-or-foreign" }, {})).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("never-existed and another tenant's id produce a byte-identical error (P4-38 enumeration-safety control)", async () => {
+    const action = getWriteAction("habits", "identity_habit", "archive")!;
+    const run = () => {
+      const client = makeTableClient({ identity_habits: makeChain({ data: null, error: null }) });
+      return action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "same-id" }, {}).catch((e) => e.message);
+    };
+    const [a, b] = await Promise.all([run(), run()]);
+    expect(a).toBe(b);
+    expect(a).toBe('No identity habit found with id "same-id".');
   });
 });
 
@@ -938,11 +983,28 @@ describe("day.routine_item handlers (P3-01)", () => {
     await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, {})).rejects.toThrow(/requires the top-level.*id/i);
   });
 
-  it("archive does NOT throw on 0 rows -- deliberate no-op matching the core's own design", async () => {
+  it("archive still succeeds as a calm no-op when the item exists but is already archived (P4-38)", async () => {
+    const action = getWriteAction("day", "routine_item", "archive")!;
+    const client = makeTableClient({ morning_routine_items: makeChain({ data: { id: "already-archived" }, error: null }) }); // existence check finds the row
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived" }, {});
+    expect(outcome.summary).toMatch(/already-archived/);
+  });
+
+  it("archive throws ToolNotFoundError for a bad or cross-tenant id (P4-38) -- no longer an invisible no-op", async () => {
     const action = getWriteAction("day", "routine_item", "archive")!;
     const client = makeTableClient({ morning_routine_items: makeChain({ data: null, error: null }) });
-    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "already-archived-or-missing" }, {});
-    expect(outcome.summary).toMatch(/already-archived-or-missing/);
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "bad-or-foreign" }, {})).rejects.toBeInstanceOf(ToolNotFoundError);
+  });
+
+  it("never-existed and another tenant's id produce a byte-identical error (P4-38 enumeration-safety control)", async () => {
+    const action = getWriteAction("day", "routine_item", "archive")!;
+    const run = () => {
+      const client = makeTableClient({ morning_routine_items: makeChain({ data: null, error: null }) });
+      return action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "same-id" }, {}).catch((e) => e.message);
+    };
+    const [a, b] = await Promise.all([run(), run()]);
+    expect(a).toBe(b);
+    expect(a).toBe('No morning routine item found with id "same-id".');
   });
 
   it("check REJECTS a missing patch.date", async () => {

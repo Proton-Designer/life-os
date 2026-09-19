@@ -889,11 +889,11 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           complete: {
             action: "complete",
-            description: "Mark a target/stretch goal done. Requires the top-level id. Never a delete — the row's history is kept (ruling 5).",
+            description: "Mark a target/stretch goal done. Requires the top-level id. Never a delete — the row's history is kept (ruling 5). P4-38: a bogus or another tenant's id now throws not-found (completeTargetCore's pre-RPC read, checked explicitly); an already-completed target still succeeds as a calm no-op.",
             patchShape: "{}",
             idempotent: true,
             idempotencyVerification:
-              "The complete_target RPC (migration 028) is explicitly idempotent by its own author's comment and guard: `select position ... if v_position is null then return; -- already completed ... idempotent no-op`. A retry after a successful complete finds position already NULL and no-ops before any UPDATE runs. completeTargetCore's own pre-RPC read of `vacatedPosition` also comes back NULL on a retry, so the 'what got promoted' lookup is skipped and it reports promotedTargetId:null -- a different RETURN VALUE than the original call, but the underlying DB state is unchanged either way.",
+              "The complete_target RPC (migration 028) is explicitly idempotent by its own author's comment and guard: `select position ... if v_position is null then return; -- already completed ... idempotent no-op`. A retry after a successful complete finds position already NULL and no-ops before any UPDATE runs. completeTargetCore's own pre-RPC read of `vacatedPosition` also comes back NULL on a retry, so the 'what got promoted' lookup is skipped and it reports promotedTargetId:null -- a different RETURN VALUE than the original call, but the underlying DB state is unchanged either way. P4-38: that same pre-RPC read now also distinguishes a genuinely missing row (throws) from an existing-but-already-completed one (proceeds to the idempotent RPC as before).",
             handler: async (ctx) => {
               const id = requireId(ctx);
               const promotion = await completeTargetCore(ctx.userClient, ctx.userId, id);
@@ -2832,12 +2832,15 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           archive: {
             action: "archive",
-            description: "Archive a morning routine item -- NEVER a hard delete, so past checks survive. Scoped to archived_at IS NULL in the core: archiving an already-archived or foreign id is a DELIBERATE no-op (0 rows, not an error), same reasoning as habits.identity_habit.archive. Requires the top-level id.",
+            description: "Archive a morning routine item -- NEVER a hard delete, so past checks survive. P4-38: a bogus or another tenant's id now throws not-found (checked explicitly here); an already-archived item still succeeds as a calm no-op -- archiveMorningRoutineItemCore remains scoped to archived_at IS NULL, so a retry matches 0 rows and returns the identical success body as before. Requires the top-level id.",
             patchShape: "{}",
             idempotent: true,
             idempotencyVerification: "archiveMorningRoutineItemCore scopes its UPDATE to archived_at IS NULL -- once archived, a retry matches 0 rows and leaves the already-archived state untouched.",
             handler: async (ctx) => {
               const id = requireId(ctx);
+              const { data: existing, error: existErr } = await ctx.userClient.from("morning_routine_items").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (existErr) throw existErr;
+              if (!existing) throw new ToolNotFoundError(`No morning routine item found with id "${id}".`);
               await archiveMorningRoutineItemCore(ctx.userClient, ctx.userId, id);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id, archived: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), archived: true } },
@@ -2921,13 +2924,16 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           set_status: {
             action: "set_status",
-            description: "Mark a goal done or dropped (there is no path back to 'active' -- completing/dropping releases its rank for the month). Scoped to status='active' in the core: completing/dropping an already-resolved goal is a DELIBERATE no-op (0 rows, not an error) -- already-resolved and doesn't-exist are indistinguishable by this design, so this action does NOT throw not-found. Requires the top-level id.",
+            description: "Mark a goal done or dropped (there is no path back to 'active' -- completing/dropping releases its rank for the month). P4-38: a bogus or another tenant's id now throws not-found (checked explicitly here, same shape as goals.milestone.set_done); an already-resolved goal still succeeds as a calm no-op -- completeGoal/dropGoal remain scoped to status='active', so a retry matches 0 rows and returns the identical success body as before. Requires the top-level id.",
             patchShape: "{ status: 'done'|'dropped' }",
             idempotent: true,
             idempotencyVerification: "completeGoal/dropGoal scope their UPDATE to status='active' -- once transitioned, a retry matches 0 rows and leaves the already-set state untouched. Same end state regardless of retry count.",
             handler: async (ctx, patch) => {
               const id = requireId(ctx);
               const status = requireEnum(patch, "status", ["done", "dropped"] as const);
+              const { data: existing, error: existErr } = await ctx.userClient.from("goals").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (existErr) throw existErr;
+              if (!existing) throw new ToolNotFoundError(`No goal found with id "${id}".`);
               if (status === "done") await completeGoal(ctx.userClient, ctx.userId, id);
               else await dropGoal(ctx.userClient, ctx.userId, id);
               return {
@@ -3016,12 +3022,15 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           archive: {
             action: "archive",
-            description: "Soft-archive an identity habit, releasing its rank. Scoped to status='active' in the core: archiving an already-archived or foreign id is a DELIBERATE no-op (0 rows, not an error), same reasoning as goals.goal.set_status -- this does NOT throw not-found. Requires the top-level id.",
+            description: "Soft-archive an identity habit, releasing its rank. P4-38: a bogus or another tenant's id now throws not-found (checked explicitly here); an already-archived habit still succeeds as a calm no-op -- archiveIdentityHabitCore remains scoped to status='active', so a retry matches 0 rows and returns the identical success body as before. Requires the top-level id.",
             patchShape: "{}",
             idempotent: true,
             idempotencyVerification: "archiveIdentityHabitCore scopes its UPDATE to status='active' -- once archived, a retry matches 0 rows and leaves the already-archived state untouched.",
             handler: async (ctx) => {
               const id = requireId(ctx);
+              const { data: existing, error: existErr } = await ctx.userClient.from("identity_habits").select("id").eq("id", id).eq("user_id", ctx.userId).maybeSingle();
+              if (existErr) throw existErr;
+              if (!existing) throw new ToolNotFoundError(`No identity habit found with id "${id}".`);
               await archiveIdentityHabitCore(ctx.userClient, ctx.userId, id);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id, archived: true }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), archived: true } },

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore, getActiveTargetQueueCore } from "../targets-core";
+import { ToolNotFoundError } from "../../mcp/tool-input-error";
 
 function makeClient(opts: {
   queue?: unknown[];
   rpcError?: unknown;
-  before?: { position: number } | null;
+  before?: { position: number | null } | null;
   promoted?: { id: string; deadline: string | null } | null;
   newId?: string;
   /** editTargetCore's UPDATE...SELECT result -- P4-34's requireRowUpdated reads this to decide zero-rows-matched. Defaults to a non-empty row so every pre-existing test here (none of which cares about this) keeps passing unchanged; a test that DOES care passes `[]` to simulate a bad/stale/cross-tenant id. */
@@ -154,10 +155,45 @@ describe("completeTargetCore", () => {
     expect(result.promotedNeedsDeadline).toBe(false);
   });
 
-  it("no promotion when the completed row had already left the active queue", async () => {
-    const { client } = makeClient({ before: null });
+  // P4-38: `before: null` (no row from the id+user_id-scoped lookup) and
+  // `before: { position: null }` (row exists, already completed -- the
+  // RPC's own idempotent no-op path) used to be conflated by
+  // `before?.position ?? null` into the same "no promotion" result. This
+  // test previously used `before: null` to mean "already completed",
+  // which was itself an instance of the exact conflation this task fixes
+  // -- corrected to the shape that actually represents that case.
+  it("no promotion when the completed row had already left the active queue (row exists, position already null)", async () => {
+    const { client } = makeClient({ before: { position: null } });
     const result = await completeTargetCore(client, "user-1", "t1");
     expect(result).toEqual({ promotedTargetId: null, promotedNeedsDeadline: false });
+  });
+
+  it("throws a clean not-found for a bad/cross-tenant id instead of silently reporting no promotion (P4-38)", async () => {
+    const { client, rpcCalls } = makeClient({ before: null });
+    await expect(completeTargetCore(client, "user-1", "t1")).rejects.toThrow(ToolNotFoundError);
+    expect(rpcCalls).toHaveLength(0); // never-existed is rejected before the RPC ever runs
+    await expect(completeTargetCore(makeClient({ before: null }).client, "user-1", "t1")).rejects.toThrow('No target found with id "t1".');
+  });
+
+  // P4-38's whole safety property: never-existed and belongs-to-another-
+  // tenant both fail the SAME id+user_id-scoped query and must produce a
+  // byte-identical error -- diffed programmatically, not eyeballed.
+  it("never-existed and another tenant's id produce a BYTE-IDENTICAL error (P4-38 enumeration-safety control)", async () => {
+    const neverExisted = makeClient({ before: null });
+    const notMine = makeClient({ before: null }); // same query shape scoped to THIS caller's user_id -- a foreign row is invisible to it, indistinguishable from absent
+    const [errA, errB] = await Promise.all([
+      completeTargetCore(neverExisted.client, "user-1", "bad-id").catch((e) => e),
+      completeTargetCore(notMine.client, "user-1", "belongs-to-account-b").catch((e) => e),
+    ]);
+    expect(errA).toBeInstanceOf(ToolNotFoundError);
+    expect(errB).toBeInstanceOf(ToolNotFoundError);
+    // Same id on both calls to make the diff meaningful -- proves the
+    // MESSAGE SHAPE doesn't leak anything beyond the caller's own echoed id.
+    const same = await Promise.all([
+      completeTargetCore(makeClient({ before: null }).client, "user-1", "same-id").catch((e) => e.message),
+      completeTargetCore(makeClient({ before: null }).client, "user-1", "same-id").catch((e) => e.message),
+    ]);
+    expect(same[0]).toBe(same[1]);
   });
 });
 
