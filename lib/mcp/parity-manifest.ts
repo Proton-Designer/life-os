@@ -255,7 +255,12 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/self-mastery-session-actions.ts#logSelfExplanation": { mcp: "self_mastery.self_explanation.log" },
   "app/(app)/personal/self-mastery-session-actions.ts#getDueSummary": { read_only: true, note: "self_mastery.due_summary view is P4-27" },
   "app/(app)/personal/self-mastery-session-actions.ts#getSelfMasteryCandidateInput": { read_only: true },
-  "app/(app)/personal/self-mastery-session-actions.ts#retryStarterDeckSeed": { excluded: "onboarding_wizard: retries the first-run starter deck seed" },
+  // retryStarterDeckSeed removed in a0bfe5d (ONB item 11). It existed only to
+  // re-attempt the Marcus Aurelius starter deck when onboarding's seed failed;
+  // with no seed, there is nothing to retry. Entry retired by the Lead as
+  // steward, only after the export was confirmed gone from HEAD — the parity
+  // guard flagged it stale the instant the export disappeared, which is
+  // precisely what P4-33 extended it to do.
   "app/(app)/personal/teach-back-actions.ts#getTeachableLessons": { read_only: true },
   "app/(app)/personal/teach-back-actions.ts#submitTeachBack": { excluded: "llm_spend: P2-18 teach-back evaluation via gatewayChat; the agent can evaluate its own explanation of a lesson itself" },
 
