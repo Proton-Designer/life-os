@@ -3100,3 +3100,30 @@ export function listWriteActions(domain: string, entity: string): string[] {
 export function listWriteEntities(domain: string): string[] {
   return Object.keys(WRITE_REGISTRY[domain]?.entities ?? {});
 }
+
+export interface WriteOpKey {
+  domain: string;
+  entity: string;
+  action: string;
+  /** `${domain}.${entity}.${action}` — the same string a `{ mcp: … }` parity decision names. */
+  key: string;
+}
+
+/**
+ * Every `domain.entity.action` this registry defines, regardless of whether
+ * any Server Action wraps it. Exists so the MCP parity guard (P4-33) can
+ * require a decision for a write op that is registered here directly and
+ * never routed through a `"use server"` file — the guard's own Server-Action
+ * scan (parity-scan.ts) has no way to see such an op on its own.
+ */
+export function listAllWriteOps(): WriteOpKey[] {
+  const ops: WriteOpKey[] = [];
+  for (const [domain, domainDef] of Object.entries(WRITE_REGISTRY)) {
+    for (const [entity, entityDef] of Object.entries(domainDef.entities)) {
+      for (const action of Object.keys(entityDef.actions)) {
+        ops.push({ domain, entity, action, key: `${domain}.${entity}.${action}` });
+      }
+    }
+  }
+  return ops;
+}

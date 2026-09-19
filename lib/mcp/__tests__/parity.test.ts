@@ -18,7 +18,7 @@ import {
   type ParityDecision,
 } from "../parity-manifest";
 import { scanServerActionExports, scanSource } from "../parity-scan";
-import { getWriteAction } from "../write-registry";
+import { getWriteAction, listAllWriteOps } from "../write-registry";
 import { getDomain, getEntity } from "../registry";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -53,6 +53,59 @@ function boardHasTask(id: string): boolean {
  */
 const WIDGET_MANAGE_ACTIONS = ["list", "create", "update", "delete"];
 
+/**
+ * scheduler_manage is a dedicated tool, not a WRITE_REGISTRY domain, same
+ * posture as widget_manage above. Its action enum lives in
+ * lib/mcp/tools/scheduler-manage.ts (SchedulerManageArgs["action"]), which
+ * exports no runtime value, so it is mirrored here. Keep in sync.
+ */
+const SCHEDULER_MANAGE_ACTIONS = ["list", "create", "cancel", "pause"];
+
+/**
+ * P4-33: the live MCP write surface, not just the subset a "use server" file
+ * happens to wrap. parity-scan.ts can only see Server Action exports, so it
+ * is structurally blind to a write op registered directly in
+ * write-registry.ts, or exposed only through a dedicated tool like
+ * widget_manage/scheduler_manage — this is the exact root cause P4-33 fixes.
+ * `list`-style actions are reads, tracked by the read registry, not here.
+ */
+function liveWriteOps(): string[] {
+  return [
+    ...listAllWriteOps().map((o) => o.key),
+    ...WIDGET_MANAGE_ACTIONS.filter((a) => a !== "list").map((a) => `widgets.widget.${a}`),
+    ...SCHEDULER_MANAGE_ACTIONS.filter((a) => a !== "list").map((a) => `scheduler.scheduled_action.${a}`),
+  ];
+}
+
+/** Every op named by some manifest entry's `mcp:` decision, wherever that entry is keyed. */
+function opsDeclaredAsMcp(manifest: Record<string, ParityDecision>): Set<string> {
+  const declared = new Set<string>();
+  for (const d of Object.values(manifest)) {
+    if ("mcp" in d) declared.add(d.mcp);
+  }
+  return declared;
+}
+
+/**
+ * P4-33 known debt: live write ops found undeclared when this guard was
+ * extended (2026-09-19), reported to the Lead (steward of parity-manifest.ts)
+ * for a decision instead of fixed inline here. SHRINK-ONLY: remove a line the
+ * moment its op gets a real manifest decision — "the P4-33 known-gap
+ * allowlist only contains ops that still lack a decision" below fails the
+ * moment one hasn't been removed. Never add a new op to this list; a new gap
+ * must be resolved with a manifest decision, not grandfathered in.
+ */
+const KNOWN_UNRESOLVED_P4_33_GAPS = new Set([
+  "deen.weekly_goal.save",
+  "school.schedule_event.set_override",
+  "school.canvas_import.run_batch",
+  "widgets.widget.create",
+  "widgets.widget.update",
+  "scheduler.scheduled_action.create",
+  "scheduler.scheduled_action.cancel",
+  "scheduler.scheduled_action.pause",
+]);
+
 const HOW_TO_DECIDE = [
   `Add one line per export to PARITY_MANIFEST in ${MANIFEST_PATH}, choosing EXACTLY ONE decision:`,
   `  { mcp: "domain.entity.action" }   an MCP write op in lib/mcp/write-registry.ts already does the same thing`,
@@ -75,6 +128,9 @@ function resolveMcpOp(op: string): string | null {
   if (action === "read") return getEntity(domain, entity) ? null : `read entity ${domain}.${entity} is not in REGISTRY`;
   if (domain === "widgets" && entity === "widget") {
     return getDomain("widgets") && WIDGET_MANAGE_ACTIONS.includes(action) ? null : `widget_manage has no action "${action}"`;
+  }
+  if (domain === "scheduler" && entity === "scheduled_action") {
+    return SCHEDULER_MANAGE_ACTIONS.includes(action) ? null : `scheduler_manage has no action "${action}"`;
   }
   return getWriteAction(domain, entity, action) ? null : `write op ${op} is not in WRITE_REGISTRY`;
 }
@@ -107,6 +163,44 @@ describe("parity scanner (positive and negative controls)", () => {
   });
 });
 
+describe("P4-33: the guard is no longer blind to MCP-only write ops (positive control)", () => {
+  it("the live write surface includes real ops from write-registry.ts and from both dedicated tools -- a scan that misses a whole kind must not pass", () => {
+    const ops = liveWriteOps();
+    expect(ops.length).toBeGreaterThan(90);
+    expect(ops).toContain("deen.prayer.log"); // WRITE_REGISTRY, already declared
+    expect(ops.some((o) => o.startsWith("widgets.widget."))).toBe(true); // dedicated tool #1
+    expect(ops.some((o) => o.startsWith("scheduler.scheduled_action."))).toBe(true); // dedicated tool #2
+  });
+
+  it("write-registry.ts itself has no 'use server' directive -- this is WHY the old guard was structurally blind to it", () => {
+    const source = fs.readFileSync(path.join(REPO_ROOT, "lib/mcp/write-registry.ts"), "utf8");
+    expect(scanSource("lib/mcp/write-registry.ts", source).isUseServer).toBe(false);
+    // scanServerActionExports therefore contributes ZERO exports for this file, no matter how many
+    // write ops it registers -- confirmed against the real scan, not just this file's own source text.
+    const scan = scanServerActionExports(SCAN_ROOT);
+    expect(scan.exports.some((e) => e.file === "lib/mcp/write-registry.ts")).toBe(false);
+  });
+
+  it("RED FIRST: a fabricated MCP-only write op with no manifest decision is caught by the new check, using only synthetic fixtures", () => {
+    // Mirrors the real shape: an op that exists (findable by an enumerator that
+    // reads the live registry) but that no Server-Action-only scan could ever
+    // see, and that the manifest has no decision for.
+    const fakeOps = ["fake_domain.fake_entity.fake_action"];
+    const fakeManifestMissingIt: Record<string, ParityDecision> = {};
+    const declared = opsDeclaredAsMcp(fakeManifestMissingIt);
+    const missing = fakeOps.filter((op) => !declared.has(op) && !(op in fakeManifestMissingIt));
+    expect(missing).toEqual(["fake_domain.fake_entity.fake_action"]); // the guard catches it
+
+    // The exact same op, once given a decision either way, is no longer reported.
+    const fakeManifestViaMcpField: Record<string, ParityDecision> = { "some/file.ts#wrapper": { mcp: "fake_domain.fake_entity.fake_action" } };
+    const fakeManifestViaOwnKey: Record<string, ParityDecision> = { "fake_domain.fake_entity.fake_action": { pending: "P4-05" } };
+    for (const manifest of [fakeManifestViaMcpField, fakeManifestViaOwnKey]) {
+      const d = opsDeclaredAsMcp(manifest);
+      expect(fakeOps.filter((op) => !d.has(op) && !(op in manifest))).toEqual([]);
+    }
+  });
+});
+
 describe("MCP parity manifest", () => {
   const scan = scanServerActionExports(SCAN_ROOT);
   const scannedKeys = new Set(scan.exports.map((e) => e.key));
@@ -118,6 +212,31 @@ describe("MCP parity manifest", () => {
       throw new Error(
         `${missing.length} Server Action export(s) have no MCP decision. An external agent's access to each must be decided before it ships.\n\n` +
           `${HOW_TO_DECIDE}\n\nLines to add (edit the decision):\n${lines.join("\n")}\n`,
+      );
+    }
+  });
+
+  it("every live write operation has an MCP decision, not only ones a Server Action happens to wrap (P4-33)", () => {
+    const declared = opsDeclaredAsMcp(PARITY_MANIFEST);
+    const missing = liveWriteOps().filter((op) => !declared.has(op) && !(op in PARITY_MANIFEST) && !KNOWN_UNRESOLVED_P4_33_GAPS.has(op));
+    if (missing.length > 0) {
+      const lines = missing.map((op) => `  ${JSON.stringify(op)}: { pending: "P4-xx" }, // <- pick the right decision, key by the op itself: no Server Action need wrap it`);
+      throw new Error(
+        `${missing.length} MCP write operation(s) exist in write-registry.ts or a dedicated write tool (widget_manage, ` +
+          `scheduler_manage) but carry no MCP decision anywhere in the manifest. A write op invisible to this check is ` +
+          `invisible to the whole guard, not merely unmapped from a Server Action — this is the P4-33 root cause.\n\n` +
+          `${HOW_TO_DECIDE}\n\nLines to add (edit the decision):\n${lines.join("\n")}\n`,
+      );
+    }
+  });
+
+  it("the P4-33 known-gap allowlist only contains ops that still lack a decision (shrink-only)", () => {
+    const declared = opsDeclaredAsMcp(PARITY_MANIFEST);
+    const resolved = [...KNOWN_UNRESOLVED_P4_33_GAPS].filter((op) => declared.has(op) || op in PARITY_MANIFEST);
+    if (resolved.length > 0) {
+      throw new Error(
+        `${resolved.length} op(s) in KNOWN_UNRESOLVED_P4_33_GAPS already have a manifest decision -- remove them from the ` +
+          `allowlist in lib/mcp/__tests__/parity.test.ts now that they're resolved:\n${resolved.map((op) => `  ${op}`).join("\n")}\n`,
       );
     }
   });
