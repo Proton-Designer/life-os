@@ -12,6 +12,7 @@ import {
   renameWorkoutCore,
   archiveWorkoutCore,
 } from "../actions-core";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
@@ -113,11 +114,51 @@ describe("confirmPlanSessionCore", () => {
   });
 
   it("throws on a non-conflict session insert error", async () => {
-    const planSessionsChain = makeChain({ data: null, error: null });
+    // A FOUND plan session (workout_id: null is a legitimate value, not
+    // "not found" -- see P4-34 tests below for the actual not-found case)
+    // so this test still exercises a genuine insert failure, not the
+    // pre-insert existence check.
+    const planSessionsChain = makeChain({ data: { workout_id: null }, error: null });
     const insertChain = makeChain({ data: null, error: { code: "23000", message: "other" } });
     const from = vi.fn((table: string) => (table === "plan_sessions" ? planSessionsChain : insertChain));
     const client = { from } as unknown as SupabaseClient;
     await expect(confirmPlanSessionCore(client, "user-1", "2026-09-08", "plan-session-1", "Push Day", [])).rejects.toBeTruthy();
+  });
+
+  // P4-34: this is the one case in ENG-A's triage that ISN'T an
+  // UPDATE-matched-zero-rows bug -- confirmPlanSessionCore reads
+  // plan_sessions by the caller's id, and on a miss it used to silently
+  // substitute workout_id: null and INSERT a brand-new workout_sessions row
+  // anyway, reporting success with a real new row id for a caller-supplied
+  // id that was never valid. The fix has to run BEFORE the insert, not wrap
+  // an update that doesn't apply here. Both cases below produce the
+  // IDENTICAL "no such plan session" result from the SAME user_id-scoped
+  // read -- account A confirming account B's plan session id is
+  // indistinguishable from account A confirming an id that never existed.
+  describe("P4-34 -- a bad, stale, or cross-tenant plan session id throws BEFORE any row is inserted", () => {
+    it("cross-tenant id (account A confirming account B's plan session)", async () => {
+      const planSessionsChain = makeChain({ data: null, error: null }); // no row for THIS user_id
+      const sessionsChain = makeChain({ data: { id: "should-never-be-created" }, error: null });
+      const from = vi.fn((table: string) => (table === "plan_sessions" ? planSessionsChain : sessionsChain));
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(
+        confirmPlanSessionCore(client, "user-1", "2026-09-08", "belongs-to-account-b", "Push Day", [])
+      ).rejects.toThrow(/No plan session found with id "belongs-to-account-b"/);
+      expect(sessionsChain.insert).not.toHaveBeenCalled();
+    });
+
+    it("the caller's own stale/deleted plan session id -- the common, non-adversarial case", async () => {
+      const planSessionsChain = makeChain({ data: null, error: null });
+      const sessionsChain = makeChain({ data: { id: "should-never-be-created" }, error: null });
+      const from = vi.fn((table: string) => (table === "plan_sessions" ? planSessionsChain : sessionsChain));
+      const client = { from } as unknown as SupabaseClient;
+
+      await expect(
+        confirmPlanSessionCore(client, "user-1", "2026-09-08", "deleted-earlier", "Push Day", [])
+      ).rejects.toThrow(ToolNotFoundError);
+      expect(sessionsChain.insert).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -158,18 +199,39 @@ describe("createExerciseCore / archiveExerciseCore", () => {
     expect(id).toBe("ex-new");
   });
 
+  // P4-34's requireRowUpdated chains .select("id") onto the update and
+  // reads its result to detect a zero-row match -- a non-empty row lets a
+  // normal, successful archive through unaffected.
   it("archiveExerciseCore updates archived:true, never deletes", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "ex-1" }], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
     await archiveExerciseCore(client, "user-1", "ex-1");
     expect(chain.update).toHaveBeenCalledWith({ archived: true });
     expect(chain.delete).not.toHaveBeenCalled();
   });
+
+  // P4-34: both cases below produce the IDENTICAL zero-row result from the
+  // same user_id-scoped query -- account A archiving account B's exercise
+  // id is indistinguishable from account A archiving an id that never
+  // existed.
+  it("archiveExerciseCore throws a clean not-found for a cross-tenant id instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+    await expect(archiveExerciseCore(client, "user-1", "belongs-to-account-b")).rejects.toThrow(
+      /No exercise found with id "belongs-to-account-b"/
+    );
+  });
+
+  it("archiveExerciseCore throws a clean not-found for the caller's own stale/deleted id", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+    await expect(archiveExerciseCore(client, "user-1", "deleted-earlier")).rejects.toThrow(ToolNotFoundError);
+  });
 });
 
 describe("renameWorkoutCore / archiveWorkoutCore", () => {
   it("renameWorkoutCore updates name, scoped to id and user_id", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "w-1" }], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
     await renameWorkoutCore(client, "user-1", "w-1", "Leg Day");
     expect(chain.update).toHaveBeenCalledWith({ name: "Leg Day" });
@@ -177,11 +239,23 @@ describe("renameWorkoutCore / archiveWorkoutCore", () => {
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
+  it("renameWorkoutCore throws a clean not-found for a cross-tenant or stale id instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+    await expect(renameWorkoutCore(client, "user-1", "not-mine", "Leg Day")).rejects.toThrow(/No workout found with id "not-mine"/);
+  });
+
   it("archiveWorkoutCore updates archived:true, never deletes", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "w-1" }], error: null });
     const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
     await archiveWorkoutCore(client, "user-1", "w-1");
     expect(chain.update).toHaveBeenCalledWith({ archived: true });
     expect(chain.delete).not.toHaveBeenCalled();
+  });
+
+  it("archiveWorkoutCore throws a clean not-found for a cross-tenant or stale id instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    const client = { from: vi.fn(() => chain) } as unknown as SupabaseClient;
+    await expect(archiveWorkoutCore(client, "user-1", "not-mine")).rejects.toThrow(/No workout found with id "not-mine"/);
   });
 });

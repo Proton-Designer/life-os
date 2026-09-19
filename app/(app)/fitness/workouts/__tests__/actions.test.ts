@@ -43,8 +43,11 @@ describe("Fitness workouts actions", () => {
     expect(revalidatePathMock).toHaveBeenCalledWith("/fitness/workouts");
   });
 
+  // P4-34's requireRowUpdated chains .select("id") onto the update and
+  // reads its result to detect a zero-row match -- a non-empty row lets a
+  // normal, successful call through unaffected.
   it("archiveExercise updates archived:true, never deletes", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "ex-1" }], error: null });
     fromImpl = () => chain;
     const { archiveExercise } = await import("../actions");
 
@@ -57,7 +60,7 @@ describe("Fitness workouts actions", () => {
   });
 
   it("renameWorkout updates name, scoped to id and user_id", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "w-1" }], error: null });
     fromImpl = () => chain;
     const { renameWorkout } = await import("../actions");
 
@@ -69,7 +72,7 @@ describe("Fitness workouts actions", () => {
   });
 
   it("archiveWorkout updates archived:true and revalidates both /fitness/workouts and /fitness", async () => {
-    const chain = makeChain();
+    const chain = makeChain({ data: [{ id: "w-1" }], error: null });
     fromImpl = () => chain;
     const { archiveWorkout } = await import("../actions");
 
@@ -79,5 +82,31 @@ describe("Fitness workouts actions", () => {
     expect(chain.delete).not.toHaveBeenCalled();
     expect(revalidatePathMock).toHaveBeenCalledWith("/fitness/workouts");
     expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+  });
+
+  // P4-34: both cases below produce the IDENTICAL zero-row result from the
+  // same user_id-scoped query.
+  it("archiveExercise throws a clean not-found for a bad/stale/cross-tenant id instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    fromImpl = () => chain;
+    const { archiveExercise } = await import("../actions");
+
+    await expect(archiveExercise("not-mine")).rejects.toThrow(/No exercise found with id "not-mine"/);
+  });
+
+  it("renameWorkout throws a clean not-found for a bad/stale/cross-tenant id instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    fromImpl = () => chain;
+    const { renameWorkout } = await import("../actions");
+
+    await expect(renameWorkout("not-mine", "Leg Day")).rejects.toThrow(/No workout found with id "not-mine"/);
+  });
+
+  it("archiveWorkout throws a clean not-found for a bad/stale/cross-tenant id instead of reporting success", async () => {
+    const chain = makeChain({ data: [], error: null });
+    fromImpl = () => chain;
+    const { archiveWorkout } = await import("../actions");
+
+    await expect(archiveWorkout("not-mine")).rejects.toThrow(/No workout found with id "not-mine"/);
   });
 });

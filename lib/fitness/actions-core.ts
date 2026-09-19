@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MuscleGroup } from "./volume";
+import { requireRowUpdated } from "@/lib/mcp/require-row-updated";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
 /**
  * R5 core(supabase, userId, ...) extraction for fitness's LOGGING surface —
@@ -137,6 +139,17 @@ export async function confirmPlanSessionCore(
     .eq("user_id", userId)
     .maybeSingle();
   if (planSessionError) throw planSessionError;
+  // P4-34: this read already existed to fetch workout_id -- but its
+  // zero-row result was never checked, so a bad/stale/cross-tenant
+  // sessionId silently substituted workout_id: null and INSERTed a
+  // brand-new workout_sessions row anyway, reporting success with a real
+  // new row id for an id that was never valid. This has to run BEFORE the
+  // insert (unlike the other 12 actions in this sweep, which wrap an
+  // UPDATE) -- there is no row to "match zero rows" on until after the
+  // insert already happened. No new query added: reusing this same
+  // user_id-scoped read is what keeps a cross-tenant id and a truly
+  // nonexistent id producing the identical thrown error.
+  if (!planSession) throw new ToolNotFoundError(`No plan session found with id "${sessionId}".`);
 
   const { data: session, error: sessionError } = await supabase
     .from("workout_sessions")
@@ -227,19 +240,20 @@ export async function createExerciseCore(
   return data.id;
 }
 
-/** Archives (never hard-deletes) — exercises are referenced by workout_exercises/session_sets/etc. with no cascading delete, same archive-don't-delete convention as everywhere else in this codebase. */
+/**
+ * Archives (never hard-deletes) — exercises are referenced by workout_exercises/session_sets/etc. with no cascading delete, same archive-don't-delete convention as everywhere else in this codebase.
+ * P4-34: a bad, stale, or cross-tenant `id` now throws a clean not-found (via the shared requireRowUpdated helper) instead of silently matching zero rows and reporting success.
+ */
 export async function archiveExerciseCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
-  const { error } = await supabase.from("exercises").update({ archived: true }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await requireRowUpdated(supabase, "exercises", { archived: true }, id, userId, `No exercise found with id "${id}".`);
 }
 
+/** P4-34: same not-found fix as archiveExerciseCore above. */
 export async function renameWorkoutCore(supabase: SupabaseClient, userId: string, id: string, name: string): Promise<void> {
-  const { error } = await supabase.from("workouts").update({ name }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await requireRowUpdated(supabase, "workouts", { name }, id, userId, `No workout found with id "${id}".`);
 }
 
-/** Archives (never hard-deletes) — same convention as archiveExerciseCore. */
+/** Archives (never hard-deletes) — same convention as archiveExerciseCore. P4-34: same not-found fix. */
 export async function archiveWorkoutCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
-  const { error } = await supabase.from("workouts").update({ archived: true }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
+  await requireRowUpdated(supabase, "workouts", { archived: true }, id, userId, `No workout found with id "${id}".`);
 }
