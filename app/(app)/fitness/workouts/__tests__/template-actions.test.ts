@@ -130,3 +130,88 @@ describe("createPlanFromTemplate", () => {
     expect(fromMock).toHaveBeenCalledWith("workout_schedule");
   });
 });
+
+// ONB item 6 follow-up (BRIEF-eng1-item6.md): the onboarding fitness question
+// wrote FitnessConfig.style and nothing ever read it. applyOnboardingFitnessChoice
+// gives it a real effect through the SAME templates/slots as the in-app "New
+// plan" flow (createPlanFromTemplate/deactivateSlot) -- not a parallel mechanism.
+describe("applyOnboardingFitnessChoice", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+    fromMock.mockImplementation(defaultFromImpl);
+    sessionInsertCount = 0;
+    tableResponses = {
+      exercises: { data: null, error: null },
+      workout_plans: { data: null, error: null },
+      active_workout_plans: { data: { micro_plan_id: null, routine_plan_id: null }, error: null },
+      workout_schedule: { data: null, error: null },
+    };
+    for (const key of Object.keys(chainsByTable)) delete chainsByTable[key];
+  });
+
+  it('"plan" materializes Plan A into the routine slot', async () => {
+    const { applyOnboardingFitnessChoice } = await import("../template-actions");
+
+    await applyOnboardingFitnessChoice("plan");
+
+    expect(chainsByTable.workout_plans.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Rotating Upper", kind: "routine" })
+    );
+    expect(chainsByTable.active_workout_plans.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ routine_plan_id: "new-plan-id" }),
+      { onConflict: "user_id" }
+    );
+  });
+
+  it('"ad_hoc" materializes Starter Reps into the micro slot', async () => {
+    const { applyOnboardingFitnessChoice } = await import("../template-actions");
+
+    await applyOnboardingFitnessChoice("ad_hoc");
+
+    expect(chainsByTable.workout_plans.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Starter Reps", kind: "micro" })
+    );
+    expect(chainsByTable.active_workout_plans.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ micro_plan_id: "new-plan-id" }),
+      { onConflict: "user_id" }
+    );
+  });
+
+  it('switching to "plan" deactivates a previously-onboarded ad-hoc slot ("Starter Reps")', async () => {
+    tableResponses.active_workout_plans = { data: { micro_plan_id: "old-micro", routine_plan_id: null }, error: null };
+    // The routine plan (plan_a "Rotating Upper") doesn't exist yet -> insert path.
+    // The micro plan lookup (for the deactivate check) must return the onboarding name.
+    const originalWorkoutPlansSelect = () => {};
+    void originalWorkoutPlansSelect;
+    const { applyOnboardingFitnessChoice } = await import("../template-actions");
+
+    // workout_plans.select().eq(...).maybeSingle() is used both by
+    // findExistingPlan (ilike name -> null, so it inserts) and by this
+    // function's own "what's in the other slot" lookup (eq id -> a name).
+    // The shared chain mock always returns tableResponses.workout_plans, so
+    // point it at the onboarding micro template's name for this case.
+    tableResponses.workout_plans = { data: { name: "Starter Reps" }, error: null };
+
+    await applyOnboardingFitnessChoice("plan");
+
+    expect(chainsByTable.active_workout_plans.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ micro_plan_id: null }),
+      { onConflict: "user_id" }
+    );
+  });
+
+  it('never deactivates the other slot when it holds something this function did not create', async () => {
+    tableResponses.active_workout_plans = { data: { micro_plan_id: "hand-built-micro", routine_plan_id: null }, error: null };
+    tableResponses.workout_plans = { data: { name: "My Own Custom Micro Plan" }, error: null };
+    const { applyOnboardingFitnessChoice } = await import("../template-actions");
+
+    await applyOnboardingFitnessChoice("plan");
+
+    // Only the routine-activation upsert should have fired -- no upsert
+    // clearing the micro slot.
+    const upsertCalls = chainsByTable.active_workout_plans.upsert.mock.calls;
+    expect(upsertCalls).toHaveLength(1);
+    expect(upsertCalls[0][0]).toEqual(expect.objectContaining({ micro_plan_id: "hand-built-micro" }));
+  });
+});

@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import { SEED_PLANS, STARTER_REP_GOALS, type SeedExercise } from "@/lib/fitness/seed-plans";
 import { syncWorkoutScheduleForActiveRoutine } from "@/lib/fitness/sync-workout-schedule";
+import { deactivateSlot } from "./plan-actions";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -213,4 +214,71 @@ export async function createPlanFromTemplate(key: TemplateKey): Promise<{ id: st
   revalidatePath("/fitness");
   revalidatePath("/");
   return { id: planId };
+}
+
+const ONBOARDING_ROUTINE_TEMPLATE_NAMES = new Set(SEED_PLANS.map((p) => p.name));
+const ONBOARDING_MICRO_TEMPLATE_NAME = "Starter Reps";
+
+async function activeSlotIds(supabase: TypedClient, userId: string) {
+  const { data, error } = await supabase
+    .from("active_workout_plans")
+    .select("micro_plan_id, routine_plan_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return { microPlanId: data?.micro_plan_id ?? null, routinePlanId: data?.routine_plan_id ?? null };
+}
+
+async function planName(supabase: TypedClient, planId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("workout_plans").select("name").eq("id", planId).maybeSingle();
+  if (error) throw error;
+  return data?.name ?? null;
+}
+
+/**
+ * ONB item 6 follow-up (BRIEF-eng1-item6.md): the onboarding fitness
+ * question ("Follow a plan" / "Train ad hoc") wrote `FitnessConfig.style`
+ * and nothing ever read it -- the choice had zero effect, same species as
+ * item 8's widget picker. This gives it one using the exact machinery the
+ * in-app "New plan" flow already offers (createPlanFromTemplate /
+ * deactivateSlot, above/plan-actions.ts) rather than a parallel mechanism:
+ * a structured plan lands in the routine slot, ad hoc lands in the micro
+ * slot, and both stay fully editable/replaceable afterward through the
+ * existing plan-editing UI (savePlan/deletePlan/activatePlan/deactivateSlot)
+ * -- this is a starting point, never a lock-in.
+ *
+ * "Follow a plan" defaults to Plan A ("Rotating Upper") specifically: it is
+ * the lowest-per-session-dose seed plan (spec's own framing), the
+ * appropriate default for someone who has never used the app yet, not a
+ * judgment about which plan is "best."
+ *
+ * Deactivates the OTHER slot only when it still holds a template THIS
+ * function (or the equivalent onboarding pass) created, matched by name --
+ * so re-answering the question before finishing onboarding (back-nav) swaps
+ * the starter template instead of leaving both a plan and an ad-hoc target
+ * active from two different answers to the same question. It never touches
+ * a slot holding anything else, since nothing else can exist there this
+ * early in a brand-new account.
+ */
+export async function applyOnboardingFitnessChoice(style: "plan" | "ad_hoc"): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const { microPlanId, routinePlanId } = await activeSlotIds(supabase, userId);
+
+  if (style === "plan") {
+    await createPlanFromTemplate("plan_a");
+    if (microPlanId) {
+      const name = await planName(supabase, microPlanId);
+      if (name === ONBOARDING_MICRO_TEMPLATE_NAME) {
+        await deactivateSlot("micro");
+      }
+    }
+  } else {
+    await createPlanFromTemplate("starter_reps");
+    if (routinePlanId) {
+      const name = await planName(supabase, routinePlanId);
+      if (name && ONBOARDING_ROUTINE_TEMPLATE_NAMES.has(name)) {
+        await deactivateSlot("routine");
+      }
+    }
+  }
 }

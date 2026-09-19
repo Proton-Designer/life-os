@@ -8,6 +8,7 @@ import { FaithStep } from "./faith-step";
 import { FitnessStep } from "./fitness-step";
 import { SelfMasteryStep } from "./self-mastery-step";
 import { TOP_DOMAIN_META, PERSONAL_SUBDOMAIN_META, PERSONAL_SUBDOMAIN_ORDER } from "./domain-meta";
+import { applyOnboardingFitnessChoice } from "@/app/(app)/fitness/workouts/template-actions";
 import type { FaithConfig, FitnessConfig, PersonalSubdomainKey, SubdomainInput } from "./types";
 
 type Phase = "select" | PersonalSubdomainKey;
@@ -72,28 +73,51 @@ export function PersonalGrowthStep({
     return PERSONAL_SUBDOMAIN_ORDER.filter((k) => kept.has(k));
   }
 
-  function advancePast(current: PersonalSubdomainKey) {
+  // `current` is always the LAST-answered subdomain's own step, so when it is
+  // also the last in keptOrder(), `finish()` below runs synchronously in the
+  // same tick as this same click's `setFaithConfig`/`setFitnessConfig` call --
+  // before React re-renders. Reading the `faithConfig`/`fitnessConfig` STATE
+  // in that case reads the pre-click, stale value (this bit reproduces
+  // exactly, and is fixed the same way as, the identical trap documented on
+  // onboarding-wizard.tsx's finishCurrentDomain). `justAnswered` carries the
+  // one value this exact call just produced, so finish() never has to guess
+  // which of the two sources is current.
+  function advancePast(current: PersonalSubdomainKey, justAnswered?: { faith?: FaithConfig; fitness?: FitnessConfig }) {
     const order = keptOrder();
     const idx = order.indexOf(current);
     const nextKey = order[idx + 1];
     if (nextKey) {
       setPhase(nextKey);
     } else {
-      finish();
+      finish(justAnswered);
     }
   }
 
-  function finish() {
+  function finish(justAnswered?: { faith?: FaithConfig; fitness?: FitnessConfig }) {
+    const resolvedFaithConfig = justAnswered?.faith ?? faithConfig;
+    const resolvedFitnessConfig = justAnswered?.fitness ?? fitnessConfig;
     const subs: SubdomainInput[] = keptOrder().map((key) => {
       const meta = PERSONAL_SUBDOMAIN_META[key];
       if (key === "faith") {
-        return { key, label: meta.label, config: faithConfig ? { ...faithConfig } : {} };
+        return { key, label: meta.label, config: resolvedFaithConfig ? { ...resolvedFaithConfig } : {} };
       }
       if (key === "fitness") {
-        return { key, label: meta.label, config: fitnessConfig ? { ...fitnessConfig } : {} };
+        return { key, label: meta.label, config: resolvedFitnessConfig ? { ...resolvedFitnessConfig } : {} };
       }
       return { key, label: meta.label, config: {} };
     });
+    // ONB item 6 follow-up: give the fitness style question a real effect --
+    // a starting plan (routine slot) or ad-hoc rep targets (micro slot) via
+    // the same templates the in-app "New plan" flow uses. Fire-and-forget,
+    // not awaited before onNext: this matches RC-A's already-established
+    // shape (onboarding-wizard.tsx's enqueueWrite) of moving the UI forward
+    // immediately and letting the write land behind it, rather than adding a
+    // new place in onboarding that blocks on a round trip.
+    if (resolvedFitnessConfig) {
+      applyOnboardingFitnessChoice(resolvedFitnessConfig.style).catch((err) => {
+        console.error("onboarding: fitness starter template failed to apply", err);
+      });
+    }
     onNext(subs);
   }
 
@@ -113,7 +137,7 @@ export function PersonalGrowthStep({
         onBack={() => backFrom("faith")}
         onNext={(config) => {
           setFaithConfig(config);
-          advancePast("faith");
+          advancePast("faith", { faith: config });
         }}
         progressTotal={progressTotal}
         progressIndex={progressIndex}
@@ -138,7 +162,7 @@ export function PersonalGrowthStep({
         onBack={() => backFrom("fitness")}
         onNext={(config) => {
           setFitnessConfig(config);
-          advancePast("fitness");
+          advancePast("fitness", { fitness: config });
         }}
         progressTotal={progressTotal}
         progressIndex={progressIndex}
