@@ -20,6 +20,7 @@ import {
 import { scanServerActionExports, scanSource } from "../parity-scan";
 import { getWriteAction, listAllWriteOps } from "../write-registry";
 import { getDomain, getEntity } from "../registry";
+import { WidgetManageInputSchema, SchedulerManageInputSchema } from "@/lib/agent-api/operations";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 /**
@@ -46,20 +47,20 @@ function boardHasTask(id: string): boolean {
 }
 
 /**
- * widget_manage is a dedicated tool, not a WRITE_REGISTRY domain. Its action
- * enum lives in app/api/mcp/route.ts (WidgetManageInputSchema) and
- * lib/mcp/tools/widget-manage.ts (WidgetManageArgs["action"]); neither
- * exports a runtime value, so it is mirrored here. Keep in sync.
+ * widget_manage / scheduler_manage are dedicated tools, not WRITE_REGISTRY
+ * domains. lib/agent-api/operations.ts is the single source for their action
+ * enums (P4-35) — it is not incidental: `TOOL_INPUT_SCHEMAS` there is what
+ * app/api/mcp/route.ts registers as each tool's actual public `inputSchema`,
+ * the wire contract an MCP client sees. Derived, not transcribed, so a fifth
+ * action added to either z.enum is visible here the moment it exists, rather
+ * than only once someone remembers to update a hand-copied list (the exact
+ * failure P4-33 fixed one level down, in write-registry.ts's own ops).
  */
-const WIDGET_MANAGE_ACTIONS = ["list", "create", "update", "delete"];
-
-/**
- * scheduler_manage is a dedicated tool, not a WRITE_REGISTRY domain, same
- * posture as widget_manage above. Its action enum lives in
- * lib/mcp/tools/scheduler-manage.ts (SchedulerManageArgs["action"]), which
- * exports no runtime value, so it is mirrored here. Keep in sync.
- */
-const SCHEDULER_MANAGE_ACTIONS = ["list", "create", "cancel", "pause"];
+// Widened to `readonly string[]`: callers below test membership of an
+// arbitrary parsed op segment (a plain `string`), not one of the literal
+// union zod infers for the enum itself.
+const WIDGET_MANAGE_ACTIONS: readonly string[] = WidgetManageInputSchema.shape.action.options;
+const SCHEDULER_MANAGE_ACTIONS: readonly string[] = SchedulerManageInputSchema.shape.action.options;
 
 /**
  * P4-33: the live MCP write surface, not just the subset a "use server" file
