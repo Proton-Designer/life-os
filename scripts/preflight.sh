@@ -28,9 +28,18 @@
 # Usage:
 #   ./scripts/preflight.sh                       # code checks only
 #   ./scripts/preflight.sh "<postgres-url>"      # code + database checks
+#   ./scripts/preflight.sh --no-build [url]      # per-commit check: everything EXCEPT `next build`
+#
+# --no-build (2026-10-04, user order to cut laptop CPU): `next build` is the heaviest step and is
+# repeated anyway: by the lead's full pre-deploy preflight in a clean worktree, and again by
+# Vercel, which refuses to go live on a failed build (the current version stays up). So authors
+# skip it per commit; the pre-deploy run never does. A skipped build is printed as SKIPPED,
+# never as a pass.
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+NO_BUILD=0
+if [ "${1:-}" = "--no-build" ]; then NO_BUILD=1; shift; fi
 DB_URL="${1:-}"
 FAILED=()
 
@@ -119,8 +128,12 @@ node scripts/check-client-server-only.mjs --self-test </dev/null && node scripts
 record $? "client-server-only"
 
 step "production build (the ONLY check that sees RSC boundary violations)"
-npx next build </dev/null > /tmp/preflight-build.log 2>&1
-record $? "next build"
+if [ "$NO_BUILD" -eq 1 ]; then
+  echo "  SKIPPED (--no-build) — runs in the lead's pre-deploy preflight and on Vercel. This is NOT a pass."
+else
+  npx next build </dev/null > /tmp/preflight-build.log 2>&1
+  record $? "next build"
+fi
 
 if [ -n "$DB_URL" ]; then
   step "row-level security (self-tested first)"
@@ -191,7 +204,11 @@ fi
 
 printf "\n\033[1m== result ==\033[0m\n"
 if [ ${#FAILED[@]} -eq 0 ]; then
-  echo "All preflight checks passed."
+  if [ "$NO_BUILD" -eq 1 ]; then
+    echo "All preflight checks passed (production build SKIPPED: --no-build; the pre-deploy run builds)."
+  else
+    echo "All preflight checks passed."
+  fi
   echo
   echo "STILL REQUIRED BEFORE DEPLOY, and not covered here:"
   echo "  npx playwright test        <- run against a PRODUCTION build, not next dev."
