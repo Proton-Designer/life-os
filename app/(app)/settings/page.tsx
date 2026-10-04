@@ -170,7 +170,7 @@ export default async function SettingsPage() {
                   <Panel id="notifications" className="scroll-mt-24" title="Notifications">
                     <div className="flex flex-col gap-4">
                       <NotificationSettings />
-                      <SleepReminderSettings initialEnabled={sleepReminderEnabled} />
+                      {enabledFeatures.includes("sleep_plan") && <SleepReminderSettings initialEnabled={sleepReminderEnabled} />}
                     </div>
                   </Panel>
 

@@ -28,6 +28,7 @@ function makeClient(
   const insertCalls: Record<string, unknown>[] = [];
   const deleteCalls: Record<string, unknown>[] = [];
   const profilesEqCalls: [string, unknown][] = [];
+  const profilesContainsCalls: [string, unknown][] = [];
   const claimed = new Set(opts.claimedUsers ?? []);
 
   const from = vi.fn((table: string) => {
@@ -37,6 +38,10 @@ function makeClient(
     chain.eq = vi.fn((col: string, val: unknown) => {
       eqArgs[col] = val;
       if (table === "profiles") profilesEqCalls.push([col, val]);
+      return chain;
+    });
+    chain.contains = vi.fn((col: string, val: unknown) => {
+      if (table === "profiles") profilesContainsCalls.push([col, val]);
       return chain;
     });
     chain.delete = vi.fn(() => chain);
@@ -61,7 +66,7 @@ function makeClient(
     return chain;
   });
 
-  return { client: { from } as unknown as SupabaseClient, insertCalls, deleteCalls, profilesEqCalls };
+  return { client: { from } as unknown as SupabaseClient, insertCalls, deleteCalls, profilesEqCalls, profilesContainsCalls };
 }
 
 describe("dispatchSleepReminders (P2-05)", () => {
@@ -76,6 +81,13 @@ describe("dispatchSleepReminders (P2-05)", () => {
     const { client, profilesEqCalls } = makeClient({ optedInProfiles: [] });
     await dispatchSleepReminders(client, AT_2130_LOCAL);
     expect(profilesEqCalls).toContainEqual(["sleep_reminder_enabled", true]);
+  });
+
+  // RS-01: the reminder belongs to the opt-in Sleep plan feature (OFF by default for everyone).
+  it("only considers accounts that turned the Sleep plan feature on, IN THE QUERY", async () => {
+    const { client, profilesContainsCalls } = makeClient({ optedInProfiles: [] });
+    await dispatchSleepReminders(client, AT_2130_LOCAL);
+    expect(profilesContainsCalls).toContainEqual(["enabled_features", ["sleep_plan"]]);
   });
 
   describe("the send window", () => {

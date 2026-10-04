@@ -61,7 +61,9 @@ export async function dispatchSleepReminders(supabase: SupabaseClient, now: Date
   const { data: profileRows, error: profileError } = await supabase
     .from("profiles")
     .select("user_id, timezone")
-    .eq("sleep_reminder_enabled", true);
+    .eq("sleep_reminder_enabled", true)
+    // Opt-in feature gate (RS-01): the reminder belongs to the Sleep plan feature, OFF by default.
+    .contains("enabled_features", ["sleep_plan"]);
   if (profileError) throw profileError;
   const profiles = (profileRows ?? []) as { user_id: string; timezone: string | null }[];
   if (profiles.length === 0) return { usersChecked: 0, dispatched: 0 };

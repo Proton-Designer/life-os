@@ -21,11 +21,17 @@ vi.mock("@/lib/supabase/auth", () => ({
   requireUser: () => requireUserMock(),
   getProfile: vi.fn(async () => ({ timezone: "America/Chicago" })),
 }));
+let enabledFeatures: string[] = ["sleep_plan"];
+vi.mock("@/lib/opt-in-guard", () => ({
+  isOptInFeatureOnForRequest: async (id: string) => enabledFeatures.includes(id),
+  FEATURE_OFF_MESSAGE: "This feature is off.",
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const { getMySleepIntentForToday, saveMySleepIntent, clearMySleepIntent } = await import("../sleep-intent-actions");
 
 beforeEach(() => {
+  enabledFeatures = ["sleep_plan"];
   requireUserMock.mockClear();
   // Pinned rather than relying on the real system clock -- `intent_date`
   // is derived from `new Date()` in the actions file (no injectable `now`
@@ -91,5 +97,19 @@ describe("clearMySleepIntent", () => {
     expect(currentChain.delete).toHaveBeenCalled();
     expect(currentChain.eq).toHaveBeenCalledWith("user_id", "user-1");
     expect(currentChain.eq).toHaveBeenCalledWith("intent_date", "2026-09-15");
+  });
+});
+
+// RS-01: Sleep plan is an opt-in feature, OFF by default. A Server Action is a public endpoint,
+// so OFF must refuse (reads degrade to null) and never touch the data.
+describe("Sleep plan feature OFF", () => {
+  it("reads null without querying, and refuses save and clear", async () => {
+    enabledFeatures = [];
+    currentChain = makeChain({ data: { intended_bedtime: "22:30" }, error: null });
+    expect(await getMySleepIntentForToday()).toBeNull();
+    expect(await saveMySleepIntent("22:30")).toEqual({ ok: false, message: "This feature is off." });
+    expect(await clearMySleepIntent()).toEqual({ ok: false, message: "This feature is off." });
+    expect(currentChain.upsert).not.toHaveBeenCalled();
+    expect(currentChain.delete).not.toHaveBeenCalled();
   });
 });

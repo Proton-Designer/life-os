@@ -46,4 +46,13 @@ describe("opt-in-features", () => {
       expect(hasOptInFeature(["some-retired-feature"], "cards_library")).toBe(false);
     });
   });
+
+  it("knows the RS-01 ids and fails closed for everyone else", () => {
+    expect(isOptInFeatureId("morning_routine")).toBe(true);
+    expect(isOptInFeatureId("sleep_plan")).toBe(true);
+    expect(hasOptInFeature(null, "morning_routine")).toBe(false);
+    expect(hasOptInFeature([], "sleep_plan")).toBe(false);
+    expect(hasOptInFeature(["sleep_plan"], "morning_routine")).toBe(false);
+    expect(hasOptInFeature(["morning_routine", "sleep_plan"], "sleep_plan")).toBe(true);
+  });
 });

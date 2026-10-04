@@ -29,6 +29,13 @@ describe("OptInFeaturesSettings", () => {
     expect(screen.queryByText(/Estimate vs\. actual/)).not.toBeInTheDocument();
   });
 
+  // RS-01: both start OFF for every account and are offered here.
+  it("offers Morning routine and Sleep plan, unchecked by default", () => {
+    render(<OptInFeaturesSettings initialEnabled={[]} />);
+    expect(screen.getByRole("checkbox", { name: /Morning routine/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Sleep plan/ })).not.toBeChecked();
+  });
+
   it("reflects initialEnabled as checked", () => {
     render(<OptInFeaturesSettings initialEnabled={["cards_library"]} />);
     expect(screen.getByRole("checkbox", { name: /Cards library/ })).toBeChecked();

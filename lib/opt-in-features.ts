@@ -10,7 +10,7 @@
  * reversal safe to ship unattended.
  */
 
-export const OPT_IN_FEATURE_IDS = ["cards_library", "estimate_vs_actual"] as const;
+export const OPT_IN_FEATURE_IDS = ["cards_library", "estimate_vs_actual", "morning_routine", "sleep_plan"] as const;
 export type OptInFeatureId = (typeof OPT_IN_FEATURE_IDS)[number];
 
 export function isOptInFeatureId(value: string): value is OptInFeatureId {
@@ -35,5 +35,13 @@ export const OPT_IN_FEATURES: Record<OptInFeatureId, { label: string; descriptio
   estimate_vs_actual: {
     label: "Estimate vs. actual",
     description: "Track how your time estimates compare to what a task actually took.",
+  },
+  morning_routine: {
+    label: "Morning routine",
+    description: "A personal checklist you tick off each morning, on Home.",
+  },
+  sleep_plan: {
+    label: "Sleep plan",
+    description: "A planned bedtime on Home and the 9:30 PM wind-down reminder.",
   },
 };

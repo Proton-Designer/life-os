@@ -28,6 +28,7 @@ import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { hasOptInFeature } from "@/lib/opt-in-features";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
@@ -60,6 +61,8 @@ export default async function HomePage() {
   // Deen Mode (profiles.deen_mode): one boolean read once, handed to every Home
   // gate below. OFF = nothing religious renders and no deen query runs.
   const deenMode = isDeenModeOn(profile);
+  const morningRoutineOn = hasOptInFeature(profile?.enabled_features, "morning_routine");
+  const sleepPlanOn = hasOptInFeature(profile?.enabled_features, "sleep_plan");
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
@@ -126,10 +129,11 @@ export default async function HomePage() {
       getMorningBriefForToday(supabase, userId, now, timezone),
       // P2-05: decoupled from the evening close ritual entirely -- see
       // lib/night-plan/sleep-intent.ts's own header for why.
-      getMySleepIntentForToday(),
+      // Opt-in features (RS-01): OFF = the query is skipped, not fetched-then-hidden.
+      sleepPlanOn ? getMySleepIntentForToday() : Promise.resolve(null),
       // P3-01: user-defined checklist, tz-correct check-off -- see
       // lib/morning-routine/actions-core.ts's own header for why.
-      getMyMorningRoutineChecklist(),
+      morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
     ]);
   const layoutMap = buildLayoutMap(layout);
@@ -275,13 +279,17 @@ export default async function HomePage() {
         ) : null}
       </LayoutSlot>
 
-      <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
-        <MorningRoutineCard initialItems={morningRoutineItems} />
-      </LayoutSlot>
+      {morningRoutineOn && (
+        <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
+          <MorningRoutineCard initialItems={morningRoutineItems} />
+        </LayoutSlot>
+      )}
 
-      <LayoutSlot layout={layoutMap} widgetKey="sleep_intent">
-        <SleepIntentCard initialBedtime={sleepIntent} />
-      </LayoutSlot>
+      {sleepPlanOn && (
+        <LayoutSlot layout={layoutMap} widgetKey="sleep_intent">
+          <SleepIntentCard initialBedtime={sleepIntent} />
+        </LayoutSlot>
+      )}
 
       {/* Position responds to the real arbiter ranking (A2 wiring), not
           a fixed layout slot -- Self-Mastery only renders first when it
