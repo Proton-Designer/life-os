@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   setKillListItemCore,
   toggleKillListItemCore,
+  setKillListItemCompletedCore,
   saveBusinessWeeklyGoalCore,
   startWorkSessionCore,
   endWorkSessionCore,
@@ -36,6 +37,22 @@ export async function setKillListItem(date: string, position: 0 | 1 | 2, text: s
 export async function toggleKillListItem(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await toggleKillListItemCore(supabase, userId, id);
+  revalidatePath("/business");
+  revalidatePath("/");
+}
+
+/**
+ * Idempotent setter for the optimistic kill-list UI (PERF-2). Hot tap: no
+ * revalidatePath here -- the client schedules ONE refreshBusinessViews() after a burst.
+ */
+export async function setKillListItemCompleted(id: string, completed: boolean): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  await setKillListItemCompletedCore(supabase, userId, id, completed);
+}
+
+/** Data-free cache revalidation for the surfaces a kill-list tap feeds (Business + Home). */
+export async function refreshBusinessViews(): Promise<void> {
+  await requireUser();
   revalidatePath("/business");
   revalidatePath("/");
 }

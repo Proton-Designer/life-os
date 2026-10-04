@@ -1,7 +1,8 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
-import { setKillListItem, toggleKillListItem } from "@/app/(app)/business/actions";
+import { useState, useTransition } from "react";
+import { setKillListItem, setKillListItemCompleted, refreshBusinessViews } from "@/app/(app)/business/actions";
+import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,9 @@ export function KillList({
   );
 }
 
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshBusiness = () => refreshBusinessViews();
+
 function KillListSlot({
   date,
   position,
@@ -38,10 +42,15 @@ function KillListSlot({
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(!slot.text);
   const [text, setText] = useState(slot.text);
-  const [optimisticCompleted, setOptimisticCompleted] = useOptimistic(
-    slot.completed,
-    (_state, next: boolean) => next
-  );
+  // PERF-2: per-slot optimistic state with ordered absolute writes; nothing is
+  // disabled while one saves and one deferred refresh re-syncs Business + Home.
+  const completion = useOptimisticItem<boolean>({
+    serverValue: slot.completed,
+    queueKey: `killlist:${slot.id ?? `${date}:${position}`}`,
+    write: (next) => setKillListItemCompleted(slot.id!, next),
+    refresh: refreshBusiness,
+  });
+  const optimisticCompleted = completion.value;
 
   function submit() {
     const trimmed = text.trim();
@@ -84,14 +93,8 @@ function KillListSlot({
           the awaited action resolves); this only widens the target. */}
       <button
         type="button"
-        disabled={isPending || !slot.id}
-        onClick={() =>
-          slot.id &&
-          startTransition(async () => {
-            setOptimisticCompleted(!optimisticCompleted);
-            await toggleKillListItem(slot.id!);
-          })
-        }
+        disabled={!slot.id}
+        onClick={() => slot.id && void completion.set(!optimisticCompleted)}
         aria-label={optimisticCompleted ? "Mark incomplete" : "Mark complete"}
         // min-w-0 is load-bearing: a flex item's automatic minimum size
         // (min-width:auto) refuses to shrink below its min-content, and this
@@ -113,6 +116,11 @@ function KillListSlot({
           {slot.text}
         </span>
         {optimisticCompleted && <Badge variant="positive">Done</Badge>}
+        {completion.error && (
+          <span role="alert" className="shrink-0 text-xs text-destructive">
+            Not saved
+          </span>
+        )}
       </button>
       <button
         type="button"

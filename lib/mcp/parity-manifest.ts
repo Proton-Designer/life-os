@@ -96,12 +96,15 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/actions.ts#getNotificationsForNow": { read_only: true },
   "app/(app)/actions.ts#markNotificationReadForNow": { excluded: "ui_scaffold: per-day notification dismissal state; no user-authored data" },
   "app/(app)/actions.ts#signOut": { excluded: "auth: ends the browser session" },
+  "app/(app)/actions.ts#refreshHome": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by Home tap controls after a burst of toggleItem calls" },
   "app/(app)/actions.ts#toggleItem": { pending: "P4-09", note: "prayer/kill-list/school-task/adhkar kinds already covered by their own ops; toggle_habit (fitness habit_logs) lands as fitness.habit_log.toggle" },
   "app/(app)/actions.ts#saveWeeklyGoal": { mcp: "business.weekly_goal.save", note: "domain 'business' -> business.weekly_goal.save; domain 'deen' -> deen.weekly_goal.save (P4-06)" },
 
   // ── Business / Lock-In ──────────────────────────────────────────────────
   "app/(app)/business/actions.ts#setKillListItem": { mcp: "business.kill_list_item.set" },
   "app/(app)/business/actions.ts#toggleKillListItem": { mcp: "business.kill_list_item.toggle" },
+  "app/(app)/business/actions.ts#setKillListItemCompleted": { excluded: "ui_scaffold: idempotent setter twin of toggleKillListItem for the optimistic UI; MCP exposes the toggle" },
+  "app/(app)/business/actions.ts#refreshBusinessViews": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by the kill-list control after a burst of taps" },
   "app/(app)/business/actions.ts#saveBusinessWeeklyGoal": { mcp: "business.weekly_goal.save" },
   "app/(app)/business/actions.ts#startWorkSession": { mcp: "work.work_session.start" },
   "app/(app)/business/actions.ts#endWorkSession": { mcp: "work.work_session.end" },

@@ -35,6 +35,23 @@ export async function toggleKillListItemCore(supabase: SupabaseClient, userId: s
   return { completed: nowCompleted };
 }
 
+/**
+ * SETS (not toggles) a kill-list item's completion -- the optimistic UI sends its
+ * intended value so an ordered queue stays "last tap wins" even after a failed write
+ * (PERF-2; same reasoning as setAdhkarCore).
+ */
+export async function setKillListItemCompletedCore(supabase: SupabaseClient, userId: string, id: string, completed: boolean): Promise<ToggleKillListItemResult> {
+  const { data, error } = await supabase
+    .from("kill_list_items")
+    .update({ completed, completed_at: completed ? new Date().toISOString() : null })
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Kill list item not found");
+  return { completed };
+}
+
 /** Business domain's weekly-goal save — see saveBusinessWeeklyGoal's own comment (app/(app)/business/actions.ts) on why this is the minimal version, not Task 11.1's real one. */
 export async function saveBusinessWeeklyGoalCore(supabase: SupabaseClient, userId: string, weekStartDate: string, headline: string, milestones: string[]): Promise<void> {
   const { error } = await supabase

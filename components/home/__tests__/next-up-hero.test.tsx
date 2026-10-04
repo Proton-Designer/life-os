@@ -1,5 +1,13 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
+
+const { toggleItemMock } = vi.hoisted(() => ({ toggleItemMock: vi.fn() }));
+vi.mock("@/app/(app)/actions", () => ({
+  toggleItem: toggleItemMock,
+  refreshHome: vi.fn(async () => {}),
+}));
 import { NextUpHero } from "../next-up-hero";
 import type { PriorityItem } from "@/lib/home/types";
 
@@ -77,5 +85,32 @@ describe("NextUpHero", () => {
   it("carries the Tier-1 fixed min-height so it aligns with the other 3 KPI cards", () => {
     render(<NextUpHero item={item()} now={NOW} caption="2 more today" data-testid="hero" />);
     expect(screen.getByTestId("hero").className).toContain("min-h-[168px]");
+  });
+
+  // PERF-2: Mark done is instant from local state, never waits for the Home re-render,
+  // can't double-submit, and reverts with an inline error if the write fails.
+  describe("Mark done", () => {
+    beforeEach(() => {
+      resetKeyedQueuesForTests();
+      toggleItemMock.mockReset();
+    });
+
+    it("flips to Done immediately and writes once even on a double tap", async () => {
+      toggleItemMock.mockImplementation(() => new Promise<void>(() => {}));
+      render(<NextUpHero item={item()} now={NOW} caption="x" />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Mark done" }));
+      expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      expect(toggleItemMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("reverts and shows an error when the write fails", async () => {
+      toggleItemMock.mockRejectedValue(new Error("nope"));
+      render(<NextUpHero item={item()} now={NOW} caption="x" />);
+      await userEvent.setup().click(screen.getByRole("button", { name: "Mark done" }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Mark done" })).toBeEnabled();
+    });
   });
 });

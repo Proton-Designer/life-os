@@ -1,7 +1,7 @@
 "use client";
 
-import { useTransition } from "react";
-import { toggleItem } from "@/app/(app)/actions";
+import { toggleItem, refreshHome } from "@/app/(app)/actions";
+import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import type { PriorityItem } from "@/lib/home/types";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
@@ -22,6 +22,32 @@ function relativeTime(item: PriorityItem, now: Date): string {
   return formatWindowRelativeTime(item.dueAt, item.windowEndAt, now);
 }
 
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refresh = () => refreshHome();
+
+// PERF-2: instant "Done" from local state; the write is ordered per item and a
+// failure reverts it. Keyed by item.id so the next item starts fresh.
+function MarkDoneButton({ item }: { item: PriorityItem }) {
+  const done = useOptimisticItem<boolean>({
+    serverValue: false,
+    queueKey: `home-item:${item.id}`,
+    write: () => toggleItem(item),
+    refresh,
+  });
+  return (
+    <div className="flex items-center gap-2">
+      {done.error && (
+        <span role="alert" className="text-xs text-destructive">
+          Couldn&apos;t save. Try again.
+        </span>
+      )}
+      <Button size="sm" disabled={done.value} onClick={() => void done.set(true)}>
+        {done.value ? "Done" : "Mark done"}
+      </Button>
+    </div>
+  );
+}
+
 // The "Next Up" slot of Home's cross-cutting KPI row (Tier 1 — same
 // min-h-[168px] rhythm as KpiCard, but keeps its own component rather than
 // being forced through KpiCard's generic shape, since it's the one KPI
@@ -35,8 +61,6 @@ export function NextUpHero({
   caption,
   ...props
 }: { item: PriorityItem; now: Date; caption: string } & React.HTMLAttributes<HTMLDivElement>) {
-  const [isPending, startTransition] = useTransition();
-
   const accent = DOMAIN_ACCENT[item.domain];
   const colorVar = ACCENT_VAR[accent];
 
@@ -53,13 +77,7 @@ export function NextUpHero({
       </div>
       <div className="flex items-end justify-between gap-2">
         <p className="text-xs text-muted-foreground">{caption}</p>
-        <Button
-          size="sm"
-          disabled={isPending}
-          onClick={() => startTransition(() => toggleItem(item))}
-        >
-          {isPending ? "Marking…" : "Mark done"}
-        </Button>
+        <MarkDoneButton key={item.id} item={item} />
       </div>
     </div>
   );

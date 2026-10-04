@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ListChecks } from "lucide-react";
 import { toggleItem } from "@/app/(app)/actions";
+import { useHomeRefresh } from "@/components/home/use-home-refresh";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import type { AreaWeightLookup } from "@/lib/home/build-candidates";
 import type { PriorityItem, CompletedItem } from "@/lib/home/types";
@@ -127,6 +128,7 @@ export function NextActions({
   /** resolveAreaWeights(domainsState) -- server-resolved, passed down as a plain serializable prop (no functions, no class instances beyond Dates). An area with no entry falls to the arbiter's own "important" floor. */
   weights: AreaWeightLookup;
 }) {
+  const scheduleRefresh = useHomeRefresh();
   const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
     // The immediate tick matters as much as the nowIso seed above, not just
@@ -161,7 +163,12 @@ export function NextActions({
   async function handleComplete(row: TaskRowItem) {
     const original = byId.get(row.id);
     if (!original) throw new Error(`Unknown Now-module item: ${row.id}`);
-    await toggleItem(original);
+    try {
+      await toggleItem(original);
+    } finally {
+      // One deferred Home revalidation per burst (toggleItem no longer revalidates per tap).
+      scheduleRefresh();
+    }
   }
 
   // TaskRowList is generic and never learns what's inside an `expand`

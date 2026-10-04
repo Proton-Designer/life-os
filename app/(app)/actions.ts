@@ -130,7 +130,20 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
     }
   }
 
+  // Hot tap: no revalidatePath here (it made every tap wait for a full Home
+  // re-render). Callers schedule ONE deferred refreshHome() after a burst (PERF-2).
+}
+
+/**
+ * Data-free cache revalidation scheduled by Home's tap controls after a burst of
+ * toggleItem calls. Covers Home plus the Deen surfaces a prayer/adhkar row feeds
+ * (markPrayer no longer revalidates /deen itself).
+ */
+export async function refreshHome(): Promise<void> {
+  await requireUser();
   revalidatePath("/");
+  revalidatePath("/deen");
+  revalidatePath("/personal/[subdomain]", "page");
 }
 
 /**
