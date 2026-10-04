@@ -36,7 +36,7 @@ import { TOTAL_MINUTES, emptyAllocation, type Allocation } from "@/lib/checkins/
  * threading it through as a prop.
  */
 export function AllocationCheckinGate() {
-  const { queue, timezone, total, open, setOpen, completeCurrent, mostRecentUnanswered } = useAllocationQueue();
+  const { queue, timezone, deenMode, total, open, setOpen, completeCurrent, mostRecentUnanswered } = useAllocationQueue();
 
   // Ayman, verbatim (batch 3, B3-1): "keep it available whenever" — pressing
   // the icon must ALWAYS open a real, saveable check-in, never a silent
@@ -86,6 +86,7 @@ export function AllocationCheckinGate() {
           initialAllocation={current.initialAllocation}
           prefilled={current.prefilled}
           queuePosition={total > 1 ? { index: total - queue.length + 1, total } : undefined}
+          showDeen={deenMode}
           onSave={handleSave}
         />
       </DialogContent>

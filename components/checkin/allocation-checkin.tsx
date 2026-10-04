@@ -99,6 +99,8 @@ export type AllocationCheckinProps = {
   prefilled?: Partial<Record<DomainKey, boolean>>;
   /** Renders a lightweight "N of M" indicator when several check-ins are queued. Owns no queue state — that's Phase 3's. */
   queuePosition?: { index: number; total: number };
+  /** Deen Mode: false hides the Deen row (and its bar segment). Defaults true so standalone use is unchanged; the queue-driven callers pass the real value, which starts false until known. */
+  showDeen?: boolean;
   /** Must be a bound Server Action reference if this component is ever handed one from a Server Component — see AGENTS.md. */
   onSave: (allocation: Allocation) => Promise<void>;
 };
@@ -110,8 +112,10 @@ export function AllocationCheckin({
   initialAllocation,
   prefilled = {},
   queuePosition,
+  showDeen = true,
   onSave,
 }: AllocationCheckinProps) {
+  const visibleDomains = showDeen ? DOMAIN_KEYS : DOMAIN_KEYS.filter((d) => d !== "deen");
   const [allocation, setAllocation] = useState<Allocation>(initialAllocation ?? emptyAllocation());
   const [selected, setSelected] = useState<DomainKey | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -234,7 +238,7 @@ export function AllocationCheckin({
         )}
         role="presentation"
       >
-        {DOMAIN_KEYS.map((domain) => {
+        {visibleDomains.map((domain) => {
           const minutes = minutesFor(allocation, domain);
           const isSelected = selected === domain;
           return (
@@ -261,7 +265,7 @@ export function AllocationCheckin({
       </div>
 
       <ul ref={listRef} className="flex flex-col gap-2">
-        {DOMAIN_KEYS.map((domain) => {
+        {visibleDomains.map((domain) => {
           const Icon = DOMAIN_ICON[domain];
           const minutes = minutesFor(allocation, domain);
           const isSelected = selected === domain;

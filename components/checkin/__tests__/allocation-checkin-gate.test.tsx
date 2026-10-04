@@ -59,7 +59,7 @@ describe("AllocationCheckinGate", () => {
   });
 
   it("shows only the badge, not the sheet, when the queue is non-empty — opening is the user's action", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago", deenMode: true });
     renderGate();
 
     expect(await screen.findByRole("button", { name: /1 check-in waiting/ })).toBeInTheDocument();
@@ -67,7 +67,7 @@ describe("AllocationCheckinGate", () => {
   });
 
   it("renders nothing (no badge, no sheet) when the queue is empty", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: true });
     renderGate();
     await waitFor(() => expect(getAllocationQueueForNowMock).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: /waiting/ })).not.toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("AllocationCheckinGate", () => {
   });
 
   it("opens the sheet on badge tap, showing the oldest pending window with a pre-filled domain marked", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago", deenMode: true });
     const user = userEvent.setup();
     renderGate();
 
@@ -85,8 +85,25 @@ describe("AllocationCheckinGate", () => {
     expect(screen.getByText("App filled this in")).toBeInTheDocument();
   });
 
+  it("hides the Deen row when Deen Mode is off, and shows it when on (fails closed before the first poll)", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC", deenMode: false });
+    const user = userEvent.setup();
+    const off = renderGate();
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
+    await screen.findByRole("dialog", { name: "Check-in" });
+    expect(screen.queryByTestId("row-deen")).not.toBeInTheDocument();
+    expect(screen.getByTestId("row-business")).toBeInTheDocument();
+    off.unmount();
+
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC", deenMode: true });
+    renderGate();
+    await user.click(await screen.findByRole("button", { name: /waiting/ }));
+    await screen.findByRole("dialog", { name: "Check-in" });
+    expect(screen.getByTestId("row-deen")).toBeInTheDocument();
+  });
+
   it("shows a queue position indicator when more than one window is pending", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A, WINDOW_B], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A, WINDOW_B], unknownCount: 0, timezone: "UTC", deenMode: true });
     const user = userEvent.setup();
     renderGate();
 
@@ -95,7 +112,7 @@ describe("AllocationCheckinGate", () => {
   });
 
   it("saves via the bound window's own start/end, then shows the next queued item with the correct position", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A, WINDOW_B], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A, WINDOW_B], unknownCount: 0, timezone: "UTC", deenMode: true });
     saveAllocationCheckinMock.mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderGate();
@@ -124,7 +141,7 @@ describe("AllocationCheckinGate", () => {
   // exactly the rubber-stamped data this build spent an hour eliminating
   // from pre-fill.
   it("Escape closes the sheet without saving — the badge remains, queue untouched", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC", deenMode: true });
     const user = userEvent.setup();
     renderGate();
 
@@ -138,7 +155,7 @@ describe("AllocationCheckinGate", () => {
   });
 
   it("exposes a close (X) control, per the shared Dialog primitive", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC", deenMode: true });
     const user = userEvent.setup();
     renderGate();
 

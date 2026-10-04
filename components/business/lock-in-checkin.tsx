@@ -22,7 +22,7 @@ import { AllocationCheckin } from "@/components/checkin/allocation-checkin";
 import type { Allocation } from "@/lib/checkins/allocation";
 
 export function LockInCheckin({ className }: { className?: string }) {
-  const { queue, timezone, total, completeCurrent } = useAllocationQueue();
+  const { queue, timezone, deenMode, total, completeCurrent } = useAllocationQueue();
   const current = queue[0];
   if (!current) return null;
 
@@ -44,6 +44,7 @@ export function LockInCheckin({ className }: { className?: string }) {
           initialAllocation={current.initialAllocation}
           prefilled={current.prefilled}
           queuePosition={total > 1 ? { index: total - queue.length + 1, total } : undefined}
+          showDeen={deenMode}
           onSave={handleSave}
         />
       </div>

@@ -39,7 +39,7 @@ function makeClient(opts: { rpcData?: string; rpcError?: unknown } = {}) {
   return { client: { rpc } as unknown as SupabaseClient, rpcCalls };
 }
 
-const EMPTY_QUEUE: AllocationQueueResult = { items: [], unknownCount: 0, timezone: "America/Chicago", mostRecentUnanswered: null };
+const EMPTY_QUEUE: AllocationQueueResult = { items: [], unknownCount: 0, timezone: "America/Chicago", deenMode: true, mostRecentUnanswered: null };
 
 describe("saveAllocationCheckinCore — window selection (mirrors AllocationCheckinGate's own 3-tier fallback)", () => {
   it("prefers queue[0] (a window that fired within its answer window) when present", async () => {

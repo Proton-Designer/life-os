@@ -15,6 +15,7 @@ import {
 import { derivePrefillAllocation, subtractResolvedHours } from "./prefill";
 import { resolveSessionHours, resolvedHourRanges } from "./session-hour-status";
 import type { Allocation } from "./allocation";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 
 export type PendingAllocationItem = {
   windowStartIso: string;
@@ -26,6 +27,8 @@ export type AllocationQueueResult = {
   items: PendingAllocationItem[];
   unknownCount: number;
   timezone: string;
+  /** Deen Mode (profiles.deen_mode) for this user -- false hides the Deen row in the check-in UI. Fails closed. */
+  deenMode: boolean;
   /**
    * The most recent today's window that isn't already answered and isn't
    * still upcoming — i.e. the latest `pending_queue` or `expired_unknown`
@@ -53,6 +56,8 @@ export type AllocationQueueDataSource = {
     location_lng: number | null;
     prayer_calc_method: string;
     asr_madhab: string;
+    /** Deen Mode switch; absent/null reads as OFF. */
+    deen_mode?: boolean | null;
   } | null>;
   getWorkSessions: (userId: string, dateStr: string, timezone: string) => Promise<TimeRange[]>;
   /** durationMinutes is null when the schedule row hasn't set one (023_workout_schedule_duration.sql) — derivePrefillAllocation falls back to its own nominal default. */
@@ -87,7 +92,7 @@ function defaultDataSource(): AllocationQueueDataSource {
       const { data } = await supabase
         .from("profiles")
         .select(
-          "timezone, checkin_window_start, checkin_window_end, location_lat, location_lng, prayer_calc_method, asr_madhab"
+          "timezone, checkin_window_start, checkin_window_end, location_lat, location_lng, prayer_calc_method, asr_madhab, deen_mode"
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -335,8 +340,12 @@ export async function getPendingAllocationQueue(
   dataSource: AllocationQueueDataSource = defaultDataSource()
 ): Promise<AllocationQueueResult> {
   const profile = await dataSource.getProfile(userId);
-  if (!profile) return { items: [], unknownCount: 0, timezone: "UTC", mostRecentUnanswered: null };
+  if (!profile) return { items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null };
 
+  // Deen Mode OFF: no prayer-window suppression, no logged-prayer query, no
+  // Deen prefill -- the prayer tables are not even read. (Gate only; nothing
+  // is deleted.)
+  const deenMode = isDeenModeOn(profile);
   const timezone = profile.timezone;
   const dateStr = localDateString(now, timezone);
   const bounds: WakeSleepBounds = {
@@ -356,7 +365,7 @@ export async function getPendingAllocationQueue(
     dataSource.getWorkSessions(userId, dateStr, timezone),
     dataSource.getWorkoutSchedule(userId, dateStr, timezone),
     dataSource.getAnsweredWindowStarts(userId, dateStr, timezone),
-    dataSource.getLoggedPrayerNames(userId, dateStr),
+    deenMode ? dataSource.getLoggedPrayerNames(userId, dateStr) : Promise.resolve([] as string[]),
     dataSource.getWorkoutLoggedToday(userId, dateStr),
     dataSource.getSessionsForHourResolution(userId, dateStr, timezone),
     dataSource.getStoredSessionHours(userId, dateStr, timezone),
@@ -391,7 +400,7 @@ export async function getPendingAllocationQueue(
   // whether or not it's been logged yet — via prayerSuppressionRanges).
   let loggedPrayerTimes: Date[] = [];
   let allPrayerTimes: Date[] = [];
-  if (profile.location_lat !== null && profile.location_lng !== null) {
+  if (deenMode && profile.location_lat !== null && profile.location_lng !== null) {
     const windows = computePrayerWindows({
       date: now,
       lat: profile.location_lat,
@@ -466,5 +475,5 @@ export async function getPendingAllocationQueue(
       }
     : null;
 
-  return { items, unknownCount: unknownCount(slots), timezone, mostRecentUnanswered };
+  return { items, unknownCount: unknownCount(slots), timezone, deenMode, mostRecentUnanswered };
 }

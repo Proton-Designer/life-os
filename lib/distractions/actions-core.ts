@@ -14,6 +14,22 @@ import type { DistractionDomain } from "./types";
  * with zero Supabase mocking needed for the date math itself.
  */
 
+/**
+ * Deen Mode (profiles.deen_mode) gate for the religious corners of
+ * distractions: a NEW "deen"-domain trigger, and a reflection tier (which
+ * writes a reflection_entries row -- deen data). Existing rows are never
+ * touched; OFF only refuses new writes. Fails closed (missing row/column =
+ * OFF). Reads the one profile column directly because this core never calls
+ * getProfile() (see header).
+ */
+export const DEEN_MODE_OFF_MESSAGE = "Deen Mode is off -- turn it on in Settings to use Deen distractions or reflection tiers.";
+
+async function assertDeenModeOn(supabase: SupabaseClient, userId: string): Promise<void> {
+  const { data, error } = await supabase.from("profiles").select("deen_mode").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  if ((data as { deen_mode?: boolean | null } | null)?.deen_mode !== true) throw new Error(DEEN_MODE_OFF_MESSAGE);
+}
+
 const DISTRACTION_DOMAINS: readonly DistractionDomain[] = ["deen", "business", "school", "fitness", "co_op"];
 
 function isDistractionDomain(value: unknown): value is DistractionDomain {
@@ -127,6 +143,8 @@ export async function captureCore(
     throw new Error(`patch.tier must be 1, 2, or 3 if given. Got: ${JSON.stringify(tier)}.`);
   }
 
+  if (domain === "deen" || tier !== undefined) await assertDeenModeOn(supabase, userId);
+
   const date = localDateString(now, timezone);
   const trimmedName = name.trim();
   const trimmedDescription = typeof description === "string" ? description.trim() || null : (description ?? null);
@@ -186,6 +204,7 @@ export async function logEventCore(
     throw new Error(`patch.tier must be 1, 2, or 3 if given. Got: ${JSON.stringify(tier)}.`);
   }
 
+  if (tier !== undefined) await assertDeenModeOn(supabase, userId);
   await assertTriggerOwnership(supabase, userId, triggerId);
   const date = localDateString(now, timezone);
   const { eventId, reflectionEntryId } = await insertEventCore(supabase, userId, triggerId, date, tier as 1 | 2 | 3 | undefined, sessionId);

@@ -12,6 +12,7 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
       location_lng: null,
       prayer_calc_method: "ISNA",
       asr_madhab: "standard",
+      deen_mode: true,
     }),
     getWorkSessions: async () => [],
     getWorkoutSchedule: async () => null,
@@ -31,7 +32,7 @@ describe("getPendingAllocationQueue", () => {
       new Date("2026-08-19T18:00:00Z"),
       baseDataSource({ getProfile: async () => null })
     );
-    expect(result).toEqual({ items: [], unknownCount: 0, timezone: "UTC", mostRecentUnanswered: null });
+    expect(result).toEqual({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
   });
 
   it("surfaces a fired, unanswered window as a pending item with a prefill derived from real data", async () => {
@@ -108,6 +109,7 @@ describe("getPendingAllocationQueue", () => {
           location_lng: -96.6398,
           prayer_calc_method: "ISNA",
           asr_madhab: "standard",
+          deen_mode: true,
         }),
         getLoggedPrayerNames: async () => ["dhuhr"], // logged, so it should count, but only for one STEP
       })
@@ -249,5 +251,68 @@ describe("getPendingAllocationQueue", () => {
       })
     );
     expect(result.timezone).toBe("Europe/London");
+  });
+
+  // Deen Mode OFF: no prayer queries, no prayer-window suppression, no Deen prefill.
+  describe("Deen Mode gate", () => {
+    const MCKINNEY = {
+      timezone: "America/Chicago",
+      checkin_window_start: "08:00",
+      checkin_window_end: "22:00",
+      location_lat: 33.1972,
+      location_lng: -96.6398,
+      prayer_calc_method: "ISNA",
+      asr_madhab: "standard",
+    };
+    const NOW = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT
+
+    it("ON: reads logged prayers and reports deenMode true", async () => {
+      let prayerReads = 0;
+      const result = await getPendingAllocationQueue(
+        "user-1",
+        NOW,
+        baseDataSource({
+          getProfile: async () => ({ ...MCKINNEY, deen_mode: true }),
+          getLoggedPrayerNames: async () => {
+            prayerReads++;
+            return ["dhuhr"];
+          },
+        })
+      );
+      expect(result.deenMode).toBe(true);
+      expect(prayerReads).toBe(1);
+    });
+
+    it("OFF (false, null, or missing): never reads prayers, zero Deen prefill, deenMode false", async () => {
+      for (const deen_mode of [false, null, undefined]) {
+        let prayerReads = 0;
+        const result = await getPendingAllocationQueue(
+          "user-1",
+          NOW,
+          baseDataSource({
+            getProfile: async () => ({ ...MCKINNEY, deen_mode }),
+            getLoggedPrayerNames: async () => {
+              prayerReads++;
+              return ["dhuhr"];
+            },
+          })
+        );
+        expect(result.deenMode, String(deen_mode)).toBe(false);
+        expect(prayerReads, String(deen_mode)).toBe(0);
+        for (const item of result.items) expect(item.prefill.deen ?? 0).toBe(0);
+      }
+    });
+
+    it("OFF: prayer times no longer suppress windows (the same data set yields at least as many slots as ON)", async () => {
+      const run = (deen_mode: boolean) =>
+        getPendingAllocationQueue(
+          "user-1",
+          NOW,
+          baseDataSource({ getProfile: async () => ({ ...MCKINNEY, deen_mode }) })
+        );
+      const on = await run(true);
+      const off = await run(false);
+      expect(off.items.length).toBeGreaterThanOrEqual(on.items.length);
+    });
   });
 });

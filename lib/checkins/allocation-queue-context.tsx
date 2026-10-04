@@ -28,6 +28,8 @@ export type AllocationQueueItem = {
 type AllocationQueueContextValue = {
   queue: AllocationQueueItem[];
   timezone: string;
+  /** Deen Mode for this user (from the queue read). Starts false until the first poll lands -- fails closed. */
+  deenMode: boolean;
   /** "N of total" tracking across polls — only grows when genuinely new windows fire, resets once the queue clears. See allocation-checkin-gate.tsx. */
   total: number;
   open: boolean;
@@ -110,6 +112,7 @@ function notifyDesktop(newCount: number) {
 export function AllocationQueueProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<AllocationQueueItem[]>([]);
   const [timezone, setTimezone] = useState("UTC");
+  const [deenMode, setDeenMode] = useState(false);
   const [total, setTotal] = useState(0);
   const [mostRecentUnanswered, setMostRecentUnanswered] = useState<AllocationQueueItem | null>(null);
   const [open, setOpen] = useState(false);
@@ -125,6 +128,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
   const refresh = useCallback(async () => {
     const result = await getAllocationQueueForNow(new Date().toISOString());
     setTimezone(result.timezone);
+    setDeenMode(result.deenMode === true);
     const items = result.items.map((item) => ({
       windowStart: item.windowStartIso,
       windowEnd: item.windowEndIso,
@@ -189,7 +193,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
 
   return (
     <AllocationQueueContext.Provider
-      value={{ queue, timezone, total, open, setOpen, completeCurrent, toast, dismissToast, mostRecentUnanswered }}
+      value={{ queue, timezone, deenMode, total, open, setOpen, completeCurrent, toast, dismissToast, mostRecentUnanswered }}
     >
       {children}
     </AllocationQueueContext.Provider>
