@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
+import { firstBusinessTab } from "@/lib/shell/work-tabs";
 import type { SidebarVariant } from "./sidebar-nav";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
@@ -105,7 +106,8 @@ export function TabSidebarNav({ variant, navDomainState }: { variant: SidebarVar
 
   const sections: { label: string; items: NavItem[] }[] = [
     { label: "MAIN", items: primaryItems },
-    { label: "SYSTEM", items: MORE_ITEMS },
+    // WORK-W1: with a Business tab on the Work screen the separate Business entry goes away.
+    { label: "SYSTEM", items: firstBusinessTab(navDomainState.workSubdomains) ? MORE_ITEMS.filter((i) => i.href !== "/business") : MORE_ITEMS },
   ];
 
   return (

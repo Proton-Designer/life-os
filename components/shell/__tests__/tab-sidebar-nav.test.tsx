@@ -46,6 +46,19 @@ describe("TabSidebarNav", () => {
     expect(screen.getByRole("link", { name: /^business$/i })).toHaveAttribute("href", "/business");
   });
 
+  // WORK-W1: with a Business tab on the Work screen, the SYSTEM "Business" link would be a second
+  // door to the same screen (/business redirects there), so it is hidden. Without one it stays.
+  it("hides the SYSTEM Business link iff the account has a Business work tab", () => {
+    const withTab: NavDomainState = { ...DOMAIN_STATE, workSubdomains: [{ key: "shop", label: "Shop", kind: "business" }] };
+    const { unmount } = render(<TabSidebarNav variant="expanded" navDomainState={withTab} />);
+    expect(screen.queryByRole("link", { name: /^business$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^settings$/i })).toBeInTheDocument(); // rest of SYSTEM intact
+    unmount();
+    const jobOnly: NavDomainState = { ...DOMAIN_STATE, workSubdomains: [{ key: "co-op", label: "Co-op", kind: "job" }] };
+    render(<TabSidebarNav variant="expanded" navDomainState={jobOnly} />);
+    expect(screen.getByRole("link", { name: /^business$/i })).toHaveAttribute("href", "/business");
+  });
+
   it("keeps the rest of SYSTEM's items reachable alongside Business", () => {
     render(<TabSidebarNav variant="expanded" navDomainState={DOMAIN_STATE} />);
     for (const [label, href] of [

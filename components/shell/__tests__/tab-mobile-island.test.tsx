@@ -48,6 +48,19 @@ describe("TabMobileIsland", () => {
     expect(screen.getByRole("link", { name: /^business$/i })).toHaveAttribute("href", "/business");
   });
 
+  // WORK-W1: hidden iff the account has a Business work tab (positive control: still there without one).
+  it("hides Business under More iff the account has a Business work tab", async () => {
+    const user = userEvent.setup();
+    const withTab: NavDomainState = { ...DOMAIN_STATE, workSubdomains: [{ key: "shop", label: "Shop", kind: "business" }] };
+    const { unmount } = render(<TabMobileIsland navDomainState={withTab} />);
+    await user.click(screen.getByTestId("tab-mobile-island-item-more"));
+    expect(screen.queryByRole("link", { name: /^business$/i })).not.toBeInTheDocument();
+    unmount();
+    render(<TabMobileIsland navDomainState={DOMAIN_STATE} />);
+    await user.click(screen.getByTestId("tab-mobile-island-item-more"));
+    expect(screen.getByRole("link", { name: /^business$/i })).toBeInTheDocument();
+  });
+
   it("keeps the rest of the More popover reachable alongside Business", async () => {
     const user = userEvent.setup();
     render(<TabMobileIsland navDomainState={DOMAIN_STATE} />);

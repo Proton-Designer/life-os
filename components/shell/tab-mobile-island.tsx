@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { buildPrimaryNavItems } from "@/lib/shell/build-primary-nav-items";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
+import { firstBusinessTab } from "@/lib/shell/work-tabs";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 import { usePinToVisualViewport } from "./use-pin-to-visual-viewport";
 
@@ -78,7 +79,9 @@ function isActive(pathname: string, href: string) {
 export function TabMobileIsland({ navDomainState }: { navDomainState: NavDomainState }) {
   const pathname = usePathname();
   const primaryItems = buildPrimaryNavItems(navDomainState);
-  const moreActive = MORE_ITEMS.some((item) => isActive(pathname, item.href));
+  // WORK-W1: with a Business tab on the Work screen the separate Business entry goes away.
+  const moreItems = firstBusinessTab(navDomainState.workSubdomains) ? MORE_ITEMS.filter((i) => i.href !== "/business") : MORE_ITEMS;
+  const moreActive = moreItems.some((item) => isActive(pathname, item.href));
   const pinRef = usePinToVisualViewport<HTMLElement>();
 
   return (
@@ -123,7 +126,7 @@ export function TabMobileIsland({ navDomainState }: { navDomainState: NavDomainS
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-40 p-1" side="top" align="center">
-            {MORE_ITEMS.map((item) => (
+            {moreItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

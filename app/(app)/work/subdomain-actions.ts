@@ -164,3 +164,142 @@ export async function reorderWorkSubdomains(orderedSubdomainIds: string[]): Prom
 
   revalidatePath("/");
 }
+
+// ---------------------------------------------------------------------------
+// WORK-W1: the Work screen's tab editor. The three single-row actions above stay as they were
+// (parity-manifest decisions, tests); the editor uses these two so a whole edit (renames, order,
+// archives) is ONE atomic bulk upsert and the keep-at-least-one rule is enforced server-side.
+// ---------------------------------------------------------------------------
+
+const MAX_TAB_LABEL = 40;
+
+type SubdomainRow = {
+  id: string;
+  user_id: string;
+  domain_id: string;
+  key: string;
+  label: string;
+  kind: string | null;
+  widgets: NonNullable<Json>;
+  config: NonNullable<Json>;
+  position: number;
+  archived_at: string | null;
+};
+
+const SUBDOMAIN_COLUMNS = "id, user_id, domain_id, key, label, kind, widgets, config, position, archived_at";
+
+/** `key` is the tab's stable slug (unique per account's Work domain); it never changes on rename. */
+export type WorkTabEdit = { key: string; label: string; archived?: boolean };
+
+/**
+ * Applies an edited tab list in one statement. `tabs` (by stable `key`) is EVERY one of the account's Work
+ * subdomains the editor showed, in the order wanted: renames come from `label`, order from the
+ * array index (among tabs that stay active; position is 0..n-1), `archived: true` archives
+ * (never deletes). Rejected, with nothing written: an unknown id, a blank/oversized label, a
+ * missing active tab, or archiving every tab (at least one must stay).
+ */
+export async function saveWorkTabs(tabs: WorkTabEdit[]): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const domainId = await findWorkDomainId(supabase, userId);
+
+  const { data, error } = await supabase
+    .from("user_subdomains")
+    .select(SUBDOMAIN_COLUMNS)
+    .eq("user_id", userId)
+    .eq("domain_id", domainId);
+  if (error) throw error;
+  const rows = (data ?? []) as SubdomainRow[];
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  const active = rows.filter((r) => r.archived_at === null);
+
+  if (new Set(tabs.map((t) => t.key)).size !== tabs.length) throw new Error("saveWorkTabs: duplicate tab");
+  for (const t of tabs) {
+    const row = byKey.get(t.key);
+    if (!row) throw new Error("saveWorkTabs: unknown tab");
+    if (row.archived_at !== null) throw new Error("saveWorkTabs: tab is already archived");
+    const label = t.label.trim();
+    if (!label) throw new Error("saveWorkTabs: a tab needs a name");
+    if (label.length > MAX_TAB_LABEL) throw new Error(`saveWorkTabs: tab names are at most ${MAX_TAB_LABEL} characters`);
+  }
+  // The editor must account for every active tab, or a missing one would silently keep a stale position.
+  if (tabs.length !== active.length) throw new Error("saveWorkTabs: the edit must include every active tab");
+  const staying = tabs.filter((t) => !t.archived);
+  if (staying.length === 0) throw new Error("saveWorkTabs: keep at least one Work tab");
+
+  const now = new Date().toISOString();
+  let nextPosition = 0;
+  const updated: SubdomainRow[] = tabs.map((t) => {
+    const row = byKey.get(t.key)!;
+    const archived = t.archived === true;
+    return {
+      ...row,
+      label: t.label.trim(),
+      position: archived ? row.position : nextPosition++,
+      archived_at: archived ? now : null,
+    };
+  });
+
+  const { error: upsertError } = await supabase
+    .from("user_subdomains")
+    .upsert(updated.map((r) => ({ ...r, updated_at: now })), { onConflict: "id" });
+  if (upsertError) throw upsertError;
+}
+
+/**
+ * Gives an account that has a Work domain but no Business tab one: kind 'business', label
+ * "Business", position 0, existing tabs shift to 1+. Explicit and idempotent (a second call finds
+ * the tab and does nothing); an archived business tab is brought back instead of duplicated.
+ * Never runs from a page render.
+ */
+export async function ensureBusinessWorkTab(): Promise<{ key: string; created: boolean }> {
+  const { supabase, userId } = await requireUser();
+  const domainId = await findWorkDomainId(supabase, userId);
+
+  const { data, error } = await supabase
+    .from("user_subdomains")
+    .select(SUBDOMAIN_COLUMNS)
+    .eq("user_id", userId)
+    .eq("domain_id", domainId);
+  if (error) throw error;
+  const rows = (data ?? []) as SubdomainRow[];
+
+  const activeBusiness = rows.find((r) => r.archived_at === null && r.kind === "business");
+  if (activeBusiness) return { key: activeBusiness.key, created: false };
+
+  const now = new Date().toISOString();
+  const active = rows.filter((r) => r.archived_at === null).sort((a, b) => a.position - b.position);
+  const shifted = active.map((r, i) => ({ ...r, position: i + 1, updated_at: now }));
+
+  const archivedBusiness = rows.find((r) => r.kind === "business" && r.archived_at !== null);
+  let businessRow: SubdomainRow & { updated_at: string };
+  if (archivedBusiness) {
+    businessRow = { ...archivedBusiness, label: archivedBusiness.label || "Business", position: 0, archived_at: null, updated_at: now };
+  } else {
+    const taken = new Set(rows.map((r) => r.key));
+    let key = "business";
+    for (let n = 2; taken.has(key); n++) key = `business-${n}`;
+    businessRow = {
+      id: crypto.randomUUID(),
+      user_id: userId,
+      domain_id: domainId,
+      key,
+      label: "Business",
+      kind: "business",
+      widgets: [] as unknown as NonNullable<Json>,
+      config: {} as unknown as NonNullable<Json>,
+      position: 0,
+      archived_at: null,
+      updated_at: now,
+    };
+  }
+
+  const { error: upsertError } = await supabase.from("user_subdomains").upsert([businessRow, ...shifted], { onConflict: "id" });
+  if (upsertError) throw upsertError;
+  return { key: businessRow.key, created: true };
+}
+
+/** Data-free cache revalidation scheduled by the tab editor after an edit: the tab bar and nav live in the shared layout. */
+export async function refreshWorkViews(): Promise<void> {
+  await requireUser();
+  revalidatePath("/", "layout");
+}
