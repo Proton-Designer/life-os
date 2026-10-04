@@ -1,11 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
-const ROUTES: { name: string; href: string }[] = [
-  { name: "Goals", href: "/goals" },
-  { name: "Habits", href: "/habits" },
-  { name: "Worries", href: "/worries" },
-  { name: "Weekly Review", href: "/weekly-review" },
+// IA-P3: Goals, Habits, Worries and Weekly Review left the nav; their URLs redirect (checked below).
+const ROUTES: { name: string; href: string }[] = [{ name: "Insights", href: "/insights" }];
+const RETIRED = ["Goals", "Habits", "Worries", "Weekly Review"];
+const RETIRED_URLS: { href: string; lands: RegExp }[] = [
+  { href: "/goals", lands: /\/week(#goals)?$/ },
+  { href: "/habits", lands: /\/week(#habits)?$/ },
+  { href: "/worries", lands: /\/week(#worries)?$/ },
+  { href: "/weekly-review", lands: /\/(week|insights)(\?tab=week)?$/ },
 ];
 
 /**
@@ -21,7 +24,7 @@ const ROUTES: { name: string; href: string }[] = [
  * must open MobileIsland's "More" popover first, since none of the four
  * are in its fixed 6-icon row (components/shell/mobile-island.tsx).
  */
-test("Goals, Habits, Worries, and Weekly Review are all reachable from the legacy nav", async ({ page }) => {
+test("Insights is reachable from the legacy nav; the four retired screens are not listed and their URLs redirect", async ({ page }) => {
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
   // Same class of race the Lead found in goals.spec.ts's skip guard
@@ -44,5 +47,12 @@ test("Goals, Habits, Worries, and Weekly Review are all reachable from the legac
 
   for (const { name, href } of ROUTES) {
     await expect(page.getByRole("link", { name })).toHaveAttribute("href", href);
+  }
+  for (const name of RETIRED) {
+    await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
+  }
+  for (const { href, lands } of RETIRED_URLS) {
+    await page.goto(href);
+    await expect(page).toHaveURL(lands);
   }
 });

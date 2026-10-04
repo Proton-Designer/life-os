@@ -16,7 +16,8 @@ const requireUserMock = vi.fn(async () => ({
   userId: "user-1",
 }));
 vi.mock("@/lib/supabase/auth", () => ({ requireUser: () => requireUserMock() }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const revalidatePathMock = vi.fn();
+vi.mock("next/cache", () => ({ revalidatePath: (...a: unknown[]) => revalidatePathMock(...a) }));
 
 const { setTaskPlannedStartTime, clearTaskPlannedStartTime } = await import("../timebox-actions");
 
@@ -61,5 +62,20 @@ describe("clearTaskPlannedStartTime", () => {
     currentChain = makeChain({ data: null, error: { message: "boom" } });
     const result = await clearTaskPlannedStartTime("task-1");
     expect(result.ok).toBe(false);
+  });
+});
+
+// IA-P2 review F1: the timebox editor is on Home's Today strip, so a save/clear must refresh Home.
+describe("timebox actions revalidate Home", () => {
+  it("setTaskPlannedStartTime and clearTaskPlannedStartTime revalidate '/' (positive control: an invalid time writes nothing and revalidates nothing)", async () => {
+    currentChain = makeChain({ data: null, error: null });
+    revalidatePathMock.mockClear();
+    await setTaskPlannedStartTime("t1", "not-a-time");
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+    await setTaskPlannedStartTime("t1", "09:30");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+    revalidatePathMock.mockClear();
+    await clearTaskPlannedStartTime("t1");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
   });
 });

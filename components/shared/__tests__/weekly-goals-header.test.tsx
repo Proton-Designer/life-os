@@ -210,4 +210,13 @@ describe("WeeklyGoalsHeader", () => {
     render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />);
     expect(screen.getByText(/Deen and Business goals/)).toBeInTheDocument();
   });
+
+  it("renders optional extraActions beside the title (Home's Goals button) and nothing extra without them", () => {
+    const { rerender } = render(
+      <WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} extraActions={<button type="button">Goals</button>} />
+    );
+    expect(screen.getByRole("button", { name: "Goals" })).toBeInTheDocument();
+    rerender(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} />);
+    expect(screen.queryByRole("button", { name: "Goals" })).not.toBeInTheDocument();
+  });
 });

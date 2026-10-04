@@ -28,6 +28,7 @@ export function WeeklyGoalsHeader({
   className,
   showDeen = true,
   showBusiness = true,
+  extraActions,
 }: {
   deen: WeeklyGoalEntry;
   business: WeeklyGoalEntry;
@@ -44,6 +45,8 @@ export function WeeklyGoalsHeader({
    * worse than none). */
   showDeen?: boolean;
   showBusiness?: boolean;
+  /** Optional element(s) beside the title (Home passes its Goals sheet button). A React node, never a function. */
+  extraActions?: React.ReactNode;
 }) {
   if (!showDeen && !showBusiness) return null;
 
@@ -53,7 +56,10 @@ export function WeeklyGoalsHeader({
       className={cn("scroll-mt-20 flex flex-col gap-3", className)}
       data-testid="weekly-goals-header"
     >
-      <h2 className="text-sm font-semibold text-muted-foreground">This Week&apos;s Focus</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-muted-foreground">This Week&apos;s Focus</h2>
+        {extraActions}
+      </div>
       {showPlanningNudge && (
         <p className="rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business">
           {showDeen

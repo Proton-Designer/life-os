@@ -172,6 +172,9 @@ export async function BusinessPageContent() {
             goal={{ headline: weeklyGoal?.headline ?? "", milestones: (weeklyGoal?.milestones as string[] | null) ?? [] }}
             onSave={saveWeeklyGoal.bind(null, "business")}
           />
+          {!(weeklyGoal?.headline ?? "").trim() ? (
+            <p className="mt-2 text-xs text-muted-foreground">The one outcome this week is actually about — everything else should serve it.</p>
+          ) : null}
         </div>
       </LayoutSlot>
 

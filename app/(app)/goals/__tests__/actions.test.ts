@@ -4,7 +4,10 @@ const revalidatePathMock = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePathMock(path) }));
 
 const requireUserMock = vi.fn();
-vi.mock("@/lib/supabase/auth", () => ({ requireUser: () => requireUserMock() }));
+const getProfileMock = vi.fn(async () => ({ timezone: "America/Chicago", deen_mode: false }));
+vi.mock("@/lib/supabase/auth", () => ({ requireUser: () => requireUserMock(), getProfile: () => getProfileMock() }));
+const loadBoardMock = vi.fn(async (..._a: unknown[]) => ({ deenMode: false, reservedRanks: [], monthStart: "2026-10-01", todayStr: "2026-10-05", goals: [], milestones: [] }));
+vi.mock("@/lib/goals/board-data", () => ({ loadGoalBoardData: (...a: unknown[]) => loadBoardMock(...a) }));
 
 const createGoalMock = vi.fn();
 const completeGoalMock = vi.fn();
@@ -108,5 +111,16 @@ describe("goal actions (#43/#44) — 'use server' wrappers over lib/goals/action
     expect(completeMilestoneMock).toHaveBeenCalledWith({ fake: true }, "user-1", "m1");
     await setMilestoneDoneAction("m1", false);
     expect(reopenMilestoneMock).toHaveBeenCalledWith({ fake: true }, "user-1", "m1");
+  });
+});
+
+// IA-P3b: Home's Goals sheet reads through ONE lean action, the same loader /week step 2 uses.
+describe("getGoalsSheetData", () => {
+  it("loads the board for the signed-in user with their profile, writing nothing", async () => {
+    const { getGoalsSheetData } = await import("../actions");
+    const data = await getGoalsSheetData();
+    expect(loadBoardMock).toHaveBeenCalledWith({ fake: true }, "user-1", { timezone: "America/Chicago", deen_mode: false });
+    expect(data.monthStart).toBe("2026-10-01");
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 });

@@ -91,6 +91,16 @@ describe("getLayoutCore -- a saved Home layout from before the rhythm widget", (
   });
 });
 
+// IA-P3b: Home gained `weekly_reset` and `habit_checkoffs`; layouts saved before them still render them (visible).
+describe("getLayoutCore -- a saved Home layout from before the P3b widgets", () => {
+  it("lists weekly_reset and habit_checkoffs visible when the saved rows don't mention them", async () => {
+    const { client } = makeDb([{ user_id: "user-1", domain_key: "home", widget_key: "now", position: 3, hidden: false }]);
+    const layout = await getLayoutCore(client, "user-1", "home");
+    expect(layout.find((w) => w.widgetKey === "weekly_reset")).toMatchObject({ hidden: false });
+    expect(layout.find((w) => w.widgetKey === "habit_checkoffs")).toMatchObject({ hidden: false });
+  });
+});
+
 describe("saveLayoutCore + getLayoutCore -- round trip", () => {
   it("a saved layout is read back exactly, position and hidden both honored", async () => {
     const { client } = makeDb([]);

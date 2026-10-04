@@ -1,12 +1,15 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
 
-const ROUTES: { name: string; href: string }[] = [
-  { name: "Goals", href: "/goals" },
-  { name: "Habits", href: "/habits" },
-  { name: "Worries", href: "/worries" },
-  { name: "Weekly Review", href: "/weekly-review" },
+// IA-P3: Goals, Habits, Worries and Weekly Review left the nav (the week lives at /week and in Insights);
+// their old URLs redirect. The nav proof is now: still reachable = Insights; retired = absent; URLs redirect.
+const RETIRED: { name: string; href: string; lands: RegExp }[] = [
+  { name: "Goals", href: "/goals", lands: /\/week(#goals)?$/ },
+  { name: "Habits", href: "/habits", lands: /\/week(#habits)?$/ },
+  { name: "Worries", href: "/worries", lands: /\/week(#worries)?$/ },
+  { name: "Weekly Review", href: "/weekly-review", lands: /\/(week|insights)(\?tab=week)?$/ },
 ];
+const ROUTES: { name: string; href: string }[] = [{ name: "Insights", href: "/insights" }];
 
 /**
  * Same reachability proof as nav-reachability.spec.ts, for the domains-mode
@@ -47,6 +50,19 @@ test.describe("domains-mode nav reachability", () => {
 
     for (const { name, href } of ROUTES) {
       await expect(page.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+  });
+
+  test("the four retired screens are gone from the nav and their URLs redirect", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+    await dismissCheckinDialogIfPresent(page);
+    for (const { name } of RETIRED) {
+      await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
+    }
+    for (const { href, lands } of RETIRED) {
+      await page.goto(href);
+      await expect(page).toHaveURL(lands);
     }
   });
 });

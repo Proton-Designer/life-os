@@ -263,4 +263,6 @@ export async function refreshDistractionViews(): Promise<void> {
   // Domains-mode accounts render the Faith (Deen) surfaces under /personal/[subdomain].
   revalidatePath("/personal/[subdomain]", "page");
   revalidatePath("/review");
+  // IA-P1b: the distraction-plan review lives in the evening close's Account stage now.
+  revalidatePath("/close");
 }

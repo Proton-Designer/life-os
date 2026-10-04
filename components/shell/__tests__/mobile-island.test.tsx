@@ -46,35 +46,15 @@ describe("MobileIsland", () => {
     expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
   });
 
-  // Phase 1 #39/#40, 2026-09-14: /habits joined the SECTIONS-derived
-  // MORE_ITEMS allowlist (same fix Worries/Goals got before it) — this is
-  // the proof it's actually reachable on legacy mobile, not just added to
-  // sidebar-nav.tsx's SECTIONS and silently dropped by this file's own
-  // explicit href filter.
-  it("also reveals Habits under More, linked to /habits", async () => {
+  // IA-P2/P3: Today, Review, Worries, Goals, Habits and Weekly Review left More; Insights (and Settings) stay.
+  it("does not reveal the retired destinations under More, but keeps Insights", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);
     await user.click(screen.getByRole("button", { name: /more/i }));
-    expect(screen.getByRole("link", { name: /^habits$/i })).toHaveAttribute("href", "/habits");
-  });
-
-  // Phase 1 #46/#47/#48, 2026-09-14: same reachability proof as Habits
-  // above, for /weekly-review's own allowlist addition.
-  it("also reveals Weekly Review under More, linked to /weekly-review", async () => {
-    const user = userEvent.setup();
-    render(<MobileIsland />);
-    await user.click(screen.getByRole("button", { name: /more/i }));
-    expect(screen.getByRole("link", { name: /^weekly review$/i })).toHaveAttribute("href", "/weekly-review");
-  });
-
-  // IA-P2: Today (/open) and Review (/close) are no longer in More; Weekly Review (above) still is.
-  it("does not reveal Today or Review under More (IA-P2)", async () => {
-    const user = userEvent.setup();
-    render(<MobileIsland />);
-    await user.click(screen.getByRole("button", { name: /more/i }));
-    expect(screen.queryByRole("link", { name: /^today$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^review$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^weekly review$/i })).toBeInTheDocument();
+    for (const name of [/^today$/i, /^review$/i, /^worries$/i, /^goals$/i, /^habits$/i, /^weekly review$/i]) {
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("link", { name: /^insights$/i })).toBeInTheDocument();
   });
 
   it("also reveals the Ask AI platform links under More, without growing the fixed icon row", async () => {

@@ -39,33 +39,10 @@ const PRIMARY_ITEMS: {
 // in PRIMARY_ITEMS above, so admitting everything here would duplicate them
 // into this popover too.
 //
-// Phase 1 (2026-09-14): this allowlist previously named only /insights and
-// /settings, which made /worries reachable in EVERY other nav surface
-// (legacy desktop, both domains-mode renderers) but not this one — a real
-// legacy-mobile gap, found while wiring /goals into all four renderers.
-// Fixed here rather than repeated: /goals joins /worries in the same fix.
-//
-// Phase 1 #39/#40, 2026-09-14: /habits joins the allowlist for the same
-// reason — SECTIONS gained the entry in sidebar-nav.tsx, and this filter is
-// explicit rather than "every SECTIONS item," so it needed its own line.
-//
-// Phase 1 #46/#47/#48, 2026-09-14: /weekly-review, same reason again.
-//
-// Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure), same
-// reason again -- SECTIONS gained the entry in sidebar-nav.tsx's REVIEW
-// group, and this filter is explicit rather than "every SECTIONS item," so
-// it needed its own line here too.
-//
-// 2026-09-18: /close ("Review"), same reason again -- see this file's own
-// header comment below for why the legacy nav no longer omits it.
+// IA-P2/P3: Worries, Goals, Habits, Weekly Review, Today and Review left the nav (the week lives in
+// /week and Insights, the day on Home); the allowlist is just the two that remain.
 const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
-  (item) =>
-    item.href === "/insights" ||
-    item.href === "/settings" ||
-    item.href === "/worries" ||
-    item.href === "/goals" ||
-    item.href === "/habits" ||
-    item.href === "/weekly-review"
+  (item) => item.href === "/insights" || item.href === "/settings"
 );
 
 function isActive(pathname: string, href: string) {

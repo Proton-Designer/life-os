@@ -167,10 +167,10 @@ describe("#52 session linkage", () => {
 describe("refreshDistractionViews", () => {
   beforeEach(() => revalidatePathMock.mockClear());
 
-  it("revalidates Home, /deen, the domains-mode faith route and /review, touching no data", async () => {
+  it("revalidates Home, /deen, the domains-mode faith route, /review and /close (the close hosts the review), touching no data", async () => {
     const { refreshDistractionViews } = await import("../actions");
     await refreshDistractionViews();
-    for (const path of ["/", "/deen", "/personal/[subdomain]", "/review"]) {
+    for (const path of ["/", "/deen", "/personal/[subdomain]", "/review", "/close"]) {
       expect(revalidatePathMock).toHaveBeenCalledWith(path);
     }
   });

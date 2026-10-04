@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString } from "@/lib/date-utils";
-import { listGoalsForMonth } from "@/lib/goals/actions-core";
-import { getMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
-import { isDeenModeOn } from "@/lib/deen/deen-mode";
-import { withoutDeenGoals } from "@/lib/goals/deen-filter";
+import { loadGoalBoardData } from "@/lib/goals/board-data";
 import { GoalBoard } from "@/components/goals/goal-board";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
@@ -18,25 +14,7 @@ export async function GoalsSection() {
 
   const supabase = await createClient();
   const profile = await getProfile();
-  const timezone = profile?.timezone ?? "UTC";
-  const now = new Date();
-  const todayStr = localDateString(now, timezone);
-  const monthStart = monthStartFor(todayStr);
-
-  const deenMode = isDeenModeOn(profile);
-  const [allGoals, allMilestones, layout] = await Promise.all([
-    listGoalsForMonth(supabase, user.id, monthStart),
-    getMilestonesForMonth(supabase, user.id, monthStart),
-    getPageLayout("goals"),
-  ]);
-  // Deen Mode OFF: goals tagged "deen" (and their milestones) are not shown --
-  // user-authored religious text included. Data untouched; ON shows them as before.
-  const goals = withoutDeenGoals(allGoals, deenMode);
-  const hiddenGoals = allGoals.filter((g) => !goals.includes(g));
-  const hiddenGoalIds = new Set(hiddenGoals.map((g) => g.id));
-  const milestones = allMilestones.filter((m) => !hiddenGoalIds.has(m.goalId));
-  // Ranks still held by hidden goals stay unavailable in the add form (the DB's per-month rank index is not a UI concern).
-  const reservedRanks = hiddenGoals.filter((g) => g.status === "active").map((g) => g.rank);
+  const [board, layout] = await Promise.all([loadGoalBoardData(supabase, user.id, profile), getPageLayout("goals")]);
   const layoutMap = buildLayoutMap(layout);
 
   return (
@@ -50,7 +28,7 @@ export async function GoalsSection() {
         </div>
       ) : null}
       <LayoutSlot layout={layoutMap} widgetKey="goal_board">
-        <GoalBoard deenMode={deenMode} reservedRanks={reservedRanks} monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
+        <GoalBoard {...board} />
       </LayoutSlot>
     </div>
   );

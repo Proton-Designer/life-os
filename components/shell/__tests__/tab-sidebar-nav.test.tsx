@@ -64,10 +64,6 @@ describe("TabSidebarNav", () => {
     for (const [label, href] of [
       ["Insights", "/insights"],
       ["Calendar", "/calendar"],
-      ["Worries", "/worries"],
-      ["Goals", "/goals"],
-      ["Habits", "/habits"],
-      ["Weekly Review", "/weekly-review"],
       ["Settings", "/settings"],
     ] as const) {
       expect(screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") })).toHaveAttribute("href", href);
@@ -75,10 +71,13 @@ describe("TabSidebarNav", () => {
   });
 
   // IA-P2: Today and Review left the nav (the day lives on Home; the topbar moon link opens /close).
-  it("does not list Today or Review under SYSTEM (positive control: Weekly Review is still there)", () => {
+  it("does not list Today or Review under SYSTEM and none of the retired week screens (IA-P3); Insights is still there", () => {
     render(<TabSidebarNav variant="expanded" navDomainState={DOMAIN_STATE} />);
     expect(screen.queryByRole("link", { name: /^today$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /^review$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^weekly review$/i })).toBeInTheDocument();
+    for (const name of [/^worries$/i, /^goals$/i, /^habits$/i, /^weekly review$/i]) {
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("link", { name: /^insights$/i })).toBeInTheDocument();
   });
 });

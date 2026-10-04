@@ -38,7 +38,7 @@ describe("SidebarNav", () => {
     expect(screen.getByText("SYSTEM")).toBeInTheDocument();
   });
 
-  it("renders every one of the 13 routes with an icon", () => {
+  it("renders every one of the 9 routes with an icon", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
@@ -49,10 +49,6 @@ describe("SidebarNav", () => {
       "Work",
       "Self-Mastery",
       "Insights",
-      "Worries",
-      "Goals",
-      "Habits",
-      "Weekly Review",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -125,10 +121,6 @@ describe("SidebarNav", () => {
       "Work",
       "Self-Mastery",
       "Insights",
-      "Worries",
-      "Goals",
-      "Habits",
-      "Weekly Review",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -147,31 +139,14 @@ describe("SidebarNav", () => {
     expect(screen.getByRole("link", { name: "Self-Mastery" })).toHaveAttribute("href", "/self-mastery");
   });
 
-  it("links Worries to /worries", () => {
+  // IA-P3: Worries, Goals, Habits and Weekly Review left the nav (the week lives at /week and in Insights;
+  // the old URLs redirect). Positive control: Insights is still listed.
+  it("no longer lists Worries, Goals, Habits or Weekly Review (IA-P3)", () => {
     render(<SidebarNav variant="expanded" />);
-    expect(screen.getByRole("link", { name: "Worries" })).toHaveAttribute("href", "/worries");
-  });
-
-  // Phase 1 #43/#44, 2026-09-14: /goals existed but worked by direct URL
-  // only — the exact same gap Worries had before S6, fixed the same way.
-  it("links Goals to /goals", () => {
-    render(<SidebarNav variant="expanded" />);
-    expect(screen.getByRole("link", { name: "Goals" })).toHaveAttribute("href", "/goals");
-  });
-
-  // Phase 1 #39/#40, 2026-09-14: /habits existed but worked by direct URL
-  // only — the exact same gap Worries/Goals had, fixed the same way.
-  it("links Habits to /habits", () => {
-    render(<SidebarNav variant="expanded" />);
-    expect(screen.getByRole("link", { name: "Habits" })).toHaveAttribute("href", "/habits");
-  });
-
-  // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review is a NEW route, not
-  // /review (see app/(app)/weekly-review/page.tsx's header for why that
-  // route was unavailable).
-  it("links Weekly Review to /weekly-review", () => {
-    render(<SidebarNav variant="expanded" />);
-    expect(screen.getByRole("link", { name: "Weekly Review" })).toHaveAttribute("href", "/weekly-review");
+    for (const name of ["Worries", "Goals", "Habits", "Weekly Review"]) {
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("link", { name: "Insights" })).toBeInTheDocument();
   });
 
   // IA-P2: Today (/open) and Review (/close) left the nav -- the day lives on Home (Morning card,
@@ -182,7 +157,6 @@ describe("SidebarNav", () => {
     expect(screen.queryByRole("link", { name: "Today" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Review" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /^today$/i })).toBeNull();
-    expect(screen.getByRole("link", { name: "Weekly Review" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Insights" })).toBeInTheDocument();
   });
 
@@ -206,30 +180,18 @@ describe("SidebarNav", () => {
         "Work",
         "Self-Mastery",
         "Insights",
-        "Worries",
-        "Goals",
-        "Habits",
-        "Weekly Review",
         "Settings",
       ]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
       }
     });
 
-    // REVIEW now carries seven items (Insights, Worries, Goals, Habits,
-    // Weekly Review, Today, Review — this pass added the sixth and seventh,
-    // #29/#33-#36's Day Structure entry and the /close entry). Hiding only
-    // "insights" (the sole real FeatureId of the seven — the other six
-    // aren't toggleable features, same as before) must leave the section
-    // standing with the other six.
-    it("hiding one of REVIEW's items leaves the section standing with the others", () => {
+    // REVIEW now carries only Insights (IA-P2/P3), so hiding it drops the whole section.
+    it("hiding Insights drops the REVIEW section", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["insights"]} />);
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
-      expect(screen.getByText("REVIEW")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Worries" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Goals" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Habits" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Weekly Review" })).toBeInTheDocument();
+      expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
     });
 
     it("drops the whole REVIEW section once every item in it is hidden", () => {
@@ -240,10 +202,6 @@ describe("SidebarNav", () => {
         />
       );
       expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Worries" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Goals" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Habits" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Weekly Review" })).not.toBeInTheDocument();
       expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
     });
 
@@ -263,10 +221,6 @@ describe("SidebarNav", () => {
         "Work",
         "Self-Mastery",
         "Insights",
-        "Worries",
-        "Goals",
-        "Habits",
-        "Weekly Review",
         "Settings",
       ]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();

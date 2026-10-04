@@ -30,6 +30,11 @@ import { SessionEntryCard } from "@/components/self-mastery/session/session-entr
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
+import { getActiveHabitsWithStatus } from "@/lib/habits/queries";
+import { shouldShowWeeklyResetCard } from "@/lib/home/weekly-reset-visibility";
+import { HabitCheckoffs } from "@/components/home/habit-checkoffs";
+import { WeeklyResetCard } from "@/components/home/weekly-reset-card";
+import { GoalsSheetButton } from "@/components/goals/goals-sheet-button";
 import { RhythmSection } from "@/components/home/rhythm/rhythm-section";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
@@ -96,6 +101,7 @@ export default async function HomePage() {
     morningRoutineItems,
     layout,
     rhythm,
+    activeHabits,
   ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -143,6 +149,8 @@ export default async function HomePage() {
       getPageLayout("home"),
       // IA-P2: only the active phase's reads run (lib/home/rhythm-data.ts).
       getRhythmData(supabase, userId, now, timezone),
+      // IA-P3b: today's habit check-offs (the habits board's own reader).
+      getActiveHabitsWithStatus(supabase, userId, dateStr, timezone),
     ]);
   const layoutMap = buildLayoutMap(layout);
   // WIDGET-02 exception, stated rather than silently applied: session_entry's
@@ -184,6 +192,8 @@ export default async function HomePage() {
   const hasBusinessGoal = showBusinessWeeklyGoal(domainsState, deenMode);
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
+  // IA-P3b: the Sunday card (Sun 00:00-Mon 12:00 local) disappears once this week's goal has a headline.
+  const showWeeklyReset = shouldShowWeeklyResetCard(now, timezone, weeklyGoalsRows.map((g) => g.headline));
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
   const businessGoalRow = weeklyGoalsRows.find((g) => g.domain === "business") ?? null;
   const deenGoal = deenGoalRow
@@ -277,6 +287,12 @@ export default async function HomePage() {
         <RhythmSection data={rhythm} />
       </LayoutSlot>
 
+      {showWeeklyReset && (
+        <LayoutSlot layout={layoutMap} widgetKey="weekly_reset">
+          <WeeklyResetCard />
+        </LayoutSlot>
+      )}
+
       {morningRoutineOn && (
         <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
           <MorningRoutineCard initialItems={morningRoutineItems} />
@@ -306,6 +322,7 @@ export default async function HomePage() {
           showPlanningNudge={showPlanningNudge}
           showDeen={hasFaith}
           showBusiness={hasBusinessGoal}
+          extraActions={<GoalsSheetButton />}
         />
       </LayoutSlot>
 
@@ -326,6 +343,9 @@ export default async function HomePage() {
             nowIso={now.toISOString()}
           />
         </Panel>
+      </LayoutSlot>
+      <LayoutSlot layout={layoutMap} widgetKey="habit_checkoffs">
+        <HabitCheckoffs habits={activeHabits} today={dateStr} />
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="focus">
         <Panel title="Focus">

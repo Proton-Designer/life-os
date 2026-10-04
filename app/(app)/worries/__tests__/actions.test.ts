@@ -103,12 +103,13 @@ describe("worry actions — item #42's Handled state", () => {
     expect(calls.some((c) => c.method === "update")).toBe(false);
   });
 
-  it("revalidates /worries, /close, /open and / on a successful handle", async () => {
+  it("revalidates /worries, /week, /close and / on a successful handle (not the retired /open)", async () => {
     const { markWorryHandled } = await import("../actions");
     await markWorryHandled("worry-1");
     expect(revalidatePathMock).toHaveBeenCalledWith("/worries");
     expect(revalidatePathMock).toHaveBeenCalledWith("/close");
-    expect(revalidatePathMock).toHaveBeenCalledWith("/open");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/week");
+    expect(revalidatePathMock).not.toHaveBeenCalledWith("/open");
     expect(revalidatePathMock).toHaveBeenCalledWith("/");
   });
 });

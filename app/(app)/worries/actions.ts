@@ -18,7 +18,6 @@ function revalidateWorrySurfaces() {
   revalidatePath("/worries");
   revalidatePath("/week");
   revalidatePath("/close");
-  revalidatePath("/open");
   revalidatePath("/");
 }
 

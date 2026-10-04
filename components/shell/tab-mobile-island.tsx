@@ -7,10 +7,6 @@ import {
   TrendingUp,
   Settings,
   CalendarDays,
-  AlertCircle,
-  Flag,
-  Repeat,
-  CalendarCheck,
   Target,
   type LucideIcon,
 } from "lucide-react";
@@ -43,16 +39,6 @@ type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentTo
 const MORE_ITEMS: NavItem[] = [
   { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, accent: "info" },
-  // Phase 1 (2026-09-14): kept in step with tab-sidebar-nav.tsx's own
-  // MORE_ITEMS — see that file's comment on this addition.
-  { href: "/worries", label: "Worries", icon: AlertCircle, accent: "warning" },
-  { href: "/goals", label: "Goals", icon: Flag, accent: "info" },
-  // Phase 1 #39/#40, 2026-09-14: kept in step with tab-sidebar-nav.tsx's own
-  // MORE_ITEMS — see that file's comment on this addition.
-  { href: "/habits", label: "Habits", icon: Repeat, accent: "info" },
-  // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review — NOT /review. Kept in
-  // step with tab-sidebar-nav.tsx.
-  { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
   // UX-02, 2026-09-15: /business existed but had no entry in EITHER
   // domains-mode renderer — the exact gap Worries/Goals/Habits had above,
   // just missed in that pass. Kept in step with tab-sidebar-nav.tsx.

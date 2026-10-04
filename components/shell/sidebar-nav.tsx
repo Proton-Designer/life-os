@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { Home, TrendingUp, Settings, BookOpen, AlertCircle, Flag, Repeat, CalendarCheck, type LucideIcon } from "lucide-react";
+import { Home, TrendingUp, Settings, BookOpen, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -42,27 +42,6 @@ export const SECTIONS: NavSection[] = [
     label: "REVIEW",
     items: [
       { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
-      // S6, 2026-09-14: /worries (app/(app)/worries/page.tsx) existed and
-      // worked by direct URL only — its own header flags exactly this gap
-      // ("this track does not own components/shell... wiring a nav entry is
-      // a coordination item for whoever does"). This is that entry.
-      { href: "/worries", label: "Worries", icon: AlertCircle, accent: "warning" },
-      // Phase 1 #43/#44, 2026-09-14: /goals (app/(app)/goals/page.tsx)
-      // existed and worked by direct URL only — the exact same gap Worries
-      // had above before S6 fixed it. This is that entry, same posture.
-      { href: "/goals", label: "Goals", icon: Flag, accent: "info" },
-      // Phase 1 #39/#40, 2026-09-14: /habits (app/(app)/habits/page.tsx)
-      // existed and worked by direct URL only — same gap, same posture as
-      // Worries/Goals above. mobile-island.tsx's MORE_ITEMS allowlist reads
-      // SECTIONS by href, so it needed the matching addition there too.
-      { href: "/habits", label: "Habits", icon: Repeat, accent: "info" },
-      // Phase 1 #46/#47/#48, 2026-09-14: /weekly-review — a NEW route, not
-      // /review (that route redirects into /close's own distraction-review
-      // stage; see app/(app)/weekly-review/page.tsx's header). Labeled
-      // distinctly from /close's own "Review" nav entry for the same
-      // collision reason lib/business/work-session-kind.ts's KIND_LABEL
-      // avoided calling 'learn' sessions "Review" too.
-      { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
       // IA-P2: Today (/open) and Review (/close) left the nav; the day lives on Home and the topbar moon link opens /close.
     ],
   },

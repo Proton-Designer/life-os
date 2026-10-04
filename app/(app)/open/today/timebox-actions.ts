@@ -26,7 +26,8 @@ export async function setTaskPlannedStartTime(taskId: string, time: string): Pro
   } catch {
     return { ok: false, message: "Couldn't save that start time. Try again." };
   }
-  revalidatePath("/open/today");
+  // IA-P2: the timebox editor lives on Home's Today strip now; /open/today only redirects.
+  revalidatePath("/");
   return { ok: true, message: "Saved." };
 }
 
@@ -37,6 +38,7 @@ export async function clearTaskPlannedStartTime(taskId: string): Promise<{ ok: b
   } catch {
     return { ok: false, message: "Couldn't clear that start time. Try again." };
   }
-  revalidatePath("/open/today");
+  // IA-P2: the timebox editor lives on Home's Today strip now; /open/today only redirects.
+  revalidatePath("/");
   return { ok: true, message: "Cleared." };
 }

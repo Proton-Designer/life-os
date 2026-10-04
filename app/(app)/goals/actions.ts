@@ -2,7 +2,8 @@
 
 import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/supabase/auth";
+import { requireUser, getProfile } from "@/lib/supabase/auth";
+import { loadGoalBoardData, type GoalBoardData } from "@/lib/goals/board-data";
 import {
   createGoal,
   completeGoal,
@@ -146,4 +147,10 @@ export async function refreshGoalViews(): Promise<void> {
   await requireUser();
   revalidatePath("/goals");
   revalidatePath("/week");
+}
+
+/** Lean read for Home's "Goals" sheet (IA-P3b): the monthly board's data, fetched when the sheet opens (never a function prop). Same loader as /week step 2. */
+export async function getGoalsSheetData(): Promise<GoalBoardData> {
+  const { supabase, userId } = await requireUser();
+  return loadGoalBoardData(supabase, userId, await getProfile());
 }

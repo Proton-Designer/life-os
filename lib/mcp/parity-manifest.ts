@@ -207,6 +207,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/fitness/workouts/template-actions.ts#applyOnboardingFitnessChoice": { excluded: "onboarding_wizard: fitness style step (ONB item 6 follow-up)" },
 
   // ── Goals / identity habits ─────────────────────────────────────────────
+  "app/(app)/goals/actions.ts#getGoalsSheetData": { read_only: true, note: "IA-P3b: Home Goals sheet read; same data as the goals.* MCP reads" },
   "app/(app)/goals/actions.ts#createGoalAction": { mcp: "goals.goal.create" },
   "app/(app)/goals/actions.ts#setGoalStatusAction": { mcp: "goals.goal.set_status" },
   "app/(app)/goals/actions.ts#addMilestoneAction": { mcp: "goals.milestone.add" },
@@ -225,6 +226,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/morning-routine/actions.ts#getMyMorningRoutineChecklist": { read_only: true },
   "app/(app)/morning-routine/actions.ts#createMorningRoutineItem": { mcp: "day.routine_item.create" },
   "app/(app)/morning-routine/actions.ts#archiveMorningRoutineItem": { mcp: "day.routine_item.archive" },
+  "app/(app)/morning-routine/actions.ts#setLaunchStepDone": { mcp: "day.routine_item.check", note: "IA-P4a absolute setter; MCP check/uncheck share setLaunchStepDoneCore (tick + linked habit vote)" },
+  "app/(app)/morning-routine/actions.ts#refreshLaunchViews": { read_only: true, note: "IA-P4a: data-free cache revalidation scheduled by the Launch sequence card" },
   "app/(app)/morning-routine/actions.ts#checkMorningRoutineItem": { mcp: "day.routine_item.check" },
   "app/(app)/morning-routine/actions.ts#uncheckMorningRoutineItem": { mcp: "day.routine_item.uncheck", note: "undo-shaped delete of today's own check only" },
 
@@ -395,6 +398,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/mcp-token-actions.ts#cancelScheduledAction": { mcp: "scheduler.scheduled_action.cancel", note: "P4-33: was pending P4-cov-SCHEDULES, but scheduler_manage(\"cancel\") has been live and calls the SAME cancelScheduledActionCore this action does" },
   "app/(app)/settings/mcp-token-actions.ts#createAgentConnectLink": { excluded: "credential: mints a single-use connect code that exchanges for an agent PAT" },
   "app/(app)/settings/mcp-token-actions.ts#revokeMcpToken": { excluded: "credential: revokes a PAT" },
+  "app/(app)/settings/wind-down-actions.ts#getWindDownSettings": { read_only: true },
+  "app/(app)/settings/wind-down-actions.ts#saveWindDownPlan": { pending: "P4-26", note: "IA-P4a set-once wind-down plan (user_settings.wake_time/sleep_need_minutes/wind_down_minutes); MCP settings write widening" },
   "app/(app)/settings/weekday-baseline-actions.ts#saveWeekdayBaselines": { mcp: "settings.user_setting.set_weekday_baselines" },
   "app/(app)/settings/weekday-baseline-actions.ts#clearWeekdayBaselines": { mcp: "settings.user_setting.clear_weekday_baselines" },
 
