@@ -3,6 +3,7 @@ import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import { localDateString, dayOfWeekFromDateString, resolveLocalTime, addDaysToDateString } from "@/lib/date-utils";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import type { RibbonPrayerInput, RibbonActivityInput } from "./day-ribbon";
@@ -40,6 +41,8 @@ export type DayShapeProfile = {
   timezone: string;
   prayer_calc_method: string;
   asr_madhab: string;
+  /** profiles.deen_mode -- read only through isDeenModeOn (null/missing = OFF). */
+  deen_mode: boolean | null;
   /** "HH:MM[:SS]" local clock time — A3 Part 1: the day axis's own bounds,
    * same columns lib/checkins/schedule.ts already reuses as WakeSleepBounds
    * (NOT NULL with DB defaults 08:00/22:00, so every account — including
@@ -100,6 +103,7 @@ export function defaultDataSource(): DayShapeDataSource {
         timezone: profile.timezone,
         prayer_calc_method: profile.prayer_calc_method,
         asr_madhab: profile.asr_madhab,
+        deen_mode: profile.deen_mode,
         checkin_window_start: profile.checkin_window_start,
         checkin_window_end: profile.checkin_window_end,
       };
@@ -226,16 +230,20 @@ export async function getDayShape(
   };
 
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
+  // Deen Mode OFF: no prayer windows, no prayer rows, and no deen_habits cue
+  // activities (those habits are Faith-section data) -- the reads are skipped
+  // outright, not fetched and hidden. Nothing is deleted (R4).
+  const deenOn = isDeenModeOn(profile);
   const [prayerRows, workoutSchedule, timedTasks, focusSessions, scheduleEvents, habitsWithCueTime] = await Promise.all([
-    dataSource.getPrayers(userId, dateStr),
+    deenOn ? dataSource.getPrayers(userId, dateStr) : Promise.resolve([] as DayShapePrayerRow[]),
     dataSource.getWorkoutSchedule(userId, dayOfWeek),
     dataSource.getTimedTasks(userId, dateStr),
     dataSource.getFocusSessions(userId, dateStr, timezone),
     dataSource.getScheduleEvents(userId, dateStr, dayOfWeek),
-    dataSource.getHabitsWithCueTime(userId),
+    deenOn ? dataSource.getHabitsWithCueTime(userId) : Promise.resolve([] as DayShapeHabitRow[]),
   ]);
 
-  const hasLocation = profile?.location_lat != null && profile?.location_lng != null;
+  const hasLocation = deenOn && profile?.location_lat != null && profile?.location_lng != null;
   const windows = hasLocation
     ? computePrayerWindows({
         date: now,
@@ -247,7 +255,7 @@ export async function getDayShape(
       })
     : null;
 
-  const prayers: RibbonPrayerInput[] = PRAYER_NAMES.map((name) => {
+  const prayers: RibbonPrayerInput[] = (deenOn ? PRAYER_NAMES : []).map((name) => {
     const row = prayerRows.find((r) => r.prayer_name === name);
     const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
     const window = windows ? windows[name] : null;

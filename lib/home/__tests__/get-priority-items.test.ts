@@ -8,6 +8,7 @@ const CHICAGO_PROFILE = {
   timezone: "America/Chicago",
   prayer_calc_method: "MWL" as const,
   asr_madhab: "standard" as const,
+  deen_mode: true,
 };
 
 function emptyDataSource(overrides: Partial<HomeDataSource> = {}): HomeDataSource {
@@ -520,5 +521,45 @@ describe("getPriorityItems", () => {
       const items = await getCompletedItemsToday("user-1", now, emptyDataSource());
       expect(items).toEqual([]);
     });
+  });
+});
+
+describe("Deen Mode OFF -- getPriorityItems / getCompletedItemsToday", () => {
+  const OFF_PROFILE = { ...CHICAGO_PROFILE, deen_mode: false };
+  const NOW_MIDDAY = new Date("2026-08-10T18:00:00Z");
+
+  it("emits no prayer candidates and never reads prayers or sunnah rows", async () => {
+    const getPrayers = vi.fn(async () => [{ id: "p1", prayer_name: "dhuhr", status: "pending", logged_at: null }]);
+    const getSunnahCompletions = vi.fn(async () => []);
+    const ds = emptyDataSource({ getProfile: async () => OFF_PROFILE, getPrayers, getSunnahCompletions });
+    const items = await getPriorityItems("user-1", NOW_MIDDAY, ds);
+    expect(items.filter((i) => i.domain === "deen")).toEqual([]);
+    expect(getPrayers).not.toHaveBeenCalled();
+    expect(getSunnahCompletions).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when deen_mode is null or the profile row is missing", async () => {
+    for (const profile of [{ ...CHICAGO_PROFILE, deen_mode: null }, null]) {
+      const getPrayers = vi.fn(async () => []);
+      await getPriorityItems("user-1", NOW_MIDDAY, emptyDataSource({ getProfile: async () => profile, getPrayers }));
+      expect(getPrayers).not.toHaveBeenCalled();
+    }
+  });
+
+  it("positive control: ON reads prayers and emits the pending prayer", async () => {
+    const getPrayers = vi.fn(async () => [{ id: "p1", prayer_name: "dhuhr", status: "pending", logged_at: null }]);
+    const items = await getPriorityItems("user-1", NOW_MIDDAY, emptyDataSource({ getPrayers }));
+    expect(getPrayers).toHaveBeenCalled();
+    expect(items.some((i) => i.domain === "deen")).toBe(true);
+  });
+
+  it("completed-today: no prayers when OFF (rows exist, never read), still shown when ON", async () => {
+    const rows = [{ id: "p1", prayer_name: "fajr", status: "on_time", logged_at: "2026-08-10T11:00:00Z" }];
+    const getPrayers = vi.fn(async () => rows);
+    const off = await getCompletedItemsToday("user-1", NOW_MIDDAY, emptyDataSource({ getProfile: async () => OFF_PROFILE, getPrayers }));
+    expect(off.filter((i) => i.domain === "deen")).toEqual([]);
+    expect(getPrayers).not.toHaveBeenCalled();
+    const on = await getCompletedItemsToday("user-1", NOW_MIDDAY, emptyDataSource({ getPrayers }));
+    expect(on.filter((i) => i.domain === "deen")).toHaveLength(1);
   });
 });

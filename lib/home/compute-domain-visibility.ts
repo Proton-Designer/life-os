@@ -27,7 +27,13 @@ export type DomainVisibility = {
  * single-business-model tables are what "Work" means today, ahead of the
  * user-created-subdomain rebuild.
  */
-export function computeDomainVisibility(domainsState: UserDomainsState): DomainVisibility {
+/**
+ * `deenMode` (isDeenModeOn(profile)) is REQUIRED so a forgotten caller fails
+ * tsc rather than silently showing Faith. Deen Mode is the SINGLE choke point
+ * for Home's Faith visibility (D2): OFF hides Faith in legacy AND domains mode
+ * even when a user_domains faith row exists (that row is never touched, R4).
+ */
+export function computeDomainVisibility(domainsState: UserDomainsState, deenMode: boolean): DomainVisibility {
   const isLegacy = domainsState.mode === "legacy";
   const activeDomains = new Set(domainsState.mode === "domains" ? domainsState.domains.map((d) => d.key) : []);
 
@@ -37,7 +43,7 @@ export function computeDomainVisibility(domainsState: UserDomainsState): DomainV
     // parent row is archived, so getUserDomains never queries them) and both
     // sectors would silently vanish. hasArea checks the post-115 top-level
     // key first, then the legacy group form. See lib/domains/area-vocabulary.ts.
-    hasFaith: isLegacy || hasArea(domainsState, "faith"),
+    hasFaith: deenMode && (isLegacy || hasArea(domainsState, "faith")),
     hasFitness: isLegacy || hasArea(domainsState, "body"),
     hasWork: isLegacy || activeDomains.has("work"),
     hasSchoolDomain: isLegacy || activeDomains.has("school"),

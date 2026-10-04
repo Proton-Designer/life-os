@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import { localDateString, localWeekday, resolveLocalTime, dayOfWeekFromDateString, addDaysToDateString } from "@/lib/date-utils";
 import { buildDailyLog, pendingDailyLog, type MicroTotalInput, type MicroFreqInput, type SessionInput } from "@/lib/fitness/daily-log";
@@ -27,6 +28,8 @@ export type HomeProfile = {
   timezone: string;
   prayer_calc_method: string;
   asr_madhab: string;
+  /** profiles.deen_mode -- read only through isDeenModeOn (null/missing = OFF). */
+  deen_mode: boolean | null;
 };
 
 export type HomePrayerRow = { id: string; prayer_name: string; status: string; logged_at: string | null };
@@ -96,6 +99,7 @@ export function defaultDataSource(): HomeDataSource {
         timezone: profile.timezone,
         prayer_calc_method: profile.prayer_calc_method,
         asr_madhab: profile.asr_madhab,
+        deen_mode: profile.deen_mode,
       };
     },
     async getPrayers(userId, date) {
@@ -256,9 +260,12 @@ export async function getPriorityItems(
   const dateStr = localDateString(now, timezone);
 
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
+  // Deen Mode OFF: no prayer/sunnah reads and no prayer candidates at all --
+  // skipped, not fetched-then-hidden. The rows stay in the database (R4).
+  const deenOn = isDeenModeOn(profile);
   const [prayerRows, sunnahRows, killListRows, taskRows, fitnessData] = await Promise.all([
-    dataSource.getPrayers(userId, dateStr),
-    dataSource.getSunnahCompletions(userId, dateStr),
+    deenOn ? dataSource.getPrayers(userId, dateStr) : Promise.resolve([] as HomePrayerRow[]),
+    deenOn ? dataSource.getSunnahCompletions(userId, dateStr) : Promise.resolve([] as HomeSunnahRow[]),
     dataSource.getKillListItems(userId, dateStr),
     dataSource.getTasks(userId, dateStr),
     dataSource.getFitness(userId, dateStr, dayOfWeek),
@@ -277,7 +284,7 @@ export async function getPriorityItems(
   // is no longer shown here at all — it flows into the Qada backlog instead,
   // not Home's due-today list.
   let windows: Record<PrayerName, { start: Date; end: Date } | null> | null = null;
-  if (profile?.location_lat != null && profile?.location_lng != null) {
+  if (deenOn && profile?.location_lat != null && profile?.location_lng != null) {
     windows = computePrayerWindows({
       date: now,
       lat: profile.location_lat,
@@ -289,7 +296,7 @@ export async function getPriorityItems(
   }
 
   const isFriday = localWeekday(now, timezone) === "Friday";
-  for (const prayerName of PRAYER_NAMES) {
+  for (const prayerName of deenOn ? PRAYER_NAMES : []) {
     const row = prayerRows.find((p) => p.prayer_name === prayerName);
     const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
     const window = windows ? windows[prayerName] : null;
@@ -462,8 +469,9 @@ export async function getCompletedItemsToday(
   const dayStartIso = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
   const dayEndIso = resolveLocalTime(addDaysToDateString(dateStr, 1), "00:00", timezone).toISOString();
 
+  const deenOn = isDeenModeOn(profile);
   const [prayerRows, killListRows, taskRows] = await Promise.all([
-    dataSource.getPrayers(userId, dateStr),
+    deenOn ? dataSource.getPrayers(userId, dateStr) : Promise.resolve([] as HomePrayerRow[]),
     dataSource.getKillListItems(userId, dateStr),
     dataSource.getTasksCompletedBetween(userId, dayStartIso, dayEndIso),
   ]);

@@ -16,7 +16,7 @@ function snapshots(overrides: Partial<DomainSnapshots> = {}): DomainSnapshots {
 
 describe("WeeklySummaryStrip", () => {
   it("renders all 4 stat values in the mono tabular scale", () => {
-    render(<WeeklySummaryStrip snapshots={snapshots()} />);
+    render(<WeeklySummaryStrip snapshots={snapshots()} deenMode />);
     expect(screen.getByText("3:1").className).toContain("font-mono");
     expect(screen.getByText("12").className).toContain("font-mono");
     expect(screen.getByText("4").className).toContain("font-mono");
@@ -24,12 +24,20 @@ describe("WeeklySummaryStrip", () => {
   });
 
   it("renders an icon chip for each stat", () => {
-    const { container } = render(<WeeklySummaryStrip snapshots={snapshots()} />);
+    const { container } = render(<WeeklySummaryStrip snapshots={snapshots()} deenMode />);
     expect(container.querySelectorAll("svg").length).toBe(4);
   });
 
   it("still sums school + co_op for tasks done, no new fetching", () => {
-    render(<WeeklySummaryStrip snapshots={snapshots({ school: { dueTodayCount: 0, nextDueTitle: null, completedThisWeek: 5, pulse: 0 }, co_op: { dueTodayCount: 0, nextDueTitle: null, completedThisWeek: 5, pulse: 0 } })} />);
+    render(<WeeklySummaryStrip snapshots={snapshots({ school: { dueTodayCount: 0, nextDueTitle: null, completedThisWeek: 5, pulse: 0 }, co_op: { dueTodayCount: 0, nextDueTitle: null, completedThisWeek: 5, pulse: 0 } })} deenMode />);
     expect(screen.getByText("10")).toBeInTheDocument();
+  });
+
+  it("Deen Mode OFF drops the Qur'an KPI (and its icon) and leaves the other three", () => {
+    const { container } = render(<WeeklySummaryStrip snapshots={snapshots()} deenMode={false} />);
+    expect(screen.queryByText("Qur'an pages")).not.toBeInTheDocument();
+    expect(screen.queryByText("12")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("svg").length).toBe(3);
+    expect(screen.getByText("Workouts")).toBeInTheDocument();
   });
 });

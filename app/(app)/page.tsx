@@ -27,6 +27,7 @@ import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
 import { shouldShowSessionEntry } from "@/lib/home/session-entry-visibility";
@@ -55,6 +56,9 @@ export default async function HomePage() {
   const now = new Date();
 
   const profile = await getProfile();
+  // Deen Mode (profiles.deen_mode): one boolean read once, handed to every Home
+  // gate below. OFF = nothing religious renders and no deen query runs.
+  const deenMode = isDeenModeOn(profile);
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
@@ -94,7 +98,7 @@ export default async function HomePage() {
         .select("domain, headline, milestones, quran_page_target")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", weeklyGoalDomains(domainsState)),
+        .in("domain", weeklyGoalDomains(domainsState, deenMode)),
       getAllTriggers(supabase, userId, dateStr),
       getTodayDistractionCount(supabase, userId, dateStr),
       // D-004: a lightweight "this is still happening" affordance for
@@ -163,7 +167,7 @@ export default async function HomePage() {
   // reasoning (a legacy account sees every flag true) — extracted to a
   // pure function specifically so that guarantee is unit-tested directly,
   // not just implied by this page rendering correctly in practice.
-  const { hasFaith, hasFitness, hasWork, hasSchoolDomain } = computeDomainVisibility(domainsState);
+  const { hasFaith, hasFitness, hasWork, hasSchoolDomain } = computeDomainVisibility(domainsState, deenMode);
 
   // Canonical order preserved (deen, business, fitness, school, co_op) —
   // for a legacy account every flag above is true, so this filter is a
@@ -228,7 +232,7 @@ export default async function HomePage() {
   // resolveAreaWeights -- transitional per R27, real per what's landed on
   // production today. selfMasteryCandidateInput takes the ALREADY-fetched
   // dueSummary rather than re-querying (see that function's own comment).
-  const weights = resolveAreaWeights(domainsState);
+  const weights = resolveAreaWeights(domainsState, deenMode);
   // showSessionEntry, not hasSelfMastery alone — a School-only user's due
   // questions must be able to compete for the top "Now" slot the same way a
   // Self-Mastery user's due cards already do, not just be visible lower down.
@@ -338,7 +342,11 @@ export default async function HomePage() {
           ) : (
             <EmptyState
               icon={Inbox}
-              message="Set your location in Settings to see today's prayer-anchored timeline"
+              message={
+                deenMode
+                  ? "Set your location in Settings to see today's prayer-anchored timeline"
+                  : "Set your wake and sleep times in Settings to see today's timeline"
+              }
               action={{ label: "Go to Settings", href: "/settings" }}
             />
           )}

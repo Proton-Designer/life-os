@@ -103,19 +103,19 @@ describe("areaWeight — inherited before the flatten, owned after", () => {
  */
 describe("Home visibility survives the flatten", () => {
   it("Faith and Fitness sectors stay visible after 115", () => {
-    const v = computeDomainVisibility(POST_115);
+    const v = computeDomainVisibility(POST_115, true);
     expect(v.hasFaith).toBe(true);
     expect(v.hasFitness).toBe(true);
   });
 
   it("and are unchanged before it", () => {
-    const v = computeDomainVisibility(PRE_115);
+    const v = computeDomainVisibility(PRE_115, true);
     expect(v.hasFaith).toBe(true);
     expect(v.hasFitness).toBe(true);
   });
 
   it("a legacy account is untouched by any of this (M6)", () => {
-    const v = computeDomainVisibility({ mode: "legacy" });
+    const v = computeDomainVisibility({ mode: "legacy" }, true);
     expect(v.hasFaith).toBe(true);
     expect(v.hasFitness).toBe(true);
   });

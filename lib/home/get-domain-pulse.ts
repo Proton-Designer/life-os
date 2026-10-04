@@ -133,11 +133,14 @@ function defaultDataSource(): PulseDataSource {
 export async function getDomainPulse(
   userId: string,
   date: string,
-  dataSource: PulseDataSource = defaultDataSource()
+  dataSource: PulseDataSource = defaultDataSource(),
+  // Deen Mode (isDeenModeOn(profile)). Fails closed: OFF skips the prayers read
+  // entirely and reports deen: null ("nothing tracked"), never a fake 0.
+  deenOn: boolean = false
 ): Promise<DomainPulse> {
   const dayOfWeek = dayOfWeekFromDateString(date);
   const [prayers, killList, schoolTasks, coopTaskCompletion, habits, workoutSchedule, workoutSessions] = await Promise.all([
-    dataSource.getPrayers(userId, date),
+    deenOn ? dataSource.getPrayers(userId, date) : Promise.resolve([] as { prayer_name: string; status: string }[]),
     dataSource.getKillListItems(userId, date),
     dataSource.getSchoolTasks(userId, date),
     dataSource.getCurrentCoopTargetTaskCompletion(userId),
@@ -154,7 +157,7 @@ export async function getDomainPulse(
   // correct pattern lib/home/home-kpis.ts's `computeTodayCompletion` uses
   // for the exact same table.
   const prayersDone = prayers.filter((p) => p.status === "on_time" || p.status === "qada").length;
-  const deen = safeFraction(prayersDone, 5);
+  const deen = deenOn ? safeFraction(prayersDone, 5) : null;
 
   const business = safeFraction(
     killList.filter((k) => k.completed).length,

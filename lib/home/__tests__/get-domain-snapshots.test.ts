@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getDomainSnapshots, type DomainSnapshotDataSource } from "../get-domain-snapshots";
 
 const CHICAGO_PROFILE = {
@@ -7,6 +7,7 @@ const CHICAGO_PROFILE = {
   timezone: "America/Chicago",
   prayer_calc_method: "MWL" as const,
   asr_madhab: "standard" as const,
+  deen_mode: true,
   created_at: "2026-01-01T00:00:00Z",
   tracking_started_on: null,
 };
@@ -343,5 +344,61 @@ describe("getDomainSnapshots", () => {
     const snapshots = await getDomainSnapshots("user-1", NOW, dataSource);
     expect(snapshots.deen.pulse).toBeNull();
     expect(snapshots.co_op.pulse).toBeNull();
+  });
+});
+
+describe("getDomainSnapshots -- Deen Mode OFF", () => {
+  it("skips every deen read, returns a neutral deen snapshot, passes deenOn=false to the pulse, and leaves the other domains alone", async () => {
+    const getPrayers = vi.fn(async () => [{ prayer_name: "fajr", status: "on_time" }]);
+    const getPrayerHistory = vi.fn(async () => []);
+    const getPrayerHandledCount = vi.fn(async () => 0);
+    const getQuranSessions = vi.fn(async () => [{ pages_read: 9 }]);
+    const getQuranWeeklyTarget = vi.fn(async () => 20);
+    const getWeeklyFocusHabit = vi.fn(async () => ({ id: "h", name: "Focus" }));
+    const getDomainPulse = vi.fn(async () => ({ ...ZERO_PULSE, deen: null }));
+    const snapshots = await getDomainSnapshots(
+      "user-1",
+      NOW,
+      baseDataSource({
+        getProfile: async () => ({ ...CHICAGO_PROFILE, deen_mode: false }),
+        getPrayers,
+        getPrayerHistory,
+        getPrayerHandledCount,
+        getQuranSessions,
+        getQuranWeeklyTarget,
+        getWeeklyFocusHabit,
+        getDomainPulse,
+        getSchoolTasksThisWeek: async () => [{ completed: true, due_date: "2026-08-10", title: "x" }] as never,
+      })
+    );
+    for (const fn of [getPrayers, getPrayerHistory, getPrayerHandledCount, getQuranSessions, getQuranWeeklyTarget, getWeeklyFocusHabit]) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+    expect(getDomainPulse).toHaveBeenCalledWith("user-1", expect.any(String), false);
+    expect(snapshots.deen).toEqual({
+      nextPrayer: null,
+      prayerStatuses: [],
+      quranWeekPages: 0,
+      quranWeeklyTarget: null,
+      habitFocusName: null,
+      habitFocusStreak: 0,
+      pulse: null,
+      qadaBacklogCount: 0,
+    });
+    expect(snapshots.school.completedThisWeek).toBe(1);
+  });
+
+  it("fails closed with no profile row", async () => {
+    const getPrayers = vi.fn(async () => []);
+    await getDomainSnapshots("user-1", NOW, baseDataSource({ getProfile: async () => null, getPrayers }));
+    expect(getPrayers).not.toHaveBeenCalled();
+  });
+
+  it("positive control: ON reads prayers and passes deenOn=true", async () => {
+    const getPrayers = vi.fn(async () => []);
+    const getDomainPulse = vi.fn(async () => ZERO_PULSE);
+    await getDomainSnapshots("user-1", NOW, baseDataSource({ getPrayers, getDomainPulse }));
+    expect(getPrayers).toHaveBeenCalled();
+    expect(getDomainPulse).toHaveBeenCalledWith("user-1", expect.any(String), true);
   });
 });

@@ -4,6 +4,7 @@ import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString } from "@/lib/date-utils";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import type { CalendarItem } from "@/components/calendar/week-hour-grid";
 import type { WeeklyGoalEntry } from "@/components/shared/weekly-goals-header";
@@ -83,7 +84,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         .select("domain, headline, milestones, quran_page_target")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", weeklyGoalDomains(domainsState)),
+        .in("domain", weeklyGoalDomains(domainsState, isDeenModeOn(profile))),
       supabase
         .from("tasks")
         .select("id, title, domain, due_date, due_time, completed")

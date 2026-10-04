@@ -196,4 +196,18 @@ describe("WeeklyGoalsHeader", () => {
       expect(screen.getByText("Close 3 deals")).toBeInTheDocument();
     });
   });
+
+  it("Deen Mode OFF (showDeen false): no Deen slot, and the weekend nudge no longer names Deen", () => {
+    render(
+      <WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showDeen={false} showPlanningNudge />
+    );
+    expect(screen.queryByText("Deen")).not.toBeInTheDocument();
+    expect(screen.getByText(/set next week's Business goal below/)).toBeInTheDocument();
+    expect(screen.queryByText(/Deen/)).not.toBeInTheDocument();
+  });
+
+  it("ON keeps the Deen wording in the weekend nudge (positive control)", () => {
+    render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />);
+    expect(screen.getByText(/Deen and Business goals/)).toBeInTheDocument();
+  });
 });

@@ -149,7 +149,9 @@ export function WeeklyGoalsHeader({
       <h2 className="text-sm font-semibold text-muted-foreground">This Week&apos;s Focus</h2>
       {showPlanningNudge && (
         <p className="rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business">
-          It&apos;s the weekend — set next week&apos;s Deen and Business goals below.
+          {showDeen
+            ? "It's the weekend — set next week's Deen and Business goals below."
+            : "It's the weekend — set next week's Business goal below."}
         </p>
       )}
       <div

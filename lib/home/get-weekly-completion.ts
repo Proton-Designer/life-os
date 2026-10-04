@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { addDaysToDateString, dayOfWeekFromDateString, localDateString } from "@/lib/date-utils";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { computeWeeklyCompletionPct } from "./weekly-completion-trend";
 
 const PRAYER_NAMES = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
@@ -16,9 +17,12 @@ export type WeeklyCompletion = {
 export async function getWeeklyCompletion(
   userId: string,
   now: Date,
-  profile: { timezone: string } | null
+  profile: { timezone: string; deen_mode?: boolean | null } | null
 ): Promise<WeeklyCompletion> {
   const supabase = await createClient();
+  // Deen Mode OFF: prayers are neither read nor counted, so the completion
+  // percentage has no phantom +5/day denominator for something that is hidden.
+  const deenOn = isDeenModeOn(profile);
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(now, timezone);
   const sevenDaysAgoStr = addDaysToDateString(todayStr, -6);
@@ -30,7 +34,9 @@ export async function getWeeklyCompletion(
     { data: workoutScheduleRows },
     { data: workoutSessionRows },
   ] = await Promise.all([
-    supabase.from("prayers").select("date, prayer_name, status").eq("user_id", userId).gte("date", sevenDaysAgoStr),
+    deenOn
+      ? supabase.from("prayers").select("date, prayer_name, status").eq("user_id", userId).gte("date", sevenDaysAgoStr)
+      : Promise.resolve({ data: [] as { date: string; prayer_name: string; status: string }[] }),
     supabase.from("kill_list_items").select("date, completed").eq("user_id", userId).gte("date", sevenDaysAgoStr),
     supabase
       .from("tasks")
@@ -52,7 +58,7 @@ export async function getWeeklyCompletion(
       const dow = dayOfWeekFromDateString(date);
       const scheduled = (workoutScheduleRows ?? []).find((s) => s.day_of_week === dow);
       return {
-        prayerStatuses: PRAYER_NAMES.map(
+        prayerStatuses: (deenOn ? PRAYER_NAMES : []).map(
           (name) => (prayerHistoryRows ?? []).find((p) => p.date === date && p.prayer_name === name)?.status ?? "pending"
         ),
         killList: (killListRows ?? []).filter((k) => k.date === date),

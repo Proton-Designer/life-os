@@ -13,10 +13,10 @@ const RINGS: {
   { key: "school", label: "School", href: "/school", colorVar: "--accent-school" },
 ];
 
-export function PulseStrip({ pulse }: { pulse: DomainPulse }) {
+export function PulseStrip({ pulse, deenMode }: { pulse: DomainPulse; deenMode: boolean }) {
   return (
     <div className="flex justify-around gap-2">
-      {RINGS.map((ring) => {
+      {RINGS.filter((ring) => deenMode || ring.key !== "deen").map((ring) => {
         const pct = Math.round((pulse[ring.key] ?? 0) * 100);
         return (
           <Link

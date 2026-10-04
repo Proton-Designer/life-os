@@ -32,7 +32,7 @@ import type { AreaWeightLookup } from "./build-candidates";
  * (opted out): the areas under it are absent too, correctly -- there is
  * no data to give them, not a bug to paper over with a fallback.
  */
-export function resolveAreaWeights(state: UserDomainsState): AreaWeightLookup {
+export function resolveAreaWeights(state: UserDomainsState, deenMode: boolean): AreaWeightLookup {
   if (state.mode === "legacy") return {};
 
   const lookup: AreaWeightLookup = {};
@@ -43,7 +43,8 @@ export function resolveAreaWeights(state: UserDomainsState): AreaWeightLookup {
   // shared by three areas that merely happened to sit under one group.
   // Absence still means the user opted out, exactly as this file's header
   // says: areaWeight widens where we look, it never invents a fallback.
-  const deen = areaWeight(state, "faith");
+  // Deen Mode OFF: no deen weight entry (no deen candidates exist either).
+  const deen = deenMode ? areaWeight(state, "faith") : null;
   if (deen) lookup.deen = deen;
   const fitness = areaWeight(state, "body");
   if (fitness) lookup.fitness = fitness;

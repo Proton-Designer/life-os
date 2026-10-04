@@ -51,7 +51,7 @@ describe("getNotifications — read-state overlay", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     tableResponses = {};
-    getProfileMock.mockResolvedValue({ timezone: "America/Chicago" });
+    getProfileMock.mockResolvedValue({ timezone: "America/Chicago", deen_mode: true });
     getPriorityItemsMock.mockResolvedValue([]);
   });
 
@@ -81,7 +81,7 @@ describe("getNotifications — read-state overlay", () => {
     tableResponses.notification_reads = { data: [], error: null };
     // 2026-08-19T23:30:00Z is already 2026-08-20 UTC-wise in some zones, but
     // still 2026-08-19 local in America/Chicago (UTC-5 in August).
-    getProfileMock.mockResolvedValue({ timezone: "America/Chicago" });
+    getProfileMock.mockResolvedValue({ timezone: "America/Chicago", deen_mode: true });
     const { getNotifications } = await import("../get-notifications");
 
     await getNotifications("user-1", new Date("2026-08-20T02:30:00Z")); // 21:30 CDT on the 19th
@@ -115,5 +115,42 @@ describe("getNotifications — read-state overlay", () => {
     const result = await getNotifications("user-1", new Date("2026-08-19T18:00:00Z"));
 
     expect(result.find((i) => i.id === "prayer-fajr")).toBeUndefined();
+  });
+});
+
+describe("getNotifications — Deen Mode OFF", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tableResponses = {};
+    getPriorityItemsMock.mockResolvedValue([
+      priorityItem(),
+      priorityItem({ id: "adhkar-morning", title: "Morning adhkar", actionType: "toggle_adhkar", actionRefId: "morning" }),
+      priorityItem({ id: "task-1", domain: "school", title: "Essay", actionType: "toggle_task", actionRefId: "t1" }),
+    ]);
+  });
+
+  it("drops every deen item (prayer, adhkar) from the bell but keeps other domains", async () => {
+    getProfileMock.mockResolvedValue({ timezone: "America/Chicago", deen_mode: false });
+    const { getNotifications } = await import("../get-notifications");
+    const ids = (await getNotifications("user-1", new Date("2026-08-19T18:00:00Z"))).map((i) => i.id);
+    expect(ids).toContain("task-1");
+    expect(ids).not.toContain("prayer-fajr");
+    expect(ids).not.toContain("adhkar-morning");
+  });
+
+  it("fails closed with no profile row", async () => {
+    getProfileMock.mockResolvedValue(null);
+    const { getNotifications } = await import("../get-notifications");
+    const ids = (await getNotifications("user-1", new Date("2026-08-19T18:00:00Z"))).map((i) => i.id);
+    expect(ids).toContain("task-1");
+    expect(ids).not.toContain("prayer-fajr");
+    expect(ids).not.toContain("adhkar-morning");
+  });
+
+  it("positive control: ON keeps the deen items", async () => {
+    getProfileMock.mockResolvedValue({ timezone: "America/Chicago", deen_mode: true });
+    const { getNotifications } = await import("../get-notifications");
+    const ids = (await getNotifications("user-1", new Date("2026-08-19T18:00:00Z"))).map((i) => i.id);
+    expect(ids).toEqual(expect.arrayContaining(["adhkar-morning", "prayer-fajr", "task-1"]));
   });
 });

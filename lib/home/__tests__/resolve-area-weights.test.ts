@@ -4,7 +4,7 @@ import type { UserDomainsState } from "@/lib/domains/get-user-domains";
 
 describe("resolveAreaWeights (transitional, R27)", () => {
   it("legacy mode has no weight data at all -- empty lookup, every area falls to the arbiter's 'important' floor", () => {
-    expect(resolveAreaWeights({ mode: "legacy" })).toEqual({});
+    expect(resolveAreaWeights({ mode: "legacy" }, true)).toEqual({});
   });
 
   it("Personal Growth's weight is shared by Deen/Fitness/Self-Mastery, each with its OWN subdomain position", () => {
@@ -18,7 +18,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
       ],
     };
 
-    const lookup = resolveAreaWeights(state);
+    const lookup = resolveAreaWeights(state, true);
 
     expect(lookup.deen).toEqual({ weightTier: "essential", position: 0 });
     expect(lookup.self_mastery).toEqual({ weightTier: "essential", position: 1 });
@@ -32,7 +32,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
       subdomains: [],
     };
 
-    expect(resolveAreaWeights(state).school).toEqual({ weightTier: "background", position: null });
+    expect(resolveAreaWeights(state, true).school).toEqual({ weightTier: "background", position: null });
   });
 
   it("Business and co_op get no entry at all -- matches build-candidates.ts's own documented gap, never a guessed tier", () => {
@@ -46,7 +46,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
       subdomains: [],
     };
 
-    const lookup = resolveAreaWeights(state);
+    const lookup = resolveAreaWeights(state, true);
 
     expect(lookup.business).toBeUndefined();
     expect(lookup.co_op).toBeUndefined();
@@ -59,7 +59,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
       subdomains: [{ domainKey: "personal_growth", key: "faith", label: "Faith", kind: null, widgets: [], config: {}, position: 0 }],
     };
 
-    const lookup = resolveAreaWeights(state);
+    const lookup = resolveAreaWeights(state, true);
 
     expect(lookup.fitness).toEqual({ weightTier: "essential", position: null });
   });
@@ -71,7 +71,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
       subdomains: [],
     };
 
-    const lookup = resolveAreaWeights(state);
+    const lookup = resolveAreaWeights(state, true);
 
     expect(lookup.deen).toBeUndefined();
     expect(lookup.fitness).toBeUndefined();
@@ -79,6 +79,22 @@ describe("resolveAreaWeights (transitional, R27)", () => {
   });
 
   it("an empty domains-mode account (zero domains) resolves to an empty lookup, not a crash", () => {
-    expect(resolveAreaWeights({ mode: "domains", domains: [], subdomains: [] })).toEqual({});
+    expect(resolveAreaWeights({ mode: "domains", domains: [], subdomains: [] }, true)).toEqual({});
+  });
+});
+
+describe("resolveAreaWeights — Deen Mode OFF", () => {
+  it("omits the deen entry (a faith row exists, but no deen candidates do either); other areas unchanged", () => {
+    const state: UserDomainsState = {
+      mode: "domains",
+      domains: [
+        { key: "faith", position: 0, weight: "essential" },
+        { key: "school", position: 1, weight: "important" },
+      ],
+      subdomains: [],
+    };
+    expect(resolveAreaWeights(state, false).deen).toBeUndefined();
+    expect(resolveAreaWeights(state, false).school).toEqual({ weightTier: "important", position: null });
+    expect(resolveAreaWeights(state, true).deen).toBeDefined(); // positive control
   });
 });

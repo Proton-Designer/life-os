@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/supabase/auth";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { getPriorityItems } from "@/lib/home/get-priority-items";
 import { localDateString, dayOfWeekFromDateString } from "@/lib/date-utils";
 import type { ActionType, Domain } from "@/lib/home/types";
@@ -115,7 +116,13 @@ export async function getNotifications(userId: string, now: Date): Promise<Notif
     getReadKeysForDate(userId, dateStr),
   ]);
 
-  const fromPriority: NotificationItem[] = priorityItems.map((item) => ({
+  // getPriorityItems already skips prayers when Deen Mode is off; this explicit
+  // filter keeps the bell from ever surfacing a deen item (prayer window, adhkar,
+  // habit) by any other route. Nothing is deleted -- it only hides.
+  const deenOn = isDeenModeOn(profile);
+  const fromPriority: NotificationItem[] = priorityItems
+    .filter((item) => deenOn || item.domain !== "deen")
+    .map((item) => ({
     id: item.id,
     domain: item.domain,
     title: item.title,

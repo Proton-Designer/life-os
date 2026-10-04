@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getDayShape, type DayShapeDataSource } from "../get-day-shape";
 
 const NOW = new Date("2026-08-15T17:00:00Z"); // midday UTC, matches "UTC" timezone below
@@ -11,6 +11,7 @@ function dataSource(overrides: Partial<DayShapeDataSource> = {}): DayShapeDataSo
       timezone: "UTC",
       prayer_calc_method: "MWL",
       asr_madhab: "standard",
+      deen_mode: true,
       checkin_window_start: "08:00",
       checkin_window_end: "22:00",
     }),
@@ -41,6 +42,7 @@ describe("getDayShape", () => {
           timezone: "UTC",
           prayer_calc_method: "MWL",
           asr_madhab: "standard",
+          deen_mode: true,
           checkin_window_start: "08:00",
           checkin_window_end: "22:00",
         }),
@@ -70,6 +72,7 @@ describe("getDayShape", () => {
             timezone: "America/Chicago",
             prayer_calc_method: "MWL",
             asr_madhab: "standard",
+            deen_mode: true,
             checkin_window_start: "06:30",
             checkin_window_end: "23:00",
           }),
@@ -91,6 +94,7 @@ describe("getDayShape", () => {
             timezone: "UTC",
             prayer_calc_method: "MWL",
             asr_madhab: "standard",
+            deen_mode: true,
             checkin_window_start: "08:00",
             checkin_window_end: "22:00",
           }),
@@ -298,5 +302,43 @@ describe("getDayShape", () => {
       );
       expect(result.activities).toHaveLength(1);
     });
+  });
+});
+
+describe("getDayShape -- Deen Mode OFF", () => {
+  const offProfile = async () => ({
+    location_lat: 41.83,
+    location_lng: -87.75,
+    timezone: "UTC",
+    prayer_calc_method: "MWL",
+    asr_madhab: "standard",
+    deen_mode: false,
+    checkin_window_start: "08:00",
+    checkin_window_end: "22:00",
+  });
+
+  it("returns no prayers, never reads prayers or deen habit cues, and keeps valid dayBounds and the other activities", async () => {
+    const getPrayers = vi.fn(async () => [{ prayer_name: "fajr", status: "on_time" }]);
+    const getHabitsWithCueTime = vi.fn(async () => [{ name: "Read", cue_time: "09:00" }]);
+    const result = await getDayShape(
+      "u1",
+      NOW,
+      dataSource({
+        getProfile: offProfile,
+        getPrayers,
+        getHabitsWithCueTime,
+        getTimedTasks: async () => [{ title: "Essay", domain: "school" as const, due_time: "10:00" }],
+      })
+    );
+    expect(result.prayers).toEqual([]);
+    expect(getPrayers).not.toHaveBeenCalled();
+    expect(getHabitsWithCueTime).not.toHaveBeenCalled();
+    expect(result.dayBounds).toEqual({ start: new Date("2026-08-15T08:00:00.000Z"), end: new Date("2026-08-15T22:00:00.000Z") });
+    expect(result.activities.length).toBeGreaterThan(0);
+  });
+
+  it("fails closed for a missing profile row", async () => {
+    const result = await getDayShape("u1", NOW, dataSource({ getProfile: async () => null }));
+    expect(result.prayers).toEqual([]);
   });
 });

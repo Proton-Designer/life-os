@@ -14,12 +14,12 @@ const sub = (domainKey: string, key: string, position: number): UserSubdomainRow
 
 describe("weeklyGoalDomains", () => {
   it("M6: legacy mode always includes deen — Faith existed in the original app, unlike Self-Mastery", () => {
-    expect(weeklyGoalDomains({ mode: "legacy" })).toEqual(["deen", "business"]);
+    expect(weeklyGoalDomains({ mode: "legacy" }, true)).toEqual(["deen", "business"]);
   });
 
   it("business is always included, in every mode — not yet a selectable/deselectable area", () => {
     const noFaith: UserDomainsState = { mode: "domains", domains: [{ key: "work", position: 0, weight: "important" }], subdomains: [] };
-    expect(weeklyGoalDomains(noFaith)).toEqual(["business"]);
+    expect(weeklyGoalDomains(noFaith, true)).toEqual(["business"]);
   });
 
   it("pre-115: includes deen when Faith is an active personal_growth subdomain", () => {
@@ -28,7 +28,7 @@ describe("weeklyGoalDomains", () => {
       domains: [{ key: "personal_growth", position: 0, weight: "essential" }],
       subdomains: [sub("personal_growth", "faith", 0)],
     };
-    expect(weeklyGoalDomains(state)).toEqual(["deen", "business"]);
+    expect(weeklyGoalDomains(state, true)).toEqual(["deen", "business"]);
   });
 
   it("pre-115: excludes deen when Faith was declined (only Fitness/Self-Mastery kept)", () => {
@@ -37,7 +37,7 @@ describe("weeklyGoalDomains", () => {
       domains: [{ key: "personal_growth", position: 0, weight: "essential" }],
       subdomains: [sub("personal_growth", "fitness", 0)],
     };
-    expect(weeklyGoalDomains(state)).toEqual(["business"]);
+    expect(weeklyGoalDomains(state, true)).toEqual(["business"]);
   });
 
   it("post-115: includes deen when Faith is a real top-level row", () => {
@@ -46,7 +46,7 @@ describe("weeklyGoalDomains", () => {
       domains: [{ key: "faith", position: 0, weight: "essential" }],
       subdomains: [],
     };
-    expect(weeklyGoalDomains(state)).toEqual(["deen", "business"]);
+    expect(weeklyGoalDomains(state, true)).toEqual(["deen", "business"]);
   });
 
   it("post-115: excludes deen when Faith is not a top-level row at all", () => {
@@ -55,6 +55,15 @@ describe("weeklyGoalDomains", () => {
       domains: [{ key: "body", position: 0, weight: "important" }],
       subdomains: [],
     };
-    expect(weeklyGoalDomains(state)).toEqual(["business"]);
+    expect(weeklyGoalDomains(state, true)).toEqual(["business"]);
+  });
+});
+
+describe("weeklyGoalDomains — Deen Mode OFF", () => {
+  it("drops deen in legacy mode and for a faith row; business stays", () => {
+    expect(weeklyGoalDomains({ mode: "legacy" }, false)).toEqual(["business"]);
+    const state: UserDomainsState = { mode: "domains", domains: [{ key: "faith", position: 0, weight: "essential" }], subdomains: [] };
+    expect(weeklyGoalDomains(state, false)).toEqual(["business"]);
+    expect(weeklyGoalDomains(state, true)).toEqual(["deen", "business"]); // positive control
   });
 });

@@ -4,7 +4,7 @@ import { DOMAIN_ICON } from "@/lib/domain-icons";
 
 // No new data fetching — every value here was already pulled by
 // get-domain-snapshots.ts for the peek cards, just surfaced again compactly.
-export function WeeklySummaryStrip({ snapshots }: { snapshots: DomainSnapshots }) {
+export function WeeklySummaryStrip({ snapshots, deenMode }: { snapshots: DomainSnapshots; deenMode: boolean }) {
   const tasksThisWeek = snapshots.school.completedThisWeek + snapshots.co_op.completedThisWeek;
 
   return (
@@ -16,13 +16,15 @@ export function WeeklySummaryStrip({ snapshots }: { snapshots: DomainSnapshots }
         label="Signal:Noise"
         value={snapshots.business.weeklyRatioDisplay}
       />
-      <StatCard
-        className="min-w-[9.5rem] shrink-0"
-        icon={DOMAIN_ICON.deen}
-        accent="deen"
-        label="Qur'an pages"
-        value={String(snapshots.deen.quranWeekPages)}
-      />
+      {deenMode && (
+        <StatCard
+          className="min-w-[9.5rem] shrink-0"
+          icon={DOMAIN_ICON.deen}
+          accent="deen"
+          label="Qur'an pages"
+          value={String(snapshots.deen.quranWeekPages)}
+        />
+      )}
       <StatCard
         className="min-w-[9.5rem] shrink-0"
         icon={DOMAIN_ICON.fitness}

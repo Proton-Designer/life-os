@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile as getSharedProfile } from "@/lib/supabase/auth";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { computePrayerWindows, PRAYER_NAMES } from "@/lib/prayer-times/windows";
 import {
   effectivePrayerStatus,
@@ -77,6 +78,8 @@ export type DomainSnapshotDataSource = {
     timezone: string;
     prayer_calc_method: string;
     asr_madhab: string;
+    /** profiles.deen_mode -- read only through isDeenModeOn (null/missing = OFF). */
+    deen_mode: boolean | null;
     created_at: string;
     tracking_started_on: string | null;
   } | null>;
@@ -127,7 +130,7 @@ export type DomainSnapshotDataSource = {
   getCurrentCoopTargetTasks: (
     userId: string
   ) => Promise<{ id: string; title: string; deadline: string | null; status: string }[]>;
-  getDomainPulse: (userId: string, date: string) => Promise<DomainPulse>;
+  getDomainPulse: (userId: string, date: string, deenOn: boolean) => Promise<DomainPulse>;
 };
 
 // Exported for testing in isolation — see
@@ -144,6 +147,7 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         timezone: profile.timezone,
         prayer_calc_method: profile.prayer_calc_method,
         asr_madhab: profile.asr_madhab,
+        deen_mode: profile.deen_mode,
         created_at: profile.created_at,
         tracking_started_on: profile.tracking_started_on,
       };
@@ -344,7 +348,7 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .eq("target_id", currentTarget.id);
       return data ?? [];
     },
-    getDomainPulse,
+    getDomainPulse: (userId, date, deenOn) => getDomainPulse(userId, date, undefined, deenOn),
   };
 }
 
@@ -382,6 +386,9 @@ export async function getDomainSnapshots(
   // Floored so nothing before tracking began can be derived as missed —
   // see computeTrackingFloorDateStr's own doc comment for the full "why"
   // (R7's account wipe, migration 051).
+  // Deen Mode OFF: every deen read below is skipped (not fetched-then-hidden)
+  // and the deen snapshot comes back neutral/empty. Nothing is deleted (R4).
+  const deenOn = isDeenModeOn(profile);
   const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
   const qadaFloorDateStr = addDaysToDateString(dateStr, -59);
   const twoDaysAgoStr = addDaysToDateString(dateStr, -2);
@@ -407,12 +414,12 @@ export async function getDomainSnapshots(
     pulse,
     domainWeights,
   ] = await Promise.all([
-    dataSource.getPrayers(userId, dateStr),
-    dataSource.getPrayerHistory(userId, oneDayAgoStr),
-    dataSource.getPrayerHandledCount(userId, oldQadaRangeStart, twoDaysAgoStr),
-    dataSource.getQuranSessions(userId, weekStart),
-    dataSource.getQuranWeeklyTarget(userId, weekStart),
-    dataSource.getWeeklyFocusHabit(userId, weekStart),
+    deenOn ? dataSource.getPrayers(userId, dateStr) : Promise.resolve([] as Awaited<ReturnType<DomainSnapshotDataSource["getPrayers"]>>),
+    deenOn ? dataSource.getPrayerHistory(userId, oneDayAgoStr) : Promise.resolve([] as Awaited<ReturnType<DomainSnapshotDataSource["getPrayerHistory"]>>),
+    deenOn ? dataSource.getPrayerHandledCount(userId, oldQadaRangeStart, twoDaysAgoStr) : Promise.resolve(0),
+    deenOn ? dataSource.getQuranSessions(userId, weekStart) : Promise.resolve([] as Awaited<ReturnType<DomainSnapshotDataSource["getQuranSessions"]>>),
+    deenOn ? dataSource.getQuranWeeklyTarget(userId, weekStart) : Promise.resolve(null),
+    deenOn ? dataSource.getWeeklyFocusHabit(userId, weekStart) : Promise.resolve(null),
     dataSource.getActiveWorkSession(userId),
     dataSource.getKillListItems(userId, dateStr),
     dataSource.getWeeklySnRatio(userId, weekStart, timezone),
@@ -422,7 +429,7 @@ export async function getDomainSnapshots(
     dataSource.getFitnessHabitLogs(userId, weekStart),
     dataSource.getSchoolTasksThisWeek(userId, weekStart),
     dataSource.getCurrentCoopTargetTasks(userId),
-    dataSource.getDomainPulse(userId, dateStr),
+    dataSource.getDomainPulse(userId, dateStr, deenOn),
     dataSource.getDomainWeights(userId),
   ]);
 
@@ -431,7 +438,7 @@ export async function getDomainSnapshots(
   // first unlogged one in Fajr..Isha order, so a closed-and-unlogged Fajr
   // doesn't get stuck showing as "next" all day.
   let windows: Record<(typeof PRAYER_NAMES)[number], { start: Date; end: Date } | null> | null = null;
-  if (profile?.location_lat != null && profile?.location_lng != null) {
+  if (deenOn && profile?.location_lat != null && profile?.location_lng != null) {
     windows = computePrayerWindows({
       date: now,
       lat: profile.location_lat,
@@ -446,7 +453,7 @@ export async function getDomainSnapshots(
     const stored = (row?.status as StoredPrayerStatus | undefined) ?? null;
     return effectivePrayerStatus(stored, windows ? windows[name] : null, now);
   };
-  const nextPendingPrayer = PRAYER_NAMES.find((name) => {
+  const nextPendingPrayer = (deenOn ? PRAYER_NAMES : []).find((name) => {
     const effective = effectiveStatusFor(name);
     return effective === "pending" || effective === "upcoming";
   });
@@ -462,7 +469,7 @@ export async function getDomainSnapshots(
   // can never know a window really existed to be closed, so nothing here
   // may derive as missed (the "old range is provably closed" claim itself
   // depends on there having been a real window in the first place).
-  const hasLocation = profile?.location_lat != null && profile?.location_lng != null;
+  const hasLocation = deenOn && profile?.location_lat != null && profile?.location_lng != null;
   let oldQadaMissedCount = 0;
   if (hasLocation && oldQadaRangeStart <= twoDaysAgoStr) {
     const daysInOldRange =
@@ -475,18 +482,21 @@ export async function getDomainSnapshots(
   // Recent range (T-1, T): still needs the real window resolve — reuses
   // the same resolvePrayerStatuses + buildQadaBacklog app/(app)/deen/page.tsx
   // uses, given access here rather than duplicated, per spec.
-  const recentResolvedStatuses = resolvePrayerStatuses({
-    rows: recentPrayerRows,
-    dates: [oneDayAgoStr, dateStr],
-    lat: profile?.location_lat ?? null,
-    lng: profile?.location_lng ?? null,
-    timezone,
-    calcMethod: (profile?.prayer_calc_method as CalcMethod) || "MWL",
-    asrMadhab: (profile?.asr_madhab as AsrMadhab) || "standard",
-    now,
-    accountCreatedDateStr,
-  });
-  const recentQadaMissedCount = buildQadaBacklog(recentResolvedStatuses).derivedCount;
+  const recentQadaMissedCount = deenOn
+    ? buildQadaBacklog(
+        resolvePrayerStatuses({
+          rows: recentPrayerRows,
+          dates: [oneDayAgoStr, dateStr],
+          lat: profile?.location_lat ?? null,
+          lng: profile?.location_lng ?? null,
+          timezone,
+          calcMethod: (profile?.prayer_calc_method as CalcMethod) || "MWL",
+          asrMadhab: (profile?.asr_madhab as AsrMadhab) || "standard",
+          now,
+          accountCreatedDateStr,
+        })
+      ).derivedCount
+    : 0;
 
   const qadaBacklogCount = oldQadaMissedCount + recentQadaMissedCount;
 
@@ -494,7 +504,7 @@ export async function getDomainSnapshots(
     nextPrayer: nextPendingPrayer
       ? { name: nextPendingPrayer, dueAt: windows?.[nextPendingPrayer]?.start.toISOString() ?? null }
       : null,
-    prayerStatuses: PRAYER_NAMES.map((name) => ({
+    prayerStatuses: (deenOn ? PRAYER_NAMES : []).map((name) => ({
       name,
       status: effectiveStatusFor(name),
     })),

@@ -28,7 +28,8 @@ import { hasArea } from "./area-vocabulary";
  * is real in the model would be a live regression, not a fix. Revisit
  * once Business has a real user_domains row to check.
  */
-export function weeklyGoalDomains(state: UserDomainsState): ("deen" | "business")[] {
-  const includeDeen = state.mode === "legacy" || hasArea(state, "faith");
+export function weeklyGoalDomains(state: UserDomainsState, deenMode: boolean): ("deen" | "business")[] {
+  // Deen Mode OFF drops the deen goal outright (the weekly_goals row stays, R4).
+  const includeDeen = deenMode && (state.mode === "legacy" || hasArea(state, "faith"));
   return includeDeen ? ["deen", "business"] : ["business"];
 }
