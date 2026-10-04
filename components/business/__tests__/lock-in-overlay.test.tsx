@@ -5,7 +5,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("@/app/(app)/business/actions", () => ({
   startWorkSession: vi.fn(),
   endWorkSession: vi.fn(async () => {}),
-  toggleSessionObjective: vi.fn(async () => {}),
+  setSessionObjectiveCompleted: vi.fn(async () => {}),
+  refreshBusinessViews: vi.fn(async () => {}),
   getActiveSessionDetail: vi.fn(async () => null),
 }));
 // LockInOverlay now renders LockInCheckin (Phase 5), which reads
@@ -32,7 +33,7 @@ vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
 
 import { LockInOverlay } from "../lock-in-overlay";
 import { LockInOverlayProvider, type ActiveWorkSession } from "../lock-in-overlay-context";
-import { toggleSessionObjective } from "@/app/(app)/business/actions";
+import { setSessionObjectiveCompleted } from "@/app/(app)/business/actions";
 import { writeLockInMinimized } from "@/lib/business/lock-in-storage";
 import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context";
 
@@ -72,7 +73,7 @@ function objective(overrides: Partial<{ id: string; kind: "kill_list_item" | "ta
 
 describe("LockInOverlay", () => {
   beforeEach(() => {
-    vi.mocked(toggleSessionObjective).mockClear();
+    vi.mocked(setSessionObjectiveCompleted).mockClear();
     getAllocationQueueForNowMock.mockClear();
     getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
     saveAllocationCheckinMock.mockClear();
@@ -170,20 +171,20 @@ describe("LockInOverlay", () => {
       expect(screen.getAllByRole("button", { name: /Mark "Lab report" incomplete/ }).length).toBeGreaterThan(0); // already completed
     });
 
-    it("toggling a checklist objective calls the context's toggleSessionObjective with that objective's id", async () => {
+    it("toggling a checklist objective calls the context's setSessionObjectiveCompleted with that objective's id", async () => {
       renderOverlay(WITH_OBJECTIVES);
       const user = userEvent.setup();
       const [killListButton] = screen.getAllByRole("button", { name: /Mark "Clear inbox" complete/ });
       await user.click(killListButton!);
-      expect(toggleSessionObjective).toHaveBeenCalledWith("kill-1");
+      expect(setSessionObjectiveCompleted).toHaveBeenCalledWith("kill-1", true);
     });
 
-    it("toggling the custom headline calls toggleSessionObjective with its own id", async () => {
+    it("toggling the custom headline calls setSessionObjectiveCompleted with its own id", async () => {
       renderOverlay(WITH_OBJECTIVES);
       const user = userEvent.setup();
       const [headline] = screen.getAllByRole("button", { name: /Mark "Ship the draft" complete/ });
       await user.click(headline!);
-      expect(toggleSessionObjective).toHaveBeenCalledWith("custom-1");
+      expect(setSessionObjectiveCompleted).toHaveBeenCalledWith("custom-1", true);
     });
 
     it("shows no checklist UI at all for a goal-based session with zero objectives — not even the old full kill list", () => {

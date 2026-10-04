@@ -1,7 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { startWorkSession, endWorkSession, toggleSessionObjective, getActiveSessionDetail } from "@/app/(app)/business/actions";
+import { startWorkSession, endWorkSession, setSessionObjectiveCompleted, refreshBusinessViews, getActiveSessionDetail } from "@/app/(app)/business/actions";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
+import { scheduleRouteRefresh } from "@/lib/client/deferred-refresh";
 import { readLockInMinimized, writeLockInMinimized } from "@/lib/business/lock-in-storage";
 import { goalProgress, goalEndsAtIso } from "@/lib/business/session-goal";
 import type { WorkSessionKind } from "@/lib/business/work-session-kind";
@@ -201,23 +203,50 @@ export function LockInOverlayProvider({
     [pendingKind]
   );
 
+  // PERF-4: per-objective ordered ABSOLUTE writes (last tap wins even after a failed
+  // write), nothing waits on a re-render, one deferred refresh per burst. `confirmed`
+  // holds the last value the server acknowledged; once an objective's queue drains
+  // after a failure the checkbox returns to it (only that objective).
+  const objectiveInflight = useRef<Record<string, number>>({});
+  const objectiveConfirmed = useRef<Record<string, boolean>>({});
+
   const toggleObjective = useCallback(
     (objectiveId: string) => {
       if (!session) return;
-      const nextObjectives = session.objectives.map((o) => (o.id === objectiveId ? { ...o, completed: !o.completed } : o));
+      const current = session.objectives.find((o) => o.id === objectiveId);
+      if (!current) return;
+      const next = !current.completed;
+      const nextObjectives = session.objectives.map((o) => (o.id === objectiveId ? { ...o, completed: next } : o));
       const wasComplete = isAllComplete(session.objectives);
       const nowComplete = isAllComplete(nextObjectives);
 
       setSession({ ...session, objectives: nextObjectives });
 
-      void toggleSessionObjective(objectiveId).catch(() => {
-        // Revert via the functional form — time has passed (the request was
-        // in flight), so a plain closure over the pre-toggle `session` could
-        // clobber an unrelated change made while it was pending.
-        setSession((prev) =>
-          prev ? { ...prev, objectives: prev.objectives.map((o) => (o.id === objectiveId ? { ...o, completed: !o.completed } : o)) } : prev
-        );
-      });
+      if (!objectiveInflight.current[objectiveId]) objectiveConfirmed.current[objectiveId] = current.completed;
+      objectiveInflight.current[objectiveId] = (objectiveInflight.current[objectiveId] ?? 0) + 1;
+      void enqueueByKey(`objective:${objectiveId}`, () => setSessionObjectiveCompleted(objectiveId, next))
+        .then(
+          () => {
+            objectiveConfirmed.current[objectiveId] = next;
+          },
+          () => {}
+        )
+        .finally(() => {
+          objectiveInflight.current[objectiveId] -= 1;
+          if (objectiveInflight.current[objectiveId] === 0) {
+            const confirmed = objectiveConfirmed.current[objectiveId];
+            delete objectiveConfirmed.current[objectiveId];
+            // Functional form: time has passed, so only this objective is touched.
+            setSession((prev) => {
+              const row = prev?.objectives.find((o) => o.id === objectiveId);
+              if (!prev || !row || row.completed === confirmed) return prev; // unchanged: keep identity
+              return { ...prev, objectives: prev.objectives.map((o) => (o.id === objectiveId ? { ...o, completed: confirmed } : o)) };
+            });
+          }
+          scheduleRouteRefresh(() => {
+            void refreshBusinessViews().catch(() => {});
+          });
+        });
 
       // TRANSITION to all-complete, never initial state (that's what makes
       // this a toggle-driven check rather than an effect over `session`

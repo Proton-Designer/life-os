@@ -1,10 +1,12 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 
 const startWorkSessionMock = vi.fn(async (_input: unknown) => ({ id: "s1", startedAt: "2026-09-10T18:00:00.000Z" }));
 const endWorkSessionMock = vi.fn(async (_id: string, _endedAtIso?: string) => {});
-const toggleSessionObjectiveMock = vi.fn(async (_id: string) => {});
+const setObjectiveMock = vi.fn(async (_id: string, _completed: boolean) => {});
+const refreshBusinessViewsMock = vi.fn(async () => {});
 const getActiveSessionDetailMock = vi.fn(async () => null as null | {
   id: string;
   startedAt: string;
@@ -15,7 +17,8 @@ const getActiveSessionDetailMock = vi.fn(async () => null as null | {
 vi.mock("@/app/(app)/business/actions", () => ({
   startWorkSession: (input: unknown) => startWorkSessionMock(input),
   endWorkSession: (id: string, endedAtIso?: string) => endWorkSessionMock(id, endedAtIso),
-  toggleSessionObjective: (id: string) => toggleSessionObjectiveMock(id),
+  setSessionObjectiveCompleted: (id: string, completed: boolean) => setObjectiveMock(id, completed),
+  refreshBusinessViews: () => refreshBusinessViewsMock(),
   getActiveSessionDetail: () => getActiveSessionDetailMock(),
 }));
 
@@ -61,13 +64,15 @@ function objective(overrides: Partial<{ id: string; kind: "kill_list_item" | "ta
 
 describe("LockInOverlayProvider", () => {
   beforeEach(() => {
+    resetKeyedQueuesForTests();
+    refreshBusinessViewsMock.mockClear();
     startWorkSessionMock.mockClear();
     endWorkSessionMock.mockClear();
-    toggleSessionObjectiveMock.mockClear();
+    setObjectiveMock.mockClear();
     getActiveSessionDetailMock.mockClear();
     startWorkSessionMock.mockResolvedValue({ id: "s1", startedAt: "2026-09-10T18:00:00.000Z" });
     endWorkSessionMock.mockResolvedValue(undefined);
-    toggleSessionObjectiveMock.mockResolvedValue(undefined);
+    setObjectiveMock.mockResolvedValue(undefined);
   });
 
   describe("startSession opens the setup dialog rather than starting immediately", () => {
@@ -201,18 +206,55 @@ describe("LockInOverlayProvider", () => {
         objectives: [objective({ id: "obj-1", completed: false }), objective({ id: "obj-2", completed: false })],
       });
       let resolveToggle!: () => void;
-      toggleSessionObjectiveMock.mockImplementation(() => new Promise((resolve) => (resolveToggle = () => resolve(undefined))));
+      setObjectiveMock.mockImplementation(() => new Promise((resolve) => (resolveToggle = () => resolve(undefined))));
 
       const user = userEvent.setup();
       await user.click(screen.getByText("toggle-obj-1"));
       expect(screen.getByTestId("session")).toHaveTextContent("\"completed\":true");
 
       resolveToggle();
-      await waitFor(() => expect(toggleSessionObjectiveMock).toHaveBeenCalledWith("obj-1"));
+      await waitFor(() => expect(setObjectiveMock).toHaveBeenCalledWith("obj-1", true));
+    });
+
+    // PERF-4: absolute, ordered writes. A relative toggle would flip from the unchanged
+    // server value after the first failure and leave the DB opposite to the screen.
+    it("tap, tap again while the first write fails: the second write sends the ABSOLUTE value and the screen ends on the last tap", async () => {
+      renderHarness({
+        id: "s1",
+        startedAtIso: "2026-09-10T18:00:00.000Z",
+        kind: "deep_work",
+        goalMinutes: null,
+        objectives: [objective({ id: "obj-1", completed: false }), objective({ id: "obj-2", completed: false })],
+      });
+      let failFirst!: () => void;
+      setObjectiveMock
+        .mockImplementationOnce(() => new Promise((_, reject) => (failFirst = () => reject(new Error("boom")))))
+        .mockResolvedValueOnce(undefined);
+      const user = userEvent.setup();
+      await user.click(screen.getByText("toggle-obj-1")); // -> true (write held in flight)
+      await user.click(screen.getByText("toggle-obj-1")); // -> false (queued behind it)
+      await act(async () => failFirst()); // first write fails, second then runs
+      await waitFor(() => expect(setObjectiveMock).toHaveBeenCalledTimes(2));
+      expect(setObjectiveMock.mock.calls).toEqual([["obj-1", true], ["obj-1", false]]);
+      await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(/"id":"obj-1"[^}]*"completed":false/));
+    });
+
+    it("schedules ONE deferred refreshBusinessViews for a burst of taps", async () => {
+      renderHarness({
+        id: "s1",
+        startedAtIso: "2026-09-10T18:00:00.000Z",
+        kind: "deep_work",
+        goalMinutes: null,
+        objectives: [objective({ id: "obj-1", completed: false }), objective({ id: "obj-2", completed: false })],
+      });
+      const user = userEvent.setup();
+      await user.click(screen.getByText("toggle-obj-1"));
+      await user.click(screen.getByText("toggle-obj-1"));
+      await waitFor(() => expect(refreshBusinessViewsMock).toHaveBeenCalledTimes(1), { timeout: 2000 });
     });
 
     it("reverts the optimistic flip if the server call fails", async () => {
-      toggleSessionObjectiveMock.mockRejectedValue(new Error("boom"));
+      setObjectiveMock.mockRejectedValue(new Error("boom"));
       renderHarness({
         id: "s1",
         startedAtIso: "2026-09-10T18:00:00.000Z",
