@@ -1,4 +1,4 @@
-import WorkPage from "../page";
+import { WorkScreen as WorkPage } from "../work-screen";
 import { BusinessPageContent } from "@/components/business/business-page-content";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 

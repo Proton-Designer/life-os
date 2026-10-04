@@ -298,7 +298,31 @@ export async function ensureBusinessWorkTab(): Promise<{ key: string; created: b
     };
   }
 
-  const { error: upsertError } = await supabase.from("user_subdomains").upsert([businessRow, ...shifted], { onConflict: "id" });
+  // WORK-W1b: an account with NO active tab (a Work domain that predates tabs) already has Work
+  // content (/work, today's co-op screen). Once /work redirects to the first tab, that screen
+  // would be unreachable behind a lone Business tab, so the same call also creates a plain job tab
+  // ("Work", position 1) for it. Not created when any active tab exists.
+  const extra: (SubdomainRow & { updated_at: string })[] = [];
+  if (active.length === 0) {
+    const taken = new Set([...rows.map((r) => r.key), businessRow.key]);
+    let key = "work";
+    for (let n = 2; taken.has(key); n++) key = `work-${n}`;
+    extra.push({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      domain_id: domainId,
+      key,
+      label: "Work",
+      kind: "job",
+      widgets: [] as unknown as NonNullable<Json>,
+      config: {} as unknown as NonNullable<Json>,
+      position: 1,
+      archived_at: null,
+      updated_at: now,
+    });
+  }
+
+  const { error: upsertError } = await supabase.from("user_subdomains").upsert([businessRow, ...shifted, ...extra], { onConflict: "id" });
   if (upsertError) throw upsertError;
   return { key: businessRow.key, created: true };
 }

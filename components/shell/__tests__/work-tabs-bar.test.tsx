@@ -163,6 +163,14 @@ describe("WorkTabsBar", () => {
     expect(screen.queryByTestId("add-business-tab")).toBeNull();
   });
 
+  it("WORK-W1b: with ZERO tabs the editor still opens and offers 'Add a Business tab' (Save stays disabled: nothing to save)", async () => {
+    const user = userEvent.setup();
+    render(<WorkTabsBar tabs={[]} activeKey="" showSharedNote={false} />);
+    await openEditor(user);
+    expect(screen.getByTestId("add-business-tab")).toBeEnabled();
+    expect(screen.getByTestId("edit-work-tabs-save")).toBeDisabled();
+  });
+
   it("shows the shared-data note only with several tabs and when asked", () => {
     const { rerender } = render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote />);
     expect(screen.getByTestId("work-shared-data-note")).toBeInTheDocument();

@@ -16,3 +16,13 @@ describe("work tabs helpers", () => {
     expect(businessTabHref([{ key: "x", label: "X", kind: null }])).toBeNull();
   });
 });
+
+describe("workEntryTarget (WORK-W1b)", () => {
+  it("redirects to the first tab (encoded) only in domains mode with tabs", async () => {
+    const { workEntryTarget } = await import("../work-tabs");
+    expect(workEntryTarget("domains", [job, biz])).toEqual({ kind: "redirect", href: "/work/co-op" });
+    expect(workEntryTarget("domains", [{ key: "a b", label: "A", kind: null }])).toEqual({ kind: "redirect", href: "/work/a%20b" });
+    expect(workEntryTarget("domains", [])).toEqual({ kind: "screen-with-bar" });
+    expect(workEntryTarget("legacy", [job])).toEqual({ kind: "screen" });
+  });
+});

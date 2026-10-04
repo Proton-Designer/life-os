@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../page", () => ({ default: function WorkPage() { return null; } }));
+vi.mock("../../work-screen", () => ({ WorkScreen: function WorkPage() { return null; } }));
 vi.mock("@/components/business/business-page-content", () => ({ BusinessPageContent: function BusinessPageContent() { return null; } }));
 let state: unknown;
 vi.mock("@/lib/domains/get-user-domains", () => ({ getUserDomains: async () => state }));

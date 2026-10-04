@@ -161,6 +161,24 @@ describe("ensureBusinessWorkTab", () => {
     expect(w.slice(1).map((r) => [r.key, r.position])).toEqual([["co-op", 1], ["second", 2]]);
   });
 
+  it("WORK-W1b: with NO active tab it also creates a job tab 'Work' (position 1) so the existing Work screen stays reachable", async () => {
+    rows = [];
+    const { ensureBusinessWorkTab } = await import("../subdomain-actions");
+    await ensureBusinessWorkTab();
+    expect(written().map((r) => [r.key, r.kind, r.position])).toEqual([["business", "business", 0], ["work", "job", 1]]);
+  });
+
+  it("WORK-W1b control: with an active tab present it does NOT add a job tab; a taken 'work' key becomes work-2", async () => {
+    rows = [row({ id: "a", key: "co-op", position: 0 })];
+    const { ensureBusinessWorkTab } = await import("../subdomain-actions");
+    await ensureBusinessWorkTab();
+    expect(written().map((r) => r.key)).toEqual(["business", "co-op"]);
+    upsertMock.mockClear();
+    rows = [row({ id: "z", key: "work", archived_at: "2026-01-01T00:00:00Z" })];
+    await ensureBusinessWorkTab();
+    expect(written().map((r) => r.key)).toEqual(["business", "work-2"]);
+  });
+
   it("is idempotent when an active business tab exists (no write)", async () => {
     rows = [row({ id: "a", key: "co-op" }), row({ id: "b", key: "biz", kind: "business", position: 1 })];
     const { ensureBusinessWorkTab } = await import("../subdomain-actions");
