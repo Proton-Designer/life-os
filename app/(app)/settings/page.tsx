@@ -35,25 +35,7 @@ import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
-
-const SECTIONS = [
-  { id: "profile", label: "Profile" },
-  { id: "appearance", label: "Appearance" },
-  { id: "features", label: "Features" },
-  { id: "prayer", label: "Prayer" },
-  { id: "location", label: "Location" },
-  { id: "timezone", label: "Timezone" },
-  { id: "checkins", label: "Check-ins" },
-  { id: "notifications", label: "Notifications" },
-  { id: "ai", label: "AI features" },
-  { id: "canvas", label: "Canvas" },
-  { id: "rescuetime", label: "RescueTime" },
-  { id: "whoop", label: "Whoop" },
-  { id: "connectors", label: "Connectors" },
-  { id: "webhooks", label: "Webhooks" },
-  { id: "security", label: "Security" },
-  { id: "data", label: "Data" },
-];
+import { SETTINGS_SECTIONS as SECTIONS } from "@/lib/settings/sections";
 
 export default async function SettingsPage() {
   const user = await getAuthedUser();
@@ -158,6 +140,82 @@ export default async function SettingsPage() {
           <SettingsForm
             email={user.email ?? ""}
             deenMode={deenMode}
+            slots={{
+              afterProfile: (
+                <>
+                  <Panel id="appearance" className="scroll-mt-24" title="Appearance">
+                    <ThemeSettings initial={themePreset} />
+                  </Panel>
+                  <Panel id="features" className="scroll-mt-24" title="Features">
+                    <div className="mb-4 border-b border-border/40 pb-4">
+                      <DeenModeSettings initialOn={deenMode} />
+                    </div>
+                    <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
+                  </Panel>
+                  <Panel id="optional-features" className="scroll-mt-24" title="Optional features">
+                    <OptInFeaturesSettings initialEnabled={enabledFeatures} />
+                  </Panel>
+                </>
+              ),
+              afterCheckins: (
+                <>
+          <Panel title="Weekly shape">
+                    <p className="text-xs text-muted-foreground">
+                      What a normal day looks like, so the evening close can tell you whether today matched it.
+                    </p>
+                    <div className="mt-3">
+                      <WeekdayBaselineSettings initial={weekdayBaselines} />
+                    </div>
+                  </Panel>
+                  <Panel id="notifications" className="scroll-mt-24" title="Notifications">
+                    <div className="flex flex-col gap-4">
+                      <NotificationSettings />
+                      <SleepReminderSettings initialEnabled={sleepReminderEnabled} />
+                    </div>
+                  </Panel>
+
+                  <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
+                    <div className="flex flex-col gap-4">
+                      <AiPreferenceSettings
+                        catalog={aiPreferenceCatalog}
+                        initialProvider={aiPreference.provider}
+                        initialModelTier={aiPreference.modelTier}
+                      />
+                      <AiSpendCeilingSettings
+                        initialSpentUsd={monthlySpendStatus.spentUsd}
+                        initialCapUsd={monthlySpendStatus.capUsd}
+                        monthKey={monthlySpendStatus.monthKey}
+                      />
+                      <ApiKeySettings
+                        providers={providers}
+                        initialStatuses={keyStatuses}
+                        storageConfigured={storageConfigured}
+                      />
+                    </div>
+                  </Panel>
+                  <Panel id="canvas" className="scroll-mt-24" title="Canvas">
+                    <CanvasSettings
+                      initialStatus={canvasStatus}
+                      initialMappings={canvasMappings}
+                      localClasses={localClasses}
+                      storageConfigured={storageConfigured}
+                    />
+                  </Panel>
+                  <Panel id="rescuetime" className="scroll-mt-24" title="RescueTime">
+                    <RescueTimeSettings initialStatus={rescueTimeStatus} storageConfigured={storageConfigured} />
+                  </Panel>
+                  <Panel id="whoop" className="scroll-mt-24" title="Whoop">
+                    <WhoopSettings initialStatus={whoopStatus} />
+                  </Panel>
+                  <Panel id="connectors" className="scroll-mt-24" title="Connectors">
+                    <ConnectorSettings initialTokens={mcpTokens} initialScheduledActions={scheduledActions} />
+                  </Panel>
+                  <Panel id="webhooks" className="scroll-mt-24" title="Webhooks">
+                    <WebhookSettings initialWebhooks={webhooks} />
+                  </Panel>
+                </>
+              ),
+            }}
             initial={{
               displayName: profile?.display_name ?? "",
               prayerCalcMethod: (profile?.prayer_calc_method as SettingsFormData["prayerCalcMethod"]) ?? "MWL",
@@ -173,72 +231,6 @@ export default async function SettingsPage() {
               pinLockEnabled: profile?.pin_lock_enabled ?? false,
             }}
           />
-          <Panel id="appearance" className="scroll-mt-24" title="Appearance">
-            <ThemeSettings initial={themePreset} />
-          </Panel>
-          <Panel id="features" className="scroll-mt-24" title="Features">
-            <div className="mb-4 border-b border-border/40 pb-4">
-              <DeenModeSettings initialOn={deenMode} />
-            </div>
-            <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
-          </Panel>
-          <Panel id="optional-features" className="scroll-mt-24" title="Optional features">
-            <OptInFeaturesSettings initialEnabled={enabledFeatures} />
-          </Panel>
-          <Panel id="notifications" className="scroll-mt-24" title="Notifications">
-            <div className="flex flex-col gap-4">
-              <NotificationSettings />
-              <SleepReminderSettings initialEnabled={sleepReminderEnabled} />
-            </div>
-          </Panel>
-
-          <Panel title="Weekly shape">
-            <p className="text-xs text-muted-foreground">
-              What a normal day looks like, so the evening close can tell you whether today matched it.
-            </p>
-            <div className="mt-3">
-              <WeekdayBaselineSettings initial={weekdayBaselines} />
-            </div>
-          </Panel>
-          <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
-            <div className="flex flex-col gap-4">
-              <AiPreferenceSettings
-                catalog={aiPreferenceCatalog}
-                initialProvider={aiPreference.provider}
-                initialModelTier={aiPreference.modelTier}
-              />
-              <AiSpendCeilingSettings
-                initialSpentUsd={monthlySpendStatus.spentUsd}
-                initialCapUsd={monthlySpendStatus.capUsd}
-                monthKey={monthlySpendStatus.monthKey}
-              />
-              <ApiKeySettings
-                providers={providers}
-                initialStatuses={keyStatuses}
-                storageConfigured={storageConfigured}
-              />
-            </div>
-          </Panel>
-          <Panel id="canvas" className="scroll-mt-24" title="Canvas">
-            <CanvasSettings
-              initialStatus={canvasStatus}
-              initialMappings={canvasMappings}
-              localClasses={localClasses}
-              storageConfigured={storageConfigured}
-            />
-          </Panel>
-          <Panel id="rescuetime" className="scroll-mt-24" title="RescueTime">
-            <RescueTimeSettings initialStatus={rescueTimeStatus} storageConfigured={storageConfigured} />
-          </Panel>
-          <Panel id="whoop" className="scroll-mt-24" title="Whoop">
-            <WhoopSettings initialStatus={whoopStatus} />
-          </Panel>
-          <Panel id="connectors" className="scroll-mt-24" title="Connectors">
-            <ConnectorSettings initialTokens={mcpTokens} initialScheduledActions={scheduledActions} />
-          </Panel>
-          <Panel id="webhooks" className="scroll-mt-24" title="Webhooks">
-            <WebhookSettings initialWebhooks={webhooks} />
-          </Panel>
         </div>
       </div>
     </PageContainer>

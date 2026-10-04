@@ -28,11 +28,14 @@ export function SettingsForm({
   initial,
   email,
   deenMode,
+  slots,
 }: {
   initial: SettingsFormData;
   email: string;
   /** Deen Mode (profiles.deen_mode). OFF hides the Prayer panel and the prayer-time preview; stored prayer settings are left untouched. */
   deenMode: boolean;
+  /** Server-rendered panels interleaved at the right place so the page order matches the section tabs. */
+  slots?: { afterProfile?: React.ReactNode; afterCheckins?: React.ReactNode };
 }) {
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState(initial);
@@ -71,12 +74,13 @@ export function SettingsForm({
 
   return (
     <div className="flex flex-col gap-8">
-      {/* UX-04: a shared eyebrow label reading Profile/Prayer/Check-ins/
-          Location as one visual group -- not merged into a single Panel,
-          since Location's atomic self-save deliberately cannot nest inside
-          this <form> (see its own comment below). */}
-      <span className="-mb-4 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Account</span>
-      <form onSubmit={saveMain} className="contents">
+      {/* THEME/SETTINGS-ORDER: sections render in the SAME order as the left tab list
+          (page.tsx SECTIONS): Profile, Appearance, Features, Prayer, Location, Check-ins,
+          Notifications, AI, Canvas, RescueTime, Whoop, Connectors, Webhooks, Security, Data.
+          The Profile / Prayer / Check-ins fields are no longer contiguous, so they submit
+          through ONE empty form by id (`form="settings-main-form"`); panels in the slots
+          below carry their own forms, which therefore can never be nested inside it. */}
+      <form id="settings-main-form" onSubmit={saveMain} />
       <Panel id="profile" className="scroll-mt-24" title="Profile">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
@@ -87,7 +91,7 @@ export function SettingsForm({
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="display-name">Display name</Label>
-            <Input
+            <Input form="settings-main-form"
               id="display-name"
               value={form.displayName}
               onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
@@ -102,12 +106,14 @@ export function SettingsForm({
         </div>
       </Panel>
 
+      {slots?.afterProfile}
+
       {deenMode && (
       <Panel id="prayer" className="scroll-mt-24" title="Prayer">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <Label htmlFor="prayer-method">Calculation method</Label>
-            <select
+            <select form="settings-main-form"
               id="prayer-method"
               value={form.prayerCalcMethod}
               onChange={(e) => setForm((f) => ({ ...f, prayerCalcMethod: e.target.value as CalcMethod }))}
@@ -121,7 +127,7 @@ export function SettingsForm({
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="asr-madhab">Asr madhab</Label>
-            <select
+            <select form="settings-main-form"
               id="asr-madhab"
               value={form.asrMadhab}
               onChange={(e) => setForm((f) => ({ ...f, asrMadhab: e.target.value as "standard" | "hanafi" }))}
@@ -133,6 +139,26 @@ export function SettingsForm({
           </div>
         </div>
       </Panel>
+      )}
+
+      {/* Location saves itself atomically the moment a place is resolved
+          (geolocation success or a candidate pick) -- it never waits on "Save
+          settings". */}
+      {/* Location (lat/lng/label) is consumed only by prayer features, so it
+          hides with Deen Mode OFF. Timezone is app-wide and used to be set
+          only inside LocationSettings -- it gets its own panel in that case. */}
+      {deenMode ? (
+        <Panel id="location" className="scroll-mt-24" title="Location">
+          <LocationSettings
+            initial={form.location}
+            prayerCalcMethod={form.prayerCalcMethod}
+            asrMadhab={form.asrMadhab}
+          />
+        </Panel>
+      ) : (
+        <Panel id="timezone" className="scroll-mt-24" title="Timezone">
+          <TimezoneSettings initial={form.location.timezone} />
+        </Panel>
       )}
 
       <Panel id="checkins" className="scroll-mt-24" title="Check-ins">
@@ -161,7 +187,7 @@ export function SettingsForm({
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>
-            <Input
+            <Input form="settings-main-form"
               id="window-start"
               type="time"
               value={form.checkinWindowStart}
@@ -170,7 +196,7 @@ export function SettingsForm({
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-end">Window end</Label>
-            <Input
+            <Input form="settings-main-form"
               id="window-end"
               type="time"
               value={form.checkinWindowEnd}
@@ -181,33 +207,12 @@ export function SettingsForm({
       </Panel>
 
       <div className="self-start">
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" form="settings-main-form" disabled={isPending}>
           Save settings
         </Button>
       </div>
-      </form>
 
-      {/* Outside the main form: location saves itself atomically the moment
-          a place is resolved (geolocation success or a candidate pick),
-          same reasoning as Security's PIN form below — it must not wait on
-          "Save settings", and nesting a <form> inside a <form> is invalid
-          HTML besides. */}
-      {/* Location (lat/lng/label) is consumed only by prayer features, so it
-          hides with Deen Mode OFF. Timezone is app-wide and used to be set
-          only inside LocationSettings -- it gets its own panel in that case. */}
-      {deenMode ? (
-        <Panel id="location" className="scroll-mt-24" title="Location">
-          <LocationSettings
-            initial={form.location}
-            prayerCalcMethod={form.prayerCalcMethod}
-            asrMadhab={form.asrMadhab}
-          />
-        </Panel>
-      ) : (
-        <Panel id="timezone" className="scroll-mt-24" title="Timezone">
-          <TimezoneSettings initial={form.location.timezone} />
-        </Panel>
-      )}
+      {slots?.afterCheckins}
 
       <Panel id="security" className="scroll-mt-24" title="Security">
         <div className="flex flex-col gap-4">

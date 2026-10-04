@@ -10,6 +10,7 @@ vi.mock("@/components/settings/timezone-settings", () => ({ TimezoneSettings: ()
 vi.mock("@/components/settings/delete-account-section", () => ({ DeleteAccountSection: () => null }));
 
 import { SettingsForm, type SettingsFormData } from "../settings-form";
+import { SETTINGS_SECTIONS } from "@/lib/settings/sections";
 
 const INITIAL: SettingsFormData = {
   displayName: "Ayman",
@@ -27,20 +28,56 @@ const INITIAL: SettingsFormData = {
 // one group without merging Location's deliberately-separate atomic-save
 // <Panel> (see that file's own comment) into the Profile/Prayer/Check-ins
 // <form>.
-describe("SettingsForm grouping (UX-04)", () => {
-  it("shows one 'Account' label, appearing before Profile and before Security", () => {
-    render(<SettingsForm initial={INITIAL} email="ayman@example.com" deenMode />);
-    const labels = screen.getAllByText("Account");
-    expect(labels).toHaveLength(1);
+describe("SettingsForm section order (matches the left tabs)", () => {
+  const slots = {
+    afterProfile: (
+      <>
+        <section id="appearance" />
+        <section id="features" />
+      </>
+    ),
+    afterCheckins: (
+      <>
+        <section id="notifications" />
+        <section id="ai" />
+        <section id="canvas" />
+        <section id="rescuetime" />
+        <section id="whoop" />
+        <section id="connectors" />
+        <section id="webhooks" />
+      </>
+    ),
+  };
+  // Ids of the section panels, in DOCUMENT order.
+  const sectionIds = (container: HTMLElement) => {
+    const known = new Set<string>(SETTINGS_SECTIONS.map((x) => x.id));
+    return [...container.querySelectorAll("[id]")].map((el) => el.id).filter((id) => known.has(id));
+  };
 
-    const account = labels[0];
-    const profile = screen.getByText("Profile");
-    const security = screen.getByText("Security");
-    // DOCUMENT_POSITION_FOLLOWING (4): account comes before profile, and
-    // profile comes before security -- the group brackets exactly
-    // Profile/Prayer/Check-ins/Location, not Security/Data too.
-    expect(account.compareDocumentPosition(profile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(profile.compareDocumentPosition(security) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it("Deen ON: panels render in exactly the tab order", () => {
+    const { container } = render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode slots={slots} />);
+    const expected = SETTINGS_SECTIONS.map((x) => x.id).filter((id) => id !== "timezone");
+    expect(sectionIds(container)).toEqual(expected);
+  });
+
+  it("Deen OFF: Prayer and Location are gone, Timezone takes Location's place, order unchanged", () => {
+    const { container } = render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} slots={slots} />);
+    const expected = SETTINGS_SECTIONS.map((x) => x.id).filter((id) => id !== "prayer" && id !== "location");
+    expect(sectionIds(container)).toEqual(expected);
+  });
+
+  it("Profile, Prayer and Check-ins still save together through the one main form even though they are no longer contiguous", async () => {
+    const user = userEvent.setup();
+    render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode slots={slots} />);
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(updateProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ display_name: INITIAL.displayName, prayer_calc_method: INITIAL.prayerCalcMethod, checkin_window_start: INITIAL.checkinWindowStart })
+    );
+  });
+
+  it("no <form> is nested inside another (slot panels carry their own forms)", () => {
+    const { container } = render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode slots={{ afterProfile: <form data-testid="slot-form" /> }} />);
+    for (const f of container.querySelectorAll("form")) expect(f.parentElement?.closest("form")).toBeNull();
   });
 
   it("does not change any section's own title", () => {
