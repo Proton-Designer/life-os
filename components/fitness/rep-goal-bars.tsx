@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { repGoalProgress } from "@/lib/fitness/rep-goal";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -49,12 +50,20 @@ function RepGoalBarRow({
   const [expanded, setExpanded] = useState(false);
   const [reps, setReps] = useState(1);
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleFitnessRefresh();
 
-  const progress = repGoalProgress(goal.loggedRepsToday, goal.dailyTarget);
+  // Reps logged this session, shown at once. Keyed to the server total they were
+  // added to, so they vanish when the refreshed total arrives (never double counted).
+  const [bumped, setBumped] = useState<{ base: number; reps: number } | null>(null);
+  const bump = bumped && bumped.base === goal.loggedRepsToday ? bumped.reps : 0;
+
+  const progress = repGoalProgress(goal.loggedRepsToday + bump, goal.dailyTarget);
 
   function handleLog() {
     startTransition(async () => {
       await onLog(goal.exerciseId, goal.exerciseName, reps);
+      setBumped({ base: goal.loggedRepsToday, reps: bump + reps });
+      scheduleRefresh();
       setExpanded(false);
       setReps(1);
     });

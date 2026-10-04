@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -114,10 +115,12 @@ function BodyMetricQuickEntry({
 }) {
   const [value, setValue] = useState<number | "">("");
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleFitnessRefresh();
   function handleLog() {
     if (value === "") return;
     startTransition(async () => {
       await onLog(Number(value));
+      scheduleRefresh();
       onDone();
     });
   }

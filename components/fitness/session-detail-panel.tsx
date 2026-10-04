@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { proposeNextLoad, type LastTopSet } from "@/lib/fitness/progression";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ export function SessionDetailPanel({
     }))
   );
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleFitnessRefresh();
   const [justConfirmed, setJustConfirmed] = useState(false);
 
   if (!workout) {
@@ -86,6 +88,7 @@ export function SessionDetailPanel({
     startTransition(async () => {
       await onConfirm(date, workout.id, workout.name, sets);
       setJustConfirmed(true);
+      scheduleRefresh();
     });
   }
 

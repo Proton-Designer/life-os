@@ -171,6 +171,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/distractions/actions.ts#recordPlanOutcome": { mcp: "distractions.plan_outcome.record" },
 
   // ── Fitness ─────────────────────────────────────────────────────────────
+  "app/(app)/fitness/actions.ts#refreshFitnessViews": { read_only: true, note: "PERF-3: data-free cache revalidation scheduled by the fitness logging controls after a write" },
   "app/(app)/fitness/actions.ts#addHabit": { pending: "P4-09", note: "fitness.custom_habit.add" },
   "app/(app)/fitness/actions.ts#toggleHabit": { pending: "P4-09", note: "fitness.habit_log.toggle" },
   "app/(app)/fitness/actions.ts#removeHabit": { pending: "P4-09", note: "soft archive: fitness.custom_habit.archive" },

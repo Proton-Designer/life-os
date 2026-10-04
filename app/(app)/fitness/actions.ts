@@ -143,8 +143,6 @@ export async function quickLogExercise(
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   await quickLogExerciseCore(supabase, userId, date, exerciseId, exerciseName, sets, reps, load);
-  revalidatePath("/fitness");
-  revalidatePath("/");
 }
 
 /**
@@ -156,15 +154,11 @@ export async function quickLogExercise(
 export async function logWeight(date: string, weightLb: number): Promise<void> {
   const { supabase, userId } = await requireUser();
   await logWeightCore(supabase, userId, date, weightLb);
-  revalidatePath("/fitness");
-  revalidatePath("/");
 }
 
 export async function logWaist(date: string, waistIn: number): Promise<void> {
   const { supabase, userId } = await requireUser();
   await logWaistCore(supabase, userId, date, waistIn);
-  revalidatePath("/fitness");
-  revalidatePath("/");
 }
 
 /**
@@ -181,8 +175,6 @@ export async function confirmWorkoutSession(
 ): Promise<void> {
   const { supabase } = await requireUser();
   await confirmWorkoutSessionCore(supabase, date, workoutId, workoutName, sets);
-  revalidatePath("/fitness");
-  revalidatePath("/");
 }
 
 /**
@@ -203,8 +195,6 @@ export async function confirmPlanSession(
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   await confirmPlanSessionCore(supabase, userId, date, sessionId, sessionName, sets);
-  revalidatePath("/fitness");
-  revalidatePath("/");
 }
 
 export type BenchmarkRepsInput = { exerciseId: string; maxReps: number };
@@ -252,6 +242,18 @@ export async function logCycleBenchmark(
     if (error) throw error;
   }
 
+}
+
+/**
+ * Data-free refresh for the fitness logging controls (PERF-3). The log/confirm
+ * actions above no longer revalidate inline -- that made every tap wait for a full
+ * /fitness + Home re-render. The UI calls this ONCE, debounced, after its write
+ * lands (components/fitness/use-fitness-refresh.ts). Touches no data.
+ */
+export async function refreshFitnessViews(): Promise<void> {
+  await requireUser();
   revalidatePath("/fitness");
   revalidatePath("/");
+  // Domains-mode accounts render the Body area under /personal/[subdomain].
+  revalidatePath("/personal/[subdomain]", "page");
 }

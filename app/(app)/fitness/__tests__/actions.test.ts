@@ -150,8 +150,8 @@ describe("Fitness actions", () => {
 
     expect(sessionsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: "user-1", source: "quick" }));
     expect(setsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: "session-new", exercise_id: "ex-1" }));
-    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
-    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it("confirmWorkoutSession calls the confirm_workout_session RPC with the mapped set shape", async () => {
@@ -162,7 +162,7 @@ describe("Fitness actions", () => {
     ]);
 
     expect(rpcMock).toHaveBeenCalledWith("confirm_workout_session", expect.objectContaining({ p_date: "2026-09-08", p_workout_id: "workout-1" }));
-    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it("confirmPlanSession reads the plan session's workout_id then inserts session+sets", async () => {
@@ -181,7 +181,7 @@ describe("Fitness actions", () => {
     ]);
 
     expect(sessionsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ plan_session_id: "plan-session-1", workout_id: "workout-mirror" }));
-    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it("logWeight preserves the existing waist_in", async () => {
@@ -192,7 +192,7 @@ describe("Fitness actions", () => {
     await logWeight("2026-09-08", 180);
 
     expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ weight_lb: 180, waist_in: 32 }), expect.anything());
-    expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it("logWaist preserves the existing weight_lb", async () => {
@@ -203,6 +203,16 @@ describe("Fitness actions", () => {
     await logWaist("2026-09-08", 32);
 
     expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ waist_in: 32, weight_lb: 180 }), expect.anything());
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+
+  // PERF-3: the logging actions are lean (no inline re-render wait); the UI runs one
+  // deferred, data-free refresh.
+  it("refreshFitnessViews revalidates /fitness, Home and the domains-mode area route, touching no data", async () => {
+    const { refreshFitnessViews } = await import("../actions");
+    await refreshFitnessViews();
     expect(revalidatePathMock).toHaveBeenCalledWith("/fitness");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/personal/[subdomain]");
   });
 });

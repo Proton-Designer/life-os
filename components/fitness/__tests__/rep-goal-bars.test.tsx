@@ -1,6 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { waitFor } from "@testing-library/react";
+const refreshFitnessViews = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/app/(app)/fitness/actions", () => ({ refreshFitnessViews }));
+
 import { RepGoalBars, type RepGoalBar } from "../rep-goal-bars";
 
 const GOALS: RepGoalBar[] = [
@@ -41,5 +45,23 @@ describe("RepGoalBars", () => {
     expect(onLog).toHaveBeenCalledWith("e1", "Pull-ups", 5);
     expect(await screen.findByText("Pull-ups")).toBeInTheDocument();
     expect(screen.queryByTestId("rep-goal-quick-add-e1")).not.toBeInTheDocument();
+  });
+
+  // PERF-3: the bar moves at once and ONE data-free refresh follows the write; the
+  // optimistic reps are never double counted once the server total arrives.
+  it("shows the logged reps immediately, schedules one refresh, and does not double count when the total arrives", async () => {
+    const user = userEvent.setup();
+    const onLog = vi.fn().mockResolvedValue(undefined);
+    refreshFitnessViews.mockClear();
+    const { rerender } = render(<RepGoalBars goals={GOALS} onLog={onLog} />);
+    await user.click(screen.getByText("Pull-ups"));
+    const repsInput = screen.getByLabelText("Pull-ups reps this bout");
+    await user.clear(repsInput);
+    await user.type(repsInput, "5");
+    await user.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() => expect(screen.getByTestId("rep-goal-bar-e1")).toHaveTextContent("23/30"));
+    await waitFor(() => expect(refreshFitnessViews).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    rerender(<RepGoalBars goals={[{ ...GOALS[0], loggedRepsToday: 23 }, GOALS[1]]} onLog={onLog} />);
+    expect(screen.getByTestId("rep-goal-bar-e1")).toHaveTextContent("23/30");
   });
 });

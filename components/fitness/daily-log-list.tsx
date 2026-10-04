@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import type { DailyLogItem } from "@/lib/fitness/daily-log";
 import { repGoalProgress } from "@/lib/fitness/rep-goal";
 import { SessionDetailPanel, type ConfirmSet, type SessionExercise } from "./session-detail-panel";
@@ -198,9 +199,11 @@ function RepsQuickEntry({
 }) {
   const [reps, setReps] = useState(1);
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleFitnessRefresh();
   function handleLog() {
     startTransition(async () => {
       await onLog(exerciseId, exerciseName, reps);
+      scheduleRefresh();
       onDone();
     });
   }

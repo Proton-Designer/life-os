@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ export function QuickAddSheet({
   const [reps, setReps] = useState(10);
   const [load, setLoad] = useState<number | "">("");
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleFitnessRefresh();
 
   function reset() {
     setSelected(null);
@@ -45,6 +47,7 @@ export function QuickAddSheet({
     if (!selected) return;
     startTransition(async () => {
       await onLog(selected.id, selected.name, sets, reps, load === "" ? null : Number(load));
+      scheduleRefresh();
       reset();
       setOpen(false);
     });

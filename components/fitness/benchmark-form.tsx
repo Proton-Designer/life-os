@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -27,6 +28,7 @@ export function BenchmarkForm({
   const [waist, setWaist] = useState<number | "">("");
   const [reps, setReps] = useState<Record<string, number | "">>({});
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleFitnessRefresh();
 
   function handleSubmit() {
     startTransition(async () => {
@@ -37,6 +39,7 @@ export function BenchmarkForm({
           .filter((e) => reps[e.exerciseId] !== undefined && reps[e.exerciseId] !== "")
           .map((e) => ({ exerciseId: e.exerciseId, maxReps: Number(reps[e.exerciseId]) }))
       );
+      scheduleRefresh();
       onDone?.();
     });
   }
