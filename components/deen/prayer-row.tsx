@@ -5,7 +5,7 @@ import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
 import { ChevronDown } from "lucide-react";
 import { markPrayer, unmarkPrayer } from "@/app/(app)/deen/actions";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
-import { SunnahDisclosure } from "@/components/deen/sunnah-disclosure";
+import { SunnahDisclosure, IDLE_AUTO_COLLAPSE_MS } from "@/components/deen/sunnah-disclosure";
 import { sunnahForPrayer } from "@/lib/deen/sunnah";
 import type { SunnahSlot } from "@/lib/deen/sunnah";
 import type { PrayerName } from "@/lib/prayer-times/windows";
@@ -61,6 +61,9 @@ export function PrayerRow({
   });
   const optimisticStatus = item.value;
   const [expanded, setExpanded] = useState(false);
+  // True only while the list was opened BY marking the prayer on time (not by the user's own toggle):
+  // that one closes itself after IDLE_AUTO_COLLAPSE_MS if left alone; a hand-opened one stays open.
+  const [autoOpened, setAutoOpened] = useState(false);
   const sunnahPanelId = useId();
 
   const sunnahList = sunnahForPrayer(prayerName);
@@ -73,7 +76,10 @@ export function PrayerRow({
   // reverts them all to the derived pending/upcoming/missed state for free.
   function handleClick(s: ActionableStatus) {
     const isUnmarking = optimisticStatus === s;
-    if (!isUnmarking && s === "on_time" && hasSunnah) setExpanded(true);
+    if (!isUnmarking && s === "on_time" && hasSunnah) {
+      setAutoOpened(true);
+      setExpanded(true);
+    }
     item.set(isUnmarking ? "none" : s);
   }
 
@@ -103,7 +109,14 @@ export function PrayerRow({
         // On-time Qada Missed Sunnah for Fajr") — pin it to just the prayer
         // label instead, matching what's visually read as "the row."
         aria-label={hasSunnah ? label : undefined}
-        onClick={hasSunnah ? () => setExpanded((e) => !e) : undefined}
+        onClick={
+          hasSunnah
+            ? () => {
+                setAutoOpened(false); // the user took over: never auto-close a list they toggled
+                setExpanded((e) => !e);
+              }
+            : undefined
+        }
         onKeyDown={
           hasSunnah
             ? (e) => {
@@ -169,7 +182,11 @@ export function PrayerRow({
           prayerName={prayerName}
           sunnahCompletions={sunnahCompletions}
           panelId={sunnahPanelId}
-          onCollapse={() => setExpanded(false)}
+          idleCollapseMs={autoOpened ? IDLE_AUTO_COLLAPSE_MS : undefined}
+          onCollapse={() => {
+            setAutoOpened(false);
+            setExpanded(false);
+          }}
         />
       )}
     </li>

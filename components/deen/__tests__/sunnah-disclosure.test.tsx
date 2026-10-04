@@ -141,3 +141,41 @@ describe("SunnahDisclosure — 1.5s auto-collapse timer", () => {
     expect(onCollapse).toHaveBeenCalledTimes(1); // still just once
   });
 });
+
+describe("SunnahDisclosure — idle auto-collapse for a list the app opened", () => {
+  beforeEach(() => {
+    toggleSunnahMock.mockReset();
+    toggleSunnahMock.mockResolvedValue(undefined);
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("closes itself 2.5 s after opening when nobody touches it", async () => {
+    const onCollapse = vi.fn();
+    render(<SunnahDisclosure date="2026-08-25" prayerName="fajr" sunnahCompletions={[]} onCollapse={onCollapse} idleCollapseMs={2500} />);
+    await act(() => vi.advanceTimersByTimeAsync(2499));
+    expect(onCollapse).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("positive control: without idleCollapseMs (a hand-opened list) it never closes by itself", async () => {
+    const onCollapse = vi.fn();
+    render(<SunnahDisclosure date="2026-08-25" prayerName="fajr" sunnahCompletions={[]} onCollapse={onCollapse} />);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
+  it("a tap before 2.5 s takes over: no collapse at 2.5 s, collapse 1.5 s after the tap", async () => {
+    const onCollapse = vi.fn();
+    render(<SunnahDisclosure date="2026-08-25" prayerName="fajr" sunnahCompletions={[]} onCollapse={onCollapse} idleCollapseMs={2500} />);
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /before.*2 rak/i }));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(1499));
+    expect(onCollapse).not.toHaveBeenCalled(); // the original 2.5 s mark (500 ms after the tap) passed, still open
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+});

@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils";
  */
 
 const AUTO_COLLAPSE_MS = 1500;
+/** How long an AUTO-opened disclosure (opened by marking a prayer on time) waits, untouched, before closing itself. */
+export const IDLE_AUTO_COLLAPSE_MS = 2500;
 
 const SLOT_LABEL: Record<SunnahSlot, string> = {
   before: "Before",
@@ -106,6 +108,7 @@ export function SunnahDisclosure({
   sunnahCompletions,
   panelId,
   onCollapse,
+  idleCollapseMs,
 }: {
   date: string;
   prayerName: PrayerName;
@@ -114,6 +117,12 @@ export function SunnahDisclosure({
   panelId?: string;
   /** Ask the caller to close this — immediately for "None", ~1.5s after a real sunnah tap for everything else. */
   onCollapse: () => void;
+  /**
+   * Set ONLY when the caller opened this itself (Deen: marking a prayer on time). If nobody touches the
+   * list for this long it closes; the first sunnah tap hands over to the usual 1.5 s timer and "None"
+   * closes at once. Leave unset for a disclosure the user opened by hand, which must stay open.
+   */
+  idleCollapseMs?: number;
 }) {
   const sunnahList = sunnahForPrayer(prayerName);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -145,6 +154,19 @@ export function SunnahDisclosure({
     },
     []
   );
+
+  // Idle auto-collapse for a disclosure the app opened (not the user). Armed once on mount; any tap
+  // inside re-arms through handleTap (which bumps the token and clears this timer), so a user who is
+  // actually picking a sunnah is never cut off.
+  useEffect(() => {
+    if (idleCollapseMs === undefined) return;
+    const myToken = ++tokenRef.current;
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      if (tokenRef.current === myToken) onCollapse();
+    }, idleCollapseMs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- armed once per open; onCollapse is a fresh closure each render
+  }, [idleCollapseMs]);
 
   function handleTap(writeSettled: Promise<void>) {
     // Re-arm on every tap, not just the first — two taps in a row give

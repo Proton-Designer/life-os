@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PrayerRow } from "../prayer-row";
 import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
@@ -222,5 +222,46 @@ describe("PrayerRow", () => {
       await user.click(screen.getByRole("button", { name: /sunnah for asr/i }));
       expect(screen.getByText(/ghayr mu'akkadah/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe("PrayerRow — the sunnah list opened by marking on time closes itself", () => {
+  beforeEach(() => {
+    resetKeyedQueuesForTests();
+    markPrayerMock.mockReset().mockResolvedValue(undefined);
+    toggleSunnahMock.mockReset();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("marking On-time opens the list, which closes by itself after 2.5 s if left alone", async () => {
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="pending" sunnahCompletions={[]} />);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole("button", { name: "On-time" }));
+    expect(screen.getByRole("button", { name: /before.*rak/i })).toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(2400));
+    expect(screen.getByRole("button", { name: /before.*rak/i })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(screen.queryByRole("button", { name: /before.*rak/i })).not.toBeInTheDocument();
+  });
+
+  it("a list the user opened by hand (row toggle) stays open", async () => {
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="pending" sunnahCompletions={[]} />);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole("button", { name: /sunnah for fajr/i }));
+    expect(screen.getByRole("button", { name: /before.*rak/i })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(screen.getByRole("button", { name: /before.*rak/i })).toBeInTheDocument();
+  });
+
+  it("opened by On-time, then the user touches the row toggle: it is theirs now and stays open", async () => {
+    render(<PrayerRow date="2026-08-11" prayerName="fajr" label="Fajr" status="pending" sunnahCompletions={[]} />);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole("button", { name: "On-time" }));
+    await user.click(screen.getByRole("button", { name: /sunnah for fajr/i })); // collapses (toggle)
+    await user.click(screen.getByRole("button", { name: /sunnah for fajr/i })); // re-opens by hand
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(screen.getByRole("button", { name: /before.*rak/i })).toBeInTheDocument();
   });
 });
