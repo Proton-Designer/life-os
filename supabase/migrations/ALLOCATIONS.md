@@ -107,7 +107,8 @@ the point is to make a number unavailable the moment it is promised.
 | `252` | Sonnet ENG 1 (RS-01), allocated by Opus Lead, 2026-10-04 | profiles.enabled_features CHECK widened: + morning_routine, sleep_plan (no backfill) | allocated |
 | `253` | Sonnet ENG 1 (IA-P4a), allocated by Opus Lead, 2026-10-04 | morning_routine_items + if_cue/fallback_text/habit_id (composite FK, column-scoped SET NULL); user_settings + wake_time/sleep_need_minutes/wind_down_minutes (no backfill) | allocated |
 | `254` | Sonnet ENG 1 (RS-03), allocated by Opus Lead, 2026-10-04 | withdrawn, never applied (route already scheduled inside dispatch-notifications-every-15min) | withdrawn |
-| `255`+ | — | next free | — |
+| `255` | Sonnet ENG 1 (DB-AUDIT), allocated by Opus Lead, 2026-10-04 | CREATE INDEX (catalog-guarded, idempotent) on 67 per-user FK column sets that had no leading-prefix index (distraction_events/trigger_*_plans trigger_id, reviews, card_states, cards/lessons/chunks, sessions, logs, ...) | allocated |
+| `256`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
