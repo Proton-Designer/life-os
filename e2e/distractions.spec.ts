@@ -48,16 +48,27 @@ async function openCaptureDialog(page: Page) {
   await page.getByRole("button", { name: "Log a distraction" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByText("What happened?").or(page.getByText("What's the domain?"))).toBeVisible();
-  if (await page.getByText("What happened?").isVisible()) {
-    await page.getByRole("button", { name: "More options" }).click();
-  }
-  await expect(page.getByText("What's the domain?")).toBeVisible();
+  // A zero-trigger account (the fresh legacy SEED) first paints "What happened?" and then, once its trigger
+  // list resolves empty, swaps itself to the domain picker, so "More options" can vanish between
+  // isVisible() and click() (E2E-01: 30 s of "element was detached, retrying"). Re-evaluate until the
+  // domain step is actually showing instead of committing to one click.
+  await expect(async () => {
+    const more = page.getByRole("button", { name: "More options" });
+    if (await more.isVisible()) await more.click({ timeout: 2_000 }).catch(() => {});
+    await expect(page.getByText("What's the domain?")).toBeVisible({ timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
 }
 
 async function readHomeDistractionsCount(page: Page): Promise<number> {
   const text = await page.getByTestId("home-distractions-count").textContent();
   return Number(text);
 }
+
+// Real prod latency: each test makes several server round trips (dialog data, the cleanup route) and the
+// whole run shares one account, so give them the slow-test budget rather than the 30 s default.
+test.beforeEach(() => {
+  test.slow();
+});
 
 test.describe("Distractions", () => {
   test("capture: create a trigger, then tap it again as an existing one — both close the dialog in one tap and increment Home's count", async ({

@@ -46,7 +46,10 @@ import { settleRoute, fillReliably } from "./helpers";
 
 async function openSettings(page: Page) {
   await page.goto("/settings");
-  const section = page.locator("#ai");
+  // NAV-01b streams this panel: while it swaps in, React holds BOTH the skeleton Panel (same id, for the
+  // section nav's #anchor) and the real one, so a bare #ai is a strict-mode violation. Only the real
+  // panel carries its provider picker.
+  const section = page.locator("#ai").filter({ has: page.getByText("Which AI provider to use") });
   await expect(section).toBeVisible();
   await settleRoute(page);
   return section;

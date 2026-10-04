@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
 
 // Exercises the shared TaskRowList component (2026-08-25 tap-to-complete
@@ -24,6 +24,22 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // remove or revert it. Same "no UI affordance to undo this" shape as
 // clear-prayer/clear-sunnah/clear-distraction-trigger.
 
+// Home's Now module shows only the MOST URGENT pending item per domain, so a "Playwright tap-to-complete"
+// task left behind by an earlier failed run (this spec cannot delete through the UI) stays "next" and hides
+// this run's new task (E2E-01: "row not found" on a fresh SEED). Clear any residue before AND after each run.
+const TITLE_PREFIX = "Playwright tap-to-complete ";
+
+async function clearResidue(request: APIRequestContext, baseURL: string | undefined) {
+  const secret = process.env.E2E_TEST_SECRET;
+  if (!secret) return;
+  await request
+    .delete(`${baseURL}/api/test/clear-task`, { headers: { "x-e2e-secret": secret }, data: { titlePrefix: TITLE_PREFIX } })
+    .catch(() => undefined);
+}
+
+test.beforeEach(async ({ request, baseURL }) => clearResidue(request, baseURL));
+test.afterEach(async ({ request, baseURL }) => clearResidue(request, baseURL));
+
 test.describe("TaskRowList — tap to complete", () => {
   test("completing a task on Home's Now module is instant, moves it into the collapsed Completed section, and persists across reload", async ({
     page,
@@ -32,7 +48,7 @@ test.describe("TaskRowList — tap to complete", () => {
     const secret = process.env.E2E_TEST_SECRET;
     if (!secret) test.skip(true, "E2E_TEST_SECRET not set — see .env.local");
 
-    const taskTitle = `Playwright tap-to-complete ${Date.now()}`;
+    const taskTitle = `${TITLE_PREFIX}${Date.now()}`;
 
     // --- Create a fresh pending task due today, via School's task wizard ---
     await page.goto("/school");

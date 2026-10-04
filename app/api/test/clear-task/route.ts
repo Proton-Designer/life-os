@@ -26,12 +26,19 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const { title } = (await request.json()) as { title: string };
-  if (!title) {
+  const { title, titlePrefix } = (await request.json()) as { title?: string; titlePrefix?: string };
+  if (!title && !titlePrefix) {
     return NextResponse.json({ error: "Missing title" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("tasks").delete().eq("user_id", user.id).eq("title", title);
+  // `titlePrefix` clears residue a previously failed run left behind (E2E-01: leftover tasks of the same
+  // domain stay "next" on Home and hide a new one). A prefix must be specific enough to never match real
+  // data, and LIKE wildcards in it are escaped.
+  if (titlePrefix !== undefined && (titlePrefix.length < 8 || /[%_\\]/.test(titlePrefix))) {
+    return NextResponse.json({ error: "titlePrefix must be >= 8 chars with no wildcard characters" }, { status: 400 });
+  }
+  const query = supabase.from("tasks").delete().eq("user_id", user.id);
+  const { error } = title ? await query.eq("title", title) : await query.like("title", `${titlePrefix}%`);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
