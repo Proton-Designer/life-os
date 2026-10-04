@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { InlineErrorBoundary } from "@/components/shell/inline-error-boundary";
 import { Panel } from "@/components/ui/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AiPreferenceSettings, type AiProviderCatalogInfo } from "@/components/settings/ai-preference-settings";
@@ -111,24 +112,36 @@ async function WebhooksPanel() {
 export function StreamedIntegrationPanels() {
   return (
     <>
-      <Suspense fallback={<PanelFallback id="ai" title="AI features (optional)" height="h-48" />}>
-        <AiPanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback id="canvas" title="Canvas" height="h-32" />}>
-        <CanvasPanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback id="rescuetime" title="RescueTime" />}>
-        <RescueTimePanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback id="whoop" title="Whoop" />}>
-        <WhoopPanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback id="connectors" title="Connectors" height="h-32" />}>
-        <ConnectorsPanel />
-      </Suspense>
-      <Suspense fallback={<PanelFallback id="webhooks" title="Webhooks" />}>
-        <WebhooksPanel />
-      </Suspense>
+      <InlineErrorBoundary label="AI features">
+        <Suspense fallback={<PanelFallback id="ai" title="AI features (optional)" height="h-48" />}>
+          <AiPanel />
+        </Suspense>
+      </InlineErrorBoundary>
+      <InlineErrorBoundary label="Canvas">
+        <Suspense fallback={<PanelFallback id="canvas" title="Canvas" height="h-32" />}>
+          <CanvasPanel />
+        </Suspense>
+      </InlineErrorBoundary>
+      <InlineErrorBoundary label="RescueTime">
+        <Suspense fallback={<PanelFallback id="rescuetime" title="RescueTime" />}>
+          <RescueTimePanel />
+        </Suspense>
+      </InlineErrorBoundary>
+      <InlineErrorBoundary label="Whoop">
+        <Suspense fallback={<PanelFallback id="whoop" title="Whoop" />}>
+          <WhoopPanel />
+        </Suspense>
+      </InlineErrorBoundary>
+      <InlineErrorBoundary label="Connectors">
+        <Suspense fallback={<PanelFallback id="connectors" title="Connectors" height="h-32" />}>
+          <ConnectorsPanel />
+        </Suspense>
+      </InlineErrorBoundary>
+      <InlineErrorBoundary label="Webhooks">
+        <Suspense fallback={<PanelFallback id="webhooks" title="Webhooks" />}>
+          <WebhooksPanel />
+        </Suspense>
+      </InlineErrorBoundary>
     </>
   );
 }

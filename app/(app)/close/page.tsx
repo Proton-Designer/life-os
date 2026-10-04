@@ -61,10 +61,10 @@ export default async function EveningClosePage() {
               deltaMinutes={data.deltaMinutes}
               activeHabits={data.activeHabits}
             />
-            <Stream promise={duePromotionsPromise} fallback={null}>
+            <Stream promise={duePromotionsPromise} label="Promotions" fallback={null}>
               {(duePromotions) => <VerdictDueList promotions={duePromotions} />}
             </Stream>
-            <Stream promise={inboxPromise} fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-48" />}>
+            <Stream promise={inboxPromise} label="Plan tomorrow" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-48" />}>
               {(inbox) => (
                 <ClosePlanStage
                   initialLines={data.tomorrowLines}

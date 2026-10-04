@@ -103,7 +103,37 @@ export default async function HomePage() {
   // IA-P3b: today's habit check-offs (the habits board's own reader).
   const activeHabitsPromise = getActiveHabitsWithStatus(supabase, userId, dateStr, timezone);
   // A failure must reach the error boundary through <Stream>, not as an unhandled rejection before it is awaited.
-  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise]) p.catch(() => undefined);
+  // The Launch card needs the rhythm phase AND the habits; built only for an account with the opt-in on,
+  // from the promises already running (no extra reads), and guarded like the others.
+  const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise]) : null;
+  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
+
+  const hasSelfMastery = hasArea(domainsState, "learning");
+  const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
+    // showSessionEntry, not hasSelfMastery alone -- a School-only user's due questions must be able
+    // to compete for the top "Now" slot too (see shouldShowSessionEntry's header).
+    const showSessionEntry = shouldShowSessionEntry(hasSelfMastery, dueSummary);
+    const candidateInput = showSessionEntry
+      ? await getSelfMasteryCandidateInput(dueSummary)
+      : { hasCandidate: false as const, dueAt: null, decay: null, cost: null };
+    return { dueSummary, showSessionEntry, candidateInput };
+  });
+
+  // Weekly planning nudge: unlocks Saturday evening, no hard lockout -- just a nudge until it's done,
+  // per spec. "This week" is the upcoming week (starts tomorrow, Sunday). Started with the rest
+  // (it only needs the date), not awaited on its own after them.
+  const isSaturdayEvening =
+    localWeekday(now, timezone) === "Saturday" &&
+    (now.getUTCHours() * 60 + now.getUTCMinutes() + getTimezoneOffsetMinutes(now, timezone)) % 1440 >= 18 * 60;
+  const upcomingGoalsPromise: Promise<boolean> = isSaturdayEvening
+    ? Promise.resolve(
+        supabase
+          .from("weekly_goals")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("week_start_date", addDaysToDateString(getWeekStartDate(dateStr), 7))
+      ).then(({ data }) => (data?.length ?? 0) === 0)
+    : Promise.resolve(false);
 
   const [
     items,
@@ -114,7 +144,8 @@ export default async function HomePage() {
     triggers,
     distractionsToday,
     inProgressItems,
-    dueSummary,
+    dueSession,
+    showPlanningNudge,
     morningBrief,
     windDown,
     morningRoutineItems,
@@ -142,7 +173,10 @@ export default async function HomePage() {
       // D-003: the retrieval session's entry point. Deliberately does NOT
       // call start_session — a user glancing at Home never creates a real
       // work_sessions row just by loading the page.
-      getDueSummary(),
+      // The due summary and the Self-Mastery candidate input (which needs it) chain INSIDE this Promise.all
+      // (NAV-01b follow-up): they used to be a second sequential await after everything else resolved.
+      dueSessionPromise,
+      upcomingGoalsPromise,
       // P2-02: null for every indistinguishable-by-design reason (not yet
       // generated today, no key, cap hit, provider failure) -- see
       // lib/ai/morning-brief.ts's own header. Home renders nothing in all
@@ -169,8 +203,6 @@ export default async function HomePage() {
 
   // Via the 115 bridge — reading "personal_growth:self_mastery" directly
   // makes Self-Mastery disappear the moment the group row is archived.
-  const hasSelfMastery = hasArea(domainsState, "learning");
-
   // SessionEntryCard's own "Add a book" banner used to hardcode "/self-mastery"
   // regardless of account mode -- correct for a legacy account (there is no
   // Personal tab to land it in), but for a domains-mode account it skipped
@@ -182,9 +214,10 @@ export default async function HomePage() {
   // (see personal/[subdomain]/layout.tsx).
   const selfMasteryHref = domainsState.mode === "domains" && hasSelfMastery ? "/personal/self_mastery" : "/self-mastery";
 
-  // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's
-  // own header for the full mechanism.
-  const showSessionEntry = shouldShowSessionEntry(hasSelfMastery, dueSummary);
+  // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's own header for the full
+  // mechanism. The due summary, the show decision and the ranking candidate input all resolved inside
+  // the Promise.all above.
+  const { dueSummary, showSessionEntry, candidateInput: selfMasteryCandidateInput } = dueSession;
 
   // Body-level gating (Opus Lead finding, stranger-journey e2e): the nav
   // gates correctly, but Home's own content did not — Sector progress and
@@ -223,24 +256,6 @@ export default async function HomePage() {
   // message, rather than a 404 redirect to a route that isn't built.
   const isFreshInstall = profile?.onboarding_completed === false && items.length === 0;
 
-  // Weekly planning nudge: unlocks Saturday evening, no hard lockout — just
-  // a nudge until it's done, per spec. "This week" here means the upcoming
-  // week (starts tomorrow, Sunday), since Saturday evening is when you plan
-  // ahead for it.
-  const isSaturdayEvening =
-    localWeekday(now, timezone) === "Saturday" &&
-    (now.getUTCHours() * 60 + now.getUTCMinutes() + getTimezoneOffsetMinutes(now, timezone)) % 1440 >= 18 * 60;
-  let showPlanningNudge = false;
-  if (isSaturdayEvening) {
-    const upcomingWeekStart = addDaysToDateString(getWeekStartDate(dateStr), 7);
-    const { data: upcomingGoals } = await supabase
-      .from("weekly_goals")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("week_start_date", upcomingWeekStart);
-    showPlanningNudge = (upcomingGoals?.length ?? 0) === 0;
-  }
-
   const ribbonLayout = computeDayRibbon({ dayBounds: dayShape.dayBounds, prayers: dayShape.prayers, activities: dayShape.activities, now });
 
   // A2 wiring (R18/R19): the real cross-domain arbiter, not a fixed
@@ -255,9 +270,6 @@ export default async function HomePage() {
   // Leaving this on hasSelfMastery while fixing visibility below would trade
   // one "built but unreachable" shape (invisible) for another (visible but
   // never ranked).
-  const selfMasteryCandidateInput = showSessionEntry
-    ? await getSelfMasteryCandidateInput(dueSummary)
-    : { hasCandidate: false as const, dueAt: null, decay: null, cost: null };
   const selfMasteryCandidate = buildSelfMasteryCandidate(selfMasteryCandidateInput, weights);
   const rankedTopItems = selectNextActionPerDomain(items, weights, now);
   const topOtherCandidate = rankedTopItems.length > 0 ? buildCandidatesFromPriorityItems([rankedTopItems[0]], weights)[0] : null;
@@ -304,7 +316,7 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">
-        <Stream promise={rhythmPromise} fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
+        <Stream promise={rhythmPromise} label="Your day" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
           {(rhythm) => <RhythmSection data={rhythm} />}
         </Stream>
       </LayoutSlot>
@@ -317,7 +329,9 @@ export default async function HomePage() {
 
       {morningRoutineOn && (
         <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
-          <Stream promise={Promise.all([rhythmPromise, activeHabitsPromise])} fallback={<PanelSkeleton titleWidth="w-32" bodyHeight="h-28" />}>
+          {/* fallback null: the card only shows in the morning/today phases, and the phase is unknown until
+              the rhythm resolves -- a skeleton here would flash and collapse in wind-down/done. */}
+          <Stream promise={launchPromise!} label="Launch sequence" fallback={null}>
             {([rhythm, activeHabits]) =>
               rhythm.state === "morning" || rhythm.state === "today" ? (
                 <LaunchSequenceCard
@@ -346,9 +360,9 @@ export default async function HomePage() {
       {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} selfMasteryHref={selfMasteryHref} />}
 
       <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
-        {/* Only an account with a Deen goal needs the Quran numbers from the (streamed) snapshots. */}
-        {hasFaith ? (
-          <Stream promise={snapshotsPromise} fallback={<WeeklyGoalsHeaderSkeleton />}>
+        {/* Only an account with a saved Deen goal needs the Quran numbers from the (streamed) snapshots; everyone else renders at once. */}
+        {hasFaith && deenGoalRow ? (
+          <Stream promise={snapshotsPromise} label="Weekly goals" fallback={<WeeklyGoalsHeaderSkeleton />}>
             {(snapshots) => renderGoalsHeader(deenGoalFor(snapshots))}
           </Stream>
         ) : (
@@ -357,7 +371,7 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="domain_status">
-        <Stream promise={snapshotsPromise} fallback={<DomainStatusStripSkeleton />}>
+        <Stream promise={snapshotsPromise} label="Sector progress" fallback={<DomainStatusStripSkeleton />}>
           {(snapshots) => <DomainStatusStack snapshots={snapshots} title="Sector progress" rows={sectorRows} />}
         </Stream>
       </LayoutSlot>
@@ -377,7 +391,7 @@ export default async function HomePage() {
         </Panel>
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="habit_checkoffs">
-        <Stream promise={activeHabitsPromise} fallback={null}>
+        <Stream promise={activeHabitsPromise} label="Habits today" fallback={null}>
           {(activeHabits) => <HabitCheckoffs habits={activeHabits} today={dateStr} />}
         </Stream>
       </LayoutSlot>
@@ -415,7 +429,7 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="mcp_widgets">
-        <Stream promise={mcpWidgetsPromise} fallback={null}>
+        <Stream promise={mcpWidgetsPromise} label="Agent widgets" fallback={null}>
           {(mcpWidgets) => <McpWidgetsPanel widgets={mcpWidgets} />}
         </Stream>
       </LayoutSlot>

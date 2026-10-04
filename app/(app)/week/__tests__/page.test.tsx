@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: vi.fn(), useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/supabase/auth", () => ({ getAuthedUser: async () => ({ id: "u1" }) }));
 vi.mock("@/components/shell/page-container", () => ({ PageContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("@/components/shell/page-header", () => ({ PageHeader: ({ title }: { title: string }) => <h1>{title}</h1> }));

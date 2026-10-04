@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { PanelSkeleton } from "@/components/shell/route-skeleton";
+import { InlineErrorBoundary } from "@/components/shell/inline-error-boundary";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { RhythmCard } from "@/components/insights/rhythm-card";
@@ -33,12 +34,16 @@ export function InsightsWeekTab({ soFar }: { soFar: boolean }) {
           </div>
         }
       />
-      <Suspense fallback={null}>
-        <RhythmCard />
-      </Suspense>
-      <Suspense fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-48" />}>
-        <WeeklyReviewBody soFar={soFar} viewBasePath="/insights?tab=week" />
-      </Suspense>
+      <InlineErrorBoundary label="Rhythm">
+        <Suspense fallback={null}>
+          <RhythmCard />
+        </Suspense>
+      </InlineErrorBoundary>
+      <InlineErrorBoundary label="Weekly review">
+        <Suspense fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-48" />}>
+          <WeeklyReviewBody soFar={soFar} viewBasePath="/insights?tab=week" />
+        </Suspense>
+      </InlineErrorBoundary>
     </PageContainer>
   );
 }

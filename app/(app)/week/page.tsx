@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { PanelSkeleton } from "@/components/shell/route-skeleton";
+import { InlineErrorBoundary } from "@/components/shell/inline-error-boundary";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { getAuthedUser } from "@/lib/supabase/auth";
@@ -44,33 +45,43 @@ export default async function WeekPage() {
       <div className="space-y-10">
         <section id="lookback" aria-labelledby="week-step-lookback" className="scroll-mt-20 space-y-3">
           <h2 id="week-step-lookback" className="text-base font-semibold">1 · Look back</h2>
-          <Suspense fallback={<PanelSkeleton titleWidth="w-24" bodyHeight="h-40" />}>
-            <WeeklyReviewBody soFar={false} viewBasePath="/insights?tab=week" showViewSwitch={false} />
-          </Suspense>
+          <InlineErrorBoundary label="Look back">
+            <Suspense fallback={<PanelSkeleton titleWidth="w-24" bodyHeight="h-40" />}>
+              <WeeklyReviewBody soFar={false} viewBasePath="/insights?tab=week" showViewSwitch={false} />
+            </Suspense>
+          </InlineErrorBoundary>
         </section>
         <section id="goals" aria-labelledby="week-step-goals" className="scroll-mt-20 space-y-3">
           <h2 id="week-step-goals" className="text-base font-semibold">2 · Goals &amp; milestones</h2>
-          <Suspense fallback={<PanelSkeleton titleWidth="w-40" bodyHeight="h-48" />}>
-            <GoalsSection />
-          </Suspense>
+          <InlineErrorBoundary label="Goals & milestones">
+            <Suspense fallback={<PanelSkeleton titleWidth="w-40" bodyHeight="h-48" />}>
+              <GoalsSection />
+            </Suspense>
+          </InlineErrorBoundary>
         </section>
         <section id="habits" aria-labelledby="week-step-habits" className="scroll-mt-20 space-y-3">
           <h2 id="week-step-habits" className="text-base font-semibold">3 · Habits: keep, pause or drop</h2>
-          <Suspense fallback={<PanelSkeleton titleWidth="w-44" bodyHeight="h-40" />}>
-            <HabitsSection />
-          </Suspense>
+          <InlineErrorBoundary label="Habits step">
+            <Suspense fallback={<PanelSkeleton titleWidth="w-44" bodyHeight="h-40" />}>
+              <HabitsSection />
+            </Suspense>
+          </InlineErrorBoundary>
         </section>
         <section id="worries" aria-labelledby="week-step-worries" className="scroll-mt-20 space-y-3">
           <h2 id="week-step-worries" className="text-base font-semibold">4 · Worry hour</h2>
-          <Suspense fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-32" />}>
-            <WorriesSection alwaysWorryHour />
-          </Suspense>
+          <InlineErrorBoundary label="Worry hour">
+            <Suspense fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-32" />}>
+              <WorriesSection alwaysWorryHour />
+            </Suspense>
+          </InlineErrorBoundary>
         </section>
         <section id="weekly-goal" aria-labelledby="week-step-weekly-goal" className="scroll-mt-20 space-y-3">
           <h2 id="week-step-weekly-goal" className="text-base font-semibold">5 · This week&apos;s goal</h2>
-          <Suspense fallback={<PanelSkeleton titleWidth="w-36" bodyHeight="h-24" />}>
-            <WeeklyGoalStep />
-          </Suspense>
+          <InlineErrorBoundary label="This week's goal">
+            <Suspense fallback={<PanelSkeleton titleWidth="w-36" bodyHeight="h-24" />}>
+              <WeeklyGoalStep />
+            </Suspense>
+          </InlineErrorBoundary>
         </section>
       </div>
     </PageContainer>
