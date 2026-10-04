@@ -12,7 +12,7 @@ import path from "node:path";
 const shared = {
   globals: true,
   setupFiles: ["./vitest.setup.ts"],
-  exclude: ["node_modules", ".next", "e2e"],
+  exclude: ["node_modules", ".next", "e2e", ".claude/**"],
 };
 
 export default defineConfig({
