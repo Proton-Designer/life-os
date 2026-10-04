@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Pencil } from "lucide-react";
 import { updateTrigger, saveActionPlan } from "@/app/(app)/distractions/actions";
+import { useDistractionRefresh } from "@/components/distractions/use-distraction-refresh";
 import { rankTriggersForPlanList } from "@/lib/distractions/plan-rules";
 import type { TriggerSummary } from "@/lib/distractions/types";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -27,6 +28,7 @@ function TriggerPlanCard({
   const [description, setDescription] = useState(trigger.description ?? "");
   const [planBody, setPlanBody] = useState(trigger.currentPlan?.body ?? "");
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useDistractionRefresh();
 
   function handleCancel() {
     setName(trigger.name);
@@ -49,6 +51,8 @@ function TriggerPlanCard({
       if (trigger.currentPlan && trimmedPlan !== trigger.currentPlan.body) {
         await saveActionPlan(trigger.id, trimmedPlan);
       }
+      // saveActionPlan no longer revalidates inline (PERF-4): one deferred refresh re-syncs Home + /review.
+      scheduleRefresh();
 
       onUpdated({
         ...trigger,

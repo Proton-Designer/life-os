@@ -162,3 +162,16 @@ describe("#52 session linkage", () => {
     expect(eqSpy).toHaveBeenCalledWith("session_id", "session-1");
   });
 });
+
+// PERF-4: the write actions are lean; one deferred, data-free refresh covers every surface they feed.
+describe("refreshDistractionViews", () => {
+  beforeEach(() => revalidatePathMock.mockClear());
+
+  it("revalidates Home, /deen, the domains-mode faith route and /review, touching no data", async () => {
+    const { refreshDistractionViews } = await import("../actions");
+    await refreshDistractionViews();
+    for (const path of ["/", "/deen", "/personal/[subdomain]", "/review"]) {
+      expect(revalidatePathMock).toHaveBeenCalledWith(path);
+    }
+  });
+});

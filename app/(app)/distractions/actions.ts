@@ -260,5 +260,7 @@ export async function refreshDistractionViews(): Promise<void> {
   await requireUser();
   revalidatePath("/");
   revalidatePath("/deen");
+  // Domains-mode accounts render the Faith (Deen) surfaces under /personal/[subdomain].
+  revalidatePath("/personal/[subdomain]", "page");
   revalidatePath("/review");
 }

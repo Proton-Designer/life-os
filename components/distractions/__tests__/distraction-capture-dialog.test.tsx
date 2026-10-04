@@ -111,6 +111,17 @@ describe("DistractionCaptureDialog", () => {
       expect(logDistractionMock).toHaveBeenCalledWith("t1", undefined, null);
     });
 
+    // PERF-4 review: the dialog closes before the write, so a failure must be visible, not an
+    // uncaught async-transition error.
+    it("a failed log after the dialog closed shows an alert instead of throwing", async () => {
+      logDistractionMock.mockRejectedValueOnce(new Error("offline"));
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t1", name: "Phone" })]);
+      renderDialog(null);
+      const user = await openDialog();
+      await user.click(await screen.findByRole("button", { name: "Phone" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't log/i);
+    });
+
     it("'More options' falls back to the full domain->trigger flow, unchanged", async () => {
       listTopTriggersForQuickLogMock.mockResolvedValue([trigger()]);
       renderDialog(null);

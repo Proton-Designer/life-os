@@ -1,13 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TriggerSummary } from "@/lib/distractions/types";
 
 const updateTriggerMock = vi.fn();
 const saveActionPlanMock = vi.fn();
+const refreshDistractionViewsMock = vi.fn(async () => {});
 vi.mock("@/app/(app)/distractions/actions", () => ({
   updateTrigger: (...args: unknown[]) => updateTriggerMock(...args),
   saveActionPlan: (...args: unknown[]) => saveActionPlanMock(...args),
+  refreshDistractionViews: () => refreshDistractionViewsMock(),
 }));
 
 import { ActionPlanDialog } from "../action-plan-dialog";
@@ -39,6 +41,7 @@ describe("ActionPlanDialog", () => {
   beforeEach(() => {
     updateTriggerMock.mockReset();
     saveActionPlanMock.mockReset();
+    refreshDistractionViewsMock.mockClear();
   });
 
   it("orders triggers most-recent-first via rankTriggersForPlanList", () => {
@@ -96,6 +99,20 @@ describe("ActionPlanDialog", () => {
     expect(updateTriggerMock).not.toHaveBeenCalled();
     expect(screen.getByText("Slack notifications")).toBeInTheDocument();
     expect(screen.queryByText("Should not save")).not.toBeInTheDocument();
+  });
+
+  // PERF-4 review F1: saveActionPlan no longer revalidates "/" and "/review" inline, so the
+  // dialog itself must schedule the deferred refresh or Home/review keep the old plan cached.
+  it("schedules the deferred distraction refresh after saving an edited plan", async () => {
+    const user = userEvent.setup();
+    render(<ActionPlanDialog open onOpenChange={() => {}} triggers={[trigger()]} />);
+    await user.click(screen.getByRole("button", { name: /edit/i }));
+    const plan = screen.getByDisplayValue("Mute #general during Lock In");
+    await user.clear(plan);
+    await user.type(plan, "Turn off notifications entirely");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveActionPlanMock).toHaveBeenCalled());
+    await waitFor(() => expect(refreshDistractionViewsMock).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 
   it("disables Save when the plan body is cleared to empty", async () => {

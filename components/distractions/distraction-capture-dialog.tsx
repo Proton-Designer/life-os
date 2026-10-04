@@ -121,6 +121,14 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
   const [tier, setTier] = useState<Tier | null>(null);
   const [, startTransition] = useTransition();
   const scheduleRefresh = useDistractionRefresh();
+  // The dialog closes before the write; a failed write must still be visible (an uncaught
+  // async-transition error would go to the nearest error boundary instead).
+  const [logError, setLogError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!logError) return;
+    const t = setTimeout(() => setLogError(null), 8000);
+    return () => clearTimeout(t);
+  }, [logError]);
   // #52: bumped after every successful log so SessionDistractionCounter
   // re-polls immediately instead of waiting out its own 60s tick.
   const [sessionLogBump, setSessionLogBump] = useState(0);
@@ -199,6 +207,8 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
       try {
         await logDistraction(triggerId, loggedTier, loggedSessionId);
         setSessionLogBump((n) => n + 1);
+      } catch {
+        setLogError("Couldn't log that distraction. Try again.");
       } finally {
         scheduleRefresh();
       }
@@ -218,6 +228,8 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
       try {
         await createTriggerAndLog({ domain, name, description, tier: savedTier, sessionId: loggedSessionId });
         setSessionLogBump((n) => n + 1);
+      } catch {
+        setLogError("Couldn't log that distraction. Try again.");
       } finally {
         scheduleRefresh();
       }
@@ -243,6 +255,11 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
         {/* #52: only rendered during an active Lock-In/Deep Study session —
             "N this session" has no meaning with no session running. */}
         {session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
+        {logError && (
+          <span role="alert" className="text-xs text-destructive">
+            {logError}
+          </span>
+        )}
       </div>
       <DialogContent className={cn("sm:max-w-md", domain === "deen" && step === "triggers" && "sm:max-w-lg")}>
         {step === "quick" && (
