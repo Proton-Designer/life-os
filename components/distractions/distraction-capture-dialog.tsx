@@ -190,14 +190,24 @@ export function DistractionCaptureDialog({
     }
     setStep("quick");
     setQuickLoading(true);
+    // E2E-01b: this list can resolve AFTER the user has already moved on (a fast tap through "More
+    // options" and a domain on an account with no triggers). Auto-advancing unconditionally dragged them
+    // from that domain's trigger step back to the domain picker, so "New trigger" vanished under their
+    // finger. Only advance if they are still looking at the (empty) chip step, and never apply a result
+    // from a previous open.
+    let cancelled = false;
     listTopTriggersForQuickLog().then((list) => {
+      if (cancelled) return;
       setQuickTriggers(list);
       setQuickLoading(false);
       // Nothing to show as chips yet (first-ever use) -- the full
       // domain->create flow is the only option, so land there directly
       // rather than showing an empty chip screen.
-      if (list.length === 0) setStep("domain");
+      if (list.length === 0) setStep((current) => (current === "quick" ? "domain" : current));
     });
+    return () => {
+      cancelled = true;
+    };
     // selectDomain is a stable function declaration re-created each render,
     // not a dependency that should re-trigger this — only open/inferredDomain should.
     // eslint-disable-next-line react-hooks/exhaustive-deps

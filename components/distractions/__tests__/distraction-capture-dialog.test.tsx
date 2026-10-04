@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -84,6 +84,31 @@ describe("DistractionCaptureDialog", () => {
   // "no session -> domain picker first" default -- that behavior is
   // intentionally changed by this task, not a regression.
   describe("no active session — the new quick-chip step", () => {
+    // E2E-01b: on an account with no triggers the chip list resolves empty, and its auto-advance to the domain
+    // picker used to fire even when the user had already tapped through to a domain's trigger step, dragging
+    // them back and removing "New trigger" from under their finger (the e2e hung for 88 s on that button).
+    it("an empty chip list resolving LATE does not pull a user already in a domain's trigger step back to the picker", async () => {
+      let resolveQuick!: (v: never[]) => void;
+      listTopTriggersForQuickLogMock.mockReturnValue(new Promise<never[]>((r) => (resolveQuick = r)));
+      renderDialog(null);
+      const user = await openDialog();
+      await user.click(await screen.findByRole("button", { name: "More options" }));
+      await user.click(await screen.findByRole("button", { name: "School" }));
+      expect(await screen.findByRole("button", { name: /new trigger/i })).toBeInTheDocument();
+
+      await act(async () => resolveQuick([])); // the slow chip list finally comes back empty
+
+      expect(screen.getByRole("button", { name: /new trigger/i })).toBeInTheDocument();
+      expect(screen.queryByText("What's the domain?")).not.toBeInTheDocument();
+    });
+
+    it("an empty chip list resolving while the user is still on the chip step lands on the domain picker (unchanged)", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([]);
+      renderDialog(null);
+      await openDialog();
+      expect(await screen.findByText("What's the domain?")).toBeInTheDocument();
+    });
+
     it("with existing triggers: opens on the chip step, not the domain picker", async () => {
       listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t1", name: "Phone" })]);
       renderDialog(null);
