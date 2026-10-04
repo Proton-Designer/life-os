@@ -15,7 +15,7 @@ import { ACCOUNT_MAP_WIRE_TOKEN_BUDGET } from "../account-map";
 const NOW = new Date("2026-09-15T03:30:00.000Z");
 
 interface Fixture {
-  profile: { timezone: string | null; onboarding_completed: boolean } | null;
+  profile: { timezone: string | null; onboarding_completed: boolean; deen_mode?: boolean | null } | null;
   domains: { id: string; key: string; position: number; weight: string }[];
   subdomains?: { domain_id: string; key: string; label: string; kind: string | null; widgets: unknown; config: unknown; position: number }[];
 }
@@ -25,7 +25,7 @@ function makeClient(f: Fixture): SupabaseClient {
     const chain: Record<string, unknown> = {};
     for (const m of ["select", "eq", "in", "is", "order"]) chain[m] = vi.fn(() => chain);
     const rows = table === "user_domains" ? f.domains : table === "user_subdomains" ? (f.subdomains ?? []) : [];
-    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? f.profile : null, error: null }));
+    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? (f.profile && { deen_mode: true, ...f.profile }) : null, error: null }));
     chain.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
     return chain;
   });

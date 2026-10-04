@@ -111,7 +111,7 @@ export function fakeUserClient(opts: { rowCount?: number; tokens?: Record<string
       const all = rowsFor(table);
       return { data: slice ? all.slice(slice[0], slice[1] + 1) : all, error: null, count: all.length };
     };
-    const one = () => ({ data: table === "profiles" ? { timezone: "America/Chicago", onboarding_completed: true } : (rowsFor(table)[0] ?? null), error: null });
+    const one = () => ({ data: table === "profiles" ? { timezone: "America/Chicago", onboarding_completed: true, deen_mode: true } : (rowsFor(table)[0] ?? null), error: null });
     const handler: ProxyHandler<object> = {
       get(_t, prop) {
         if (prop === "then") return (resolve: (v: unknown) => void) => resolve(result());

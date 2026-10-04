@@ -108,7 +108,7 @@ export function buildOperationSpec<T extends AgentToolName>(tool: T, parsedArgs:
         operation: resolveListCapabilitiesOperation(domain),
         requiredScope: "read",
         args: { domain },
-        run: (userClient, userId) => listCapabilitiesTool(domain, domain ? undefined : { userClient, userId, now: new Date() }),
+        run: (userClient, userId) => listCapabilitiesTool(domain, { userClient, userId, now: new Date() }),
       };
     }
     case "read": {

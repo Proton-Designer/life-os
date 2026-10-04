@@ -69,6 +69,16 @@ beforeEach(() => {
   currentUserClient = makeUserClient();
 });
 
+
+// Deen Mode gate (lib/mcp/deen-gate.ts) is covered by its own test file; these
+// suites exercise the tools' behaviour for an account with Deen Mode ON, and
+// their fake clients have no profiles table.
+vi.mock("@/lib/mcp/deen-gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mcp/deen-gate")>()),
+  assertDeenAvailable: async () => {},
+  readDeenMode: async () => true,
+}));
+
 describe("read — caller-input errors reach the model verbatim", () => {
   it("read with an unknown entity names the Known entities (positive control)", async () => {
     const { readTool } = await import("../read");

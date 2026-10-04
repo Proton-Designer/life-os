@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDomain, getEntity, type EntityDef, type FixedFilterValue } from "../registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "../tool-input-error";
+import { assertDeenAvailable, readDeenMode, DEEN_PROFILE_COLUMNS } from "../deen-gate";
 
 /**
  * `read(domain, entity, id?, filter?, detail?, fields?, cursor?, limit?)` —
@@ -226,7 +227,17 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   if (detail !== "ids" && detail !== "summary" && detail !== "full") {
     throw new ToolInputError(`Invalid detail "${detail}". Must be one of: ids, summary, full.`);
   }
-  const columns = resolveColumns(def, detail, args.fields);
+  let columns = resolveColumns(def, detail, args.fields);
+  // Deen Mode OFF: refuse before touching any deen table (also covers the
+  // widget renderer, which calls readTool directly). After the pure shape
+  // validation above, before any DB read.
+  await assertDeenAvailable(supabase, userId, args.domain);
+  // Deen Mode OFF: the settings profile read drops the prayer-only columns
+  // (calc method, madhab, location, qada, traveling) -- same as the deen
+  // domain itself, they are religious/prayer data. One query, only for this entity.
+  if (args.domain === "settings" && def.entity === "profile" && columns.some((c) => DEEN_PROFILE_COLUMNS.has(c)) && !(await readDeenMode(supabase, userId))) {
+    columns = columns.filter((c) => !DEEN_PROFILE_COLUMNS.has(c));
+  }
   const select = selectClause(def, columns);
 
   if (args.id) {

@@ -14,7 +14,7 @@ function accountContext() {
     const chain: Record<string, unknown> = {};
     for (const m of ["select", "eq", "in", "is", "order"]) chain[m] = vi.fn(() => chain);
     const rows = table === "user_domains" ? [{ id: "d1", key: "faith", position: 0, weight: "essential" }] : [];
-    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? { timezone: "America/Chicago", onboarding_completed: true } : null, error: null }));
+    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? { timezone: "America/Chicago", onboarding_completed: true, deen_mode: true } : null, error: null }));
     chain.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
     return chain;
   });

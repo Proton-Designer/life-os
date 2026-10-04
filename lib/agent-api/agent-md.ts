@@ -34,7 +34,7 @@ const ERROR_CODES_LINE =
 export function renderGenericAgentDoc(origin: string): string {
   return `# LifeOS agent access
 
-LifeOS is one person's life planner and tracker -- faith, work, school, fitness, learning and
+LifeOS is one person's life planner and tracker -- work, school, fitness, learning and
 business in one place. This page is for an AI agent (or the person configuring one) connecting to
 someone's LifeOS account. It carries no account data; once connected, an agent gets a per-account
 version of this same document at \`GET /api/v1/agent.md\`.

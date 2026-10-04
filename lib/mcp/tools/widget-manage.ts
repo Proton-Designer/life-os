@@ -4,6 +4,7 @@ import { listWidgetsCore, createWidgetCore, updateWidgetCore, archiveWidgetCore,
 import { validateDataSource, validateDisplay, validateKind, validateSlot } from "@/lib/widgets/validate";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "../tool-input-error";
+import { assertDeenAvailable, readDeenMode, DEEN_DOMAIN } from "../deen-gate";
 
 /**
  * `widget_manage(action: "list"|"create"|"update"|"delete", id?, patch?)` —
@@ -65,6 +66,12 @@ function widgetToItem(row: WidgetRow) {
 export async function widgetManageTool(supabase: SupabaseClient, userId: string, args: WidgetManageArgs): Promise<RunMcpToolOutcome> {
   const patch = args.patch ?? {};
 
+  // Deen Mode OFF: a widget may not be created/re-pointed at the deen domain.
+  if (args.action === "create" || args.action === "update") {
+    const ds = patch.data_source as { domain?: unknown } | undefined;
+    await assertDeenAvailable(supabase, userId, ds?.domain);
+  }
+
   switch (args.action) {
     case "list": {
       const slot = patch.slot !== undefined ? validateSlot(patch.slot) : undefined;
@@ -73,7 +80,9 @@ export async function widgetManageTool(supabase: SupabaseClient, userId: string,
       // opt-in to see them, e.g. to confirm one really was removed.
       const includeArchived = patch.include_archived === true;
       const rows = await listWidgetsCore(supabase, userId, slot, { includeArchived });
-      const items = rows.map(widgetToItem);
+      // Deen Mode OFF: existing deen widgets stay stored but are not listed.
+      const visibleRows = rows.some((r) => r.data_source.domain === DEEN_DOMAIN) && !(await readDeenMode(supabase, userId)) ? rows.filter((r) => r.data_source.domain !== DEEN_DOMAIN) : rows;
+      const items = visibleRows.map(widgetToItem);
       return {
         result: { content: [{ type: "text", text: JSON.stringify({ items }) }], structuredContent: { items } },
         summary: `listed ${items.length} widget(s)`,

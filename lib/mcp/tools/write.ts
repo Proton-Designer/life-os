@@ -4,6 +4,7 @@ import { fetchTimezone } from "@/lib/deen/actions-core";
 import { getWriteAction, listWriteEntities, listWriteActions, type WritePatch } from "../write-registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError } from "../tool-input-error";
+import { assertDeenAvailable } from "../deen-gate";
 import { localDateString } from "@/lib/date-utils";
 import { DATE_DEFAULTS_TO_TODAY, writeActionKey } from "@/lib/agent-api/write-action-meta";
 
@@ -45,6 +46,10 @@ export async function writeTool(supabase: SupabaseClient, userId: string, args: 
     throw new ToolInputError(`Unknown action "${args.action}" for ${args.domain}.${args.entity}. Available actions: ${actions.join(", ") || "(none)"}.`);
   }
 
+  // Deen Mode OFF: refuse before any DB call (also gates scheduled fires,
+  // which dispatch through here). After the registry lookup above (pure
+  // shape validation), before fetchTimezone/the handler touch the database.
+  await assertDeenAvailable(supabase, userId, args.domain);
   const timezone = await fetchTimezone(supabase, userId);
   const now = new Date();
   return actionDef.handler({ userClient: supabase, userId, timezone, now, id: args.id }, withDateDefault(args, timezone, now));

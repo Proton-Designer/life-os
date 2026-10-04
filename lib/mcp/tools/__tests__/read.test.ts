@@ -48,6 +48,16 @@ function makeClient(opts: { single?: unknown; list?: unknown[]; count?: number; 
   return { client: { from } as unknown as SupabaseClient, eqCalls, isCalls, orderCalls, getLastRange: () => lastRange };
 }
 
+
+// Deen Mode gate (lib/mcp/deen-gate.ts) is covered by its own test file; these
+// suites exercise the tools' behaviour for an account with Deen Mode ON, and
+// their fake clients have no profiles table.
+vi.mock("@/lib/mcp/deen-gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mcp/deen-gate")>()),
+  assertDeenAvailable: async () => {},
+  readDeenMode: async () => true,
+}));
+
 describe("resolveReadOperation", () => {
   it("is domain.entity.read", () => {
     expect(resolveReadOperation({ domain: "deen", entity: "prayer" })).toBe("deen.prayer.read");

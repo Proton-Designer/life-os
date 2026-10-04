@@ -13,7 +13,7 @@ function makeClient(f: typeof LEGACY): SupabaseClient {
     const chain: Record<string, unknown> = {};
     for (const m of ["select", "eq", "in", "is", "order"]) chain[m] = vi.fn(() => chain);
     const rows = table === "user_domains" ? f.domains : [];
-    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? f.profile : null, error: null }));
+    chain.maybeSingle = vi.fn(async () => ({ data: table === "profiles" ? { deen_mode: true, ...f.profile } : null, error: null }));
     chain.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
     return chain;
   });

@@ -26,6 +26,16 @@ function makeListWidgetsClient(rows: unknown[]) {
   return { from: vi.fn(() => chain) } as unknown as SupabaseClient;
 }
 
+
+// Deen Mode gate (lib/mcp/deen-gate.ts) is covered by its own test file; these
+// suites exercise the tools' behaviour for an account with Deen Mode ON, and
+// their fake clients have no profiles table.
+vi.mock("@/lib/mcp/deen-gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mcp/deen-gate")>()),
+  assertDeenAvailable: async () => {},
+  readDeenMode: async () => true,
+}));
+
 describe("renderWidgets", () => {
   it("degrades to [] rather than throwing when mcp_widgets doesn't exist yet (pre-migration)", async () => {
     const client = { from: vi.fn(() => { throw new Error("relation \"mcp_widgets\" does not exist"); }) } as unknown as SupabaseClient;

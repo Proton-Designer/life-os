@@ -4,6 +4,7 @@ import { fetchTimezone } from "@/lib/deen/actions-core";
 import { listScheduledActionsCore, createScheduledActionCore, cancelScheduledActionCore, pauseScheduledActionCore } from "@/lib/scheduling/scheduler-core";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError } from "../tool-input-error";
+import { assertDeenAvailable } from "../deen-gate";
 
 /**
  * `scheduler_manage(action: "list"|"create"|"cancel"|"pause", id?, patch?)`
@@ -46,6 +47,13 @@ function requireId(args: SchedulerManageArgs): string {
 }
 
 export async function schedulerManageTool(supabase: SupabaseClient, userId: string, tokenId: string | null, args: SchedulerManageArgs): Promise<RunMcpToolOutcome> {
+  // Deen Mode OFF: no new schedule aimed at the deen domain (an already-stored
+  // one is refused at fire time by writeTool/readTool).
+  if (args.action === "create") {
+    const p = (args.patch ?? {}) as { domain?: unknown; args?: { domain?: unknown } };
+    await assertDeenAvailable(supabase, userId, p.domain);
+    await assertDeenAvailable(supabase, userId, p.args?.domain);
+  }
   switch (args.action) {
     case "list": {
       const items = await listScheduledActionsCore(supabase, userId);

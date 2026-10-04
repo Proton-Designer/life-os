@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { REGISTRY } from "@/lib/mcp/registry";
 import { WRITE_REGISTRY } from "@/lib/mcp/write-registry";
 import { localDateString } from "@/lib/date-utils";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { getUserDomainsForUser } from "@/lib/domains/user-domains-core";
 import { hasArea, type Area } from "@/lib/domains/area-vocabulary";
 import type { UserDomainsState } from "@/lib/domains/get-user-domains";
@@ -128,12 +129,14 @@ function localTimeString(now: Date, timezone: string): string {
 }
 
 export async function buildAccountMap(client: SupabaseClient, userId: string, now: Date): Promise<AccountMap> {
-  const { data: profile, error } = await client.from("profiles").select("timezone, onboarding_completed").eq("user_id", userId).maybeSingle();
+  const { data: profile, error } = await client.from("profiles").select("timezone, onboarding_completed, deen_mode").eq("user_id", userId).maybeSingle();
   if (error) throw error;
-  const row = profile as { timezone?: string | null; onboarding_completed?: boolean } | null;
+  const row = profile as { timezone?: string | null; onboarding_completed?: boolean; deen_mode?: boolean | null } | null;
+  // Deen Mode OFF: the deen domain and the faith area are invisible to agents (user decision A2).
+  const deenOn = isDeenModeOn(row);
 
   const state = await getUserDomainsForUser(client, userId, { onboardingCompleted: row?.onboarding_completed ?? false });
-  const areas = activeAreas(state);
+  const areas = activeAreas(state).filter((a) => deenOn || a !== "faith");
   const gatedActive = new Set(areas.flatMap((a) => AREA_VOCABULARY[a]));
   const gated = new Set(Object.values(AREA_VOCABULARY).flat());
 
@@ -175,11 +178,14 @@ export async function buildAccountMap(client: SupabaseClient, userId: string, no
     };
   }
 
+  if (!deenOn) delete domains.deen;
+  const vocabularyMap = (deenOn ? AREA_VOCABULARY : Object.fromEntries(Object.entries(AREA_VOCABULARY).filter(([k]) => k !== "faith"))) as AccountMap["vocabulary_map"];
+
   return {
     today,
     mode: state.mode,
     active_areas: areas,
-    vocabulary_map: AREA_VOCABULARY,
+    vocabulary_map: vocabularyMap,
     domains,
     next: 'list_capabilities("<domain>") for fields and write patches',
   };

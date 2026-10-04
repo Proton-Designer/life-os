@@ -98,7 +98,7 @@ function fakeUserClient(profileTimezone = "America/Chicago") {
     chain.then = (resolve: (v: { data: unknown[]; error: null }) => void) => resolve({ data: [], error: null });
     chain.range = vi.fn(async () => ({ data: PRAYER_ROWS, error: null, count: PRAYER_ROWS.length }));
     chain.maybeSingle = vi.fn(async () =>
-      table === "profiles" ? { data: { timezone: profileTimezone }, error: null } : { data: PRAYER_ROWS[0], error: null },
+      table === "profiles" ? { data: { timezone: profileTimezone, deen_mode: true }, error: null } : { data: PRAYER_ROWS[0], error: null },
     );
     chain.upsert = vi.fn(() => chain);
     chain.single = vi.fn(async () => ({ data: { id: "p-new", logged_at: "2026-09-08T20:00:00.000Z" }, error: null }));

@@ -31,6 +31,16 @@ const EXISTING_METRIC_ROW = {
   updated_at: "2026-09-08T12:00:00Z",
 };
 
+
+// Deen Mode gate (lib/mcp/deen-gate.ts) is covered by its own test file; these
+// suites exercise the tools' behaviour for an account with Deen Mode ON, and
+// their fake clients have no profiles table.
+vi.mock("@/lib/mcp/deen-gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mcp/deen-gate")>()),
+  assertDeenAvailable: async () => {},
+  readDeenMode: async () => true,
+}));
+
 describe("resolveWidgetManageScope / resolveWidgetManageOperation", () => {
   it("scopes 'list' as read-only, every mutation as write", () => {
     expect(resolveWidgetManageScope("list")).toBe("read");

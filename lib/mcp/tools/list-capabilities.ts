@@ -4,6 +4,7 @@ import { getDomain, listDomains } from "../registry";
 import { WRITE_REGISTRY, listWriteActions } from "../write-registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError } from "../tool-input-error";
+import { assertDeenAvailable } from "../deen-gate";
 import { buildAccountMap, toAccountMapWire } from "@/lib/agent-api/account-map";
 import { ACTIONS_REQUIRING_ID, writeActionKey } from "@/lib/agent-api/write-action-meta";
 import { WIDGET_DATA_SOURCE_SCHEMA, WIDGET_DISPLAY_SCHEMA, WIDGET_KINDS } from "@/lib/widgets/validate";
@@ -63,6 +64,8 @@ export async function listCapabilitiesTool(domain?: string, account?: ListCapabi
   // some of these later; when it does, this code path keeps working
   // unchanged (the domain simply stops being 100% write-only, the same way
   // deen.profile would if a deen-scoped read entity for it ever landed).
+  // Deen Mode OFF: the deen domain's detail is not discoverable either.
+  if (account) await assertDeenAvailable(account.userClient, account.userId, domain);
   const domainDef = getDomain(domain);
   const writeDomainDef = WRITE_REGISTRY[domain];
   if (!domainDef && !writeDomainDef) {

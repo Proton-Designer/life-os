@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listWidgetsCore, type WidgetRow } from "./actions-core";
 import { readTool } from "@/lib/mcp/tools/read";
+import { readDeenMode, DEEN_DOMAIN } from "@/lib/mcp/deen-gate";
 import { localDateString, addDaysToDateString } from "@/lib/date-utils";
 import type { WidgetSlot } from "./validate";
 
@@ -298,5 +299,8 @@ export async function renderWidgets(supabase: SupabaseClient, userId: string, sl
     // failure here would mean something real again.
     return [];
   }
-  return Promise.all(rows.map((row) => renderOne(supabase, userId, row, now, timezone)));
+  // Deen Mode OFF: deen-domain widgets render nothing (the rows stay stored;
+  // readTool would refuse them anyway, this just avoids an error card).
+  const visible = rows.some((r) => r.data_source.domain === DEEN_DOMAIN) && !(await readDeenMode(supabase, userId)) ? rows.filter((r) => r.data_source.domain !== DEEN_DOMAIN) : rows;
+  return Promise.all(visible.map((row) => renderOne(supabase, userId, row, now, timezone)));
 }
