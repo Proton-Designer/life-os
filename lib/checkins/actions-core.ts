@@ -93,13 +93,16 @@ export const DEEN_MINUTES_OFF_MESSAGE = "Deen Mode is off, so time can't be allo
 /**
  * Deen Mode OFF: refuse an allocation that puts minutes on Deen (the UI hides
  * the row, but both the cookie action and the MCP write are public). Deen at
- * 0/absent is fine and costs no query; ON is unchanged. Fails closed on a
+ * 0 / absent / null is fine and costs no query; ON is unchanged. Fails closed on a
  * missing profile/column. Shared by saveAllocationCheckin (cookie) and
  * saveAllocationCheckinCore (MCP).
  */
 export async function assertDeenMinutesAllowed(supabase: SupabaseClient, userId: string, allocations: Record<string, unknown>): Promise<void> {
+  // ANY present, non-zero value counts as Deen minutes -- the cookie action is a
+  // public endpoint and passes the raw object to the RPC, whose jsonb "30" casts
+  // to minutes, so a string/odd-typed value must not slip past a number-only check.
   const deen = allocations.deen;
-  if (typeof deen !== "number" || !(deen > 0)) return;
+  if (deen === undefined || deen === null || deen === 0) return;
   const { data, error } = await supabase.from("profiles").select("deen_mode").eq("user_id", userId).maybeSingle();
   if (error) throw error;
   if ((data as { deen_mode?: boolean | null } | null)?.deen_mode !== true) throw new Error(DEEN_MINUTES_OFF_MESSAGE);

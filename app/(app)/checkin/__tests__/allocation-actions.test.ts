@@ -61,9 +61,18 @@ describe("saveAllocationCheckin", () => {
     await saveAllocationCheckin(...win, { deen: 0, business: 30 });
     expect(rpcMock).toHaveBeenCalledTimes(1);
 
+    // F1: a non-number deen value ("30") must not slip past the gate -- jsonb casts it to minutes.
+    for (const sneaky of ["30", "1", 30.5, true, [15]]) {
+      await expect(saveAllocationCheckin(...win, { deen: sneaky } as never)).rejects.toThrow(/Deen Mode is off/);
+    }
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    // null / 0 are "no Deen minutes".
+    await saveAllocationCheckin(...win, { deen: null, business: 15 } as never);
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+
     deenModeValue = true;
     await saveAllocationCheckin(...win, { deen: 15 });
-    expect(rpcMock).toHaveBeenCalledTimes(2);
+    expect(rpcMock).toHaveBeenCalledTimes(3);
   });
 
   it("throws when the RPC errors, rather than silently swallowing it", async () => {

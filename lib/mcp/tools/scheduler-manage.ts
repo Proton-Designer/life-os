@@ -4,7 +4,7 @@ import { fetchTimezone } from "@/lib/deen/actions-core";
 import { listScheduledActionsCore, createScheduledActionCore, cancelScheduledActionCore, pauseScheduledActionCore } from "@/lib/scheduling/scheduler-core";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError } from "../tool-input-error";
-import { assertDeenAvailable } from "../deen-gate";
+import { assertDeenAvailable, readDeenMode, DEEN_DOMAIN } from "../deen-gate";
 
 /**
  * `scheduler_manage(action: "list"|"create"|"cancel"|"pause", id?, patch?)`
@@ -56,7 +56,9 @@ export async function schedulerManageTool(supabase: SupabaseClient, userId: stri
   }
   switch (args.action) {
     case "list": {
-      const items = await listScheduledActionsCore(supabase, userId);
+      const all = await listScheduledActionsCore(supabase, userId);
+      // Deen Mode OFF: schedules aimed at the deen domain stay stored but are not listed.
+      const items = all.some((i) => i.domain === DEEN_DOMAIN) && !(await readDeenMode(supabase, userId)) ? all.filter((i) => i.domain !== DEEN_DOMAIN) : all;
       return {
         result: { content: [{ type: "text", text: JSON.stringify({ items }) }], structuredContent: { items } },
         summary: `listed ${items.length} scheduled action(s)`,

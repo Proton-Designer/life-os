@@ -43,3 +43,35 @@ export const DEEN_PROFILE_COLUMNS: ReadonlySet<string> = new Set([
   "qada_owed",
   "traveling_mode",
 ]);
+
+/**
+ * Deen-flavoured rows that live in NON-deen entities (DEEN-07b/F2): while
+ * Deen Mode is OFF a read of these entities must not return them. Columns
+ * listed here are dropped from the select; `kind` says how the rows are
+ * filtered. Data is never touched.
+ */
+export type DeenReadRestriction =
+  | { kind: "domain_column"; column: string } // distractions.trigger, checkins.allocation: domain <> 'deen' (NULL kept)
+  | { kind: "events"; dropColumns: string[] } // distractions.event: no deen-trigger events, no reflection-linked events
+  | { kind: "widget_domain" }; // widgets.widget: data_source->>domain <> 'deen'
+
+const NON_DEEN_ENTITY_RESTRICTIONS: Record<string, DeenReadRestriction> = {
+  "distractions.trigger": { kind: "domain_column", column: "domain" },
+  "checkins.allocation": { kind: "domain_column", column: "domain" },
+  "distractions.event": { kind: "events", dropColumns: ["reflection_tier", "reflection_entry_id"] },
+  "widgets.widget": { kind: "widget_domain" },
+};
+
+/** The restriction for this entity, or null when it carries none (or Deen Mode is ON -- no query is made for unaffected entities). */
+export async function deenReadRestriction(client: SupabaseClient, userId: string, domain: string, entity: string): Promise<DeenReadRestriction | null> {
+  const restriction = NON_DEEN_ENTITY_RESTRICTIONS[`${domain}.${entity}`];
+  if (!restriction) return null;
+  return (await readDeenMode(client, userId)) ? null : restriction;
+}
+
+/** Ids of this user's deen-domain distraction triggers (only needed while OFF, to exclude their events). */
+export async function deenTriggerIds(client: SupabaseClient, userId: string): Promise<string[]> {
+  const { data, error } = await client.from("distraction_triggers").select("id").eq("user_id", userId).eq("domain", DEEN_DOMAIN);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r: { id: string }) => r.id);
+}

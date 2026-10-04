@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDomain, getEntity, type EntityDef, type FixedFilterValue } from "../registry";
 import type { RunMcpToolOutcome } from "../tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "../tool-input-error";
-import { assertDeenAvailable, readDeenMode, DEEN_PROFILE_COLUMNS } from "../deen-gate";
+import { assertDeenAvailable, readDeenMode, deenReadRestriction, deenTriggerIds, DEEN_PROFILE_COLUMNS, type DeenReadRestriction } from "../deen-gate";
 
 /**
  * `read(domain, entity, id?, filter?, detail?, fields?, cursor?, limit?)` —
@@ -186,6 +186,29 @@ function applyFixedFilter<Q extends { eq(column: string, value: unknown): Q; is(
 }
 
 /**
+ * Deen Mode OFF: narrows a query over a NON-deen entity so no deen-flavoured
+ * row comes back (DEEN-07b/F2). The query builder is untyped (see readTool).
+ */
+function applyDeenRestriction<Q extends { or(filters: string): Q; is(column: string, value: null): Q; not(column: string, op: string, value: unknown): Q }>(
+  query: Q,
+  restriction: DeenReadRestriction | null,
+  deenTriggers: string[],
+): Q {
+  if (!restriction) return query;
+  switch (restriction.kind) {
+    case "domain_column":
+      return query.or(`${restriction.column}.is.null,${restriction.column}.neq.deen`);
+    case "widget_domain":
+      return query.or("data_source->>domain.is.null,data_source->>domain.neq.deen");
+    case "events": {
+      let q = query.is("reflection_entry_id", null);
+      if (deenTriggers.length > 0) q = q.not("trigger_id", "in", `(${deenTriggers.join(",")})`);
+      return q;
+    }
+  }
+}
+
+/**
  * The resolved operation (migration 131's `mcp_audit_log.operation`) for
  * this call — e.g. "deen.prayer.read" — computed from the raw args BEFORE
  * dispatch, so even an args-only validation failure still logs what was
@@ -238,6 +261,13 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   if (args.domain === "settings" && def.entity === "profile" && columns.some((c) => DEEN_PROFILE_COLUMNS.has(c)) && !(await readDeenMode(supabase, userId))) {
     columns = columns.filter((c) => !DEEN_PROFILE_COLUMNS.has(c));
   }
+  // Deen Mode OFF: deen-flavoured rows inside non-deen entities (deen triggers,
+  // deen allocation minutes, reflection-linked events, deen widgets) are
+  // filtered out and their reflection columns dropped. One extra read only for
+  // an affected entity, none otherwise.
+  const restriction = await deenReadRestriction(supabase, userId, args.domain, def.entity);
+  const deenTriggers = restriction?.kind === "events" ? await deenTriggerIds(supabase, userId) : [];
+  if (restriction?.kind === "events") columns = columns.filter((c) => !restriction.dropColumns.includes(c));
   const select = selectClause(def, columns);
 
   if (args.id) {
@@ -246,6 +276,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
     // (this codebase's own RLS-sweep incident history).
     let idQuery = supabase.from(def.table).select(select).eq(def.idColumn, args.id).eq("user_id", userId);
     idQuery = applyFixedFilter(idQuery, def.fixedFilter);
+    idQuery = applyDeenRestriction(idQuery, restriction, deenTriggers);
     const { data, error } = await idQuery.maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new ToolNotFoundError(`No ${def.entity} found with id "${args.id}".`);
@@ -285,6 +316,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
 
   let query = supabase.from(def.table).select(select, { count: "exact" }).eq("user_id", userId);
   query = applyFixedFilter(query, def.fixedFilter);
+  query = applyDeenRestriction(query, restriction, deenTriggers);
   if (args.filter) {
     for (const [col, value] of Object.entries(args.filter)) {
       if (isRangeValue(value)) {

@@ -17,12 +17,17 @@ import { ToolInputError } from "../tool-input-error";
  * domain and refuses deen reads/writes BEFORE any deen table is touched; ON
  * is unchanged. Uses the REAL gate (other suites mock it out).
  */
-function fakeClient(deenMode: boolean | null | "error") {
+function fakeClient(deenMode: boolean | null | "error", opts: { schedules?: unknown[]; deenTriggerRows?: { id: string }[] } = {}) {
   const tables: string[] = [];
+  const calls: { table: string; method: string; args: unknown[] }[] = [];
   const from = vi.fn((table: string) => {
     tables.push(table);
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "in", "is", "order", "range", "gte", "lte", "limit", "upsert", "insert", "update"]) chain[m] = vi.fn(() => chain);
+    for (const m of ["select", "eq", "in", "is", "order", "range", "gte", "lte", "limit", "upsert", "insert", "update", "or", "not", "neq"])
+      chain[m] = vi.fn((...args: unknown[]) => {
+        calls.push({ table, method: m, args });
+        return chain;
+      });
     chain.maybeSingle = vi.fn(async () =>
       table === "profiles"
         ? deenMode === "error"
@@ -31,10 +36,11 @@ function fakeClient(deenMode: boolean | null | "error") {
         : { data: null, error: null },
     );
     chain.single = chain.maybeSingle;
-    chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null, count: 0 });
+    chain.then = (resolve: (v: unknown) => void) =>
+      resolve({ data: table === "mcp_scheduled_actions" ? (opts.schedules ?? []) : table === "distraction_triggers" ? (opts.deenTriggerRows ?? []) : [], error: null, count: 0 });
     return chain;
   });
-  return { client: { from, rpc: vi.fn() } as unknown as SupabaseClient, tables };
+  return { client: { from, rpc: vi.fn() } as unknown as SupabaseClient, tables, calls };
 }
 
 const NOW = new Date("2026-10-04T15:00:00.000Z");
@@ -150,5 +156,60 @@ describe("deen_mode is never agent-writable", () => {
     const { WRITE_REGISTRY } = await import("../write-registry");
     const shapes = Object.values(WRITE_REGISTRY).flatMap((d) => Object.values(d.entities).flatMap((e) => Object.values(e.actions).map((a) => a.patchShape)));
     expect(shapes.join("\n")).not.toMatch(/deen_mode/);
+  });
+});
+
+// DEEN-07b / F2: deen-flavoured rows inside NON-deen entities are filtered while OFF.
+describe("non-deen entities carrying deen rows (F2)", () => {
+  const orCall = (calls: { method: string; args: unknown[] }[]) => calls.find((c) => c.method === "or")?.args[0];
+
+  it("OFF: distractions.trigger and checkins.allocation exclude domain deen (NULL domain kept); ON applies no filter", async () => {
+    for (const [domain, entity] of [["distractions", "trigger"], ["checkins", "allocation"]] as const) {
+      const off = fakeClient(false);
+      await readTool(off.client, "u", { domain, entity });
+      expect(orCall(off.calls), entity).toBe("domain.is.null,domain.neq.deen");
+
+      const on = fakeClient(true);
+      await readTool(on.client, "u", { domain, entity });
+      expect(orCall(on.calls), entity).toBeUndefined();
+    }
+  });
+
+  it("OFF: distractions.event drops reflection columns, reflection-linked events and deen-trigger events; ON is unfiltered", async () => {
+    const off = fakeClient(false, { deenTriggerRows: [{ id: "t-deen" }] });
+    await readTool(off.client, "u", { domain: "distractions", entity: "event", detail: "full" });
+    const selects = off.calls.filter((c) => c.table === "distraction_events" && c.method === "select").map((c) => String(c.args[0])).join(" ");
+    expect(selects).not.toMatch(/reflection_tier|reflection_entry_id/);
+    expect(off.calls).toContainEqual({ table: "distraction_events", method: "is", args: ["reflection_entry_id", null] });
+    expect(off.calls).toContainEqual({ table: "distraction_events", method: "not", args: ["trigger_id", "in", "(t-deen)"] });
+
+    const on = fakeClient(true);
+    await readTool(on.client, "u", { domain: "distractions", entity: "event", detail: "full" });
+    const onSelects = on.calls.filter((c) => c.table === "distraction_events" && c.method === "select").map((c) => String(c.args[0])).join(" ");
+    expect(onSelects).toMatch(/reflection_tier/);
+    expect(on.calls.some((c) => c.method === "not")).toBe(false);
+  });
+
+  it("OFF: widgets.widget read hides deen widgets, consistent with widget_manage list (F3); ON unfiltered", async () => {
+    const off = fakeClient(false);
+    await readTool(off.client, "u", { domain: "widgets", entity: "widget" });
+    expect(orCall(off.calls)).toBe("data_source->>domain.is.null,data_source->>domain.neq.deen");
+    const on = fakeClient(true);
+    await readTool(on.client, "u", { domain: "widgets", entity: "widget" });
+    expect(orCall(on.calls)).toBeUndefined();
+  });
+
+  it("OFF: scheduler_manage list hides schedules aimed at deen; ON lists them", async () => {
+    const rows = [
+      { id: "s1", tool_name: "write", args: { domain: "deen", entity: "prayer", action: "log" }, cron_expression: null, run_at: null, next_run_at: "x", last_run_at: null, last_outcome: null, last_error: null, attempt_count: 0, status: "active", updated_at: "x" },
+      { id: "s2", tool_name: "write", args: { domain: "fitness", entity: "x", action: "y" }, cron_expression: null, run_at: null, next_run_at: "x", last_run_at: null, last_outcome: null, last_error: null, attempt_count: 0, status: "active", updated_at: "x" },
+    ];
+    const ids = async (mode: boolean) => {
+      const { client } = fakeClient(mode, { schedules: rows });
+      const out = await schedulerManageTool(client, "u", null, { action: "list" });
+      return (out.result.structuredContent as { items: { id: string }[] }).items.map((i) => i.id);
+    };
+    expect(await ids(false)).toEqual(["s2"]);
+    expect(await ids(true)).toEqual(["s1", "s2"]);
   });
 });

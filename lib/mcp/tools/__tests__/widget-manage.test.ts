@@ -39,6 +39,7 @@ vi.mock("@/lib/mcp/deen-gate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/mcp/deen-gate")>()),
   assertDeenAvailable: async () => {},
   readDeenMode: async () => true,
+  deenReadRestriction: async () => null,
 }));
 
 describe("resolveWidgetManageScope / resolveWidgetManageOperation", () => {
