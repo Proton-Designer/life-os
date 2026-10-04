@@ -3116,6 +3116,7 @@ export type Database = {
           checkin_window_end: string
           checkin_window_start: string
           created_at: string
+          deen_mode: boolean
           display_name: string | null
           enabled_features: string[]
           evening_close_time: string
@@ -3144,6 +3145,7 @@ export type Database = {
           checkin_window_end?: string
           checkin_window_start?: string
           created_at?: string
+          deen_mode?: boolean
           display_name?: string | null
           enabled_features?: string[]
           evening_close_time?: string
@@ -3172,6 +3174,7 @@ export type Database = {
           checkin_window_end?: string
           checkin_window_start?: string
           created_at?: string
+          deen_mode?: boolean
           display_name?: string | null
           enabled_features?: string[]
           evening_close_time?: string
