@@ -5,7 +5,7 @@ import { AdhkarStrip } from "../adhkar-strip";
 
 const toggleAdhkarMock = vi.fn();
 vi.mock("@/app/(app)/deen/actions", () => ({
-  toggleAdhkar: (...args: unknown[]) => toggleAdhkarMock(...args),
+  setAdhkar: (...args: unknown[]) => toggleAdhkarMock(...args),
 }));
 
 describe("AdhkarStrip", () => {
@@ -13,7 +13,7 @@ describe("AdhkarStrip", () => {
     toggleAdhkarMock.mockReset();
   });
 
-  it("flips the clicked period's visual state immediately, before toggleAdhkar resolves", async () => {
+  it("flips the clicked period's visual state immediately, before setAdhkar resolves", async () => {
     toggleAdhkarMock.mockImplementation(() => new Promise<void>(() => {}));
 
     render(<AdhkarStrip date="2026-08-11" morningCompleted={false} eveningCompleted={false} />);

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Repeat } from "lucide-react";
 import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
-import { toggleDeenHabitLog, setWeeklyFocus, createDeenHabit } from "@/app/(app)/deen/actions";
+import { setDeenHabitLogStatus, setWeeklyFocus, createDeenHabit } from "@/app/(app)/deen/actions";
 import { habitStage, isNewHabit, type StageOverride } from "@/lib/deen/habit-stage";
 import { HabitEditorDialog } from "@/components/deen/habit-editor-dialog";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,7 @@ function HabitToggleButton({
   const item = useOptimisticItem<boolean>({
     serverValue: completed,
     queueKey: `habitlog:${habitId}:${todayStr}`,
-    write: () => toggleDeenHabitLog(habitId, todayStr),
+    write: (next) => setDeenHabitLogStatus(habitId, todayStr, next),
     onRevert: (confirmed) => onToggle(habitId, confirmed),
   });
   return (

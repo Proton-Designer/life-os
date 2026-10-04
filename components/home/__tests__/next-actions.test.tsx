@@ -11,7 +11,7 @@ vi.mock("@/app/(app)/actions", () => ({
 // toggleSunnah from Deen's own actions module — a separate module from the
 // one mocked above.
 vi.mock("@/app/(app)/deen/actions", () => ({
-  toggleSunnah: vi.fn(async () => {}),
+  setSunnah: vi.fn(async () => {}),
 }));
 
 import { toggleItem } from "@/app/(app)/actions";

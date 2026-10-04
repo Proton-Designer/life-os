@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PrayerRow } from "../prayer-row";
 import { SalahCalendarDialog } from "../salah-calendar-dialog";
+import { AdhkarStrip } from "../adhkar-strip";
 import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import type { SalahDayDetail } from "@/app/(app)/deen/salah-calendar-actions";
 
@@ -11,7 +12,8 @@ import type { SalahDayDetail } from "@/app/(app)/deen/salah-calendar-actions";
 // (final state = last tap), different items independent, errors revert ONLY the
 // failing item.
 
-const { refreshMock, markPrayerMock, unmarkPrayerMock, getSalahMonthSummaryMock, getSalahDayDetailMock } = vi.hoisted(() => ({
+const { setAdhkarMock, refreshMock, markPrayerMock, unmarkPrayerMock, getSalahMonthSummaryMock, getSalahDayDetailMock } = vi.hoisted(() => ({
+  setAdhkarMock: vi.fn(),
   refreshMock: vi.fn(async () => {}),
   markPrayerMock: vi.fn(),
   unmarkPrayerMock: vi.fn(),
@@ -21,7 +23,8 @@ const { refreshMock, markPrayerMock, unmarkPrayerMock, getSalahMonthSummaryMock,
 vi.mock("@/app/(app)/deen/actions", () => ({
   markPrayer: markPrayerMock,
   unmarkPrayer: unmarkPrayerMock,
-  toggleSunnah: vi.fn(),
+  setSunnah: vi.fn(),
+  setAdhkar: setAdhkarMock,
   refreshDeenViews: refreshMock,
 }));
 vi.mock("@/app/(app)/deen/salah-calendar-actions", () => ({
@@ -47,6 +50,7 @@ describe("Deen controls — concurrency (PerfDeen)", () => {
     markPrayerMock.mockReset();
     refreshMock.mockClear();
     unmarkPrayerMock.mockReset();
+    setAdhkarMock.mockReset();
     getSalahMonthSummaryMock.mockReset();
     getSalahDayDetailMock.mockReset();
   });
@@ -173,5 +177,29 @@ describe("Deen controls — concurrency (PerfDeen)", () => {
     // another prayer can be pressed right away and sends its own write without waiting
     await user.click(within((await screen.findByText("Isha")).closest("li")!).getByRole("button", { name: "Missed" }));
     expect(markPrayerMock).toHaveBeenCalledWith("2026-08-10", "isha", "missed");
+  });
+
+  // PERF-1 review F1: relative writes break "last tap wins" after a failure. The
+  // controls now send the ABSOLUTE intended value, so a queued tap behind a failed
+  // one still stores exactly what the user last chose.
+  it("adhkar: a failed write followed by a queued tap sends absolute values (true, then false)", async () => {
+    const first = deferred();
+    setAdhkarMock.mockImplementationOnce(() => first.promise).mockImplementation(async () => {});
+    const user = userEvent.setup();
+    render(<AdhkarStrip date="2026-08-11" morningCompleted={false} eveningCompleted={false} />);
+    const morning = screen.getByRole("button", { name: /Morning adhkar/ });
+
+    await user.click(morning); // -> true, in flight
+    await user.click(morning); // -> false, queued behind it
+    expect(setAdhkarMock).toHaveBeenCalledTimes(1);
+    expect(setAdhkarMock).toHaveBeenNthCalledWith(1, "2026-08-11", "morning", true);
+
+    await act(async () => {
+      first.reject(new Error("boom"));
+    });
+    await waitFor(() => expect(setAdhkarMock).toHaveBeenCalledTimes(2));
+    // The second write states the user's last choice outright instead of "flip".
+    expect(setAdhkarMock).toHaveBeenNthCalledWith(2, "2026-08-11", "morning", false);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Morning adhkar/ })).toHaveAttribute("aria-pressed", "false"));
   });
 });

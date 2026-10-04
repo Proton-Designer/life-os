@@ -197,6 +197,50 @@ export async function toggleAdhkarCore(
 }
 
 /**
+ * SETS (not toggles) the adhkar state -- PERF-2/PERF-1 review F1. The optimistic UI
+ * sends its intended value so an ordered queue stays "last tap wins" even after a
+ * failed write (a toggle would flip from the unchanged server value). Same
+ * no-future-guard behaviour as toggleAdhkarCore.
+ */
+export async function setAdhkarCore(
+  supabase: SupabaseClient,
+  userId: string,
+  date: string,
+  period: "morning" | "evening",
+  completed: boolean,
+): Promise<ToggleAdhkarResult> {
+  const { data, error } = await supabase
+    .from("adhkar_logs")
+    .upsert({ user_id: userId, date, period, completed }, { onConflict: "user_id,date,period" })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return { id: data.id, date, period, completed };
+}
+
+/** SETS (not toggles) a sunnah slot -- same reason and future-date guard as toggleSunnahCore. */
+export async function setSunnahCore(
+  supabase: SupabaseClient,
+  userId: string,
+  timezone: string,
+  now: Date,
+  date: string,
+  prayerName: PrayerName,
+  slot: SunnahSlot,
+  completed: boolean,
+): Promise<ToggleSunnahResult> {
+  const today = localDateString(now, timezone);
+  if (date > today) throw new Error("date cannot be after today");
+  const { data, error } = await supabase
+    .from("sunnah_logs")
+    .upsert({ user_id: userId, date, prayer_name: prayerName, slot, completed }, { onConflict: "user_id,date,prayer_name,slot" })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return { id: data.id, date, prayerName, slot, completed };
+}
+
+/**
  * Fetches ONLY the timezone — explicitly NOT `todayForUser` (actions.ts's
  * own helper, which fetches timezone AND computes "today" in one step):
  * that collapsing is exactly what moves here, into each core function

@@ -10,6 +10,8 @@ import type { HabitStage } from "@/lib/deen/habit-stage";
 import {
   markPrayerCore,
   toggleSunnahCore,
+  setSunnahCore,
+  setAdhkarCore,
   toggleAdhkarCore,
   quranSessionLogCore,
   adjustQadaBacklogCore,
@@ -99,6 +101,16 @@ export async function toggleAdhkar(date: string, period: "morning" | "evening"):
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   await toggleAdhkarCore(supabase, userId, date, period);
+}
+
+/**
+ * Idempotent setter used by the optimistic UI (PERF-1 review F1): sends the
+ * intended value, so a queued tap after a failed write still ends on the last tap.
+ */
+export async function setAdhkar(date: string, period: "morning" | "evening", completed: boolean): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
+  await setAdhkarCore(supabase, userId, date, period, completed);
 }
 
 /** THIN WRAPPER over quranSessionLogCore (P4-06) — the MCP write tool calls the same core. */
@@ -231,6 +243,19 @@ export async function toggleSunnah(
   if (!(await isDeenModeOnForRequest())) return;
   const timezone = await getRequestTimezone();
   await toggleSunnahCore(supabase, userId, timezone, new Date(), date, prayerName, slot);
+}
+
+/** Idempotent setter twin of toggleSunnah for the optimistic UI (PERF-1 review F1). */
+export async function setSunnah(
+  date: string,
+  prayerName: PrayerName,
+  slot: SunnahSlot,
+  completed: boolean
+): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
+  const timezone = await getRequestTimezone();
+  await setSunnahCore(supabase, userId, timezone, new Date(), date, prayerName, slot, completed);
 }
 
 /**

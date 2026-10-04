@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DeenHabitData } from "@/components/deen/habit-builder";
+import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 
 const STAGE_ORDER: HabitStage[] = ["active_build", "stabilized", "locked"];
 const STAGE_LABEL: Record<HabitStage, string> = {
@@ -339,6 +340,7 @@ function AdvancedScreen({
   onSave: () => void;
 }) {
   const selectedHabit = habits.find((h) => h.id === selectedHabitId) ?? habits[0] ?? null;
+  const scheduleRefresh = useScheduleRefresh();
   const [isPending, startTransition] = useTransition();
   const [committedDate, setCommittedDate] = useState(selectedHabit?.committedDate ?? todayStr);
   const [name, setName] = useState(selectedHabit?.name ?? "");
@@ -414,6 +416,8 @@ function AdvancedScreen({
     setLogsByDate((prev) => ({ ...prev, [date]: nextCompleted }));
     startTransition(async () => {
       await setDeenHabitLogStatus(selectedHabit!.id, date, nextCompleted);
+      // The action no longer revalidates (PERF-1): one deferred refresh re-syncs streaks/Home.
+      scheduleRefresh();
     });
   }
 

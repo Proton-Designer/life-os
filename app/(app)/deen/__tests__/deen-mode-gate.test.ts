@@ -41,6 +41,8 @@ describe("deen/actions.ts refuses when Deen Mode is off", () => {
       decrementReflectionEntry: () => actions.decrementReflectionEntry(1),
       toggleDeenHabitLog: () => actions.toggleDeenHabitLog("h1", "2026-08-10"),
       toggleSunnah: () => (actions.toggleSunnah as (...a: unknown[]) => Promise<unknown>)("2026-08-10", "fajr", "before"),
+      setAdhkar: () => actions.setAdhkar("2026-08-10", "morning", true),
+      setSunnah: () => (actions.setSunnah as (...a: unknown[]) => Promise<unknown>)("2026-08-10", "fajr", "before", true),
       setWeeklyFocus: () => actions.setWeeklyFocus("h1"),
       updateDeenHabit: () => actions.updateDeenHabit("h1", "n", null),
       archiveDeenHabit: () => actions.archiveDeenHabit("h1"),

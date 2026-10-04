@@ -17,7 +17,7 @@ import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 // version of TodaysHomeNowSection before the A2 wiring landed; this file
 // now mirrors the FIXED composition and is the regression pin for it.
 vi.mock("@/app/(app)/actions", () => ({ toggleItem: vi.fn(async () => {}) }));
-vi.mock("@/app/(app)/deen/actions", () => ({ toggleSunnah: vi.fn(async () => {}) }));
+vi.mock("@/app/(app)/deen/actions", () => ({ setSunnah: vi.fn(async () => {}) }));
 vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
   loadTodaysSession: vi.fn(async () => new Promise(() => {})),
   retryStarterDeckSeed: vi.fn(async () => ({ ok: true })),

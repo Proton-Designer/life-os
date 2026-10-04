@@ -9,7 +9,7 @@ const toggleSunnahMock = vi.fn();
 const unmarkPrayerMock = vi.fn();
 vi.mock("@/app/(app)/deen/actions", () => ({
   markPrayer: (...args: unknown[]) => markPrayerMock(...args),
-  toggleSunnah: (...args: unknown[]) => toggleSunnahMock(...args),
+  setSunnah: (...args: unknown[]) => toggleSunnahMock(...args),
   unmarkPrayer: (...args: unknown[]) => unmarkPrayerMock(...args),
 }));
 
@@ -212,7 +212,7 @@ describe("PrayerRow", () => {
 
       await user.click(sunnahItem);
 
-      expect(toggleSunnahMock).toHaveBeenCalledWith("2026-08-11", "fajr", "before");
+      expect(toggleSunnahMock).toHaveBeenCalledWith("2026-08-11", "fajr", "before", true);
       expect(sunnahItem).toHaveAttribute("aria-pressed", "true");
     });
 

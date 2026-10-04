@@ -1,6 +1,6 @@
 "use client";
 
-import { toggleAdhkar } from "@/app/(app)/deen/actions";
+import { setAdhkar } from "@/app/(app)/deen/actions";
 import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +12,7 @@ function AdhkarButton({ date, period, label, completed }: { date: string; period
   const item = useOptimisticItem<boolean>({
     serverValue: completed,
     queueKey: `adhkar:${date}:${period}`,
-    write: () => toggleAdhkar(date, period),
+    write: (next) => setAdhkar(date, period, next),
   });
   return (
     <button

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
-import { toggleSunnah } from "@/app/(app)/deen/actions";
+import { setSunnah } from "@/app/(app)/deen/actions";
 import { sunnahForPrayer, type SunnahDefinition, type SunnahSlot } from "@/lib/deen/sunnah";
 import type { PrayerName } from "@/lib/prayer-times/windows";
 import { cn } from "@/lib/utils";
@@ -57,7 +57,7 @@ function SunnahOptionRow({
   completed: boolean;
   /**
    * Fires synchronously on the tap itself (not after the write settles),
-   * with a promise that resolves once toggleSunnah actually lands — the
+   * with a promise that resolves once setSunnah actually lands — the
    * auto-collapse timer is armed from the TAP (Ayman: "after exactly 1.5
    * seconds"), and only consults this promise at fire time, to make sure
    * it never collapses over a write still in flight.
@@ -65,12 +65,12 @@ function SunnahOptionRow({
   onTap: (writeSettled: Promise<void>) => void;
 }) {
   // PERF-1: per-slot optimistic state; writes for this slot run in tap order and
-  // nothing is disabled while one saves. (toggleSunnah flips server-side, so the
-  // ordered per-slot queue is what keeps N taps == N flips.)
+  // nothing is disabled while one saves. (setSunnah sends the absolute value, so
+  // the ordered per-slot queue ends on the last tap even after a failed write.)
   const item = useOptimisticItem<boolean>({
     serverValue: completed,
     queueKey: `sunnah:${date}:${prayerName}:${def.slot}`,
-    write: () => toggleSunnah(date, prayerName, def.slot),
+    write: (next) => setSunnah(date, prayerName, def.slot, next),
   });
   const optimisticCompleted = item.value;
 

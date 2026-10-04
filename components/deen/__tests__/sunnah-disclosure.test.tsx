@@ -4,7 +4,7 @@ import { SunnahDisclosure } from "../sunnah-disclosure";
 
 const toggleSunnahMock = vi.fn();
 vi.mock("@/app/(app)/deen/actions", () => ({
-  toggleSunnah: (...args: unknown[]) => toggleSunnahMock(...args),
+  setSunnah: (...args: unknown[]) => toggleSunnahMock(...args),
 }));
 
 // 1.5s auto-collapse timer (Ayman, 2026-08-25/26): "after the user presses
