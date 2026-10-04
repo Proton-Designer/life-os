@@ -24,5 +24,6 @@ describe("workEntryTarget (WORK-W1b)", () => {
     expect(workEntryTarget("domains", [{ key: "a b", label: "A", kind: null }])).toEqual({ kind: "redirect", href: "/work/a%20b" });
     expect(workEntryTarget("domains", [])).toEqual({ kind: "screen-with-bar" });
     expect(workEntryTarget("legacy", [job])).toEqual({ kind: "screen" });
+    expect(workEntryTarget("domains", [], false)).toEqual({ kind: "screen" });
   });
 });

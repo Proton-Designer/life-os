@@ -14,9 +14,9 @@ vi.mock("@/lib/domains/get-user-domains", () => ({ getUserDomains: async () => s
 
 import WorkPage from "../page";
 
-const domains = (tabs: string[]) => ({
+const domains = (tabs: string[], withWork = true) => ({
   mode: "domains",
-  domains: [{ key: "work", position: 0 }],
+  domains: withWork ? [{ key: "work", position: 0 }] : [{ key: "school", position: 0 }],
   subdomains: tabs.map((key) => ({ domainKey: "work", key, label: key, kind: "job" })),
 });
 const childNames = async () => {
@@ -35,6 +35,10 @@ describe("/work (WORK-W1b)", () => {
     state = domains([]);
     expect(await childNames()).toEqual(["WorkTabsBar", "WorkScreen"]);
     expect(redirectMock).not.toHaveBeenCalled();
+  });
+  it("domains mode with NO Work domain gets no bar (Add Business would throw); positive control = the zero-tab case above has one", async () => {
+    state = domains([], false);
+    expect(await childNames()).toEqual([null, "WorkScreen"]);
   });
   it("legacy mode serves the plain screen: no bar, no redirect", async () => {
     state = { mode: "legacy" };

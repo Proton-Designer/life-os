@@ -21,7 +21,8 @@ async function openEditor(page: import("@playwright/test").Page) {
   await page.goto("/work");
   await dismissCheckinDialogIfPresent(page);
   await page.getByTestId("edit-work-tabs-trigger").click();
-  await expect(page.getByTestId("edit-work-tabs-list")).toBeVisible();
+  // the dialog, not the list: with zero tabs the <ul> is empty (Playwright calls an empty element hidden)
+  await expect(page.getByRole("dialog", { name: "Edit tabs" })).toBeVisible();
 }
 
 test("adds a Business tab, which opens the Business screen and is first in the bar", async ({ page }) => {

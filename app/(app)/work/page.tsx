@@ -12,9 +12,8 @@ import { workEntryTarget } from "@/lib/shell/work-tabs";
 // work-screen.tsx, shared with /work/[subdomain] (job tabs), so this redirect can't loop.
 export default async function WorkPage() {
   const userDomains = await getUserDomains();
-  const workSubdomains =
-    userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains, false).workSubdomains : [];
-  const target = workEntryTarget(userDomains.mode, workSubdomains);
+  const nav = userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains, false) : null;
+  const target = workEntryTarget(userDomains.mode, nav?.workSubdomains ?? [], nav?.hasWork ?? false);
   if (target.kind === "redirect") redirect(target.href);
   return (
     <>

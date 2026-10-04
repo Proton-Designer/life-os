@@ -17,9 +17,12 @@ export function businessTabHref(workSubdomains: readonly NavSubdomainRef[]): str
  */
 export function workEntryTarget(
   mode: "legacy" | "domains",
-  workSubdomains: readonly NavSubdomainRef[]
+  workSubdomains: readonly NavSubdomainRef[],
+  hasWork = true
 ): { kind: "redirect"; href: string } | { kind: "screen-with-bar" } | { kind: "screen" } {
   if (mode !== "domains") return { kind: "screen" };
+  // No Work domain at all: nothing to add a tab to (ensureBusinessWorkTab would throw), so no bar.
+  if (!hasWork) return { kind: "screen" };
   if (workSubdomains.length > 0) return { kind: "redirect", href: `/work/${encodeURIComponent(workSubdomains[0].key)}` };
   return { kind: "screen-with-bar" };
 }
