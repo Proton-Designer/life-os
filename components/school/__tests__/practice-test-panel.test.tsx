@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { PracticeTestPanel } from "../practice-test-panel";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import type { PracticeTestListItem, PracticeTestQuestion } from "@/app/(app)/school/practice-test-actions";
 
 const getMyPracticeTestsMock = vi.fn(async (..._args: unknown[]): Promise<PracticeTestListItem[]> => []);
@@ -18,7 +19,10 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 describe("PracticeTestPanel (P2-09)", () => {
   beforeEach(() => {
+    resetKeyedQueuesForTests();
     vi.clearAllMocks();
+    submitPracticeTestAnswerMock.mockReset();
+    submitPracticeTestAnswerMock.mockResolvedValue(undefined);
     getMyPracticeTestsMock.mockResolvedValue([]);
     getPracticeTestQuestionsMock.mockResolvedValue([]);
     completePracticeTestMock.mockResolvedValue({ scorePct: 100, answeredCount: 1, questionCount: 1 });
@@ -126,5 +130,40 @@ describe("PracticeTestPanel (P2-09)", () => {
 
     expect(await screen.findByRole("button", { name: "Start" })).toBeInTheDocument();
     expect(submitPracticeTestAnswerMock).not.toHaveBeenCalled();
+  });
+
+  // PERF-3: the next question must not wait for the answer write.
+  const TWO = [
+    { id: "pt1", assessmentId: "a1", intervalLabel: "T-3", questionIds: ["q1", "q2"], status: "pending" as const, scorePct: null, createdAt: "2026-09-01T00:00:00Z", completedAt: null },
+  ];
+  const TWO_Q = [
+    { id: "q1", prompt: "First question", answer: "A1" },
+    { id: "q2", prompt: "Second question", answer: "A2" },
+  ];
+  async function startAndAnswerFirst(user: ReturnType<typeof userEvent.setup>) {
+    getMyPracticeTestsMock.mockResolvedValue(TWO);
+    getPracticeTestQuestionsMock.mockResolvedValue(TWO_Q);
+    render(<PracticeTestPanel classId="c1" />);
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await screen.findByText("First question");
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await user.click(screen.getByRole("button", { name: "Got it right" }));
+  }
+
+  it("advances to the next question immediately, while the answer write is still in flight", async () => {
+    submitPracticeTestAnswerMock.mockImplementation(() => new Promise(() => {})); // never settles
+    await startAndAnswerFirst(userEvent.setup());
+    expect(await screen.findByText("Second question")).toBeInTheDocument();
+    expect(submitPracticeTestAnswerMock).toHaveBeenCalledWith("pt1", "q1", true);
+  });
+
+  it("a failed answer write returns to THAT question with an error, and finishing refuses to complete over it", async () => {
+    submitPracticeTestAnswerMock.mockRejectedValueOnce(new Error("offline"));
+    const user = userEvent.setup();
+    await startAndAnswerFirst(user);
+    // Back on question 1, revealed, with the error.
+    expect(await screen.findByRole("alert")).toHaveTextContent("offline");
+    expect(screen.getByText("First question")).toBeInTheDocument();
+    expect(completePracticeTestMock).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { useRouter } from "next/navigation";
 import {
   getMyPracticeTests,
@@ -92,6 +93,10 @@ function PracticeTestTaker({ practiceTestId, onDone, onExit }: { practiceTestId:
   const [questions, setQuestions] = useState<PracticeTestQuestion[] | null>(null);
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  // Lowest question index whose answer write failed; completion refuses while set.
+  const failedAt = useRef<number | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -118,17 +123,35 @@ function PracticeTestTaker({ practiceTestId, onDone, onExit }: { practiceTestId:
   const current = questions[index]!;
   const isLast = index === questions.length - 1;
 
+  // PERF-3: the next question appears at once; answers are written in order on a
+  // per-test queue (each is an absolute upsert keyed by question, so order and
+  // retries are safe). A failed write returns the user to THAT question with an error;
+  // completion runs on the same queue and refuses to complete over a failed answer.
   function handleSelfReport(correct: boolean) {
-    startTransition(async () => {
-      await submitPracticeTestAnswer(practiceTestId, current!.id, correct);
-      if (isLast) {
-        await completePracticeTest(practiceTestId);
-        onDone();
-      } else {
-        setIndex((i) => i + 1);
-        setRevealed(false);
-      }
-    });
+    const questionId = current.id;
+    const at = index;
+    const queueKey = `practice-test:${practiceTestId}`;
+    setError(null);
+    if (failedAt.current === at) failedAt.current = null;
+    const fail = (e: unknown) => {
+      failedAt.current = failedAt.current === null ? at : Math.min(failedAt.current, at);
+      setError(e instanceof Error ? e.message : "Couldn't save that answer. Try again.");
+      setFinishing(false);
+      setIndex(failedAt.current);
+      setRevealed(true);
+    };
+    if (!isLast) {
+      setIndex(at + 1);
+      setRevealed(false);
+      enqueueByKey(queueKey, () => submitPracticeTestAnswer(practiceTestId, questionId, correct)).catch(fail);
+      return;
+    }
+    setFinishing(true);
+    enqueueByKey(queueKey, async () => {
+      await submitPracticeTestAnswer(practiceTestId, questionId, correct);
+      if (failedAt.current !== null) throw new Error("An earlier answer didn't save. Re-answer it, then finish.");
+      await completePracticeTest(practiceTestId);
+    }).then(onDone, fail);
   }
 
   return (
@@ -142,14 +165,19 @@ function PracticeTestTaker({ practiceTestId, onDone, onExit }: { practiceTestId:
         </Button>
       </div>
       <p className="text-sm">{current.prompt}</p>
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
       {revealed ? (
         <>
           <p className="rounded-md bg-muted p-2 text-sm">{current.answer}</p>
           <div className="flex gap-2">
-            <Button size="sm" disabled={isPending} onClick={() => handleSelfReport(true)}>
+            <Button size="sm" disabled={finishing} onClick={() => handleSelfReport(true)}>
               Got it right
             </Button>
-            <Button size="sm" variant="outline" disabled={isPending} onClick={() => handleSelfReport(false)}>
+            <Button size="sm" variant="outline" disabled={finishing} onClick={() => handleSelfReport(false)}>
               Got it wrong
             </Button>
           </div>
