@@ -235,29 +235,38 @@ test.describe("onboarding", () => {
     await page.getByTestId("domain-option-school").click();
     await page.getByTestId("onboarding-next").click();
 
+    // 54c05cf (ONB item 10): "Connect Canvas" now REALLY connects in the wizard (URL + token),
+    // so the card no longer says "set it up in Settings". What must hold: it is offered, it is
+    // not "coming soon", it opens a real connect form, and skipping stays one click away.
     const canvas = page.getByTestId("school-source-canvas");
     await expect(canvas).toBeVisible();
-    await expect(canvas).toContainText(/settings/i);
+    await expect(canvas).toContainText(/canvas/i);
     await expect(canvas).not.toContainText(/coming soon/i);
+    await expect(page.getByTestId("school-setup-later")).toBeEnabled();
+
+    await canvas.click();
+    await expect(page.getByTestId("school-canvas-url")).toBeVisible();
+    await expect(page.getByTestId("school-canvas-token")).toBeVisible();
+    await expect(page.getByTestId("onboarding-wizard")).not.toContainText(/coming soon/i);
   });
 
-  test("an empty syllabus extraction is a success state, not an error", async ({
+  test("syllabus upload lives inside add-manually, and the school step shows no error state", async ({
     page,
   }) => {
     await signUpFresh(page);
     await page.getByTestId("domain-option-school").click();
     await page.getByTestId("onboarding-next").click();
-    await page.getByTestId("school-source-upload").click();
 
-    const empty = page.getByTestId("school-empty-extraction");
-    if (await empty.count()) {
-      // The bug being fixed at birth: web's UploadSyllabusModal treated
-      // itemCount === 0 as step:"error". A syllabus with no dates is a fact
-      // about the syllabus, not a failure by the user.
-      const cls = (await empty.getAttribute("class")) ?? "";
-      expect(cls).not.toMatch(/destructive|error|danger/);
-      await expect(empty).not.toContainText(/error|failed|couldn't|unable/i);
-    }
+    // 54c05cf: the separate top-level "upload a syllabus" source is gone; the file is an optional
+    // attachment per manually added class. (The empty-extraction success state itself is covered
+    // by components/onboarding/__tests__/school-step.test.tsx; reaching it here would upload a
+    // file and call extraction on a live account.)
+    await expect(page.getByTestId("school-source-upload")).toHaveCount(0);
+    await page.getByTestId("school-source-manual").click();
+    await expect(page.getByTestId("school-manual-syllabus-file")).toBeAttached();
+
+    const wizard = page.getByTestId("onboarding-wizard");
+    await expect(wizard).not.toContainText(/error|failed|couldn't|unable/i);
   });
 
   test("no horizontal overflow at 390px on any step", async ({ page }) => {

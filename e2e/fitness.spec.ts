@@ -118,15 +118,26 @@ async function reconcileFitnessBaseline(
   // commits. Caught live, 2026-08-23: a one-shot residue check right after
   // the UI confirmed deletion read the row mid-flight and failed a test
   // whose cleanup was, in fact, correct — just not finished yet.
-  const initial = await fitnessResidueSnapshot(page, baseURL, secret);
-  if (initial.fitnessCycleAnchor > baseline.fitnessCycleAnchor) {
-    const res = await page.request.delete(`${baseURL}/api/test/clear-fitness-cycle-anchor`, {
-      headers: { "x-e2e-secret": secret },
-    });
-    expect(res.ok()).toBe(true);
-  }
+  // The anchor is (re)created by any /fitness render that still sees the plan active, and an RSC
+  // fetch started before the deactivation can land AFTER the first delete (seen on the freshly
+  // created legacy SEED, whose baseline anchor is 0: delete -> 0 -> a late render upserts it back
+  // -> 1). So the delete lives INSIDE the poll: re-clear whenever it is above baseline. Once the
+  // plan is gone nothing can recreate it, so this converges.
   await expect
-    .poll(async () => fitnessResidueSnapshot(page, baseURL, secret), { timeout: 10_000, intervals: [250, 500, 1000] })
+    .poll(
+      async () => {
+        const snap = await fitnessResidueSnapshot(page, baseURL, secret);
+        if (snap.fitnessCycleAnchor > baseline.fitnessCycleAnchor) {
+          const res = await page.request.delete(`${baseURL}/api/test/clear-fitness-cycle-anchor`, {
+            headers: { "x-e2e-secret": secret },
+          });
+          expect(res.ok()).toBe(true);
+          return fitnessResidueSnapshot(page, baseURL, secret);
+        }
+        return snap;
+      },
+      { timeout: 15_000, intervals: [250, 500, 1000] }
+    )
     .toEqual(baseline);
 }
 

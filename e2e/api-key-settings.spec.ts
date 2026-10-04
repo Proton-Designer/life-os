@@ -63,9 +63,13 @@ async function openSettings(page: Page) {
 // overflow.spec.ts documents for the connector token list).
 async function expandProvider(section: Locator, label: string) {
   const trigger = section.getByRole("button", { name: label, exact: true });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
-    await trigger.click();
-  }
+  // A click that lands before React hydrates the Radix trigger is silently lost (the same
+  // hydration race fillReliably guards), so assert the EFFECT (aria-expanded) and click again if
+  // it didn't stick, instead of trusting one click.
+  await expect(async () => {
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 test.describe("API key settings", () => {
