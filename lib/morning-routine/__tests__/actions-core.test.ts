@@ -264,6 +264,15 @@ describe("IA-P4a — Launch-sequence steps", () => {
       expect(methods).toContain("delete"); // the rollback
     });
 
+    it("if the vote is refused AND the rollback also fails, the disagreement is surfaced, not swallowed", async () => {
+      const { client } = makeClient({
+        ...step("h1"),
+        morning_routine_checks: [{ data: null, error: null }, { data: null, error: { message: "rollback failed" } }],
+        habit_votes: [{ data: null, error: { message: "paused" } }],
+      });
+      await expect(setLaunchStepDoneCore(client, "user-1", "i1", true, today, now, tz)).rejects.toThrow(/reload to see where this step really stands/);
+    });
+
     it("refuses another day and a missing/archived step without writing", async () => {
       const a = makeClient({});
       await expect(setLaunchStepDoneCore(a.client, "user-1", "i1", true, yesterday, now, tz)).rejects.toThrow(/only be checked/);

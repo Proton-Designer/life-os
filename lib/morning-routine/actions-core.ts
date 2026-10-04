@@ -245,7 +245,13 @@ export async function setLaunchStepDoneCore(
     if (done) await castHabitVoteCore(supabase, userId, habitId, requestedDate, now, timezone);
     else await retractHabitVoteCore(supabase, userId, habitId, requestedDate, now, timezone);
   } catch (err) {
-    await write(!done).catch(() => undefined);
+    try {
+      await write(!done);
+    } catch {
+      // Both the vote AND the compensating write failed: tick and vote now disagree. Say so
+      // (the UI shows this message and re-syncs on refresh) instead of swallowing it.
+      throw new Error("Couldn't record the habit vote or undo the tick — reload to see where this step really stands.");
+    }
     throw err;
   }
 }

@@ -23,6 +23,8 @@ import { sendPushToUser } from "./send-push";
  */
 
 const REMINDER_WINDOW_START_LOCAL = "21:30";
+// Latest local time the reminder window may open (see reminderWindowStartLocal).
+const REMINDER_LATEST_START = "23:30";
 const REMINDER_WINDOW_DURATION_MS = 2 * 60 * 60 * 1000;
 
 const REMINDER_TITLE = "Wind down";
@@ -35,7 +37,10 @@ const REMINDER_BODY = "Time to wind down — close the day and plan tomorrow.";
  */
 export function reminderWindowStartLocal(plan: { wake_time: string | null; sleep_need_minutes: number | null; wind_down_minutes: number | null } | undefined): string {
   const derived = plan ? deriveWindDown({ wakeTime: plan.wake_time, sleepNeedMinutes: plan.sleep_need_minutes, windDownMinutes: plan.wind_down_minutes }) : null;
-  return eveningWindDownStart(derived) ?? REMINDER_WINDOW_START_LOCAL;
+  const start = eveningWindDownStart(derived) ?? REMINDER_WINDOW_START_LOCAL;
+  // The cron ticks every 15 min and the window stops at local midnight: a start after 23:30 would get
+  // under 30 min and could be missed entirely, so it opens no later than REMINDER_LATEST_START.
+  return start > REMINDER_LATEST_START ? REMINDER_LATEST_START : start;
 }
 
 function isWithinReminderWindow(now: Date, timezone: string, sentDate: string, startLocal: string = REMINDER_WINDOW_START_LOCAL): boolean {

@@ -237,6 +237,14 @@ describe("dispatchSleepReminders — wind-down plan window (IA-P4a)", () => {
     expect((await dispatchSleepReminders(client, AT_2130_LOCAL)).dispatched).toBe(1);
   });
 
+  it("a wind-down at/after 23:45 still gets a >=30 min window: the reminder opens by 23:30", async () => {
+    const veryLate = { user_id: "u1", wake_time: "09:30", sleep_need_minutes: 540, wind_down_minutes: 45 }; // bed 00:30, wind-down 23:45
+    const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [veryLate] });
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    expect((await dispatchSleepReminders(client, new Date("2026-09-15T04:29:00.000Z"))).dispatched).toBe(0); // 23:29
+    expect((await dispatchSleepReminders(client, new Date("2026-09-15T04:30:00.000Z"))).dispatched).toBe(1); // 23:30
+  });
+
   it("a late wind-down (23:15) never leaks past local midnight", async () => {
     const late = { user_id: "u1", wake_time: "09:00", sleep_need_minutes: 540, wind_down_minutes: 45 }; // wind-down 23:15
     const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [late] });
