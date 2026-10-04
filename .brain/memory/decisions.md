@@ -123,3 +123,14 @@ anything was built on it.
 **Do not undo without understanding:** Supabase labels that key
 "revoke once all tokens have expired." Revoking it breaks the MCP connector
 with no fallback — see `.brain/memory/known-issues.md`.
+
+---
+
+## 2026-10-04 — Deen Mode is one boolean on `profiles`, default OFF, gate-only
+
+**Status:** Active
+**Source:** `.claude/overnight/run-20261004-1135/INSTRUCTIONS.md` (D1–D7), migration 251
+
+**Decision:** religious surfaces are controlled by `profiles.deen_mode` (not an `enabled_features` entry, not a `user_domains` row). New accounts are OFF; OFF hides, never deletes (R4); onboarding offers no faith option. In Settings it supersedes the `hidden_features` "deen" entry, and `deen_mode` is intentionally not MCP-writable.
+
+**Do not undo without understanding:** `enabled_features` has a DB CHECK tied to a TS enum, and a user wanted the switch in the Features panel; making it a domain row would let onboarding re-introduce faith.

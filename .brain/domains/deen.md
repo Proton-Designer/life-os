@@ -77,6 +77,10 @@ Answers "how am I actually doing at daily religious practice," not "did I check 
 - `user_domains.depth` has zero consumers (`faith-depth.ts` is tested, uncalled) — a landed, unwired feature, not a bug.
 - The `dispatch-notifications` Edge Function has its own prayer-time-shaped function separate from `lib/prayer-times/`; whether it shares the anchor-fix safeguard is **unverified**.
 
+## Deen Mode (2026-10-04)
+
+`profiles.deen_mode boolean not null default false` (migration 251) is the single switch for everything religious; read it with `isDeenModeOn(profile)` (`lib/deen/deen-mode.ts`, strict `=== true`, fails closed). OFF is a render/behaviour gate only — no deen table or `user_domains` row is ever deleted or mutated by toggling. Written only via `updateProfile({ deen_mode })` (Settings → Features → `DeenModeSettings`); deliberately not MCP-writable. Settings gating (done): Prayer panel and the whole Location panel (every lat/lng/label consumer is prayer-only) + their side-nav entries hidden when OFF; `timezone` (app-wide) is split out into `TimezoneSettings`, shown instead of Location when OFF; `hidden_features` "deen" no longer listed in the visibility UI (stored value tolerated and preserved). Other surfaces (nav, Home, routes, notifications, check-ins, MCP) are gated by later DEEN tasks — see this section's updates.
+
 ## Not covered here
 
 - Evening Close's distraction-plan refusal gate → `domain.evening-close`

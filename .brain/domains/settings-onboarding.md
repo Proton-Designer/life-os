@@ -65,6 +65,8 @@ Onboarding is the resumable, domain-first wizard that writes `user_domains`/`use
 - `/deen`, `/business`, `/fitness`, `/school` are reachable by direct URL in **both** modes — only `/personal/*` and `/work/*` are mode-gated. "Domains mode hides Deen" is a nav claim, not a route claim.
 - Domains-mode nav does **not** respect `profiles.hidden_features` — a deliberate scope boundary.
 
+- **Deen Mode (2026-10-04):** Settings → Features starts with the Deen Mode switch (`components/settings/deen-mode-settings.tsx`, writes `profiles.deen_mode` via `updateProfile`). When OFF, the Prayer and Location sections (and side-nav entries) are hidden and a standalone Timezone panel (`timezone-settings.tsx`) replaces Location so timezone stays editable, and `SettingsForm` stops sending `prayer_calc_method`/`asr_madhab` so stored values survive. Feature-visibility no longer lists "Deen" (Deen Mode supersedes it).
+
 ## Not covered here
 
 - Per-domain settings columns beyond the vocabulary/nav mechanism itself
