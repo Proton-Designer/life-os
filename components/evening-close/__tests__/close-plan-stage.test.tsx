@@ -220,3 +220,43 @@ describe("ClosePlanStage — Inbox triage", () => {
     expect(screen.getByRole("button", { name: "Plan tonight: Look into a standing desk" })).toBeInTheDocument();
   });
 });
+
+// P1a review F1: "Plan tonight" is only on the plan day once its write lands; savePlanRanks clears old
+// ranks FIRST and then ranks by planned_date, so Finish must wait for the in-flight triage write.
+describe("ClosePlanStage — Plan tonight then Finish fast (P1a F1)", () => {
+  const inbox = [{ id: "n1", title: "Look into a standing desk" }];
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function planStarFinish(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Plan tonight: Look into a standing desk" }));
+    await user.click(screen.getByRole("button", { name: "Star Look into a standing desk" }));
+    await user.click(screen.getByRole("button", { name: "Crown Look into a standing desk" }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+  }
+
+  it("does not save ranks until the triage write has landed", async () => {
+    let release!: () => void;
+    triageInboxItemMock.mockImplementationOnce(() => new Promise((r) => (release = () => r({ ok: true }))));
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={[]} mode="tonight" />);
+    await planStarFinish(user);
+    await waitFor(() => expect(triageInboxItemMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(savePlanRanksMock).not.toHaveBeenCalled(); // still waiting on the write
+    release();
+    await waitFor(() => expect(savePlanRanksMock).toHaveBeenCalledWith(["n1"], "n1", "tonight"));
+  });
+
+  it("if the triage write fails, ranks are NOT saved (nothing cleared) and the error shows", async () => {
+    let fail!: () => void;
+    triageInboxItemMock.mockImplementationOnce(() => new Promise((r) => (fail = () => r({ error: "That item was already sorted." }))));
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={[]} mode="tonight" />);
+    await planStarFinish(user); // Finish is pressed while the write is still in flight
+    fail();
+    expect(await screen.findByText("That item was already sorted.")).toBeInTheDocument();
+    expect(savePlanRanksMock).not.toHaveBeenCalled();
+  });
+});

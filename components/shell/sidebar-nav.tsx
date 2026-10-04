@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
-import { Home, TrendingUp, Settings, BookOpen, AlertCircle, Flag, Repeat, CalendarCheck, Sunrise, ClipboardCheck, type LucideIcon } from "lucide-react";
+import { Home, TrendingUp, Settings, BookOpen, AlertCircle, Flag, Repeat, CalendarCheck, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -63,26 +63,7 @@ export const SECTIONS: NavSection[] = [
       // collision reason lib/business/work-session-kind.ts's KIND_LABEL
       // avoided calling 'learn' sessions "Review" too.
       { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck, accent: "info" },
-      // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure --
-      // Start Day, the Delta clock, Efficiency, Merged Today at
-      // /open/today) was fully built and wired but had NO inbound link
-      // anywhere in the app except /open/today's own empty-state button --
-      // itself unreachable without already being there. Same dead-end
-      // shape Worries/Goals/Habits/Weekly Review had, same fix. Points at
-      // /open (the morning entry), not /open/today directly -- /open's own
-      // header calls landing there "the first tap" of a deliberate two-tap
-      // budget ending at /open/today, and a nav link that skipped straight
-      // to /open/today would silently spend that first tap for the user.
-      { href: "/open", label: "Today", icon: Sunrise, accent: "info" },
-      // 2026-09-18: /close (evening close -- close-out stats, Night Plan
-      // seeding, goal-milestone seeding) existed and worked by direct URL
-      // only on legacy accounts (6 of 38 accounts, per the verification
-      // pass that found this gap) -- this nav's SidebarNav doc comment
-      // below used to justify that as deliberate; it no longer is (see that
-      // comment). Same label/icon/accent as the domains-mode pair's own
-      // "Review" entry (tab-sidebar-nav.tsx / tab-mobile-island.tsx
-      // MORE_ITEMS) so the destination reads identically in both modes.
-      { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },
+      // IA-P2: Today (/open) and Review (/close) left the nav; the day lives on Home and the topbar moon link opens /close.
     ],
   },
   {

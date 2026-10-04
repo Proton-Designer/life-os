@@ -215,6 +215,23 @@ describe("plan-actions", () => {
       expect(upsertCall!.args[1]).toEqual({ onConflict: "user_id,local_date", ignoreDuplicates: true });
     });
 
+    // Night owl: closing at 00:30 on Oct 5 closes Oct 4 (4 AM rollover) and plans tonight = Oct 5.
+    it("a close at 00:30 local records the PREVIOUS day as closed and plans local today", async () => {
+      vi.setSystemTime(new Date("2026-10-05T00:30:00-05:00"));
+      nextChain = () => makeChain({ data: [{ id: "row" }], error: null }, calls);
+      const eveningClosesCalls: Call[] = [];
+      fromMock.mockImplementation((table: string) =>
+        table === "evening_closes" ? makeChain({ data: null, error: null }, eveningClosesCalls) : nextChain()
+      );
+      const { savePlanRanks } = await import("../plan-actions");
+
+      await savePlanRanks(["a"], "a");
+
+      const upsertCall = eveningClosesCalls.find((c) => c.method === "upsert");
+      expect((upsertCall!.args[0] as { local_date: string }).local_date).toBe("2026-10-04");
+      expect(calls.some((c) => c.method === "eq" && c.args[0] === "planned_date" && c.args[1] === "2026-10-05")).toBe(true);
+    });
+
     it("mode 'today' (a next-morning replan) does NOT record a closed day -- it fixes yesterday's plan, it isn't tonight's ceremony", async () => {
       nextChain = () => makeChain({ data: [{ id: "row" }], error: null }, calls);
       const eveningClosesCalls: Call[] = [];

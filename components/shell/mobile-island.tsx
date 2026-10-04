@@ -65,9 +65,7 @@ const MORE_ITEMS = SECTIONS.flatMap((section) => section.items).filter(
     item.href === "/worries" ||
     item.href === "/goals" ||
     item.href === "/habits" ||
-    item.href === "/weekly-review" ||
-    item.href === "/open" ||
-    item.href === "/close"
+    item.href === "/weekly-review"
 );
 
 function isActive(pathname: string, href: string) {

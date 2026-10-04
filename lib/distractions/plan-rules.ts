@@ -1,4 +1,4 @@
-import { addDaysToDateString, localDateString } from "@/lib/date-utils";
+import { effectiveDayString } from "@/lib/date-utils";
 import type { TriggerSummary } from "./types";
 
 export const REVIEW_AVAILABLE_HOUR = 21; // 9 PM local
@@ -56,7 +56,5 @@ export function isReviewOpen(now: Date, timezone: string): boolean {
 
 /** The local date the review screen targets — yesterday during the post-midnight tail, otherwise today. */
 export function reviewDateFor(now: Date, timezone: string): string {
-  const hour = localHour(now, timezone);
-  const today = localDateString(now, timezone);
-  return hour < REVIEW_TAIL_END_HOUR ? addDaysToDateString(today, -1) : today;
+  return effectiveDayString(now, timezone, REVIEW_TAIL_END_HOUR);
 }

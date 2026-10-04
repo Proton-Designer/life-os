@@ -62,27 +62,23 @@ describe("TabSidebarNav", () => {
   it("keeps the rest of SYSTEM's items reachable alongside Business", () => {
     render(<TabSidebarNav variant="expanded" navDomainState={DOMAIN_STATE} />);
     for (const [label, href] of [
-      ["Review", "/close"],
       ["Insights", "/insights"],
       ["Calendar", "/calendar"],
       ["Worries", "/worries"],
       ["Goals", "/goals"],
       ["Habits", "/habits"],
       ["Weekly Review", "/weekly-review"],
-      ["Today", "/open"],
       ["Settings", "/settings"],
     ] as const) {
       expect(screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") })).toHaveAttribute("href", href);
     }
   });
 
-  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure) had zero
-  // click-path in EITHER domains-mode renderer -- the exact dead-end shape
-  // UX-02 already fixed for /business above, just a different route. Kept
-  // in step with tab-mobile-island.tsx per this file's own MORE_ITEMS
-  // doc comment.
-  it("links Today to /open under SYSTEM", () => {
+  // IA-P2: Today and Review left the nav (the day lives on Home; the topbar moon link opens /close).
+  it("does not list Today or Review under SYSTEM (positive control: Weekly Review is still there)", () => {
     render(<TabSidebarNav variant="expanded" navDomainState={DOMAIN_STATE} />);
-    expect(screen.getByRole("link", { name: /^today$/i })).toHaveAttribute("href", "/open");
+    expect(screen.queryByRole("link", { name: /^today$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^review$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^weekly review$/i })).toBeInTheDocument();
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   formatShortDate,
+  effectiveDayString,
+  localDateString,
   getWeekStartDate,
   formatTopbarDate,
   formatDurationMagnitude,
@@ -222,5 +224,45 @@ describe("formatShortDate", () => {
     expect(formatShortDate("")).toBe("");
     expect(formatShortDate("not a date")).toBe("not a date");
     expect(formatShortDate("2026-13-01", "2026-08-26")).toBe("2026-13-01");
+  });
+});
+
+describe("effectiveDayString (4 AM rollover for end-of-day rituals)", () => {
+  // Chicago is UTC-5 (CDT) in October, Tokyo is UTC+9. Each case is an instant given in that zone's wall clock.
+  const chicago = (local: string) => new Date(`${local}-05:00`);
+  const tokyo = (local: string) => new Date(`${local}+09:00`);
+
+  it("America/Chicago: 23:59 -> same day; 00:30 and 03:59 -> still the previous day; 04:00 -> the new day", () => {
+    expect(effectiveDayString(chicago("2026-10-04T23:59:00"), "America/Chicago")).toBe("2026-10-04");
+    expect(effectiveDayString(chicago("2026-10-05T00:00:00"), "America/Chicago")).toBe("2026-10-04");
+    expect(effectiveDayString(chicago("2026-10-05T00:30:00"), "America/Chicago")).toBe("2026-10-04");
+    expect(effectiveDayString(chicago("2026-10-05T03:59:00"), "America/Chicago")).toBe("2026-10-04");
+    expect(effectiveDayString(chicago("2026-10-05T04:00:00"), "America/Chicago")).toBe("2026-10-05");
+  });
+
+  it("Asia/Tokyo: same boundaries in a zone ahead of UTC", () => {
+    expect(effectiveDayString(tokyo("2026-10-04T23:59:00"), "Asia/Tokyo")).toBe("2026-10-04");
+    expect(effectiveDayString(tokyo("2026-10-05T00:30:00"), "Asia/Tokyo")).toBe("2026-10-04");
+    expect(effectiveDayString(tokyo("2026-10-05T03:59:00"), "Asia/Tokyo")).toBe("2026-10-04");
+    expect(effectiveDayString(tokyo("2026-10-05T04:00:00"), "Asia/Tokyo")).toBe("2026-10-05");
+  });
+
+  it("DST day (Chicago spring-forward 2026-03-08, 02:00 -> 03:00): 03:30 is still the previous day, 04:00 rolls over", () => {
+    expect(effectiveDayString(new Date("2026-03-08T03:30:00-05:00"), "America/Chicago")).toBe("2026-03-07");
+    expect(effectiveDayString(new Date("2026-03-08T04:00:00-05:00"), "America/Chicago")).toBe("2026-03-08");
+    // fall-back 2026-11-01 (01:00-02:00 repeats): 00:30 CDT is previous day; 04:00 CST rolls over
+    expect(effectiveDayString(new Date("2026-11-01T00:30:00-05:00"), "America/Chicago")).toBe("2026-10-31");
+    expect(effectiveDayString(new Date("2026-11-01T04:00:00-06:00"), "America/Chicago")).toBe("2026-11-01");
+  });
+
+  it("positive control: plain localDateString gets the 00:30 case wrong (the old close behaviour)", () => {
+    const at = chicago("2026-10-05T00:30:00");
+    expect(localDateString(at, "America/Chicago")).toBe("2026-10-05");
+    expect(effectiveDayString(at, "America/Chicago")).not.toBe(localDateString(at, "America/Chicago"));
+  });
+
+  it("honours a custom rollover hour", () => {
+    expect(effectiveDayString(chicago("2026-10-05T05:30:00"), "America/Chicago", 6)).toBe("2026-10-04");
+    expect(effectiveDayString(chicago("2026-10-05T06:00:00"), "America/Chicago", 6)).toBe("2026-10-05");
   });
 });

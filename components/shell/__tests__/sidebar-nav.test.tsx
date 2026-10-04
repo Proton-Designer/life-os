@@ -38,7 +38,7 @@ describe("SidebarNav", () => {
     expect(screen.getByText("SYSTEM")).toBeInTheDocument();
   });
 
-  it("renders every one of the 15 routes with an icon", () => {
+  it("renders every one of the 13 routes with an icon", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
@@ -53,8 +53,6 @@ describe("SidebarNav", () => {
       "Goals",
       "Habits",
       "Weekly Review",
-      "Today",
-      "Review",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -131,8 +129,6 @@ describe("SidebarNav", () => {
       "Goals",
       "Habits",
       "Weekly Review",
-      "Today",
-      "Review",
       "Settings",
     ]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
@@ -178,26 +174,16 @@ describe("SidebarNav", () => {
     expect(screen.getByRole("link", { name: "Weekly Review" })).toHaveAttribute("href", "/weekly-review");
   });
 
-  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure -- Start
-  // Day, the Delta clock, Efficiency, and the Merged Today surface at
-  // /open/today) existed and worked, fully wired end to end, but the ONLY
-  // inbound link to it anywhere in the app was /open/today's OWN empty-state
-  // "Start day" button -- itself unreachable without already being on
-  // /open/today. Same dead-end shape Worries/Goals/Habits/Weekly Review had
-  // before their own fixes above; this is that fix for Day Structure.
-  it("links Today to /open", () => {
+  // IA-P2: Today (/open) and Review (/close) left the nav -- the day lives on Home (Morning card,
+  // Today strip, Close the day) and the topbar moon link opens /close. Positive control: the
+  // neighbouring REVIEW entries are still there.
+  it("no longer lists Today or Review (IA-P2) but keeps the rest of REVIEW", () => {
     render(<SidebarNav variant="expanded" />);
-    expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("href", "/open");
-  });
-
-  // 2026-09-18: /close (evening close -- close-out stats, Night Plan
-  // seeding, goal-milestone seeding) existed and worked by direct URL only
-  // on legacy accounts. The domains-mode pair (tab-sidebar-nav.tsx /
-  // tab-mobile-island.tsx) already labels this destination "Review" in
-  // their own SYSTEM/MORE_ITEMS groupings -- same label, same href, here.
-  it("links Review to /close", () => {
-    render(<SidebarNav variant="expanded" />);
-    expect(screen.getByRole("link", { name: "Review" })).toHaveAttribute("href", "/close");
+    expect(screen.queryByRole("link", { name: "Today" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Review" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^today$/i })).toBeNull();
+    expect(screen.getByRole("link", { name: "Weekly Review" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Insights" })).toBeInTheDocument();
   });
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
@@ -224,8 +210,6 @@ describe("SidebarNav", () => {
         "Goals",
         "Habits",
         "Weekly Review",
-        "Today",
-        "Review",
         "Settings",
       ]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();
@@ -246,8 +230,6 @@ describe("SidebarNav", () => {
       expect(screen.getByRole("link", { name: "Goals" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Habits" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Weekly Review" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Today" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Review" })).toBeInTheDocument();
     });
 
     it("drops the whole REVIEW section once every item in it is hidden", () => {
@@ -262,8 +244,6 @@ describe("SidebarNav", () => {
       expect(screen.queryByRole("link", { name: "Goals" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Habits" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Weekly Review" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Today" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Review" })).not.toBeInTheDocument();
       expect(screen.queryByText("REVIEW")).not.toBeInTheDocument();
     });
 
@@ -287,8 +267,6 @@ describe("SidebarNav", () => {
         "Goals",
         "Habits",
         "Weekly Review",
-        "Today",
-        "Review",
         "Settings",
       ]) {
         expect(screen.getByRole("link", { name: new RegExp(`^${label}$`) })).toBeInTheDocument();

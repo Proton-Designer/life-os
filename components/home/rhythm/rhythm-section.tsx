@@ -1,0 +1,119 @@
+import Link from "next/link";
+import { AlertCircle, Clock, Gauge, Moon, Sunrise } from "lucide-react";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Panel } from "@/components/ui/panel";
+import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
+import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
+import { StartDayButton } from "@/components/home/rhythm/start-day-button";
+import { ReplanDialog } from "@/components/home/rhythm/replan-dialog";
+import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
+import type { RhythmData } from "@/lib/home/rhythm-data";
+
+/**
+ * Home's day-rhythm section (IA-P2): one card for the phase of the day, chosen by homeRhythmState
+ * (lib/home/rhythm-state.ts) -- Morning (last night's three + Start day + Re-plan), the Today strip
+ * (Delta, Hours, Efficiency, timeboxes) after Start Day, "Close the day" from wind-down, and
+ * "Done for today" once the day is closed. A Server Component: every prop is plain data.
+ */
+export function RhythmSection({ data }: { data: RhythmData }) {
+  switch (data.state) {
+    case "morning":
+      return (
+        <Panel title="Good morning" data-testid="rhythm-morning">
+          {data.plan.length === 0 ? (
+            <div className="rounded-lg border p-4">
+              <p className="text-sm">No plan was made last night.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Today is open. The close runs this evening.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Last night you chose these.</p>
+              <ol className="space-y-2">
+                {data.plan.map((t) => {
+                  const crowned = t.mit_rank === 1;
+                  return (
+                    <li key={t.id} className={crowned ? "rounded-lg border-2 border-primary/60 p-3" : "rounded-lg border p-2.5"}>
+                      <div className="flex items-start gap-2">
+                        <span aria-hidden className="shrink-0 text-sm text-muted-foreground">
+                          {crowned ? "★" : t.mit_rank}
+                        </span>
+                        <span className={crowned ? "text-base font-medium" : "text-sm"}>{t.title}</span>
+                      </div>
+                      <span className="sr-only">
+                        {crowned ? "crowned" : `rank ${t.mit_rank}`}
+                        {t.completed ? ", already done" : ""}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+              {data.diff.changed ? (
+                <div role="status" className="flex items-start gap-2 rounded-lg border border-accent-info/30 bg-accent-info/10 p-3 text-sm text-accent-info">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span>{data.diff.message}</span>
+                </div>
+              ) : null}
+            </div>
+          )}
+          <div className="mt-3 flex items-center gap-3">
+            <StartDayButton />
+            <ReplanDialog />
+          </div>
+        </Panel>
+      );
+    case "today":
+      return (
+        <div className="flex flex-col gap-3" data-testid="rhythm-today">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <StatTile icon={Sunrise} accent="info" label="Delta — awake for" value={<DeltaClockDisplay wokeAtIso={data.wokeAtIso} initialSeconds={data.deltaSeconds} />} />
+            <StatTile
+              icon={Clock}
+              accent="info"
+              label="Hours today"
+              value={hoursOfDailyTarget(data.hoursTodayMinutes)}
+              delta={{ direction: "flat", text: formatHoursMinutes(data.hoursTodayMinutes) }}
+            />
+            <StatTile icon={Gauge} accent="info" label="Efficiency" value={data.efficiencyPercent === null ? "—" : `${data.efficiencyPercent}%`} />
+          </div>
+          <TimeboxedTasks tasks={data.timeboxed} />
+        </div>
+      );
+    case "wind_down":
+      return (
+        <Panel title="Wind down" data-testid="rhythm-wind-down">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">Close the day: account for it, reflect, and choose tomorrow&apos;s three.</p>
+            <Link
+              href="/close"
+              prefetch
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
+              data-testid="close-the-day"
+            >
+              <Moon className="size-4" aria-hidden />
+              Close the day
+            </Link>
+          </div>
+        </Panel>
+      );
+    case "done":
+      return (
+        <Panel title="Done for today" data-testid="rhythm-done">
+          {data.tomorrow.length === 0 ? (
+            <p className="text-sm text-muted-foreground">The day is closed. Nothing is planned for tomorrow yet.</p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">The day is closed. Tomorrow you chose:</p>
+              <ol className="space-y-1.5">
+                {data.tomorrow.map((t) => (
+                  <li key={t.id} className="flex items-start gap-2 text-sm">
+                    <span aria-hidden className="text-muted-foreground">{t.mitRank === 1 ? "★" : t.mitRank}</span>
+                    <span className={t.mitRank === 1 ? "font-medium" : ""}>{t.title}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </Panel>
+      );
+  }
+}

@@ -36,6 +36,7 @@ export interface WidgetDef {
 
 const HOME: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "morning_brief", label: "Morning brief", description: "An AI-written summary of what's ahead today, when one was generated overnight." },
+  { widgetKey: "rhythm", label: "Your day", description: "The card for where you are in the day: morning plan and Start day, the Today strip, then Close the day." },
   { widgetKey: "morning_routine", label: "Morning routine", description: "Your own checklist of morning habits, checked off once a day." },
   { widgetKey: "sleep_intent", label: "Sleep intent", description: "Tonight's planned bedtime, set during evening close." },
   { widgetKey: "session_entry", label: "Start a session", description: "One tap into today's spaced-review session, when cards or questions are due." },

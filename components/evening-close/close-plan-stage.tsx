@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { dumpLine, refreshCloseViews, savePlanRanks, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
@@ -84,6 +84,7 @@ export function ClosePlanStage({
   inboxAreas?: InboxAreas;
 }) {
   const [inboxItems, setInboxItems] = useState<InboxEntry[]>(inbox);
+  const pendingPlanTriage = useRef(new Map<string, Promise<boolean>>());
   const [lines, setLines] = useState<Line[]>([
     ...initialLines,
     ...seeds.filter(isSeedable).map((s) => ({ id: s.id, title: s.title, seedSource: s.source })),
@@ -138,12 +139,26 @@ export function ClosePlanStage({
         setCrowned((c) => (c === item.id ? null : c));
       }
     };
-    void enqueueByKey(`close-inbox:${item.id}`, () => triageInboxItem(item.id, action, mode))
-      .then((res) => {
-        if ("error" in res) undo(res.error);
+    const write = enqueueByKey(`close-inbox:${item.id}`, () => triageInboxItem(item.id, action, mode))
+      .then((res): boolean => {
+        if ("error" in res) {
+          undo(res.error);
+          return false;
+        }
+        return true;
       })
-      .catch(() => undo("Couldn't sort that item. Try again."))
-      .finally(scheduleRefresh);
+      .catch((): boolean => {
+        undo("Couldn't sort that item. Try again.");
+        return false;
+      })
+      .finally(() => {
+        scheduleRefresh();
+        pendingPlanTriage.current.delete(item.id);
+      });
+    // A "Plan" line is not on the plan day until its write lands; Finish waits for it (commit()) --
+    // savePlanRanks clears old ranks first and then ranks by planned_date, so ranking an id whose
+    // planned_date write is still in flight would clear ranks and then fail (P1a review F1).
+    if (action === "plan") pendingPlanTriage.current.set(item.id, write);
   }
 
   function toggleStar(id: string) {
@@ -189,6 +204,10 @@ export function ClosePlanStage({
   function commit() {
     setError(null);
     startTransition(async () => {
+      // Settle in-flight "Plan" triage writes first; if one failed it already put the item back
+      // and showed its error, so stop here and let the user finish again.
+      const settled = await Promise.all([...pendingPlanTriage.current.values()]);
+      if (settled.some((ok) => !ok)) return;
       const seedLines: SeedLine[] = lines
         .filter((l): l is Line & { seedSource: SeedSource } => l.seedSource !== undefined)
         .map((l) => ({ id: l.id, title: l.title, source: l.seedSource }));
@@ -366,6 +385,17 @@ export function ClosePlanStage({
           {starred.length === 0 ? "Star up to three." : `${starred.length} starred. Crown one to finish.`}
         </p>
       )}
+
+      {/* IA-P2: the close ends on "Done for today" -- Home shows the same state from here on. */}
+      {saved && mode === "tonight" ? (
+        <div role="status" data-testid="close-done" className="rounded-lg border border-primary/40 bg-primary/5 p-4">
+          <p className="text-sm font-medium">Done for today.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Tomorrow&apos;s plan is set. Rest well.</p>
+          <a href="/" className="mt-3 inline-flex h-9 items-center rounded-md border px-3 text-sm">
+            Back to Home
+          </a>
+        </div>
+      ) : null}
     </section>
   );
 }

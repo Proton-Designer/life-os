@@ -72,6 +72,25 @@ describe("getLayoutCore -- defaults without rows", () => {
   });
 });
 
+// IA-P2: Home gained the `rhythm` widget. A layout saved BEFORE it existed must still render (it appears
+// visible at its registry position), and one that hides it stays hidden.
+describe("getLayoutCore -- a saved Home layout from before the rhythm widget", () => {
+  const stored = (widget_key: string, position: number, hidden = false) => ({ user_id: "user-1", domain_key: "home", widget_key, position, hidden });
+
+  it("an old saved layout without `rhythm` still lists it, visible", async () => {
+    const { client } = makeDb([stored("now", 3), stored("focus", 4)]);
+    const layout = await getLayoutCore(client, "user-1", "home");
+    const rhythm = layout.find((w) => w.widgetKey === "rhythm");
+    expect(rhythm).toMatchObject({ hidden: false });
+    expect(layout.find((w) => w.widgetKey === "now")).toMatchObject({ position: 3 }); // saved rows keep their own
+  });
+
+  it("positive control: a layout that hides rhythm keeps it hidden", async () => {
+    const { client } = makeDb([stored("rhythm", 1, true)]);
+    expect((await getLayoutCore(client, "user-1", "home")).find((w) => w.widgetKey === "rhythm")).toMatchObject({ hidden: true });
+  });
+});
+
 describe("saveLayoutCore + getLayoutCore -- round trip", () => {
   it("a saved layout is read back exactly, position and hidden both honored", async () => {
     const { client } = makeDb([]);

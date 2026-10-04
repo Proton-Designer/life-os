@@ -29,6 +29,8 @@ import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/persona
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
+import { getRhythmData } from "@/lib/home/rhythm-data";
+import { RhythmSection } from "@/components/home/rhythm/rhythm-section";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { buildSectorRows, showBusinessWeeklyGoal, wantedSnapshots } from "@/lib/home/sector-rows";
@@ -93,6 +95,7 @@ export default async function HomePage() {
     sleepIntent,
     morningRoutineItems,
     layout,
+    rhythm,
   ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -138,6 +141,8 @@ export default async function HomePage() {
       // lib/morning-routine/actions-core.ts's own header for why.
       morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
+      // IA-P2: only the active phase's reads run (lib/home/rhythm-data.ts).
+      getRhythmData(supabase, userId, now, timezone),
     ]);
   const layoutMap = buildLayoutMap(layout);
   // WIDGET-02 exception, stated rather than silently applied: session_entry's
@@ -266,6 +271,10 @@ export default async function HomePage() {
             <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
           </Panel>
         ) : null}
+      </LayoutSlot>
+
+      <LayoutSlot layout={layoutMap} widgetKey="rhythm">
+        <RhythmSection data={rhythm} />
       </LayoutSlot>
 
       {morningRoutineOn && (

@@ -32,6 +32,12 @@ describe("getInboxItems", () => {
     expect(items).toEqual([{ id: "a", title: "T", dueDate: "2026-10-09" }]);
     for (const c of INBOX_SHAPE) expect(calls).toContainEqual(c);
   });
+
+  // P1a review F2: a failed read must not look like an empty Inbox.
+  it("throws on a read error instead of returning an empty Inbox (positive control: no error, no rows -> [])", async () => {
+    await expect(getInboxItems(fakeClient({ data: null, error: { message: "db down" } }).client, "u1")).rejects.toThrow("db down");
+    expect(await getInboxItems(fakeClient({ data: [], error: null }).client, "u1")).toEqual([]);
+  });
 });
 
 describe("triageInboxCore", () => {

@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
-import { addDaysToDateString, localDateString } from "@/lib/date-utils";
+import { addDaysToDateString, effectiveDayString, localDateString, resolveLocalTime } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
 import type { ReviewItem } from "@/lib/distractions/types";
@@ -173,7 +173,11 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
 
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  const today = localDateString(new Date(), timezone);
+  // The day being CLOSED (not necessarily the calendar date): effectiveDayString rolls over at 4 AM,
+  // so a close at 00:30 on Oct 5 reviews Oct 4 -- the same rule the close's write path uses
+  // (planningDateForCore / the evening_closes date), so reading and writing always agree.
+  const now = new Date();
+  const today = effectiveDayString(now, timezone);
 
   const supabase = await createClient();
   const tomorrow = addDaysToDateString(today, 1);
@@ -195,7 +199,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .eq("planned_date", today)
       .not("mit_rank", "is", null)
       .order("mit_rank", { ascending: true }),
-    getHoursTodayMinutes(supabase, user.id, today, timezone, new Date()),
+    getHoursTodayMinutes(supabase, user.id, today, timezone, now),
     supabase
       .from("tasks")
       .select("id, title")
@@ -204,7 +208,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .order("created_at", { ascending: true }),
     supabase.from("user_settings").select("weekday_baselines").eq("user_id", user.id).maybeSingle(),
     // #33/#34 (Day Structure), read-only.
-    getTodayDayStart(supabase, user.id, timezone, new Date()),
+    getTodayDayStart(supabase, user.id, timezone, resolveLocalTime(today, "12:00", timezone)),
     // P3-04, read-only.
     getActiveHabitsWithStatus(supabase, user.id, today, timezone),
   ]);
@@ -217,7 +221,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     supabase,
     user.id,
     timezone,
-    new Date(),
+    now,
     tomorrow,
     new Set(tomorrowLines.map((l) => l.id)),
     isDeenModeOn(profile)
@@ -237,7 +241,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     weekdayBaselines: (settings.data?.weekday_baselines ?? null) as number[] | null,
     weekdayIndex,
     hoursTodayMinutes,
-    deltaMinutes: wakeMark ? computeDeltaMinutes(wakeMark.wokeAtIso, new Date()) : null,
+    deltaMinutes: wakeMark ? computeDeltaMinutes(wakeMark.wokeAtIso, now) : null,
     tomorrowLines,
     planSeeds,
     todaysThree: (planned.data ?? []).map((t) => ({

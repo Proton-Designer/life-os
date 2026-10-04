@@ -51,7 +51,7 @@ source_hash: d5b4eb9c315a42a985fce82d55e9c9d8e95ed756ff5a4b3f4e13c2246dee75c9
 | Night Plan engine | `lib/night-plan/night-plan.ts` | Pure dump/star/crown/rankedPlan, ported from CollegeOS |
 | Close page | `app/(app)/close/{page,actions,plan-actions}.ts` | Account→Reflect→VerdictDueList→Plan |
 | Morning Open | `app/(app)/open/page.tsx` | Reads crowned tasks read-only; only write path is a link back to `/close` |
-| Review | `app/(app)/review/{page,actions}.ts` | `page.tsx` is a bare `redirect("/close")`; `actions.ts` (`getReviewData`) is **still live**, backing a topbar popup dialog independent of the route |
+| Review | `app/(app)/review/{page,actions}.ts` | `page.tsx` is a bare `redirect("/close")`; `actions.ts` (`getReviewData`) was DELETED in IA-P1b (the topbar popup is gone; the review is `DistractionPlanReview`, rendered by the close Account stage and Home's Action Plan dialog). IA-P2: the closed day rolls over at 4 AM (`effectiveDayString`), and Home shows Morning/Today/Close-the-day/Done cards (`lib/home/rhythm-state.ts`); `/open`, `/open/today`, `/close/replan` redirect to Home |
 
 ## How it works
 

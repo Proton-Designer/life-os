@@ -27,7 +27,7 @@ export type InboxCoreResult = { ok: true } | { ok: false; error: string };
 const INBOX_LIMIT = 50;
 
 export async function getInboxItems(supabase: SupabaseClient, userId: string): Promise<InboxItem[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("tasks")
     .select("id, title, due_date")
     .eq("user_id", userId)
@@ -36,6 +36,8 @@ export async function getInboxItems(supabase: SupabaseClient, userId: string): P
     .eq("completed", false)
     .order("created_at", { ascending: true })
     .limit(INBOX_LIMIT);
+  // A failed read must not look like an empty Inbox (items would seem to have vanished).
+  if (error) throw new Error(`Couldn't load the Inbox: ${error.message}`);
   return (data ?? []).map((r) => ({ id: r.id as string, title: r.title as string, dueDate: (r.due_date as string | null) ?? null }));
 }
 

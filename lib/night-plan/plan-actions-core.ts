@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDaysToDateString, localDateString } from "@/lib/date-utils";
+import { addDaysToDateString, effectiveDayString, localDateString } from "@/lib/date-utils";
 import { assignRanks } from "@/lib/evening-close/rank-assignment";
 
 /**
@@ -33,8 +33,10 @@ export type PlanMode = "tonight" | "today";
  * header for the #29 bug this distinction fixes.
  */
 export function planningDateForCore(mode: PlanMode, now: Date, timezone: string): string {
-  const today = localDateString(now, timezone);
-  return mode === "today" ? today : addDaysToDateString(today, 1);
+  // "today" (replan) is plain local today. "tonight" is the day AFTER the one being closed, and the
+  // closed day rolls over at 4 AM (effectiveDayString): closing at 00:30 on Oct 5 closes Oct 4 and
+  // plans Oct 5 -- not Oct 6.
+  return mode === "today" ? localDateString(now, timezone) : addDaysToDateString(effectiveDayString(now, timezone), 1);
 }
 
 /** Persist one dumped line. Returns its id so the surface can star it. */

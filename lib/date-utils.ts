@@ -207,3 +207,21 @@ export function formatShortDate(dateStr: string, referenceDateStr?: string): str
   const sameYear = referenceDateStr ? referenceDateStr.slice(0, 4) === year : true;
   return sameYear ? base : `${base}, ${year}`;
 }
+
+/** The hour (local) at which "the day you are living" rolls over for night-owl rituals (evening close, Home's close card, distraction review tail). */
+export const DAY_ROLLOVER_HOUR = 4;
+
+/**
+ * The calendar day a person is still "in" for end-of-day rituals: the local date, except between
+ * midnight and `rolloverHour` (default 4 AM) when it is still YESTERDAY. Closing the day at 00:30
+ * closes the day that just ended, and "tonight's" plan is for the day after THAT. Built on
+ * localDateString plus the zone's wall-clock hour (DST-safe), never raw Date arithmetic. Start Day, replan
+ * ("today") and ordinary per-day numbers keep plain localDateString.
+ */
+export function effectiveDayString(now: Date, timezone: string, rolloverHour: number = DAY_ROLLOVER_HOUR): string {
+  const local = localDateString(now, timezone);
+  // Compare the zone's wall-clock HOUR, not a resolveLocalTime instant: resolveLocalTime samples the
+  // UTC offset at the naive instant, which is an hour off on the one DST-transition morning a year.
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hourCycle: "h23" }).format(now));
+  return hour < rolloverHour ? addDaysToDateString(local, -1) : local;
+}

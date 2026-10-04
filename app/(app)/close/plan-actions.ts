@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString } from "@/lib/date-utils";
+import { effectiveDayString } from "@/lib/date-utils";
 import { recordEveningCloseCore } from "@/lib/day-structure/closed-day";
 import {
   planningDateForCore,
@@ -226,7 +226,7 @@ export async function savePlanRanks(
   // own local date, not `ctx.plannedDate` (which is tomorrow for "tonight").
   if (mode === "tonight") {
     const now = new Date();
-    await recordEveningCloseCore(supabase, ctx.userId, localDateString(now, ctx.timezone), now);
+    await recordEveningCloseCore(supabase, ctx.userId, effectiveDayString(now, ctx.timezone), now);
   }
 
   // #29: this used to revalidate only /close and / — a same-day replan

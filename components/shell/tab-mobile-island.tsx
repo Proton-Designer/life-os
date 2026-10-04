@@ -7,13 +7,11 @@ import {
   TrendingUp,
   Settings,
   CalendarDays,
-  ClipboardCheck,
   AlertCircle,
   Flag,
   Repeat,
   CalendarCheck,
   Target,
-  Sunrise,
   type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -43,7 +41,6 @@ type NavItem = { href: string; label: string; icon: LucideIcon; accent: AccentTo
  * is not.
  */
 const MORE_ITEMS: NavItem[] = [
-  { href: "/close", label: "Review", icon: ClipboardCheck, accent: "info" },
   { href: "/insights", label: "Insights", icon: TrendingUp, accent: "info" },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, accent: "info" },
   // Phase 1 (2026-09-14): kept in step with tab-sidebar-nav.tsx's own
@@ -60,10 +57,8 @@ const MORE_ITEMS: NavItem[] = [
   // domains-mode renderer — the exact gap Worries/Goals/Habits had above,
   // just missed in that pass. Kept in step with tab-sidebar-nav.tsx.
   { href: "/business", label: "Business", icon: Target, accent: "business" },
-  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: /open (Day Structure), same
-  // dead-end shape Business had above (UX-02). Kept in step with
-  // tab-sidebar-nav.tsx.
-  { href: "/open", label: "Today", icon: Sunrise, accent: "info" },
+  // IA-P2: Today (/open) and Review (/close) left the nav -- the day lives on Home (Morning card, Today strip,
+  // Close the day), and /open redirects there. The topbar moon link is the evening door to /close.
   { href: "/settings", label: "Settings", icon: Settings, accent: "info" },
 ];
 

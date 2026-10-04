@@ -66,27 +66,25 @@ describe("TabMobileIsland", () => {
     render(<TabMobileIsland navDomainState={DOMAIN_STATE} />);
     await user.click(screen.getByTestId("tab-mobile-island-item-more"));
     for (const [label, href] of [
-      ["Review", "/close"],
       ["Insights", "/insights"],
       ["Calendar", "/calendar"],
       ["Worries", "/worries"],
       ["Goals", "/goals"],
       ["Habits", "/habits"],
       ["Weekly Review", "/weekly-review"],
-      ["Today", "/open"],
       ["Settings", "/settings"],
     ] as const) {
       expect(screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") })).toHaveAttribute("href", href);
     }
   });
 
-  // Phase 1 #29/#33/#34/#35/#36, 2026-09-18: same gap as tab-sidebar-nav.tsx's
-  // own test -- /open (Day Structure) is fully functional but reachable only
-  // by direct URL on domains-mode mobile too.
-  it("reveals Today under More, linked to /open", async () => {
+  // IA-P2: Today and Review left the nav (the day lives on Home; the topbar moon link opens /close).
+  it("does not list Today or Review under More (positive control: Weekly Review is still there)", async () => {
     const user = userEvent.setup();
     render(<TabMobileIsland navDomainState={DOMAIN_STATE} />);
     await user.click(screen.getByTestId("tab-mobile-island-item-more"));
-    expect(screen.getByRole("link", { name: /^today$/i })).toHaveAttribute("href", "/open");
+    expect(screen.queryByRole("link", { name: /^today$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^review$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^weekly review$/i })).toBeInTheDocument();
   });
 });
