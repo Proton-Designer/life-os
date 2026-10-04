@@ -46,6 +46,38 @@ describe("updateProfile", () => {
     );
   });
 
+  it("accepts deen_mode true/false and writes ONLY that column (plus user_id) -- no other table is touched", async () => {
+    for (const value of [true, false]) {
+      fromMock.mockClear();
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+
+      await updateProfile({ deen_mode: value });
+
+      expect(fromMock.mock.calls.map((c) => c[0])).toEqual(["profiles"]);
+      expect(chain.upsert).toHaveBeenCalledWith({ user_id: "user-1", deen_mode: value }, expect.anything());
+    }
+  });
+
+  it("rejects a non-boolean deen_mode without writing", async () => {
+    for (const bad of ["yes", 1, null]) {
+      const chain = makeChain();
+      fromImpl = () => chain;
+      const { updateProfile } = await import("../actions");
+      await expect(updateProfile({ deen_mode: bad } as never)).rejects.toThrow(/deen_mode must be a boolean/);
+      expect(chain.upsert).not.toHaveBeenCalled();
+    }
+  });
+
+  it("revalidates the shared layout when deen_mode changes (nav must update)", async () => {
+    fromImpl = () => makeChain();
+    const { updateProfile } = await import("../actions");
+    revalidatePathMock.mockClear();
+    await updateProfile({ deen_mode: true });
+    expect(revalidatePathMock).toHaveBeenCalledWith("/", "layout");
+  });
+
   it("hashes a raw `pin` field with bcrypt before writing pin_hash, never storing it raw", async () => {
     const chain = makeChain();
     fromImpl = () => chain;

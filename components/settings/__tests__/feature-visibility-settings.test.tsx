@@ -15,7 +15,7 @@ describe("FeatureVisibilitySettings", () => {
 
   it("renders a checkbox per toggleable feature, all checked when nothing is hidden", () => {
     render(<FeatureVisibilitySettings initialHidden={[]} />);
-    for (const label of ["Deen", "Work", "Business", "School", "Fitness", "Insights"]) {
+    for (const label of ["Work", "Business", "School", "Fitness", "Insights"]) {
       expect(screen.getByRole("checkbox", { name: label })).toBeChecked();
     }
   });
@@ -29,7 +29,18 @@ describe("FeatureVisibilitySettings", () => {
   it("reflects initialHidden as unchecked", () => {
     render(<FeatureVisibilitySettings initialHidden={["business"]} />);
     expect(screen.getByRole("checkbox", { name: "Business" })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Deen" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Work" })).toBeChecked();
+  });
+
+  // Deen Mode (profiles.deen_mode) supersedes the "deen" hide entry: one switch, not two.
+  it("does not list Deen; a stored 'deen' value is preserved on the next save", async () => {
+    const user = userEvent.setup();
+    render(<FeatureVisibilitySettings initialHidden={["deen"]} />);
+    expect(screen.queryByRole("checkbox", { name: "Deen" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Business" }));
+
+    expect(updateProfile).toHaveBeenCalledWith({ hidden_features: ["deen", "business"] });
   });
 
   it("unchecking a feature calls updateProfile with it added to hidden_features", async () => {
@@ -56,9 +67,9 @@ describe("FeatureVisibilitySettings", () => {
     const user = userEvent.setup();
     render(<FeatureVisibilitySettings initialHidden={[]} />);
 
-    await user.click(screen.getByRole("checkbox", { name: "Deen" }));
+    await user.click(screen.getByRole("checkbox", { name: "Work" }));
 
     expect(await screen.findByText(/Unknown feature id/)).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Deen" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Work" })).toBeChecked();
   });
 });

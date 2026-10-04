@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { LogOut } from "lucide-react";
 import { updateProfile } from "@/app/(app)/settings/actions";
 import { signOut } from "@/app/(app)/actions";
+import { TimezoneSettings } from "@/components/settings/timezone-settings";
 import { LocationSettings } from "@/components/settings/location-settings";
 import { DeleteAccountSection } from "@/components/settings/delete-account-section";
 import { Input } from "@/components/ui/input";
@@ -23,7 +24,16 @@ export type SettingsFormData = {
   pinLockEnabled: boolean;
 };
 
-export function SettingsForm({ initial, email }: { initial: SettingsFormData; email: string }) {
+export function SettingsForm({
+  initial,
+  email,
+  deenMode,
+}: {
+  initial: SettingsFormData;
+  email: string;
+  /** Deen Mode (profiles.deen_mode). OFF hides the Prayer panel and the prayer-time preview; stored prayer settings are left untouched. */
+  deenMode: boolean;
+}) {
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState(initial);
   const [pin, setPin] = useState("");
@@ -33,8 +43,10 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
     startTransition(() =>
       updateProfile({
         display_name: form.displayName,
-        prayer_calc_method: form.prayerCalcMethod,
-        asr_madhab: form.asrMadhab,
+        // Prayer fields are only submitted while their controls are visible:
+        // with Deen Mode OFF they must never be overwritten (a profile with
+        // no row yet would otherwise be saved with the form's defaults).
+        ...(deenMode ? { prayer_calc_method: form.prayerCalcMethod, asr_madhab: form.asrMadhab } : {}),
         checkin_window_start: form.checkinWindowStart,
         checkin_window_end: form.checkinWindowEnd,
       })
@@ -90,6 +102,7 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
         </div>
       </Panel>
 
+      {deenMode && (
       <Panel id="prayer" className="scroll-mt-24" title="Prayer">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
@@ -120,6 +133,7 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
           </div>
         </div>
       </Panel>
+      )}
 
       <Panel id="checkins" className="scroll-mt-24" title="Check-ins">
         {/* These two bounds are the ONLY check-in settings, and that is
@@ -178,9 +192,22 @@ export function SettingsForm({ initial, email }: { initial: SettingsFormData; em
           same reasoning as Security's PIN form below — it must not wait on
           "Save settings", and nesting a <form> inside a <form> is invalid
           HTML besides. */}
-      <Panel id="location" className="scroll-mt-24" title="Location">
-        <LocationSettings initial={form.location} prayerCalcMethod={form.prayerCalcMethod} asrMadhab={form.asrMadhab} />
-      </Panel>
+      {/* Location (lat/lng/label) is consumed only by prayer features, so it
+          hides with Deen Mode OFF. Timezone is app-wide and used to be set
+          only inside LocationSettings -- it gets its own panel in that case. */}
+      {deenMode ? (
+        <Panel id="location" className="scroll-mt-24" title="Location">
+          <LocationSettings
+            initial={form.location}
+            prayerCalcMethod={form.prayerCalcMethod}
+            asrMadhab={form.asrMadhab}
+          />
+        </Panel>
+      ) : (
+        <Panel id="timezone" className="scroll-mt-24" title="Timezone">
+          <TimezoneSettings initial={form.location.timezone} />
+        </Panel>
+      )}
 
       <Panel id="security" className="scroll-mt-24" title="Security">
         <div className="flex flex-col gap-4">

@@ -45,7 +45,11 @@ export function FeatureVisibilitySettings({ initialHidden }: { initialHidden: Fe
         turn it back on here any time. Home and Settings can't be hidden.
       </p>
       <div className="flex flex-col gap-2">
-        {FEATURE_IDS.map((id) => {
+        {/* "deen" is deliberately not listed: Deen Mode (profiles.deen_mode)
+            supersedes it, so there is one switch, not two. A stored "deen"
+            value stays in `hidden` (state is seeded from initialHidden) and
+            is re-sent untouched on every save. */}
+        {FEATURE_IDS.filter((id) => id !== "deen").map((id) => {
           const visible = !hidden.has(id);
           return (
             <label key={id} className="flex items-center gap-2 text-sm">

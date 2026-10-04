@@ -56,6 +56,10 @@ export type ProfileUpdatable = Partial<{
   // feature rather than hiding an existing one. Shared by P3-05
   // (cards_library) and P3-11 (estimate_vs_actual, not yet built).
   enabled_features: OptInFeatureId[];
+  // Migration 251 (DEEN-02) -- Deen Mode switch (lib/deen/deen-mode.ts).
+  // Boolean-only (validated below). Writing it touches ONLY this column:
+  // turning it off never deletes or mutates any deen data.
+  deen_mode: boolean;
 }>;
 
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;
@@ -148,6 +152,9 @@ export async function updateProfile(fields: ProfileUpdatable): Promise<void> {
     if (bad.length > 0) {
       throw new Error(`Unknown feature id(s) in enabled_features: ${bad.join(", ")}.`);
     }
+  }
+  if ("deen_mode" in update && typeof update.deen_mode !== "boolean") {
+    throw new Error(`deen_mode must be a boolean. Got: ${JSON.stringify(update.deen_mode)}.`);
   }
   if ("ai_monthly_spend_cap_usd" in update) {
     const cap = update.ai_monthly_spend_cap_usd as number | null;

@@ -1,9 +1,12 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/(app)/settings/actions", () => ({ updateProfile: vi.fn() }));
+const updateProfile = vi.fn(async (..._a: unknown[]) => {});
+vi.mock("@/app/(app)/settings/actions", () => ({ updateProfile: (...a: unknown[]) => updateProfile(...a) }));
 vi.mock("@/app/(app)/actions", () => ({ signOut: vi.fn() }));
-vi.mock("@/components/settings/location-settings", () => ({ LocationSettings: () => null }));
+vi.mock("@/components/settings/location-settings", () => ({ LocationSettings: () => <div data-testid="location-settings" /> }));
+vi.mock("@/components/settings/timezone-settings", () => ({ TimezoneSettings: () => <div data-testid="timezone-settings" /> }));
 vi.mock("@/components/settings/delete-account-section", () => ({ DeleteAccountSection: () => null }));
 
 import { SettingsForm, type SettingsFormData } from "../settings-form";
@@ -26,7 +29,7 @@ const INITIAL: SettingsFormData = {
 // <form>.
 describe("SettingsForm grouping (UX-04)", () => {
   it("shows one 'Account' label, appearing before Profile and before Security", () => {
-    render(<SettingsForm initial={INITIAL} email="ayman@example.com" />);
+    render(<SettingsForm initial={INITIAL} email="ayman@example.com" deenMode />);
     const labels = screen.getAllByText("Account");
     expect(labels).toHaveLength(1);
 
@@ -41,9 +44,59 @@ describe("SettingsForm grouping (UX-04)", () => {
   });
 
   it("does not change any section's own title", () => {
-    render(<SettingsForm initial={INITIAL} email="ayman@example.com" />);
+    render(<SettingsForm initial={INITIAL} email="ayman@example.com" deenMode />);
     for (const title of ["Profile", "Prayer", "Check-ins", "Location", "Security", "Data"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
+  });
+});
+
+describe("SettingsForm Deen Mode gating", () => {
+  beforeEach(() => updateProfile.mockClear());
+
+  it("shows the Prayer panel and its fields when Deen Mode is ON", () => {
+    render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode />);
+    expect(screen.getByText("Prayer")).toBeInTheDocument();
+    expect(screen.getByLabelText("Calculation method")).toBeInTheDocument();
+    expect(screen.getByLabelText("Asr madhab")).toBeInTheDocument();
+  });
+
+  it("hides the Prayer panel and its fields when Deen Mode is OFF", () => {
+    render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} />);
+    expect(screen.queryByText("Prayer")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Calculation method")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Asr madhab")).not.toBeInTheDocument();
+  });
+
+  it("OFF swaps the Location panel for a Timezone panel; ON shows Location only", () => {
+    const off = render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} />);
+    expect(screen.queryByText("Location")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("location-settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Timezone")).toBeInTheDocument();
+    expect(screen.getByTestId("timezone-settings")).toBeInTheDocument();
+    off.unmount();
+    render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode />);
+    expect(screen.getByText("Location")).toBeInTheDocument();
+    expect(screen.queryByTestId("timezone-settings")).not.toBeInTheDocument();
+  });
+
+  it("saving with Deen Mode OFF never sends prayer_calc_method / asr_madhab (stored values preserved)", async () => {
+    const user = userEvent.setup();
+    render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} />);
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(updateProfile).toHaveBeenCalledTimes(1);
+    const payload = updateProfile.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("prayer_calc_method");
+    expect(payload).not.toHaveProperty("asr_madhab");
+    expect(payload).toHaveProperty("display_name", "Ayman");
+  });
+
+  it("saving with Deen Mode ON still sends the prayer fields", async () => {
+    const user = userEvent.setup();
+    render(<SettingsForm initial={{ ...INITIAL, prayerCalcMethod: "ISNA", asrMadhab: "hanafi" }} email="a@b.c" deenMode />);
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(updateProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ prayer_calc_method: "ISNA", asr_madhab: "hanafi" })
+    );
   });
 });

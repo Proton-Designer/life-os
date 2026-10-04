@@ -25,6 +25,8 @@ import { getWhoopSettingsStatus } from "@/app/(app)/settings/whoop-actions";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
 import { OptInFeaturesSettings } from "@/components/settings/opt-in-features-settings";
+import { DeenModeSettings } from "@/components/settings/deen-mode-settings";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { resolveThemePreset } from "@/lib/theme-presets";
 import { sanitizeHiddenFeatures } from "@/lib/features";
 import { sanitizeEnabledFeatures } from "@/lib/opt-in-features";
@@ -40,6 +42,7 @@ const SECTIONS = [
   { id: "features", label: "Features" },
   { id: "prayer", label: "Prayer" },
   { id: "location", label: "Location" },
+  { id: "timezone", label: "Timezone" },
   { id: "checkins", label: "Check-ins" },
   { id: "notifications", label: "Notifications" },
   { id: "ai", label: "AI features" },
@@ -86,6 +89,8 @@ export default async function SettingsPage() {
   // Migration 250 (P3-05/P3-11) -- applied and in the generated types, no
   // defensive cast needed like the fields above.
   const enabledFeatures = sanitizeEnabledFeatures(profile?.enabled_features);
+  // Migration 251 (DEEN-02) -- fails closed (OFF) on a missing row/value.
+  const deenMode = isDeenModeOn(profile);
 
   // Plain serializable values only across the RSC boundary — the provider
   // registry is const-asserted, so it is spread into a plain array here rather
@@ -137,7 +142,7 @@ export default async function SettingsPage() {
             scrolling in document order. */}
         <nav className="hidden xl:block">
           <ul className="sticky top-24 flex flex-col gap-1 text-sm">
-            {SECTIONS.map((s) => (
+            {SECTIONS.filter((s) => (s.id === "prayer" || s.id === "location" ? deenMode : s.id === "timezone" ? !deenMode : true)).map((s) => (
               <li key={s.id}>
                 <a
                   href={`#${s.id}`}
@@ -152,6 +157,7 @@ export default async function SettingsPage() {
         <div className="flex flex-col gap-8">
           <SettingsForm
             email={user.email ?? ""}
+            deenMode={deenMode}
             initial={{
               displayName: profile?.display_name ?? "",
               prayerCalcMethod: (profile?.prayer_calc_method as SettingsFormData["prayerCalcMethod"]) ?? "MWL",
@@ -171,6 +177,9 @@ export default async function SettingsPage() {
             <ThemeSettings initial={themePreset} />
           </Panel>
           <Panel id="features" className="scroll-mt-24" title="Features">
+            <div className="mb-4 border-b border-border/40 pb-4">
+              <DeenModeSettings initialOn={deenMode} />
+            </div>
             <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
           </Panel>
           <Panel id="optional-features" className="scroll-mt-24" title="Optional features">
