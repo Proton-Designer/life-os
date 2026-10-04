@@ -132,8 +132,9 @@ test.describe("Deen Mode ON, then OFF again", () => {
 
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
-    // Faith is back in navigation and on Home.
-    await expect(page.getByRole("link", { name: /faith/i }).first()).toBeVisible();
+    // Faith is back in navigation (by href: on a phone the link sits under the Personal
+    // tab / drawer, so it is attached but not necessarily visible) and on Home.
+    await expect(page.locator('a[href*="/personal/faith"], a[href*="/deen"]').first()).toBeAttached();
     await expect(page.getByText("Deen", { exact: true }).first()).toBeVisible();
 
     await page.goto("/personal/faith");
