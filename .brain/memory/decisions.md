@@ -159,3 +159,12 @@ with no fallback — see `.brain/memory/known-issues.md`.
 - **One distraction logger:** the "+" sheet's Distraction segment opens the topbar `DistractionCaptureDialog` (controlled `open`/`onOpenChange`/`hideTrigger`) instead of its own text form. The standalone `/capture` page (no app shell/Lock-In provider) keeps the old text form via `captureDistraction`, which ends in the same `createTriggerAndLog`.
 
 **Do not undo without understanding:** moving a triaged Inbox row without leaving the `domain null + dump_source capture` shape makes it reappear in the Inbox every night.
+
+## Weekly reset (/week) replaces Weekly Review, Goals, Habits and Worries screens (IA-P3a, 2026-10-04)
+
+**Status:** Active (IA Option A, phase P3a; nav removals + Home Sunday card are P3b)
+**Source:** `audit/IA/IA-A-PLAN.md`, `audit/IA/P3-design-eng1.md`, `lib/week/reset-window.ts`
+
+- **/week** = one page, five anchored steps: look back (the weekly-review body) → goals & milestones → habits keep/pause/drop → worry hour → this week's goal (the shared `WeeklyGoalsHeader`/`saveWeeklyGoal`). Each step is the pre-existing reader/component moved into a server component (`WeeklyReviewBody`, `GoalsSection`, `HabitsSection`, `WorriesSection`); nothing new is written by the page itself. The reset reviews the most recent COMPLETED Sun–Sat week (today excluded; Sunday is day 1 of the new week) and step 5 sets the goal for the week containing today.
+- **Old routes redirect, nothing deleted:** `/goals|/habits|/worries` → `/week#<step>`; `/weekly-review` → `/week` inside the reset window (local Sunday 00:00 → Monday 12:00, `isWeeklyResetWindow`, edges via `resolveLocalTime`) else `/insights?tab=week`. Insights `?tab=week` is the "Weekly review" tab, with a "Start weekly reset" button that works any day. Widget layout keys (`goals`, `habits`, `weekly_review`) are unchanged, so saved layouts keep rendering.
+- **Revalidation:** goals/habits/worries actions now also revalidate `/week` (the old paths stay: they are redirects, not data).

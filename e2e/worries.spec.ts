@@ -52,11 +52,12 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
     await clickAndSettle(page, page.getByRole("button", { name: "Confirm" }));
     await expect(captureDialog).toBeHidden(MUTATION_TIMEOUT);
 
-    await page.goto("/worries");
+    // IA-P3a: /worries redirects to the reset's worry-hour step; go there directly.
+    await page.goto("/week#worries");
     await dismissCheckinDialogIfPresent(page);
     await dismissCheckinToastIfPresent(page);
 
-    const openRow = page.getByRole("listitem").filter({ hasText: title });
+    const openRow = page.locator("#worries").getByRole("listitem").filter({ hasText: title });
     await expect(openRow).toBeVisible();
 
     // markWorryHandled is OPTIMISTIC (components/worries/worry-list.tsx's
@@ -79,7 +80,7 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
     await expect(handledToggle).toBeVisible();
     await dismissCheckinToastIfPresent(page);
     await handledToggle.click();
-    const handledRow = page.getByRole("listitem").filter({ hasText: title });
+    const handledRow = page.locator("#worries").getByRole("listitem").filter({ hasText: title });
     await expect(handledRow).toBeVisible();
     await expect(handledRow.getByRole("button", { name: "Reopen" })).toBeVisible();
   } finally {

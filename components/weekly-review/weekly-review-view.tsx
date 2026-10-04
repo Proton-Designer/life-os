@@ -155,7 +155,7 @@ function HabitScoreSection({ summaries, weekDayCount }: { summaries: HabitWeekly
       <h2 className="text-sm font-medium">Habit scores</h2>
       {summaries.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No active identity habits yet. <Link href="/habits" className="underline underline-offset-2">Start one</Link>.
+          No active identity habits yet. <Link href="/week#habits" className="underline underline-offset-2">Start one</Link>.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -182,7 +182,13 @@ export function WeeklyReviewView({
   efficiency,
   pareto,
   habitSummaries,
+  viewBasePath = "/insights?tab=week",
+  showViewSwitch = true,
 }: {
+  /** Hidden on /week: the reset always reviews the most recent COMPLETED week. */
+  showViewSwitch?: boolean;
+  /** Where the "Last completed week / This week so far" switch points (the Insights Week tab by default). */
+  viewBasePath?: string;
   soFar: boolean;
   weekDayCount: number;
   hours: { totalMinutes: number; byKind: HoursByKind };
@@ -191,11 +197,13 @@ export function WeeklyReviewView({
   pareto: ParetoBar[];
   habitSummaries: HabitWeeklySummary[];
 }) {
+  const soFarHref = `${viewBasePath}${viewBasePath.includes("?") ? "&" : "?"}view=so-far`;
   return (
     <div className="flex flex-col gap-4">
+      {showViewSwitch && (
       <div className="flex gap-3 text-sm">
         <Link
-          href="/weekly-review"
+          href={viewBasePath}
           aria-current={!soFar ? "page" : undefined}
           className={!soFar ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}
         >
@@ -203,13 +211,14 @@ export function WeeklyReviewView({
         </Link>
         <span className="text-muted-foreground">·</span>
         <Link
-          href="/weekly-review?view=so-far"
+          href={soFarHref}
           aria-current={soFar ? "page" : undefined}
           className={soFar ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}
         >
           This week so far
         </Link>
       </div>
+      )}
       <HoursSection totalMinutes={hours.totalMinutes} byKind={hours.byKind} recallMinutes={recallMinutes} efficiency={efficiency} />
       <ParetoSection bars={pareto} />
       <HabitScoreSection summaries={habitSummaries} weekDayCount={weekDayCount} />

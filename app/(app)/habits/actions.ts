@@ -42,6 +42,7 @@ async function timezoneForUser(supabase: Awaited<ReturnType<typeof requireUser>>
 
 function revalidateHabitSurfaces() {
   revalidatePath("/habits");
+  revalidatePath("/week");
 }
 
 export async function createIdentityHabitAction(identityStatement: string): Promise<ActionResult<{ ok: true; habit: Habit }>> {

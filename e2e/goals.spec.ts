@@ -25,7 +25,8 @@ test("create a goal with a domain, see it ranked, complete it, see it in Busines
   const title = `e2e-goal-${Date.now()}`;
 
   try {
-    await page.goto("/goals");
+    // IA-P3a: /goals redirects to the reset's goals step; go there directly.
+    await page.goto("/week#goals");
     await dismissCheckinDialogIfPresent(page);
 
     // THE SKIP GUARD MUST EXAMINE SOMETHING REAL, NOT AN INSTANT SNAPSHOT

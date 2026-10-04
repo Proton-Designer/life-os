@@ -32,7 +32,8 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
   const statement = `e2e-habit-${Date.now()}`;
 
   try {
-    await page.goto("/habits");
+    // IA-P3a: /habits redirects to the reset's habits step; go there directly.
+    await page.goto("/week#habits");
     await dismissCheckinDialogIfPresent(page);
 
     // Wait for the page to actually settle into its real state before
@@ -79,7 +80,8 @@ test("create a habit, see N/7 and New, vote for today, then retract", async ({ p
     // the write is still correctly in flight, not actually stuck.
     await clickAndSettle(page, page.getByRole("button", { name: "Add habit" }));
 
-    const row = page.getByRole("listitem").filter({ hasText: statement });
+    // Scoped to the habits step: step 1's "Habit scores" list also shows the statement.
+    const row = page.locator("#habits").getByRole("listitem").filter({ hasText: statement });
     await expect(row).toBeVisible(MUTATION_TIMEOUT);
     await expect(row.getByText("New", { exact: true })).toBeVisible(MUTATION_TIMEOUT);
     await expect(countLabel).toHaveText(`${beforeCount + 1}/7`, MUTATION_TIMEOUT);

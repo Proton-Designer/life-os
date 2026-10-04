@@ -65,3 +65,24 @@ describe("WeeklyReviewView — P3-09 efficiency-by-closed-day line", () => {
     expect(screen.getByText("Efficiency: 1 closed day, efficiency unavailable · 1 open day (efficiency unavailable)")).toBeInTheDocument();
   });
 });
+
+// IA-P3a: the switch now lives on the Insights Week tab (and is hidden on /week).
+describe("WeeklyReviewView — view switch (IA-P3a)", () => {
+  const eff = { closedAvgPercent: 50, closedCount: 1, openCount: 0 };
+
+  it("points at the Insights Week tab by default, never the retired /weekly-review", () => {
+    render(<WeeklyReviewView {...baseProps(eff)} />);
+    expect(screen.getByRole("link", { name: "Last completed week" })).toHaveAttribute("href", "/insights?tab=week");
+    expect(screen.getByRole("link", { name: "This week so far" })).toHaveAttribute("href", "/insights?tab=week&view=so-far");
+  });
+
+  it("is hidden on /week, where the reset always reviews the completed week", () => {
+    render(<WeeklyReviewView {...baseProps(eff)} showViewSwitch={false} />);
+    expect(screen.queryByRole("link", { name: "This week so far" })).toBeNull();
+  });
+
+  it("the 'start a habit' link goes to the reset's habits step", () => {
+    render(<WeeklyReviewView {...baseProps(eff)} />);
+    expect(screen.getByRole("link", { name: "Start one" })).toHaveAttribute("href", "/week#habits");
+  });
+});

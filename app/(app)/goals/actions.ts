@@ -58,6 +58,7 @@ function describeGoalError(err: unknown, context: "goal" | "milestone"): string 
 
 function revalidateGoalSurfaces() {
   revalidatePath("/goals");
+  revalidatePath("/week");
   // Business's completed-goals archive (#53) reads goals where
   // domain='business' — a goal created/completed/dropped here can change
   // what that archive shows.
@@ -120,6 +121,7 @@ export async function addMilestoneAction(input: { goalId: string; monthStart: st
     return { error: describeGoalError(err, "milestone") };
   }
   revalidatePath("/goals");
+  revalidatePath("/week");
   return { ok: true };
 }
 
@@ -143,4 +145,5 @@ export async function setMilestoneDoneAction(milestoneId: string, done: boolean)
 export async function refreshGoalViews(): Promise<void> {
   await requireUser();
   revalidatePath("/goals");
+  revalidatePath("/week");
 }

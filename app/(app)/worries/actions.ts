@@ -16,6 +16,7 @@ const WORRY_OUTCOMES: readonly WorryOutcome[] = ["resolved", "took_action", "let
 
 function revalidateWorrySurfaces() {
   revalidatePath("/worries");
+  revalidatePath("/week");
   revalidatePath("/close");
   revalidatePath("/open");
   revalidatePath("/");

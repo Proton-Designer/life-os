@@ -24,10 +24,12 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
  */
 test.describe("Weekly Review", () => {
   test("renders Hours + by-kind bars (no Recall bar), the Distraction Pareto, and the habit-score summary", async ({ page }) => {
-    await page.goto("/weekly-review");
+    // IA-P3a: the weekly review is the Insights "Weekly review" tab (/weekly-review redirects).
+    await page.goto("/insights?tab=week");
     await dismissCheckinDialogIfPresent(page);
 
-    await expect(page.getByRole("heading", { name: "Weekly Review" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Weekly review" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("link", { name: "Start weekly reset" })).toBeVisible();
 
     // Hours: scoped to its own <section> so the h:mm assertion can't
     // accidentally match an unrelated number elsewhere on the page.
@@ -63,7 +65,7 @@ test.describe("Weekly Review", () => {
   });
 
   test('"This week so far" toggle actually changes the reviewed range, not just its own link styling', async ({ page }) => {
-    await page.goto("/weekly-review");
+    await page.goto("/insights?tab=week");
     await dismissCheckinDialogIfPresent(page);
 
     const completedLink = page.getByRole("link", { name: "Last completed week" });

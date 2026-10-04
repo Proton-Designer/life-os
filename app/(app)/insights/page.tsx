@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InsightsWeekTab } from "@/components/week/insights-week-tab";
 import { redirect } from "next/navigation";
 import { Radar, Volume2, Target, Flame, CheckCircle2, BookOpen } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
@@ -108,9 +109,11 @@ const SEGMENT_ICON: Partial<Record<string, typeof DOMAIN_ICON.deen>> = {
 export default async function InsightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; domain?: string }>;
+  searchParams: Promise<{ range?: string; domain?: string; tab?: string; view?: string }>;
 }) {
-  const { range: rangeParam, domain: highlightDomain } = await searchParams;
+  const { range: rangeParam, domain: highlightDomain, tab, view } = await searchParams;
+  // IA-P3a: the retired /weekly-review lives here as the "Weekly review" tab.
+  if (tab === "week") return <InsightsWeekTab soFar={view === "so-far"} />;
   const range = rangeParam === "day" ? "day" : "week";
 
   const user = await getAuthedUser();
@@ -331,6 +334,9 @@ export default async function InsightsPage({
                 Week
               </Link>
             </div>
+            <Link href="/insights?tab=week" className="rounded-full px-3 py-1 text-sm text-muted-foreground">
+              Weekly review
+            </Link>
             <WidgetManagerButton domainKey="insights" />
           </div>
         }
