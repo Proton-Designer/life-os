@@ -103,7 +103,8 @@ the point is to make a number unavailable the moment it is promised.
 | `220` | Team B / p4-b-tokens (P4-14), allocated by tracking-app-a9, 2026-09-15 | Atomic MCP rate-limit counter RPC (per token / per user / scheduler budget) | **APPLIED** (0161a84) |
 | `240`–`249` | BLOCK — Phase 5 account merge (Opus Lead) | Additive-only conversion of the legacy account to domains mode | reserved |
 | `250` | Sonnet ENG 2 (P3-05), self-allocated against this ledger's own "next free" marker after 209 (this task's original request) was consumed by P4-22 between request and grant -- flagged to Opus Lead for confirmation | profiles.enabled_features (opt-in flag, shared with P3-11) + reflection_cards + end_of_hour_reflections (composite tenancy FK, append-only) | allocated |
-| `251`+ | — | next free | — |
+| `251` | Sonnet ENG 1 (DEEN-02), allocated by Opus Lead, 2026-10-04 | profiles.deen_mode boolean not null default false (Deen Mode switch; no backfill) | allocated |
+| `252`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
