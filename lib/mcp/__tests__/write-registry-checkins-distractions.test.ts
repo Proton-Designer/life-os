@@ -52,11 +52,13 @@ describe("distractions.trigger.capture — dispatch shape", () => {
     const action = getWriteAction("distractions", "trigger", "capture")!;
     let call = 0;
     const client = {
-      from: vi.fn((_table: string) => {
+      from: vi.fn((table: string) => {
         const chain: Record<string, unknown> = {};
         chain.select = vi.fn(() => chain);
         chain.eq = vi.fn(() => chain);
         chain.insert = vi.fn(() => chain);
+        // captureCore on the "deen" domain reads profiles.deen_mode first (DEEN-06 gate) -- ON here.
+        chain.maybeSingle = vi.fn(async () => (table === "profiles" ? { data: { deen_mode: true }, error: null } : { data: null, error: null }));
         chain.single = vi.fn(async () => ({ data: { id: call++ === 0 ? "trig-1" : "event-1" }, error: null }));
         return chain;
       }),
