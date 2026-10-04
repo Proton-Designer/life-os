@@ -70,6 +70,8 @@ Onboarding is the resumable, domain-first wizard that writes `user_domains`/`use
 
 - **Onboarding has no faith option (DEEN-05, 2026-10-04):** the Faith step/card, `FaithConfig` and the faith copy are gone; Deen Mode (Settings) is the only way in. Server-side, `saveSubdomains` drops any `faith` entry from a personal_growth payload and never archives an existing faith subdomain; `completeOnboarding` strips location/prayer profile fields. Consequence: a new account gets no location from onboarding (timezone is set in Settings → Timezone).
 
+- **Deen Mode end state (2026-10-04, run 20261004-1135):** one boolean `profiles.deen_mode` (migration 251, default OFF; ON only for the owner's own account), read with `isDeenModeOn` (`lib/deen/deen-mode.ts`). Settings → Features → Deen Mode switch; OFF hides Faith (nav/routes), Home modules, Prayer + Location settings (a standalone **Timezone** panel stays), prayer notifications, check-in prayer suppression and the AI connector's deen domain (`lib/mcp/deen-gate.ts`). Onboarding has no faith option and no longer sets location/prayer fields. Nothing is deleted when OFF; ON restores it. Full surface list: `domain.deen`.
+
 ## Not covered here
 
 - Per-domain settings columns beyond the vocabulary/nav mechanism itself

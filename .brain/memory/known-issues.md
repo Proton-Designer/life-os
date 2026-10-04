@@ -427,6 +427,13 @@ constraint on `prayers.status` catching this at the DB layer; the guarantee is T
 **Fixed:** deleted the two bad rows (not the schema). **Still open:** whether a CHECK constraint is
 worth adding is a real judgment call, not done here.
 
+## 2026-10-04 — Open items from the Deen Mode run
+
+- **`SEED_USER_EMAIL` account is absent from prod** (`auth.users` exact match = 0). Playwright's main projects cannot log in; only the Domains Fixture project runs, and specs using `useDeenMode` on SEED projects fail in `beforeAll` until it exists.
+- **`dispatch-notifications` redeploy pending.** The gate (`supabase/functions/dispatch-notifications/gate.ts`) is in the repo but until the edge function is redeployed the old function still sends prayer push regardless of `deen_mode` (the supabase CLI/MCP were not authorised for the project during the run).
+- **`.claude/` is excluded from tsc and vitest (1d5cc9c).** A QA worktree created inside the repo polluted both runs ("useState of null", duplicate files). Put worktrees OUTSIDE the repo (`~/.cache/lifeos-qa-wt`).
+- **Playwright browser build pin:** the installed chromium-headless-shell is v1234 (Playwright GC removed 1246 builds); a different Playwright version needs its matching browser.
+- Home's `qadaBacklogCount` and the Deen card must keep using `qadaWindowStart` together (parity test in `lib/home/__tests__/get-domain-snapshots.test.ts`).
 <!--
 [ ] Under 200 lines   [ ] "Do not" lines filled in
 -->

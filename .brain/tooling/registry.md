@@ -111,6 +111,10 @@ the real exit code — `npx tsc | head` reports `head`'s exit code (always 0)
 and has produced a false "tsc clean" report twice on this team. Run it
 unpiped and check `$?`, exactly as `preflight.sh` does.
 
+### Vitest projects (2026-10-04, e4e4be8)
+
+`vitest.config.ts` runs `.ts` tests in a **node** project and `.tsx` tests in a **dom** (jsdom) project. A `.ts` test that needs the DOM starts with `// @vitest-environment jsdom`. Use `npx vitest related --run <files>` while building (zsh: pipe file lists through `xargs`) and ONE `./scripts/preflight.sh` per task before the author's commit; heavy runs go through the run's `heavy.sh` when several agents share the machine. `.claude/` is excluded from vitest and tsc (1d5cc9c).
+
 ### `vitest` — must be sharded to fit the cap
 
 Un-sharded, the full suite exceeds 180s (confirmed: a single `--shard=1/4`

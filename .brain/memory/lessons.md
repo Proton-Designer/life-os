@@ -155,6 +155,12 @@ test bad ids.
   apart from allowed. Parse the payload, or test the underlying RPC. REST
   (`/api/v1`) does use real status codes; MCP does not.
 
+## 2026-10-04 — Lessons from the Deen Mode / tap-lag run
+
+- **jsdom for all tests cost real CPU:** running every `.ts` test in jsdom made the full suite 129 s / 439 CPU-s; splitting `.ts`→node and `.tsx`→jsdom made it 51–58 s / 287 CPU-s with 0 per-test result differences (597 files / 6099 tests). Measure before and compare per-test results, not just the totals.
+- **Toggle-vs-absolute write bug class:** a read-then-flip server action behind an ordered optimistic queue breaks "last tap wins" after one failed write (the next queued toggle flips from the unchanged server value, so the DB ends opposite to the screen). Send the intended absolute value (`setAdhkar`, `setKillListItemCompleted`, `completeTask`). Prove it with a throwaway probe test before reporting.
+- **Wide commits sweep other lanes' hunks in shared manifests:** a commit that stages a shared file (`lib/mcp/parity-manifest.ts`) takes the other engineer's uncommitted hunks with it and turns main red until their companion file lands. Stage only your hunks; commit a manifest edit in the same commit as the code it describes.
+- **Full-suite failures: classify every one (R-047):** a test that mocks a module you changed is yours; another lane's in-flight WIP files are not; a copied worktree inside the repo is neither.
 <!--
 [ ] Under 200 lines
 -->

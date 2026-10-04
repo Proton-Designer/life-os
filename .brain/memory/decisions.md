@@ -134,3 +134,17 @@ with no fallback — see `.brain/memory/known-issues.md`.
 **Decision:** religious surfaces are controlled by `profiles.deen_mode` (not an `enabled_features` entry, not a `user_domains` row). New accounts are OFF; OFF hides, never deletes (R4); onboarding offers no faith option. In Settings it supersedes the `hidden_features` "deen" entry, and `deen_mode` is intentionally not MCP-writable.
 
 **Do not undo without understanding:** `enabled_features` has a DB CHECK tied to a TS enum, and a user wanted the switch in the Features panel; making it a domain row would let onboarding re-introduce faith.
+
+## 2026-10-04 — Deen Mode: decisions behind the build (run 20261004-1135)
+
+**Status:** Active
+**Source:** `.claude/overnight/run-20261004-1135/INSTRUCTIONS.md` §2 (D1–D7, A1–A3), `LOG.md`
+
+- **Single column, not `enabled_features`:** see the entry above.
+- **OFF = gate, never delete (R4):** every OFF path skips the query or refuses the write; no row is changed. Gates are *required* parameters so a forgotten caller fails `tsc`, and Server Actions refuse server-side (they are public endpoints).
+- **AI connector blocked when OFF (A2):** the `deen` domain is hidden and deen reads/writes refused (`ToolInputError`), including deen-flavoured rows inside non-deen entities (triggers, allocations, events, action plans/outcomes, widgets, schedules). `deen_mode` is never AI-writable.
+- **Goals tagged `deen` are hidden when OFF** (they are religious content); data kept.
+- **Optimistic tap pattern (PERF-1/2/3):** per-item local state via `lib/client/use-optimistic-item` (+ `use-optimistic-toggles` for lists) on `lib/client/keyed-queue` (writes for one key run in tap order; keys independent; nothing disabled while another saves; per-item rollback), writes are **absolute setters, never toggles**, hot-tap actions are lean (no inline `revalidatePath`), and ONE debounced data-free refresh Server Action (`refreshXViews`) re-syncs surfaces per burst. Why a Server Action and not `router.refresh()`: only `revalidatePath` purges the client Router Cache for other routes (Home).
+- **Test plan (heat):** vitest runs `.ts` in node and `.tsx` in jsdom (e4e4be8; a `.ts` test needing DOM starts with `// @vitest-environment jsdom`). Per task: related tests while building, ONE `heavy.sh ./scripts/preflight.sh` before the author's commit, reviewers run `related` + tsc only, the lead runs a full preflight per deploy.
+
+**Do not undo without understanding:** converting an absolute setter back to a toggle reintroduces the failure-then-queued-tap flip bug (PERF-1 review F1).
