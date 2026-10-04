@@ -21,7 +21,7 @@ function trigger(overrides: Partial<TriggerSummary> = {}): TriggerSummary {
     name: "Slack notifications",
     description: "Pinging every 5 minutes",
     totalCount: 5,
-    todayCount: 2,
+    todayCount: 0, // plan-editing tests below use triggers with no event today (only in "All plans")
     lastOccurredAtIso: "2026-08-17T20:00:00Z",
     createdDate: "2026-08-10",
     currentPlan: {
@@ -59,9 +59,22 @@ describe("ActionPlanDialog", () => {
     expect(names).toEqual(["Newer trigger", "Older trigger"]);
   });
 
-  it("shows an empty message rather than crashing when nothing has a plan yet", () => {
-    render(<ActionPlanDialog open onOpenChange={() => {}} triggers={[trigger({ currentPlan: null })]} />);
-    expect(screen.getByText(/no triggers with a plan yet/i)).toBeInTheDocument();
+  it("renders the one shared review (today's triggers) above the editable All plans list", () => {
+    render(
+      <ActionPlanDialog
+        open
+        onOpenChange={() => {}}
+        triggers={[trigger({ id: "today", name: "Today trigger", todayCount: 2 }), trigger({ id: "old", name: "Old trigger" })]}
+      />
+    );
+    expect(screen.getByTestId("review-item-card")).toHaveTextContent("Today trigger");
+    expect(screen.getByTestId("all-plans")).toHaveTextContent("Old trigger");
+  });
+
+  it("shows a calm empty state rather than crashing when there is nothing today and no plans", () => {
+    render(<ActionPlanDialog open onOpenChange={() => {}} triggers={[]} />);
+    expect(screen.getByText(/nothing to review/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("all-plans")).not.toBeInTheDocument();
   });
 
   it("edits a trigger's name, description, and plan body, saving both via updateTrigger and saveActionPlan", async () => {

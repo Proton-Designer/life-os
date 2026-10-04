@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 import { NotificationsBell } from "./notifications-bell";
 import { CheckInIconButton } from "./checkin-icon-button";
 import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
-import { ReviewDialogTrigger } from "@/components/distractions/review-dialog-trigger";
+import { Moon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
 import { isReviewOpen } from "@/lib/distractions/plan-rules";
 import { getTodayDistractionCountForNow } from "@/app/(app)/distractions/actions";
@@ -169,13 +170,16 @@ export function Topbar({
           <DistractionCaptureDialog deenMode={deenMode} />
           <DistractionCountBadge />
         </div>
-        {/* Popup, not a navigation (Ayman: "change the 'Review' tab/
-            screen at the top into a popup module ... like the
-            distractions popup") — the /review route itself still exists
-            for e2e/direct links. Gating stays on the TRIGGER's
-            visibility, not inside the dialog: the button only renders
-            during the 9pm-4am window, same as before. */}
-        {reviewOpen && <ReviewDialogTrigger />}
+        {/* IA-P1b: the 9pm-4am Review popup is gone -- the distraction-plan review lives in the
+            evening close's Account stage (one component, also Home's Action Plan dialog). This
+            small moon link is the way in during that window; same visibility rule as before. */}
+        {reviewOpen && (
+          <Button asChild variant="outline" size="icon-sm">
+            <Link href="/close" prefetch aria-label="Evening close" data-testid="topbar-evening-close">
+              <Moon className="size-4" />
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Right-side icon order (batch 3, B3-1, Ayman explicit): Check-in,

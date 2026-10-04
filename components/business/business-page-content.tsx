@@ -3,14 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate } from "@/lib/date-utils";
 import { computeFocusTimeMinutes } from "@/lib/business/focus-time";
-import { saveBusinessWeeklyGoal } from "@/app/(app)/business/actions";
+import { saveWeeklyGoal } from "@/app/(app)/actions";
 import { getActiveWorkSession } from "@/lib/business/active-session";
 import { getKillListSlots } from "@/lib/business/kill-list-slots";
 import { KillList } from "@/components/business/kill-list";
 import { KillListModuleControls } from "@/components/business/kill-list-module-controls";
 import { IncompleteTasksModule } from "@/components/business/incomplete-tasks-module";
 import { getIncompleteByDate } from "@/app/(app)/business/kill-list-history-actions";
-import { GoalCard } from "@/components/shared/goal-card";
+import { WeeklyGoalSlot } from "@/components/shared/weekly-goal-slot";
 import { getCompletedBusinessGoals } from "@/lib/business/completed-goals";
 import { CompletedGoalsArchive } from "@/components/business/completed-goals-archive";
 import { FocusTimeCard } from "@/components/business/focus-time-card";
@@ -165,17 +165,14 @@ export async function BusinessPageContent() {
         </div>
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="weekly_goal">
-        <GoalCard
-          title="This week's goal"
-          domain="business"
-          headline={weeklyGoal?.headline ?? ""}
-          milestones={(weeklyGoal?.milestones as string[] | null) ?? []}
-          locked={false}
-          onSave={saveBusinessWeeklyGoal.bind(null, weekStart)}
-          emptyStateFraming={
-            <>The one outcome this week is actually about — everything else should serve it.</>
-          }
-        />
+        {/* IA-P1b: displays the one shared weekly-goal editor (Home, /calendar and the topbar popup open the same one). */}
+        <div className="rounded-2xl border border-border/40 bg-card p-4" data-testid="business-weekly-goal">
+          <WeeklyGoalSlot
+            domain="business"
+            goal={{ headline: weeklyGoal?.headline ?? "", milestones: (weeklyGoal?.milestones as string[] | null) ?? [] }}
+            onSave={saveWeeklyGoal.bind(null, "business")}
+          />
+        </div>
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="completed_goals_archive">

@@ -1,12 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { ActionPlan, DistractionDomain, ReviewItem, TriggerSummary } from "./types";
+import { buildReviewGroups } from "./review-groups";
 
 type TypedClient = SupabaseClient<Database>;
-
-// Review order, per spec §5 — domains with zero events today are skipped
-// entirely rather than rendered empty.
-const REVIEW_DOMAIN_ORDER: DistractionDomain[] = ["deen", "business", "school", "fitness", "co_op"];
 
 type TriggerRow = {
   id: string;
@@ -216,15 +213,5 @@ export async function getReviewItems(
   userId: string,
   todayDate: string
 ): Promise<{ domain: DistractionDomain; items: ReviewItem[] }[]> {
-  const summaries = await getAllTriggers(supabase, userId, todayDate);
-  const todaysSummaries = summaries.filter((t) => t.todayCount > 0);
-
-  const groups: { domain: DistractionDomain; items: ReviewItem[] }[] = [];
-  for (const domain of REVIEW_DOMAIN_ORDER) {
-    const items = todaysSummaries
-      .filter((t) => t.domain === domain)
-      .map((trigger) => ({ trigger, todayCount: trigger.todayCount, isNew: trigger.currentPlan === null }));
-    if (items.length > 0) groups.push({ domain, items });
-  }
-  return groups;
+  return buildReviewGroups(await getAllTriggers(supabase, userId, todayDate));
 }

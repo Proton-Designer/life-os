@@ -297,6 +297,26 @@ describe("saveWeeklyGoal", () => {
     expect(weeklyGoalsChain.update).toHaveBeenCalledWith({ locked: true });
   });
 
+  // IA-P1b: the Business weekly_goal widget saves through this action too; the Business screen
+  // is served at /business or /work/<tab>, so a business save must refresh both.
+  it("a business save revalidates /, /calendar and the Business screens (/business + the work-tab page); a deen save does not touch them", async () => {
+    const profileChain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
+    const weeklyGoalsChain = makeChain({ data: null, error: null });
+    fromMock.mockImplementation((table: string) => (table === "profiles" ? profileChain : weeklyGoalsChain));
+    const { saveWeeklyGoal } = await import("../actions");
+
+    revalidatePathMock.mockClear();
+    await saveWeeklyGoal("business", "Close 3 deals", [], undefined, NOW);
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/calendar");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/business");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/work/[subdomain]", "page");
+
+    revalidatePathMock.mockClear();
+    await saveWeeklyGoal("deen", "Read", [], 5, NOW);
+    expect(revalidatePathMock).not.toHaveBeenCalledWith("/business");
+  });
+
   it("does not error when no prior week exists (first-ever week)", async () => {
     const profileChain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
     const weeklyGoalsChain = makeChain({ data: null, error: null });

@@ -296,7 +296,6 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/teach-back-actions.ts#submitTeachBack": { excluded: "llm_spend: P2-18 teach-back evaluation via gatewayChat; the agent can evaluate its own explanation of a lesson itself" },
 
   // ── Review ──────────────────────────────────────────────────────────────
-  "app/(app)/review/actions.ts#getReviewData": { read_only: true },
 
   // ── School ──────────────────────────────────────────────────────────────
   "app/(app)/school/actions.ts#addTask": { mcp: "school.task.add" },

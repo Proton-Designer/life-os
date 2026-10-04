@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { ReviewItemCard } from "./review-item-card";
-import type { DistractionDomain, ReviewItem } from "@/lib/distractions/types";
+import { TriggerPlanCard } from "./trigger-plan-card";
+import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
+import type { ReviewGroup } from "@/lib/distractions/review-groups";
 
 // Spec order (§5): Deen, Business, School, Fitness, Work — domains with no
 // events today are already omitted by getReviewItems, so this is only the
@@ -15,9 +17,15 @@ const DOMAIN_LABEL: Record<DistractionDomain, string> = {
   co_op: "Work",
 };
 
-type Group = { domain: DistractionDomain; items: ReviewItem[] };
+type Group = ReviewGroup;
 
-export function ReviewClient({ groups: initialGroups }: { groups: Group[] }) {
+/**
+ * THE distraction-plan review (IA-P1b): one component for the evening close's Account stage and
+ * Home's Action Plan dialog (the topbar Review popup is gone). `groups` = today's triggers
+ * (lib/distractions/review-groups.ts) with the follow/skip/rewrite cards; `plans`, when given,
+ * adds an "All plans" list to edit any existing plan or trigger name (Home's dialog).
+ */
+function ReviewBody({ groups: initialGroups }: { groups: Group[] }) {
   // A local mutable copy so the finish state can show the actual plan
   // bodies just saved during this pass, not the pre-review snapshot from
   // the server — "the review ends on the payoff," not a stale list.
@@ -102,6 +110,31 @@ export function ReviewClient({ groups: initialGroups }: { groups: Group[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+export function DistractionPlanReview({ groups, plans }: { groups: Group[]; plans?: TriggerSummary[] }) {
+  const [planList, setPlanList] = useState(plans ?? []);
+  return (
+    <div className="flex flex-col gap-5" data-testid="distraction-plan-review">
+      <ReviewBody groups={groups} />
+      {plans && plans.length > 0 && (
+        <details className="group flex flex-col gap-2" data-testid="all-plans">
+          <summary className="cursor-pointer text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            All plans
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            {planList.map((trigger) => (
+              <TriggerPlanCard
+                key={trigger.id}
+                trigger={trigger}
+                onUpdated={(updated) => setPlanList((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))}
+              />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

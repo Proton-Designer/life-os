@@ -5,8 +5,6 @@ import { useDeenMode } from "./deen-mode-helpers";
 // These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
 // the file and restore its prior value afterwards, rather than trusting fixture state.
 useDeenMode(test);
-import { isReviewOpen, reviewDateFor } from "@/lib/distractions/plan-rules";
-import { localDateString } from "@/lib/date-utils";
 
 // playwright.config.ts runs fully serial against ONE real live account with
 // no per-test isolation (see fitness.spec.ts's header comment for the race
@@ -18,11 +16,6 @@ import { localDateString } from "@/lib/date-utils";
 // way back to a clean state. Engineer A's ZZV-prefixed fixtures are theirs;
 // never created or deleted by this file.
 //
-// SEED's profile timezone is America/Chicago (Opus Lead, 2026-08-23) — the
-// review window (9pm-4am local) is live for real right now under that zone,
-// which is what makes the /review assertions below testable without mocking
-// the clock.
-//
 // The account is shared and actively in motion tonight (Engineer A walking
 // /review by hand while this was written), so assertions here are always
 // deltas against a baseline read moments before, or presence/absence checks
@@ -31,7 +24,6 @@ import { localDateString } from "@/lib/date-utils";
 const TRIGGER_NAME = "E2E-DIST Test Trigger";
 const TRIGGER_DESCRIPTION = "Created by e2e/distractions.spec.ts";
 const DOMAIN = "school"; // any non-Deen domain satisfies "pick a non-Deen domain"
-const SEED_TIMEZONE = "America/Chicago"; // see the file header comment
 
 async function deleteTestTriggerIfPresent(page: Page, baseURL: string | undefined, secret: string) {
   const res = await page.request.delete(`${baseURL}/api/test/clear-distraction-trigger`, {
@@ -145,45 +137,15 @@ test.describe("Distractions", () => {
     }
   });
 
-  test("Home's Action Plan dialog excludes a trigger with no current plan; /review shows it as required-plan-only with no follow/skip choice", async ({
+  test("Home's Action Plan dialog (the one shared review) shows a plan-less trigger as required-plan-only with no follow/skip choice, and follow/skip appears once it has a plan", async ({
     page,
     baseURL,
   }) => {
     const secret = process.env.E2E_TEST_SECRET;
     if (!secret) test.skip(true, "E2E_TEST_SECRET not set — see .env.local");
 
-    // /review redirects to "/" outside its 9pm-4am local window
-    // (isReviewOpen, lib/distractions/plan-rules.ts) — imported rather than
-    // re-derived here so this can't silently drift from the real rule.
-    // Rather than a permanently-red spec outside that window (which trains
-    // everyone to ignore red — that's how tonight's ship-on-stale-e2e
-    // happened) or a test-only clock override (a production backdoor whose
-    // only job is to make production lie about the time), this skips loudly
-    // and says exactly why, so a green run means "everything that could run
-    // did," not "nothing was actually checked."
-    const now = new Date();
-    if (!isReviewOpen(now, SEED_TIMEZONE)) {
-      test.skip(
-        true,
-        `/review is only open 9pm-4am local (isReviewOpen) — it's currently ${now.toLocaleString("en-US", { timeZone: SEED_TIMEZONE })} in ${SEED_TIMEZONE}`
-      );
-    }
-    // Being inside the window is necessary but NOT sufficient. During the
-    // post-midnight tail (00:00-04:00) the review screen deliberately targets
-    // YESTERDAY (reviewDateFor, same file as isReviewOpen) — that's the whole
-    // point of the tail: you review the day you just finished. This test
-    // creates its trigger with an event dated NOW, so in that window the
-    // trigger legitimately does not appear on /review and the spec fails
-    // against correct behaviour. Guarding on isReviewOpen alone missed it,
-    // and it went unnoticed because every prior run happened before midnight
-    // (found 2026-08-27 at 00:12 CDT).
-    if (reviewDateFor(now, SEED_TIMEZONE) !== localDateString(now, SEED_TIMEZONE)) {
-      test.skip(
-        true,
-        `/review targets ${reviewDateFor(now, SEED_TIMEZONE)} during the post-midnight tail, but this test's trigger is dated ${localDateString(now, SEED_TIMEZONE)} — backdating a trigger has no API, so this window can't be covered from the UI`
-      );
-    }
-
+    // IA-P1b: the review is no longer window-gated (the 9pm topbar popup is gone); Home's Action Plan
+    // dialog and the evening close render the same DistractionPlanReview at any hour.
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
     await deleteTestTriggerIfPresent(page, baseURL, secret!);
@@ -199,65 +161,33 @@ test.describe("Distractions", () => {
       await page.getByRole("button", { name: "Save" }).click();
       await expect(page.getByRole("dialog")).not.toBeVisible();
 
-      // --- Home's Action Plan dialog: plan-less triggers are omitted
-      //     outright, not shown greyed out (spec 2026-08-23 §6). ---
       await expect
         .poll(() => readHomeDistractionsCount(page), { timeout: 10_000, intervals: [250, 500, 1000] })
         .toBeGreaterThan(0);
+
+      // --- Home's Action Plan dialog = the shared review: a plan-less trigger from today asks for a
+      //     plan (textbox, Save disabled until typed) with NO follow/skip question (spec §5). ---
       await page.getByRole("button", { name: "Action Plan" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
-      await expect(page.getByText(TRIGGER_NAME)).not.toBeVisible();
-      await page.keyboard.press("Escape");
-
-      // --- Review: a plan-less trigger requires a plan textbox, with no
-      //     follow/skip question (spec §5).
-      //
-      //     REGRESSION-LOOKING, ACTUALLY PRE-EXISTING (found 2026-09-15,
-      //     full-suite triage against ad2da1d; verified via git log, not
-      //     guessed): this used to `page.goto("/review")`, but
-      //     app/(app)/review/page.tsx has redirected straight to /close
-      //     since 0aa53b5 (2026-09-02, "R61 corrected") — 12+ days before
-      //     any Phase 1 work landed. /close's own Account stage
-      //     (components/evening-close/close-account-stage.tsx) only
-      //     surfaces an interactive rewrite card for a genuine 3-skip
-      //     BLOCKER; a fresh plan-less trigger like this one gets a passive
-      //     "worth a look, but not required" sentence with no plan field at
-      //     all. The real reachable surface for exactly what this test
-      //     wants (ReviewClient, unrestricted to blockers) is the topbar's
-      //     "Review" POPUP (components/distractions/review-dialog-
-      //     trigger.tsx, added 2026-08-24 — its own comment claiming "the
-      //     /review route itself is untouched" went stale the moment the
-      //     Sept 2 redirect landed, a stale-doc case worth fixing there too
-      //     but out of scope for this test file). Confirmed ReviewItemCard
-      //     (data-testid="review-item-card", the "Plan of action"
-      //     placeholder, the exact follow/skip button text) is identical
-      //     either way — only the entry point changed. ---
-      await page.getByRole("button", { name: "Review", exact: true }).click();
       const card = page.getByTestId("review-item-card").filter({ hasText: TRIGGER_NAME });
       await expect(card.getByPlaceholder("Plan of action")).toBeVisible();
       await expect(card.getByRole("button", { name: /didn't follow it/i })).toHaveCount(0);
       await expect(card.getByRole("button", { name: /followed it, it happened anyway/i })).toHaveCount(0);
-      // Required: Save stays disabled until a plan is actually typed.
       await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
 
       await card.getByPlaceholder("Plan of action").fill("Do the thing instead of the distraction");
       await expect(card.getByRole("button", { name: "Save" })).toBeEnabled();
       await card.getByRole("button", { name: "Save" }).click();
-      // handleSaveNewPlan's saveActionPlan() await must resolve (marking the
-      // item reviewed client-side) before reloading, or the reload below
-      // races the write and still reads the pre-save "no plan yet" state.
-      await expect(card.getByPlaceholder("Plan of action")).not.toBeVisible();
+      // The card collapses to "Saved" at once (optimistic); wait for it before reloading so the
+      // reload doesn't abort the in-flight Server Action.
+      await expect(card.getByText("Saved")).toBeVisible();
+      await settleRoute(page);
 
-      // --- Close and reopen the popup for a fresh server read: review-
-      //     dialog-trigger.tsx's own header says it refetches on EVERY
-      //     open (never caches across the dialog's lifetime), so this is
-      //     the dialog-based equivalent of the page.reload() this replaced
-      //     — the trigger now has a current plan and is no longer "new,"
-      //     so it reappears with the follow/skip choice, which is where
-      //     "refuses an empty submission" is testable. ---
-      await page.keyboard.press("Escape");
-      await expect(page.getByRole("dialog")).toBeHidden();
-      await page.getByRole("button", { name: "Review", exact: true }).click();
+      // --- Fresh read: the trigger now has a plan, so it reappears with the follow/skip choice,
+      //     where "refuses an empty rewrite" is testable. ---
+      await page.reload();
+      await dismissCheckinDialogIfPresent(page);
+      await page.getByRole("button", { name: "Action Plan" }).click();
       const revisitedCard = page.getByTestId("review-item-card").filter({ hasText: TRIGGER_NAME });
       await expect(revisitedCard.getByRole("button", { name: /followed it, it happened anyway/i })).toBeVisible();
       await revisitedCard.getByRole("button", { name: /followed it, it happened anyway/i }).click();

@@ -185,19 +185,26 @@ describe("FocusModule", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("opens the Action Plan dialog listing triggers that already have a plan", async () => {
+  // IA-P1b: the dialog hosts the SAME review component as the evening close. Today's triggers
+  // (todayCount > 0) appear as review cards; plan-less ones ask for a first plan right here.
+  it("opens the Action Plan dialog showing today's triggers as review cards", async () => {
     const user = userEvent.setup();
     renderFocus({ distractionsToday: 1, triggers: [trigger()] });
     await user.click(screen.getByRole("button", { name: "Action Plan" }));
-    expect(screen.getByText("Phone in bed")).toBeInTheDocument();
-    expect(screen.getByText("Charge phone outside the room")).toBeInTheDocument();
+    expect(screen.getByTestId("distraction-plan-review")).toBeInTheDocument();
+    expect(screen.getByTestId("review-item-card")).toHaveTextContent("Phone in bed");
+    expect(screen.getByRole("button", { name: /didn't follow it/i })).toBeInTheDocument();
   });
 
-  it("excludes triggers with no current plan from the Action Plan dialog — they're still waiting on the nightly review", async () => {
+  it("a plan-less trigger from today asks for its first plan in the dialog (no follow/skip question)", async () => {
     const user = userEvent.setup();
     renderFocus({ distractionsToday: 1, triggers: [trigger({ id: "t2", name: "Doomscrolling", currentPlan: null })] });
     await user.click(screen.getByRole("button", { name: "Action Plan" }));
-    expect(screen.queryByText("Doomscrolling")).not.toBeInTheDocument();
-    expect(screen.getByText(/no triggers with a plan yet/i)).toBeInTheDocument();
+    const card = screen.getByTestId("review-item-card");
+    expect(card).toHaveTextContent("Doomscrolling");
+    expect(screen.getByPlaceholderText("Plan of action")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /didn't follow it/i })).not.toBeInTheDocument();
+    // ...and it is NOT in "All plans" (that list is plans only).
+    expect(screen.queryByTestId("all-plans")).not.toBeInTheDocument();
   });
 });

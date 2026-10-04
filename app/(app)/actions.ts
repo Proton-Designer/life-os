@@ -7,6 +7,7 @@ import { getNotifications, type NotificationItem } from "@/lib/notifications/get
 import { markNotificationRead } from "@/lib/notifications/mark-read";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
+import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { saveBusinessWeeklyGoalCore } from "@/lib/business/actions-core";
@@ -206,4 +207,7 @@ export async function saveWeeklyGoal(
   // refetches its own client-side copy after save instead of relying on
   // this).
   revalidatePath("/calendar");
+  // IA-P1b: the Business weekly_goal widget edits through this same action, and the Business
+  // screen is served at /business or /work/<tab>.
+  if (domain === "business") revalidateBusinessScreens();
 }

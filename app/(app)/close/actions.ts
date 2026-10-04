@@ -7,6 +7,8 @@ import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
 import type { ReviewItem } from "@/lib/distractions/types";
+import { buildReviewGroups, type ReviewGroup } from "@/lib/distractions/review-groups";
+import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
 import { getHoursTodayMinutes } from "@/lib/evening-close/hours-today";
 import { getTodayDayStart } from "@/lib/day-structure/day-start";
 import { computeDeltaMinutes } from "@/lib/day-structure/delta-clock";
@@ -33,6 +35,8 @@ export type EveningCloseData = {
    */
   blockingItems: ReviewItem[];
   unplannedTodayCount: number;
+  /** Today's distraction triggers for the review (IA-P1b): rendered by the account stage once nothing is blocking. Deen Mode OFF drops the deen group. */
+  reviewGroups: ReviewGroup[];
   /**
    * What last night's close crowned and starred FOR today — read back so the
    * reflect stage can ask whether it happened. Empty is a real answer ("no
@@ -229,6 +233,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       // "write your first plan" affordance instead of the rewrite.
       .map((t) => ({ trigger: t, todayCount: t.todayCount, isNew: false })),
     unplannedTodayCount,
+    reviewGroups: buildReviewGroups(withoutDeenDomain(triggers, isDeenModeOn(profile))),
     weekdayBaselines: (settings.data?.weekday_baselines ?? null) as number[] | null,
     weekdayIndex,
     hoursTodayMinutes,

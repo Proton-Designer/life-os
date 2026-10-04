@@ -41,7 +41,7 @@ export default async function EveningClosePage() {
         <CloseAccountStage
           blockers={data.blockers}
           blockingItems={data.blockingItems}
-          unplannedTodayCount={data.unplannedTodayCount}
+          reviewGroups={data.reviewGroups}
         />
         {/* Reflect renders only once account is satisfied — the stage order is
             a mechanism (close-stages.ts), and showing a later stage beside an

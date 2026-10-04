@@ -1,6 +1,8 @@
 import type { CloseBlocker } from "@/lib/evening-close/evening-close";
 import type { ReviewItem } from "@/lib/distractions/types";
 import { CloseBlockerRewrite } from "./close-blocker-rewrite";
+import { DistractionPlanReview } from "@/components/distractions/distraction-plan-review";
+import type { ReviewGroup } from "@/lib/distractions/review-groups";
 
 /**
  * Stage (a) of the evening close: account.
@@ -22,11 +24,12 @@ import { CloseBlockerRewrite } from "./close-blocker-rewrite";
 export function CloseAccountStage({
   blockers,
   blockingItems,
-  unplannedTodayCount,
+  reviewGroups,
 }: {
   blockers: CloseBlocker[];
   blockingItems: ReviewItem[];
-  unplannedTodayCount: number;
+  /** Today's triggers, shown for (optional) review once nothing blocks. */
+  reviewGroups: ReviewGroup[];
 }) {
   const blocked = blockers.length > 0;
 
@@ -54,14 +57,14 @@ export function CloseAccountStage({
           <CloseBlockerRewrite items={blockingItems} />
         </div>
       ) : (
-        <div className="rounded-lg border p-4">
-          <p className="text-sm">Nothing is blocking tonight&apos;s close.</p>
-          {unplannedTodayCount > 0 ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {unplannedTodayCount} distraction{unplannedTodayCount === 1 ? "" : "s"} captured today without a
-              plan — worth a look, but not required.
-            </p>
-          ) : null}
+        <div className="space-y-4">
+          <div className="rounded-lg border p-4">
+            <p className="text-sm">Nothing is blocking tonight&apos;s close.</p>
+          </div>
+          {/* IA-P1b: THE distraction-plan review (also Home's Action Plan dialog). Optional here --
+              only a three-strike rewrite gates the close -- but every trigger from today, including
+              ones with no plan yet, can be planned right now instead of in a topbar popup. */}
+          {reviewGroups.length > 0 ? <DistractionPlanReview groups={reviewGroups} /> : null}
         </div>
       )}
 
