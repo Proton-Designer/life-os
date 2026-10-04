@@ -2714,25 +2714,41 @@ export type Database = {
         Row: {
           archived_at: string | null
           created_at: string
+          fallback_text: string | null
+          habit_id: string | null
           id: string
+          if_cue: string | null
           label: string
           user_id: string
         }
         Insert: {
           archived_at?: string | null
           created_at?: string
+          fallback_text?: string | null
+          habit_id?: string | null
           id?: string
+          if_cue?: string | null
           label: string
           user_id?: string
         }
         Update: {
           archived_at?: string | null
           created_at?: string
+          fallback_text?: string | null
+          habit_id?: string | null
           id?: string
+          if_cue?: string | null
           label?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "morning_routine_items_habit_same_user"
+            columns: ["user_id", "habit_id"]
+            referencedRelation: "identity_habits"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
       }
       notification_log: {
         Row: {
@@ -4383,9 +4399,12 @@ export type Database = {
           notification_enabled: boolean
           notification_time: string
           session_target_minutes: number
+          sleep_need_minutes: number | null
           updated_at: string
           user_id: string
+          wake_time: string | null
           weekday_baselines: number[] | null
+          wind_down_minutes: number | null
         }
         Insert: {
           ai_grading_enabled?: boolean
@@ -4394,9 +4413,12 @@ export type Database = {
           notification_enabled?: boolean
           notification_time?: string
           session_target_minutes?: number
+          sleep_need_minutes?: number | null
           updated_at?: string
           user_id?: string
+          wake_time?: string | null
           weekday_baselines?: number[] | null
+          wind_down_minutes?: number | null
         }
         Update: {
           ai_grading_enabled?: boolean
@@ -4405,9 +4427,12 @@ export type Database = {
           notification_enabled?: boolean
           notification_time?: string
           session_target_minutes?: number
+          sleep_need_minutes?: number | null
           updated_at?: string
           user_id?: string
+          wake_time?: string | null
           weekday_baselines?: number[] | null
+          wind_down_minutes?: number | null
         }
         Relationships: []
       }
