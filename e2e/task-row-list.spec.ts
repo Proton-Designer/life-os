@@ -77,11 +77,19 @@ test.describe("TaskRowList — tap to complete", () => {
     await expect(nowPanel.getByText(taskTitle)).toBeVisible();
 
     // --- Persists across a real reload (not just client-side optimism) ---
-    await page.reload();
-    await dismissCheckinDialogIfPresent(page);
-    const nowPanelAfterReload = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
-    await nowPanelAfterReload.getByRole("button", { name: "Completed" }).click();
-    await expect(nowPanelAfterReload.getByText(taskTitle)).toBeVisible();
+    // PERF-1 (d540e34) moves the row after the 550 ms animation, NOT when the server confirms, so
+    // "row hidden" no longer means "saved": the Server Action may still be queued/in flight (Server
+    // Actions run one at a time, behind the topbar's polling actions) and a reload right now can
+    // abort it. Give it a bounded chance to settle (idle is best-effort -- Home has background
+    // polling/prefetch), then re-check across reloads until the server shows the completion.
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+    await expect(async () => {
+      await page.reload();
+      await dismissCheckinDialogIfPresent(page);
+      const nowPanelAfterReload = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
+      await nowPanelAfterReload.getByRole("button", { name: "Completed" }).click({ timeout: 4_000 });
+      await expect(nowPanelAfterReload.getByText(taskTitle)).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 25_000 });
 
     // --- Cleanup: no UI path removes a completed task (see file comment) ---
     const cleanup = await page.request.delete(`${baseURL}/api/test/clear-task`, {

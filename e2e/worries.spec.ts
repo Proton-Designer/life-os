@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably, clickAndSettle } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
 
 /** Cold serverless starts can exceed the default 5s expect timeout (found live as a habits.spec.ts Mobile flake, 2026-09-15, same class of risk here). Not a loosened assertion, a longer one for a real slow-but-correct path. */
 const MUTATION_TIMEOUT = { timeout: 15_000 };
@@ -44,12 +44,13 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
 
     await page.getByRole("button", { name: "Worry", exact: true }).click();
     await fillReliably(page.getByLabel("Capture input"), title);
-    // clickAndSettle, not a bare click: captureDump is a server round trip,
-    // and handleClose() (which is what actually hides the dialog) only
-    // runs after it resolves — the button itself shows "Saving…" while
-    // pending (components/capture/global-capture-sheet.tsx), so a cold
-    // serverless start can outlast the default 5s expect timeout below.
-    await clickAndSettle(page, page.getByRole("button", { name: "Confirm" }));
+    // A plain click, then wait for the dialog to close: captureDump is a server round trip and
+    // handleClose() (what actually hides the dialog) only runs after it resolves, so "dialog hidden"
+    // IS the saved signal. NOT clickAndSettle/networkidle: Home keeps background network busy (polling
+    // actions, full-route <Link> prefetch re-firing after the capture's revalidate), and the first
+    // full desktop run on the seed-legacy account timed out here at 30 s (E2E-01) while the dialog had
+    // already closed. A cold serverless start can outlast the default 5s, hence MUTATION_TIMEOUT.
+    await page.getByRole("button", { name: "Confirm" }).click();
     await expect(captureDialog).toBeHidden(MUTATION_TIMEOUT);
 
     // IA-P3a: /worries redirects to the reset's worry-hour step; go there directly.
@@ -62,12 +63,11 @@ test("park a worry from the capture sheet, see it open, mark it handled", async 
 
     // markWorryHandled is OPTIMISTIC (components/worries/worry-list.tsx's
     // handle()) — the row moves before the server round trip even starts —
-    // so this one is not the flake risk the others are. clickAndSettle
-    // applied anyway per the Lead's instruction, for consistency with every
-    // other mutating click in this file rather than leaving one bare.
+    // so this one is not the flake risk the others are. A plain click; the row hiding is the signal
+    // (clickAndSettle's networkidle is unreliable on Home/Week -- see the capture step above).
     await dismissCheckinToastIfPresent(page);
-    await clickAndSettle(page, openRow.getByRole("button", { name: "Handled" }));
-    await expect(openRow).toBeHidden();
+    await openRow.getByRole("button", { name: "Handled" }).click();
+    await expect(openRow).toBeHidden(MUTATION_TIMEOUT);
 
     // Reveal the handled list (its own toggle, distinct from any per-row
     // "Handled" button — matched by the "Show/Hide N handled" shape rather
