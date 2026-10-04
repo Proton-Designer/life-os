@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -13,6 +14,7 @@ import { ReflectionTracker } from "../reflection-tracker";
 
 describe("ReflectionTracker", () => {
   beforeEach(() => {
+    resetKeyedQueuesForTests();
     logMock.mockReset();
     decrementMock.mockReset();
   });

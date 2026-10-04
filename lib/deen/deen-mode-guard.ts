@@ -12,4 +12,13 @@ export async function isDeenModeOnForRequest(): Promise<boolean> {
   return isDeenModeOn(await getProfile());
 }
 
+/**
+ * The request's timezone from the SAME cached profile row the guard already
+ * read (getProfile is cache()d per request) -- replaces a second
+ * `profiles.timezone` round trip (fetchTimezone) on every hot Deen tap.
+ */
+export async function getRequestTimezone(): Promise<string> {
+  return (await getProfile())?.timezone ?? "UTC";
+}
+
 export const DEEN_MODE_OFF_MESSAGE = "Deen Mode is off";

@@ -47,6 +47,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // These tests exercise the write paths themselves; the Deen Mode refusal has its own file (deen-mode-gate.test.ts).
 vi.mock("@/lib/deen/deen-mode-guard", () => ({
   isDeenModeOnForRequest: vi.fn(async () => true),
+  getRequestTimezone: vi.fn(async () => "America/Chicago"),
   DEEN_MODE_OFF_MESSAGE: "Deen Mode is off",
 }));
 
@@ -76,6 +77,16 @@ describe("Deen actions", () => {
       }),
       expect.objectContaining({ onConflict: "user_id,date,prayer_name" })
     );
+  });
+
+  it("PERF-1: hot taps (markPrayer/unmarkPrayer) do NOT revalidatePath -- the response must not wait for a server re-render; the client schedules one debounced refresh", async () => {
+    const { revalidatePath } = await import("next/cache");
+    (revalidatePath as ReturnType<typeof vi.fn>).mockClear();
+    fromImpl = () => makeChain({ data: { id: "row-1", logged_at: "2026-08-10T00:00:00.000Z" }, error: null });
+    const { markPrayer, unmarkPrayer } = await import("../actions");
+    await markPrayer("2026-08-10", "fajr", "on_time");
+    await unmarkPrayer("2026-08-10", "fajr");
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("unmarkPrayer deletes the stored row for (user_id, date, prayer_name)", async () => {

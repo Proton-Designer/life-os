@@ -133,6 +133,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
 
   // ── Deen ────────────────────────────────────────────────────────────────
   "app/(app)/deen/actions.ts#markPrayer": { mcp: "deen.prayer.log" },
+  "app/(app)/deen/actions.ts#refreshDeenViews": { read_only: true, note: "PERF-1: data-free cache revalidation scheduled by the Deen controls after a burst of taps" },
   "app/(app)/deen/actions.ts#unmarkPrayer": { mcp: "deen.prayer.unlog", note: "UI deletes the row; MCP sets the non-destructive 'unlogged' status (migration 143)" },
   "app/(app)/deen/actions.ts#toggleAdhkar": { mcp: "deen.adhkar.toggle" },
   "app/(app)/deen/actions.ts#logQuranSession": { mcp: "deen.quran_session.log" },

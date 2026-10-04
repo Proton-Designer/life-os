@@ -16,6 +16,7 @@ vi.mock("@/lib/supabase/auth", () => ({
 }));
 vi.mock("@/lib/deen/deen-mode-guard", () => ({
   isDeenModeOnForRequest: guard,
+  getRequestTimezone: vi.fn(async () => "UTC"),
   DEEN_MODE_OFF_MESSAGE: "Deen Mode is off",
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -50,7 +51,8 @@ describe("deen/actions.ts refuses when Deen Mode is off", () => {
     };
     // Guards against a new exported action silently escaping this test.
     const exported = Object.keys(actions).filter((k) => typeof (actions as Record<string, unknown>)[k] === "function");
-    expect(exported.sort()).toEqual([...Object.keys(calls), "createDeenHabit"].sort());
+    // refreshDeenViews (PERF-1) is a data-free revalidation, deliberately not gated.
+    expect(exported.filter((k) => k !== "refreshDeenViews").sort()).toEqual([...Object.keys(calls), "createDeenHabit"].sort());
 
     for (const [name, call] of Object.entries(calls)) {
       const result = await call();

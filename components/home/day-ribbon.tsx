@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
+import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { ListChecks, Timer, Repeat, type LucideIcon } from "lucide-react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { cn } from "@/lib/utils";
@@ -108,7 +110,12 @@ export function DayRibbon({
   todayStr: string;
   timezone: string;
 }) {
-  const [isPending, startTransition] = useTransition();
+  // PERF-1: marking a prayer flips its span to "logged" at once; the write runs
+  // queued per prayer in the background, no other prayer button is ever disabled,
+  // and a failure un-flips only that prayer. One debounced refresh follows.
+  const [markedNow, setMarkedNow] = useState<ReadonlySet<string>>(new Set());
+  const [markError, setMarkError] = useState<string | null>(null);
+  const scheduleRefresh = useScheduleRefresh();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -122,15 +129,32 @@ export function DayRibbon({
   }, []);
 
   function handleMark(prayerName: string) {
-    startTransition(() =>
+    setMarkError(null);
+    setMarkedNow((prev) => new Set(prev).add(prayerName));
+    enqueueByKey(`prayer:${todayStr}:${prayerName}`, () =>
       markPrayer(todayStr, prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha", "on_time")
-    );
+    )
+      .catch((e: unknown) => {
+        setMarkError(e instanceof Error ? e.message : "Couldn't save that. Try again.");
+        setMarkedNow((prev) => {
+          const next = new Set(prev);
+          next.delete(prayerName);
+          return next;
+        });
+      })
+      .finally(scheduleRefresh);
   }
+  const stateOf = (s: { name: string; state: RibbonSpanState }): RibbonSpanState => (markedNow.has(s.name) ? "logged" : s.state);
 
   return (
     <div className="flex flex-col gap-3">
       <div>
         <p className="text-base font-medium">{scheduleSummary(layout)}</p>
+        {markError && (
+          <p role="alert" className="mt-0.5 text-xs text-destructive">
+            Couldn&apos;t save: {markError}
+          </p>
+        )}
         {layout.blocks.length === 0 && (
           <p className="mt-0.5 text-xs text-muted-foreground">
             Today&apos;s workout, tasks, or focus sessions will show up here as your day happens
@@ -163,8 +187,8 @@ export function DayRibbon({
                 <div
                   key={s.name}
                   data-testid={`ribbon-span-${s.name}`}
-                  data-state={s.state}
-                  className={cn("absolute top-1/2 h-2 -translate-y-1/2 rounded-full", SPAN_STATE_CLASS[s.state])}
+                  data-state={stateOf(s)}
+                  className={cn("absolute top-1/2 h-2 -translate-y-1/2 rounded-full", SPAN_STATE_CLASS[stateOf(s)])}
                   style={{ left: `${s.startPct}%`, width: `${Math.max(1, s.endPct - s.startPct)}%` }}
                 />
               ))}
@@ -172,10 +196,9 @@ export function DayRibbon({
                 <button
                   key={s.name}
                   type="button"
-                  disabled={isPending}
-                  aria-label={`${s.label}, ${formatTime(s.windowStart, timezone)}–${formatTime(s.windowEnd, timezone)}${s.state === "logged" ? " (logged)" : s.state === "missed" ? " (missed)" : " — mark on time"}`}
+                  aria-label={`${s.label}, ${formatTime(s.windowStart, timezone)}–${formatTime(s.windowEnd, timezone)}${stateOf(s) === "logged" ? " (logged)" : stateOf(s) === "missed" ? " (missed)" : " — mark on time"}`}
                   onClick={() => handleMark(s.name)}
-                  className="absolute z-10 flex -translate-x-1/2 flex-col items-center gap-0.5 disabled:opacity-50"
+                  className="absolute z-10 flex -translate-x-1/2 flex-col items-center gap-0.5"
                   style={{ left: `${(s.startPct + s.endPct) / 2}%`, top: LABEL_ROW_TOP[s.labelRow] }}
                 >
                   <span className="whitespace-nowrap text-sm font-medium">{s.label}</span>

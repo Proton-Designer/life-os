@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
 import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { getSalahMonthSummary, getSalahDayDetail, type SalahDaySummary, type SalahDayDetail } from "@/app/(app)/deen/salah-calendar-actions";
 import { markPrayer } from "@/app/(app)/deen/actions";
@@ -52,6 +53,21 @@ export function SalahCalendarDialog({
     getSalahMonthSummary(y, m).then(setDays);
   }
 
+  // PERF-1: after an edit, re-read the month quietly (no "Loading" flash, one
+  // read per burst of taps, latest answer wins) so the ring behind the editor is
+  // right when the user goes Back.
+  const monthReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const monthReloadSeq = useRef(0);
+  function reloadMonthQuietly() {
+    if (monthReloadTimer.current) clearTimeout(monthReloadTimer.current);
+    monthReloadTimer.current = setTimeout(() => {
+      const seq = ++monthReloadSeq.current;
+      getSalahMonthSummary(year, month).then((next) => {
+        if (seq === monthReloadSeq.current) setDays(next);
+      });
+    }, 300);
+  }
+
   useEffect(() => {
     if (!open) return;
     loadMonth(year, month);
@@ -91,7 +107,7 @@ export function SalahCalendarDialog({
             date={selectedDate}
             todayStr={todayStr}
             onBack={() => setSelectedDate(null)}
-            onChanged={() => loadMonth(year, month)}
+            onChanged={reloadMonthQuietly}
           />
         ) : (
           <>
@@ -195,21 +211,11 @@ function SalahDayEditor({
   onChanged: () => void;
 }) {
   const [detail, setDetail] = useState<SalahDayDetail[] | null>(null);
-  const [isPending, startTransition] = useTransition();
   const isFuture = date > todayStr;
 
   useEffect(() => {
     getSalahDayDetail(date).then(setDetail);
   }, [date]);
-
-  function setStatus(prayerName: SalahDayDetail["prayerName"], status: "on_time" | "qada" | "missed") {
-    if (isFuture) return;
-    startTransition(async () => {
-      await markPrayer(date, prayerName, status);
-      setDetail((prev) => prev?.map((p) => (p.prayerName === prayerName ? { ...p, status } : p)) ?? null);
-      onChanged();
-    });
-  }
 
   return (
     <>
@@ -225,26 +231,67 @@ function SalahDayEditor({
       ) : (
         <ul className="flex flex-col gap-2">
           {detail.map((p) => (
-            <li key={p.prayerName} className="flex items-center justify-between gap-2 rounded-lg border border-border/40 p-2">
-              <span className="text-sm font-medium">{p.label}</span>
-              <div className="flex gap-1">
-                {STATUS_OPTIONS.map((opt) => (
-                  <Button
-                    key={opt.value}
-                    type="button"
-                    size="sm"
-                    variant={p.status === opt.value ? "default" : "outline"}
-                    disabled={isPending || isFuture}
-                    onClick={() => setStatus(p.prayerName, opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
-            </li>
+            <SalahDayPrayerRow key={p.prayerName} date={date} prayer={p} disabled={isFuture} onChanged={onChanged} />
           ))}
         </ul>
       )}
     </>
+  );
+}
+
+const EDITABLE: readonly SalahDayDetail["status"][] = ["on_time", "qada", "missed"];
+
+/**
+ * One prayer in the day editor (PERF-1). Own optimistic state + own write
+ * queue (same key as the main page's PrayerRow, so a tap here and a tap there
+ * for the same prayer stay ordered): the pressed button flips at once, no other
+ * button is ever disabled while this one saves, a failure reverts only this
+ * prayer and shows an inline error.
+ */
+function SalahDayPrayerRow({
+  date,
+  prayer,
+  disabled,
+  onChanged,
+}: {
+  date: string;
+  prayer: SalahDayDetail;
+  disabled: boolean;
+  onChanged: () => void;
+}) {
+  const item = useOptimisticItem<SalahDayDetail["status"]>({
+    serverValue: prayer.status,
+    queueKey: `prayer:${date}:${prayer.prayerName}`,
+    write: async (next) => {
+      if (!(EDITABLE as readonly string[]).includes(next)) return;
+      await markPrayer(date, prayer.prayerName, next as "on_time" | "qada" | "missed");
+      onChanged();
+    },
+  });
+  return (
+    <li className="flex flex-col gap-1 rounded-lg border border-border/40 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{prayer.label}</span>
+        <div className="flex gap-1">
+          {STATUS_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              type="button"
+              size="sm"
+              variant={item.value === opt.value ? "default" : "outline"}
+              disabled={disabled}
+              onClick={() => item.set(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {item.error && (
+        <p role="alert" className="text-xs text-destructive">
+          Couldn&apos;t save {prayer.label}: {item.error}
+        </p>
+      )}
+    </li>
   );
 }

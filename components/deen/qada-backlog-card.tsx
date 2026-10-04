@@ -1,6 +1,8 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { useState } from "react";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
+import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { ChevronDown, History } from "lucide-react";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { Badge } from "@/components/ui/badge";
@@ -35,13 +37,11 @@ function formatBacklogDate(dateStr: string): string {
 }
 
 function BacklogRow({ item, onMarked }: { item: QadaBacklogItem; onMarked: (item: QadaBacklogItem) => void }) {
-  const [isPending, startTransition] = useTransition();
-
+  // PERF-1: the row leaves the list the instant it is tapped (parent keeps a local
+  // "removed" set); the write runs in the background in tap order for this
+  // (date, prayer), and a failure puts the row back with an error (parent).
   function handleClick() {
-    startTransition(async () => {
-      onMarked(item);
-      await markPrayer(item.date, item.prayer, "qada");
-    });
+    onMarked(item);
   }
 
   return (
@@ -52,9 +52,8 @@ function BacklogRow({ item, onMarked }: { item: QadaBacklogItem; onMarked: (item
       </span>
       <button
         type="button"
-        disabled={isPending}
         onClick={handleClick}
-        className="rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
+        className="rounded-full transition-opacity hover:opacity-80"
       >
         <Badge variant="warning">Mark as qada</Badge>
       </button>
@@ -112,15 +111,35 @@ function BacklogSection({
 }
 
 function BacklogDialogBody({ buckets, legacyOwed }: { buckets: QadaBacklogBuckets; legacyOwed: number }) {
-  const [last7, removeFromLast7] = useOptimistic(buckets.last7, (state, removed: QadaBacklogItem) =>
-    state.filter((i) => !(i.date === removed.date && i.prayer === removed.prayer))
-  );
-  const [month, removeFromMonth] = useOptimistic(buckets.month, (state, removed: QadaBacklogItem) =>
-    state.filter((i) => !(i.date === removed.date && i.prayer === removed.prayer))
-  );
-  const [older, removeFromOlder] = useOptimistic(buckets.older, (state, removed: QadaBacklogItem) =>
-    state.filter((i) => !(i.date === removed.date && i.prayer === removed.prayer))
-  );
+  // Local "removed" set instead of useOptimistic: useOptimistic reverts as soon as
+  // its transition ends, and the server list only catches up on the next refresh,
+  // so the row would flash back. Local state holds until the data really changes.
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const scheduleRefresh = useScheduleRefresh();
+  const keyOf = (i: QadaBacklogItem) => `${i.date}:${i.prayer}`;
+  const visible = (items: QadaBacklogItem[]) => items.filter((i) => !removed.has(keyOf(i)));
+  const last7 = visible(buckets.last7);
+  const month = visible(buckets.month);
+  const older = visible(buckets.older);
+
+  function markItem(item: QadaBacklogItem) {
+    setError(null);
+    setRemoved((prev) => new Set(prev).add(keyOf(item)));
+    enqueueByKey(`prayer:${item.date}:${item.prayer}`, () => markPrayer(item.date, item.prayer, "qada"))
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "Couldn't save that. Try again.");
+        setRemoved((prev) => {
+          const next = new Set(prev);
+          next.delete(keyOf(item));
+          return next;
+        });
+      })
+      .finally(scheduleRefresh);
+  }
+  const removeFromLast7 = markItem;
+  const removeFromMonth = markItem;
+  const removeFromOlder = markItem;
 
   const totalItems = last7.length + month.length + older.length;
 
@@ -136,6 +155,11 @@ function BacklogDialogBody({ buckets, legacyOwed }: { buckets: QadaBacklogBucket
 
   return (
     <div className="flex flex-col gap-5">
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          Couldn&apos;t save: {error}
+        </p>
+      )}
       <BacklogSection title="Last 7 days" items={last7} defaultExpanded onItemMarked={removeFromLast7} />
       {/* "Earlier this month," not "This month" — deliberately excludes the
           last7 items already shown above, so it never shows a number that

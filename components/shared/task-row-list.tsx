@@ -513,9 +513,25 @@ export function TaskRowList({
     // response; this only governs when the row actually leaves the active
     // list.
     const settled = onComplete(item);
+    // Track an early failure without leaving an unhandled rejection while the
+    // animation runs; the real outcome is awaited below and rethrown.
+    let failedEarly = false;
+    settled.catch(() => {
+      failedEarly = true;
+    });
     await sleep(COMPLETE_ANIMATION_MS);
-    await settled;
+    // A save that already failed by the time the animation ends keeps the old
+    // behaviour exactly: the row stays in Pending and shows its inline error.
+    if (failedEarly) await settled;
+    // PERF-1: move the row once the animation has played, NOT when the server
+    // (and the Home re-render the action triggers, 1-3 s) has finished. Safe
+    // because useOptimistic holds this state only while the surrounding
+    // transition is pending and reverts to the real list the moment it ends:
+    // if `settled` rejects, the throw below ends the transition, the row is
+    // back in Pending and ActiveRow shows its error -- a failed save is never
+    // left looking complete.
     applyOptimistic({ type: "complete", id: item.id, completedAtIso: new Date().toISOString() });
+    await settled;
   }
 
   async function handleLogSubmit(item: TaskRowItem, value: TaskLogValue) {

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
+import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { logQuranSession } from "@/app/(app)/deen/actions";
 import { computeQuranStreak } from "@/lib/deen/streak";
 import { Button } from "@/components/ui/button";
@@ -17,23 +19,33 @@ export function QuranCard({
   sessionDates: string[];
   todayStr: string;
 }) {
-  const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleRefresh();
+  const [error, setError] = useState<string | null>(null);
   const [pages, setPages] = useState("");
   const [surah, setSurah] = useState("");
   const [juz, setJuz] = useState("");
 
   const streak = computeQuranStreak(sessionDates, todayStr);
 
+  // PERF-1: the form clears at once; the write runs queued in the background (a
+  // second session can be entered right away) and a failure restores what was typed.
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const pagesNum = Number(pages);
     if (!pagesNum || pagesNum <= 0) return;
-    startTransition(async () => {
-      await logQuranSession(pagesNum, surah || undefined, juz ? Number(juz) : undefined);
-      setPages("");
-      setSurah("");
-      setJuz("");
-    });
+    const typed = { pages, surah, juz };
+    setError(null);
+    setPages("");
+    setSurah("");
+    setJuz("");
+    enqueueByKey("quran:log", () => logQuranSession(pagesNum, typed.surah || undefined, typed.juz ? Number(typed.juz) : undefined))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Couldn't save that. Try again.");
+        setPages(typed.pages);
+        setSurah(typed.surah);
+        setJuz(typed.juz);
+      })
+      .finally(scheduleRefresh);
   }
 
   return (
@@ -83,10 +95,13 @@ export function QuranCard({
             className="w-16"
           />
         </div>
-        <Button type="submit" disabled={isPending}>
-          Log session
-        </Button>
+        <Button type="submit">Log session</Button>
       </form>
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          Couldn&apos;t save: {error}
+        </p>
+      )}
     </div>
   );
 }

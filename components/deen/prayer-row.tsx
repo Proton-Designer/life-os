@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useOptimistic, useState, useTransition } from "react";
+import { useId, useState } from "react";
+import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
 import { ChevronDown } from "lucide-react";
 import { markPrayer, unmarkPrayer } from "@/app/(app)/deen/actions";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -49,11 +50,16 @@ export function PrayerRow({
   status: EffectivePrayerStatus;
   sunnahCompletions: SunnahSlot[];
 }) {
-  const [isPending, startTransition] = useTransition();
-  const [optimisticStatus, setOptimisticStatus] = useOptimistic(
-    toOptimistic(status),
-    (_state, next: OptimisticStatus) => next
-  );
+  // PERF-1: per-item optimistic state. The tapped status flips at once, writes
+  // for THIS prayer run in tap order (absolute state each time, so the stored
+  // row ends as the last tap), other prayers/buttons are never disabled, and a
+  // failure reverts only this row.
+  const item = useOptimisticItem<OptimisticStatus>({
+    serverValue: toOptimistic(status),
+    queueKey: `prayer:${date}:${prayerName}`,
+    write: (next) => (next === "none" ? unmarkPrayer(date, prayerName) : markPrayer(date, prayerName, next)),
+  });
+  const optimisticStatus = item.value;
   const [expanded, setExpanded] = useState(false);
   const sunnahPanelId = useId();
 
@@ -67,21 +73,8 @@ export function PrayerRow({
   // reverts them all to the derived pending/upcoming/missed state for free.
   function handleClick(s: ActionableStatus) {
     const isUnmarking = optimisticStatus === s;
-    // Outside the transition, not inside its async callback: a plain
-    // useState update made inside startTransition's body is itself treated
-    // as a (deferred) transition update, unlike useOptimistic's special-cased
-    // synchronous behavior — it wouldn't reliably be visible by the time the
-    // caller's next assertion (or the user's eyes) checks it.
     if (!isUnmarking && s === "on_time" && hasSunnah) setExpanded(true);
-    startTransition(async () => {
-      if (isUnmarking) {
-        setOptimisticStatus("none");
-        await unmarkPrayer(date, prayerName);
-        return;
-      }
-      setOptimisticStatus(s);
-      await markPrayer(date, prayerName, s);
-    });
+    item.set(isUnmarking ? "none" : s);
   }
 
   const completedCount = sunnahList.filter((s) => sunnahCompletions.includes(s.slot)).length;
@@ -138,12 +131,11 @@ export function PrayerRow({
             <button
               key={s}
               type="button"
-              disabled={isPending}
               onClick={(e) => {
                 e.stopPropagation();
                 handleClick(s);
               }}
-              className="rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
+              className="rounded-full transition-opacity hover:opacity-80"
             >
               <Badge variant={optimisticStatus === s ? STATUS_VARIANT[s] : "neutral"}>
                 {STATUS_LABEL[s]}
@@ -166,6 +158,11 @@ export function PrayerRow({
           )}
         </div>
       </div>
+      {item.error && (
+        <p role="alert" className="px-4 pb-2 text-xs text-destructive">
+          Couldn&apos;t save {label}: {item.error}
+        </p>
+      )}
       {expanded && hasSunnah && (
         <SunnahDisclosure
           date={date}

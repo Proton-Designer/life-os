@@ -1,7 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/supabase/auth";
-import { isDeenModeOnForRequest, DEEN_MODE_OFF_MESSAGE } from "@/lib/deen/deen-mode-guard";
+import { isDeenModeOnForRequest, getRequestTimezone, DEEN_MODE_OFF_MESSAGE } from "@/lib/deen/deen-mode-guard";
 import { localDateString } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
 import type { PrayerName } from "@/lib/prayer-times/windows";
@@ -11,7 +11,6 @@ import {
   markPrayerCore,
   toggleSunnahCore,
   toggleAdhkarCore,
-  fetchTimezone,
   quranSessionLogCore,
   adjustQadaBacklogCore,
   setTravelingModeCore,
@@ -26,13 +25,10 @@ import {
   setWeeklyFocusCore,
 } from "@/lib/deen/actions-core";
 
-async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string) {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("timezone")
-    .eq("user_id", userId)
-    .maybeSingle();
-  return localDateString(new Date(), profile?.timezone ?? "UTC");
+// Timezone comes from the request's cached profile (already read by the Deen
+// Mode guard) instead of a second profiles round trip per tap.
+async function todayForUser() {
+  return localDateString(new Date(), await getRequestTimezone());
 }
 
 /**
@@ -55,12 +51,13 @@ export async function markPrayer(
   prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
   status: "on_time" | "qada" | "missed"
 ): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   await markPrayerCore(supabase, userId, timezone, new Date(), date, prayerName, status);
-  revalidatePath("/deen");
-  revalidatePath("/");
 }
 
 /**
@@ -80,6 +77,9 @@ export async function unmarkPrayer(
   date: string,
   prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"
 ): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   const { error } = await supabase
@@ -89,17 +89,16 @@ export async function unmarkPrayer(
     .eq("date", date)
     .eq("prayer_name", prayerName);
   if (error) throw error;
-  revalidatePath("/deen");
-  revalidatePath("/");
 }
 
 /** THIN WRAPPER over toggleAdhkarCore (lib/deen/actions-core.ts, L6/R5) — same core the MCP write tool calls. */
 export async function toggleAdhkar(date: string, period: "morning" | "evening"): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   await toggleAdhkarCore(supabase, userId, date, period);
-  revalidatePath("/deen");
-  revalidatePath("/");
 }
 
 /** THIN WRAPPER over quranSessionLogCore (P4-06) — the MCP write tool calls the same core. */
@@ -108,28 +107,34 @@ export async function logQuranSession(
   surah?: string,
   juz?: number
 ): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   const date = localDateString(new Date(), timezone);
   await quranSessionLogCore(supabase, userId, timezone, new Date(), date, pages, surah, juz);
-  revalidatePath("/deen");
 }
 
 /** THIN WRAPPER over adjustQadaBacklogCore (P4-06) — the MCP write tool calls the same core. */
 export async function adjustQadaBacklog(delta: number): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   await adjustQadaBacklogCore(supabase, userId, delta);
-  revalidatePath("/deen");
 }
 
 /** THIN WRAPPER over setTravelingModeCore (P4-06) — the MCP write tool calls the same core. */
 export async function setTravelingMode(enabled: boolean): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   await setTravelingModeCore(supabase, userId, enabled);
-  revalidatePath("/deen");
 }
 
 /**
@@ -139,12 +144,14 @@ export async function setTravelingMode(enabled: boolean): Promise<void> {
  * calls the same core.
  */
 export async function logReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   const date = localDateString(new Date(), timezone);
   await reflectionEntryLogCore(supabase, userId, timezone, new Date(), date, tier);
-  revalidatePath("/deen");
 }
 
 /**
@@ -154,9 +161,12 @@ export async function logReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
  * integrity check like toggleKillListItem's not-found case.
  */
 export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const date = await todayForUser(supabase, userId);
+  const date = await todayForUser();
 
   const { data: mostRecent } = await supabase
     .from("reflection_entries")
@@ -172,7 +182,6 @@ export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
 
   const { error } = await supabase.from("reflection_entries").delete().eq("id", mostRecent.id);
   if (error) throw error;
-  revalidatePath("/deen");
 }
 
 // anchorCue is the implementation-intention cue ("After Fajr") — see
@@ -183,7 +192,7 @@ export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
 export async function createDeenHabit(name: string, anchorCue?: string): Promise<{ id: string }> {
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) throw new Error(DEEN_MODE_OFF_MESSAGE);
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   const result = await createDeenHabitCore(supabase, userId, timezone, new Date(), name, anchorCue);
   revalidatePath("/deen");
   return result;
@@ -191,11 +200,12 @@ export async function createDeenHabit(name: string, anchorCue?: string): Promise
 
 /** THIN WRAPPER over toggleDeenHabitLogCore (P4-06) — the MCP write tool calls the same core. */
 export async function toggleDeenHabitLog(habitId: string, date: string): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   await toggleDeenHabitLogCore(supabase, userId, habitId, date);
-  revalidatePath("/deen");
-  revalidatePath("/");
 }
 
 // Same upsert-and-flip shape as toggleDeenHabitLog. Sunnah doesn't appear on
@@ -214,11 +224,13 @@ export async function toggleSunnah(
   prayerName: PrayerName,
   slot: SunnahSlot
 ): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   await toggleSunnahCore(supabase, userId, timezone, new Date(), date, prayerName, slot);
-  revalidatePath("/deen");
 }
 
 /**
@@ -231,7 +243,7 @@ export async function toggleSunnah(
 export async function setWeeklyFocus(habitId: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   await setWeeklyFocusCore(supabase, userId, timezone, new Date(), habitId);
   revalidatePath("/deen");
 }
@@ -283,7 +295,7 @@ export async function setDeenHabitStageOverride(habitId: string, stage: HabitSta
 export async function setDeenHabitCommittedDate(habitId: string, committedDate: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   await setDeenHabitCommittedDateCore(supabase, userId, timezone, new Date(), habitId, committedDate);
   revalidatePath("/deen");
 }
@@ -307,11 +319,13 @@ export async function setDeenHabitCommittedDate(habitId: string, committedDate: 
  * (P4-06) — the MCP write tool calls the same core.
  */
 export async function setDeenHabitLogStatus(habitId: string, date: string, completed: boolean): Promise<void> {
+  // Hot tap: no revalidatePath here (it made this call wait for a full server
+  // re-render). The client controls update from local state and trigger one
+  // debounced router.refresh() -- see lib/client/deferred-refresh.ts (PERF-1).
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
-  const timezone = await fetchTimezone(supabase, userId);
+  const timezone = await getRequestTimezone();
   await setDeenHabitLogStatusCore(supabase, userId, timezone, new Date(), habitId, date, completed);
-  revalidatePath("/deen");
 }
 
 /**
@@ -340,4 +354,21 @@ export async function getDeenHabitLogRange(
     .order("date", { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * PERF-1: the ONE revalidation for a burst of hot Deen taps. The per-tap actions
+ * above no longer call revalidatePath (it made each tap wait for a full server
+ * re-render, and Next runs actions one at a time, so taps queued behind those
+ * renders). The client controls update locally and schedule this once, 400 ms
+ * after the burst settles (lib/client/deferred-refresh.ts). It re-renders the
+ * current page and purges the client Router Cache so Home / the faith route are
+ * not served stale. Touches no data.
+ */
+export async function refreshDeenViews(): Promise<void> {
+  await requireUser();
+  revalidatePath("/deen");
+  revalidatePath("/");
+  // Domains-mode accounts render DeenPage under /personal/faith.
+  revalidatePath("/personal/[subdomain]", "page");
 }

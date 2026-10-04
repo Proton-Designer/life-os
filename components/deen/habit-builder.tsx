@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Repeat } from "lucide-react";
+import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
 import { toggleDeenHabitLog, setWeeklyFocus, createDeenHabit } from "@/app/(app)/deen/actions";
 import { habitStage, isNewHabit, type StageOverride } from "@/lib/deen/habit-stage";
 import { HabitEditorDialog } from "@/components/deen/habit-editor-dialog";
@@ -66,21 +67,26 @@ function HabitToggleButton({
   completed: boolean;
   onToggle: (habitId: string, completed: boolean) => void;
 }) {
-  const [isPending, startTransition] = useTransition();
+  // PERF-1: per-habit optimistic state; the parent's local `completedToday`
+  // mirrors it at once (onToggle) and is corrected if the write fails.
+  const item = useOptimisticItem<boolean>({
+    serverValue: completed,
+    queueKey: `habitlog:${habitId}:${todayStr}`,
+    write: () => toggleDeenHabitLog(habitId, todayStr),
+    onRevert: (confirmed) => onToggle(habitId, confirmed),
+  });
   return (
     <button
       type="button"
-      disabled={isPending}
-      onClick={() =>
-        startTransition(async () => {
-          onToggle(habitId, !completed);
-          await toggleDeenHabitLog(habitId, todayStr);
-        })
-      }
-      aria-label={completed ? "Mark incomplete" : "Mark complete"}
+      onClick={() => {
+        const next = !item.value;
+        onToggle(habitId, next);
+        void item.set(next);
+      }}
+      aria-label={item.value ? "Mark incomplete" : "Mark complete"}
       className={cn(
-        "size-5 shrink-0 rounded-full border transition-colors disabled:opacity-50",
-        completed ? "border-accent-deen bg-accent-deen" : "border-border"
+        "size-5 shrink-0 rounded-full border transition-colors",
+        item.value ? "border-accent-deen bg-accent-deen" : "border-border"
       )}
     />
   );

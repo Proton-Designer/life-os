@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useOptimistic, useRef, useTransition } from "react";
+import { useEffect, useRef } from "react";
+import { useOptimisticItem } from "@/components/deen/use-optimistic-item";
 import { toggleSunnah } from "@/app/(app)/deen/actions";
 import { sunnahForPrayer, type SunnahDefinition, type SunnahSlot } from "@/lib/deen/sunnah";
 import type { PrayerName } from "@/lib/prayer-times/windows";
@@ -63,34 +64,27 @@ function SunnahOptionRow({
    */
   onTap: (writeSettled: Promise<void>) => void;
 }) {
-  const [isPending, startTransition] = useTransition();
-  const [optimisticCompleted, setOptimisticCompleted] = useOptimistic(
-    completed,
-    (_state, next: boolean) => next
-  );
+  // PERF-1: per-slot optimistic state; writes for this slot run in tap order and
+  // nothing is disabled while one saves. (toggleSunnah flips server-side, so the
+  // ordered per-slot queue is what keeps N taps == N flips.)
+  const item = useOptimisticItem<boolean>({
+    serverValue: completed,
+    queueKey: `sunnah:${date}:${prayerName}:${def.slot}`,
+    write: () => toggleSunnah(date, prayerName, def.slot),
+  });
+  const optimisticCompleted = item.value;
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
-    const writeSettled = new Promise<void>((resolve) => {
-      startTransition(async () => {
-        setOptimisticCompleted(!optimisticCompleted);
-        try {
-          await toggleSunnah(date, prayerName, def.slot);
-        } finally {
-          resolve();
-        }
-      });
-    });
-    onTap(writeSettled);
+    onTap(item.set(!optimisticCompleted));
   }
 
   return (
     <button
       type="button"
-      disabled={isPending}
       onClick={handleClick}
       aria-pressed={optimisticCompleted}
-      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/40 disabled:opacity-50"
+      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/40"
     >
       <span className="flex items-center gap-2">
         <span

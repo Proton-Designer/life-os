@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PrayerRow } from "../prayer-row";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 
 const markPrayerMock = vi.fn();
 const toggleSunnahMock = vi.fn();
@@ -14,6 +15,7 @@ vi.mock("@/app/(app)/deen/actions", () => ({
 
 describe("PrayerRow", () => {
   beforeEach(() => {
+    resetKeyedQueuesForTests();
     markPrayerMock.mockReset();
     toggleSunnahMock.mockReset();
     unmarkPrayerMock.mockReset();
