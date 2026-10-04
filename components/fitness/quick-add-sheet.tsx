@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,13 @@ export function QuickAddSheet({
   const [load, setLoad] = useState<number | "">("");
   const [isPending, startTransition] = useTransition();
   const scheduleRefresh = useScheduleFitnessRefresh();
+  // Local echo: the Fitness numbers only move when the deferred refresh lands.
+  const [logged, setLogged] = useState<string | null>(null);
+  useEffect(() => {
+    if (!logged) return;
+    const t = setTimeout(() => setLogged(null), 6000);
+    return () => clearTimeout(t);
+  }, [logged]);
 
   function reset() {
     setSelected(null);
@@ -48,12 +55,14 @@ export function QuickAddSheet({
     startTransition(async () => {
       await onLog(selected.id, selected.name, sets, reps, load === "" ? null : Number(load));
       scheduleRefresh();
+      setLogged(`Logged ${selected.name} ${sets}×${reps}${load === "" ? "" : ` @ ${load}`} ✓`);
       reset();
       setOpen(false);
     });
   }
 
   return (
+    <>
     <Dialog
       open={open}
       onOpenChange={(next) => {
@@ -114,5 +123,11 @@ export function QuickAddSheet({
         )}
       </DialogContent>
     </Dialog>
+    {logged && (
+      <span role="status" className="ml-2 text-xs text-accent-fitness">
+        {logged}
+      </span>
+    )}
+    </>
   );
 }

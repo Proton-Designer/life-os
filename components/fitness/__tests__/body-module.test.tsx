@@ -132,4 +132,16 @@ describe("BodyModule", () => {
       expect(screen.getAllByRole("button", { name: "Log" })).toHaveLength(2); // still there, still enabled — no daily-task removal
     });
   });
+
+  // PERF-3 review F2: weight/waist closes its dialog right after the lean write.
+  it("echoes the logged value next to the row at once, and clears it when the refreshed value arrives", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<BodyModule weightAvg7d={158} waist={null} {...noopHandlers()} />);
+    const [weightLog] = screen.getAllByRole("button", { name: "Log" });
+    await user.click(weightLog);
+    await user.type(screen.getByLabelText("Weight (lb)"), "160{Enter}");
+    expect(await screen.findByRole("status")).toHaveTextContent("Logged 160 lb ✓");
+    rerender(<BodyModule weightAvg7d={158.7} waist={null} {...noopHandlers()} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
 });

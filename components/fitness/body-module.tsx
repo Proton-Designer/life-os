@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useScheduleFitnessRefresh } from "@/components/fitness/use-fitness-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,21 @@ export function BodyModule({
   onLogWaist: (value: number) => Promise<void>;
 }) {
   const [openField, setOpenField] = useState<"weight" | "waist" | null>(null);
+  // PERF-3: the dialog closes right after the lean write, but the numbers above only move
+  // when the deferred refresh lands. Echo what was logged at once so nobody logs twice;
+  // it is keyed to the displayed value it was logged against and clears itself.
+  const [echo, setEcho] = useState<{ field: "weight" | "waist"; value: number; base: number | null } | null>(null);
+  useEffect(() => {
+    if (!echo) return;
+    const t = setTimeout(() => setEcho(null), 6000);
+    return () => clearTimeout(t);
+  }, [echo]);
+  const echoFor = (field: "weight" | "waist", base: number | null) =>
+    echo && echo.field === field && echo.base === base ? (
+      <span role="status" className="text-xs text-accent-fitness">
+        Logged {echo.value} {field === "weight" ? "lb" : "in"} ✓
+      </span>
+    ) : null;
 
   return (
     <div className="flex flex-col gap-1 text-sm" data-testid="body-module">
@@ -50,6 +65,7 @@ export function BodyModule({
             {weightAvg7d !== null ? `${weightAvg7d} lb` : "—"}
             {weightAvg7d !== null && <span className="ml-1.5 text-xs text-muted-foreground">7-day avg</span>}
           </span>
+          {echoFor("weight", weightAvg7d)}
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpenField("weight")}>
             Log
           </Button>
@@ -77,6 +93,7 @@ export function BodyModule({
               </span>
             )}
           </span>
+          {echoFor("waist", waist?.valueIn ?? null)}
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpenField("waist")}>
             Log
           </Button>
@@ -94,7 +111,11 @@ export function BodyModule({
           {openField && (
             <BodyMetricQuickEntry
               metric={openField}
-              onLog={openField === "weight" ? onLogWeight : onLogWaist}
+              onLog={async (value) => {
+                const field = openField;
+                await (field === "weight" ? onLogWeight : onLogWaist)(value);
+                setEcho({ field, value, base: field === "weight" ? weightAvg7d : (waist?.valueIn ?? null) });
+              }}
               onDone={() => setOpenField(null)}
             />
           )}

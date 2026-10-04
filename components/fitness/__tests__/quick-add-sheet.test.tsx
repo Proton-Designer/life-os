@@ -38,4 +38,15 @@ describe("QuickAddSheet", () => {
     await user.click(screen.getByRole("button", { name: "Log it" }));
     expect(onLog).toHaveBeenCalledWith("e1", "Push-ups", 1, 20, null);
   });
+
+  // PERF-3 review F2: the dialog closes right after the lean write; the user must see that it registered.
+  it("echoes what was logged once the dialog closes, so nobody logs twice while the refresh is pending", async () => {
+    const user = userEvent.setup();
+    render(<QuickAddSheet exercises={EXERCISES} onCreateExercise={vi.fn()} onLog={vi.fn().mockResolvedValue(undefined)} />);
+    await user.click(screen.getByText("+ Quick log"));
+    await user.type(screen.getByLabelText("Search exercises"), "Push-ups");
+    await user.click(screen.getByText("Push-ups"));
+    await user.click(screen.getByRole("button", { name: "Log it" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Logged Push-ups 1×10 ✓");
+  });
 });

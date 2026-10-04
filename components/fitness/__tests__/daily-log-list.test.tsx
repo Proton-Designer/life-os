@@ -107,4 +107,21 @@ describe("DailyLogList — popup logging", () => {
     // No dialog role should appear — SessionDetailPanel renders inline in the flow.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  // PERF-3 review F2: the row's progress moves at once; it never double counts when the real total arrives.
+  it("shows logged reps in the row immediately, then does not double count when the refreshed total arrives", async () => {
+    const item: DailyLogItem = { kind: "micro_total", exerciseId: "e1", name: "Push-ups", logged: 10, target: 30, notes: null };
+    const handlers = noopHandlers();
+    const user = userEvent.setup();
+    const props = { date: "2026-08-25", sessionDetailsBySessionId: {}, benchmarkExercises: [], ...handlers };
+    const { rerender } = render(<DailyLogList items={[item]} {...props} />);
+    await user.click(screen.getByText("Push-ups"));
+    const input = screen.getByLabelText("Push-ups reps this bout");
+    await user.clear(input);
+    await user.type(input, "5");
+    await user.click(screen.getByRole("button", { name: "Log" }));
+    expect(await screen.findByText("15/30")).toBeInTheDocument();
+    rerender(<DailyLogList items={[{ ...item, logged: 15 }]} {...props} />);
+    expect(screen.getByText("15/30")).toBeInTheDocument();
+  });
 });

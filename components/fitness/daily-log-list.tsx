@@ -93,9 +93,15 @@ function DailyLogRow(props: {
   // the deliberate exception).
   const [expanded, setExpanded] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // PERF-3: reps logged here show at once; keyed to the server total they were added to so
+  // they vanish (never double counted) when the deferred refresh brings the real total.
+  const [bumped, setBumped] = useState<{ base: number; reps: number; bouts: number } | null>(null);
 
   if (item.kind === "micro_total" || item.kind === "micro_freq") {
-    const done = item.kind === "micro_total" ? item.logged : item.bouts;
+    const serverDone = item.kind === "micro_total" ? item.logged : item.bouts;
+    const echo = bumped && bumped.base === serverDone ? bumped : null;
+    // micro_freq counts bouts (one per log), micro_total counts reps.
+    const done = serverDone + (echo ? (item.kind === "micro_total" ? echo.reps : echo.bouts) : 0);
     const progress = repGoalProgress(done, item.target);
     return (
       <div data-testid={`daily-log-${itemKey(item)}`}>
@@ -124,7 +130,10 @@ function DailyLogRow(props: {
               exerciseId={item.exerciseId}
               exerciseName={item.name}
               progressLabel={`${progress.done}/${progress.target}${item.kind === "micro_freq" ? "x" : ""} so far`}
-              onLog={props.onLogReps}
+              onLog={async (exerciseId, exerciseName, reps) => {
+                await props.onLogReps(exerciseId, exerciseName, reps);
+                setBumped({ base: serverDone, reps: (echo?.reps ?? 0) + reps, bouts: (echo?.bouts ?? 0) + 1 });
+              }}
               onDone={() => setDialogOpen(false)}
             />
           </DialogContent>

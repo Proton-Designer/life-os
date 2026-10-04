@@ -166,4 +166,29 @@ describe("PracticeTestPanel (P2-09)", () => {
     expect(screen.getByText("First question")).toBeInTheDocument();
     expect(completePracticeTestMock).not.toHaveBeenCalled();
   });
+
+  // PERF-3 review F1: the guard that stops completion over a failed answer must actually be reached.
+  // q1's write is held in flight, the user answers the LAST question, THEN q1 rejects: the
+  // completion step (queued behind q1) must refuse. Disabling the guard makes this fail.
+  it("q1 write fails after the user already tapped the last question -> completion must refuse", async () => {
+    let failQ1!: () => void;
+    submitPracticeTestAnswerMock.mockImplementation((_t, questionId) =>
+      questionId === "q1" ? new Promise((_, reject) => (failQ1 = () => reject(new Error("offline")))) : Promise.resolve()
+    );
+    getMyPracticeTestsMock.mockResolvedValue(TWO);
+    getPracticeTestQuestionsMock.mockResolvedValue(TWO_Q);
+    const user = userEvent.setup();
+    render(<PracticeTestPanel classId="c1" />);
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await screen.findByText("First question");
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await user.click(screen.getByRole("button", { name: "Got it right" })); // q1 held in flight
+    await screen.findByText("Second question");
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await user.click(screen.getByRole("button", { name: "Got it right" })); // last question, queued behind q1
+    failQ1();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/earlier answer|offline/i);
+    expect(completePracticeTestMock).not.toHaveBeenCalled();
+    expect(screen.getByText("First question")).toBeInTheDocument(); // returned to the failed question
+  });
 });
