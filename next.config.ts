@@ -3,36 +3,25 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     // Every route in this app is dynamic (auth-gated), so this is the
-    // relevant knob — `static` doesn't apply here. Every mutation already
-    // calls revalidatePath() to bust the SERVER's cache; this knob only
-    // governs each device's own independent client Router Cache, which
-    // revalidatePath cannot reach. That gap is the root cause of Ayman's
-    // "changes on my phone don't show on my laptop" report (2026-08-25/26
-    // batch 2, item 2) — same-device navigation stays correctly fresh via
-    // revalidatePath; only a SECOND device's already-open client cache is
-    // blind to a write it didn't make.
+    // relevant knob; `static` doesn't apply here. Every mutation already
+    // calls revalidatePath() for its OWN device (and revalidatePath also
+    // clears that device's Router Cache). This value governs how long a
+    // visited page is reused on a revisit with NO fetch (Home -> Personal
+    // -> Home is instant while it holds).
     //
-    // RealtimeSyncProvider (components/realtime/realtime-sync-provider.tsx)
-    // is the real fix — a Postgres Changes event calling router.refresh()
-    // directly, with no wait — but it's HELD, not mounted (see the comment
-    // in components/shell/app-shell-chrome.tsx and the writeup in
-    // e2e/realtime-sync.spec.ts): it reaches SUBSCRIBED but intermittently
-    // never receives events in the live browser, root cause unconfirmed.
-    //
-    // Until it's re-enabled, THIS VALUE is the only lever on that symptom
-    // at all — at the old 3600s, a second device could serve a full hour
-    // of stale data after a write elsewhere, which is indistinguishable
-    // from the bug not being addressed. 60s doesn't fix cross-device sync
-    // (nothing here does, tonight), but it bounds "stale until the next
-    // navigation happens to land past 60s" instead of "stale for up to an
-    // hour" — a real, feelable improvement standing in for the realtime
-    // layer until it's mounted. The cost is more RSC round trips on
-    // navigation (real on cellular, bounded, and Next prefetches on
-    // hover/viewport regardless) — raise this back toward 3600 if that
-    // proves too chatty once RealtimeSyncProvider is live and this reverts
-    // to being a pure safety net again.
+    // NAV-01a: 1800 s (30 min). It had been cut to 60 s as a stand-in for
+    // cross-device freshness, which made every revisit after a minute
+    // refetch the whole page (1-2 s on a real account). Cross-device is now
+    // covered by two other mechanisms, so this is back to being a safety
+    // net: RealtimeSyncProvider (mounted; router.refresh() on a change) and
+    // components/shell/focus-refresh.tsx (router.refresh() when the tab/PWA
+    // returns after >= 60 s away). router.refresh() also drops every cached
+    // page, so nothing stale survives the first return. 30 min rather than
+    // 60: a device that stays focused and never loses realtime still can't
+    // serve a page older than half an hour. Polling Server Actions never
+    // call revalidatePath/refresh, so they never invalidate this cache.
     staleTimes: {
-      dynamic: 60,
+      dynamic: 1800,
     },
   },
   // P3-08: the public share-view route is a user's own study material,

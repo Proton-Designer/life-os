@@ -92,17 +92,11 @@ function defaultDataSource(): PulseDataSource {
     },
     async getHabits(userId, date) {
       const supabase = await createClient();
-      const { data: habits } = await supabase
-        .from("custom_habits")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("domain", "fitness")
-        .eq("archived", false);
-      const { data: logs } = await supabase
-        .from("habit_logs")
-        .select("habit_id, completed")
-        .eq("user_id", userId)
-        .eq("date", date);
+      // Independent reads: one round trip, not two.
+      const [{ data: habits }, { data: logs }] = await Promise.all([
+        supabase.from("custom_habits").select("id").eq("user_id", userId).eq("domain", "fitness").eq("archived", false),
+        supabase.from("habit_logs").select("habit_id, completed").eq("user_id", userId).eq("date", date),
+      ]);
       return (habits ?? []).map((h) => ({
         habitId: h.id,
         completed: logs?.some((l) => l.habit_id === h.id && l.completed) ?? false,
