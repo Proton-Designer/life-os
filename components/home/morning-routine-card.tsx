@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { Check, Circle, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,13 +41,23 @@ export function MorningRoutineCard({ initialItems }: { initialItems: MorningRout
     const next = !item.checkedToday;
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checkedToday: next } : i)));
     setRowErrors((prev) => ({ ...prev, [item.id]: "" }));
-    startTransition(async () => {
-      const result = next ? await checkMorningRoutineItem(item.id) : await uncheckMorningRoutineItem(item.id);
-      if (!result.ok) {
+    // PERF-1 sweep: this list used to share ONE isPending that disabled every
+    // checkbox + remove button until the write AND the Home re-render finished.
+    // Now each tap is independent: state flips locally at once, writes for the
+    // same item run in tap order (enqueueByKey), nothing else is disabled, and a
+    // failure reverts only this item. The Server Action still revalidates Home;
+    // nothing in the UI waits on it.
+    enqueueByKey(`routine:${item.id}`, async () => (next ? await checkMorningRoutineItem(item.id) : await uncheckMorningRoutineItem(item.id)))
+      .then((result) => {
+        if (!result.ok) {
+          setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checkedToday: !next } : i)));
+          setRowErrors((prev) => ({ ...prev, [item.id]: result.message }));
+        }
+      })
+      .catch((err: unknown) => {
         setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checkedToday: !next } : i)));
-        setRowErrors((prev) => ({ ...prev, [item.id]: result.message }));
-      }
-    });
+        setRowErrors((prev) => ({ ...prev, [item.id]: err instanceof Error ? err.message : "Couldn't save that." }));
+      });
   }
 
   function handleArchive(item: MorningRoutineChecklistItem) {
@@ -100,7 +111,6 @@ export function MorningRoutineCard({ initialItems }: { initialItems: MorningRout
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  disabled={isPending}
                   onClick={() => toggleCheck(item)}
                   className="flex flex-1 items-center gap-2 text-left text-sm"
                 >
@@ -111,7 +121,7 @@ export function MorningRoutineCard({ initialItems }: { initialItems: MorningRout
                   )}
                   <span className={item.checkedToday ? "text-muted-foreground line-through" : undefined}>{item.label}</span>
                 </button>
-                <Button size="sm" variant="ghost" disabled={isPending} onClick={() => handleArchive(item)} aria-label={`Remove ${item.label}`}>
+                <Button size="sm" variant="ghost" onClick={() => handleArchive(item)} aria-label={`Remove ${item.label}`}>
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
               </div>
