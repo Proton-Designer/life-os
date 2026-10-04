@@ -159,18 +159,18 @@ test.describe("stranger journey", () => {
     const hasDueInvite = /cards? due|nothing due|review anyway|self-mastery/.test(bodyText);
     if (!hasDueInvite) note("Home shows nothing about Self-Mastery — a stranger has no prompt to study.");
 
-    // ---- 3b. A zero-books account is a first-class empty state, not a seeded deck ------------
-    // a0bfe5d (ONB item 11) removed the automatic Marcus Aurelius starter deck, and ingestion is
-    // still not connected, so a stranger has NO cards to study: Home's Self-Mastery card reads
-    // "Add a book to get started". This spec's retrieval leg (written when a deck was seeded at
-    // onboarding) cannot run on a brand-new account any more. What a stranger must still get is an
-    // honest, findable empty state; the session leg is skipped (reported as skipped, not passed)
-    // until a fixture deck exists for a fresh account.
-    const addBook = page.getByRole("button", { name: /add a book to get started/i }).first();
-    if (await addBook.isVisible().catch(() => false)) {
-      await expect(addBook, "the empty Self-Mastery card must be visible on Home").toBeVisible();
+    // ---- 3b. A zero-books account has no Self-Mastery card on Home ------------------------------
+    // a0bfe5d (ONB item 11) removed the automatic Marcus Aurelius starter deck, ingestion is still not
+    // connected, and the "Add a book to get started" Home banner was removed on request (2026-10-04). A
+    // brand-new account therefore has nothing to study and Home shows no entry card for it. The retrieval
+    // leg of this spec (written when a deck was seeded at onboarding) cannot run on a fresh account; it is
+    // skipped (reported as skipped, not passed) until a fixture deck exists. What must still hold: Home does
+    // not advertise an empty library.
+    const studyEntry = page.getByRole("button", { name: /cards? (due|ready to start)|nothing due today|review anyway/i }).first();
+    if (!(await studyEntry.isVisible().catch(() => false))) {
+      await expect(page.getByText("Add a book to get started")).toHaveCount(0);
       await page.screenshot({ path: `${SHOT}/05b-empty-state.png`, fullPage: true });
-      test.skip(true, "a0bfe5d: no automatic starter deck for a new account; retrieval-session leg needs a fixture deck (E2E-01)");
+      test.skip(true, "no starter deck / no Home entry card for a new account; retrieval-session leg needs a fixture deck (E2E-01)");
     }
 
     // ---- 4. Enter the session the way a person would ---------------------

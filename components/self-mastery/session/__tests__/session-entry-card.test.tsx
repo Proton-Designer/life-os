@@ -65,47 +65,23 @@ describe("SessionEntryCard", () => {
     expect(loadTodaysSessionMock).toHaveBeenCalled();
   });
 
-  // ONB item 11: the automatic Marcus Aurelius starter-deck seed onboarding
-  // used to create is gone, so zero books is now always a genuine empty
-  // state -- never a failure signal. This is the exact regression this task
-  // risks: a zero-books user must NEVER see the old "Your starter deck
-  // didn't load" / "Retry" copy, which would now be permanently wrong for
-  // every new Self-Mastery user (there is no seed left to fail).
-  describe("empty library (zero books -- no starter deck was ever auto-created)", () => {
-    it("shows an honest 'add a book' prompt, never the old failure/retry copy", () => {
-      render(<SessionEntryCard dueSummary={due({ hasBooks: false })} />);
-      expect(screen.getByText("Add a book to get started")).toBeInTheDocument();
-      expect(screen.getByText("Add book")).toBeInTheDocument();
-      // The regression control: none of the old starter-deck-failure UI survives.
+  // The "Add a book to get started" banner was removed from Home on request (2026-10-04): an account with
+  // no books sees no Self-Mastery entry card at all. (Zero books is never a failure signal either: the old
+  // "Your starter deck didn't load" / "Retry" copy must stay gone.)
+  describe("empty library (zero books)", () => {
+    it("renders nothing: no 'add a book' banner, no failure copy, no 'nothing due' card", () => {
+      const { container } = render(<SessionEntryCard dueSummary={due({ hasBooks: false })} />);
+      expect(container).toBeEmptyDOMElement();
+      expect(screen.queryByText("Add a book to get started")).not.toBeInTheDocument();
+      expect(screen.queryByText("Add book")).not.toBeInTheDocument();
       expect(screen.queryByText(/starter deck/i)).not.toBeInTheDocument();
       expect(screen.queryByText("Retry")).not.toBeInTheDocument();
       expect(screen.queryByText("Nothing due today")).not.toBeInTheDocument();
-      expect(screen.queryByText("Review anyway")).not.toBeInTheDocument();
     });
 
-    it("tapping it navigates to the standalone legacy library by default (no selfMasteryHref given)", async () => {
-      const user = userEvent.setup();
-      render(<SessionEntryCard dueSummary={due({ hasBooks: false })} />);
-
-      await user.click(screen.getByRole("button", { name: /add a book/i }));
-
-      expect(pushMock).toHaveBeenCalledWith("/self-mastery");
-      expect(loadTodaysSessionMock).not.toHaveBeenCalled();
-    });
-
-    // Home bug: this banner used to hardcode "/self-mastery" regardless of
-    // account mode, so a domains-mode account landed on the standalone
-    // legacy page with no Personal tab switcher, instead of the Personal
-    // section's own Self-Mastery tab. The href is now computed by the
-    // caller (app/(app)/page.tsx, from getUserDomains()'s mode) and passed
-    // straight through here.
-    it("tapping it navigates to the domains-mode Personal tab when the caller supplies that href", async () => {
-      const user = userEvent.setup();
-      render(<SessionEntryCard dueSummary={due({ hasBooks: false })} selfMasteryHref="/personal/self_mastery" />);
-
-      await user.click(screen.getByRole("button", { name: /add a book/i }));
-
-      expect(pushMock).toHaveBeenCalledWith("/personal/self_mastery");
+    it("positive control: the same component with a book DOES render its card", () => {
+      render(<SessionEntryCard dueSummary={due({ hasBooks: true, newCount: 3, estimatedMinutes: 4 })} />);
+      expect(screen.getByRole("button", { name: /ready to start/ })).toBeInTheDocument();
     });
   });
 });

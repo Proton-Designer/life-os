@@ -201,19 +201,6 @@ export default async function HomePage() {
   // never wants this card can turn it off), just not its rank among the rest.
   const sessionEntryHidden = layoutMap.get("session_entry")?.hidden ?? false;
 
-  // Via the 115 bridge — reading "personal_growth:self_mastery" directly
-  // makes Self-Mastery disappear the moment the group row is archived.
-  // SessionEntryCard's own "Add a book" banner used to hardcode "/self-mastery"
-  // regardless of account mode -- correct for a legacy account (there is no
-  // Personal tab to land it in), but for a domains-mode account it skipped
-  // the four-tab shell entirely and landed on the standalone legacy page,
-  // missing the Faith/Fitness/Self-Mastery switcher a domains-mode user
-  // expects on every other Personal screen. Falls back to the legacy route
-  // whenever mode isn't "domains" or Self-Mastery isn't actually kept, since
-  // /personal/self_mastery would just redirect away in either case anyway
-  // (see personal/[subdomain]/layout.tsx).
-  const selfMasteryHref = domainsState.mode === "domains" && hasSelfMastery ? "/personal/self_mastery" : "/self-mastery";
-
   // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's own header for the full
   // mechanism. The due summary, the show decision and the ranking candidate input all resolved inside
   // the Promise.all above.
@@ -357,7 +344,7 @@ export default async function HomePage() {
           selfMasteryRanksFirst's own comment above and sessionEntryHidden's
           own comment on why this widget's ORDER is deliberately not
           user-configurable even though its VISIBILITY is (WIDGET-02). */}
-      {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} selfMasteryHref={selfMasteryHref} />}
+      {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
 
       <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
         {/* Only an account with a saved Deen goal needs the Quran numbers from the (streamed) snapshots; everyone else renders at once. */}
@@ -408,7 +395,7 @@ export default async function HomePage() {
         </Panel>
       </LayoutSlot>
 
-      {!sessionEntryHidden && !selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} selfMasteryHref={selfMasteryHref} />}
+      {!sessionEntryHidden && !selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
 
       <LayoutSlot layout={layoutMap} widgetKey="day_shape">
         <Panel title="The day's shape">
