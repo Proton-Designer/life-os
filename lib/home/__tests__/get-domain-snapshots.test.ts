@@ -450,3 +450,38 @@ describe("getDomainSnapshots -- Deen Mode OFF", () => {
     expect(getDomainPulse).toHaveBeenCalledWith("user-1", expect.any(String), true);
   });
 });
+
+// SECTOR-01: Home passes the snapshots it will actually render; an absent area's reads are skipped.
+describe("getDomainSnapshots -- wanted (SECTOR-01)", () => {
+  const spies = () => ({
+    getKillListItems: vi.fn(async () => []),
+    getWeeklySnRatio: vi.fn(async () => ({ signalMinutes: 0, noiseMinutes: 0, otherCommitmentsMinutes: 0, wastedMinutes: 0, display: "x" })),
+    getActiveWorkSession: vi.fn(async () => null),
+    getDomainWeights: vi.fn(async () => null),
+    getWorkoutSchedule: vi.fn(async () => null),
+    getWorkoutSessionsThisWeek: vi.fn(async () => []),
+    getFitnessHabits: vi.fn(async () => []),
+    getFitnessHabitLogs: vi.fn(async () => []),
+    getSchoolTasksThisWeek: vi.fn(async () => []),
+    getCurrentCoopTargetTasks: vi.fn(async () => []),
+    getPrayers: vi.fn(async () => []),
+  });
+  const NOW = new Date("2026-10-05T17:00:00Z");
+
+  it("only fitness wanted: fitness reads run, every other area's reads do not", async () => {
+    const sp = spies();
+    await getDomainSnapshots("u", NOW, baseDataSource(sp), { deen: false, business: false, fitness: true, school: false, co_op: false });
+    expect(sp.getWorkoutSchedule).toHaveBeenCalled();
+    expect(sp.getFitnessHabits).toHaveBeenCalled();
+    for (const k of ["getKillListItems", "getWeeklySnRatio", "getActiveWorkSession", "getDomainWeights", "getSchoolTasksThisWeek", "getCurrentCoopTargetTasks", "getPrayers"] as const) {
+      expect(sp[k], k).not.toHaveBeenCalled();
+    }
+  });
+
+  it("default (no wanted argument) reads everything, as before -- positive control", async () => {
+    const sp = spies();
+    await getDomainSnapshots("u", NOW, baseDataSource(sp));
+    for (const k of Object.keys(sp) as (keyof typeof sp)[]) expect(sp[k], k).toHaveBeenCalled();
+  });
+});
+

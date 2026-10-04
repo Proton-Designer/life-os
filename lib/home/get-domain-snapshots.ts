@@ -358,10 +358,15 @@ function nextDueTaskTitle(tasks: { title: string; due_time: string | null }[]): 
   return sorted[0].title;
 }
 
+const ALL_WANTED: Record<keyof DomainSnapshots, boolean> = { deen: true, business: true, fitness: true, school: true, co_op: true };
+const NO_SN_RATIO: SignalNoiseResult = { signalMinutes: 0, noiseMinutes: 0, otherCommitmentsMinutes: 0, wastedMinutes: 0, display: "" };
+
 export async function getDomainSnapshots(
   userId: string,
   now: Date,
-  dataSource: DomainSnapshotDataSource = defaultDataSource()
+  dataSource: DomainSnapshotDataSource = defaultDataSource(),
+  /** SECTOR-01: which snapshots Home will actually render. A false entry SKIPS that area's reads (the snapshot comes back neutral/empty, never shown). Default = all, so every other caller is unchanged. */
+  wanted: Record<keyof DomainSnapshots, boolean> = ALL_WANTED
 ): Promise<DomainSnapshots> {
   const profile = await dataSource.getProfile(userId);
   const timezone = profile?.timezone ?? "UTC";
@@ -388,7 +393,7 @@ export async function getDomainSnapshots(
   // (R7's account wipe, migration 051).
   // Deen Mode OFF: every deen read below is skipped (not fetched-then-hidden)
   // and the deen snapshot comes back neutral/empty. Nothing is deleted (R4).
-  const deenOn = isDeenModeOn(profile);
+  const deenOn = isDeenModeOn(profile) && wanted.deen;
   const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
   const qadaFloorDateStr = qadaWindowStart(dateStr);
   const twoDaysAgoStr = addDaysToDateString(dateStr, -2);
@@ -420,17 +425,17 @@ export async function getDomainSnapshots(
     deenOn ? dataSource.getQuranSessions(userId, weekStart) : Promise.resolve([] as Awaited<ReturnType<DomainSnapshotDataSource["getQuranSessions"]>>),
     deenOn ? dataSource.getQuranWeeklyTarget(userId, weekStart) : Promise.resolve(null),
     deenOn ? dataSource.getWeeklyFocusHabit(userId, weekStart) : Promise.resolve(null),
-    dataSource.getActiveWorkSession(userId),
-    dataSource.getKillListItems(userId, dateStr),
-    dataSource.getWeeklySnRatio(userId, weekStart, timezone),
-    dataSource.getWorkoutSchedule(userId, dayOfWeek),
-    dataSource.getWorkoutSessionsThisWeek(userId, weekStart),
-    dataSource.getFitnessHabits(userId),
-    dataSource.getFitnessHabitLogs(userId, weekStart),
-    dataSource.getSchoolTasksThisWeek(userId, weekStart),
-    dataSource.getCurrentCoopTargetTasks(userId),
+    wanted.business ? dataSource.getActiveWorkSession(userId) : Promise.resolve(null),
+    wanted.business ? dataSource.getKillListItems(userId, dateStr) : Promise.resolve([] as { completed: boolean }[]),
+    wanted.business ? dataSource.getWeeklySnRatio(userId, weekStart, timezone) : Promise.resolve(NO_SN_RATIO),
+    wanted.fitness ? dataSource.getWorkoutSchedule(userId, dayOfWeek) : Promise.resolve(null),
+    wanted.fitness ? dataSource.getWorkoutSessionsThisWeek(userId, weekStart) : Promise.resolve([] as { workout_id: string | null; date: string }[]),
+    wanted.fitness ? dataSource.getFitnessHabits(userId) : Promise.resolve([] as { id: string; createdAt: string }[]),
+    wanted.fitness ? dataSource.getFitnessHabitLogs(userId, weekStart) : Promise.resolve([] as { habitId: string; date: string; completed: boolean }[]),
+    wanted.school ? dataSource.getSchoolTasksThisWeek(userId, weekStart) : Promise.resolve([] as Awaited<ReturnType<DomainSnapshotDataSource["getSchoolTasksThisWeek"]>>),
+    wanted.co_op ? dataSource.getCurrentCoopTargetTasks(userId) : Promise.resolve([] as Awaited<ReturnType<DomainSnapshotDataSource["getCurrentCoopTargetTasks"]>>),
     dataSource.getDomainPulse(userId, dateStr, deenOn),
-    dataSource.getDomainWeights(userId),
+    wanted.business ? dataSource.getDomainWeights(userId) : Promise.resolve(null),
   ]);
 
   // Deen — windowed, not instants. "Next prayer" is the first one that's

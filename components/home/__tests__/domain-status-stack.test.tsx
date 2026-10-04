@@ -156,4 +156,37 @@ describe("DomainStatusStack", () => {
       expect(screen.getByRole("link", { name: /Work/ })).toBeInTheDocument();
     });
   });
+
+  // SECTOR-01: rows come from the account's own setup.
+  describe("rows (the account's own areas)", () => {
+    it("renders one card per row, with the row's own label and link (renamed Business tab)", () => {
+      render(
+        <DomainStatusStack
+          snapshots={SNAPSHOTS}
+          rows={[
+            { id: "work:business", snapshot: "business", label: "Acme Startup", href: "/work/business" },
+            { id: "work:co-op", snapshot: "co_op", label: "Co-op", href: "/work/co-op" },
+          ]}
+        />
+      );
+      expect(screen.getByRole("link", { name: /Acme Startup/ })).toHaveAttribute("href", "/work/business");
+      expect(screen.getByText("Kill list 1/3")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Co-op/ })).toHaveAttribute("href", "/work/co-op");
+      expect(screen.queryByText(/Deen|Fitness|School/)).not.toBeInTheDocument();
+    });
+
+    it("one area: a single card, no placeholders", () => {
+      render(<DomainStatusStack snapshots={SNAPSHOTS} rows={[{ id: "fitness", snapshot: "fitness", label: "Fitness", href: "/fitness" }]} />);
+      expect(screen.getAllByRole("link")).toHaveLength(1);
+    });
+
+    it("zero areas: a prompt linking to where areas are chosen (positive control: the old default list renders 5 cards for no rows prop)", () => {
+      const { unmount } = render(<DomainStatusStack snapshots={SNAPSHOTS} title="Sector progress" rows={[]} />);
+      expect(screen.getByTestId("sector-progress-empty")).toHaveAttribute("href", "/onboarding");
+      expect(screen.getAllByRole("link")).toHaveLength(1);
+      unmount();
+      render(<DomainStatusStack snapshots={SNAPSHOTS} />);
+      expect(screen.getAllByRole("link")).toHaveLength(5);
+    });
+  });
 });

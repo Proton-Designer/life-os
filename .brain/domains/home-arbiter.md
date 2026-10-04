@@ -49,7 +49,7 @@ Home is the single daily entry point, deliberately not a dashboard: what to do r
 | Comparator | `lib/home/arbiter.ts` | `rankCandidates` (170-207), `pickPrimaryAndAlternates` (216-225) |
 | Candidate mapping | `lib/home/build-candidates.ts` | PriorityItem→Candidate; Self-Mastery due-session→Candidate |
 | Weight lookup | `lib/home/resolve-area-weights.ts` | Returns `{}` unconditionally for legacy mode |
-| Data assembly | `lib/home/{get-priority-items,get-domain-snapshots,get-domain-pulse,get-home-extras,get-day-shape,day-ribbon,home-kpis,get-weekly-completion,compute-domain-visibility}.ts` | |
+| Data assembly | `lib/home/{get-priority-items,get-domain-snapshots,get-domain-pulse,get-home-extras,get-day-shape,day-ribbon,home-kpis,get-weekly-completion,compute-domain-visibility,sector-rows}.ts` (Home "Sector progress" rows + which snapshot queries run come from `sector-rows.ts`: one row per Work tab, only areas the account set up — SECTOR-01) | |
 | Entrypoint | `app/(app)/page.tsx` | Composition root |
 
 ## How it works

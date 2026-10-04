@@ -5,6 +5,7 @@ import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { cn } from "@/lib/utils";
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
+import type { SectorRow } from "@/lib/home/sector-rows";
 
 const DOMAIN_LABEL: Record<keyof DomainSnapshots, string> = {
   deen: "Deen",
@@ -84,6 +85,7 @@ export function DomainStatusStack({
   snapshots,
   title,
   visibleDomains = ALL_DOMAINS,
+  rows,
 }: {
   snapshots: DomainSnapshots;
   title?: string;
@@ -95,9 +97,26 @@ export function DomainStatusStack({
    * not the top-level domain itself — someone who kept Personal Growth but
    * dropped Fitness should not see a Fitness sector). */
   visibleDomains?: (keyof DomainSnapshots)[];
+  /** SECTOR-01: the account's own rows (lib/home/sector-rows.ts: one per Work tab, with its label). When given it wins over `visibleDomains`; an empty list shows a "set up your areas" prompt instead of nothing. */
+  rows?: SectorRow[];
 }) {
-  const domains = visibleDomains;
-  if (domains.length === 0) return null;
+  const list: SectorRow[] =
+    rows ?? visibleDomains.map((d) => ({ id: d, snapshot: d, label: DOMAIN_LABEL[d], href: DOMAIN_HREF[d] }));
+  if (list.length === 0) {
+    if (!rows) return null;
+    return (
+      <div className="flex flex-col gap-2">
+        {title && <p className="text-sm font-medium">{title}</p>}
+        <Link
+          href="/onboarding"
+          data-testid="sector-progress-empty"
+          className="rounded-2xl border border-dashed border-border/60 bg-card p-3 text-sm text-muted-foreground transition-colors hover:bg-foreground/[0.03]"
+        >
+          No areas set up yet. <span className="font-medium text-foreground">Choose the areas you want to track</span> and their progress shows up here.
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -105,23 +124,24 @@ export function DomainStatusStack({
       <div
         className={cn(
           "flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 md:grid md:overflow-visible",
-          GRID_COLS_CLASS[domains.length] ?? GRID_COLS_CLASS[5]
+          GRID_COLS_CLASS[list.length] ?? GRID_COLS_CLASS[5]
         )}
       >
-        {domains.map((domain) => {
+        {list.map((row) => {
+          const domain = row.snapshot;
           const accent = DOMAIN_ACCENT[domain === "co_op" ? "co_op" : domain];
           const pulse =
             domain === "deen" && deenDayOpenWithNothingLogged(snapshots.deen) ? null : snapshots[domain].pulse;
           return (
             <Link
-              key={domain}
-              href={DOMAIN_HREF[domain]}
+              key={row.id}
+              href={row.href}
               className="flex w-[46vw] shrink-0 snap-start items-center justify-between gap-2 rounded-2xl border border-border/40 bg-card p-3 text-left transition-colors hover:bg-foreground/[0.03] md:w-auto"
             >
               <div className="flex min-w-0 items-center gap-2.5">
                 <IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{DOMAIN_LABEL[domain]}</p>
+                  <p className="truncate text-sm font-medium">{row.label}</p>
                   <p className="truncate text-xs text-muted-foreground">{metricFor(domain, snapshots)}</p>
                 </div>
               </div>

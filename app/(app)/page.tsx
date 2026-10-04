@@ -31,7 +31,7 @@ import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
-import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
+import { buildSectorRows, wantedSnapshots } from "@/lib/home/sector-rows";
 import { shouldShowSessionEntry } from "@/lib/home/session-entry-visibility";
 import { resolveAreaWeights } from "@/lib/home/resolve-area-weights";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
@@ -74,6 +74,8 @@ export default async function HomePage() {
   // becomes possible. cache()-wrapped, so this costs nothing extra where
   // getUserDomains() is called again below for hasSelfMastery/visibility.
   const domainsState = await getUserDomains();
+  const sectorRows = buildSectorRows(domainsState, deenMode);
+  const wantedSectors = wantedSnapshots(sectorRows);
 
   const [
     items,
@@ -94,7 +96,8 @@ export default async function HomePage() {
   ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
-      getDomainSnapshots(userId, now),
+      // SECTOR-01: only the areas this account has set up are read (and shown).
+      getDomainSnapshots(userId, now, undefined, wantedSectors),
       getHomeExtras(userId, now, profile),
       getDayShape(userId, now),
       supabase
@@ -168,26 +171,12 @@ export default async function HomePage() {
   // gates correctly, but Home's own content did not — Sector progress and
   // This Week's Focus previously rendered all 5 legacy domains
   // unconditionally, advertising domains a user explicitly declined during
-  // onboarding. See compute-domain-visibility.ts for the M6-guarantee
-  // reasoning (a legacy account sees every flag true) — extracted to a
-  // pure function specifically so that guarantee is unit-tested directly,
-  // not just implied by this page rendering correctly in practice.
-  const { hasFaith, hasFitness, hasWork, hasSchoolDomain } = computeDomainVisibility(domainsState, deenMode);
-
-  // Canonical order preserved (deen, business, fitness, school, co_op) —
-  // for a legacy account every flag above is true, so this filter is a
-  // structural no-op and the array comes out byte-identical to the
-  // hardcoded list DomainStatusStack used to own itself.
-  const domainVisibility: Record<keyof typeof snapshots, boolean> = {
-    deen: hasFaith,
-    business: hasWork,
-    fitness: hasFitness,
-    school: hasSchoolDomain,
-    co_op: hasWork,
-  };
-  const visibleSectorDomains = (["deen", "business", "fitness", "school", "co_op"] as const).filter(
-    (key) => domainVisibility[key]
-  );
+  // onboarding. SECTOR-01: lib/home/sector-rows.ts is now the one source for
+  // both the rows and the queries that feed them (a legacy account keeps all
+  // five rows, unit-tested directly there); the Weekly goals header reads the
+  // same answer so the two can never disagree.
+  const hasFaith = wantedSectors.deen;
+  const hasBusinessSector = wantedSectors.business;
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
@@ -307,12 +296,12 @@ export default async function HomePage() {
           onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
           showPlanningNudge={showPlanningNudge}
           showDeen={hasFaith}
-          showBusiness={hasWork}
+          showBusiness={hasBusinessSector}
         />
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="domain_status">
-        <DomainStatusStack snapshots={snapshots} title="Sector progress" visibleDomains={visibleSectorDomains} />
+        <DomainStatusStack snapshots={snapshots} title="Sector progress" rows={sectorRows} />
       </LayoutSlot>
 
       {/* WIDGET-02: now/focus are independently reorderable/hideable
