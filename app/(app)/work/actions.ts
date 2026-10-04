@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidateWorkScreens } from "@/lib/work/revalidate-screens";
 import {
   addScheduleEventCore,
   updateScheduleEventCore,
@@ -20,7 +20,7 @@ import { requireUser } from "@/lib/supabase/auth";
 export async function addWorkHours(dayOfWeek: number, eventTime: string, endTime?: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await addScheduleEventCore(supabase, userId, "co_op", "Work", { isRecurring: true, dayOfWeek, eventTime, endTime });
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 export async function updateWorkHours(
@@ -29,20 +29,20 @@ export async function updateWorkHours(
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   await updateScheduleEventCore(supabase, userId, id, options);
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 export async function removeWorkHours(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await removeScheduleEventCore(supabase, userId, id);
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 /** A one-off extra shift for a single date — already representable as a non-recurring schedule_events row, no new schema needed. */
 export async function addOneOffWorkShift(eventDate: string, eventTime: string, endTime?: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await addScheduleEventCore(supabase, userId, "co_op", "Work", { isRecurring: false, eventDate, eventTime, endTime });
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 export async function setWorkHoursOverride(
@@ -53,23 +53,23 @@ export async function setWorkHoursOverride(
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
   await setScheduleEventOverrideCore(supabase, userId, eventId, date, eventTime, endTime);
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 export async function removeWorkHoursOverride(eventId: string, date: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await removeScheduleEventOverrideCore(supabase, userId, eventId, date);
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 export async function cancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await cancelScheduleOccurrenceCore(supabase, userId, eventId, date);
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }
 
 export async function uncancelScheduleOccurrence(eventId: string, date: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await uncancelScheduleOccurrenceCore(supabase, userId, eventId, date);
-  revalidatePath("/work");
+  revalidateWorkScreens();
 }

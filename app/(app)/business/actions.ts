@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import {
@@ -30,7 +31,7 @@ import { localDateString } from "@/lib/date-utils";
 export async function setKillListItem(date: string, position: 0 | 1 | 2, text: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await setKillListItemCore(supabase, userId, date, position, text);
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
 }
 
@@ -38,7 +39,7 @@ export async function setKillListItem(date: string, position: 0 | 1 | 2, text: s
 export async function toggleKillListItem(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await toggleKillListItemCore(supabase, userId, id);
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
 }
 
@@ -54,7 +55,7 @@ export async function setKillListItemCompleted(id: string, completed: boolean): 
 /** Data-free cache revalidation for the surfaces a kill-list tap feeds (Business + Home). */
 export async function refreshBusinessViews(): Promise<void> {
   await requireUser();
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
   // A session objective can be a School task, so its surfaces refresh too.
   revalidatePath("/school");
@@ -78,7 +79,7 @@ export async function refreshBusinessViews(): Promise<void> {
 export async function saveBusinessWeeklyGoal(weekStartDate: string, headline: string, milestones: string[]): Promise<void> {
   const { supabase, userId } = await requireUser();
   await saveBusinessWeeklyGoalCore(supabase, userId, weekStartDate, headline, milestones);
-  revalidatePath("/business");
+  revalidateBusinessScreens();
 }
 
 /**
@@ -95,7 +96,7 @@ export async function saveBusinessWeeklyGoal(weekStartDate: string, headline: st
 export async function startWorkSession(input: StartWorkSessionInput): Promise<StartWorkSessionResult> {
   const { supabase, userId } = await requireUser();
   const result = await startWorkSessionCore(supabase, userId, input);
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
   return result;
 }
@@ -110,7 +111,7 @@ export async function startWorkSession(input: StartWorkSessionInput): Promise<St
 export async function endWorkSession(sessionId: string, endedAtIso?: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await endWorkSessionCore(supabase, userId, sessionId, endedAtIso);
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
 }
 
@@ -118,7 +119,7 @@ export async function endWorkSession(sessionId: string, endedAtIso?: string): Pr
 export async function toggleSessionObjective(objectiveId: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await toggleSessionObjectiveCore(supabase, userId, objectiveId);
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
   revalidatePath("/school");
 }

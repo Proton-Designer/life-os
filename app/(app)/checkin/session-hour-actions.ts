@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 
@@ -49,6 +50,6 @@ export async function setSessionHourStatus(
   });
   if (error) throw error;
 
-  revalidatePath("/business");
+  revalidateBusinessScreens();
   revalidatePath("/");
 }

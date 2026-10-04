@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateWorkScreens } from "@/lib/work/revalidate-screens";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import type { CoopTaskStatus } from "@/lib/coop/tasks";
@@ -14,7 +15,7 @@ import {
 } from "@/lib/coop/tasks-core";
 
 function revalidateCoop(): void {
-  revalidatePath("/work");
+  revalidateWorkScreens();
   revalidatePath("/");
 }
 

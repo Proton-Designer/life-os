@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateWorkScreens } from "@/lib/work/revalidate-screens";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import {
@@ -11,7 +12,7 @@ import {
 } from "@/lib/coop/targets-core";
 
 function revalidateCoop(): void {
-  revalidatePath("/work");
+  revalidateWorkScreens();
   revalidatePath("/");
 }
 

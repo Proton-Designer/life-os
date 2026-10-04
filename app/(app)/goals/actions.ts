@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import {
@@ -60,7 +61,7 @@ function revalidateGoalSurfaces() {
   // Business's completed-goals archive (#53) reads goals where
   // domain='business' — a goal created/completed/dropped here can change
   // what that archive shows.
-  revalidatePath("/business");
+  revalidateBusinessScreens();
 }
 
 export type CreateGoalActionInput = {

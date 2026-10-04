@@ -228,20 +228,25 @@ export async function saveWorkTabs(tabs: WorkTabEdit[]): Promise<void> {
 
   const now = new Date().toISOString();
   let nextPosition = 0;
-  const updated: SubdomainRow[] = tabs.map((t) => {
+  // Only the columns this editor owns (plus the identity columns the insert half of an upsert
+  // needs). widgets/config/kind are deliberately NOT sent: on conflict Postgres updates only the
+  // supplied columns, so a stale read can't overwrite a concurrent change to them (review F3).
+  const updated = tabs.map((t) => {
     const row = byKey.get(t.key)!;
     const archived = t.archived === true;
     return {
-      ...row,
+      id: row.id,
+      user_id: row.user_id,
+      domain_id: row.domain_id,
+      key: row.key,
       label: t.label.trim(),
       position: archived ? row.position : nextPosition++,
       archived_at: archived ? now : null,
+      updated_at: now,
     };
   });
 
-  const { error: upsertError } = await supabase
-    .from("user_subdomains")
-    .upsert(updated.map((r) => ({ ...r, updated_at: now })), { onConflict: "id" });
+  const { error: upsertError } = await supabase.from("user_subdomains").upsert(updated, { onConflict: "id" });
   if (upsertError) throw upsertError;
 }
 

@@ -81,6 +81,21 @@ describe("saveWorkTabs", () => {
     expect(upsertMock.mock.calls[0]?.[1]).toEqual({ onConflict: "id" });
   });
 
+  it("never sends widgets/config/kind (a stale read must not overwrite them) -- positive control: ensureBusinessWorkTab's new row does carry them", async () => {
+    const { saveWorkTabs, ensureBusinessWorkTab } = await import("../subdomain-actions");
+    await saveWorkTabs([{ key: "co-op", label: "Co-op" }, { key: "side", label: "Side" }]);
+    for (const r of written()) {
+      expect(r).not.toHaveProperty("widgets");
+      expect(r).not.toHaveProperty("config");
+      expect(r).not.toHaveProperty("kind");
+      expect(Object.keys(r).sort()).toEqual(["archived_at", "domain_id", "id", "key", "label", "position", "updated_at", "user_id"]);
+    }
+    upsertMock.mockClear();
+    rows = [row({ id: "a", key: "co-op" })];
+    await ensureBusinessWorkTab();
+    expect(written()[0]).toHaveProperty("widgets");
+  });
+
   it("archives (never deletes) a tab and renumbers the rest", async () => {
     const { saveWorkTabs } = await import("../subdomain-actions");
     await saveWorkTabs([
