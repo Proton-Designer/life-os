@@ -29,7 +29,9 @@ test("connect link flow works and does not overflow under the domains-mode shell
   await checkReliably(connectors.getByRole("checkbox", { name: /Write/ }));
   await connectors.getByRole("button", { name: "Generate connect link" }).click();
 
-  await expect(connectors.getByText(/\/connect\//)).toBeVisible();
+  // Scoped to the <code> element: the "Suggested message" paragraph right below also embeds the connect URL
+  // (connector-settings.tsx, ec9a993), so a bare text match is a strict-mode violation (E2E-01; same fix as the legacy spec).
+  await expect(connectors.locator("code", { hasText: "/connect/" })).toBeVisible();
   await expect(connectors.getByText(/single use, expires in 10 minutes/i)).toBeVisible();
 
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({

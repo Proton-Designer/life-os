@@ -6,8 +6,8 @@ import { SETTINGS_SECTIONS } from "../sections";
 const page = readFileSync(join(__dirname, "../../../app/(app)/settings/page.tsx"), "utf8");
 const streamed = readFileSync(join(__dirname, "../../../components/settings/streamed-panels.tsx"), "utf8");
 // NAV-01b: the integration panels moved into <StreamedIntegrationPanels />, whose Suspense fallbacks
-// declare the section ids in render order. Expand the marker so the order check still sees them.
-const streamedIds = [...streamed.slice(streamed.indexOf("export function StreamedIntegrationPanels")).matchAll(/<PanelFallback id="([\w-]+)"/g)].map((m) => m[1]);
+// carry the section ids (on wrapper divs outside the Suspense) in render order. Expand the marker so the order check still sees them.
+const streamedIds = [...streamed.slice(streamed.indexOf("export function StreamedIntegrationPanels")).matchAll(/<div id="([\w-]+)" className="scroll-mt-24">/g)].map((m) => m[1]);
 const panelIds = (chunk: string): string[] =>
   [...chunk.matchAll(/<Panel id="([\w-]+)"|<StreamedIntegrationPanels \/>/g)].flatMap((m) => (m[1] ? [m[1]] : streamedIds));
 
@@ -29,6 +29,17 @@ describe("Settings page order matches the left tab list", () => {
   it("the streamed integration panels are expanded in the check (positive control: they are real section ids)", () => {
     expect(streamedIds).toEqual(["ai", "canvas", "rescuetime", "whoop", "connectors", "webhooks"]);
     expect(page).toContain("<StreamedIntegrationPanels />");
+  });
+
+  // The streamed HTML briefly holds BOTH the Suspense fallback and the hidden resolved content, so a Panel id
+  // on each would duplicate (e2e `#ai` strict-mode failure). The id lives once, on a wrapper outside it.
+  it("each streamed section id is declared exactly once, on a wrapper, never on a Panel", () => {
+    for (const id of streamedIds) {
+      expect(streamed.split(`id="${id}"`).length - 1, id).toBe(1);
+    }
+    expect(streamed).not.toMatch(/<Panel[^>]*\bid=/);
+    // positive control: the old shape (id on the fallback AND the real Panel) would have failed the count above
+    expect("<Panel id=\"ai\"/><Panel id=\"ai\"/>".split('id="ai"').length - 1).toBe(2);
   });
 
   it("the page's tab list is the shared SETTINGS_SECTIONS, not a private copy", () => {

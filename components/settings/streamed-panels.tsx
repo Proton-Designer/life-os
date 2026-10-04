@@ -24,12 +24,14 @@ import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 
 // NAV-01b: the integration panels each read their own data (the page used to await ~12 reads one
 // after another before painting anything). Each is an async Server Component inside its own
-// <Suspense>; the fallback is the SAME Panel (same id, so the section nav's #anchors work at once)
-// with a card-shaped skeleton, and all of them fetch concurrently.
+// <Suspense>; the fallback is a card-shaped skeleton, and all of them fetch concurrently. The section id
+// lives on a WRAPPER div OUTSIDE the Suspense, so the #anchor exists from the first byte AND stays unique
+// (streamed HTML briefly holds both the fallback and the hidden resolved content; an id on each would be
+// duplicated -- the e2e `#ai` strict-mode failure).
 
-function PanelFallback({ id, title, height = "h-28" }: { id: string; title: string; height?: string }) {
+function PanelFallback({ title, height = "h-28" }: { title: string; height?: string }) {
   return (
-    <Panel id={id} className="scroll-mt-24" title={title}>
+    <Panel title={title}>
       <Skeleton className={`w-full rounded-lg ${height}`} />
     </Panel>
   );
@@ -53,7 +55,7 @@ async function AiPanel() {
     };
   });
   return (
-    <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
+    <Panel title="AI features (optional)">
       <div className="flex flex-col gap-4">
         <AiPreferenceSettings catalog={catalog} initialProvider={aiPreference.provider} initialModelTier={aiPreference.modelTier} />
         <AiSpendCeilingSettings initialSpentUsd={monthlySpendStatus.spentUsd} initialCapUsd={monthlySpendStatus.capUsd} monthKey={monthlySpendStatus.monthKey} />
@@ -66,7 +68,7 @@ async function AiPanel() {
 async function CanvasPanel() {
   const [status, mappings, localClasses] = await Promise.all([getCanvasConnectionStatus(), getCanvasCourseMappings(), getLocalClassOptions()]);
   return (
-    <Panel id="canvas" className="scroll-mt-24" title="Canvas">
+    <Panel title="Canvas">
       <CanvasSettings initialStatus={status} initialMappings={mappings} localClasses={localClasses} storageConfigured={isKeyStorageConfigured()} />
     </Panel>
   );
@@ -75,7 +77,7 @@ async function CanvasPanel() {
 async function RescueTimePanel() {
   const status = await getRescueTimeConnectionStatus();
   return (
-    <Panel id="rescuetime" className="scroll-mt-24" title="RescueTime">
+    <Panel title="RescueTime">
       <RescueTimeSettings initialStatus={status} storageConfigured={isKeyStorageConfigured()} />
     </Panel>
   );
@@ -84,7 +86,7 @@ async function RescueTimePanel() {
 async function WhoopPanel() {
   const status = await getWhoopSettingsStatus();
   return (
-    <Panel id="whoop" className="scroll-mt-24" title="Whoop">
+    <Panel title="Whoop">
       <WhoopSettings initialStatus={status} />
     </Panel>
   );
@@ -93,7 +95,7 @@ async function WhoopPanel() {
 async function ConnectorsPanel() {
   const [tokens, scheduledActions] = await Promise.all([getMcpTokenStatuses(), getScheduledActions()]);
   return (
-    <Panel id="connectors" className="scroll-mt-24" title="Connectors">
+    <Panel title="Connectors">
       <ConnectorSettings initialTokens={tokens} initialScheduledActions={scheduledActions} />
     </Panel>
   );
@@ -102,7 +104,7 @@ async function ConnectorsPanel() {
 async function WebhooksPanel() {
   const webhooks = await getWebhookStatuses();
   return (
-    <Panel id="webhooks" className="scroll-mt-24" title="Webhooks">
+    <Panel title="Webhooks">
       <WebhookSettings initialWebhooks={webhooks} />
     </Panel>
   );
@@ -112,36 +114,48 @@ async function WebhooksPanel() {
 export function StreamedIntegrationPanels() {
   return (
     <>
-      <InlineErrorBoundary label="AI features">
-        <Suspense fallback={<PanelFallback id="ai" title="AI features (optional)" height="h-48" />}>
-          <AiPanel />
-        </Suspense>
-      </InlineErrorBoundary>
-      <InlineErrorBoundary label="Canvas">
-        <Suspense fallback={<PanelFallback id="canvas" title="Canvas" height="h-32" />}>
-          <CanvasPanel />
-        </Suspense>
-      </InlineErrorBoundary>
-      <InlineErrorBoundary label="RescueTime">
-        <Suspense fallback={<PanelFallback id="rescuetime" title="RescueTime" />}>
-          <RescueTimePanel />
-        </Suspense>
-      </InlineErrorBoundary>
-      <InlineErrorBoundary label="Whoop">
-        <Suspense fallback={<PanelFallback id="whoop" title="Whoop" />}>
-          <WhoopPanel />
-        </Suspense>
-      </InlineErrorBoundary>
-      <InlineErrorBoundary label="Connectors">
-        <Suspense fallback={<PanelFallback id="connectors" title="Connectors" height="h-32" />}>
-          <ConnectorsPanel />
-        </Suspense>
-      </InlineErrorBoundary>
-      <InlineErrorBoundary label="Webhooks">
-        <Suspense fallback={<PanelFallback id="webhooks" title="Webhooks" />}>
-          <WebhooksPanel />
-        </Suspense>
-      </InlineErrorBoundary>
+      <div id="ai" className="scroll-mt-24">
+        <InlineErrorBoundary label="AI features">
+          <Suspense fallback={<PanelFallback title="AI features (optional)" height="h-48" />}>
+            <AiPanel />
+          </Suspense>
+        </InlineErrorBoundary>
+      </div>
+      <div id="canvas" className="scroll-mt-24">
+        <InlineErrorBoundary label="Canvas">
+          <Suspense fallback={<PanelFallback title="Canvas" height="h-32" />}>
+            <CanvasPanel />
+          </Suspense>
+        </InlineErrorBoundary>
+      </div>
+      <div id="rescuetime" className="scroll-mt-24">
+        <InlineErrorBoundary label="RescueTime">
+          <Suspense fallback={<PanelFallback title="RescueTime" />}>
+            <RescueTimePanel />
+          </Suspense>
+        </InlineErrorBoundary>
+      </div>
+      <div id="whoop" className="scroll-mt-24">
+        <InlineErrorBoundary label="Whoop">
+          <Suspense fallback={<PanelFallback title="Whoop" />}>
+            <WhoopPanel />
+          </Suspense>
+        </InlineErrorBoundary>
+      </div>
+      <div id="connectors" className="scroll-mt-24">
+        <InlineErrorBoundary label="Connectors">
+          <Suspense fallback={<PanelFallback title="Connectors" height="h-32" />}>
+            <ConnectorsPanel />
+          </Suspense>
+        </InlineErrorBoundary>
+      </div>
+      <div id="webhooks" className="scroll-mt-24">
+        <InlineErrorBoundary label="Webhooks">
+          <Suspense fallback={<PanelFallback title="Webhooks" />}>
+            <WebhooksPanel />
+          </Suspense>
+        </InlineErrorBoundary>
+      </div>
     </>
   );
 }
