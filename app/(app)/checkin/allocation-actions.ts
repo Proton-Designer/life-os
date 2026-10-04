@@ -45,8 +45,3 @@ export async function saveAllocationCheckin(
   revalidatePath("/");
 }
 
-/** Client-callable wrapper — the AppShell gate polls this rather than calling the server-only getPendingAllocationQueue directly. */
-export async function getAllocationQueueForNow(nowIso: string) {
-  const { userId } = await requireUser();
-  return getPendingAllocationQueue(userId, new Date(nowIso));
-}

@@ -142,25 +142,6 @@ describe("#52 session linkage", () => {
 
     expect(eventsChain.insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: "session-2" }));
   });
-
-  it("getSessionDistractionCountForNow scopes the count to this user and this session id", async () => {
-    const eqSpy = vi.fn();
-    const rawChain: Record<string, unknown> = {};
-    rawChain.select = vi.fn(() => rawChain);
-    rawChain.eq = vi.fn((...args: unknown[]) => {
-      eqSpy(...args);
-      return rawChain;
-    });
-    rawChain.then = (resolve: (v: { count: number; error: null }) => void) => resolve({ count: 4, error: null });
-    fromImpl = tableRouter({ distraction_events: rawChain as unknown as ReturnType<typeof makeChain> });
-    const { getSessionDistractionCountForNow } = await import("../actions");
-
-    const result = await getSessionDistractionCountForNow("session-1");
-
-    expect(result).toBe(4);
-    expect(eqSpy).toHaveBeenCalledWith("user_id", "user-1");
-    expect(eqSpy).toHaveBeenCalledWith("session_id", "session-1");
-  });
 });
 
 // PERF-4: the write actions are lean; one deferred, data-free refresh covers every surface they feed.

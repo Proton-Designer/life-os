@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { getAllocationQueueForNow } from "@/app/(app)/checkin/allocation-actions";
+import { shellFetch } from "@/lib/client/shell-fetch";
+import type { AllocationQueueResult } from "@/lib/checkins/get-allocation-queue";
 import type { Allocation, DomainKey } from "./allocation";
 
 const POLL_MS = 60 * 1000;
@@ -126,7 +127,14 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
   }, []);
 
   const refresh = useCallback(async () => {
-    const result = await getAllocationQueueForNow(new Date().toISOString());
+    // NAV-02: a fetch, not a Server Action, so the poll never queues the user's own writes. A failed
+    // poll keeps the last-known queue; the next tick retries.
+    let result: AllocationQueueResult;
+    try {
+      result = await shellFetch<AllocationQueueResult>("/api/shell/allocation-queue");
+    } catch {
+      return;
+    }
     setTimezone(result.timezone);
     setDeenMode(result.deenMode === true);
     const items = result.items.map((item) => ({

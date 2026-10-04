@@ -6,6 +6,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 // since batch 3 item 2 removed its hamburger drawer, no longer renders
 // SidebarNav either — kept only because CalendarDialogTrigger's subtree
 // still expects next/navigation to be mockable.
+const { getWeekCalendarFetchMock } = vi.hoisted(() => ({ getWeekCalendarFetchMock: vi.fn() }));
+// NAV-02: the shell polls are fetches (lib/client/shell-fetch.ts), not Server Actions; route them to the same fakes.
+vi.mock("@/lib/client/shell-fetch", () => ({
+  shellFetch: async (path: string) => {
+    if (path.startsWith("/api/shell/allocation-queue")) return getAllocationQueueForNowMock();
+    if (path.startsWith("/api/shell/notifications")) return getNotificationsForNowMock();
+    if (path.startsWith("/api/shell/distraction-count")) return getTodayDistractionCountForNowMock();
+    if (path.startsWith("/api/shell/week-calendar")) return getWeekCalendarFetchMock();
+    throw new Error(`unmocked shell fetch: ${path}`);
+  },
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
 }));
@@ -16,12 +28,10 @@ const { signOutMock, getNotificationsForNowMock } = vi.hoisted(() => ({
 }));
 vi.mock("@/app/(app)/actions", () => ({
   signOut: signOutMock,
-  getNotificationsForNow: (...args: unknown[]) => getNotificationsForNowMock(...args),
 }));
 
 const { getAllocationQueueForNowMock } = vi.hoisted(() => ({ getAllocationQueueForNowMock: vi.fn() }));
 vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
-  getAllocationQueueForNow: (...args: unknown[]) => getAllocationQueueForNowMock(...args),
   saveAllocationCheckin: vi.fn(),
 }));
 
@@ -33,7 +43,6 @@ vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
 // the module replaces every export, not just the one under test.
 const { getTodayDistractionCountForNowMock } = vi.hoisted(() => ({ getTodayDistractionCountForNowMock: vi.fn() }));
 vi.mock("@/app/(app)/distractions/actions", () => ({
-  getTodayDistractionCountForNow: (...args: unknown[]) => getTodayDistractionCountForNowMock(...args),
   listTriggersForDomain: vi.fn(async () => []),
   listTopTriggersForQuickLog: vi.fn(async () => []),
   logDistraction: vi.fn(async () => {}),
@@ -88,7 +97,6 @@ function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) 
           dateLabel="Fri, Aug 15"
           nowIso="2026-08-15T18:00:00.000-05:00"
           timezone="America/Chicago"
-          getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true })}
           onSaveDeen={async () => {}}
           onSaveBusiness={async () => {}}
           {...props}
@@ -103,6 +111,7 @@ describe("Topbar", () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
     getNotificationsForNowMock.mockResolvedValue([]);
     getTodayDistractionCountForNowMock.mockReset().mockResolvedValue(0);
+    getWeekCalendarFetchMock.mockReset().mockResolvedValue({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true });
   });
 
   it("does not render a page title — PageHeader owns it, to avoid rendering it twice", () => {
@@ -151,9 +160,9 @@ describe("Topbar", () => {
     // correctness — schedule/goal data can change from other screens
     // between opens), so a click after the prefetch triggers one more call,
     // not zero.
-    const getWeekCalendar = vi.fn(async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true }));
+    const getWeekCalendar = getWeekCalendarFetchMock.mockImplementation(async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true }));
     const user = userEvent.setup();
-    renderTopbar({ getWeekCalendar });
+    renderTopbar();
 
     await waitFor(() => expect(getWeekCalendar).toHaveBeenCalledTimes(1));
 

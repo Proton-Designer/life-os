@@ -10,7 +10,6 @@ import { RealtimeSyncProvider } from "@/components/realtime/realtime-sync-provid
 import { LockInOverlayProvider, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
 import { LockInOverlay } from "@/components/business/lock-in-overlay";
 import { SessionSetupDialogHost } from "@/components/business/session-setup-dialog-host";
-import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
 import { GlobalCaptureSheet } from "@/components/capture/global-capture-sheet";
@@ -35,7 +34,6 @@ export function AppShellChrome({
   timezone,
   activeWorkSession,
   killListSlots,
-  getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
   navMode,
@@ -83,7 +81,6 @@ export function AppShellChrome({
    * so the Deep Work overlay's row/column of checkable items never goes
    * stale relative to /business or Home. */
   killListSlots: [KillListSlotData, KillListSlotData, KillListSlotData];
-  getWeekCalendar: () => Promise<WeekCalendarData>;
   onSaveDeen: SaveGoalAction;
   onSaveBusiness: SaveGoalAction;
   children: React.ReactNode;
@@ -125,7 +122,6 @@ export function AppShellChrome({
               dateLabel={dateLabel}
               nowIso={nowIso}
               timezone={timezone}
-              getWeekCalendar={getWeekCalendar}
               onSaveDeen={onSaveDeen}
               onSaveBusiness={onSaveBusiness}
               deenMode={deenMode}

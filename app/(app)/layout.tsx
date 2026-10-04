@@ -5,7 +5,6 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { getActiveWorkSessionDetail } from "@/lib/business/active-session";
 import { AppShell } from "@/components/shell/app-shell";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
-import { getWeekCalendar } from "@/app/(app)/calendar/actions";
 
 // Split out from AppLayout and wrapped in its own <Suspense> (Opus Lead,
 // batch 5 follow-up): headers() forces this subtree dynamic, and per Next's
@@ -93,7 +92,7 @@ export async function AuthedShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppShell getWeekCalendar={getWeekCalendar} onSaveDeen={saveWeeklyGoal.bind(null, "deen")} onSaveBusiness={saveWeeklyGoal.bind(null, "business")}>
+    <AppShell onSaveDeen={saveWeeklyGoal.bind(null, "deen")} onSaveBusiness={saveWeeklyGoal.bind(null, "business")}>
       {children}
     </AppShell>
   );

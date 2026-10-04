@@ -31,7 +31,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Bell } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getNotificationsForNow, markNotificationReadForNow } from "@/app/(app)/actions";
+import { markNotificationReadForNow } from "@/app/(app)/actions";
+import { shellFetch } from "@/lib/client/shell-fetch";
 import { useAllocationQueue } from "@/lib/checkins/allocation-queue-context";
 import type { NotificationItem } from "@/lib/notifications/get-notifications";
 import { cn } from "@/lib/utils";
@@ -52,8 +53,12 @@ export function NotificationsBell() {
   const { queue, setOpen: setCheckinOpen } = useAllocationQueue();
 
   const refresh = useCallback(async () => {
-    const result = await getNotificationsForNow(new Date().toISOString());
-    setItems(result);
+    // NAV-02: a fetch, not a Server Action, so the poll never queues the user's own writes.
+    try {
+      setItems(await shellFetch<NotificationItem[]>("/api/shell/notifications"));
+    } catch {
+      // Best-effort: keep the last-known list; the next tick retries.
+    }
   }, []);
 
   useEffect(() => {

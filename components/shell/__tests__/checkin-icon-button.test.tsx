@@ -3,8 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const { getAllocationQueueForNowMock } = vi.hoisted(() => ({ getAllocationQueueForNowMock: vi.fn() }));
+// NAV-02: the shell polls are fetches (lib/client/shell-fetch.ts), not Server Actions; route them to the same fakes.
+vi.mock("@/lib/client/shell-fetch", () => ({
+  shellFetch: async (path: string) => {
+    if (path.startsWith("/api/shell/allocation-queue")) return getAllocationQueueForNowMock();
+    if (path.startsWith("/api/shell/notifications")) return [];
+    if (path.startsWith("/api/shell/distraction-count")) return 0;
+    throw new Error(`unmocked shell fetch: ${path}`);
+  },
+}));
+
 vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
-  getAllocationQueueForNow: (...args: unknown[]) => getAllocationQueueForNowMock(...args),
   saveAllocationCheckin: vi.fn(),
 }));
 

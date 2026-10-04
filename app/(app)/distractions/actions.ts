@@ -45,37 +45,6 @@ export async function listTopTriggersForQuickLog(): Promise<TriggerSummary[]> {
 }
 
 /**
- * Client-callable wrapper for the top bar's live badge (#50) — same idiom as
- * app/(app)/actions.ts's getNotificationsForNow: the topbar (client component)
- * polls this directly rather than being handed a count as a prop from a Server
- * Component (AGENTS.md's Server->Client boundary rule is actually about never
- * passing a FUNCTION, but a polled value sidesteps the staleness problem a
- * server-rendered prop would have too — the count would otherwise only update
- * on whatever page's own revalidatePath("/") happened to fire, not on every
- * route the topbar renders on). Reuses todayForUser/getTodayDistractionCount,
- * the exact same query Home's Focus module and the evening close already call.
- */
-export async function getTodayDistractionCountForNow(): Promise<number> {
-  const { supabase, userId } = await requireUser();
-  const date = await todayForUser(supabase, userId);
-  return getTodayDistractionCount(supabase, userId, date, await isDeenModeOnForRequest());
-}
-
-/**
- * #52's live "N this session" counter — same client-polls-a-server-action
- * idiom as `getTodayDistractionCountForNow` above and `topbar.tsx`'s own
- * `DistractionCountBadge` (60s poll), scoped to one session id instead of
- * "today." Returns 0 for an unowned/foreign session id rather than leaking
- * whether it exists — `getSessionDistractionCount` is itself scoped to
- * `user_id = userId`, so a session belonging to someone else can never
- * return a nonzero count here.
- */
-export async function getSessionDistractionCountForNow(sessionId: string): Promise<number> {
-  const { supabase, userId } = await requireUser();
-  return getSessionDistractionCount(supabase, userId, sessionId);
-}
-
-/**
  * Deen tier linkage (spec §1): a tier writes a normal reflection_entries
  * row — the exact shape logReflectionEntry (deen/actions.ts) already
  * writes — so the existing Deen Reflection module lights up with no

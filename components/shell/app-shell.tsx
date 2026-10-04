@@ -12,7 +12,6 @@ import { ThemeRootScript } from "@/components/shell/theme-root-script";
 import { sanitizeHiddenFeatures } from "@/lib/features";
 import { AppShellChrome } from "./app-shell-chrome";
 import type { LockInSessionKind } from "@/components/business/lock-in-overlay-context";
-import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { effectiveHiddenFeatures } from "@/lib/shell/effective-hidden-features";
@@ -27,12 +26,10 @@ type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?:
 
 export async function AppShell({
   children,
-  getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
 }: {
   children: React.ReactNode;
-  getWeekCalendar: () => Promise<WeekCalendarData>;
   onSaveDeen: SaveGoalAction;
   onSaveBusiness: SaveGoalAction;
 }) {
@@ -134,7 +131,6 @@ export async function AppShell({
           : null
       }
       killListSlots={killListSlots}
-      getWeekCalendar={getWeekCalendar}
       onSaveDeen={onSaveDeen}
       onSaveBusiness={onSaveBusiness}
       navMode={navMode}

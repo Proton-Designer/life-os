@@ -93,7 +93,6 @@ export type ParityDecision =
 /** Key: `<repo-relative path>#<export name>`. Keep sorted by file, then source order. */
 export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Home / root ─────────────────────────────────────────────────────────
-  "app/(app)/actions.ts#getNotificationsForNow": { read_only: true },
   "app/(app)/actions.ts#markNotificationReadForNow": { excluded: "ui_scaffold: per-day notification dismissal state; no user-authored data" },
   "app/(app)/actions.ts#signOut": { excluded: "auth: ends the browser session" },
   "app/(app)/actions.ts#refreshHome": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by Home tap controls after a burst of toggleItem calls" },
@@ -121,7 +120,6 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Calendar / check-ins ────────────────────────────────────────────────
   "app/(app)/calendar/actions.ts#getWeekCalendar": { read_only: true, note: "calendar.week view is P4-27" },
   "app/(app)/checkin/allocation-actions.ts#saveAllocationCheckin": { mcp: "checkins.allocation.save" },
-  "app/(app)/checkin/allocation-actions.ts#getAllocationQueueForNow": { read_only: true },
   "app/(app)/checkin/session-hour-actions.ts#setSessionHourStatus": { pending: "P4-09", note: "checkins.session_hour.set" },
 
   // ── Evening close / night plan ──────────────────────────────────────────
@@ -165,8 +163,6 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Distractions ────────────────────────────────────────────────────────
   "app/(app)/distractions/actions.ts#listTriggersForDomain": { read_only: true },
   "app/(app)/distractions/actions.ts#listTopTriggersForQuickLog": { read_only: true, note: "cross-domain sibling of listTriggersForDomain (P3-02 quick-log chips)" },
-  "app/(app)/distractions/actions.ts#getTodayDistractionCountForNow": { read_only: true },
-  "app/(app)/distractions/actions.ts#getSessionDistractionCountForNow": { read_only: true },
   "app/(app)/distractions/actions.ts#refreshDistractionViews": { read_only: true, note: "PERF-4: data-free cache revalidation scheduled by the capture dialog and review cards after a burst of writes" },
   "app/(app)/distractions/actions.ts#logDistraction": { mcp: "distractions.event.log" },
   "app/(app)/distractions/actions.ts#createTriggerAndLog": { mcp: "distractions.trigger.capture" },

@@ -10,8 +10,8 @@ import { Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
 import { isAfterWindDown } from "@/lib/home/rhythm-state";
-import { getTodayDistractionCountForNow } from "@/app/(app)/distractions/actions";
-import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
+import { shellFetch } from "@/lib/client/shell-fetch";
+import { fetchWeekCalendar } from "@/lib/client/fetch-week-calendar";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
 
@@ -41,7 +41,7 @@ function DistractionCountBadge() {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const next = await getTodayDistractionCountForNow();
+        const next = await shellFetch<number>("/api/shell/distraction-count");
         if (!cancelled) setCount(next);
       } catch {
         // Best-effort, same posture as NotificationsBell's own poll — a
@@ -74,7 +74,6 @@ export function Topbar({
   dateLabel,
   nowIso,
   timezone,
-  getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
   deenMode = false,
@@ -88,7 +87,6 @@ export function Topbar({
   // full navigation once 9pm/4am actually passes while the tab is open.
   nowIso: string;
   timezone: string;
-  getWeekCalendar: () => Promise<WeekCalendarData>;
   onSaveDeen: SaveGoalAction;
   onSaveBusiness: SaveGoalAction;
   /** profiles.deen_mode as a plain boolean; gates the Deen option in the distraction capture dialog. */
@@ -207,7 +205,7 @@ export function Topbar({
         <CalendarDialogTrigger
           accountKey={account.email}
           timezone={timezone}
-          getWeekCalendar={getWeekCalendar}
+          getWeekCalendar={fetchWeekCalendar}
           onSaveDeen={onSaveDeen}
           onSaveBusiness={onSaveBusiness}
         />

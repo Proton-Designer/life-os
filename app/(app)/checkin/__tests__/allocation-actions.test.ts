@@ -90,17 +90,3 @@ describe("saveAllocationCheckin", () => {
     ).rejects.toThrow("boom");
   });
 });
-
-describe("getAllocationQueueForNow", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("resolves `now` from the ISO string and delegates to getPendingAllocationQueue for the authed user", async () => {
-    const { getAllocationQueueForNow } = await import("../allocation-actions");
-    await getAllocationQueueForNow("2026-08-19T17:00:00.000Z");
-
-    expect(getPendingAllocationQueueMock).toHaveBeenCalledTimes(1);
-    const [userId, now] = getPendingAllocationQueueMock.mock.calls[0];
-    expect(userId).toBe("user-1");
-    expect((now as Date).toISOString()).toBe("2026-08-19T17:00:00.000Z");
-  });
-});

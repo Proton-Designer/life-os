@@ -15,12 +15,6 @@ import { saveDeenWeeklyGoalCore } from "@/lib/deen/actions-core";
 import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 
-/** Client-callable wrapper — NotificationsBell polls this rather than calling the server-only getNotifications directly. */
-export async function getNotificationsForNow(nowIso: string): Promise<NotificationItem[]> {
-  const { userId } = await requireUser();
-  return getNotifications(userId, new Date(nowIso));
-}
-
 /**
  * `nowIso` (not a pre-computed date string) so the user-local date is
  * derived server-side from their own profile timezone, same as

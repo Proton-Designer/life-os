@@ -2,6 +2,16 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+// NAV-02: the shell polls are fetches (lib/client/shell-fetch.ts), not Server Actions; route them to the same fakes.
+vi.mock("@/lib/client/shell-fetch", () => ({
+  shellFetch: async (path: string) => {
+    if (path.startsWith("/api/shell/allocation-queue")) return { items: [], unknownCount: 0, timezone: "UTC" };
+    if (path.startsWith("/api/shell/notifications")) return [];
+    if (path.startsWith("/api/shell/distraction-count")) return 0;
+    throw new Error(`unmocked shell fetch: ${path}`);
+  },
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ refresh: vi.fn() }),
@@ -12,7 +22,6 @@ vi.mock("next/navigation", () => ({
 // stays the "fully client-testable through RTL" half of the shell (see the
 // file's own header comment) rather than reaching for real Supabase env.
 vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
-  getAllocationQueueForNow: vi.fn(async () => ({ items: [], unknownCount: 0, timezone: "UTC" })),
   saveAllocationCheckin: vi.fn(async () => {}),
 }));
 
@@ -20,7 +29,6 @@ vi.mock("@/app/(app)/checkin/allocation-actions", () => ({
 // fully-client-testable rationale as the allocation-actions mock above.
 vi.mock("@/app/(app)/actions", () => ({
   signOut: vi.fn(),
-  getNotificationsForNow: vi.fn(async () => []),
 }));
 
 // RealtimeSyncProvider (mounted by AppShellChrome) calls createClient() and
@@ -61,7 +69,6 @@ function renderChrome(props: Partial<React.ComponentProps<typeof AppShellChrome>
         { id: null, text: "", completed: false },
         { id: null, text: "", completed: false },
       ]}
-      getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true })}
       onSaveDeen={async () => {}}
       onSaveBusiness={async () => {}}
       navMode="legacy"

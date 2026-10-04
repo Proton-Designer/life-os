@@ -7,8 +7,8 @@ import {
   listTriggersForDomain,
   listTopTriggersForQuickLog,
   logDistraction,
-  getSessionDistractionCountForNow,
 } from "@/app/(app)/distractions/actions";
+import { shellFetch } from "@/lib/client/shell-fetch";
 import { useDistractionRefresh } from "@/components/distractions/use-distraction-refresh";
 import { rankTriggersForCapture } from "@/lib/distractions/plan-rules";
 import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
@@ -60,7 +60,7 @@ function SessionDistractionCounter({ sessionId, bump }: { sessionId: string; bum
     let cancelled = false;
     const refresh = async () => {
       try {
-        const next = await getSessionDistractionCountForNow(sessionId);
+        const next = await shellFetch<number>(`/api/shell/distraction-count?sessionId=${encodeURIComponent(sessionId)}`);
         if (!cancelled) setCount(next);
       } catch {
         // Best-effort, same posture as DistractionCountBadge's own poll —
