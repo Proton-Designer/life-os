@@ -29,6 +29,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
+import { shouldSendPrayerPush } from "./gate.ts";
 
 // ---------------------------------------------------------------------------
 // Duplicated pure prayer-time calculation — see lib/prayer-times/calculate.ts
@@ -208,7 +209,7 @@ Deno.serve(async (_req) => {
   const userIds = [...new Set(subs.map((s) => s.user_id))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, timezone, location_lat, location_lng, prayer_calc_method, asr_madhab")
+    .select("user_id, timezone, location_lat, location_lng, prayer_calc_method, asr_madhab, deen_mode")
     .in("user_id", userIds);
 
   let dispatched = 0;
@@ -256,12 +257,13 @@ Deno.serve(async (_req) => {
         .insert({ user_id: profile.user_id, notif_type: notifType, notif_key: notifKey, sent_date: todayStr });
     }
 
-    // Prayer time notifications
-    if (profile.location_lat != null && profile.location_lng != null) {
+    // Prayer time notifications -- only while Deen Mode is ON (gate.ts). OFF
+    // skips the whole block; no deen data is touched either way.
+    if (shouldSendPrayerPush(profile)) {
       const times = calculatePrayerTimes({
         date: now,
-        lat: profile.location_lat,
-        lng: profile.location_lng,
+        lat: profile.location_lat as number,
+        lng: profile.location_lng as number,
         timezoneOffsetMinutes: getTimezoneOffsetMinutes(now, timezone),
         calcMethod: (profile.prayer_calc_method as CalcMethod) || "MWL",
         asrMadhab: (profile.asr_madhab as AsrMadhab) || "standard",

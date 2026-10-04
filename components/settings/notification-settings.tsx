@@ -56,7 +56,7 @@ export function NotificationSettings() {
           ? "Notifications are allowed on this device. If they've stopped arriving, re-enabling refreshes the subscription."
           : status === "denied"
             ? "Notifications are blocked for this device — allow them in your browser or OS settings first, then retry here."
-            : "Get prayer reminders and check-in prompts on this device."}
+            : "Get reminders and check-in prompts on this device."}
       </p>
       <Button type="button" onClick={handleClick} disabled={isPending} variant="outline" className="self-start">
         {isPending ? "Enabling…" : label}
