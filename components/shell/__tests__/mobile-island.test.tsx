@@ -2,8 +2,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+const prefetchMock = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
+  useRouter: () => ({ prefetch: prefetchMock }),
 }));
 
 // Real next/link never forwards `prefetch` to the DOM (destructured out,
@@ -26,6 +28,7 @@ vi.mock("next/link", async () => {
   };
 });
 
+import { resetIntentPrefetchForTests } from "../intent-link";
 import { MobileIsland } from "../mobile-island";
 
 describe("MobileIsland", () => {
@@ -97,20 +100,22 @@ describe("MobileIsland", () => {
     expect(screen.getByTestId("mobile-island-item-home").style.color).toBe("");
   });
 
-  // NAV-03: intent-only prefetch (touchstart fires before the click on a phone).
-  it("prefetches nothing up front; a touch/hover on a nav target (or a More item) prefetches it", async () => {
+  // NAV-03b: one-shot imperative intent prefetch (touchstart fires before the click on a phone).
+  it("nothing prefetches up front; hovering/touching a target (or a More item) calls router.prefetch(href, full)", async () => {
+    prefetchMock.mockClear();
+    resetIntentPrefetchForTests();
     const user = userEvent.setup();
     render(<MobileIsland />);
     for (const key of ["home", "deen", "business", "school", "fitness", "work"]) {
       expect(screen.getByTestId(`mobile-island-item-${key}`)).toHaveAttribute("data-prefetch", "false");
     }
+    expect(prefetchMock).not.toHaveBeenCalled();
     await user.hover(screen.getByTestId("mobile-island-item-school"));
-    expect(screen.getByTestId("mobile-island-item-school")).toHaveAttribute("data-prefetch", "true");
-    expect(screen.getByTestId("mobile-island-item-work")).toHaveAttribute("data-prefetch", "false");
+    expect(prefetchMock).toHaveBeenCalledWith("/school", { kind: "full" });
+    expect(prefetchMock).toHaveBeenCalledTimes(1); // neighbours untouched
     await user.click(screen.getByRole("button", { name: /more/i }));
-    expect(screen.getByRole("link", { name: /insights/i })).toHaveAttribute("data-prefetch", "false");
     await user.hover(screen.getByRole("link", { name: /insights/i }));
-    expect(screen.getByRole("link", { name: /insights/i })).toHaveAttribute("data-prefetch", "true");
+    expect(prefetchMock).toHaveBeenCalledWith("/insights", { kind: "full" });
   });
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).

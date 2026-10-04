@@ -1,8 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+const prefetchMock = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
+  useRouter: () => ({ prefetch: prefetchMock }),
 }));
 
 // Real next/link never forwards `prefetch` to the DOM (destructured out,

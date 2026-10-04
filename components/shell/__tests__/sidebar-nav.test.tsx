@@ -2,8 +2,10 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+const prefetchMock = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   usePathname: () => "/deen",
+  useRouter: () => ({ prefetch: prefetchMock }),
 }));
 
 // Real next/link never forwards `prefetch` to the DOM (destructured out,
@@ -28,6 +30,7 @@ vi.mock("next/link", async () => {
   };
 });
 
+import { resetIntentPrefetchForTests } from "../intent-link";
 import { SidebarNav } from "../sidebar-nav";
 
 describe("SidebarNav", () => {
@@ -110,22 +113,25 @@ describe("SidebarNav", () => {
     expect(await screen.findAllByText("Business")).not.toHaveLength(0);
   });
 
-  // NAV-03: prefetch on INTENT, not for every link on every render (that was ~20 `_rsc` GETs after each write).
-  it("prefetches nothing up front; a link prefetches (in full) once the user hovers, touches or focuses it", async () => {
+  // NAV-03b: intent prefetch is ONE-SHOT and imperative -- the Link itself never prefetches.
+  it("no link prefetches on its own; hover/focus calls router.prefetch(href, full) once per href", async () => {
+    prefetchMock.mockClear();
+    resetIntentPrefetchForTests();
     const user = userEvent.setup();
     render(<SidebarNav variant="expanded" />);
     const links = screen.getAllByRole("link");
     expect(links.length).toBeGreaterThan(8);
     for (const link of links) expect(link).toHaveAttribute("data-prefetch", "false");
+    expect(prefetchMock).not.toHaveBeenCalled();
 
     await user.hover(screen.getByRole("link", { name: "Insights" }));
-    expect(screen.getByRole("link", { name: "Insights" })).toHaveAttribute("data-prefetch", "true");
-    // ...and only that one (positive control: its neighbours stay un-prefetched)
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("data-prefetch", "false");
-
-    await user.tab(); // keyboard focus is intent too
-    const focused = document.activeElement as HTMLElement;
-    expect(focused.getAttribute("data-prefetch")).toBe("true");
+    expect(prefetchMock).toHaveBeenCalledTimes(1);
+    expect(prefetchMock).toHaveBeenCalledWith("/insights", { kind: "full" });
+    await user.unhover(screen.getByRole("link", { name: "Insights" }));
+    await user.hover(screen.getByRole("link", { name: "Insights" }));
+    expect(prefetchMock).toHaveBeenCalledTimes(1); // throttled: not again
+    // and the Link stays false afterwards, so a cache clear re-fires nothing
+    expect(screen.getByRole("link", { name: "Insights" })).toHaveAttribute("data-prefetch", "false");
   });
 
   // S6, 2026-09-14: legacy accounts (this nav's only audience) had no route
