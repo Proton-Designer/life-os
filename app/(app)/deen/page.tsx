@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Flame, History, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import { computePrayerWindows, type PrayerName } from "@/lib/prayer-times/windows";
 import {
@@ -67,6 +68,9 @@ export default async function DeenPage() {
   const now = new Date();
 
   const profile = await getProfile();
+  // D3: Deen Mode OFF -- a direct URL (/deen, /personal/faith) never renders
+  // Faith. Data untouched; OFF -> ON restores the page exactly.
+  if (!isDeenModeOn(profile)) redirect("/");
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const isFriday = localWeekday(now, timezone) === "Friday";

@@ -6,6 +6,7 @@ import { Home, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_VAR, type AccentToken } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
+import type { FeatureId } from "@/lib/features";
 import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; accent: AccentToken }[] = [
@@ -23,7 +24,7 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function TopNav() {
+export function TopNav({ hiddenFeatures = [] }: { hiddenFeatures?: FeatureId[] }) {
   const pathname = usePathname();
   const settingsActive = isActive(pathname, "/settings");
 
@@ -36,7 +37,7 @@ export function TopNav() {
         Life OS
       </Link>
       <div className="flex items-center gap-1">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter((item) => item.href === "/" || !hiddenFeatures.includes(item.href.slice(1) as FeatureId)).map((item) => {
           const active = isActive(pathname, item.href);
           const colorVar = ACCENT_VAR[item.accent];
           return (

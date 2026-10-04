@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import DeenPage from "@/app/(app)/deen/page";
 import FitnessPage from "@/app/(app)/fitness/page";
+import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
 import { SelfMasteryLibrary } from "@/components/self-mastery/self-mastery-library";
 
 // Composes the EXISTING Deen/Fitness routes rather than duplicating their
@@ -14,6 +15,9 @@ export default async function PersonalSubdomainPage({ params }: { params: Promis
 
   switch (subdomain) {
     case "faith":
+      // Defence in depth: the layout already redirects an OFF account away
+      // (nav-domain-state drops faith), and DeenPage redirects too.
+      if (!(await isDeenModeOnForRequest())) notFound();
       return <DeenPage />;
     case "fitness":
       return <FitnessPage />;

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Moon, BookOpen, Dumbbell } from "lucide-react";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { computeNavDomainState } from "@/lib/shell/nav-domain-state";
+import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
 import { SubdomainTabs, type SubdomainTabItem } from "@/components/shell/subdomain-tabs";
 import type { AccentToken } from "@/lib/accent-tokens";
 
@@ -24,10 +25,11 @@ export default async function PersonalSubdomainLayout({
 }) {
   const { subdomain } = await params;
   const userDomains = await getUserDomains();
+  const deenMode = await isDeenModeOnForRequest();
 
   const kept =
     userDomains.mode === "domains"
-      ? computeNavDomainState(userDomains.domains, userDomains.subdomains).personalSubdomains
+      ? computeNavDomainState(userDomains.domains, userDomains.subdomains, deenMode).personalSubdomains
       : [];
 
   if (kept.length === 0) {

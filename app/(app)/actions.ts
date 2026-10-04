@@ -11,6 +11,8 @@ import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { saveBusinessWeeklyGoalCore } from "@/lib/business/actions-core";
 import { saveDeenWeeklyGoalCore } from "@/lib/deen/actions-core";
+import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 
 /** Client-callable wrapper — NotificationsBell polls this rather than calling the server-only getNotifications directly. */
 export async function getNotificationsForNow(nowIso: string): Promise<NotificationItem[]> {
@@ -61,6 +63,9 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
 
   switch (item.actionType) {
     case "toggle_prayer": {
+      // Deen Mode OFF: refuse (no-op) -- the row should not exist, but a Server
+      // Action is a public endpoint. Data untouched.
+      if (!(await isDeenModeOnForRequest())) return;
       // Home's one-tap checkbox always means "mark on time" — Deen's own page
       // offers the full on_time/qada/missed choice via the same markPrayer action.
       await markPrayer(
@@ -102,6 +107,7 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
       break;
     }
     case "toggle_adhkar": {
+      if (!(await isDeenModeOnForRequest())) return;
       const { error } = await supabase.from("adhkar_logs").upsert(
         {
           user_id: user.id,
@@ -153,6 +159,7 @@ export async function saveWeeklyGoal(
   const { supabase, userId } = await requireUser();
 
   const profile = await getProfile();
+  if (domain === "deen" && !isDeenModeOn(profile)) return;
   const timezone = profile?.timezone ?? "UTC";
   const currentWeekStart = getWeekStartDate(localDateString(now, timezone));
   const previousWeekStart = addDaysToDateString(currentWeekStart, -7);

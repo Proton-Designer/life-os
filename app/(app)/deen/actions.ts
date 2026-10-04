@@ -1,6 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/supabase/auth";
+import { isDeenModeOnForRequest, DEEN_MODE_OFF_MESSAGE } from "@/lib/deen/deen-mode-guard";
 import { localDateString } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
 import type { PrayerName } from "@/lib/prayer-times/windows";
@@ -55,6 +56,7 @@ export async function markPrayer(
   status: "on_time" | "qada" | "missed"
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   await markPrayerCore(supabase, userId, timezone, new Date(), date, prayerName, status);
   revalidatePath("/deen");
@@ -79,6 +81,7 @@ export async function unmarkPrayer(
   prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const { error } = await supabase
     .from("prayers")
     .delete()
@@ -93,6 +96,7 @@ export async function unmarkPrayer(
 /** THIN WRAPPER over toggleAdhkarCore (lib/deen/actions-core.ts, L6/R5) — same core the MCP write tool calls. */
 export async function toggleAdhkar(date: string, period: "morning" | "evening"): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await toggleAdhkarCore(supabase, userId, date, period);
   revalidatePath("/deen");
   revalidatePath("/");
@@ -105,6 +109,7 @@ export async function logQuranSession(
   juz?: number
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   const date = localDateString(new Date(), timezone);
   await quranSessionLogCore(supabase, userId, timezone, new Date(), date, pages, surah, juz);
@@ -114,6 +119,7 @@ export async function logQuranSession(
 /** THIN WRAPPER over adjustQadaBacklogCore (P4-06) — the MCP write tool calls the same core. */
 export async function adjustQadaBacklog(delta: number): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await adjustQadaBacklogCore(supabase, userId, delta);
   revalidatePath("/deen");
 }
@@ -121,6 +127,7 @@ export async function adjustQadaBacklog(delta: number): Promise<void> {
 /** THIN WRAPPER over setTravelingModeCore (P4-06) — the MCP write tool calls the same core. */
 export async function setTravelingMode(enabled: boolean): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await setTravelingModeCore(supabase, userId, enabled);
   revalidatePath("/deen");
 }
@@ -133,6 +140,7 @@ export async function setTravelingMode(enabled: boolean): Promise<void> {
  */
 export async function logReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   const date = localDateString(new Date(), timezone);
   await reflectionEntryLogCore(supabase, userId, timezone, new Date(), date, tier);
@@ -147,6 +155,7 @@ export async function logReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
  */
 export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const date = await todayForUser(supabase, userId);
 
   const { data: mostRecent } = await supabase
@@ -173,6 +182,7 @@ export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
 /** THIN WRAPPER over createDeenHabitCore (P4-06) — the MCP write tool calls the same core. */
 export async function createDeenHabit(name: string, anchorCue?: string): Promise<{ id: string }> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) throw new Error(DEEN_MODE_OFF_MESSAGE);
   const timezone = await fetchTimezone(supabase, userId);
   const result = await createDeenHabitCore(supabase, userId, timezone, new Date(), name, anchorCue);
   revalidatePath("/deen");
@@ -182,6 +192,7 @@ export async function createDeenHabit(name: string, anchorCue?: string): Promise
 /** THIN WRAPPER over toggleDeenHabitLogCore (P4-06) — the MCP write tool calls the same core. */
 export async function toggleDeenHabitLog(habitId: string, date: string): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await toggleDeenHabitLogCore(supabase, userId, habitId, date);
   revalidatePath("/deen");
   revalidatePath("/");
@@ -204,6 +215,7 @@ export async function toggleSunnah(
   slot: SunnahSlot
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   await toggleSunnahCore(supabase, userId, timezone, new Date(), date, prayerName, slot);
   revalidatePath("/deen");
@@ -218,6 +230,7 @@ export async function toggleSunnah(
 /** THIN WRAPPER over setWeeklyFocusCore (P4-06) — the MCP write tool calls the same core. */
 export async function setWeeklyFocus(habitId: string): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   await setWeeklyFocusCore(supabase, userId, timezone, new Date(), habitId);
   revalidatePath("/deen");
@@ -230,6 +243,7 @@ export async function setWeeklyFocus(habitId: string): Promise<void> {
 /** THIN WRAPPER over updateDeenHabitCore (P4-06) — the MCP write tool calls the same core. Same trim-to-null normalization as createDeenHabit — never store "". */
 export async function updateDeenHabit(habitId: string, name: string, anchorCue: string | null): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await updateDeenHabitCore(supabase, userId, habitId, name, anchorCue);
   revalidatePath("/deen");
 }
@@ -244,6 +258,7 @@ export async function updateDeenHabit(habitId: string, name: string, anchorCue: 
  */
 export async function archiveDeenHabit(habitId: string): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await archiveDeenHabitCore(supabase, userId, habitId);
   revalidatePath("/deen");
 }
@@ -251,6 +266,7 @@ export async function archiveDeenHabit(habitId: string): Promise<void> {
 /** `stage` of null resets to automatic (derived from committed_date) — see lib/deen/habit-stage.ts. THIN WRAPPER over setDeenHabitStageOverrideCore (P4-06). */
 export async function setDeenHabitStageOverride(habitId: string, stage: HabitStage | null): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   await setDeenHabitStageOverrideCore(supabase, userId, habitId, stage);
   revalidatePath("/deen");
 }
@@ -266,6 +282,7 @@ export async function setDeenHabitStageOverride(habitId: string, stage: HabitSta
  */
 export async function setDeenHabitCommittedDate(habitId: string, committedDate: string): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   await setDeenHabitCommittedDateCore(supabase, userId, timezone, new Date(), habitId, committedDate);
   revalidatePath("/deen");
@@ -291,6 +308,7 @@ export async function setDeenHabitCommittedDate(habitId: string, committedDate: 
  */
 export async function setDeenHabitLogStatus(habitId: string, date: string, completed: boolean): Promise<void> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
   const timezone = await fetchTimezone(supabase, userId);
   await setDeenHabitLogStatusCore(supabase, userId, timezone, new Date(), habitId, date, completed);
   revalidatePath("/deen");
@@ -310,6 +328,7 @@ export async function getDeenHabitLogRange(
   endDate: string
 ): Promise<{ date: string; completed: boolean }[]> {
   const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return [];
 
   const { data, error } = await supabase
     .from("deen_habit_logs")

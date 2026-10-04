@@ -15,7 +15,10 @@ function makeChain() {
   // that read. Resolving to no profile row falls back to UTC, which is
   // fine for this file's fixed 2026-08-10 test dates (always in the past
   // relative to whenever this suite actually runs).
-  chain.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+  // Deen Mode: this chain also answers getProfile()'s `.maybeSingle()`, and the
+  // deen branches of toggleItem refuse unless profiles.deen_mode is literally
+  // true -- so this fixture is a deen_mode:true profile (timezone absent -> UTC).
+  chain.maybeSingle = vi.fn(async () => ({ data: { deen_mode: true }, error: null }));
   // markPrayerCore (lib/deen/actions-core.ts, L6) selects `id, logged_at`
   // back off its own upsert — `.upsert(...).select(...).single()` — for
   // the MCP write tool's {id, updated_at} contract. This file's own
@@ -263,7 +266,7 @@ describe("saveWeeklyGoal", () => {
   const NOW = new Date("2026-08-13T18:00:00Z");
 
   it("upserts this week's goal keyed by (user_id, week_start_date, domain)", async () => {
-    const profileChain = makeChain({ data: { timezone: "America/Chicago" }, error: null });
+    const profileChain = makeChain({ data: { timezone: "America/Chicago", deen_mode: true }, error: null });
     const weeklyGoalsChain = makeChain({ data: null, error: null }); // no prior week row
     fromMock.mockImplementation((table: string) => (table === "profiles" ? profileChain : weeklyGoalsChain));
     const { saveWeeklyGoal } = await import("../actions");
@@ -336,5 +339,57 @@ describe("signOut", () => {
     await expect(signOut()).rejects.toThrow("NEXT_REDIRECT");
 
     expect(revalidatePathMock).toHaveBeenCalledWith("/", "layout");
+  });
+});
+
+describe("Deen Mode OFF refuses the deen branches (data untouched)", () => {
+  function offChain(deenMode: boolean | null) {
+    const chain = makeChain();
+    chain.maybeSingle = vi.fn(async () => ({ data: deenMode === null ? null : { deen_mode: deenMode, timezone: "UTC" }, error: null }));
+    return chain;
+  }
+
+  beforeEach(() => {
+    fromMock.mockReset();
+  });
+
+  for (const off of [false, null]) {
+    const label = off === null ? "no profile row" : "deen_mode false";
+    it(`toggle_prayer is a no-op with ${label}`, async () => {
+      const chain = offChain(off);
+      fromMock.mockReturnValue(chain);
+      const { toggleItem } = await import("../actions");
+      await toggleItem(baseItem({ actionType: "toggle_prayer", actionRefId: "fajr" }));
+      expect(chain.upsert).not.toHaveBeenCalled();
+      expect(fromMock).not.toHaveBeenCalledWith("prayers");
+    });
+
+    it(`toggle_adhkar is a no-op with ${label}`, async () => {
+      const chain = offChain(off);
+      fromMock.mockReturnValue(chain);
+      const { toggleItem } = await import("../actions");
+      await toggleItem(baseItem({ actionType: "toggle_adhkar", actionRefId: "morning" }));
+      expect(fromMock).not.toHaveBeenCalledWith("adhkar_logs");
+      expect(chain.upsert).not.toHaveBeenCalled();
+    });
+
+    it(`saveWeeklyGoal("deen") writes nothing with ${label}, but business still saves`, async () => {
+      const chain = offChain(off);
+      fromMock.mockReturnValue(chain);
+      const { saveWeeklyGoal } = await import("../actions");
+      await saveWeeklyGoal("deen", "h", ["m"], 10, new Date("2026-08-13T18:00:00Z"));
+      expect(chain.upsert).not.toHaveBeenCalled();
+      expect(chain.update).not.toHaveBeenCalled();
+      await saveWeeklyGoal("business", "h", ["m"], undefined, new Date("2026-08-13T18:00:00Z"));
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ domain: "business" }), expect.anything());
+    });
+  }
+
+  it("toggle_task is unaffected when Deen Mode is off", async () => {
+    const chain = offChain(false);
+    fromMock.mockReturnValue(chain);
+    const { toggleItem } = await import("../actions");
+    await toggleItem(baseItem({ actionType: "toggle_task", actionRefId: "t1", domain: "school" }));
+    expect(fromMock).toHaveBeenCalledWith("tasks");
   });
 });

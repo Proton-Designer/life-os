@@ -43,8 +43,8 @@ const DISTRACTION_DOMAINS: { label: string; value: DistractionDomain }[] = [
  * the columns that have no domain-agnostic option, so a default that has to exist anyway
  * stays consistent everywhere it appears.
  */
-function inferDefaultDomain(pathname: string): DistractionDomain {
-  if (pathname.startsWith("/deen")) return "deen";
+function inferDefaultDomain(pathname: string, deenMode: boolean): DistractionDomain {
+  if (deenMode && pathname.startsWith("/deen")) return "deen";
   if (pathname.startsWith("/business")) return "business";
   if (pathname.startsWith("/fitness")) return "fitness";
   if (pathname.startsWith("/work")) return "co_op";
@@ -100,7 +100,10 @@ export function CaptureForm({
   cancelLabel = "Cancel",
   confirmLabel = "Confirm",
   autoFocus = true,
+  deenMode = false,
 }: {
+  /** profiles.deen_mode as a plain boolean; fails closed (off). Off drops the "Deen" distraction domain. */
+  deenMode?: boolean;
   timezone: string;
   onCaptured: () => void;
   onCancel: () => void;
@@ -111,7 +114,7 @@ export function CaptureForm({
   const pathname = usePathname();
   const [text, setText] = useState("");
   const [captureType, setCaptureType] = useState<CaptureType>("task");
-  const [domain, setDomain] = useState<DistractionDomain>(() => inferDefaultDomain(pathname));
+  const [domain, setDomain] = useState<DistractionDomain>(() => inferDefaultDomain(pathname, deenMode));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // P2-16 extracted this into a shared hook (components/shared/use-dictation.ts)
@@ -219,7 +222,7 @@ export function CaptureForm({
               aria-label="Distraction category"
               className="rounded-md border border-input bg-transparent px-2 py-1 text-xs"
             >
-              {DISTRACTION_DOMAINS.map((d) => (
+              {DISTRACTION_DOMAINS.filter((d) => deenMode || d.value !== "deen").map((d) => (
                 <option key={d.value} value={d.value}>
                   {d.label}
                 </option>

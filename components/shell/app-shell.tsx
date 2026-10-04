@@ -10,6 +10,8 @@ import { AppShellChrome } from "./app-shell-chrome";
 import type { LockInSessionKind } from "@/components/business/lock-in-overlay-context";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 import type { KillListSlotData } from "@/components/business/kill-list";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
+import { effectiveHiddenFeatures } from "@/lib/shell/effective-hidden-features";
 
 const EMPTY_KILL_LIST_SLOTS: [KillListSlotData, KillListSlotData, KillListSlotData] = [
   { id: null, text: "", completed: false },
@@ -49,7 +51,10 @@ export async function AppShell({
   // exists in production.
   const profileThemeFields = profile as { theme_preset?: string; hidden_features?: string[] } | null;
   const themePreset = resolveThemePreset(profileThemeFields?.theme_preset);
-  const hiddenFeatures = sanitizeHiddenFeatures(profileThemeFields?.hidden_features);
+  const deenMode = isDeenModeOn(profile);
+  // Deen Mode OFF folds "deen" into the legacy-nav hidden set (sidebar,
+  // mobile island). The stored hidden_features array is never rewritten.
+  const hiddenFeatures = effectiveHiddenFeatures(sanitizeHiddenFeatures(profileThemeFields?.hidden_features), deenMode);
   const now = new Date();
   const dateStr = localDateString(now, timezone);
 
@@ -85,7 +90,7 @@ export async function AppShell({
   const userDomains = await getUserDomains();
   const navMode = userDomains.mode;
   const navDomainState: NavDomainState | null =
-    userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains) : null;
+    userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains, deenMode) : null;
 
   return (
     <AppShellChrome
@@ -96,6 +101,7 @@ export async function AppShell({
       timezone={timezone}
       themePreset={themePreset}
       hiddenFeatures={hiddenFeatures}
+      deenMode={deenMode}
       activeWorkSession={
         activeWorkSession
           ? {

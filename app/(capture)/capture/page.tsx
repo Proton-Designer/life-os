@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { CapturePageClient } from "@/components/capture/capture-page-client";
 
 /**
@@ -19,5 +20,5 @@ export default async function CapturePage() {
   if (!user) redirect("/login");
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  return <CapturePageClient timezone={timezone} />;
+  return <CapturePageClient timezone={timezone} deenMode={isDeenModeOn(profile)} />;
 }

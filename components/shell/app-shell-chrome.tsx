@@ -39,6 +39,7 @@ export function AppShellChrome({
   navDomainState,
   themePreset,
   hiddenFeatures,
+  deenMode,
   children,
 }: {
   account: { displayName: string; email: string };
@@ -65,6 +66,8 @@ export function AppShellChrome({
    * and domains nav as separately-maintained code paths, and Ayman's own
    * account (the one this feature is for) is legacy mode. */
   hiddenFeatures: FeatureId[];
+  /** profiles.deen_mode (isDeenModeOn) -- boolean only; gates the capture sheet's Deen domain option. */
+  deenMode: boolean;
   /** Seeds the app-wide LockInOverlayProvider below — a Lock-In session
    * started before this request must still show its overlay/minimized
    * state on first paint, not just after a client-side start. */
@@ -132,7 +135,7 @@ export function AppShellChrome({
               is positioned clear of the island's centered bottom bar; the actual sheet
               renders through Dialog's own portal + z-50 overlay (components/ui/dialog.tsx),
               so it is never under the island regardless of DOM position. */}
-          <GlobalCaptureSheet timezone={timezone} />
+          <GlobalCaptureSheet timezone={timezone} deenMode={deenMode} />
           {navMode === "domains" && navDomainState ? (
             <TabMobileIsland navDomainState={navDomainState} />
           ) : (

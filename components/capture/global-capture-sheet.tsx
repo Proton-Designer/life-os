@@ -19,7 +19,7 @@ import { CaptureForm } from "./capture-form";
  * guarantee. This is the same behavior the pre-extraction version got from an explicit
  * `reset()` call in `handleClose`; here it falls out of the mount boundary itself.
  */
-export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
+export function GlobalCaptureSheet({ timezone, deenMode = false }: { timezone: string; deenMode?: boolean }) {
   const [open, setOpen] = useState(false);
 
   function handleClose() {
@@ -56,7 +56,7 @@ export function GlobalCaptureSheet({ timezone }: { timezone: string }) {
             </Link>
           </DialogHeader>
 
-          {open && <CaptureForm key="open" timezone={timezone} onCaptured={handleClose} onCancel={handleClose} />}
+          {open && <CaptureForm key="open" timezone={timezone} deenMode={deenMode} onCaptured={handleClose} onCancel={handleClose} />}
         </DialogContent>
       </Dialog>
     </>

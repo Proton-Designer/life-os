@@ -28,6 +28,15 @@ vi.mock("next/link", async () => {
 import { TopNav } from "../top-nav";
 
 describe("TopNav", () => {
+  it("Deen Mode OFF hides the Deen item (top-nav used to ignore hiddenFeatures); ON shows it", () => {
+    const { unmount } = render(<TopNav hiddenFeatures={["deen"]} />);
+    expect(screen.queryByRole("link", { name: /deen/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /business/i })).toBeInTheDocument();
+    unmount();
+    render(<TopNav />);
+    expect(screen.getByRole("link", { name: /deen/i })).toBeInTheDocument();
+  });
+
   it("renders an icon for every nav item", () => {
     render(<TopNav />);
     for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work"]) {

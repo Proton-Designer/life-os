@@ -1,6 +1,7 @@
 "use server";
 
 import { requireUser, getProfile } from "@/lib/supabase/auth";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { localDateString, datesInMonth } from "@/lib/date-utils";
 import { resolvePrayerStatuses, computeTrackingFloorDateStr, type EffectivePrayerStatus } from "@/lib/deen/prayer-status";
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
@@ -25,6 +26,7 @@ export type SalahDaySummary = {
 export async function getSalahMonthSummary(year: number, month: number): Promise<SalahDaySummary[]> {
   const { supabase, userId } = await requireUser();
   const profile = await getProfile();
+  if (!isDeenModeOn(profile)) return [];
   const timezone = profile?.timezone ?? "UTC";
   const lat = profile?.location_lat ?? null;
   const lng = profile?.location_lng ?? null;
@@ -78,6 +80,7 @@ const PRAYER_LABEL: Record<PrayerName, string> = {
 export async function getSalahDayDetail(date: string): Promise<SalahDayDetail[]> {
   const { supabase, userId } = await requireUser();
   const profile = await getProfile();
+  if (!isDeenModeOn(profile)) return [];
   const timezone = profile?.timezone ?? "UTC";
   const lat = profile?.location_lat ?? null;
   const lng = profile?.location_lng ?? null;

@@ -16,7 +16,7 @@ export default async function WorkSubdomainLayout({
   const userDomains = await getUserDomains();
 
   const workSubdomains =
-    userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains).workSubdomains : [];
+    userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains, false).workSubdomains : [];
 
   if (workSubdomains.length === 0) {
     redirect("/");

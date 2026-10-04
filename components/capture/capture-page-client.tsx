@@ -12,7 +12,7 @@ import { CaptureForm } from "./capture-form";
  * away, since a fast-capture entry point's whole use case is logging
  * several things in a row without re-opening the app each time.
  */
-export function CapturePageClient({ timezone }: { timezone: string }) {
+export function CapturePageClient({ timezone, deenMode = false }: { timezone: string; deenMode?: boolean }) {
   const router = useRouter();
   const [instance, setInstance] = useState(0);
   const [justSaved, setJustSaved] = useState(false);
@@ -36,6 +36,7 @@ export function CapturePageClient({ timezone }: { timezone: string }) {
       <CaptureForm
         key={instance}
         timezone={timezone}
+        deenMode={deenMode}
         onCaptured={handleCaptured}
         onCancel={() => router.push("/")}
         cancelLabel="Close"

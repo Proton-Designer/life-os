@@ -217,11 +217,13 @@ function ActiveGoalCard({
 function AddGoalForm({
   monthStart,
   availableRanks,
+  deenMode,
   onAdded,
   onCancel,
 }: {
   monthStart: string;
   availableRanks: number[];
+  deenMode: boolean;
   onAdded: () => void;
   onCancel: () => void;
 }) {
@@ -281,7 +283,7 @@ function AddGoalForm({
         <Select value={domain} onValueChange={setDomain}>
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
-            {DOMAIN_OPTIONS.map((d) => (
+            {DOMAIN_OPTIONS.filter((d) => deenMode || d.value !== "deen").map((d) => (
               <SelectItem key={d.value} value={d.value}>
                 {d.label}
               </SelectItem>
@@ -317,7 +319,10 @@ export function GoalBoard({
   todayStr,
   goals,
   milestones,
+  deenMode = false,
 }: {
+  /** profiles.deen_mode via isDeenModeOn -- a plain boolean (no function prop). Off hides the "Deen" domain choice; existing goals keep their tag. */
+  deenMode?: boolean;
   monthStart: string;
   todayStr: string;
   goals: Goal[];
@@ -393,6 +398,7 @@ export function GoalBoard({
         <AddGoalForm
           monthStart={monthStart}
           availableRanks={availableRanks}
+          deenMode={deenMode}
           onAdded={() => setAdding(false)}
           onCancel={() => setAdding(false)}
         />

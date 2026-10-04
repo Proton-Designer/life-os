@@ -141,6 +141,14 @@ describe("MobileIsland", () => {
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
+    it("Deen Mode OFF (deen folded into hiddenFeatures) hides the Deen slot only", () => {
+      render(<MobileIsland hiddenFeatures={["deen"]} />);
+      expect(screen.queryByTestId("mobile-island-item-deen")).not.toBeInTheDocument();
+      for (const key of ["home", "business", "school", "fitness", "work"]) {
+        expect(screen.getByTestId(`mobile-island-item-${key}`)).toBeInTheDocument();
+      }
+    });
+
     it("omits the matching item from the fixed icon row, leaves the rest and the row's own touch-target math intact", () => {
       render(<MobileIsland hiddenFeatures={["business"]} />);
       expect(screen.queryByTestId("mobile-island-item-business")).not.toBeInTheDocument();

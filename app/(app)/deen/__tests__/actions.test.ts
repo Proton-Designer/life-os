@@ -44,6 +44,12 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
+// These tests exercise the write paths themselves; the Deen Mode refusal has its own file (deen-mode-gate.test.ts).
+vi.mock("@/lib/deen/deen-mode-guard", () => ({
+  isDeenModeOnForRequest: vi.fn(async () => true),
+  DEEN_MODE_OFF_MESSAGE: "Deen Mode is off",
+}));
+
 describe("Deen actions", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();

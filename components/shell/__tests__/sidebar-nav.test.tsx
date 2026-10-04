@@ -202,6 +202,13 @@ describe("SidebarNav", () => {
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
+    it("Deen Mode OFF (deen folded into hiddenFeatures) hides Deen, keeps the rest", () => {
+      render(<SidebarNav variant="expanded" hiddenFeatures={["deen"]} />);
+      expect(screen.queryByRole("link", { name: "Deen" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Business" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    });
+
     it("omits the matching destination, leaves everything else untouched", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["business"]} />);
       expect(screen.queryByRole("link", { name: "Business" })).not.toBeInTheDocument();

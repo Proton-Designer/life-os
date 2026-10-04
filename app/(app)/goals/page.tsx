@@ -6,6 +6,7 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { listGoalsForMonth } from "@/lib/goals/actions-core";
 import { getMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { GoalBoard } from "@/components/goals/goal-board";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
@@ -50,7 +51,7 @@ export default async function GoalsPage() {
         </div>
       ) : null}
       <LayoutSlot layout={layoutMap} widgetKey="goal_board">
-        <GoalBoard monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
+        <GoalBoard deenMode={isDeenModeOn(profile)} monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
       </LayoutSlot>
     </PageContainer>
   );

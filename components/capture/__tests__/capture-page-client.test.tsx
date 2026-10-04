@@ -36,6 +36,18 @@ describe("CapturePageClient", () => {
     pushMock.mockClear();
   });
 
+  it("Deen Mode: the distraction category offers Deen only when deenMode is on (fails closed by default)", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<CapturePageClient timezone="America/Chicago" />);
+    await user.click(screen.getByRole("button", { name: "Distraction" }));
+    expect(screen.getByLabelText("Distraction category")).not.toHaveTextContent("Deen");
+    expect(screen.getByLabelText("Distraction category")).toHaveTextContent("Business");
+    unmount();
+    render(<CapturePageClient timezone="America/Chicago" deenMode />);
+    await user.click(screen.getByRole("button", { name: "Distraction" }));
+    expect(screen.getByLabelText("Distraction category")).toHaveTextContent("Deen");
+  });
+
   it("renders the form directly -- no dialog role, no trigger button to open first", async () => {
     render(<CapturePageClient timezone="America/Chicago" />);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
