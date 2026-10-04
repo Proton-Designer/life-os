@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalCaptureSheet } from "../global-capture-sheet";
@@ -11,7 +11,14 @@ vi.mock("@/lib/capture/actions", () => ({
   captureDistraction: (input: unknown) => captureDistractionMock(input),
   captureDump: (input: unknown) => captureDumpMock(input),
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+let pathname = "/";
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+
+// IA-P1a: the sheet drives the app's ONE distraction logger; stubbed here (its own suite covers it).
+vi.mock("@/components/distractions/distraction-capture-dialog", () => ({
+  DistractionCaptureDialog: ({ open, hideTrigger }: { open?: boolean; hideTrigger?: boolean }) =>
+    open ? <div data-testid="shared-logger" data-hide-trigger={String(!!hideTrigger)} /> : null,
+}));
 
 async function openSheet(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Capture" }));
@@ -25,6 +32,7 @@ describe("GlobalCaptureSheet", () => {
     captureTaskMock.mockClear();
     captureDistractionMock.mockClear();
     captureDumpMock.mockClear();
+    pathname = "/";
   });
 
   it("an ambiguous utterance (temporal words with nothing left to title) persists zero rows — Confirm is disabled", async () => {
@@ -68,6 +76,7 @@ describe("GlobalCaptureSheet", () => {
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     expect(captureTaskMock).toHaveBeenCalledWith({
       title: "Submit lab report",
+      area: "none",
       dueDate: expect.any(String),
       dueTime: null,
     });
@@ -88,22 +97,84 @@ describe("GlobalCaptureSheet", () => {
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     expect(captureTaskMock).toHaveBeenCalledWith({
       title: "Submit lab report",
+      area: "none",
       dueDate: expect.any(String),
       dueTime: "17:00",
     });
   });
 
-  it("a distraction capture routes through captureDistraction only, with the shown category confirmed", async () => {
+  it("Distraction hands off to the shared logger — the sheet closes and writes nothing itself", async () => {
     const user = userEvent.setup();
     render(<GlobalCaptureSheet timezone="America/Chicago" />);
     await openSheet(user);
+    expect(screen.queryByTestId("shared-logger")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Distraction" }));
-    expect(screen.getByLabelText("Distraction category")).toBeInTheDocument(); // default category is SHOWN
-    await user.type(screen.getByLabelText("Capture input"), "Checked phone");
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(captureDistractionMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("shared-logger")).toHaveAttribute("data-hide-trigger", "true");
+    expect(screen.queryByLabelText("Capture input")).toBeNull();
+    expect(captureDistractionMock).toHaveBeenCalledTimes(0);
     expect(captureTaskMock).toHaveBeenCalledTimes(0);
     expect(captureDumpMock).toHaveBeenCalledTimes(0);
+  });
+
+  describe("Task area (IA-P1a)", () => {
+    const domainsAreas = {
+      options: [
+        { value: "school" as const, label: "School" },
+        { value: "co_op" as const, label: "Work" },
+        { value: "none" as const, label: "No area (Inbox)" },
+      ],
+      workTabs: [
+        { key: "job", kind: "job" as const },
+        { key: "shop", kind: "business" as const },
+      ],
+    };
+
+    async function addTask(areas: typeof domainsAreas | undefined) {
+      const user = userEvent.setup();
+      render(<GlobalCaptureSheet timezone="America/Chicago" areas={areas} />);
+      await openSheet(user);
+      return user;
+    }
+
+    it("offers the account's own areas, with 'No area' last", async () => {
+      await addTask(domainsAreas);
+      const labels = within(screen.getByRole("radiogroup", { name: "Area" }))
+        .getAllByRole("radio")
+        .map((r) => r.textContent);
+      expect(labels).toEqual(["School", "Work", "No area (Inbox)"]);
+    });
+
+    it("a domains account without Work is never offered Work", async () => {
+      await addTask({ options: [domainsAreas.options[0]!, domainsAreas.options[2]!], workTabs: [] });
+      expect(screen.queryByRole("radio", { name: "Work" })).toBeNull();
+    });
+
+    it.each([
+      ["/school", "School"],
+      ["/work/job", "Work"],
+      ["/work", "Work"],
+      ["/work/shop", "No area (Inbox)"], // Business has no task home — never guessed
+      ["/business", "No area (Inbox)"],
+      ["/", "No area (Inbox)"],
+    ])("on %s the preselected area is %s", async (route, label) => {
+      pathname = route;
+      await addTask(domainsAreas);
+      expect(screen.getByRole("radio", { name: label })).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("the chosen area (not a hard-wired school) reaches captureTask", async () => {
+      pathname = "/school";
+      const user = await addTask(domainsAreas);
+      await user.click(screen.getByRole("radio", { name: "Work" }));
+      await user.type(screen.getByLabelText("Capture input"), "Send invoice");
+      await user.click(screen.getByRole("button", { name: "Confirm" }));
+      expect(captureTaskMock).toHaveBeenCalledWith({ title: "Send invoice", area: "co_op", dueDate: null, dueTime: null });
+    });
+
+    it("never offers a faith/Deen area (tasks have no such home)", async () => {
+      await addTask(domainsAreas);
+      expect(screen.queryByRole("radio", { name: /faith|deen/i })).toBeNull();
+    });
   });
 
   // R57, re-enabled 2026-09-02 (migrations 119/120 on production), corrected same day:

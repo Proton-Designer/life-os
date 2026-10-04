@@ -6,6 +6,7 @@ import { localDateString } from "@/lib/date-utils";
 import { addTaskCore } from "@/lib/tasks/actions-core";
 import { createTriggerAndLog } from "@/app/(app)/distractions/actions";
 import type { DistractionDomain } from "@/lib/distractions/types";
+import { isCaptureArea, type CaptureArea } from "@/lib/capture/areas";
 
 // Global capture (BOSS-VISION §5) persists through EXISTING actions/tables only — no new
 // table, no new domain value invented here. Each function below is a thin router to one of
@@ -18,17 +19,19 @@ async function todayForCapture(): Promise<string> {
 }
 
 /**
- * Task capture -> the existing school task action (app/(app)/school/actions.ts's
- * `addTaskCore` call, domain hardcoded to "school" there and here — that action has no
- * other domain path, and `tasks.domain` is CHECK-constrained to `school`/`co_op` with no
- * third option). Deliberately omits `taskType` and never touches `estimated_minutes` —
- * `addTaskCore` has no such parameter at all, so a captured task earns both later rather
- * than the capture sheet guessing either. `dueDate` is whatever the parser resolved (or
- * omitted if nothing did) — never defaulted to today, which would fabricate a deadline
- * nobody stated.
+ * Task capture (IA-P1a): the caller picks the AREA — "school" / "co_op" go to `addTaskCore`
+ * (`tasks.domain` is CHECK-constrained to those two); "none" is the Inbox: a `domain: null`,
+ * `dump_source: 'capture'` row via `captureDump`, triaged in the evening close. `area` is
+ * validated here (a Server Action input is untrusted) and never defaulted: a missing or
+ * unknown area throws rather than quietly filing the task under School again. Deliberately
+ * omits `taskType` and never touches `estimated_minutes` — `addTaskCore` has no such
+ * parameter at all, so a captured task earns both later rather than the capture sheet
+ * guessing either. `dueDate` is whatever the parser resolved (or omitted if nothing did) —
+ * never defaulted to today, which would fabricate a deadline nobody stated.
  */
 export async function captureTask(input: {
   title: string;
+  area: CaptureArea;
   dueDate?: string | null;
   /** "HH:MM" local time, as parsed by parse-utterance.ts. Threaded straight to
    * `addTaskCore`'s `dueTime` (writes `tasks.due_time`) — every downstream reader that
@@ -37,9 +40,14 @@ export async function captureTask(input: {
    * passed, so silently dropping it here is the bug, not a simplification. */
   dueTime?: string | null;
 }): Promise<void> {
+  if (!isCaptureArea(input.area)) throw new Error("Pick an area for this task");
+  if (input.area === "none") {
+    await captureDump({ title: input.title, source: "capture", dueDate: input.dueDate ?? null, dueTime: input.dueTime ?? null });
+    return;
+  }
   const { supabase, userId } = await requireUser();
   await addTaskCore(supabase, userId, {
-    domain: "school",
+    domain: input.area,
     title: input.title,
     ...(input.dueDate ? { dueDate: input.dueDate } : {}),
     ...(input.dueTime ? { dueTime: input.dueTime } : {}),
@@ -91,7 +99,13 @@ export async function captureDistraction(input: { title: string; domain: Distrac
  * day disagree) — `planned_date` is the day the worry/note was dumped, not a parsed date,
  * so "today" is always correct for it.
  */
-export async function captureDump(input: { title: string; source: "worry" | "capture" }): Promise<void> {
+export async function captureDump(input: {
+  title: string;
+  source: "worry" | "capture";
+  /** Only a "capture" Inbox task carries these (IA-P1a: a "No area" Task keeps the date/time the parser resolved). */
+  dueDate?: string | null;
+  dueTime?: string | null;
+}): Promise<void> {
   const { supabase, userId } = await requireUser();
   const plannedDate = await todayForCapture();
   const { data, error } = await supabase
@@ -102,6 +116,8 @@ export async function captureDump(input: { title: string; source: "worry" | "cap
       dump_source: input.source,
       title: input.title,
       planned_date: plannedDate,
+      ...(input.dueDate ? { due_date: input.dueDate } : {}),
+      ...(input.dueTime ? { due_time: input.dueTime } : {}),
     })
     .select("domain, dump_source")
     .single();

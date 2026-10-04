@@ -19,11 +19,13 @@ const dumpLineMock = vi.fn(async (..._args: unknown[]) => ({ id: "new-id" }));
 const refreshCloseViewsMock = vi.fn(async () => {});
 const savePlanRanksMock = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 const claimSeedLinesMock = vi.fn(async (..._args: unknown[]): Promise<{ claimed: ClaimedSeed[] }> => ({ claimed: [] }));
+const triageInboxItemMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true } | { error: string }> => ({ ok: true }));
 vi.mock("@/app/(app)/close/plan-actions", () => ({
   dumpLine: (...args: unknown[]) => dumpLineMock(...args),
   refreshCloseViews: () => refreshCloseViewsMock(),
   savePlanRanks: (...args: unknown[]) => savePlanRanksMock(...args),
   claimSeedLines: (...args: unknown[]) => claimSeedLinesMock(...args),
+  triageInboxItem: (...args: unknown[]) => triageInboxItemMock(...args),
 }));
 const markWorryHandledMock = vi.fn(async (..._args: unknown[]) => {});
 vi.mock("@/app/(app)/worries/actions", () => ({
@@ -137,5 +139,84 @@ describe("ClosePlanStage — Add (PERF-4)", () => {
     await waitFor(() => expect(dumpLineMock).toHaveBeenCalledTimes(3));
     expect(dumpLineMock.mock.calls.map((c) => c[0])).toEqual(["one", "two", "three"]);
     await waitFor(() => expect(refreshCloseViewsMock).toHaveBeenCalledTimes(1), { timeout: 2000 });
+  });
+});
+
+
+// IA-P1a: the Inbox step — parked items triaged in one tap each (optimistic, per-item queue).
+describe("ClosePlanStage — Inbox triage", () => {
+  const inbox = [
+    { id: "n1", title: "Look into a standing desk" },
+    { id: "n2", title: "Email the registrar" },
+  ];
+  const areas: { value: "school" | "co_op"; label: string }[] = [
+    { value: "school", label: "School" },
+    { value: "co_op", label: "Work" },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    triageInboxItemMock.mockImplementation(async () => ({ ok: true }));
+  });
+
+  it("renders nothing when the Inbox is empty", () => {
+    render(<ClosePlanStage initialLines={[]} inbox={[]} inboxAreas={areas} />);
+    expect(screen.queryByTestId("close-inbox")).toBeNull();
+  });
+
+  it("lists every parked item with the four triage actions (one task button per area the account has)", () => {
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={areas} />);
+    const group = screen.getByTestId("close-inbox");
+    expect(group).toHaveTextContent("Inbox · 2");
+    for (const label of ["Plan tonight", "Task in School", "Task in Work", "It's a worry", "Done"]) {
+      expect(screen.getByRole("button", { name: `${label}: Look into a standing desk` })).toBeInTheDocument();
+    }
+  });
+
+  it("a domains account without Work is never offered 'Task in Work'", () => {
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={[areas[0]!]} />);
+    expect(screen.queryByRole("button", { name: /Task in Work/ })).toBeNull();
+  });
+
+  it("Plan tonight: the item leaves the Inbox at once, becomes a plan line you can star, and the action gets mode", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={areas} mode="tonight" />);
+    await user.click(screen.getByRole("button", { name: "Plan tonight: Look into a standing desk" }));
+    expect(screen.getByRole("button", { name: "Star Look into a standing desk" })).toBeInTheDocument();
+    expect(screen.getByTestId("close-inbox")).toHaveTextContent("Inbox · 1");
+    await waitFor(() => expect(triageInboxItemMock).toHaveBeenCalledWith("n1", "plan", "tonight"));
+  });
+
+  it.each([
+    ["Task in School", "school"],
+    ["Task in Work", "co_op"],
+    ["It's a worry", "worry"],
+    ["Done", "done"],
+  ])("%s sends %s and removes the item without adding a plan line", async (label, action) => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={areas} />);
+    await user.click(screen.getByRole("button", { name: `${label}: Email the registrar` }));
+    expect(screen.queryByRole("button", { name: new RegExp(`${label}: Email the registrar`) })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Star / })).toBeNull();
+    await waitFor(() => expect(triageInboxItemMock).toHaveBeenCalledWith("n2", action, "tonight"));
+  });
+
+  it("a failed triage puts the item back in the Inbox and shows the error", async () => {
+    triageInboxItemMock.mockImplementationOnce(async () => ({ error: "That item was already sorted." }));
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={areas} />);
+    await user.click(screen.getByRole("button", { name: "Done: Look into a standing desk" }));
+    expect(await screen.findByText("That item was already sorted.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done: Look into a standing desk" })).toBeInTheDocument();
+  });
+
+  it("a failed Plan tonight takes the line back out as well as restoring the Inbox item", async () => {
+    triageInboxItemMock.mockImplementationOnce(async () => ({ error: "nope" }));
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} inbox={inbox} inboxAreas={areas} />);
+    await user.click(screen.getByRole("button", { name: "Plan tonight: Look into a standing desk" }));
+    await screen.findByText("nope");
+    expect(screen.queryByRole("button", { name: "Star Look into a standing desk" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Plan tonight: Look into a standing desk" })).toBeInTheDocument();
   });
 });

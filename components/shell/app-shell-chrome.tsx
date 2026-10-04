@@ -14,6 +14,7 @@ import type { WeekCalendarData } from "@/components/calendar/week-calendar-view"
 import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
 import { GlobalCaptureSheet } from "@/components/capture/global-capture-sheet";
+import { buildCaptureAreaConfig } from "@/lib/capture/areas";
 import type { ThemePresetId } from "@/lib/theme-presets";
 import { ThemeRootSync } from "@/components/shell/theme-root-sync";
 import type { FeatureId } from "@/lib/features";
@@ -132,7 +133,7 @@ export function AppShellChrome({
               is positioned clear of the island's centered bottom bar; the actual sheet
               renders through Dialog's own portal + z-50 overlay (components/ui/dialog.tsx),
               so it is never under the island regardless of DOM position. */}
-          <GlobalCaptureSheet timezone={timezone} deenMode={deenMode} />
+          <GlobalCaptureSheet timezone={timezone} deenMode={deenMode} areas={buildCaptureAreaConfig(navMode, navDomainState)} />
           {navMode === "domains" && navDomainState ? (
             <TabMobileIsland navDomainState={navDomainState} />
           ) : (

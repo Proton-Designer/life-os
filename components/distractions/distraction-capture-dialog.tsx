@@ -105,11 +105,27 @@ function inferDomainFromSession(session: ActiveWorkSession | null): DistractionD
 }
 
 /** `deenMode` (profiles.deen_mode) as a plain boolean; fails closed. Off drops the Deen domain (and with it the reflection-tier UI, which only exists under Deen). */
-export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: boolean } = {}) {
+export function DistractionCaptureDialog({
+  deenMode = false,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
+}: {
+  deenMode?: boolean;
+  /** IA-P1a: the "+" capture sheet drives THIS logger (one logger, not two) — controlled open state, no "+1" trigger of its own. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
+} = {}) {
   const { session } = useLockInOverlay();
   const inferredDomain = inferDomainFromSession(session);
 
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = controlledOpen ?? openState;
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
   const [step, setStep] = useState<Step>("quick");
   const [domain, setDomain] = useState<DistractionDomain | null>(null);
   const [triggers, setTriggers] = useState<TriggerSummary[]>([]);
@@ -246,17 +262,22 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <div className="flex items-center gap-2">
+        {!hideTrigger && (
         <DialogTrigger asChild>
           {/* P3-02: "+1" is the spec's own entry gesture (docs/audits/2026-09-13-three-app-feature-audit.md #35). aria-label carries the meaning for assistive tech, same posture the Lock-In "Lock In" buttons already established for a short visible label. */}
           <Button type="button" variant="outline" size="sm" aria-label="Log a distraction">
             +1
           </Button>
         </DialogTrigger>
+        )}
         {/* #52: only rendered during an active Lock-In/Deep Study session —
             "N this session" has no meaning with no session running. */}
-        {session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
+        {!hideTrigger && session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
         {logError && (
-          <span role="alert" className="text-xs text-destructive">
+          <span
+            role="alert"
+            className={cn("text-xs text-destructive", hideTrigger && "fixed bottom-40 right-4 z-40 max-w-64 rounded-md border bg-background p-2 shadow")}
+          >
             {logError}
           </span>
         )}

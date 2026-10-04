@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CaptureForm } from "./capture-form";
+import type { CaptureAreaConfig } from "@/lib/capture/areas";
 
 /**
  * P3-17: the dedicated `/capture` route's own client shell — full-width,
@@ -12,7 +13,7 @@ import { CaptureForm } from "./capture-form";
  * away, since a fast-capture entry point's whole use case is logging
  * several things in a row without re-opening the app each time.
  */
-export function CapturePageClient({ timezone, deenMode = false }: { timezone: string; deenMode?: boolean }) {
+export function CapturePageClient({ timezone, deenMode = false, areas }: { timezone: string; deenMode?: boolean; areas?: CaptureAreaConfig }) {
   const router = useRouter();
   const [instance, setInstance] = useState(0);
   const [justSaved, setJustSaved] = useState(false);
@@ -37,6 +38,7 @@ export function CapturePageClient({ timezone, deenMode = false }: { timezone: st
         key={instance}
         timezone={timezone}
         deenMode={deenMode}
+        areas={areas}
         onCaptured={handleCaptured}
         onCancel={() => router.push("/")}
         cancelLabel="Close"

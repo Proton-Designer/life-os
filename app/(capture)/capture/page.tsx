@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
+import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { computeNavDomainState } from "@/lib/shell/nav-domain-state";
+import { buildCaptureAreaConfig } from "@/lib/capture/areas";
 import { CapturePageClient } from "@/components/capture/capture-page-client";
 
 /**
@@ -20,5 +23,8 @@ export default async function CapturePage() {
   if (!user) redirect("/login");
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  return <CapturePageClient timezone={timezone} deenMode={isDeenModeOn(profile)} />;
+  const deenMode = isDeenModeOn(profile);
+  const userDomains = await getUserDomains();
+  const nav = userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains, deenMode) : null;
+  return <CapturePageClient timezone={timezone} deenMode={deenMode} areas={buildCaptureAreaConfig(userDomains.mode, nav)} />;
 }

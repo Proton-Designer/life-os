@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { dumpLine, refreshCloseViews, savePlanRanks, claimSeedLines, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
+import { dumpLine, refreshCloseViews, savePlanRanks, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { useScheduleRefresh } from "@/lib/client/use-optimistic-item";
@@ -53,6 +53,8 @@ import { markWorryHandled } from "@/app/(app)/worries/actions";
  */
 
 type Line = { id: string; title: string; seedSource?: SeedSource };
+type InboxEntry = { id: string; title: string; dueDate?: string | null };
+type InboxAreas = { value: "school" | "co_op"; label: string }[];
 
 // #28 fix (2026-09-14): school_risk was computed by computePlanSeeds and passed here as
 // props, then silently dropped by this exact filter — the "built, computed, and never
@@ -70,11 +72,18 @@ export function ClosePlanStage({
   initialLines,
   seeds = [],
   mode = "tonight",
+  inbox = [],
+  inboxAreas = [],
 }: {
   initialLines: { id: string; title: string }[];
   seeds?: DumpItem[];
   mode?: PlanMode;
+  /** IA-P1a: items the "+" sheet parked without an area (Notes, "No area" Tasks), triaged here in one tap each. */
+  inbox?: InboxEntry[];
+  /** The task homes this account has (School / Work) — one "Make it a task" button per entry. */
+  inboxAreas?: InboxAreas;
 }) {
+  const [inboxItems, setInboxItems] = useState<InboxEntry[]>(inbox);
   const [lines, setLines] = useState<Line[]>([
     ...initialLines,
     ...seeds.filter(isSeedable).map((s) => ({ id: s.id, title: s.title, seedSource: s.source })),
@@ -110,6 +119,30 @@ export function ClosePlanStage({
         setError("Couldn't add that line. Try again.");
         setDraft((d) => (d.length === 0 ? title : d));
       })
+      .finally(scheduleRefresh);
+  }
+
+  // IA-P1a: each Inbox tap removes the item at once and writes on its own per-item queue; a
+  // failed write puts the item back (and, for "Plan", takes the line back out) with the error.
+  // One deferred refresh per burst.
+  function triage(item: InboxEntry, action: "plan" | "school" | "co_op" | "worry" | "done") {
+    setError(null);
+    setInboxItems((prev) => prev.filter((i) => i.id !== item.id));
+    if (action === "plan") setLines((prev) => [...prev, { id: item.id, title: item.title }]);
+    const undo = (message: string) => {
+      setError(message);
+      setInboxItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, item]));
+      if (action === "plan") {
+        setLines((prev) => prev.filter((l) => l.id !== item.id));
+        setStarred((prev) => prev.filter((x) => x !== item.id));
+        setCrowned((c) => (c === item.id ? null : c));
+      }
+    };
+    void enqueueByKey(`close-inbox:${item.id}`, () => triageInboxItem(item.id, action, mode))
+      .then((res) => {
+        if ("error" in res) undo(res.error);
+      })
+      .catch(() => undo("Couldn't sort that item. Try again."))
       .finally(scheduleRefresh);
   }
 
@@ -190,6 +223,29 @@ export function ClosePlanStage({
       <h2 id="close-plan-heading" className="text-sm font-medium text-muted-foreground">
         Plan {mode === "today" ? "today" : "tomorrow"}
       </h2>
+
+      {inboxItems.length > 0 ? (
+        <div data-testid="close-inbox" aria-labelledby="close-inbox-heading" role="group" className="space-y-2">
+          <h3 id="close-inbox-heading" className="text-xs font-medium text-muted-foreground">
+            Inbox · {inboxItems.length}
+          </h3>
+          <ul className="space-y-2">
+            {inboxItems.map((item) => (
+              <li key={item.id} className="space-y-1.5 rounded-md border p-2">
+                <p className="text-sm">{item.title}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <InboxButton label={mode === "today" ? "Plan today" : "Plan tonight"} onClick={() => triage(item, "plan")} title={item.title} />
+                  {inboxAreas.map((a) => (
+                    <InboxButton key={a.value} label={`Task in ${a.label}`} onClick={() => triage(item, a.value)} title={item.title} />
+                  ))}
+                  <InboxButton label="It's a worry" onClick={() => triage(item, "worry")} title={item.title} />
+                  <InboxButton label="Done" onClick={() => triage(item, "done")} title={item.title} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="flex gap-2">
         <input
@@ -311,5 +367,13 @@ export function ClosePlanStage({
         </p>
       )}
     </section>
+  );
+}
+
+function InboxButton({ label, onClick, title }: { label: string; onClick: () => void; title: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={`${label}: ${title}`} className="min-h-9 rounded-md border px-2.5 text-xs">
+      {label}
+    </button>
   );
 }

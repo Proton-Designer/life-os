@@ -8,7 +8,7 @@ type Call = { method: string; args: unknown[] };
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }, calls: Call[] = []) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "not", "insert", "update", "upsert", "order", "limit"]) {
+  for (const method of ["select", "eq", "is", "not", "insert", "update", "upsert", "order", "limit"]) {
     chain[method] = vi.fn((...args: unknown[]) => {
       calls.push({ method, args });
       return chain;
@@ -55,6 +55,34 @@ describe("plan-actions", () => {
     calls = [];
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_NOW);
+  });
+
+  describe("triageInboxItem (IA-P1a)", () => {
+    const planned = () => (calls.find((c) => c.method === "update")!.args[0] as Record<string, unknown>).planned_date;
+
+    it('"plan" uses the SERVER-derived planning day: tonight = local tomorrow, today = local today', async () => {
+      nextChain = () => makeChain({ data: [{ id: "i1" }], error: null }, calls);
+      const { triageInboxItem } = await import("../plan-actions");
+      expect(await triageInboxItem("i1", "plan")).toEqual({ ok: true });
+      expect(planned()).toBe("2026-09-15");
+      calls.length = 0;
+      await triageInboxItem("i1", "plan", "today");
+      expect(planned()).toBe("2026-09-14");
+    });
+
+    it("maps school / co_op to a domain update and relays an already-sorted item as an error", async () => {
+      nextChain = () => makeChain({ data: [], error: null }, calls);
+      const { triageInboxItem } = await import("../plan-actions");
+      expect(await triageInboxItem("i1", "co_op")).toEqual({ error: "That item was already sorted." });
+      expect((calls.find((c) => c.method === "update")!.args[0] as Record<string, unknown>).domain).toBe("co_op");
+    });
+
+    it("signed out writes nothing", async () => {
+      getAuthedUserMock.mockResolvedValueOnce(null as never);
+      const { triageInboxItem } = await import("../plan-actions");
+      expect(await triageInboxItem("i1", "done")).toEqual({ error: "Not signed in" });
+      expect(calls.find((c) => c.method === "update")).toBeUndefined();
+    });
   });
 
   describe("dumpLine — item #29's mode param", () => {

@@ -15,6 +15,7 @@ import {
   type SeedSource,
   type ClaimedSeed,
 } from "@/lib/night-plan/plan-actions-core";
+import { triageInboxCore, type InboxTriage } from "@/lib/inbox/inbox-core";
 
 export type { PlanMode, SeedLine, SeedSource, ClaimedSeed };
 
@@ -83,6 +84,30 @@ export async function dumpLine(title: string, mode: PlanMode = "tonight"): Promi
   // Tap-rate (Add, Enter, Add...): no inline revalidatePath -- it made every Add wait for a
   // full /close render. The component schedules ONE refreshCloseViews() per burst (PERF-4).
   return dumpLineCore(supabase, ctx.userId, ctx.plannedDate, title);
+}
+
+/**
+ * One-tap Inbox triage in the evening close (IA-P1a). Lean like dumpLine: no inline
+ * revalidatePath — the stage schedules one refreshCloseViews() per burst. "plan" targets the
+ * ceremony's own planning day (tonight → tomorrow, replan → today) so the planned date is
+ * server-derived, never taken from the client.
+ */
+export async function triageInboxItem(
+  id: string,
+  action: "plan" | "school" | "co_op" | "worry" | "done",
+  mode: PlanMode = "tonight"
+): Promise<{ ok: true } | { error: string }> {
+  const ctx = await planningDateFor(mode);
+  if (ctx === null) return { error: "Not signed in" };
+  const triage: InboxTriage =
+    action === "plan"
+      ? { kind: "plan", plannedDate: ctx.plannedDate }
+      : action === "school" || action === "co_op"
+        ? { kind: "task", area: action }
+        : { kind: action };
+  const supabase = await createClient();
+  const res = await triageInboxCore(supabase, ctx.userId, id, triage);
+  return res.ok ? { ok: true } : { error: res.error };
 }
 
 /** Data-free cache revalidation scheduled by the plan stage after a burst of dumped lines. Touches no data. */

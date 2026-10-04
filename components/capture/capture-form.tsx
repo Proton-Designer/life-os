@@ -9,6 +9,7 @@ import { localDateString, formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { parseUtterance, type ParsedUtterance } from "@/lib/capture/parse-utterance";
 import { captureTask, captureDistraction, captureDump } from "@/lib/capture/actions";
+import { defaultCaptureArea, type CaptureArea, type CaptureAreaConfig } from "@/lib/capture/areas";
 import type { DistractionDomain } from "@/lib/distractions/types";
 import { useDictation } from "@/components/shared/use-dictation";
 
@@ -26,6 +27,15 @@ const TYPE_OPTIONS: { label: string; value: CaptureType }[] = [
   { label: "Worry", value: "worry" },
   { label: "Note", value: "note" },
 ];
+
+const LEGACY_AREAS: CaptureAreaConfig = {
+  options: [
+    { value: "school", label: "School" },
+    { value: "co_op", label: "Work" },
+    { value: "none", label: "No area (Inbox)" },
+  ],
+  workTabs: [],
+};
 
 const DISTRACTION_DOMAINS: { label: string; value: DistractionDomain }[] = [
   { label: "Deen", value: "deen" },
@@ -101,7 +111,13 @@ export function CaptureForm({
   confirmLabel = "Confirm",
   autoFocus = true,
   deenMode = false,
+  areas,
+  onOpenDistractionLogger,
 }: {
+  /** The task homes this account has (School / Work / No area) plus its work-tab kinds. Absent = the legacy two + Inbox. */
+  areas?: CaptureAreaConfig;
+  /** When given, picking Distraction hands off to the app's ONE distraction logger (the topbar +1 dialog) instead of a text form here. */
+  onOpenDistractionLogger?: () => void;
   /** profiles.deen_mode as a plain boolean; fails closed (off). Off drops the "Deen" distraction domain. */
   deenMode?: boolean;
   timezone: string;
@@ -114,6 +130,8 @@ export function CaptureForm({
   const pathname = usePathname();
   const [text, setText] = useState("");
   const [captureType, setCaptureType] = useState<CaptureType>("task");
+  const areaConfig = areas ?? LEGACY_AREAS;
+  const [area, setArea] = useState<CaptureArea>(() => defaultCaptureArea(pathname, areaConfig));
   const [domain, setDomain] = useState<DistractionDomain>(() => inferDefaultDomain(pathname, deenMode));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +155,7 @@ export function CaptureForm({
       if (captureType === "task") {
         await captureTask({
           title: parsed.title,
+          area,
           dueDate: parsed.date,
           dueTime: parsed.time ? formatParsedTime(parsed.time) : null,
         });
@@ -162,7 +181,13 @@ export function CaptureForm({
     <div className="flex w-full flex-col gap-4">
       <SegmentedControl
         options={TYPE_OPTIONS.map((o) => ({ ...o, active: o.value === captureType }))}
-        onSelect={(value) => setCaptureType(value as CaptureType)}
+        onSelect={(value) => {
+          if (value === "distraction" && onOpenDistractionLogger) {
+            onOpenDistractionLogger();
+            return;
+          }
+          setCaptureType(value as CaptureType);
+        }}
       />
 
       <div className="flex items-start gap-2">
@@ -213,7 +238,27 @@ export function CaptureForm({
           )}
         </p>
         {whenLabel && <p className="text-xs text-muted-foreground">When: {whenLabel}</p>}
-        {captureType === "distraction" && (
+        {captureType === "task" && (
+          <div role="radiogroup" aria-label="Area" className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            Area
+            {areaConfig.options.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={area === o.value}
+                onClick={() => setArea(o.value)}
+                className={cn(
+                  "min-h-8 rounded-full border px-2.5",
+                  area === o.value ? "border-primary bg-primary/10 text-foreground" : "border-input hover:text-foreground"
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {captureType === "distraction" && !onOpenDistractionLogger && (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             Category
             <select

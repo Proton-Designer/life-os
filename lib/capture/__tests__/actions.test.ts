@@ -46,19 +46,19 @@ describe("capture actions", () => {
 
   describe("captureTask", () => {
     it("routes to addTaskCore with domain school — the only path that action has", async () => {
-      await captureTask({ title: "Submit lab report", dueDate: "2026-09-05" });
+      await captureTask({ area: "school", title: "Submit lab report", dueDate: "2026-09-05" });
       expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "school", title: "Submit lab report", dueDate: "2026-09-05" });
     });
 
     it("never passes estimated_minutes or a taskType — a captured task earns both later", async () => {
-      await captureTask({ title: "Submit lab report", dueDate: "2026-09-05" });
+      await captureTask({ area: "school", title: "Submit lab report", dueDate: "2026-09-05" });
       const call = addTaskCoreMock.mock.calls[0]![2] as Record<string, unknown>;
       expect(call).not.toHaveProperty("estimatedMinutes");
       expect(call).not.toHaveProperty("taskType");
     });
 
     it("omits dueDate entirely when nothing resolved, rather than fabricating today as a deadline", async () => {
-      await captureTask({ title: "Buy notebook", dueDate: null });
+      await captureTask({ area: "school", title: "Buy notebook", dueDate: null });
       expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "school", title: "Buy notebook" });
     });
 
@@ -68,7 +68,7 @@ describe("capture actions", () => {
     // urgency ranking all missed it (each keys off due_time being non-null). Threaded
     // through here, the same way dueDate already is.
     it("threads dueTime through to addTaskCore — regression test for #30/#31", async () => {
-      await captureTask({ title: "Submit lab report", dueDate: "2026-09-05", dueTime: "17:00" });
+      await captureTask({ area: "school", title: "Submit lab report", dueDate: "2026-09-05", dueTime: "17:00" });
       expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", {
         domain: "school",
         title: "Submit lab report",
@@ -78,9 +78,30 @@ describe("capture actions", () => {
     });
 
     it("omits dueTime entirely when nothing resolved, rather than fabricating midnight", async () => {
-      await captureTask({ title: "Buy notebook", dueDate: null, dueTime: null });
+      await captureTask({ area: "school", title: "Buy notebook", dueDate: null, dueTime: null });
       const call = addTaskCoreMock.mock.calls[0]![2] as Record<string, unknown>;
       expect(call).not.toHaveProperty("dueTime");
+    });
+  });
+
+  describe("captureTask area (IA-P1a)", () => {
+    it("co_op reaches addTaskCore as domain co_op", async () => {
+      await captureTask({ title: "Ship the report", area: "co_op" });
+      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "co_op", title: "Ship the report" });
+    });
+
+    it("'none' is the Inbox: a domain-null dump_source 'capture' row carrying the parsed date/time, never addTaskCore", async () => {
+      tasksInsertChain = makeChain({ data: { domain: null, dump_source: "capture" }, error: null });
+      await captureTask({ title: "Call the landlord", area: "none", dueDate: "2026-10-09", dueTime: "09:30" });
+      expect(addTaskCoreMock).not.toHaveBeenCalled();
+      const row = tasksInsertChain.insert.mock.calls[0]![0] as Record<string, unknown>;
+      expect(row).toMatchObject({ domain: null, dump_source: "capture", title: "Call the landlord", due_date: "2026-10-09", due_time: "09:30" });
+    });
+
+    it("rejects a missing or unknown area instead of quietly filing under School", async () => {
+      await expect(captureTask({ title: "x", area: undefined as never })).rejects.toThrow(/area/i);
+      await expect(captureTask({ title: "x", area: "business" as never })).rejects.toThrow(/area/i);
+      expect(addTaskCoreMock).not.toHaveBeenCalled();
     });
   });
 

@@ -7,6 +7,7 @@ import { CloseReflectStage } from "@/components/evening-close/close-reflect-stag
 import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
 import { VerdictDueList } from "@/components/promotions/verdict-card";
 import { getDuePromotions } from "@/lib/promotions/read";
+import { loadCloseInbox } from "@/lib/inbox/close-inbox";
 
 /**
  * The evening close — B1.
@@ -31,6 +32,7 @@ export default async function EveningClosePage() {
   // promotions existed, so there is no wrapper and no heading here: the
   // component supplies its own <h3>.
   const duePromotions = await getDuePromotions();
+  const inbox = data.blockers.length === 0 ? await loadCloseInbox() : null;
 
   return (
     <PageContainer>
@@ -56,7 +58,13 @@ export default async function EveningClosePage() {
               activeHabits={data.activeHabits}
             />
             <VerdictDueList promotions={duePromotions} />
-            <ClosePlanStage initialLines={data.tomorrowLines} seeds={data.planSeeds} mode="tonight" />
+            <ClosePlanStage
+              initialLines={data.tomorrowLines}
+              seeds={data.planSeeds}
+              mode="tonight"
+              inbox={inbox?.items}
+              inboxAreas={inbox?.areas}
+            />
           </>
         ) : null}
       </div>

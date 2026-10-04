@@ -220,4 +220,31 @@ describe("DistractionCaptureDialog", () => {
       expect(await screen.findByRole("heading", { name: "Business" })).toBeInTheDocument();
     });
   });
+
+  // IA-P1a: the "+" capture sheet drives THIS component (one logger) with controlled open state.
+  describe("controlled by the capture sheet", () => {
+    it("opens from the open prop with no '+1' trigger of its own, and logs through the same action", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t9", name: "Phone" })]);
+      const onOpenChange = vi.fn();
+      render(
+        <LockInOverlayProvider initialSession={null}>
+          <DistractionCaptureDialog deenMode open onOpenChange={onOpenChange} hideTrigger />
+        </LockInOverlayProvider>
+      );
+      expect(screen.queryByRole("button", { name: "Log a distraction" })).toBeNull();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Phone" }));
+      expect(logDistractionMock).toHaveBeenCalledWith("t9", undefined, null);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("stays closed while open is false", () => {
+      render(
+        <LockInOverlayProvider initialSession={null}>
+          <DistractionCaptureDialog open={false} hideTrigger />
+        </LockInOverlayProvider>
+      );
+      expect(screen.queryByText("What happened?")).toBeNull();
+    });
+  });
 });

@@ -148,3 +148,14 @@ with no fallback — see `.brain/memory/known-issues.md`.
 - **Test plan (heat):** vitest runs `.ts` in node and `.tsx` in jsdom (e4e4be8; a `.ts` test needing DOM starts with `// @vitest-environment jsdom`). Per task: related tests while building, ONE `heavy.sh ./scripts/preflight.sh` before the author's commit, reviewers run `related` + tsc only, the lead runs a full preflight per deploy.
 
 **Do not undo without understanding:** converting an absolute setter back to a toggle reintroduces the failure-then-queued-tap flip bug (PERF-1 review F1).
+
+## One "+" capture: Task picks its area, Note → Inbox, one distraction logger (IA-P1a, 2026-10-04)
+
+**Status:** Active (IA Option A, phase P1a)
+**Source:** `audit/IA/IA-A-PLAN.md`, `lib/capture/areas.ts`, `lib/inbox/inbox-core.ts`
+
+- **Task area is chosen, never hard-wired:** `captureTask({area})` — `school`/`co_op` → `addTaskCore` (`tasks.domain` CHECK admits only those); `none` = the **Inbox**. An unknown/missing area throws (no quiet default to School). The sheet's chip row comes from `buildCaptureAreaConfig(navMode, navDomainState)` (legacy = School + Work + Inbox; domains = only the areas turned on; a Work area needs a job tab). Default per route: `/school`→School, `/work`, `/work/<job tab>`→Work, `/work/<business tab>` and `/business`→No area (Business has no task home — never guessed), elsewhere→No area.
+- **Inbox = existing rows, no migration:** `tasks` with `domain IS NULL`, `dump_source='capture'`, `completed=false` (a Note, or a "No area" Task which also keeps its parsed due date/time). The evening close PLAN stage shows them above the dump with one-tap triage (`triageInboxItem` → `triageInboxCore`): Plan tonight (→ `dump_source='note'` + the ceremony's planned date, server-derived), Task in <area> (→ domain set, planned_date cleared), It's a worry (→ `dump_source='worry'`), Done (→ `completed=true`; nothing is ever deleted). Every update re-asserts the Inbox shape in its WHERE and errors when 0 rows change, so a stale tap can't touch an already-triaged row. Only `/close` (tonight) shows the Inbox, not `/close/replan`.
+- **One distraction logger:** the "+" sheet's Distraction segment opens the topbar `DistractionCaptureDialog` (controlled `open`/`onOpenChange`/`hideTrigger`) instead of its own text form. The standalone `/capture` page (no app shell/Lock-In provider) keeps the old text form via `captureDistraction`, which ends in the same `createTriggerAndLog`.
+
+**Do not undo without understanding:** moving a triaged Inbox row without leaving the `domain null + dump_source capture` shape makes it reappear in the Inbox every night.

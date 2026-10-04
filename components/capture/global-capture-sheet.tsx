@@ -6,6 +6,8 @@ import { Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { CaptureForm } from "./capture-form";
+import { DistractionCaptureDialog } from "@/components/distractions/distraction-capture-dialog";
+import type { CaptureAreaConfig } from "@/lib/capture/areas";
 
 /**
  * Global capture (BOSS-VISION §5): one tap, from any screen — type or dictate, parse,
@@ -19,8 +21,10 @@ import { CaptureForm } from "./capture-form";
  * guarantee. This is the same behavior the pre-extraction version got from an explicit
  * `reset()` call in `handleClose`; here it falls out of the mount boundary itself.
  */
-export function GlobalCaptureSheet({ timezone, deenMode = false }: { timezone: string; deenMode?: boolean }) {
+export function GlobalCaptureSheet({ timezone, deenMode = false, areas }: { timezone: string; deenMode?: boolean; areas?: CaptureAreaConfig }) {
   const [open, setOpen] = useState(false);
+  // IA-P1a: Distraction in the sheet hands off to the app's one logger (the topbar +1 dialog's component, opened controlled here).
+  const [loggerOpen, setLoggerOpen] = useState(false);
 
   function handleClose() {
     setOpen(false);
@@ -56,9 +60,23 @@ export function GlobalCaptureSheet({ timezone, deenMode = false }: { timezone: s
             </Link>
           </DialogHeader>
 
-          {open && <CaptureForm key="open" timezone={timezone} deenMode={deenMode} onCaptured={handleClose} onCancel={handleClose} />}
+          {open && (
+            <CaptureForm
+              key="open"
+              timezone={timezone}
+              deenMode={deenMode}
+              areas={areas}
+              onOpenDistractionLogger={() => {
+                handleClose();
+                setLoggerOpen(true);
+              }}
+              onCaptured={handleClose}
+              onCancel={handleClose}
+            />
+          )}
         </DialogContent>
       </Dialog>
+      <DistractionCaptureDialog deenMode={deenMode} open={loggerOpen} onOpenChange={setLoggerOpen} hideTrigger />
     </>
   );
 }
