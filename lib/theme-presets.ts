@@ -1,22 +1,20 @@
 /**
- * L10 (docs/ai-connector/PROGRAM-PLAN.md): ~5 accent-color presets, applied
- * via a `data-theme-preset` attribute the authenticated shell sets on a
- * `display:contents` wrapper (components/shell/app-shell-chrome.tsx) —
- * `app/globals.css` defines the override blocks this id selects between.
+ * Appearance presets (L10, rebuilt by THEME-01). Each preset is a COMPLETE colour
+ * scheme -- background, surfaces, borders, text, glow, chrome accent and the
+ * per-domain accents -- defined as one block in app/globals.css
+ * (`:root[data-theme-preset="<id>"]`) and applied to <html> so the body, dialogs,
+ * popovers and toasts (which render in portals outside the app shell) all follow.
  *
- * DELIBERATELY NOT A LIGHT/DARK TOGGLE. components/settings/settings-form.tsx
- * has documented since v1 that this app is "dark-first... the only theme for
- * v1" — that decision stands. Presets vary only the per-domain ACCENT hues
- * (`--accent-deen`, `--accent-fitness`, `--accent-business`, `--accent-school`,
- * `--accent-coop`, `--accent-info`) against the same dark background/
- * foreground/card palette every preset shares. "warning"/"noise" (destructive)
- * stay constant across every preset on purpose — those are semantic system
- * colors (error, caution), not brand identity, and letting them drift per
- * cosmetic preset risks a preset making "this is dangerous" look ordinary.
+ * Still dark-first: no light/dark toggle (components/settings/settings-form.tsx has
+ * documented that since v1). Semantic colours (destructive/noise, warning) stay
+ * constant across presets on purpose -- "this is dangerous" must not look ordinary
+ * because of a cosmetic choice.
  *
- * "oxblood" is the CURRENT palette's values, verbatim, and MUST stay the
- * default — an account that never touches this setting (everyone, until
- * this ships a UI for it) must see zero visual change.
+ * "Midnight" is today's look, verbatim, and the default. Its stored id stays
+ * `oxblood`: profiles.theme_preset has a CHECK constraint on that literal
+ * (migration 134), so the id is an internal key and `label` is what people see.
+ * Adding a preset = one id here + one `:root[data-theme-preset]` block in
+ * globals.css + one PRESET_PREVIEW entry (the registry test checks all three agree).
  */
 
 export const THEME_PRESET_IDS = ["oxblood", "ocean", "forest", "sunset", "mono"] as const;
@@ -35,9 +33,26 @@ export function resolveThemePreset(value: string | null | undefined): ThemePrese
 }
 
 export const THEME_PRESETS: Record<ThemePresetId, { label: string; description: string }> = {
-  oxblood: { label: "Oxblood", description: "The original — amber, violet, green, blue, and magenta on the ember glow. Default." },
-  ocean: { label: "Ocean", description: "Cool teal, sky blue, sea green, cyan, and indigo." },
-  forest: { label: "Forest", description: "Warm gold, fern green, olive, pine, and clay." },
-  sunset: { label: "Sunset", description: "Orange, rose, warm gold, and orchid." },
-  mono: { label: "Mono", description: "Desaturated and minimal — soft tints instead of saturated color." },
+  oxblood: { label: "Midnight", description: "The original: near-black with an ember glow. Amber, violet, green, blue and magenta accents. Default." },
+  ocean: { label: "Ocean", description: "Deep navy and teal surfaces with sea-green and sky-blue accents." },
+  forest: { label: "Forest", description: "Dark pine surfaces with fern, olive and warm-gold accents." },
+  sunset: { label: "Sunset", description: "Plum-dusk surfaces with orange, rose and orchid accents." },
+  mono: { label: "Mono", description: "Neutral graphite with soft, desaturated tints." },
+};
+
+/**
+ * Literal values per preset, mirroring app/globals.css exactly (a swatch must show a
+ * preset that is NOT the one applied right now, so it can't read live CSS variables).
+ * `bg` also drives <meta name="theme-color">. Kept in step with the CSS by
+ * lib/__tests__/theme-presets.test.ts.
+ */
+export const PRESET_PREVIEW: Record<
+  ThemePresetId,
+  { bg: string; card: string; foreground: string; accents: { deen: string; fitness: string; business: string; school: string; coop: string; info: string } }
+> = {
+  oxblood: { bg: "#0a0a0c", card: "#131316", foreground: "#f2efec", accents: { deen: "#e0a030", fitness: "#9085e9", business: "#4caf7d", school: "#6aa9ff", coop: "#d55181", info: "#5b8fd9" } },
+  ocean: { bg: "#06141b", card: "#0b1f2b", foreground: "#e8f3f6", accents: { deen: "#3ba7a0", fitness: "#5b8fd9", business: "#2ecc9c", school: "#4fc3d9", coop: "#7a8bea", info: "#38b6cc" } },
+  forest: { bg: "#09130d", card: "#101d16", foreground: "#ecf2e6", accents: { deen: "#d4a04a", fitness: "#5fae7a", business: "#7fae4a", school: "#3f9e7a", coop: "#c27c5a", info: "#6fae5a" } },
+  sunset: { bg: "#170b12", card: "#231220", foreground: "#f8ede6", accents: { deen: "#f0a050", fitness: "#e06590", business: "#f2c14e", school: "#c76bd9", coop: "#ef7d5c", info: "#e88a5c" } },
+  mono: { bg: "#111111", card: "#1b1b1b", foreground: "#ededed", accents: { deen: "#c9c2b8", fitness: "#a8a4c9", business: "#a8c2ae", school: "#a8b8c9", coop: "#c9a8b8", info: "#b0b0b8" } },
 };

@@ -5,6 +5,7 @@ import { getKillListSlots } from "@/lib/business/kill-list-slots";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { computeNavDomainState, type NavDomainState } from "@/lib/shell/nav-domain-state";
 import { resolveThemePreset } from "@/lib/theme-presets";
+import { ThemeRootScript } from "@/components/shell/theme-root-script";
 import { sanitizeHiddenFeatures } from "@/lib/features";
 import { AppShellChrome } from "./app-shell-chrome";
 import type { LockInSessionKind } from "@/components/business/lock-in-overlay-context";
@@ -93,6 +94,8 @@ export async function AppShell({
     userDomains.mode === "domains" ? computeNavDomainState(userDomains.domains, userDomains.subdomains, deenMode) : null;
 
   return (
+    <>
+    <ThemeRootScript preset={themePreset} />
     <AppShellChrome
       account={account}
       userId={user?.id ?? null}
@@ -131,5 +134,6 @@ export async function AppShell({
     >
       {children}
     </AppShellChrome>
+    </>
   );
 }

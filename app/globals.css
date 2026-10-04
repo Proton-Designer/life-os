@@ -156,50 +156,123 @@
 }
 
 /*
- * L10 theme presets (docs/ai-connector/PROGRAM-PLAN.md). See
- * lib/theme-presets.ts for the full reasoning: dark-first stays unchanged
- * (same background/foreground/card/glow every preset shares), only the
- * per-domain accents + the chrome accent vary. `[data-theme-preset]`
- * targets any element, not `:root` specifically — the authenticated shell
- * sets it on a `display:contents` wrapper (components/shell/
- * app-shell-chrome.tsx), not on <html>, since a root layout serving
- * login/signup has no per-user preference to read yet. Custom properties
- * inherit normally regardless of which element carries the attribute.
+ * Theme presets (THEME-01). Each block is a COMPLETE scheme -- surfaces, text,
+ * borders, glow, chrome accent and the per-domain accents -- selected by
+ * `data-theme-preset` on <html> (set server-side by components/shell/
+ * theme-root-script.tsx before first paint, and client-side on every switch by
+ * lib/client/theme-root.ts), so the body, portals (dialogs/popovers/toasts) and
+ * the PWA theme-color all follow. See lib/theme-presets.ts.
  *
- * "oxblood" has NO override block here on purpose — its values ARE :root's
- * own defaults above. Adding a redundant `[data-theme-preset="oxblood"]`
- * block that repeats them would be a second place those six values could
- * drift out of sync with the real default.
+ * "oxblood" (shown as "Midnight") has NO block on purpose: its values ARE :root's
+ * own defaults above, so there is a single copy that cannot drift.
  *
- * --accent-warning and --accent-noise (destructive) are deliberately NEVER
- * overridden here — see lib/theme-presets.ts's header for why semantic
- * system colors stay constant across cosmetic presets.
- *
- * Re-step together, not one at a time, if any preset's palette ever
- * changes — same discipline the --series-* set above already documents,
- * for the same reason: these five (six, with --accent-info) read as a
- * family in the UI (badges, nav actives, icon chips all together), and an
- * isolated tweak to one is what breaks that.
+ * NEVER overridden here: --destructive/--accent-noise/--accent-warning (semantic
+ * system colours) and --series-* (the chart set, validated as a set by
+ * scripts/validate_palette.js; they are bright enough on every preset surface).
+ * Contrast (WCAG, computed): body text >= 16:1 on background and >= 14:1 on card;
+ * muted text >= 6.1:1 on the lightest surface it sits on; accents >= 4.9:1 on card;
+ * destructive >= 4.6:1 on card. Re-step a preset's accents together, never singly.
  */
-[data-theme-preset="ocean"] {
+/* ocean */
+:root[data-theme-preset="ocean"] {
+  --background: #06141b;
+  --foreground: #e8f3f6;
+  --card: #0b1f2b;
+  --card-foreground: #e8f3f6;
+  --popover: #0b1f2b;
+  --popover-foreground: #e8f3f6;
+  --primary: #e8f3f6;
+  --primary-foreground: #06141b;
+  --secondary: #15323f;
+  --secondary-foreground: #e8f3f6;
+  --muted: #15323f;
+  --muted-foreground: #93b4c0;
+  --accent: #15323f;
+  --accent-foreground: #e8f3f6;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #4f93a8;
+  --sidebar: #0b1f2b;
+  --sidebar-foreground: #e8f3f6;
+  --sidebar-primary: #e8f3f6;
+  --sidebar-primary-foreground: #06141b;
+  --sidebar-accent: #15323f;
+  --sidebar-accent-foreground: #e8f3f6;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #4f93a8;
+  --glow-oxblood: #0b3a4a;
   --accent-deen: #3ba7a0;
   --accent-fitness: #5b8fd9;
   --accent-business: #2ecc9c;
   --accent-school: #4fc3d9;
-  --accent-coop: #6c7ee1;
+  --accent-coop: #7a8bea;
   --accent-info: #38b6cc;
 }
 
-[data-theme-preset="forest"] {
+/* forest */
+:root[data-theme-preset="forest"] {
+  --background: #09130d;
+  --foreground: #ecf2e6;
+  --card: #101d16;
+  --card-foreground: #ecf2e6;
+  --popover: #101d16;
+  --popover-foreground: #ecf2e6;
+  --primary: #ecf2e6;
+  --primary-foreground: #09130d;
+  --secondary: #1a3022;
+  --secondary-foreground: #ecf2e6;
+  --muted: #1a3022;
+  --muted-foreground: #9db4a1;
+  --accent: #1a3022;
+  --accent-foreground: #ecf2e6;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #5a8a66;
+  --sidebar: #101d16;
+  --sidebar-foreground: #ecf2e6;
+  --sidebar-primary: #ecf2e6;
+  --sidebar-primary-foreground: #09130d;
+  --sidebar-accent: #1a3022;
+  --sidebar-accent-foreground: #ecf2e6;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #5a8a66;
+  --glow-oxblood: #12361f;
   --accent-deen: #d4a04a;
   --accent-fitness: #5fae7a;
   --accent-business: #7fae4a;
   --accent-school: #3f9e7a;
-  --accent-coop: #b06b4a;
+  --accent-coop: #c27c5a;
   --accent-info: #6fae5a;
 }
 
-[data-theme-preset="sunset"] {
+/* sunset */
+:root[data-theme-preset="sunset"] {
+  --background: #170b12;
+  --foreground: #f8ede6;
+  --card: #231220;
+  --card-foreground: #f8ede6;
+  --popover: #231220;
+  --popover-foreground: #f8ede6;
+  --primary: #f8ede6;
+  --primary-foreground: #170b12;
+  --secondary: #37203a;
+  --secondary-foreground: #f8ede6;
+  --muted: #37203a;
+  --muted-foreground: #c7a6b4;
+  --accent: #37203a;
+  --accent-foreground: #f8ede6;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #a0607a;
+  --sidebar: #231220;
+  --sidebar-foreground: #f8ede6;
+  --sidebar-primary: #f8ede6;
+  --sidebar-primary-foreground: #170b12;
+  --sidebar-accent: #37203a;
+  --sidebar-accent-foreground: #f8ede6;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #a0607a;
+  --glow-oxblood: #4a2412;
   --accent-deen: #f0a050;
   --accent-fitness: #e06590;
   --accent-business: #f2c14e;
@@ -208,11 +281,34 @@
   --accent-info: #e88a5c;
 }
 
-/* The one preset that isn't hue-rotated but desaturated — "genuinely
-   distinct, not five tints of the same blue" (the Lead's own bar) is as
-   much about approach as hue: this is the only preset where domains read
-   as a family FIRST and by color second, which the other four don't do. */
-[data-theme-preset="mono"] {
+/* mono */
+:root[data-theme-preset="mono"] {
+  --background: #111111;
+  --foreground: #ededed;
+  --card: #1b1b1b;
+  --card-foreground: #ededed;
+  --popover: #1b1b1b;
+  --popover-foreground: #ededed;
+  --primary: #ededed;
+  --primary-foreground: #111111;
+  --secondary: #282828;
+  --secondary-foreground: #ededed;
+  --muted: #282828;
+  --muted-foreground: #a6a6a6;
+  --accent: #282828;
+  --accent-foreground: #ededed;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #7a7a7a;
+  --sidebar: #1b1b1b;
+  --sidebar-foreground: #ededed;
+  --sidebar-primary: #ededed;
+  --sidebar-primary-foreground: #111111;
+  --sidebar-accent: #282828;
+  --sidebar-accent-foreground: #ededed;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #7a7a7a;
+  --glow-oxblood: #2a2a2a;
   --accent-deen: #c9c2b8;
   --accent-fitness: #a8a4c9;
   --accent-business: #a8c2ae;

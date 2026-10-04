@@ -133,10 +133,14 @@ describe("AppShellChrome", () => {
     expect(screen.queryAllByRole("link", { name: "Settings" }).length).toBeGreaterThan(0);
   });
 
-  // L10 (docs/ai-connector/PROGRAM-PLAN.md).
-  it("sets data-theme-preset on a wrapper covering the whole shell, so app/globals.css's [data-theme-preset] accent overrides reach every descendant", () => {
+  // THEME-01: the preset lives on <html> (ThemeRootScript before paint, ThemeRootSync on
+  // navigation), NOT on a wrapper div: a closer ancestor attribute would override the
+  // root one and stop an instant switch from reaching the shell.
+  it("syncs the server preset onto <html> and puts no data-theme-preset on any wrapper", () => {
+    document.documentElement.removeAttribute("data-theme-preset");
     const { container } = renderChrome({ themePreset: "ocean" });
-    expect(container.querySelector('[data-theme-preset="ocean"]')).toBeInTheDocument();
+    expect(document.documentElement.getAttribute("data-theme-preset")).toBe("ocean");
+    expect(container.querySelector("[data-theme-preset]")).toBeNull();
   });
 
   it("hiddenFeatures removes the matching nav destination from the fixed icon row, without touching the others", () => {

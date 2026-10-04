@@ -15,6 +15,7 @@ import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
 import { GlobalCaptureSheet } from "@/components/capture/global-capture-sheet";
 import type { ThemePresetId } from "@/lib/theme-presets";
+import { ThemeRootSync } from "@/components/shell/theme-root-sync";
 import type { FeatureId } from "@/lib/features";
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
@@ -83,17 +84,12 @@ export function AppShellChrome({
   children: React.ReactNode;
 }) {
   return (
-    // display:contents (Tailwind's `contents`, same idiom already used by
-    // components/settings/settings-form.tsx's <form>): this wrapper exists
-    // ONLY to carry data-theme-preset so app/globals.css's
-    // [data-theme-preset] blocks can override the accent custom properties
-    // for every descendant, INCLUDING LockInOverlay below (a sibling of the
-    // main shell div, not a child of it — this div has to wrap both, or
-    // Lock-In's own accent-tinted UI wouldn't pick up the preset). `contents`
-    // means this adds a node to the React/CSS-inheritance tree but NOT to
-    // layout — no flex/height/position semantics for anything already
-    // relying on being a direct child of whatever rendered AppShellChrome.
-    <div data-theme-preset={themePreset} className="contents">
+    // display:contents wrapper (no layout effect). THEME-01: the preset now lives on
+    // <html> (ThemeRootScript sets it before paint, ThemeRootSync/applyThemePreset
+    // keep it current) -- NOT on this div, because a closer ancestor attribute would
+    // override the root one and stop instant switching from reaching the app.
+    <div className="contents">
+      <ThemeRootSync preset={themePreset} />
     <AllocationQueueProvider>
       {/* Re-mounted 2026-08-26 (batch 2 afternoon): root cause found and
           fixed — see components/realtime/realtime-sync-provider.tsx's own

@@ -1,53 +1,91 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
+import { resetThemeRootForTests } from "@/lib/client/theme-root";
 
-const updateProfile = vi.fn(async (..._args: unknown[]) => {});
-vi.mock("@/app/(app)/settings/actions", () => ({ updateProfile: (...args: unknown[]) => updateProfile(...args) }));
+const setThemePreset = vi.fn(async (..._args: unknown[]) => {});
+vi.mock("@/app/(app)/settings/theme-actions", () => ({
+  setThemePreset: (...args: unknown[]) => setThemePreset(...args),
+  refreshThemeViews: vi.fn(async () => {}),
+}));
 
 import { ThemeSettings } from "../theme-settings";
 
+const rootPreset = () => document.documentElement.getAttribute("data-theme-preset");
+
+function deferred() {
+  let resolve!: () => void;
+  let reject!: (e: Error) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("ThemeSettings", () => {
   beforeEach(() => {
-    updateProfile.mockReset();
-    updateProfile.mockImplementation(async () => {});
+    resetKeyedQueuesForTests();
+    resetThemeRootForTests();
+    document.documentElement.removeAttribute("data-theme-preset");
+    setThemePreset.mockReset();
+    setThemePreset.mockImplementation(async () => {});
   });
 
-  it("renders all 5 presets, marking the initial one Current", () => {
+  it("renders Midnight first and the other 4 presets, marking the initial one Current", () => {
     render(<ThemeSettings initial="oxblood" />);
-    for (const label of ["Oxblood", "Ocean", "Forest", "Sunset", "Mono"]) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
-    expect(screen.getByRole("button", { name: /Oxblood/ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /Ocean/ })).toHaveAttribute("aria-pressed", "false");
+    const labels = screen.getAllByRole("button").map((b) => b.querySelector("span")?.textContent);
+    expect(labels).toEqual(["Midnight", "Ocean", "Forest", "Sunset", "Mono"]);
+    expect(screen.getByRole("button", { name: /Midnight/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("picking a preset calls updateProfile with theme_preset and flips the pressed state", async () => {
+  it("a click restyles the root IMMEDIATELY (before the save resolves) and nothing is disabled", async () => {
+    const save = deferred();
+    setThemePreset.mockImplementationOnce(() => save.promise);
     const user = userEvent.setup();
     render(<ThemeSettings initial="oxblood" />);
 
     await user.click(screen.getByRole("button", { name: /Ocean/ }));
 
-    expect(updateProfile).toHaveBeenCalledWith({ theme_preset: "ocean" });
+    expect(rootPreset()).toBe("ocean");
     expect(screen.getByRole("button", { name: /Ocean/ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /Oxblood/ })).toHaveAttribute("aria-pressed", "false");
+    for (const b of screen.getAllByRole("button")) expect(b).toBeEnabled();
+    await act(async () => save.resolve());
   });
 
-  it("clicking the already-selected preset does not call updateProfile again", async () => {
+  it("rapid clicks across presets end on the LAST one, persisted in click order", async () => {
+    const first = deferred();
+    setThemePreset.mockImplementationOnce(() => first.promise);
     const user = userEvent.setup();
     render(<ThemeSettings initial="oxblood" />);
-    await user.click(screen.getByRole("button", { name: /Oxblood/ }));
-    expect(updateProfile).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /Ocean/ }));
+    await user.click(screen.getByRole("button", { name: /Forest/ }));
+    await user.click(screen.getByRole("button", { name: /Sunset/ }));
+    expect(rootPreset()).toBe("sunset");
+    await act(async () => first.resolve());
+    await waitFor(() => expect(setThemePreset).toHaveBeenCalledTimes(3));
+    expect(setThemePreset.mock.calls.map((c) => c[0])).toEqual(["ocean", "forest", "sunset"]);
+    expect(rootPreset()).toBe("sunset");
   });
 
-  it("reverts the optimistic selection and shows an error if the save fails", async () => {
-    updateProfile.mockRejectedValueOnce(new Error("Unknown theme_preset"));
+  it("clicking the already-selected preset saves nothing", async () => {
+    const user = userEvent.setup();
+    render(<ThemeSettings initial="oxblood" />);
+    await user.click(screen.getByRole("button", { name: /Midnight/ }));
+    expect(setThemePreset).not.toHaveBeenCalled();
+  });
+
+  it("a failed save puts the app back on the last saved preset and shows an error", async () => {
+    setThemePreset.mockRejectedValueOnce(new Error("offline"));
     const user = userEvent.setup();
     render(<ThemeSettings initial="oxblood" />);
 
     await user.click(screen.getByRole("button", { name: /Forest/ }));
 
-    expect(await screen.findByText(/Unknown theme_preset/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Oxblood/ })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("alert")).toHaveTextContent("offline");
+    expect(screen.getByRole("button", { name: /Midnight/ })).toHaveAttribute("aria-pressed", "true");
+    expect(rootPreset()).toBe("oxblood");
   });
 });

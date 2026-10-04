@@ -354,6 +354,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
 
   // ── Settings ────────────────────────────────────────────────────────────
   "app/(app)/settings/account-actions.ts#deleteMyAccount": { excluded: "hard_delete: deletes the whole account" },
+  "app/(app)/settings/theme-actions.ts#setThemePreset": { mcp: "settings.profile.update", note: "lean twin of updateProfile({theme_preset}) for the instant appearance picker" },
+  "app/(app)/settings/theme-actions.ts#refreshThemeViews": { read_only: true, note: "THEME-01: data-free cache revalidation scheduled by the appearance picker after a burst of clicks" },
   "app/(app)/settings/actions.ts#updateProfile": { mcp: "settings.profile.update", note: "partial: display_name/timezone/prayer/location/checkin-window fields land in P4-26" },
   "app/(app)/settings/ai-preference-actions.ts#getMyAiPreference": { read_only: true },
   "app/(app)/settings/ai-preference-actions.ts#saveMyAiPreference": { pending: "P4-26", note: "settings.ai_preference.save (provider/tier, not a credential)" },
