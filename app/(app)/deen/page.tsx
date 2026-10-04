@@ -29,7 +29,7 @@ import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { computeHabitRollingRate, buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
-import { buildQadaBacklog, bucketQadaBacklog, totalQadaOwed } from "@/lib/deen/qada-backlog";
+import { buildQadaBacklog, bucketQadaBacklog, itemsInQadaWindow, qadaWindowStart, totalQadaOwed } from "@/lib/deen/qada-backlog";
 import { QadaBacklogCard } from "@/components/deen/qada-backlog-card";
 import { bucketPagesByDay } from "@/lib/deen/quran-trend";
 import { buildPrayerConsistencyRows, computeOnTimeRate } from "@/lib/deen/prayer-consistency";
@@ -77,6 +77,11 @@ export default async function DeenPage() {
   const weekStart = getWeekStartDate(dateStr);
   const previousWeekStart = addDaysToDateString(weekStart, -7);
   const sixtyDaysAgoStr = addDaysToDateString(dateStr, -59);
+  // QADA-3M: the Qada backlog preview covers the last 3 calendar months. One
+  // prayer-history read starts at whichever is earlier so the 60-day grids/streak
+  // and the 3-month backlog share it.
+  const qadaWindowStartStr = qadaWindowStart(dateStr);
+  const prayerHistoryStartStr = qadaWindowStartStr < sixtyDaysAgoStr ? qadaWindowStartStr : sixtyDaysAgoStr;
   const thirtyDaysAgoStr = addDaysToDateString(dateStr, -29);
   const sevenDaysAgoStr = addDaysToDateString(dateStr, -6);
   // The monthly reflection calendar (spec 2026-08-23 §7) needs every entry
@@ -100,7 +105,7 @@ export default async function DeenPage() {
     // One 60-day range query serves today's status, the 30-day consistency
     // grid, the streak, and the 7-day qada catch-up count — sliced in
     // memory rather than four separate queries.
-    supabase.from("prayers").select("date, prayer_name, status").eq("user_id", userId).gte("date", sixtyDaysAgoStr),
+    supabase.from("prayers").select("date, prayer_name, status").eq("user_id", userId).gte("date", prayerHistoryStartStr),
     supabase
       .from("quran_sessions")
       .select("date, pages_read, surah, juz")
@@ -149,9 +154,11 @@ export default async function DeenPage() {
   // comment for the full "why" (R7's account wipe, migration 051).
   const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
   const sixtyDayDates = Array.from({ length: 60 }, (_, i) => addDaysToDateString(sixtyDaysAgoStr, i));
+  const historyDayCount = Math.round((Date.parse(`${dateStr}T00:00:00Z`) - Date.parse(`${prayerHistoryStartStr}T00:00:00Z`)) / 86_400_000) + 1;
+  const historyDates = Array.from({ length: historyDayCount }, (_, i) => addDaysToDateString(prayerHistoryStartStr, i));
   const resolvedStatuses = resolvePrayerStatuses({
     rows: allPrayerRows,
-    dates: sixtyDayDates,
+    dates: historyDates,
     lat: profile?.location_lat ?? null,
     lng: profile?.location_lng ?? null,
     timezone,
@@ -272,8 +279,9 @@ export default async function DeenPage() {
   // left completely alone; the displayed total adds the real derived count
   // on top of it — never recomputes or migrates the legacy number itself.
   const qadaBacklog = buildQadaBacklog(resolvedStatuses);
-  const totalQadaBacklog = totalQadaOwed(profile?.qada_owed ?? 0, qadaBacklog.derivedCount);
-  const qadaBuckets = bucketQadaBacklog(qadaBacklog.items, sevenDaysAgoStr, thirtyDaysAgoStr);
+  const qadaWindowItems = itemsInQadaWindow(qadaBacklog.items, dateStr);
+  const totalQadaBacklog = totalQadaOwed(profile?.qada_owed ?? 0, qadaWindowItems.length);
+  const qadaBuckets = bucketQadaBacklog(qadaWindowItems, sevenDaysAgoStr, thirtyDaysAgoStr);
 
   // --- Qur'an: this week's total + delta vs last week + daily trend ---
   const sessions = quranSessionRows ?? [];

@@ -1,4 +1,5 @@
 import { PRAYER_NAMES, type PrayerName } from "@/lib/prayer-times/windows";
+import { addMonthsToDateString } from "@/lib/date-utils";
 import type { ResolvedDayStatuses } from "./prayer-status";
 
 export type QadaBacklogItem = { date: string; prayer: PrayerName };
@@ -63,4 +64,24 @@ export function bucketQadaBacklog(
     else older.push(item);
   }
   return { last7, month, older };
+}
+
+/** The Qada preview/backlog covers this many calendar months back from today (QADA-3M, user request). */
+export const QADA_WINDOW_MONTHS = 3;
+
+/**
+ * First calendar day (inclusive) of the Qada window: exactly 3 calendar months
+ * before `todayStr` (the user's LOCAL date -- pass localDateString(now, tz), never
+ * a raw Date). Pure calendar arithmetic with day clamping (May 31 -> Feb 28/29).
+ * The tracking floor still applies on top: resolvePrayerStatuses never derives a
+ * "missed" before `tracking_started_on`, so nothing before tracking began is counted.
+ */
+export function qadaWindowStart(todayStr: string): string {
+  return addMonthsToDateString(todayStr, -QADA_WINDOW_MONTHS);
+}
+
+/** Keep only backlog items inside the window (date >= windowStart); order is inherited. */
+export function itemsInQadaWindow(items: QadaBacklogItem[], todayStr: string): QadaBacklogItem[] {
+  const start = qadaWindowStart(todayStr);
+  return items.filter((i) => i.date >= start);
 }

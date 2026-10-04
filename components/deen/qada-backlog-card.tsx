@@ -166,7 +166,7 @@ function BacklogDialogBody({ buckets, legacyOwed }: { buckets: QadaBacklogBucket
           contradicts the headline "last 7 days" figure a few inches away. */}
       <BacklogSection title="Earlier this month" items={month} defaultExpanded={false} onItemMarked={removeFromMonth} />
       <BacklogSection
-        title="All time"
+        title="Earlier (up to 3 months)"
         items={older}
         defaultExpanded={false}
         onItemMarked={removeFromOlder}
@@ -200,7 +200,14 @@ export function QadaBacklogCard({
   legacyOwed: number;
 }) {
   return (
-    <KpiCard icon={History} accent={accent} label="Qada backlog" value={`${buckets.last7.length}`} caption={caption}>
+    // QADA-3M: the preview number is everything still to make up from the last 3 months.
+    <KpiCard
+      icon={History}
+      accent={accent}
+      label="Qada backlog · last 3 months"
+      value={`${buckets.last7.length + buckets.month.length + buckets.older.length}`}
+      caption={caption}
+    >
       <Dialog>
         <DialogTrigger asChild>
           <Button type="button" variant="outline" size="sm" className="mt-1 self-start">
@@ -209,7 +216,7 @@ export function QadaBacklogCard({
         </DialogTrigger>
         <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Qada backlog</DialogTitle>
+            <DialogTitle>Qada backlog — last 3 months</DialogTitle>
           </DialogHeader>
           {/* A real (dozens-of-rows) backlog overflows the viewport with no
               way to reach the tail — only visible in an actual browser

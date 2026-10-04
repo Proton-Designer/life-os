@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildQadaBacklog, bucketQadaBacklog, totalQadaOwed } from "../qada-backlog";
+import { buildQadaBacklog, bucketQadaBacklog, totalQadaOwed, qadaWindowStart, itemsInQadaWindow } from "../qada-backlog";
 import type { ResolvedDayStatuses } from "../prayer-status";
 
 function day(overrides: Partial<ResolvedDayStatuses>): ResolvedDayStatuses {
@@ -93,5 +93,33 @@ describe("totalQadaOwed", () => {
 
   it("is just the legacy count when nothing is derived", () => {
     expect(totalQadaOwed(4, 0)).toBe(4);
+  });
+});
+
+describe("QADA-3M window", () => {
+  it("starts exactly 3 calendar months before today (inclusive)", () => {
+    expect(qadaWindowStart("2026-08-26")).toBe("2026-05-26");
+    expect(qadaWindowStart("2026-01-15")).toBe("2025-10-15");
+  });
+
+  it("clamps at month ends: May 31 -> Feb 28 (non-leap), Feb 29 (leap); Aug 31 -> May 31", () => {
+    expect(qadaWindowStart("2026-05-31")).toBe("2026-02-28");
+    expect(qadaWindowStart("2028-05-31")).toBe("2028-02-29");
+    expect(qadaWindowStart("2026-08-31")).toBe("2026-05-31");
+  });
+
+  it("keeps the boundary day, drops the day before it, and is NOT the old 60-day window", () => {
+    const items = [
+      { date: "2026-08-25", prayer: "fajr" as const },
+      { date: "2026-05-26", prayer: "fajr" as const }, // exactly 3 months back: kept
+      { date: "2026-05-25", prayer: "isha" as const }, // one day earlier: dropped
+      { date: "2026-06-20", prayer: "asr" as const }, // ~67 days back: outside the old 60-day window, inside 3 months
+    ];
+    expect(itemsInQadaWindow(items, "2026-08-26").map((i) => i.date)).toEqual(["2026-08-25", "2026-05-26", "2026-06-20"]);
+  });
+
+  it("works from the user's local date near midnight: the window follows the string passed, never a UTC instant", () => {
+    // 2026-08-26T03:30Z is still Aug 25 evening in Chicago; the caller passes the LOCAL date.
+    expect(qadaWindowStart("2026-08-25")).toBe("2026-05-25");
   });
 });

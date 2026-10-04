@@ -32,7 +32,7 @@ describe("QadaBacklogCard", () => {
       />
     );
 
-    expect(screen.getByText("Qada backlog")).toBeInTheDocument();
+    expect(screen.getByText("Qada backlog · last 3 months")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText("1 caught up in the last 7 days")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("QadaBacklogCard", () => {
     expect(within(dialog).getByText("Isha", { exact: false })).toBeInTheDocument();
   });
 
-  it("keeps 'Earlier this month' and 'All time' collapsed by default, showing their preview counts only", async () => {
+  it("keeps 'Earlier this month' and 'Earlier (up to 3 months)' collapsed by default, showing their preview counts only", async () => {
     render(
       <QadaBacklogCard
         accent="warning"
@@ -88,7 +88,7 @@ describe("QadaBacklogCard", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("button", { name: /earlier this month/i })).toHaveAttribute("aria-expanded", "false");
-    expect(within(dialog).getByRole("button", { name: /all time/i })).toHaveAttribute("aria-expanded", "false");
+    expect(within(dialog).getByRole("button", { name: /earlier \(up to 3 months\)/i })).toHaveAttribute("aria-expanded", "false");
     expect(within(dialog).queryByText("Asr", { exact: false })).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Maghrib", { exact: false })).not.toBeInTheDocument();
   });
@@ -122,5 +122,22 @@ describe("QadaBacklogCard", () => {
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText(/caught up/i)).toBeInTheDocument();
+  });
+
+  it("QADA-3M: the headline counts the whole 3-month backlog (last 7 + earlier month + older), not just the last 7 days", () => {
+    render(
+      <QadaBacklogCard
+        accent="business"
+        caption="x"
+        buckets={buckets({
+          last7: [item("2026-08-24", "fajr")],
+          month: [item("2026-08-10", "asr"), item("2026-08-09", "isha")],
+          older: [item("2026-06-30", "dhuhr")],
+        })}
+        legacyOwed={0}
+      />
+    );
+    expect(screen.getByText("Qada backlog · last 3 months")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument(); // old behaviour would show 1
   });
 });
