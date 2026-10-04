@@ -108,11 +108,15 @@ test.describe("Deen Mode OFF (the default)", () => {
     await expect(page.getByRole("switch", { name: "Deen Mode" })).toHaveAttribute("aria-checked", "false");
   });
 
-  test("/deen and /personal/faith redirect to Home", async ({ page }) => {
-    for (const route of ["/deen", "/personal/faith"]) {
-      await page.goto(route);
-      await expect(page, route).toHaveURL(/\/$/);
-    }
+  test("/deen redirects to Home; /personal/faith never renders Faith", async ({ page }) => {
+    await page.goto("/deen");
+    await expect(page, "/deen").toHaveURL(/\/$/);
+    // The fixture keeps other areas (body, learning), so the faith area route
+    // falls through to another area instead of Home: assert it is not Faith.
+    await page.goto("/personal/faith");
+    await expect(page, "/personal/faith").not.toHaveURL(/faith/);
+    await expect(page.getByRole("heading", { name: /faith/i })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /faith/i })).toHaveCount(0);
   });
 });
 
@@ -129,7 +133,7 @@ test.describe("Deen Mode ON, then OFF again", () => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
     // Faith is back in navigation and on Home.
-    await expect(page.getByRole("link", { name: /faith|deen|personal/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /faith/i }).first()).toBeVisible();
     await expect(page.getByText("Deen", { exact: true }).first()).toBeVisible();
 
     await page.goto("/personal/faith");
@@ -144,14 +148,15 @@ test.describe("Deen Mode ON, then OFF again", () => {
 
     // Create real deen data while ON: a prayer row (start from a known state).
     await clearIsha(request);
+    const before = (await getDeenState(request)).prayerRows;
     await page.goto("/deen");
     await dismissCheckinDialogIfPresent(page);
     const salahPanel = page.locator("[data-panel]").filter({ has: page.getByText("Salah", { exact: true }) });
     const ishaRow = salahPanel.locator("li", { hasText: "Isha" });
     await expect(ishaRow).toBeVisible();
     await ishaRow.getByRole("button", { name: "On-time" }).click();
-    await expect.poll(async () => (await getDeenState(request)).prayerRows, { timeout: 15_000 }).toBeGreaterThan(0);
-    const rowsWhileOn = (await getDeenState(request)).prayerRows;
+    await expect.poll(async () => (await getDeenState(request)).prayerRows, { timeout: 15_000 }).toBe(before + 1);
+    const rowsWhileOn = before + 1;
 
     // OFF: UI stripped, data identical.
     await toggleInSettings(page, request, false);
