@@ -75,6 +75,25 @@ describe("plan-actions", () => {
     });
   });
 
+  // PERF-4: the dump is tap-rate; no inline re-render wait, one deferred data-free refresh.
+  describe("dumpLine is lean; refreshCloseViews revalidates", () => {
+    it("dumpLine does NOT revalidate inline", async () => {
+      nextChain = () => makeChain({ data: { id: "t1" }, error: null }, calls);
+      const { dumpLine } = await import("../plan-actions");
+      await dumpLine("Read chapter 4");
+      await dumpLine("Fix it now", "today");
+      expect(revalidatePathMock).not.toHaveBeenCalled();
+    });
+
+    it("refreshCloseViews revalidates /close and /close/replan and touches no table", async () => {
+      const { refreshCloseViews } = await import("../plan-actions");
+      await refreshCloseViews();
+      expect(revalidatePathMock).toHaveBeenCalledWith("/close");
+      expect(revalidatePathMock).toHaveBeenCalledWith("/close/replan");
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe("savePlanRanks — per-id UPDATE, not a partial-row upsert (P4-07 04 live-verification finding)", () => {
     // A partial-row `.upsert([{id,user_id,mit_rank}], {onConflict:"id"})`
     // looked atomic but isn't real: Postgres validates NOT NULL constraints

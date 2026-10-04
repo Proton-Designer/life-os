@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { dumpLine, savePlanRanks, claimSeedLines, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
+import { dumpLine, refreshCloseViews, savePlanRanks, claimSeedLines, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
+import { enqueueByKey } from "@/lib/client/keyed-queue";
+import { useScheduleRefresh } from "@/lib/client/use-optimistic-item";
 import { markWorryHandled } from "@/app/(app)/worries/actions";
 
 /**
@@ -61,6 +63,9 @@ function isSeedable(item: DumpItem): item is DumpItem & { source: SeedSource } {
   return item.source === "worry" || item.source === "goal_milestone" || item.source === "school_risk";
 }
 
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshClose = () => refreshCloseViews();
+
 export function ClosePlanStage({
   initialLines,
   seeds = [],
@@ -80,22 +85,32 @@ export function ClosePlanStage({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleRefresh(refreshClose);
 
   const atStarCap = starred.length >= MAX_STARRED;
 
+  // PERF-4: the draft clears at once so the next line can be typed while this one saves;
+  // lines are written in order on one queue, appear with their real id when written, and a
+  // failed write puts the text back with the error. One deferred refresh per burst.
   function add() {
     const title = draft.trim();
     if (title.length === 0) return;
     setError(null);
-    startTransition(async () => {
-      const res = await dumpLine(title, mode);
-      if ("error" in res) {
-        setError(res.error);
-        return;
-      }
-      setLines((prev) => [...prev, { id: res.id, title }]);
-      setDraft("");
-    });
+    setDraft("");
+    void enqueueByKey(`close-dump:${mode}`, () => dumpLine(title, mode))
+      .then((res) => {
+        if ("error" in res) {
+          setError(res.error);
+          setDraft((d) => (d.length === 0 ? title : d));
+          return;
+        }
+        setLines((prev) => [...prev, { id: res.id, title }]);
+      })
+      .catch(() => {
+        setError("Couldn't add that line. Try again.");
+        setDraft((d) => (d.length === 0 ? title : d));
+      })
+      .finally(scheduleRefresh);
   }
 
   function toggleStar(id: string) {

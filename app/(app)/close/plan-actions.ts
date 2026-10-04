@@ -80,9 +80,17 @@ export async function dumpLine(title: string, mode: PlanMode = "tonight"): Promi
   if (ctx === null) return { error: "Not signed in" };
 
   const supabase = await createClient();
-  const result = await dumpLineCore(supabase, ctx.userId, ctx.plannedDate, title);
-  if ("id" in result) revalidatePath(mode === "today" ? "/close/replan" : "/close");
-  return result;
+  // Tap-rate (Add, Enter, Add...): no inline revalidatePath -- it made every Add wait for a
+  // full /close render. The component schedules ONE refreshCloseViews() per burst (PERF-4).
+  return dumpLineCore(supabase, ctx.userId, ctx.plannedDate, title);
+}
+
+/** Data-free cache revalidation scheduled by the plan stage after a burst of dumped lines. Touches no data. */
+export async function refreshCloseViews(): Promise<void> {
+  const user = await getAuthedUser();
+  if (!user) return;
+  revalidatePath("/close");
+  revalidatePath("/close/replan");
 }
 
 /**

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ClosePlanStage } from "../close-plan-stage";
@@ -16,10 +16,12 @@ import type { ClaimedSeed } from "@/app/(app)/close/plan-actions";
  */
 
 const dumpLineMock = vi.fn(async (..._args: unknown[]) => ({ id: "new-id" }));
+const refreshCloseViewsMock = vi.fn(async () => {});
 const savePlanRanksMock = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 const claimSeedLinesMock = vi.fn(async (..._args: unknown[]): Promise<{ claimed: ClaimedSeed[] }> => ({ claimed: [] }));
 vi.mock("@/app/(app)/close/plan-actions", () => ({
   dumpLine: (...args: unknown[]) => dumpLineMock(...args),
+  refreshCloseViews: () => refreshCloseViewsMock(),
   savePlanRanks: (...args: unknown[]) => savePlanRanksMock(...args),
   claimSeedLines: (...args: unknown[]) => claimSeedLinesMock(...args),
 }));
@@ -93,5 +95,47 @@ describe("ClosePlanStage — #28 school_risk seed", () => {
     expect(screen.getByText("Call the landlord")).toBeInTheDocument();
     expect(screen.getByText("Ship the thing")).toBeInTheDocument();
     expect(screen.getByText("VERIFY-101 · Problem Set 3 · due Tue")).toBeInTheDocument();
+  });
+});
+
+// PERF-4: Add is tap-rate -- the draft clears at once, the line lands with its real id,
+// a failed write restores the text, and ONE deferred refresh follows a burst.
+describe("ClosePlanStage — Add (PERF-4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dumpLineMock.mockResolvedValue({ id: "new-id" });
+  });
+
+  it("clears the draft immediately (while the write is in flight), then shows the line", async () => {
+    let finish!: () => void;
+    dumpLineMock.mockImplementationOnce(() => new Promise((resolve) => (finish = () => resolve({ id: "line-1" }))));
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} />);
+    const input = screen.getByLabelText("Dump a line");
+    await user.type(input, "Call the bank{Enter}");
+    expect(input).toHaveValue("");
+    expect(screen.queryByText("Call the bank")).not.toBeInTheDocument();
+    finish();
+    expect(await screen.findByText("Call the bank")).toBeInTheDocument();
+  });
+
+  it("a failed write puts the text back with the error", async () => {
+    dumpLineMock.mockResolvedValueOnce({ error: "Could not save" } as never);
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} />);
+    await user.type(screen.getByLabelText("Dump a line"), "Call the bank{Enter}");
+    expect(await screen.findByText("Could not save")).toBeInTheDocument();
+    expect(screen.getByLabelText("Dump a line")).toHaveValue("Call the bank");
+  });
+
+  it("three quick lines run in order and schedule ONE deferred refresh", async () => {
+    dumpLineMock.mockImplementation(async (title) => ({ id: `id-${title}` }));
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[]} />);
+    const input = screen.getByLabelText("Dump a line");
+    await user.type(input, "one{Enter}two{Enter}three{Enter}");
+    await waitFor(() => expect(dumpLineMock).toHaveBeenCalledTimes(3));
+    expect(dumpLineMock.mock.calls.map((c) => c[0])).toEqual(["one", "two", "three"]);
+    await waitFor(() => expect(refreshCloseViewsMock).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 });
