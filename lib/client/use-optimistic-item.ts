@@ -16,15 +16,21 @@ import { scheduleRouteRefresh } from "@/lib/client/deferred-refresh";
 export function useScheduleRefresh(refresh?: () => Promise<unknown>): () => void {
   return () => {
     if (!refresh) return;
-    scheduleRouteRefresh(() => {
-      startTransition(() => {
-        try {
-          void Promise.resolve(refresh()).catch(() => {});
-        } catch {
-          // Not mounted in an App Router (isolated component tests): nothing to refresh.
-        }
-      });
-    });
+    // Keyed by the caller's refresh action (a stable module-level function): taps on the same
+    // surface collapse into one call, taps on different surfaces each get theirs.
+    scheduleRouteRefresh(
+      () => {
+        startTransition(() => {
+          try {
+            void Promise.resolve(refresh()).catch(() => {});
+          } catch {
+            // Not mounted in an App Router (isolated component tests): nothing to refresh.
+          }
+        });
+      },
+      400,
+      refresh
+    );
   };
 }
 

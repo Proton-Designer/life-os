@@ -86,6 +86,11 @@ function isAllComplete(objectives: SessionObjective[]): boolean {
 // the Home Focus module, the Business panel — updates every consumer at
 // once; before this provider, FocusModule and LockInPanel each held their
 // own optimistic `useState`, which could disagree across surfaces/tabs.
+// Module-level so every objective tap shares ONE identity: a burst collapses into one refresh.
+const refreshBusinessSurfaces = () => {
+  void refreshBusinessViews().catch(() => {});
+};
+
 export function LockInOverlayProvider({
   initialSession,
   children,
@@ -243,9 +248,7 @@ export function LockInOverlayProvider({
               return { ...prev, objectives: prev.objectives.map((o) => (o.id === objectiveId ? { ...o, completed: confirmed } : o)) };
             });
           }
-          scheduleRouteRefresh(() => {
-            void refreshBusinessViews().catch(() => {});
-          });
+          scheduleRouteRefresh(refreshBusinessSurfaces);
         });
 
       // TRANSITION to all-complete, never initial state (that's what makes

@@ -12,15 +12,25 @@
  * Cache for OTHER routes, e.g. Home after tapping on /deen.
  */
 let timer: ReturnType<typeof setTimeout> | null = null;
-let latest: (() => void) | null = null;
+// Pending refreshes keyed by `key` (default: the function itself): DIFFERENT surfaces (Deen,
+// Home, Business...) scheduled in the same window must ALL run, while the same surface
+// scheduled many times runs once. (A single "latest" slot silently dropped the earlier
+// surface's revalidation.) Callers whose closure is re-created per call pass a stable key.
+const pending = new Map<unknown, () => void>();
 
-export function scheduleRouteRefresh(refresh: () => void, delayMs = 400): void {
-  latest = refresh;
+export function scheduleRouteRefresh(refresh: () => void, delayMs = 400, key: unknown = refresh): void {
+  pending.set(key, refresh);
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = null;
-    const run = latest;
-    latest = null;
-    run?.();
+    const runs = [...pending.values()];
+    pending.clear();
+    for (const run of runs) run();
   }, delayMs);
+}
+
+export function resetDeferredRefreshForTests(): void {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  pending.clear();
 }
