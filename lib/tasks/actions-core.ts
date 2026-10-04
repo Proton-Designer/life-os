@@ -105,6 +105,22 @@ export async function toggleTaskCore(supabase: SupabaseClient, userId: string, i
   return { completed: nowCompleted };
 }
 
+/**
+ * SETS (not toggles) a task's completion -- the optimistic school UI sends its intended
+ * value so queued/duplicate taps are idempotent (PERF-3; same reasoning as setAdhkarCore).
+ */
+export async function setTaskCompletedCore(supabase: SupabaseClient, userId: string, id: string, completed: boolean): Promise<ToggleTaskResult> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .update({ completed, completed_at: completed ? new Date().toISOString() : null })
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Task not found");
+  return { completed };
+}
+
 /** A real DELETE — not reachable from lib/mcp/write-registry.ts. See this file's header comment. */
 export async function removeTaskCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
   const { error } = await supabase.from("tasks").delete().eq("id", id).eq("user_id", userId);

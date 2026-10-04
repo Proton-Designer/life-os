@@ -180,6 +180,28 @@ describe("toggleTaskCore", () => {
   });
 });
 
+describe("setTaskCompletedCore", () => {
+  it("SETS completion absolutely (idempotent: no read-then-flip) and stamps/clears completed_at", async () => {
+    const chain = makeChain({ data: [{ id: "task-1" }], error: null });
+    fromImpl = () => chain;
+    const { setTaskCompletedCore } = await import("../actions-core");
+
+    expect(await setTaskCompletedCore(client, "user-1", "task-1", true)).toEqual({ completed: true });
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ completed: true, completed_at: expect.any(String) }));
+    await setTaskCompletedCore(client, "user-1", "task-1", false);
+    expect(chain.update).toHaveBeenCalledWith({ completed: false, completed_at: null });
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(chain.select).not.toHaveBeenCalledWith("completed"); // never reads the old value
+  });
+
+  it("throws when no row matched (stale id) so the optimistic UI reverts", async () => {
+    const chain = makeChain({ data: [], error: null });
+    fromImpl = () => chain;
+    const { setTaskCompletedCore } = await import("../actions-core");
+    await expect(setTaskCompletedCore(client, "user-1", "missing", true)).rejects.toThrow(/not found/i);
+  });
+});
+
 describe("removeTaskCore", () => {
   it("is a real DELETE, scoped to id and user_id -- core-shaped for the cookie callers, never wired into lib/mcp/write-registry.ts", async () => {
     const chain = makeChain();

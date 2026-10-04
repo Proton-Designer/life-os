@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { waitFor } from "@testing-library/react";
 import type { TaskRowItem } from "@/components/shared/task-row-list";
+const refreshSchoolViews = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/app/(app)/school/actions", () => ({ refreshSchoolViews }));
+
 import { KpiTaskDialog } from "../kpi-task-dialog";
 
 // A shipped bug (51bee86, 2026-08-24/25) rendered an empty list with NO
@@ -38,6 +42,8 @@ describe("KpiTaskDialog", () => {
 
     await user.click(screen.getByRole("button", { name: 'Mark "Lab report" done' }));
     expect(toggleTask).toHaveBeenCalledWith("t1");
+    // PERF-3: the tap no longer revalidates inline; one deferred refresh follows.
+    await waitFor(() => expect(refreshSchoolViews).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 
   // Batch 3 fix: three School KPI cards previously all shared the bare

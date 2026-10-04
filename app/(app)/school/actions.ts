@@ -5,6 +5,7 @@ import {
   addTaskCore,
   updateTaskCore,
   toggleTaskCore,
+  setTaskCompletedCore,
   removeTaskCore,
   addScheduleEventCore,
   cancelScheduleOccurrenceCore,
@@ -46,6 +47,23 @@ export async function updateTask(
 export async function toggleTask(id: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   await toggleTaskCore(supabase, userId, id);
+  revalidatePath("/school");
+  revalidatePath("/");
+}
+
+/**
+ * Idempotent "mark done" for the school task lists (PERF-3). Hot tap: no
+ * revalidatePath here -- callers schedule ONE refreshSchoolViews() after a burst.
+ */
+export async function completeTask(id: string): Promise<void> {
+  assertUuid(id, "task id");
+  const { supabase, userId } = await requireUser();
+  await setTaskCompletedCore(supabase, userId, id, true);
+}
+
+/** Data-free cache revalidation for the surfaces a school task tap feeds (School + Home). */
+export async function refreshSchoolViews(): Promise<void> {
+  await requireUser();
   revalidatePath("/school");
   revalidatePath("/");
 }

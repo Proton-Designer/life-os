@@ -1,5 +1,6 @@
 "use client";
 
+import { useScheduleSchoolRefresh } from "@/components/school/use-school-refresh";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { TaskRowList, type TaskRowItem } from "@/components/shared/task-row-list";
@@ -25,8 +26,13 @@ export function KpiTaskDialog({
   toggleTask: (id: string) => Promise<void>;
   emptyMessage: string;
 }) {
+  const scheduleRefresh = useScheduleSchoolRefresh();
   async function handleComplete(item: TaskRowItem) {
-    await toggleTask(item.id);
+    try {
+      await toggleTask(item.id);
+    } finally {
+      scheduleRefresh();
+    }
   }
 
   return (

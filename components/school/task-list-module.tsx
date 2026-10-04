@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useScheduleSchoolRefresh } from "@/components/school/use-school-refresh";
 import { ChevronDown, Check, Pencil, Trash2 } from "lucide-react";
 import {
   TASK_GROUP_ORDER,
@@ -46,6 +47,7 @@ function TaskRow({
 }) {
   const [justCompleted, setJustCompleted] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const scheduleRefresh = useScheduleSchoolRefresh();
 
   function handleClick() {
     // Completing is an immediate mutation and would fight the caller's
@@ -55,6 +57,8 @@ function TaskRow({
     startTransition(async () => {
       try {
         await onComplete();
+        // toggleTask no longer revalidates per tap: one deferred refresh per burst.
+        scheduleRefresh();
       } catch {
         setJustCompleted(false);
       }

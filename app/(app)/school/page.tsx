@@ -11,7 +11,7 @@ import { groupCompletedTasksByWeek } from "@/lib/tasks/completed-by-week";
 import {
   addTask,
   updateTask,
-  toggleTask,
+  completeTask,
   removeTask,
   addClassEvent,
   updateClassEvent,
@@ -332,7 +332,7 @@ export default async function SchoolPage() {
             caption={dueTodayCount === 0 ? "Nothing due today" : `${dueTodayCount} task${dueTodayCount === 1 ? "" : "s"} due`}
             size="sm"
           >
-            <KpiTaskDialog title="Due today" items={dueTodayItems} toggleTask={toggleTask} emptyMessage="Nothing due today" />
+            <KpiTaskDialog title="Due today" items={dueTodayItems} toggleTask={completeTask} emptyMessage="Nothing due today" />
           </KpiCard>
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
@@ -344,7 +344,7 @@ export default async function SchoolPage() {
             caption={overdueCount === 0 ? "Nothing overdue" : "Needs attention"}
             size="sm"
           >
-            <KpiTaskDialog title="Overdue" items={overdueItems} toggleTask={toggleTask} emptyMessage="Nothing overdue" />
+            <KpiTaskDialog title="Overdue" items={overdueItems} toggleTask={completeTask} emptyMessage="Nothing overdue" />
           </KpiCard>
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
@@ -359,7 +359,7 @@ export default async function SchoolPage() {
             <KpiTaskDialog
               title="Due this week"
               items={dueThisWeekItems}
-              toggleTask={toggleTask}
+              toggleTask={completeTask}
               emptyMessage="Nothing due this week"
             />
           </KpiCard>
@@ -401,7 +401,7 @@ export default async function SchoolPage() {
           </div>
         }
       >
-        <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={toggleTask} />
+        <TaskListModule tasks={taskListItems} classes={classOptions} todayStr={dateStr} weekDates={weekDates} toggleTask={completeTask} />
       </Panel>
       </LayoutSlot>
 

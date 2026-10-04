@@ -10,7 +10,8 @@ import {
   deleteClassAssessment,
   type AssessmentType,
 } from "@/app/(app)/school/class-actions";
-import { addTask, updateTask, removeTask, toggleTask } from "@/app/(app)/school/actions";
+import { addTask, updateTask, removeTask, completeTask } from "@/app/(app)/school/actions";
+import { useScheduleSchoolRefresh } from "@/components/school/use-school-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -135,6 +136,7 @@ export function ClassDetailDialog({
   hasGoogleKey?: boolean;
 }) {
   const router = useRouter();
+  const scheduleSchoolRefresh = useScheduleSchoolRefresh();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -231,8 +233,8 @@ export function ClassDetailDialog({
   }
 
   async function handleToggle(id: string) {
-    await toggleTask(id);
-    router.refresh();
+    await completeTask(id);
+    scheduleSchoolRefresh();
   }
 
   // Same immediate-commit reasoning as handleAddAssessment above.

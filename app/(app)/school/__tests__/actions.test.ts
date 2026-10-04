@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const removeTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
 const addTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
 const updateTaskCoreMock = vi.fn(async (..._args: unknown[]) => {});
+const setTaskCompletedCoreMock = vi.fn(async (..._args: unknown[]) => ({ completed: true }));
 const revalidatePathMock = vi.fn();
 
 vi.mock("@/lib/tasks/actions-core", () => ({
   addTaskCore: (...args: unknown[]) => addTaskCoreMock(...args),
   updateTaskCore: (...args: unknown[]) => updateTaskCoreMock(...args),
   toggleTaskCore: vi.fn(),
+  setTaskCompletedCore: (...args: unknown[]) => setTaskCompletedCoreMock(...args),
   removeTaskCore: (...args: unknown[]) => removeTaskCoreMock(...args),
   addScheduleEventCore: vi.fn(),
   cancelScheduleOccurrenceCore: vi.fn(),
@@ -177,5 +179,35 @@ describe("School actions — class group CRUD", () => {
   it("removeClassEvent rejects a non-uuid key", async () => {
     const { removeClassEvent } = await import("../actions");
     await expect(removeClassEvent("../../etc/passwd")).rejects.toThrow(/valid id/i);
+  });
+});
+
+// PERF-3: the school task tap is lean; one deferred, data-free refresh follows a burst.
+describe("School actions — completeTask / refreshSchoolViews", () => {
+  const TASK_ID = "11111111-1111-4111-8111-111111111111";
+  beforeEach(() => {
+    setTaskCompletedCoreMock.mockClear();
+    revalidatePathMock.mockClear();
+  });
+
+  it("completeTask sets completed=true for this user and does NOT revalidate inline", async () => {
+    const { completeTask } = await import("../actions");
+    await completeTask(TASK_ID);
+    expect(setTaskCompletedCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", TASK_ID, true);
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+
+  it("completeTask rejects a malformed id before touching the database", async () => {
+    const { completeTask } = await import("../actions");
+    await expect(completeTask("not-a-uuid")).rejects.toThrow(/valid id/);
+    expect(setTaskCompletedCoreMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshSchoolViews revalidates /school and Home and touches no data", async () => {
+    const { refreshSchoolViews } = await import("../actions");
+    await refreshSchoolViews();
+    expect(revalidatePathMock).toHaveBeenCalledWith("/school");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+    expect(setTaskCompletedCoreMock).not.toHaveBeenCalled();
   });
 });

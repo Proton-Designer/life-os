@@ -18,12 +18,13 @@ vi.mock("@/app/(app)/school/class-actions", () => ({
 const addTaskMock = vi.fn();
 const updateTaskMock = vi.fn();
 const removeTaskMock = vi.fn();
-const toggleTaskMock = vi.fn();
+const completeTaskMock = vi.fn();
 vi.mock("@/app/(app)/school/actions", () => ({
   addTask: (...args: unknown[]) => addTaskMock(...args),
   updateTask: (...args: unknown[]) => updateTaskMock(...args),
   removeTask: (...args: unknown[]) => removeTaskMock(...args),
-  toggleTask: (...args: unknown[]) => toggleTaskMock(...args),
+  completeTask: (...args: unknown[]) => completeTaskMock(...args),
+  refreshSchoolViews: vi.fn(async () => {}),
 }));
 
 // P2-09 -- PracticeTestPanel fetches on mount; unmocked, it hits the real
