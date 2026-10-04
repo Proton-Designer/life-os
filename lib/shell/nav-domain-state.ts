@@ -45,7 +45,18 @@ export interface NavDomainState {
   workSubdomains: NavSubdomainRef[];
 }
 
-export function computeNavDomainState(domains: NavDomainRow[], subdomains: NavSubdomainRow[]): NavDomainState {
+/**
+ * `deenMode` (profiles.deen_mode, isDeenModeOn) is REQUIRED, not optional: a
+ * forgotten caller must fail tsc rather than silently show Faith. When false,
+ * the faith area is dropped under BOTH vocabularies (flat `faith` row and
+ * legacy personal_growth:faith subdomain) and the Personal tab disappears if
+ * nothing else remains in it. user_domains rows are never touched (R4).
+ */
+export function computeNavDomainState(
+  domains: NavDomainRow[],
+  subdomains: NavSubdomainRow[],
+  deenMode: boolean
+): NavDomainState {
   const domainKeys = new Set(domains.map((d) => d.key));
 
   const byDomain = (domainKey: NavDomainKey): NavSubdomainRef[] =>
@@ -79,18 +90,26 @@ export function computeNavDomainState(domains: NavDomainRow[], subdomains: NavSu
       .map(({ area }) => ({ key: area.key, label: area.label, kind: null }));
   };
 
+  const allPersonal = personalSubdomains();
+  const visiblePersonal = deenMode ? allPersonal : allPersonal.filter((s) => s.key !== "faith");
+  // Faith alone must not keep the Personal tab alive when Deen Mode is off:
+  // the flat `faith` row only counts with deenMode, and a legacy
+  // personal_growth row whose only child was faith counts for nothing.
+  const faithOnlyHidden = !deenMode && allPersonal.length > 0 && visiblePersonal.length === 0;
+
   return {
     // Post-115 there is no personal_growth row (archived by the flatten), but
     // the nav section it gates still holds the three areas that came out of
     // it — so it is present when EITHER vocabulary says so.
     hasPersonalGrowth:
-      domainKeys.has("personal_growth") ||
-      domainKeys.has("faith") ||
-      domainKeys.has("body") ||
-      domainKeys.has("learning"),
+      !faithOnlyHidden &&
+      (domainKeys.has("personal_growth") ||
+        (domainKeys.has("faith") && deenMode) ||
+        domainKeys.has("body") ||
+        domainKeys.has("learning")),
     hasWork: domainKeys.has("work"),
     hasSchool: domainKeys.has("school"),
-    personalSubdomains: personalSubdomains(),
+    personalSubdomains: visiblePersonal,
     workSubdomains: byDomain("work"),
   };
 }
