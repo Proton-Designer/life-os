@@ -5,6 +5,8 @@ import { getEveningCloseData } from "./actions";
 import { CloseAccountStage } from "@/components/evening-close/close-account-stage";
 import { CloseReflectStage } from "@/components/evening-close/close-reflect-stage";
 import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
+import { Stream } from "@/components/home/stream";
+import { PanelSkeleton } from "@/components/shell/route-skeleton";
 import { VerdictDueList } from "@/components/promotions/verdict-card";
 import { getDuePromotions } from "@/lib/promotions/read";
 import { loadCloseInbox } from "@/lib/inbox/close-inbox";
@@ -31,8 +33,10 @@ export default async function EveningClosePage() {
   // this is empty and the close should be exactly as long as it was before
   // promotions existed, so there is no wrapper and no heading here: the
   // component supplies its own <h3>.
-  const duePromotions = await getDuePromotions();
-  const inbox = data.blockers.length === 0 ? await loadCloseInbox() : null;
+  // NAV-01b: promotions and the Inbox start now and stream in; the Account stage and the rest paint first.
+  const duePromotionsPromise = getDuePromotions();
+  const inboxPromise = data.blockers.length === 0 ? loadCloseInbox() : Promise.resolve(null);
+  for (const p of [duePromotionsPromise, inboxPromise]) p.catch(() => undefined);
 
   return (
     <PageContainer>
@@ -57,14 +61,20 @@ export default async function EveningClosePage() {
               deltaMinutes={data.deltaMinutes}
               activeHabits={data.activeHabits}
             />
-            <VerdictDueList promotions={duePromotions} />
-            <ClosePlanStage
-              initialLines={data.tomorrowLines}
-              seeds={data.planSeeds}
-              mode="tonight"
-              inbox={inbox?.items}
-              inboxAreas={inbox?.areas}
-            />
+            <Stream promise={duePromotionsPromise} fallback={null}>
+              {(duePromotions) => <VerdictDueList promotions={duePromotions} />}
+            </Stream>
+            <Stream promise={inboxPromise} fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-48" />}>
+              {(inbox) => (
+                <ClosePlanStage
+                  initialLines={data.tomorrowLines}
+                  seeds={data.planSeeds}
+                  mode="tonight"
+                  inbox={inbox?.items}
+                  inboxAreas={inbox?.areas}
+                />
+              )}
+            </Stream>
           </>
         ) : null}
       </div>

@@ -30,6 +30,8 @@ import { SessionEntryCard } from "@/components/self-mastery/session/session-entr
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
+import { Stream } from "@/components/home/stream";
+import { PanelSkeleton, DomainStatusStripSkeleton, WeeklyGoalsHeaderSkeleton } from "@/components/shell/route-skeleton";
 import { getActiveHabitsWithStatus } from "@/lib/habits/queries";
 import { shouldShowWeeklyResetCard } from "@/lib/home/weekly-reset-visibility";
 import { HabitCheckoffs } from "@/components/home/habit-checkoffs";
@@ -87,10 +89,25 @@ export default async function HomePage() {
   // IA-P4b: the wind-down plan (Sleep plan ON only) sets when the rhythm card flips and shows "Lights out by".
   const windDownPromise = loadHomeWindDown(supabase, userId, sleepPlanOn);
 
+  // NAV-01b: the slow, independent modules START now (parallel with everything below) but are not
+  // awaited here -- the page shell and the fast modules paint first and each streams in through
+  // <Stream> (components/home/stream.tsx). Data-free-skip rules are unchanged (wantedSectors,
+  // opt-in gates, Deen): they decide WHAT is started, streaming only changes WHEN it renders.
+  // SECTOR-01: only the areas this account has set up are read (and shown).
+  const snapshotsPromise = getDomainSnapshots(userId, now, undefined, wantedSectors);
+  // L11/R7 Tier 1 declarative widgets -- degrades to [] until the widgets migration lands; now/timezone
+  // threaded through for the sparkline kind's local-day bucketing (R12/AGENTS.md).
+  const mcpWidgetsPromise = renderWidgets(supabase, userId, "home", now, timezone);
+  // IA-P2: only the active phase's reads run (lib/home/rhythm-data.ts).
+  const rhythmPromise = windDownPromise.then((w) => getRhythmData(supabase, userId, now, timezone, { windDownStart: w?.windDownStart, bedtime: w?.bedtime }));
+  // IA-P3b: today's habit check-offs (the habits board's own reader).
+  const activeHabitsPromise = getActiveHabitsWithStatus(supabase, userId, dateStr, timezone);
+  // A failure must reach the error boundary through <Stream>, not as an unhandled rejection before it is awaited.
+  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise]) p.catch(() => undefined);
+
   const [
     items,
     completedToday,
-    snapshots,
     extras,
     dayShape,
     weeklyGoalsResult,
@@ -98,18 +115,13 @@ export default async function HomePage() {
     distractionsToday,
     inProgressItems,
     dueSummary,
-    mcpWidgets,
     morningBrief,
     windDown,
     morningRoutineItems,
     layout,
-    rhythm,
-    activeHabits,
   ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
-      // SECTOR-01: only the areas this account has set up are read (and shown).
-      getDomainSnapshots(userId, now, undefined, wantedSectors),
       getHomeExtras(userId, now, profile),
       getDayShape(userId, now),
       supabase
@@ -131,11 +143,6 @@ export default async function HomePage() {
       // call start_session — a user glancing at Home never creates a real
       // work_sessions row just by loading the page.
       getDueSummary(),
-      // L11/R7 Tier 1 declarative widgets — degrades to [] the same way
-      // getInProgressBooks() does until WIDGETS-MIGRATION-NEEDED.md lands.
-      // now/timezone threaded through for the sparkline kind's local-day
-      // bucketing (R12/AGENTS.md) — never a raw Date or a UTC slice.
-      renderWidgets(supabase, userId, "home", now, timezone),
       // P2-02: null for every indistinguishable-by-design reason (not yet
       // generated today, no key, cap hit, provider failure) -- see
       // lib/ai/morning-brief.ts's own header. Home renders nothing in all
@@ -150,10 +157,6 @@ export default async function HomePage() {
       // lib/morning-routine/actions-core.ts's own header for why.
       morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
-      // IA-P2: only the active phase's reads run (lib/home/rhythm-data.ts).
-      windDownPromise.then((w) => getRhythmData(supabase, userId, now, timezone, { windDownStart: w?.windDownStart, bedtime: w?.bedtime })),
-      // IA-P3b: today's habit check-offs (the habits board's own reader).
-      getActiveHabitsWithStatus(supabase, userId, dateStr, timezone),
     ]);
   const layoutMap = buildLayoutMap(layout);
   // WIDGET-02 exception, stated rather than silently applied: session_entry's
@@ -199,14 +202,15 @@ export default async function HomePage() {
   const showWeeklyReset = shouldShowWeeklyResetCard(now, timezone, weeklyGoalsRows.map((g) => g.headline));
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
   const businessGoalRow = weeklyGoalsRows.find((g) => g.domain === "business") ?? null;
-  const deenGoal = deenGoalRow
-    ? {
-        headline: deenGoalRow.headline,
-        milestones: (deenGoalRow.milestones as string[] | null) ?? [],
-        quranPages: snapshots.deen.quranWeekPages,
-        quranTarget: snapshots.deen.quranWeeklyTarget,
-      }
-    : null;
+  const deenGoalFor = (snapshots: Awaited<typeof snapshotsPromise> | null) =>
+    deenGoalRow
+      ? {
+          headline: deenGoalRow.headline,
+          milestones: (deenGoalRow.milestones as string[] | null) ?? [],
+          quranPages: snapshots?.deen.quranWeekPages,
+          quranTarget: snapshots?.deen.quranWeeklyTarget,
+        }
+      : null;
   const businessGoal = businessGoalRow
     ? {
         headline: businessGoalRow.headline,
@@ -266,6 +270,19 @@ export default async function HomePage() {
   const selfMasteryRanksFirst =
     !!selfMasteryCandidate && (!topOtherCandidate || rankCandidates([selfMasteryCandidate, topOtherCandidate], now)[0]?.area === "self_mastery");
 
+  const renderGoalsHeader = (deenGoal: ReturnType<typeof deenGoalFor>) => (
+    <WeeklyGoalsHeader
+      deen={deenGoal}
+      business={businessGoal}
+      onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
+      onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
+      showPlanningNudge={showPlanningNudge}
+      showDeen={hasFaith}
+      showBusiness={hasBusinessGoal}
+      extraActions={<GoalsSheetButton />}
+    />
+  );
+
   return (
     <PageContainer>
       <PageHeader title="Home" actions={<WidgetManagerButton domainKey="home" />} />
@@ -287,7 +304,9 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">
-        <RhythmSection data={rhythm} />
+        <Stream promise={rhythmPromise} fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
+          {(rhythm) => <RhythmSection data={rhythm} />}
+        </Stream>
       </LayoutSlot>
 
       {showWeeklyReset && (
@@ -298,13 +317,17 @@ export default async function HomePage() {
 
       {morningRoutineOn && (
         <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
-          {(rhythm.state === "morning" || rhythm.state === "today") && (
-            <LaunchSequenceCard
-              items={morningRoutineItems}
-              today={dateStr}
-              habits={activeHabits.map((h) => ({ id: h.id, identityStatement: h.identityStatement }))}
-            />
-          )}
+          <Stream promise={Promise.all([rhythmPromise, activeHabitsPromise])} fallback={<PanelSkeleton titleWidth="w-32" bodyHeight="h-28" />}>
+            {([rhythm, activeHabits]) =>
+              rhythm.state === "morning" || rhythm.state === "today" ? (
+                <LaunchSequenceCard
+                  items={morningRoutineItems}
+                  today={dateStr}
+                  habits={activeHabits.map((h) => ({ id: h.id, identityStatement: h.identityStatement }))}
+                />
+              ) : null
+            }
+          </Stream>
         </LayoutSlot>
       )}
 
@@ -323,20 +346,20 @@ export default async function HomePage() {
       {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} selfMasteryHref={selfMasteryHref} />}
 
       <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
-        <WeeklyGoalsHeader
-          deen={deenGoal}
-          business={businessGoal}
-          onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
-          onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
-          showPlanningNudge={showPlanningNudge}
-          showDeen={hasFaith}
-          showBusiness={hasBusinessGoal}
-          extraActions={<GoalsSheetButton />}
-        />
+        {/* Only an account with a Deen goal needs the Quran numbers from the (streamed) snapshots. */}
+        {hasFaith ? (
+          <Stream promise={snapshotsPromise} fallback={<WeeklyGoalsHeaderSkeleton />}>
+            {(snapshots) => renderGoalsHeader(deenGoalFor(snapshots))}
+          </Stream>
+        ) : (
+          renderGoalsHeader(deenGoalFor(null))
+        )}
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="domain_status">
-        <DomainStatusStack snapshots={snapshots} title="Sector progress" rows={sectorRows} />
+        <Stream promise={snapshotsPromise} fallback={<DomainStatusStripSkeleton />}>
+          {(snapshots) => <DomainStatusStack snapshots={snapshots} title="Sector progress" rows={sectorRows} />}
+        </Stream>
       </LayoutSlot>
 
       {/* WIDGET-02: now/focus are independently reorderable/hideable
@@ -354,7 +377,9 @@ export default async function HomePage() {
         </Panel>
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="habit_checkoffs">
-        <HabitCheckoffs habits={activeHabits} today={dateStr} />
+        <Stream promise={activeHabitsPromise} fallback={null}>
+          {(activeHabits) => <HabitCheckoffs habits={activeHabits} today={dateStr} />}
+        </Stream>
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="focus">
         <Panel title="Focus">
@@ -390,7 +415,9 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="mcp_widgets">
-        <McpWidgetsPanel widgets={mcpWidgets} />
+        <Stream promise={mcpWidgetsPromise} fallback={null}>
+          {(mcpWidgets) => <McpWidgetsPanel widgets={mcpWidgets} />}
+        </Stream>
       </LayoutSlot>
     </PageContainer>
   );

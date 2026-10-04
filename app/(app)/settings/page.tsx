@@ -6,23 +6,7 @@ import { NotificationSettings } from "@/components/settings/notification-setting
 import { WindDownPlanSettings } from "@/components/settings/wind-down-plan-settings";
 import { SleepReminderSettings } from "@/components/settings/sleep-reminder-settings";
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
-import { ApiKeySettings } from "@/components/settings/api-key-settings";
-import { getApiKeyStatuses } from "@/app/(app)/settings/api-key-actions";
-import { AiPreferenceSettings, type AiProviderCatalogInfo } from "@/components/settings/ai-preference-settings";
-import { getMyAiPreference } from "@/app/(app)/settings/ai-preference-actions";
-import { AiSpendCeilingSettings } from "@/components/settings/ai-spend-ceiling-settings";
-import { getMyMonthlySpendStatus } from "@/app/(app)/settings/ai-spend-actions";
-import { MODEL_CATALOG } from "@/lib/ai/model-catalog";
-import { ConnectorSettings } from "@/components/settings/connector-settings";
-import { WebhookSettings } from "@/components/settings/webhook-settings";
-import { getWebhookStatuses } from "@/app/(app)/settings/webhook-actions";
-import { getMcpTokenStatuses, getScheduledActions } from "@/app/(app)/settings/mcp-token-actions";
-import { CanvasSettings } from "@/components/settings/canvas-settings";
-import { getCanvasConnectionStatus, getCanvasCourseMappings, getLocalClassOptions } from "@/app/(app)/settings/canvas-actions";
-import { RescueTimeSettings } from "@/components/settings/rescuetime-settings";
-import { getRescueTimeConnectionStatus } from "@/app/(app)/settings/rescuetime-actions";
-import { WhoopSettings } from "@/components/settings/whoop-settings";
-import { getWhoopSettingsStatus } from "@/app/(app)/settings/whoop-actions";
+import { StreamedIntegrationPanels } from "@/components/settings/streamed-panels";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
 import { OptInFeaturesSettings } from "@/components/settings/opt-in-features-settings";
@@ -31,8 +15,6 @@ import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { resolveThemePreset } from "@/lib/theme-presets";
 import { sanitizeHiddenFeatures } from "@/lib/features";
 import { sanitizeEnabledFeatures } from "@/lib/opt-in-features";
-import { PROVIDERS, PROVIDER_IDS } from "@/lib/ai/providers";
-import { isKeyStorageConfigured } from "@/lib/ai/encryption";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
@@ -74,46 +56,6 @@ export default async function SettingsPage() {
   const enabledFeatures = sanitizeEnabledFeatures(profile?.enabled_features);
   // Migration 251 (DEEN-02) -- fails closed (OFF) on a missing row/value.
   const deenMode = isDeenModeOn(profile);
-
-  // Plain serializable values only across the RSC boundary — the provider
-  // registry is const-asserted, so it is spread into a plain array here rather
-  // than handed over as-is. See AGENTS.md on Server -> Client props.
-  const providers = PROVIDER_IDS.map((id) => ({
-    id,
-    label: PROVIDERS[id].label,
-    consoleUrl: PROVIDERS[id].consoleUrl,
-    unlocks: PROVIDERS[id].unlocks,
-  }));
-  const keyStatuses = await getApiKeyStatuses();
-  const storageConfigured = isKeyStorageConfigured();
-  const mcpTokens = await getMcpTokenStatuses();
-  const scheduledActions = await getScheduledActions();
-  const webhooks = await getWebhookStatuses();
-
-  // Multi-provider preference picker. `hasKey` deliberately only reflects
-  // a STORED key, never the operator-funded fallback (even for an
-  // allowlisted deepseek account) -- this UI has no cheap, accurate way to
-  // check per-user allowlist status from here, and an optimistic "has key"
-  // that turns out wrong is worse than a conservative "no key" that turns
-  // out to still work anyway.
-  const hasStoredKey = new Set(keyStatuses.map((s) => s.provider));
-  const aiPreferenceCatalog: AiProviderCatalogInfo[] = PROVIDER_IDS.map((id) => {
-    const entry = MODEL_CATALOG[id];
-    return {
-      id,
-      label: PROVIDERS[id].label,
-      hasKey: hasStoredKey.has(id),
-      cheap: { id: entry.budget.id, inputUsdPer1M: entry.budget.inputUsdPer1M, outputUsdPer1M: entry.budget.outputUsdPer1M },
-      capable: { id: entry.flagship.id, inputUsdPer1M: entry.flagship.inputUsdPer1M, outputUsdPer1M: entry.flagship.outputUsdPer1M },
-    };
-  });
-  const aiPreference = await getMyAiPreference();
-  const monthlySpendStatus = await getMyMonthlySpendStatus();
-  const canvasStatus = await getCanvasConnectionStatus();
-  const canvasMappings = await getCanvasCourseMappings();
-  const localClasses = await getLocalClassOptions();
-  const rescueTimeStatus = await getRescueTimeConnectionStatus();
-  const whoopStatus = await getWhoopSettingsStatus();
 
   return (
     <PageContainer>
@@ -182,45 +124,8 @@ export default async function SettingsPage() {
                     </div>
                   </Panel>
 
-                  <Panel id="ai" className="scroll-mt-24" title="AI features (optional)">
-                    <div className="flex flex-col gap-4">
-                      <AiPreferenceSettings
-                        catalog={aiPreferenceCatalog}
-                        initialProvider={aiPreference.provider}
-                        initialModelTier={aiPreference.modelTier}
-                      />
-                      <AiSpendCeilingSettings
-                        initialSpentUsd={monthlySpendStatus.spentUsd}
-                        initialCapUsd={monthlySpendStatus.capUsd}
-                        monthKey={monthlySpendStatus.monthKey}
-                      />
-                      <ApiKeySettings
-                        providers={providers}
-                        initialStatuses={keyStatuses}
-                        storageConfigured={storageConfigured}
-                      />
-                    </div>
-                  </Panel>
-                  <Panel id="canvas" className="scroll-mt-24" title="Canvas">
-                    <CanvasSettings
-                      initialStatus={canvasStatus}
-                      initialMappings={canvasMappings}
-                      localClasses={localClasses}
-                      storageConfigured={storageConfigured}
-                    />
-                  </Panel>
-                  <Panel id="rescuetime" className="scroll-mt-24" title="RescueTime">
-                    <RescueTimeSettings initialStatus={rescueTimeStatus} storageConfigured={storageConfigured} />
-                  </Panel>
-                  <Panel id="whoop" className="scroll-mt-24" title="Whoop">
-                    <WhoopSettings initialStatus={whoopStatus} />
-                  </Panel>
-                  <Panel id="connectors" className="scroll-mt-24" title="Connectors">
-                    <ConnectorSettings initialTokens={mcpTokens} initialScheduledActions={scheduledActions} />
-                  </Panel>
-                  <Panel id="webhooks" className="scroll-mt-24" title="Webhooks">
-                    <WebhookSettings initialWebhooks={webhooks} />
-                  </Panel>
+                  {/* NAV-01b: these panels read their own data and stream in, concurrently. */}
+                  <StreamedIntegrationPanels />
                 </>
               ),
             }}

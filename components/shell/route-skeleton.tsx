@@ -165,3 +165,34 @@ export function RowListSkeleton({ rows, rowHeight = "h-12" }: { rows: number; ro
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// NAV-01b: composed pieces for the routes that had no loading.tsx. Same primitives, same chrome.
+// ---------------------------------------------------------------------------
+
+/** A row of pill-shaped step/tab chips (the /week step nav, tab bars). */
+export function PillRowSkeleton({ count = 5, widths = "w-28" }: { count?: number; widths?: string }) {
+  return (
+    <div className={cn("flex flex-wrap gap-2", FADE_IN)}>
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} className={cn("h-7 rounded-full", widths)} />
+      ))}
+    </div>
+  );
+}
+
+/** A form-shaped block: labelled inputs stacked, then a button. */
+export function FormSkeleton({ fields = 3 }: { fields?: number }) {
+  return (
+    <div className={cn("flex flex-col gap-4", FADE_IN)}>
+      {Array.from({ length: fields }).map((_, i) => (
+        <div key={i} className="flex flex-col gap-1.5">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-10 w-full rounded-md" />
+        </div>
+      ))}
+      <Skeleton className="h-10 w-32 rounded-md" />
+    </div>
+  );
+}
+

@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 import { SETTINGS_SECTIONS } from "../sections";
 
 const page = readFileSync(join(__dirname, "../../../app/(app)/settings/page.tsx"), "utf8");
-const panelIds = (chunk: string) => [...chunk.matchAll(/<Panel id="([\w-]+)"/g)].map((m) => m[1]);
+const streamed = readFileSync(join(__dirname, "../../../components/settings/streamed-panels.tsx"), "utf8");
+// NAV-01b: the integration panels moved into <StreamedIntegrationPanels />, whose Suspense fallbacks
+// declare the section ids in render order. Expand the marker so the order check still sees them.
+const streamedIds = [...streamed.slice(streamed.indexOf("export function StreamedIntegrationPanels")).matchAll(/<PanelFallback id="([\w-]+)"/g)].map((m) => m[1]);
+const panelIds = (chunk: string): string[] =>
+  [...chunk.matchAll(/<Panel id="([\w-]+)"|<StreamedIntegrationPanels \/>/g)].flatMap((m) => (m[1] ? [m[1]] : streamedIds));
 
 // The page hands server panels to SettingsForm through two slots; SettingsForm itself renders
 // profile | afterProfile | prayer | location/timezone | checkins | afterCheckins | security | data.
@@ -19,6 +24,11 @@ describe("Settings page order matches the left tab list", () => {
   it("every tab appears, once, in tab order (ignoring panels that have no tab)", () => {
     const withoutExtras = composed.filter((id) => tabIds.includes(id));
     expect(withoutExtras).toEqual(tabIds);
+  });
+
+  it("the streamed integration panels are expanded in the check (positive control: they are real section ids)", () => {
+    expect(streamedIds).toEqual(["ai", "canvas", "rescuetime", "whoop", "connectors", "webhooks"]);
+    expect(page).toContain("<StreamedIntegrationPanels />");
   });
 
   it("the page's tab list is the shared SETTINGS_SECTIONS, not a private copy", () => {
