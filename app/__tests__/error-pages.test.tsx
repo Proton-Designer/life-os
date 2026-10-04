@@ -7,6 +7,7 @@ vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; chil
 import GlobalError from "../global-error";
 import AppNotFound from "../(app)/not-found";
 import AppError from "../(app)/error";
+import RootNotFound from "../not-found";
 
 describe("error pages (NAV-01c)", () => {
   it("global-error brings its own html/body, a Try again button and no error text", () => {
@@ -20,6 +21,12 @@ describe("error pages (NAV-01c)", () => {
 
   it("(app)/not-found links Home", () => {
     const html = renderToStaticMarkup(<AppNotFound />);
+    expect(html).toContain("couldn&#x27;t find that page");
+    expect(html).toContain('href="/"');
+  });
+
+  it("root not-found links Home too (URLs outside the app shell)", () => {
+    const html = renderToStaticMarkup(<RootNotFound />);
     expect(html).toContain("couldn&#x27;t find that page");
     expect(html).toContain('href="/"');
   });
