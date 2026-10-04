@@ -88,6 +88,23 @@ async function resolveTargetWindow(
 
 const VALID_DOMAINS = new Set<string>(DOMAIN_KEYS);
 
+export const DEEN_MINUTES_OFF_MESSAGE = "Deen Mode is off, so time can't be allocated to Deen. Turn Deen Mode on in Settings or leave Deen at 0.";
+
+/**
+ * Deen Mode OFF: refuse an allocation that puts minutes on Deen (the UI hides
+ * the row, but both the cookie action and the MCP write are public). Deen at
+ * 0/absent is fine and costs no query; ON is unchanged. Fails closed on a
+ * missing profile/column. Shared by saveAllocationCheckin (cookie) and
+ * saveAllocationCheckinCore (MCP).
+ */
+export async function assertDeenMinutesAllowed(supabase: SupabaseClient, userId: string, allocations: Record<string, unknown>): Promise<void> {
+  const deen = allocations.deen;
+  if (typeof deen !== "number" || !(deen > 0)) return;
+  const { data, error } = await supabase.from("profiles").select("deen_mode").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  if ((data as { deen_mode?: boolean | null } | null)?.deen_mode !== true) throw new Error(DEEN_MINUTES_OFF_MESSAGE);
+}
+
 /**
  * Validates the caller's allocation map BEFORE the RPC ever runs, so a bad
  * shape produces a clear, actionable message instead of an opaque
@@ -156,8 +173,9 @@ export async function saveAllocationCheckinCore(
   now: Date,
   rawAllocations: Record<string, unknown>,
 ): Promise<SaveAllocationCheckinResult> {
-  const { windowStart, windowEnd, wasScheduledWindow } = await resolveTargetWindow(supabase, userId, now);
   const allocations = validateAllocations(rawAllocations);
+  await assertDeenMinutesAllowed(supabase, userId, allocations);
+  const { windowStart, windowEnd, wasScheduledWindow } = await resolveTargetWindow(supabase, userId, now);
   const wasted = wastedMinutes({ ...emptyAllocation(), ...allocations });
 
   const { data, error } = await supabase.rpc("save_allocation_checkin", {

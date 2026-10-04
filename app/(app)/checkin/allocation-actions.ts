@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import { getPendingAllocationQueue } from "@/lib/checkins/get-allocation-queue";
 import { wastedMinutes, type Allocation } from "@/lib/checkins/allocation";
+import { assertDeenMinutesAllowed } from "@/lib/checkins/actions-core";
 
 /**
  * Saves one allocation check-in via the save_allocation_checkin RPC
@@ -31,7 +32,9 @@ export async function saveAllocationCheckin(
   windowEnd: string,
   allocation: Allocation
 ): Promise<void> {
-  const { supabase } = await requireUser();
+  const { supabase, userId } = await requireUser();
+  // Deen Mode OFF: refuse Deen minutes server-side (the UI row is hidden, but this is a public action).
+  await assertDeenMinutesAllowed(supabase, userId, allocation);
   const { error } = await supabase.rpc("save_allocation_checkin", {
     p_window_start: windowStart,
     p_window_end: windowEnd,

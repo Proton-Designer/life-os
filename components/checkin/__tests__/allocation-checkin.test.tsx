@@ -24,6 +24,7 @@ describe("AllocationCheckin", () => {
         windowEnd="2026-08-19T21:00:00.000Z"
         timezone="America/Chicago"
         initialAllocation={emptyAllocation()}
+        showDeen
         onSave={onSave}
         {...overrides}
       />
@@ -194,6 +195,12 @@ describe("AllocationCheckin", () => {
     expect(wastedRow.innerHTML).not.toMatch(/destructive|accent-noise/i);
   });
 
+  it("showDeen=false hides the Deen row; the other four stay", () => {
+    renderCheckin({ showDeen: false });
+    expect(screen.queryByTestId("row-deen")).not.toBeInTheDocument();
+    for (const d of ["business", "school", "fitness", "co_op"]) expect(screen.getByTestId(`row-${d}`)).toBeInTheDocument();
+  });
+
   it("shows the queue position indicator only when queuePosition is passed", () => {
     const { rerender } = renderCheckin();
     expect(screen.queryByText(/1 of/i)).not.toBeInTheDocument();
@@ -203,6 +210,7 @@ describe("AllocationCheckin", () => {
         windowEnd="2026-08-19T21:00:00.000Z"
         timezone="America/Chicago"
         initialAllocation={emptyAllocation()}
+        showDeen
         onSave={onSave}
         queuePosition={{ index: 1, total: 3 }}
       />

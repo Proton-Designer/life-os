@@ -99,8 +99,8 @@ export type AllocationCheckinProps = {
   prefilled?: Partial<Record<DomainKey, boolean>>;
   /** Renders a lightweight "N of M" indicator when several check-ins are queued. Owns no queue state — that's Phase 3's. */
   queuePosition?: { index: number; total: number };
-  /** Deen Mode: false hides the Deen row (and its bar segment). Defaults true so standalone use is unchanged; the queue-driven callers pass the real value, which starts false until known. */
-  showDeen?: boolean;
+  /** Deen Mode: false hides the Deen row (and its bar segment). REQUIRED so a future caller cannot leak the Deen row by forgetting it; queue-driven callers pass the real value, which starts false until known. */
+  showDeen: boolean;
   /** Must be a bound Server Action reference if this component is ever handed one from a Server Component — see AGENTS.md. */
   onSave: (allocation: Allocation) => Promise<void>;
 };
@@ -112,7 +112,7 @@ export function AllocationCheckin({
   initialAllocation,
   prefilled = {},
   queuePosition,
-  showDeen = true,
+  showDeen,
   onSave,
 }: AllocationCheckinProps) {
   const visibleDomains = showDeen ? DOMAIN_KEYS : DOMAIN_KEYS.filter((d) => d !== "deen");

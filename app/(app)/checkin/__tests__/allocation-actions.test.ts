@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const rpcMock = vi.fn<(...args: unknown[]) => Promise<{ data: string | null; error: Error | null }>>(
   async () => ({ data: "checkin-1", error: null })
 );
-const supabaseMock = { rpc: rpcMock };
+let deenModeValue: boolean | null = true;
+const profileChain: Record<string, unknown> = {};
+profileChain.select = vi.fn(() => profileChain);
+profileChain.eq = vi.fn(() => profileChain);
+profileChain.maybeSingle = vi.fn(async () => ({ data: { deen_mode: deenModeValue }, error: null }));
+const supabaseMock = { rpc: rpcMock, from: vi.fn(() => profileChain) };
 vi.mock("@/lib/supabase/auth", () => ({
   requireUser: vi.fn(async () => ({ supabase: supabaseMock, userId: "user-1" })),
 }));
@@ -43,6 +48,22 @@ describe("saveAllocationCheckin", () => {
       p_allocations: { deen: 15, business: 30, school: 0, fitness: 0, co_op: 0 },
       p_wasted_minutes: 75,
     });
+  });
+
+  it("Deen Mode OFF: Deen minutes are refused before the RPC; ON (positive control) saves; OFF with deen 0 saves", async () => {
+    const { saveAllocationCheckin } = await import("../allocation-actions");
+    const win: [string, string] = ["2026-08-19T13:00:00.000Z", "2026-08-19T15:00:00.000Z"];
+
+    deenModeValue = false;
+    await expect(saveAllocationCheckin(...win, { deen: 15, business: 0 })).rejects.toThrow(/Deen Mode is off/);
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    await saveAllocationCheckin(...win, { deen: 0, business: 30 });
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+
+    deenModeValue = true;
+    await saveAllocationCheckin(...win, { deen: 15 });
+    expect(rpcMock).toHaveBeenCalledTimes(2);
   });
 
   it("throws when the RPC errors, rather than silently swallowing it", async () => {

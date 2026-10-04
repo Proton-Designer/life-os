@@ -30,13 +30,19 @@ beforeEach(() => {
   getPendingAllocationQueueMock.mockReset();
 });
 
-function makeClient(opts: { rpcData?: string; rpcError?: unknown } = {}) {
+function makeClient(opts: { rpcData?: string; rpcError?: unknown; deenMode?: boolean | null } = {}) {
   const rpcCalls: [string, Record<string, unknown>][] = [];
   const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
     rpcCalls.push([fn, args]);
     return { data: opts.rpcData ?? "checkin-new", error: opts.rpcError ?? null };
   });
-  return { client: { rpc } as unknown as SupabaseClient, rpcCalls };
+  // profiles.deen_mode read (Deen Mode gate on Deen minutes); defaults ON so pre-existing cases are unchanged.
+  const profileChain: Record<string, unknown> = {};
+  profileChain.select = vi.fn(() => profileChain);
+  profileChain.eq = vi.fn(() => profileChain);
+  profileChain.maybeSingle = vi.fn(async () => ({ data: { deen_mode: opts.deenMode === undefined ? true : opts.deenMode }, error: null }));
+  const from = vi.fn(() => profileChain);
+  return { client: { rpc, from } as unknown as SupabaseClient, rpcCalls, from };
 }
 
 const EMPTY_QUEUE: AllocationQueueResult = { items: [], unknownCount: 0, timezone: "America/Chicago", deenMode: true, mostRecentUnanswered: null };
@@ -146,5 +152,34 @@ describe("saveAllocationCheckinCore — RPC error propagation", () => {
     await expect(saveAllocationCheckinCore(client, "user-1", new Date("2026-09-08T15:05:00Z"), { deen: 15 })).rejects.toMatchObject({
       message: "constraint violated",
     });
+  });
+});
+
+// Deen Mode OFF: Deen minutes are refused server-side (the UI row is only hidden).
+describe("saveAllocationCheckinCore — Deen Mode gate on Deen minutes", () => {
+  const now = new Date("2026-09-08T15:05:00Z");
+
+  it("OFF + deen > 0 is refused BEFORE the RPC; no write happens", async () => {
+    for (const deenMode of [false, null]) {
+      const { client, rpcCalls } = makeClient({ deenMode });
+      getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
+      await expect(saveAllocationCheckinCore(client, "user-1", now, { deen: 30 })).rejects.toThrow(/Deen Mode is off/);
+      expect(rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("OFF + deen 0/absent saves normally and never reads the profile", async () => {
+    const { client, rpcCalls, from } = makeClient({ deenMode: false });
+    getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
+    await saveAllocationCheckinCore(client, "user-1", now, { business: 30, deen: 0 });
+    expect(rpcCalls).toHaveLength(1);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it("ON + deen > 0 (positive control) reaches the RPC", async () => {
+    const { client, rpcCalls } = makeClient({ deenMode: true });
+    getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: true, mostRecentUnanswered: null });
+    await saveAllocationCheckinCore(client, "user-1", now, { deen: 30 });
+    expect(rpcCalls).toHaveLength(1);
   });
 });
