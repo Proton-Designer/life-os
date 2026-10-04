@@ -1,15 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { IncompleteTasksModule } from "../incomplete-tasks-module";
 import type { IncompleteByDateGroup } from "@/app/(app)/business/kill-list-history-actions";
 
 const { toggleKillListItemMock } = vi.hoisted(() => ({
-  toggleKillListItemMock: vi.fn(async () => {}),
+  toggleKillListItemMock: vi.fn(async (..._args: unknown[]) => {}),
 }));
 
 vi.mock("@/app/(app)/business/actions", () => ({
-  toggleKillListItem: toggleKillListItemMock,
+  setKillListItemCompleted: toggleKillListItemMock,
+  refreshBusinessViews: vi.fn(async () => {}),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -30,6 +32,7 @@ const GROUPS: IncompleteByDateGroup[] = [
 // incompelted kill lists under each date."
 describe("IncompleteTasksModule", () => {
   beforeEach(() => {
+    resetKeyedQueuesForTests();
     toggleKillListItemMock.mockClear();
   });
 
@@ -65,11 +68,29 @@ describe("IncompleteTasksModule", () => {
     await user.click(screen.getByRole("button", { name: "More" }));
 
     await user.click(await screen.findByRole("button", { name: 'Mark "Finish deck" complete' }));
-    expect(toggleKillListItemMock).toHaveBeenCalledWith("a");
+    expect(toggleKillListItemMock).toHaveBeenCalledWith("a", true);
     expect(screen.queryByText("Finish deck")).not.toBeInTheDocument();
     // 2026-08-26 had exactly this one item — its date header goes with it.
     expect(screen.queryByText("Aug. 26th")).not.toBeInTheDocument();
     // Preview count decremented from 3 to 2, visible behind the open dialog.
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  // PERF-2: nothing is disabled while one item saves; a failed write brings the row back.
+  it("completing one item leaves the others tappable, and a failed write restores the row", async () => {
+    toggleKillListItemMock.mockImplementation(async (...args: unknown[]) => {
+      const id = args[0];
+      if (id === "b") throw new Error("boom");
+    });
+    render(<IncompleteTasksModule initialGroups={GROUPS} todayStr="2026-08-26" />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await screen.findByText("Call vendor");
+    await user.click(screen.getByRole("button", { name: 'Mark "Call vendor" complete' }));
+    // sibling still enabled right away
+    expect(screen.getByRole("button", { name: 'Mark "Send invoice" complete' })).toBeEnabled();
+    // the failed row comes back with an error
+    expect(await screen.findByRole("button", { name: 'Mark "Call vendor" complete' })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 });

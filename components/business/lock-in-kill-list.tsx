@@ -1,7 +1,7 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
-import { toggleKillListItem } from "@/app/(app)/business/actions";
+import { setKillListItemCompleted, refreshBusinessViews } from "@/app/(app)/business/actions";
+import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import type { KillListSlotData } from "./kill-list";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -34,24 +34,25 @@ export function LockInKillList({
   );
 }
 
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshBusiness = () => refreshBusinessViews();
+
 function LockInKillListItem({ slot }: { slot: KillListSlotData }) {
-  const [isPending, startTransition] = useTransition();
-  const [optimisticCompleted, setOptimisticCompleted] = useOptimistic(
-    slot.completed,
-    (_state, next: boolean) => next
-  );
+  // PERF-2: per-item optimistic state, ordered absolute writes, one deferred refresh
+  // (same queue key as kill-list.tsx, so the panel and this overlay never reorder).
+  const completion = useOptimisticItem<boolean>({
+    serverValue: slot.completed,
+    queueKey: `killlist:${slot.id}`,
+    write: (next) => setKillListItemCompleted(slot.id!, next),
+    refresh: refreshBusiness,
+  });
+  const optimisticCompleted = completion.value;
 
   return (
     <button
       type="button"
-      disabled={isPending || !slot.id}
-      onClick={() =>
-        slot.id &&
-        startTransition(async () => {
-          setOptimisticCompleted(!optimisticCompleted);
-          await toggleKillListItem(slot.id!);
-        })
-      }
+      disabled={!slot.id}
+      onClick={() => slot.id && void completion.set(!optimisticCompleted)}
       aria-label={optimisticCompleted ? "Mark incomplete" : "Mark complete"}
       // min-w-0 for the same reason kill-list.tsx's own slot button needs
       // it: without it a flex item's automatic minimum size refuses to
@@ -73,6 +74,11 @@ function LockInKillListItem({ slot }: { slot: KillListSlotData }) {
         {slot.text}
       </span>
       {optimisticCompleted && <Badge variant="positive">Done</Badge>}
+      {completion.error && (
+        <span role="alert" className="shrink-0 text-xs text-destructive">
+          Not saved
+        </span>
+      )}
     </button>
   );
 }

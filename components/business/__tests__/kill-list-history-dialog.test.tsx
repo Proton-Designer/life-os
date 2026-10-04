@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { KillListHistoryDialog } from "../kill-list-history-dialog";
 import type { KillListGroup, KillListItemRow } from "@/app/(app)/business/kill-list-history-actions";
@@ -7,7 +8,7 @@ import type { KillListGroup, KillListItemRow } from "@/app/(app)/business/kill-l
 const { getKillListHistoryMock, getKillListDayDetailMock, toggleKillListItemMock } = vi.hoisted(() => ({
   getKillListHistoryMock: vi.fn(),
   getKillListDayDetailMock: vi.fn(),
-  toggleKillListItemMock: vi.fn(async () => {}),
+  toggleKillListItemMock: vi.fn(async (..._args: unknown[]) => {}),
 }));
 
 vi.mock("@/app/(app)/business/kill-list-history-actions", () => ({
@@ -15,7 +16,8 @@ vi.mock("@/app/(app)/business/kill-list-history-actions", () => ({
   getKillListDayDetail: getKillListDayDetailMock,
 }));
 vi.mock("@/app/(app)/business/actions", () => ({
-  toggleKillListItem: toggleKillListItemMock,
+  setKillListItemCompleted: toggleKillListItemMock,
+  refreshBusinessViews: vi.fn(async () => {}),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -27,6 +29,7 @@ const EMPTY_GROUPS: KillListGroup[] = [
 
 describe("KillListHistoryDialog", () => {
   beforeEach(() => {
+    resetKeyedQueuesForTests();
     getKillListHistoryMock.mockReset();
     getKillListDayDetailMock.mockReset();
     toggleKillListItemMock.mockClear();
@@ -69,6 +72,6 @@ describe("KillListHistoryDialog", () => {
     expect(await screen.findByText("Call back")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: 'Mark "Call back" complete' }));
-    expect(toggleKillListItemMock).toHaveBeenCalledWith("b");
+    expect(toggleKillListItemMock).toHaveBeenCalledWith("b", true);
   });
 });

@@ -10,9 +10,11 @@ import {
   retractHabitVoteAction,
   pauseIdentityHabitAction,
   resumeIdentityHabitAction,
+  refreshHabitViews,
 } from "@/app/(app)/habits/actions";
 import { MAX_ACTIVE_HABITS } from "@/lib/habits/constants";
 import type { HabitWithStatus, PausedHabit } from "@/lib/habits/queries";
+import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import { KillHabitDialog } from "@/components/habits/kill-habit-dialog";
 
 /**
@@ -66,6 +68,9 @@ function ScoreBadge({ habit }: { habit: HabitWithStatus }) {
   );
 }
 
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshHabits = () => refreshHabitViews();
+
 function HabitRow({
   habit,
   today,
@@ -79,25 +84,30 @@ function HabitRow({
   onArchive: (habitId: string) => void;
   onPause: (habit: HabitWithStatus) => void;
 }) {
-  const [voted, setVoted] = useState(habit.votedToday);
   const [error, setError] = useState<string | null>(null);
   const [killDialogOpen, setKillDialogOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
   const [pausePending, startPauseTransition] = useTransition();
+
+  // PERF-2: per-habit optimistic vote -- instant, ordered absolute cast/retract writes
+  // (last tap wins), nothing disabled while one saves, one deferred refresh.
+  const vote = useOptimisticItem<boolean>({
+    serverValue: habit.votedToday,
+    queueKey: `habit-vote:${habit.id}:${today}`,
+    write: async (next) => {
+      const res = next ? await castHabitVoteAction(habit.id, today) : await retractHabitVoteAction(habit.id, today);
+      if ("error" in res) throw new Error(res.error);
+    },
+    onRevert: (confirmed) => onVoteChange(habit.id, confirmed),
+    refresh: refreshHabits,
+  });
+  const voted = vote.value;
+  const voteError = vote.error;
 
   function toggleVote() {
     setError(null);
     const next = !voted;
-    setVoted(next);
     onVoteChange(habit.id, next);
-    startTransition(async () => {
-      const res = next ? await castHabitVoteAction(habit.id, today) : await retractHabitVoteAction(habit.id, today);
-      if ("error" in res) {
-        setError(res.error);
-        setVoted(!next);
-        onVoteChange(habit.id, !next);
-      }
-    });
+    void vote.set(next);
   }
 
   function handlePause() {
@@ -121,7 +131,6 @@ function HabitRow({
             variant={voted ? "default" : "outline"}
             size="icon"
             className="shrink-0 rounded-full"
-            disabled={isPending}
             onClick={toggleVote}
             aria-pressed={voted}
             aria-label={voted ? "Retract today's vote" : "Vote for this identity today"}
@@ -147,7 +156,6 @@ function HabitRow({
             type="button"
             size="icon-sm"
             variant="ghost"
-            disabled={isPending}
             onClick={() => setKillDialogOpen(true)}
             aria-label="Kill this habit"
             title="Kill"
@@ -156,7 +164,7 @@ function HabitRow({
           </Button>
         </div>
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {(error ?? voteError) && <p className="text-xs text-destructive">{error ?? voteError}</p>}
       <KillHabitDialog
         open={killDialogOpen}
         onOpenChange={setKillDialogOpen}

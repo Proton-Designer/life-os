@@ -107,6 +107,13 @@ describe("habit actions (#39/#40) — 'use server' wrappers over lib/habits/acti
     const res = await castHabitVoteAction("h1", "2026-09-14");
     expect(res).toEqual({ ok: true });
     expect(castHabitVoteCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "h1", "2026-09-14", expect.any(Date), "America/Chicago");
+    // Hot tap (PERF-2): the vote itself no longer revalidates; the client schedules refreshHabitViews().
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshHabitViews revalidates /habits (data-free)", async () => {
+    const { refreshHabitViews } = await import("../actions");
+    await refreshHabitViews();
     expect(revalidatePathMock).toHaveBeenCalledWith("/habits");
   });
 

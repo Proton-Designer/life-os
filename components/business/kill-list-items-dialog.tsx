@@ -1,12 +1,14 @@
 "use client";
 
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { toggleKillListItem } from "@/app/(app)/business/actions";
+import { setKillListItemCompleted, refreshBusinessViews } from "@/app/(app)/business/actions";
+import { useOptimisticToggles } from "@/lib/client/use-optimistic-toggles";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { KillListItemRow } from "@/app/(app)/business/kill-list-history-actions";
+
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshBusiness = () => refreshBusinessViews();
 
 /**
  * Reusable list-of-items popup, shared between two callers (item B3-3):
@@ -34,21 +36,20 @@ export function KillListItemsDialog({
    * out of the list entirely rather than just showing as done in place. */
   removeOnComplete?: boolean;
 }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-
-  function toggle(item: KillListItemRow) {
-    startTransition(async () => {
-      await toggleKillListItem(item.id);
-      if (removeOnComplete && !item.completed) {
-        // Was incomplete, just marked done — drop it from this list.
-        onItemsChange((prev) => prev.filter((i) => i.id !== item.id));
+  // PERF-2: per-item optimistic toggles (nothing disabled, absolute ordered writes,
+  // per-item revert); the parent list is updated when an item's writes are confirmed.
+  const toggles = useOptimisticToggles({
+    queuePrefix: "killlist",
+    write: setKillListItemCompleted,
+    refresh: refreshBusiness,
+    onConfirmed: (id, completed) => {
+      if (removeOnComplete && completed) {
+        onItemsChange((prev) => prev.filter((i) => i.id !== id));
       } else {
-        onItemsChange((prev) => prev.map((i) => (i.id === item.id ? { ...i, completed: !i.completed } : i)));
+        onItemsChange((prev) => prev.map((i) => (i.id === id ? { ...i, completed } : i)));
       }
-      router.refresh();
-    });
-  }
+    },
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,29 +61,38 @@ export function KillListItemsDialog({
           <p className="py-8 text-center text-sm text-muted-foreground">Nothing here.</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {items.map((item) => (
+            {items
+              .filter((item) => !(removeOnComplete && toggles.value(item.id, item.completed)))
+              .map((item) => {
+                const completed = toggles.value(item.id, item.completed);
+                return (
               <li key={item.id}>
                 <button
                   type="button"
-                  disabled={isPending}
-                  onClick={() => toggle(item)}
-                  aria-label={item.completed ? `Mark "${item.text}" incomplete` : `Mark "${item.text}" complete`}
-                  className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/40 px-3 py-2 text-left transition-colors hover:bg-accent/50 disabled:opacity-50"
+                  onClick={() => void toggles.set(item.id, !completed)}
+                  aria-label={completed ? `Mark "${item.text}" incomplete` : `Mark "${item.text}" complete`}
+                  className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/40 px-3 py-2 text-left transition-colors hover:bg-accent/50"
                 >
                   <span
                     aria-hidden
                     className={cn(
                       "size-5 shrink-0 rounded-full border transition-colors",
-                      item.completed ? "border-accent-business bg-accent-business" : "border-border"
+                      completed ? "border-accent-business bg-accent-business" : "border-border"
                     )}
                   />
-                  <span className={cn("min-w-0 flex-1 truncate text-sm", item.completed && "text-muted-foreground line-through")}>
+                  <span className={cn("min-w-0 flex-1 truncate text-sm", completed && "text-muted-foreground line-through")}>
                     {item.text}
                   </span>
                 </button>
               </li>
-            ))}
+                );
+              })}
           </ul>
+        )}
+        {toggles.error && (
+          <p role="alert" className="text-xs text-destructive">
+            Not saved. Try again.
+          </p>
         )}
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
           Close

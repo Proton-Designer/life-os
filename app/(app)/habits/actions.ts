@@ -89,12 +89,18 @@ export async function killIdentityHabitAction(habitId: string, reason?: string):
  * a request naming any other date is rejected there, not here, so this
  * wrapper carries no separate copy of that rule to drift out of sync.
  */
+/** Data-free cache revalidation scheduled by the habit vote control after a burst of taps (PERF-2). */
+export async function refreshHabitViews(): Promise<void> {
+  await requireUser();
+  revalidateHabitSurfaces();
+}
+
 export async function castHabitVoteAction(habitId: string, requestedDate: string): Promise<ActionResult> {
   const { supabase, userId } = await requireUser();
   try {
     const timezone = await timezoneForUser(supabase, userId);
     await castHabitVoteCore(supabase, userId, habitId, requestedDate, new Date(), timezone);
-    revalidateHabitSurfaces();
+    // Hot tap: no revalidatePath here -- the client schedules ONE refreshHabitViews() per burst (PERF-2).
     return { ok: true };
   } catch (err) {
     return { error: describeHabitError(err) };
@@ -106,7 +112,7 @@ export async function retractHabitVoteAction(habitId: string, requestedDate: str
   try {
     const timezone = await timezoneForUser(supabase, userId);
     await retractHabitVoteCore(supabase, userId, habitId, requestedDate, new Date(), timezone);
-    revalidateHabitSurfaces();
+    // Hot tap: no revalidatePath here -- the client schedules ONE refreshHabitViews() per burst (PERF-2).
     return { ok: true };
   } catch (err) {
     return { error: describeHabitError(err) };

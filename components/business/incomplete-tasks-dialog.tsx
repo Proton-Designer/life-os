@@ -1,12 +1,14 @@
 "use client";
 
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { toggleKillListItem } from "@/app/(app)/business/actions";
+import { setKillListItemCompleted, refreshBusinessViews } from "@/app/(app)/business/actions";
+import { useOptimisticToggles } from "@/lib/client/use-optimistic-toggles";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatShortDate } from "@/lib/date-utils";
 import type { IncompleteByDateGroup } from "@/app/(app)/business/kill-list-history-actions";
+
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshBusiness = () => refreshBusinessViews();
 
 /**
  * The "More" dialog for the Incompleted Tasks module (2026-08-26 night
@@ -37,16 +39,18 @@ export function IncompleteTasksDialog({
   todayStr: string;
   onItemCompleted: (date: string, itemId: string) => void;
 }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-
-  function complete(date: string, itemId: string) {
-    startTransition(async () => {
-      await toggleKillListItem(itemId);
-      onItemCompleted(date, itemId);
-      router.refresh();
-    });
-  }
+  // PERF-2: tapping hides the row at once (local override); the parent list/count is
+  // updated when the write is confirmed, and a failure just brings the row back.
+  const dateById = new Map(groups.flatMap((g) => g.items.map((i) => [i.id, g.date] as const)));
+  const toggles = useOptimisticToggles({
+    queuePrefix: "killlist",
+    write: setKillListItemCompleted,
+    refresh: refreshBusiness,
+    onConfirmed: (id, completed) => {
+      const date = dateById.get(id);
+      if (completed && date) onItemCompleted(date, id);
+    },
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -58,18 +62,17 @@ export function IncompleteTasksDialog({
           <p className="py-8 text-center text-sm text-muted-foreground">Nothing outstanding.</p>
         ) : (
           <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto">
-            {groups.map((group) => (
+            {groups.map((group) => ({ group, items: group.items.filter((i) => !toggles.value(i.id, false)) })).filter((g) => g.items.length > 0).map(({ group, items }) => (
               <div key={group.date} className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">{formatShortDate(group.date, todayStr)}</p>
                 <ul className="flex flex-col gap-2">
-                  {group.items.map((item) => (
+                  {items.map((item) => (
                     <li key={item.id}>
                       <button
                         type="button"
-                        disabled={isPending}
-                        onClick={() => complete(group.date, item.id)}
+                        onClick={() => void toggles.set(item.id, true)}
                         aria-label={`Mark "${item.text}" complete`}
-                        className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/40 px-3 py-2 text-left transition-colors hover:bg-accent/50 disabled:opacity-50"
+                        className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/40 px-3 py-2 text-left transition-colors hover:bg-accent/50"
                       >
                         <span aria-hidden className="size-5 shrink-0 rounded-full border border-border" />
                         <span className="min-w-0 flex-1 truncate text-sm">{item.text}</span>
@@ -80,6 +83,11 @@ export function IncompleteTasksDialog({
               </div>
             ))}
           </div>
+        )}
+        {toggles.error && (
+          <p role="alert" className="text-xs text-destructive">
+            Not saved. Try again.
+          </p>
         )}
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
           Close
