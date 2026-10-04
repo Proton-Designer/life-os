@@ -124,8 +124,8 @@ export async function logDistraction(triggerId: string, tier?: 1 | 2 | 3, sessio
   if (tier && !(await isDeenModeOnForRequest())) throw new Error(DEEN_MODE_OFF_MESSAGE);
   const date = await todayForUser(supabase, userId);
   await insertEvent(supabase, userId, triggerId, date, tier, sessionId);
-  revalidatePath("/");
-  if (tier) revalidatePath("/deen");
+  // Hot tap: no revalidatePath here (rapid +1 taps would queue behind each other's full
+  // re-render). The capture dialog schedules ONE refreshDistractionViews() (PERF-4).
 }
 
 export async function createTriggerAndLog(input: {
@@ -169,8 +169,7 @@ export async function createTriggerAndLog(input: {
   }
 
   await insertEvent(supabase, userId, triggerId, date, input.tier, input.sessionId);
-  revalidatePath("/");
-  if (input.tier) revalidatePath("/deen");
+  // No revalidatePath: the capture dialog schedules ONE refreshDistractionViews() (PERF-4).
   return { triggerId };
 }
 
@@ -218,9 +217,7 @@ export async function saveActionPlan(triggerId: string, body: string): Promise<v
     });
     if (error) throw error;
   }
-
-  revalidatePath("/");
-  revalidatePath("/review");
+  // No revalidatePath: the review controls schedule ONE refreshDistractionViews() (PERF-4).
 }
 
 /**
@@ -251,7 +248,17 @@ export async function recordPlanOutcome(input: {
     p_new_plan_body: input.newPlanBody,
   });
   if (error) throw new Error(error.message);
+  // No revalidatePath: the review controls schedule ONE refreshDistractionViews() (PERF-4).
+}
 
+/**
+ * Data-free cache revalidation scheduled by the distraction capture dialog and the
+ * review cards after a burst of writes (PERF-4): Home, the Deen faith surfaces a
+ * reflection tier feeds, and /review.
+ */
+export async function refreshDistractionViews(): Promise<void> {
+  await requireUser();
   revalidatePath("/");
+  revalidatePath("/deen");
   revalidatePath("/review");
 }

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { recordPlanOutcome, saveActionPlan } from "@/app/(app)/distractions/actions";
+import { useDistractionRefresh } from "@/components/distractions/use-distraction-refresh";
 import { mustRewrite } from "@/lib/distractions/plan-rules";
 import type { ReviewItem } from "@/lib/distractions/types";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -33,14 +34,36 @@ export function ReviewItemCard({
   const [isPending, startTransition] = useTransition();
   const [planBody, setPlanBody] = useState("");
   const [revising, setRevising] = useState<boolean | null>(null);
+  // PERF-4: the card collapses to "Saved" the instant a decision is made (the writes
+  // are one-shot and NOT idempotent, so `done` also blocks a second submit); a failed
+  // write brings the card back with an error. The action no longer waits on a full
+  // re-render -- one deferred refreshDistractionViews() per burst re-syncs Home/Review.
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scheduleRefresh = useDistractionRefresh();
+
+  function submit(write: () => Promise<unknown>, updatedPlanBody?: string, onFail?: () => void) {
+    if (done) return;
+    setDone(true);
+    setError(null);
+    startTransition(async () => {
+      try {
+        await write();
+        onReviewed(trigger.id, updatedPlanBody);
+      } catch {
+        setDone(false);
+        setError("Couldn't save that. Try again.");
+        onFail?.();
+      } finally {
+        scheduleRefresh();
+      }
+    });
+  }
 
   function handleSaveNewPlan() {
     const body = planBody.trim();
     if (!body) return;
-    startTransition(async () => {
-      await saveActionPlan(trigger.id, body);
-      onReviewed(trigger.id, body);
-    });
+    submit(() => saveActionPlan(trigger.id, body), body);
   }
 
   function handleDidntFollow() {
@@ -50,23 +73,26 @@ export function ReviewItemCard({
       setRevising(false);
       return;
     }
-    startTransition(async () => {
-      try {
-        await recordPlanOutcome({ triggerId: trigger.id, followed: false });
-        onReviewed(trigger.id);
-      } catch {
-        setRevising(false);
-      }
+    // A server rejection (mispredicted skip) falls back into the revise UI, never silently succeeds.
+    submit(() => recordPlanOutcome({ triggerId: trigger.id, followed: false }), undefined, () => {
+      setError(null);
+      setRevising(false);
     });
   }
 
   function handleSubmitRevision() {
     const body = planBody.trim();
     if (!body || revising === null) return;
-    startTransition(async () => {
-      await recordPlanOutcome({ triggerId: trigger.id, followed: revising, newPlanBody: body });
-      onReviewed(trigger.id, body);
-    });
+    submit(() => recordPlanOutcome({ triggerId: trigger.id, followed: revising, newPlanBody: body }), body);
+  }
+
+  if (done) {
+    return (
+      <div data-testid="review-item-card" className="flex items-center justify-between gap-2 rounded-lg border border-border/40 p-3">
+        <span className="truncate font-medium">{trigger.name}</span>
+        <Badge variant="positive">Saved</Badge>
+      </div>
+    );
   }
 
   return (
@@ -79,6 +105,11 @@ export function ReviewItemCard({
         <Badge variant="info">{todayCount}× today</Badge>
       </div>
       {trigger.description && <p className="text-xs text-muted-foreground">{trigger.description}</p>}
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
 
       {isNew ? (
         <div className="flex flex-col gap-2">

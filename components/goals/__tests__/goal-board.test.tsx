@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { GoalBoard } from "../goal-board";
+import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import type { Goal } from "@/lib/goals/actions-core";
 
 /**
@@ -24,17 +25,22 @@ import type { Goal } from "@/lib/goals/actions-core";
  */
 
 const createGoalActionMock = vi.fn();
+const setMilestoneDoneMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as { ok: true } | { error: string });
 vi.mock("@/app/(app)/goals/actions", () => ({
   createGoalAction: (...args: unknown[]) => createGoalActionMock(...args),
   setGoalStatusAction: vi.fn(async () => ({ ok: true })),
   addMilestoneAction: vi.fn(async () => ({ ok: true })),
-  setMilestoneDoneAction: vi.fn(async () => ({ ok: true })),
+  setMilestoneDoneAction: (...args: unknown[]) => setMilestoneDoneMock(...args),
+  refreshGoalViews: vi.fn(async () => {}),
 }));
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
 
 beforeEach(() => {
+  resetKeyedQueuesForTests();
+  setMilestoneDoneMock.mockReset();
+  setMilestoneDoneMock.mockResolvedValue({ ok: true });
   createGoalActionMock.mockReset();
   refreshMock.mockReset();
 });
@@ -137,3 +143,35 @@ describe("GoalBoard — Deen Mode", () => {
   });
 });
 
+
+// PERF-4: the milestone checkbox is instant, never disabled while saving, writes the
+// ABSOLUTE value in tap order, and reverts with the server's message on failure.
+describe("GoalBoard — milestone checkbox", () => {
+  const goal: Goal = { ...NEW_GOAL, id: "g1" };
+  const milestone = { id: "m1", goalId: "g1", monthStart: "2026-09-01", title: "Ship v1", doneAt: null } as never;
+
+  it("flips at once, stays enabled, and a second quick tap sends false after true (in order)", async () => {
+    let release!: () => void;
+    setMilestoneDoneMock.mockImplementationOnce(() => new Promise((res) => (release = () => res({ ok: true }))));
+    const user = userEvent.setup();
+    render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[goal]} milestones={[milestone]} />);
+    const btn = screen.getByRole("button", { name: /Ship v1/ });
+    await user.click(btn);
+    expect(btn).toBeEnabled();
+    expect(btn.querySelector("span")).toHaveClass("line-through");
+    await user.click(btn); // queued behind the in-flight write
+    await waitFor(() => expect(setMilestoneDoneMock).toHaveBeenCalledTimes(1));
+    expect(setMilestoneDoneMock).toHaveBeenNthCalledWith(1, "m1", true);
+    release();
+    await waitFor(() => expect(setMilestoneDoneMock).toHaveBeenNthCalledWith(2, "m1", false));
+  });
+
+  it("a rejected write reverts the checkbox and shows the message", async () => {
+    setMilestoneDoneMock.mockResolvedValue({ error: "Milestone not found." });
+    const user = userEvent.setup();
+    render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[goal]} milestones={[milestone]} />);
+    await user.click(screen.getByRole("button", { name: /Ship v1/ }));
+    expect(await screen.findByText("Milestone not found.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ship v1/ }).querySelector("span")).not.toHaveClass("line-through");
+  });
+});

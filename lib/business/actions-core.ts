@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { toggleTaskCore } from "@/lib/tasks/actions-core";
+import { toggleTaskCore, setTaskCompletedCore } from "@/lib/tasks/actions-core";
 
 /**
  * R5 core(supabase, userId, ...) extraction for app/(app)/business/actions.ts
@@ -284,6 +284,42 @@ export async function toggleSessionObjectiveCore(supabase: SupabaseClient, userI
   const { error } = await supabase
     .from("work_session_objectives")
     .update({ completed: nowCompleted, completed_at: nowCompleted ? new Date().toISOString() : null })
+    .eq("id", objectiveId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+/**
+ * SETS (not toggles) one session objective's completion -- the Lock-In overlay sends its
+ * intended value so an ordered queue stays "last tap wins" even after a failed write
+ * (PERF-4; same reasoning as setAdhkarCore). Same derive-not-mirror rule as
+ * toggleSessionObjectiveCore: kill-list and task objectives write the live row, only
+ * kind='custom' writes this table's own `completed`.
+ */
+export async function setSessionObjectiveCompletedCore(supabase: SupabaseClient, userId: string, objectiveId: string, completed: boolean): Promise<void> {
+  const { data: objective, error: fetchError } = await supabase
+    .from("work_session_objectives")
+    .select("id, kind, kill_list_item_id, task_id")
+    .eq("id", objectiveId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!objective) throw new Error("Session objective not found");
+
+  if (objective.kind === "kill_list_item") {
+    if (!objective.kill_list_item_id) throw new Error("kill_list_item objective is missing its reference");
+    await setKillListItemCompletedCore(supabase, userId, objective.kill_list_item_id, completed);
+    return;
+  }
+  if (objective.kind === "task") {
+    if (!objective.task_id) throw new Error("task objective is missing its reference");
+    await setTaskCompletedCore(supabase, userId, objective.task_id, completed);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("work_session_objectives")
+    .update({ completed, completed_at: completed ? new Date().toISOString() : null })
     .eq("id", objectiveId)
     .eq("user_id", userId);
   if (error) throw error;

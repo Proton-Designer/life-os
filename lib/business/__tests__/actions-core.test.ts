@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { startWorkSessionCore, endWorkSessionCore, toggleSessionObjectiveCore } from "../actions-core";
+import { startWorkSessionCore, endWorkSessionCore, toggleSessionObjectiveCore, setSessionObjectiveCompletedCore } from "../actions-core";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
@@ -298,5 +298,46 @@ describe("toggleSessionObjectiveCore — derive, not mirror", () => {
     await toggleSessionObjectiveCore(client, "user-1", "obj-1");
 
     expect(objectives.update).toHaveBeenCalledWith(expect.objectContaining({ completed: true }));
+  });
+});
+
+describe("setSessionObjectiveCompletedCore — absolute, idempotent (PERF-4)", () => {
+  it("kind=kill_list_item: sets the live row to the GIVEN value (false stays false, never flips)", async () => {
+    const objectives = makeChain({ data: { id: "obj-1", kind: "kill_list_item", kill_list_item_id: "k1", task_id: null }, error: null });
+    const killListItems = makeChain({ data: [{ id: "k1" }], error: null });
+    const from = vi.fn((table: string) => (table === "work_session_objectives" ? objectives : killListItems));
+    const client = { from } as unknown as SupabaseClient;
+
+    await setSessionObjectiveCompletedCore(client, "user-1", "obj-1", false);
+
+    expect(killListItems.update).toHaveBeenCalledWith(expect.objectContaining({ completed: false, completed_at: null }));
+    expect(objectives.update).not.toHaveBeenCalled();
+  });
+
+  it("kind=task: sets the live task row, not this table", async () => {
+    const objectives = makeChain({ data: { id: "obj-1", kind: "task", kill_list_item_id: null, task_id: "t1" }, error: null });
+    const tasks = makeChain({ data: [{ id: "t1" }], error: null });
+    const from = vi.fn((table: string) => (table === "work_session_objectives" ? objectives : tasks));
+    const client = { from } as unknown as SupabaseClient;
+
+    await setSessionObjectiveCompletedCore(client, "user-1", "obj-1", true);
+
+    expect(from).toHaveBeenCalledWith("tasks");
+    expect(tasks.update).toHaveBeenCalledWith(expect.objectContaining({ completed: true }));
+    expect(objectives.update).not.toHaveBeenCalled();
+  });
+
+  it("kind=custom: writes this table's own completed with the given value", async () => {
+    const objectives = makeChain({ data: { id: "obj-1", kind: "custom", kill_list_item_id: null, task_id: null }, error: null });
+    const client = { from: vi.fn(() => objectives) } as unknown as SupabaseClient;
+
+    await setSessionObjectiveCompletedCore(client, "user-1", "obj-1", false);
+
+    expect(objectives.update).toHaveBeenCalledWith(expect.objectContaining({ completed: false, completed_at: null }));
+  });
+
+  it("throws when the objective doesn't exist", async () => {
+    const client = { from: vi.fn(() => makeChain({ data: null, error: null })) } as unknown as SupabaseClient;
+    await expect(setSessionObjectiveCompletedCore(client, "user-1", "obj-1", true)).rejects.toThrow(/not found/i);
   });
 });

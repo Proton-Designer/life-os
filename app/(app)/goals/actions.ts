@@ -133,6 +133,13 @@ export async function setMilestoneDoneAction(milestoneId: string, done: boolean)
   } catch (err) {
     return { error: describeGoalError(err, "milestone") };
   }
-  revalidatePath("/goals");
+  // Hot tap: no revalidatePath here -- the milestone control schedules ONE
+  // refreshGoalViews() per burst (PERF-4).
   return { ok: true };
+}
+
+/** Data-free cache revalidation scheduled by the milestone checkbox after a burst of taps (PERF-4). */
+export async function refreshGoalViews(): Promise<void> {
+  await requireUser();
+  revalidatePath("/goals");
 }

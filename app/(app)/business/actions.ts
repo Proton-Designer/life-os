@@ -10,6 +10,7 @@ import {
   startWorkSessionCore,
   endWorkSessionCore,
   toggleSessionObjectiveCore,
+  setSessionObjectiveCompletedCore,
   type StartWorkSessionInput,
   type StartWorkSessionResult,
 } from "@/lib/business/actions-core";
@@ -55,6 +56,8 @@ export async function refreshBusinessViews(): Promise<void> {
   await requireUser();
   revalidatePath("/business");
   revalidatePath("/");
+  // A session objective can be a School task, so its surfaces refresh too.
+  revalidatePath("/school");
 }
 
 // getWeeklySignalNoiseRatio deliberately isn't re-exported from here: a plain
@@ -118,6 +121,15 @@ export async function toggleSessionObjective(objectiveId: string): Promise<void>
   revalidatePath("/business");
   revalidatePath("/");
   revalidatePath("/school");
+}
+
+/**
+ * Idempotent setter for the optimistic Lock-In objectives (PERF-4). Hot tap: no
+ * revalidatePath here -- the overlay schedules ONE refreshBusinessViews() per burst.
+ */
+export async function setSessionObjectiveCompleted(objectiveId: string, completed: boolean): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  await setSessionObjectiveCompletedCore(supabase, userId, objectiveId, completed);
 }
 
 /**

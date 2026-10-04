@@ -103,6 +103,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Business / Lock-In ──────────────────────────────────────────────────
   "app/(app)/business/actions.ts#setKillListItem": { mcp: "business.kill_list_item.set" },
   "app/(app)/business/actions.ts#toggleKillListItem": { mcp: "business.kill_list_item.toggle" },
+  "app/(app)/business/actions.ts#setSessionObjectiveCompleted": { excluded: "ui_scaffold: idempotent setter twin of toggleSessionObjective for the optimistic Lock-In overlay; MCP exposes the toggle" },
   "app/(app)/business/actions.ts#setKillListItemCompleted": { excluded: "ui_scaffold: idempotent setter twin of toggleKillListItem for the optimistic UI; MCP exposes the toggle" },
   "app/(app)/business/actions.ts#refreshBusinessViews": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by the kill-list control after a burst of taps" },
   "app/(app)/business/actions.ts#saveBusinessWeeklyGoal": { mcp: "business.weekly_goal.save" },
@@ -164,6 +165,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/distractions/actions.ts#listTopTriggersForQuickLog": { read_only: true, note: "cross-domain sibling of listTriggersForDomain (P3-02 quick-log chips)" },
   "app/(app)/distractions/actions.ts#getTodayDistractionCountForNow": { read_only: true },
   "app/(app)/distractions/actions.ts#getSessionDistractionCountForNow": { read_only: true },
+  "app/(app)/distractions/actions.ts#refreshDistractionViews": { read_only: true, note: "PERF-4: data-free cache revalidation scheduled by the capture dialog and review cards after a burst of writes" },
   "app/(app)/distractions/actions.ts#logDistraction": { mcp: "distractions.event.log" },
   "app/(app)/distractions/actions.ts#createTriggerAndLog": { mcp: "distractions.trigger.capture" },
   "app/(app)/distractions/actions.ts#updateTrigger": { pending: "P4-09", note: "distractions.trigger.update" },
@@ -207,6 +209,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/goals/actions.ts#setGoalStatusAction": { mcp: "goals.goal.set_status" },
   "app/(app)/goals/actions.ts#addMilestoneAction": { mcp: "goals.milestone.add" },
   "app/(app)/goals/actions.ts#setMilestoneDoneAction": { mcp: "goals.milestone.set_done" },
+  "app/(app)/goals/actions.ts#refreshGoalViews": { read_only: true, note: "PERF-4: data-free cache revalidation scheduled by the milestone checkbox after a burst of taps" },
   "app/(app)/habits/actions.ts#refreshHabitViews": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by the habit vote control after a burst of taps" },
   "app/(app)/habits/actions.ts#createIdentityHabitAction": { mcp: "habits.identity_habit.create" },
   "app/(app)/habits/actions.ts#archiveIdentityHabitAction": { mcp: "habits.identity_habit.archive" },

@@ -6,12 +6,14 @@ import { ChevronDown, ChevronRight, CircleCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import { formatShortDate } from "@/lib/date-utils";
 import {
   createGoalAction,
   setGoalStatusAction,
   addMilestoneAction,
   setMilestoneDoneAction,
+  refreshGoalViews,
 } from "@/app/(app)/goals/actions";
 import type { Goal } from "@/lib/goals/actions-core";
 import type { GoalMilestone } from "@/lib/goals/queries";
@@ -54,6 +56,9 @@ function domainLabel(domain: string | null, deenMode: boolean): string | null {
   return DOMAIN_OPTIONS.find((d) => d.value === domain)?.label ?? domain;
 }
 
+// Lazy on purpose: the action is only touched when the debounced refresh fires.
+const refreshGoals = () => refreshGoalViews();
+
 function GoalMilestoneRow({
   goalId,
   monthStart,
@@ -67,8 +72,18 @@ function GoalMilestoneRow({
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [optimisticDone, setOptimisticDone] = useState<boolean | null>(null);
   const router = useRouter();
+  // PERF-4: the milestone checkbox is per-item optimistic with ordered ABSOLUTE writes
+  // (last tap wins) and never disabled while one saves; one deferred refresh.
+  const doneItem = useOptimisticItem<boolean>({
+    serverValue: milestone ? milestone.doneAt !== null : false,
+    queueKey: `milestone:${milestone?.id ?? goalId}`,
+    write: async (next) => {
+      const res = await setMilestoneDoneAction(milestone!.id, next);
+      if ("error" in res) throw new Error(res.error);
+    },
+    refresh: refreshGoals,
+  });
 
   if (!milestone) {
     if (!adding) {
@@ -129,19 +144,11 @@ function GoalMilestoneRow({
     );
   }
 
-  const done = optimisticDone ?? milestone.doneAt !== null;
+  const done = doneItem.value;
 
   function toggle() {
     setError(null);
-    const next = !done;
-    setOptimisticDone(next);
-    startTransition(async () => {
-      const res = await setMilestoneDoneAction(milestone!.id, next);
-      if ("error" in res) {
-        setError(res.error);
-        setOptimisticDone(!next);
-      }
-    });
+    void doneItem.set(!done);
   }
 
   return (
@@ -149,13 +156,12 @@ function GoalMilestoneRow({
       <button
         type="button"
         onClick={toggle}
-        disabled={isPending}
-        className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+        className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
       >
         <CircleCheck className={done ? "size-3.5 text-accent-business" : "size-3.5"} strokeWidth={2} />
         <span className={done ? "line-through decoration-muted-foreground/50" : undefined}>{milestone.title}</span>
       </button>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {(error ?? doneItem.error) && <p className="text-xs text-destructive">{error ?? doneItem.error}</p>}
     </div>
   );
 }

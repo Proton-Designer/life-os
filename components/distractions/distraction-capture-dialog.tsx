@@ -9,6 +9,7 @@ import {
   logDistraction,
   getSessionDistractionCountForNow,
 } from "@/app/(app)/distractions/actions";
+import { useDistractionRefresh } from "@/components/distractions/use-distraction-refresh";
 import { rankTriggersForCapture } from "@/lib/distractions/plan-rules";
 import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -119,6 +120,7 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
   const [newDescription, setNewDescription] = useState("");
   const [tier, setTier] = useState<Tier | null>(null);
   const [, startTransition] = useTransition();
+  const scheduleRefresh = useDistractionRefresh();
   // #52: bumped after every successful log so SessionDistractionCounter
   // re-polls immediately instead of waiting out its own 60s tick.
   const [sessionLogBump, setSessionLogBump] = useState(0);
@@ -194,8 +196,12 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
     const loggedSessionId = session?.id ?? null;
     setOpen(false);
     startTransition(async () => {
-      await logDistraction(triggerId, loggedTier, loggedSessionId);
-      setSessionLogBump((n) => n + 1);
+      try {
+        await logDistraction(triggerId, loggedTier, loggedSessionId);
+        setSessionLogBump((n) => n + 1);
+      } finally {
+        scheduleRefresh();
+      }
     });
     reset();
   }
@@ -209,8 +215,12 @@ export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: bool
     const loggedSessionId = session?.id ?? null;
     setOpen(false);
     startTransition(async () => {
-      await createTriggerAndLog({ domain, name, description, tier: savedTier, sessionId: loggedSessionId });
-      setSessionLogBump((n) => n + 1);
+      try {
+        await createTriggerAndLog({ domain, name, description, tier: savedTier, sessionId: loggedSessionId });
+        setSessionLogBump((n) => n + 1);
+      } finally {
+        scheduleRefresh();
+      }
     });
     reset();
   }
