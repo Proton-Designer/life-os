@@ -23,6 +23,7 @@ function makeClient(
   opts: {
     optedInProfiles?: { user_id: string; timezone: string | null }[];
     claimedUsers?: Set<string>;
+    settings?: { user_id: string; wake_time: string | null; sleep_need_minutes: number | null; wind_down_minutes: number | null }[];
   } = {}
 ) {
   const insertCalls: Record<string, unknown>[] = [];
@@ -44,6 +45,7 @@ function makeClient(
       if (table === "profiles") profilesContainsCalls.push([col, val]);
       return chain;
     });
+    chain.in = vi.fn(() => chain);
     chain.delete = vi.fn(() => chain);
     chain.then = (resolve: (v: { data: unknown; error: null }) => void) => {
       if (table === "sleep_reminder_log") {
@@ -51,6 +53,7 @@ function makeClient(
         return resolve({ data: null, error: null });
       }
       if (table === "profiles") return resolve({ data: opts.optedInProfiles ?? [], error: null });
+      if (table === "user_settings") return resolve({ data: opts.settings ?? [], error: null });
       resolve({ data: null, error: null });
     };
     chain.insert = vi.fn((row: Record<string, unknown>) => {
@@ -202,5 +205,43 @@ describe("dispatchSleepReminders (P2-05)", () => {
     const { client } = makeClient({ optedInProfiles: [{ user_id: "user-1", timezone: null }] });
     const atUtc2130 = new Date("2026-09-15T21:30:00.000Z");
     await expect(dispatchSleepReminders(client, atUtc2130)).resolves.toEqual({ usersChecked: 1, dispatched: 1 });
+  });
+});
+
+// IA-P4a: the window follows the user's own wind-down plan.
+describe("dispatchSleepReminders — wind-down plan window (IA-P4a)", () => {
+  const plan = (id: string) => ({ user_id: id, wake_time: "07:00", sleep_need_minutes: 480, wind_down_minutes: 45 }); // wind-down 22:15
+  const AT_2214 = new Date("2026-09-15T03:14:00.000Z"); // 22:14 CDT
+  const AT_2215 = new Date("2026-09-15T03:15:00.000Z"); // 22:15 CDT
+  const AT_2131 = AT_2130_LOCAL;
+
+  it("with a plan, nothing is sent before the user's wind-down start, even past the old 21:30", async () => {
+    const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [plan("u1")] });
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    expect((await dispatchSleepReminders(client, AT_2131)).dispatched).toBe(0);
+    expect((await dispatchSleepReminders(client, AT_2214)).dispatched).toBe(0);
+    expect(sendPushToUserMock).not.toHaveBeenCalled();
+  });
+
+  it("with a plan, it fires from the wind-down start and opens /close", async () => {
+    const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [plan("u1")] });
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    expect((await dispatchSleepReminders(client, AT_2215)).dispatched).toBe(1);
+    expect(sendPushToUserMock.mock.calls[0]![4]).toBe("/close");
+  });
+
+  it("without a plan the old 21:30 window is unchanged", async () => {
+    const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [] });
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    expect((await dispatchSleepReminders(client, AT_2129_LOCAL)).dispatched).toBe(0);
+    expect((await dispatchSleepReminders(client, AT_2130_LOCAL)).dispatched).toBe(1);
+  });
+
+  it("a late wind-down (23:15) never leaks past local midnight", async () => {
+    const late = { user_id: "u1", wake_time: "09:00", sleep_need_minutes: 540, wind_down_minutes: 45 }; // wind-down 23:15
+    const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [late] });
+    sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
+    expect((await dispatchSleepReminders(client, new Date("2026-09-15T04:14:00.000Z"))).dispatched).toBe(0); // 23:14
+    expect((await dispatchSleepReminders(client, new Date("2026-09-15T04:15:00.000Z"))).dispatched).toBe(1); // 23:15
   });
 });

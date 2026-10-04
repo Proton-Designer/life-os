@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
+import { RhythmCard } from "@/components/insights/rhythm-card";
 import { WeeklyReviewBody } from "@/components/weekly-review/weekly-review-body";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ export function InsightsWeekTab({ soFar }: { soFar: boolean }) {
           </div>
         }
       />
+      <RhythmCard />
       <WeeklyReviewBody soFar={soFar} viewBasePath="/insights?tab=week" />
     </PageContainer>
   );

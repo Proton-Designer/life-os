@@ -28,8 +28,7 @@ import { markDayStarted } from "@/lib/day-structure/day-start";
 import {
   createMorningRoutineItemCore,
   archiveMorningRoutineItemCore,
-  checkMorningRoutineItemCore,
-  uncheckMorningRoutineItemCore,
+  setLaunchStepDoneCore,
 } from "@/lib/morning-routine/actions-core";
 import { createGoal, completeGoal, dropGoal, addMilestone, completeMilestone, reopenMilestone } from "@/lib/goals/actions-core";
 import { createIdentityHabitCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
@@ -2814,13 +2813,18 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           create: {
             action: "create",
-            description: "Create a morning routine checklist item (up to a soft ceiling of MAX_ROUTINE_ITEMS active items -- an app-code pre-check, not a DB-enforced scarcity index, since a checklist has no rank/slot the way identity habits do).",
-            patchShape: "{ label: string }",
+            description: "Create a Launch-sequence step / morning routine item (optional if_cue, fallback_text = 2-minute version, habit_id = an active identity habit it counts as a vote for; up to MAX_ROUTINE_ITEMS (5) active items -- an app-code pre-check, not a DB-enforced scarcity index, since a checklist has no rank/slot the way identity habits do).",
+            patchShape: "{ label: string, if_cue?: string, fallback_text?: string, habit_id?: string }",
             idempotent: false,
             idempotencyVerification: "createMorningRoutineItemCore does a plain INSERT -- a retry creates a SECOND item with the same label, not a no-op.",
             handler: async (ctx, patch) => {
               const label = requireString(patch, "label");
-              const result = await createMorningRoutineItemCore(ctx.userClient, ctx.userId, label);
+              // IA-P4a: Launch-sequence step fields ("when <if_cue>, I <label>", the 2-minute version, an optional identity-habit link).
+              const result = await createMorningRoutineItemCore(ctx.userClient, ctx.userId, label, {
+                ifCue: optionalString(patch, "if_cue") ?? null,
+                fallbackText: optionalString(patch, "fallback_text") ?? null,
+                habitId: optionalString(patch, "habit_id") ?? null,
+              });
               return {
                 result: {
                   content: [{ type: "text", text: JSON.stringify(result) }],
@@ -2858,7 +2862,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const id = requireId(ctx);
               const date = requireString(patch, "date");
               try {
-                await checkMorningRoutineItemCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
+                await setLaunchStepDoneCore(ctx.userClient, ctx.userId, id, true, date, ctx.now, ctx.timezone); // IA-P4a: also casts the linked habit vote
               } catch (err) {
                 if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No morning routine item found with id "${id}".`);
                 throw err;
@@ -2879,7 +2883,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               const id = requireId(ctx);
               const date = requireString(patch, "date");
               try {
-                await uncheckMorningRoutineItemCore(ctx.userClient, ctx.userId, id, date, ctx.now, ctx.timezone);
+                await setLaunchStepDoneCore(ctx.userClient, ctx.userId, id, false, date, ctx.now, ctx.timezone); // IA-P4a: also retracts the linked habit vote
               } catch (err) {
                 if (pgCode(err) === FK_VIOLATION) throw new ToolNotFoundError(`No morning routine item found with id "${id}".`);
                 throw err;

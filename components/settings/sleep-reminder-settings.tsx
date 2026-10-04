@@ -35,10 +35,10 @@ export function SleepReminderSettings({ initialEnabled }: { initialEnabled: bool
     <div className="flex flex-col gap-1">
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={enabled} disabled={isPending} onChange={handleToggle} />
-        <span>9:30 PM wind-down reminder</span>
+        <span>Wind-down reminder</span>
       </label>
       <p className="text-xs text-muted-foreground">
-        A push reminding you it&apos;s a good time to plan tomorrow and get some rest.
+        A push when your wind-down starts (9:30 PM until you set a plan above) that opens the evening close.
       </p>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>

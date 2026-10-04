@@ -6,6 +6,7 @@ const coreMocks = {
   check: vi.fn(async () => {}),
   uncheck: vi.fn(async () => {}),
   list: vi.fn(async () => [{ id: "i1", label: "Stretch", checked: false }]),
+  setDone: vi.fn(async () => {}),
 };
 vi.mock("@/lib/morning-routine/actions-core", () => ({
   createMorningRoutineItemCore: (...a: unknown[]) => (coreMocks.create as (...x: unknown[]) => unknown)(...a),
@@ -13,6 +14,7 @@ vi.mock("@/lib/morning-routine/actions-core", () => ({
   checkMorningRoutineItemCore: (...a: unknown[]) => (coreMocks.check as (...x: unknown[]) => unknown)(...a),
   uncheckMorningRoutineItemCore: (...a: unknown[]) => (coreMocks.uncheck as (...x: unknown[]) => unknown)(...a),
   getMorningRoutineChecklistCore: (...a: unknown[]) => (coreMocks.list as (...x: unknown[]) => unknown)(...a),
+  setLaunchStepDoneCore: (...a: unknown[]) => (coreMocks.setDone as (...x: unknown[]) => unknown)(...a),
 }));
 let enabledFeatures: string[] = [];
 vi.mock("@/lib/opt-in-guard", () => ({
@@ -43,6 +45,7 @@ describe("morning routine actions — opt-in gate", () => {
       await actions.archiveMorningRoutineItem("i1"),
       await actions.checkMorningRoutineItem("i1"),
       await actions.uncheckMorningRoutineItem("i1"),
+      await actions.setLaunchStepDone("i1", true),
     ]) {
       expect(result).toEqual({ ok: false, message: "This feature is off." });
     }
@@ -50,12 +53,16 @@ describe("morning routine actions — opt-in gate", () => {
     expect(coreMocks.archive).not.toHaveBeenCalled();
     expect(coreMocks.check).not.toHaveBeenCalled();
     expect(coreMocks.uncheck).not.toHaveBeenCalled();
+    expect(coreMocks.setDone).not.toHaveBeenCalled();
   });
 
   it("ON: reads and writes go through", async () => {
     enabledFeatures = ["morning_routine"];
     expect(await actions.getMyMorningRoutineChecklist()).toHaveLength(1);
-    expect(await actions.createMorningRoutineItem("Stretch")).toEqual({ ok: true });
+    // IA-P4a: create returns the new row so the card can show it at once.
+    expect(await actions.createMorningRoutineItem("Stretch")).toEqual({ ok: true, item: {} });
+    expect(await actions.setLaunchStepDone("i1", false)).toEqual({ ok: true });
+    expect(coreMocks.setDone).toHaveBeenCalledWith({}, "u1", "i1", false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(Date), "America/Chicago");
     expect(await actions.checkMorningRoutineItem("i1")).toEqual({ ok: true });
     expect(coreMocks.create).toHaveBeenCalledTimes(1);
     expect(coreMocks.check).toHaveBeenCalledTimes(1);

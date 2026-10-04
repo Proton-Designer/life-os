@@ -3,6 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { localDateString } from "@/lib/date-utils";
 import { MAX_ROUTINE_ITEMS } from "./constants";
+import { lastSevenCounts, lastSevenStart } from "@/lib/rhythm/launch";
+import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
+import { castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 export { MAX_ROUTINE_ITEMS };
 
 type TypedClient = SupabaseClient<Database>;
@@ -11,16 +14,40 @@ export type MorningRoutineItem = {
   id: string;
   label: string;
   createdAt: string;
+  /** IA-P4a Launch-sequence step fields (migration 253); null for a plain step. */
+  ifCue: string | null;
+  fallbackText: string | null;
+  /** The identity habit this step counts as a vote for, if linked. */
+  habitId: string | null;
 };
 
 export type MorningRoutineChecklistItem = MorningRoutineItem & {
   checkedToday: boolean;
+  /** Distinct local days this step was ticked in the 7 days ending today (0..7). Never a streak. */
+  doneLast7: number;
 };
 
-type ItemRow = { id: string; label: string; created_at: string };
+type ItemRow = { id: string; label: string; created_at: string; if_cue?: string | null; fallback_text?: string | null; habit_id?: string | null };
+const ITEM_COLUMNS = "id, label, created_at, if_cue, fallback_text, habit_id";
 
 function toItem(row: ItemRow): MorningRoutineItem {
-  return { id: row.id, label: row.label, createdAt: row.created_at };
+  return {
+    id: row.id,
+    label: row.label,
+    createdAt: row.created_at,
+    ifCue: row.if_cue ?? null,
+    fallbackText: row.fallback_text ?? null,
+    habitId: row.habit_id ?? null,
+  };
+}
+
+export type LaunchStepOptions = { ifCue?: string | null; fallbackText?: string | null; habitId?: string | null };
+
+function cleanOptional(v: string | null | undefined, field: string): string | null {
+  const t = v?.trim();
+  if (!t) return null;
+  if (t.length > 80) throw new Error(`${field} can be at most 80 characters.`);
+  return t;
 }
 
 /**
@@ -33,11 +60,15 @@ function toItem(row: ItemRow): MorningRoutineItem {
  * off-by-one on a soft UI ceiling has none of the "silently overwrote
  * someone's data" stakes a rank collision would.
  */
-export async function createMorningRoutineItemCore(supabase: TypedClient, userId: string, label: string): Promise<MorningRoutineItem> {
+export async function createMorningRoutineItemCore(supabase: TypedClient, userId: string, label: string, options: LaunchStepOptions = {}): Promise<MorningRoutineItem> {
   const trimmed = label.trim();
   if (!trimmed) {
     throw new Error("A morning routine item needs a label.");
   }
+  if (trimmed.length > 120) throw new Error("A step can be at most 120 characters.");
+  const ifCue = cleanOptional(options.ifCue, "The cue");
+  const fallbackText = cleanOptional(options.fallbackText, "The 2-minute version");
+  const habitId = options.habitId ?? null;
 
   const { count, error: countError } = await supabase
     .from("morning_routine_items")
@@ -49,7 +80,18 @@ export async function createMorningRoutineItemCore(supabase: TypedClient, userId
     throw new Error(`You already have ${MAX_ROUTINE_ITEMS} morning routine items — archive one before adding another.`);
   }
 
-  const { data, error } = await supabase.from("morning_routine_items").insert({ user_id: userId, label: trimmed }).select("id, label, created_at").single();
+  if (habitId) {
+    // Clean error instead of a raw FK violation; the composite FK still proves ownership.
+    const { data: habit, error: habitError } = await supabase.from("identity_habits").select("id").eq("id", habitId).eq("user_id", userId).eq("status", "active").maybeSingle();
+    if (habitError) throw habitError;
+    if (!habit) throw new Error("That habit isn't active, so a step can't count toward it.");
+  }
+
+  const { data, error } = await supabase
+    .from("morning_routine_items")
+    .insert({ user_id: userId, label: trimmed, if_cue: ifCue, fallback_text: fallbackText, habit_id: habitId })
+    .select(ITEM_COLUMNS)
+    .single();
   if (error) throw error;
   return toItem(data as ItemRow);
 }
@@ -144,7 +186,7 @@ export async function uncheckMorningRoutineItemCore(supabase: TypedClient, userI
 export async function getMorningRoutineChecklistCore(supabase: TypedClient, userId: string, now: Date, timezone: string): Promise<MorningRoutineChecklistItem[]> {
   const { data: items, error: itemsError } = await supabase
     .from("morning_routine_items")
-    .select("id, label, created_at")
+    .select(ITEM_COLUMNS)
     .eq("user_id", userId)
     .is("archived_at", null)
     .order("created_at", { ascending: true });
@@ -152,13 +194,58 @@ export async function getMorningRoutineChecklistCore(supabase: TypedClient, user
   if (!items || items.length === 0) return [];
 
   const today = localDateString(now, timezone);
+  // One range read serves both "checked today" and "x of the last 7" (IA-P4a).
   const { data: checks, error: checksError } = await supabase
     .from("morning_routine_checks")
-    .select("item_id")
+    .select("item_id, checked_date")
     .eq("user_id", userId)
-    .eq("checked_date", today);
+    .gte("checked_date", lastSevenStart(today))
+    .lte("checked_date", today);
   if (checksError) throw checksError;
 
-  const checkedItemIds = new Set((checks ?? []).map((c) => c.item_id as string));
-  return (items as ItemRow[]).map((row) => ({ ...toItem(row), checkedToday: checkedItemIds.has(row.id) }));
+  const rows = (checks ?? []).map((c) => ({ itemId: c.item_id as string, checkedDate: c.checked_date as string }));
+  const checkedItemIds = new Set(rows.filter((c) => c.checkedDate === today).map((c) => c.itemId));
+  const counts = lastSevenCounts(rows, today);
+  return (items as ItemRow[]).map((row) => ({ ...toItem(row), checkedToday: checkedItemIds.has(row.id), doneLast7: counts.get(row.id) ?? 0 }));
+}
+
+/**
+ * IA-P4a — ONE absolute setter for a Launch-sequence tick: `done` true = checked today, false =
+ * unchecked, never a toggle. A step linked to an identity habit ALSO casts / retracts that habit's
+ * vote for the same local day (one tap = tick + vote). The tick is written first; if the linked
+ * vote is then refused (e.g. the habit was paused) the tick is put back and the error thrown, so
+ * the two never disagree. Both writes are idempotent sets, so a double tap is a no-op.
+ */
+export async function setLaunchStepDoneCore(
+  supabase: TypedClient,
+  userId: string,
+  itemId: string,
+  done: boolean,
+  requestedDate: string,
+  now: Date,
+  timezone: string
+): Promise<void> {
+  assertRequestedDateIsToday(requestedDate, now, timezone);
+  const { data: item, error: itemError } = await supabase
+    .from("morning_routine_items")
+    .select("id, habit_id")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (itemError) throw itemError;
+  if (!item) throw new ToolNotFoundError(`No morning routine item found with id "${itemId}".`);
+  const habitId = (item as { habit_id: string | null }).habit_id;
+
+  const write = (on: boolean) =>
+    on ? checkMorningRoutineItemCore(supabase, userId, itemId, requestedDate, now, timezone) : uncheckMorningRoutineItemCore(supabase, userId, itemId, requestedDate, now, timezone);
+  await write(done);
+  if (!habitId) return;
+  try {
+    if (done) await castHabitVoteCore(supabase, userId, habitId, requestedDate, now, timezone);
+    else await retractHabitVoteCore(supabase, userId, habitId, requestedDate, now, timezone);
+  } catch (err) {
+    await write(!done).catch(() => undefined);
+    throw err;
+  }
 }

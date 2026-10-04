@@ -9,4 +9,5 @@
 //
 // This is a soft app-code ceiling, not a DB-enforced one (migration 188's
 // own header: a checklist has no rank/slot for a scarcity index to refuse).
-export const MAX_ROUTINE_ITEMS = 10;
+// IA-P4a: 3-5 steps is the Launch sequence; NEW steps stop at 5. An existing longer list still renders (the cap is only checked on create).
+export const MAX_ROUTINE_ITEMS = 5;

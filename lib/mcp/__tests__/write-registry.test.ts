@@ -1023,7 +1023,8 @@ describe("day.routine_item handlers (P3-01)", () => {
 
   it("check upserts for local today when the date matches", async () => {
     const action = getWriteAction("day", "routine_item", "check")!;
-    const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: null }) });
+    // IA-P4a: check/uncheck go through setLaunchStepDoneCore, which reads the step first (a linked step also votes).
+    const client = makeTableClient({ morning_routine_items: makeChain({ data: { id: "r-1", habit_id: null }, error: null }), morning_routine_checks: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/r-1/);
   });
@@ -1046,7 +1047,7 @@ describe("day.routine_item handlers (P3-01)", () => {
 
   it("uncheck deletes today's check when it exists (a no-op on 0 rows, not an error)", async () => {
     const action = getWriteAction("day", "routine_item", "uncheck")!;
-    const client = makeTableClient({ morning_routine_checks: makeChain({ data: null, error: null }) });
+    const client = makeTableClient({ morning_routine_items: makeChain({ data: { id: "r-1", habit_id: null }, error: null }), morning_routine_checks: makeChain({ data: null, error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "r-1" }, { date: "2026-09-08" });
     expect(outcome.summary).toMatch(/r-1/);
   });

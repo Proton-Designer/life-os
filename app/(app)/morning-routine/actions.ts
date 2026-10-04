@@ -10,7 +10,10 @@ import {
   checkMorningRoutineItemCore,
   uncheckMorningRoutineItemCore,
   getMorningRoutineChecklistCore,
+  setLaunchStepDoneCore,
+  type LaunchStepOptions,
   type MorningRoutineChecklistItem,
+  type MorningRoutineItem,
 } from "@/lib/morning-routine/actions-core";
 
 async function timezoneForCurrentUser(): Promise<string> {
@@ -28,15 +31,17 @@ export async function getMyMorningRoutineChecklist(): Promise<MorningRoutineChec
 }
 
 export type MorningRoutineActionResult = { ok: true } | { ok: false; message: string };
+export type CreateStepResult = { ok: true; item: MorningRoutineItem } | { ok: false; message: string };
 
 /** THIN WRAPPER over createMorningRoutineItemCore (P3-01) -- the MCP write tool calls the same core. */
-export async function createMorningRoutineItem(label: string): Promise<MorningRoutineActionResult> {
+export async function createMorningRoutineItem(label: string, options: LaunchStepOptions = {}): Promise<CreateStepResult> {
   const { supabase, userId } = await requireUser();
   if (!(await isOptInFeatureOnForRequest("morning_routine"))) return { ok: false, message: FEATURE_OFF_MESSAGE };
   try {
-    await createMorningRoutineItemCore(supabase, userId, label);
+    // Returns the new row (IA-P4a) so the card can show it at once instead of waiting for a re-render.
+    const item = await createMorningRoutineItemCore(supabase, userId, label, options);
     revalidatePath("/");
-    return { ok: true };
+    return { ok: true, item };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : "Couldn't add that item." };
   }
@@ -83,4 +88,31 @@ export async function uncheckMorningRoutineItem(itemId: string): Promise<Morning
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : "Couldn't undo that check." };
   }
+}
+
+/**
+ * IA-P4a: the Launch sequence's ONE tap action — an absolute setter (`done`), never a toggle. A
+ * step linked to an identity habit also casts / retracts that habit's vote (same local day).
+ * Lean: no inline revalidatePath; the card schedules ONE refreshLaunchViews() per burst (PERF
+ * pattern). The date is server-derived, never taken from the client.
+ */
+export async function setLaunchStepDone(itemId: string, done: boolean): Promise<MorningRoutineActionResult> {
+  const { supabase, userId } = await requireUser();
+  if (!(await isOptInFeatureOnForRequest("morning_routine"))) return { ok: false, message: FEATURE_OFF_MESSAGE };
+  const timezone = await timezoneForCurrentUser();
+  const now = new Date();
+  try {
+    await setLaunchStepDoneCore(supabase, userId, itemId, done, localDateString(now, timezone), now, timezone);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : (err as { message?: string } | null)?.message;
+    return { ok: false, message: message ?? "Couldn't save that tick." };
+  }
+}
+
+/** Data-free cache revalidation scheduled by the Launch sequence card after a burst of ticks (also re-syncs Habits' vote counts). Touches no data. */
+export async function refreshLaunchViews(): Promise<void> {
+  await requireUser();
+  revalidatePath("/");
+  revalidatePath("/week");
 }

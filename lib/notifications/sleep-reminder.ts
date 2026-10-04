@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { localDateString, resolveLocalTime } from "@/lib/date-utils";
+import { addDaysToDateString, localDateString, resolveLocalTime } from "@/lib/date-utils";
+import { deriveWindDown, eveningWindDownStart } from "@/lib/rhythm/wind-down";
 import { sendPushToUser } from "./send-push";
 
 /**
@@ -25,11 +26,22 @@ const REMINDER_WINDOW_START_LOCAL = "21:30";
 const REMINDER_WINDOW_DURATION_MS = 2 * 60 * 60 * 1000;
 
 const REMINDER_TITLE = "Wind down";
-const REMINDER_BODY = "It's 9:30 PM — a good time to plan tomorrow and get some rest.";
+const REMINDER_BODY = "Time to wind down — close the day and plan tomorrow.";
 
-function isWithinReminderWindow(now: Date, timezone: string, sentDate: string): boolean {
-  const windowStart = resolveLocalTime(sentDate, REMINDER_WINDOW_START_LOCAL, timezone);
-  const windowEnd = new Date(windowStart.getTime() + REMINDER_WINDOW_DURATION_MS);
+/**
+ * IA-P4a: the window opens at the user's own wind-down start when they set a wind-down plan
+ * (user_settings, derived by lib/rhythm/wind-down.ts), else at the old fixed 21:30. It is 2h long
+ * but never runs past local midnight (sentDate is the local day, so a 23:15 start gets 45 min).
+ */
+export function reminderWindowStartLocal(plan: { wake_time: string | null; sleep_need_minutes: number | null; wind_down_minutes: number | null } | undefined): string {
+  const derived = plan ? deriveWindDown({ wakeTime: plan.wake_time, sleepNeedMinutes: plan.sleep_need_minutes, windDownMinutes: plan.wind_down_minutes }) : null;
+  return eveningWindDownStart(derived) ?? REMINDER_WINDOW_START_LOCAL;
+}
+
+function isWithinReminderWindow(now: Date, timezone: string, sentDate: string, startLocal: string = REMINDER_WINDOW_START_LOCAL): boolean {
+  const windowStart = resolveLocalTime(sentDate, startLocal, timezone);
+  const midnight = resolveLocalTime(addDaysToDateString(sentDate, 1), "00:00", timezone);
+  const windowEnd = new Date(Math.min(windowStart.getTime() + REMINDER_WINDOW_DURATION_MS, midnight.getTime()));
   return now.getTime() >= windowStart.getTime() && now.getTime() < windowEnd.getTime();
 }
 
@@ -68,12 +80,22 @@ export async function dispatchSleepReminders(supabase: SupabaseClient, now: Date
   const profiles = (profileRows ?? []) as { user_id: string; timezone: string | null }[];
   if (profiles.length === 0) return { usersChecked: 0, dispatched: 0 };
 
+  // IA-P4a: per-user wind-down start (user_settings), read in one query for the opted-in pool.
+  const { data: settingsRows, error: settingsError } = await supabase
+    .from("user_settings")
+    .select("user_id, wake_time, sleep_need_minutes, wind_down_minutes")
+    .in("user_id", profiles.map((p) => p.user_id));
+  if (settingsError) throw settingsError;
+  const settingsByUser = new Map(
+    ((settingsRows ?? []) as { user_id: string; wake_time: string | null; sleep_need_minutes: number | null; wind_down_minutes: number | null }[]).map((r) => [r.user_id, r])
+  );
+
   let dispatched = 0;
   for (const profile of profiles) {
     const timezone = profile.timezone ?? "UTC";
     const sentDate = localDateString(now, timezone);
 
-    if (!isWithinReminderWindow(now, timezone, sentDate)) continue;
+    if (!isWithinReminderWindow(now, timezone, sentDate, reminderWindowStartLocal(settingsByUser.get(profile.user_id)))) continue;
 
     // THE LOCK: claim before ever attempting a push. A false return means
     // someone else already holds it (a real prior send today, or a

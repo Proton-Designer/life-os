@@ -3,6 +3,7 @@ import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsForm, type SettingsFormData } from "@/components/settings/settings-form";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { WindDownPlanSettings } from "@/components/settings/wind-down-plan-settings";
 import { SleepReminderSettings } from "@/components/settings/sleep-reminder-settings";
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
 import { ApiKeySettings } from "@/components/settings/api-key-settings";
@@ -53,7 +54,7 @@ export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: settingsRow } = await supabase
     .from("user_settings")
-    .select("weekday_baselines")
+    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes")
     .eq("user_id", user.id)
     .maybeSingle();
   const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
@@ -170,6 +171,13 @@ export default async function SettingsPage() {
                   <Panel id="notifications" className="scroll-mt-24" title="Notifications">
                     <div className="flex flex-col gap-4">
                       <NotificationSettings />
+                      {enabledFeatures.includes("sleep_plan") && (
+                        <WindDownPlanSettings
+                          initialWakeTime={(settingsRow?.wake_time ?? null) as string | null}
+                          initialSleepNeedMinutes={(settingsRow?.sleep_need_minutes ?? null) as number | null}
+                          initialWindDownMinutes={(settingsRow?.wind_down_minutes ?? null) as number | null}
+                        />
+                      )}
                       {enabledFeatures.includes("sleep_plan") && <SleepReminderSettings initialEnabled={sleepReminderEnabled} />}
                     </div>
                   </Panel>
