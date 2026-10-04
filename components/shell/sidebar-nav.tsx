@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { IntentLink } from "@/components/shell/intent-link";
 import { usePathname } from "next/navigation";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
 import { Home, TrendingUp, Settings, BookOpen, type LucideIcon } from "lucide-react";
@@ -69,9 +69,8 @@ function NavLink({
   const iconOnly = variant === "icon-rail";
 
   const link = (
-    <Link
+    <IntentLink
       href={item.href}
-      prefetch
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative flex items-center gap-3 rounded-lg text-sm text-muted-foreground transition-colors hover:text-foreground",
@@ -89,7 +88,7 @@ function NavLink({
       <item.icon className="size-4 shrink-0" style={active ? { color: `var(${colorVar})` } : undefined} />
       <span className={iconOnly ? "sr-only" : undefined}>{item.label}</span>
       <NavLinkPendingHint />
-    </Link>
+    </IntentLink>
   );
 
   if (!iconOnly) return link;

@@ -97,15 +97,20 @@ describe("MobileIsland", () => {
     expect(screen.getByTestId("mobile-island-item-home").style.color).toBe("");
   });
 
-  it("prefetches every nav target, including the More popover items (navigation-prefetch-fix, Part A)", async () => {
+  // NAV-03: intent-only prefetch (touchstart fires before the click on a phone).
+  it("prefetches nothing up front; a touch/hover on a nav target (or a More item) prefetches it", async () => {
     const user = userEvent.setup();
     render(<MobileIsland />);
     for (const key of ["home", "deen", "business", "school", "fitness", "work"]) {
-      expect(screen.getByTestId(`mobile-island-item-${key}`)).toHaveAttribute("data-prefetch", "true");
+      expect(screen.getByTestId(`mobile-island-item-${key}`)).toHaveAttribute("data-prefetch", "false");
     }
+    await user.hover(screen.getByTestId("mobile-island-item-school"));
+    expect(screen.getByTestId("mobile-island-item-school")).toHaveAttribute("data-prefetch", "true");
+    expect(screen.getByTestId("mobile-island-item-work")).toHaveAttribute("data-prefetch", "false");
     await user.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: /insights/i })).toHaveAttribute("data-prefetch", "false");
+    await user.hover(screen.getByRole("link", { name: /insights/i }));
     expect(screen.getByRole("link", { name: /insights/i })).toHaveAttribute("data-prefetch", "true");
-    expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute("data-prefetch", "true");
   });
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).

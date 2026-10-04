@@ -110,22 +110,22 @@ describe("SidebarNav", () => {
     expect(await screen.findAllByText("Business")).not.toHaveLength(0);
   });
 
-  it("prefetches every route link (navigation-prefetch-fix, Part A)", () => {
+  // NAV-03: prefetch on INTENT, not for every link on every render (that was ~20 `_rsc` GETs after each write).
+  it("prefetches nothing up front; a link prefetches (in full) once the user hovers, touches or focuses it", async () => {
+    const user = userEvent.setup();
     render(<SidebarNav variant="expanded" />);
-    for (const label of [
-      "Home",
-      "Deen",
-      "Business",
-      "Fitness",
-      "School",
-      "Work",
-      "Self-Mastery",
-      "Insights",
-      "Settings",
-    ]) {
-      const link = screen.getByRole("link", { name: new RegExp(`^${label}$`) });
-      expect(link).toHaveAttribute("data-prefetch", "true");
-    }
+    const links = screen.getAllByRole("link");
+    expect(links.length).toBeGreaterThan(8);
+    for (const link of links) expect(link).toHaveAttribute("data-prefetch", "false");
+
+    await user.hover(screen.getByRole("link", { name: "Insights" }));
+    expect(screen.getByRole("link", { name: "Insights" })).toHaveAttribute("data-prefetch", "true");
+    // ...and only that one (positive control: its neighbours stay un-prefetched)
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("data-prefetch", "false");
+
+    await user.tab(); // keyboard focus is intent too
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.getAttribute("data-prefetch")).toBe("true");
   });
 
   // S6, 2026-09-14: legacy accounts (this nav's only audience) had no route

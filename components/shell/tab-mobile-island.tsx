@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { IntentLink } from "@/components/shell/intent-link";
 import { usePathname } from "next/navigation";
 import {
   MoreHorizontal,
@@ -79,10 +79,9 @@ export function TabMobileIsland({ navDomainState }: { navDomainState: NavDomainS
           const active = isActive(pathname, item.activeBase ?? item.href);
           const colorVar = ACCENT_VAR[item.accent];
           return (
-            <Link
+            <IntentLink
               key={item.key}
               href={item.href}
-              prefetch
               data-testid={`tab-mobile-island-item-${item.key}`}
               aria-current={active ? "page" : undefined}
               className={cn("relative flex size-10 items-center justify-center rounded-full transition-colors", !active && "text-muted-foreground")}
@@ -91,7 +90,7 @@ export function TabMobileIsland({ navDomainState }: { navDomainState: NavDomainS
               <item.icon className="size-5" />
               <span className="sr-only">{item.label}</span>
               <NavLinkPendingHint />
-            </Link>
+            </IntentLink>
           );
         })}
         <Popover>
@@ -108,17 +107,16 @@ export function TabMobileIsland({ navDomainState }: { navDomainState: NavDomainS
           </PopoverTrigger>
           <PopoverContent className="w-40 p-1" side="top" align="center">
             {moreItems.map((item) => (
-              <Link
+              <IntentLink
                 key={item.href}
                 href={item.href}
-                prefetch
                 aria-current={isActive(pathname, item.href) ? "page" : undefined}
                 className="relative flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
               >
                 <item.icon className="size-4" />
                 {item.label}
                 <NavLinkPendingHint />
-              </Link>
+              </IntentLink>
             ))}
           </PopoverContent>
         </Popover>
