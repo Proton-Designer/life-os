@@ -74,4 +74,15 @@ describe("getRhythmData", () => {
     expect(d.state).toBe("done");
     expect(f.eqs).toContainEqual(["tasks", "planned_date", "2026-10-05"]); // tomorrow of Oct 4
   });
+
+  // IA-P4b: the wind-down plan moves the flip and supplies "Lights out by".
+  it("a plan's windDownStart moves the wind_down flip (22:15 start: 21:30 is still 'today'), and bedtime rides along", async () => {
+    const f = fake({ day_starts: [WOKE], evening_closes: [], tasks: [] });
+    const early = await getRhythmData(f.client, "u", at("2026-10-05T21:30:00"), CHI, { windDownStart: "22:15", bedtime: "23:00" });
+    expect(early.state).toBe("today");
+    const late = await getRhythmData(fake({ day_starts: [WOKE], evening_closes: [], tasks: [] }).client, "u", at("2026-10-05T22:15:00"), CHI, { windDownStart: "22:15", bedtime: "23:00" });
+    expect(late).toEqual({ state: "wind_down", bedtime: "23:00" });
+    const done = await getRhythmData(fake({ day_starts: [WOKE], evening_closes: [{ local_date: "2026-10-05", closed_at: "x" }], tasks: [] }).client, "u", at("2026-10-05T23:00:00"), CHI, { windDownStart: "22:15", bedtime: "23:00" });
+    expect(done).toMatchObject({ state: "done", bedtime: "23:00" });
+  });
 });

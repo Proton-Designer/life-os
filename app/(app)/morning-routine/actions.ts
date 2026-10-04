@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
+import { updateLaunchStepCore, type LaunchStepPatch } from "@/lib/morning-routine/step-edit-core";
 import { isOptInFeatureOnForRequest, FEATURE_OFF_MESSAGE } from "@/lib/opt-in-guard";
 import {
   createMorningRoutineItemCore,
@@ -115,4 +116,20 @@ export async function refreshLaunchViews(): Promise<void> {
   await requireUser();
   revalidatePath("/");
   revalidatePath("/week");
+}
+
+/**
+ * IA-P4b: edit a Launch-sequence step in place (label, "when" cue, 2-minute version, linked habit).
+ * Gated by the morning_routine opt-in like every routine action; the core re-checks ownership.
+ */
+export async function updateLaunchStep(itemId: string, patch: LaunchStepPatch): Promise<MorningRoutineActionResult> {
+  const { supabase, userId } = await requireUser();
+  if (!(await isOptInFeatureOnForRequest("morning_routine"))) return { ok: false, message: FEATURE_OFF_MESSAGE };
+  try {
+    await updateLaunchStepCore(supabase, userId, itemId, patch);
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : "Couldn't save that step." };
+  }
 }

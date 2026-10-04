@@ -82,7 +82,14 @@ export function RhythmSection({ data }: { data: RhythmData }) {
       return (
         <Panel title="Wind down" data-testid="rhythm-wind-down">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">Close the day: account for it, reflect, and choose tomorrow&apos;s three.</p>
+            <div>
+              <p className="text-sm text-muted-foreground">Close the day: account for it, reflect, and choose tomorrow&apos;s three.</p>
+              {data.bedtime ? (
+                <p className="mt-1 text-xs text-muted-foreground" data-testid="lights-out">
+                  Lights out by {data.bedtime}
+                </p>
+              ) : null}
+            </div>
             <Link
               href="/close"
               prefetch
@@ -98,6 +105,11 @@ export function RhythmSection({ data }: { data: RhythmData }) {
     case "done":
       return (
         <Panel title="Done for today" data-testid="rhythm-done">
+          {data.bedtime ? (
+            <p className="mb-2 text-sm font-medium" data-testid="lights-out">
+              Lights out by {data.bedtime}
+            </p>
+          ) : null}
           {data.tomorrow.length === 0 ? (
             <p className="text-sm text-muted-foreground">The day is closed. Nothing is planned for tomorrow yet.</p>
           ) : (

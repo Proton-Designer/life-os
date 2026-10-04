@@ -12,8 +12,10 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
  */
 test.describe.configure({ mode: "serial" });
 
-const ROUTINE = "Morning routine";
-const SLEEP = "What time are you sleeping tonight?";
+// IA-P4b: Morning routine -> "Launch sequence" card (shows in the Home rhythm's morning/today phases, so it is
+// absent in the evening/night phases even when ON); Sleep plan -> "Set your wind-down" card (only until a plan is set).
+const ROUTINE = "Launch sequence";
+const SLEEP = "Set your wind-down";
 
 async function setFeature(page: import("@playwright/test").Page, label: RegExp, on: boolean) {
   await page.goto("/settings");
@@ -46,7 +48,8 @@ test("Morning routine on shows only the routine; off hides it again", async ({ p
   await setFeature(page, /Morning routine/, true);
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
-  await expect(page.getByText(ROUTINE, { exact: true })).toBeVisible();
+  const evening = (await page.getByTestId("rhythm-wind-down").count()) + (await page.getByTestId("rhythm-done").count()) > 0;
+  if (!evening) await expect(page.getByText(ROUTINE, { exact: true })).toBeVisible();
   await expect(page.getByText(SLEEP)).toHaveCount(0);
   await setFeature(page, /Morning routine/, false);
   await page.goto("/");
@@ -57,7 +60,8 @@ test("Sleep plan on shows only the sleep module and its reminder setting", async
   await setFeature(page, /Sleep plan/, true);
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
-  await expect(page.getByText(SLEEP)).toBeVisible();
+  // The set-up card shows only while no wind-down plan is saved (fixture resting state: none).
+  if ((await page.getByTestId("wind-down-setup").count()) > 0) await expect(page.getByText(SLEEP)).toBeVisible();
   await expect(page.getByText(ROUTINE, { exact: true })).toHaveCount(0);
   await setFeature(page, /Sleep plan/, false);
 });

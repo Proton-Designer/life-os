@@ -42,6 +42,7 @@ export function AppShellChrome({
   themePreset,
   hiddenFeatures,
   deenMode,
+  windDownStart,
   children,
 }: {
   account: { displayName: string; email: string };
@@ -57,6 +58,8 @@ export function AppShellChrome({
    * "domains". */
   navMode: "legacy" | "domains";
   navDomainState: NavDomainState | null;
+  /** IA-P4b: the user's wind-down start ("HH:MM") when Sleep plan is on and a plan is set; omitted = 21:00. A plain string. */
+  windDownStart?: string;
   /** L10: which of app/globals.css's `[data-theme-preset]` accent blocks to
    * apply — see lib/theme-presets.ts. A plain string id, not a function, so
    * there's nothing here that trips AGENTS.md's Server->Client prop rule. */
@@ -124,6 +127,7 @@ export function AppShellChrome({
               onSaveDeen={onSaveDeen}
               onSaveBusiness={onSaveBusiness}
               deenMode={deenMode}
+              windDownStart={windDownStart}
             />
             <main className="flex-1 pb-24 lg:pb-6">{children}</main>
           </div>

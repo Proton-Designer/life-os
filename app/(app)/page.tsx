@@ -45,10 +45,10 @@ import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate } from "@/lib/home/build-candidates";
 import { rankCandidates } from "@/lib/home/arbiter";
 import { getMorningBriefForToday } from "@/lib/ai/morning-brief";
-import { getMySleepIntentForToday } from "@/app/(app)/close/sleep-intent-actions";
-import { SleepIntentCard } from "@/components/home/sleep-intent-card";
+import { loadHomeWindDown } from "@/lib/home/wind-down-home";
+import { WindDownCard } from "@/components/home/wind-down-card";
 import { getMyMorningRoutineChecklist } from "@/app/(app)/morning-routine/actions";
-import { MorningRoutineCard } from "@/components/home/morning-routine-card";
+import { LaunchSequenceCard } from "@/components/home/launch-sequence-card";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
 import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
@@ -84,6 +84,9 @@ export default async function HomePage() {
   const sectorRows = buildSectorRows(domainsState, deenMode);
   const wantedSectors = wantedSnapshots(sectorRows);
 
+  // IA-P4b: the wind-down plan (Sleep plan ON only) sets when the rhythm card flips and shows "Lights out by".
+  const windDownPromise = loadHomeWindDown(supabase, userId, sleepPlanOn);
+
   const [
     items,
     completedToday,
@@ -97,7 +100,7 @@ export default async function HomePage() {
     dueSummary,
     mcpWidgets,
     morningBrief,
-    sleepIntent,
+    windDown,
     morningRoutineItems,
     layout,
     rhythm,
@@ -142,13 +145,13 @@ export default async function HomePage() {
       // P2-05: decoupled from the evening close ritual entirely -- see
       // lib/night-plan/sleep-intent.ts's own header for why.
       // Opt-in features (RS-01): OFF = the query is skipped, not fetched-then-hidden.
-      sleepPlanOn ? getMySleepIntentForToday() : Promise.resolve(null),
+      windDownPromise,
       // P3-01: user-defined checklist, tz-correct check-off -- see
       // lib/morning-routine/actions-core.ts's own header for why.
       morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
       // IA-P2: only the active phase's reads run (lib/home/rhythm-data.ts).
-      getRhythmData(supabase, userId, now, timezone),
+      windDownPromise.then((w) => getRhythmData(supabase, userId, now, timezone, { windDownStart: w?.windDownStart, bedtime: w?.bedtime })),
       // IA-P3b: today's habit check-offs (the habits board's own reader).
       getActiveHabitsWithStatus(supabase, userId, dateStr, timezone),
     ]);
@@ -295,13 +298,19 @@ export default async function HomePage() {
 
       {morningRoutineOn && (
         <LayoutSlot layout={layoutMap} widgetKey="morning_routine">
-          <MorningRoutineCard initialItems={morningRoutineItems} />
+          {(rhythm.state === "morning" || rhythm.state === "today") && (
+            <LaunchSequenceCard
+              items={morningRoutineItems}
+              today={dateStr}
+              habits={activeHabits.map((h) => ({ id: h.id, identityStatement: h.identityStatement }))}
+            />
+          )}
         </LayoutSlot>
       )}
 
       {sleepPlanOn && (
         <LayoutSlot layout={layoutMap} widgetKey="sleep_intent">
-          <SleepIntentCard initialBedtime={sleepIntent} />
+          {windDown && <WindDownCard settings={windDown.settings} />}
         </LayoutSlot>
       )}
 

@@ -220,6 +220,30 @@ describe("Topbar", () => {
     }
   });
 
+  // IA-P4b: the moon link follows the wind-down plan (same instant as Home's Close-the-day card).
+  it("with a wind-down plan starting 22:15 the moon link is absent at 21:30 and present at 22:15 (positive control: default 21:00 shows it at 21:30)", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-15T21:30:00.000-05:00"));
+      const { unmount } = renderTopbar({ nowIso: "2026-08-15T21:30:00.000-05:00", timezone: "America/Chicago", windDownStart: "22:15" });
+      expect(screen.queryByRole("link", { name: "Evening close" })).not.toBeInTheDocument();
+      unmount();
+      const second = renderTopbar({ nowIso: "2026-08-15T21:30:00.000-05:00", timezone: "America/Chicago" });
+      expect(screen.getByRole("link", { name: "Evening close" })).toBeInTheDocument();
+      second.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-15T22:15:00.000-05:00"));
+      renderTopbar({ nowIso: "2026-08-15T22:15:00.000-05:00", timezone: "America/Chicago", windDownStart: "22:15" });
+      expect(screen.getByRole("link", { name: "Evening close" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("prefetches its own cross-screen links (navigation-prefetch-fix, Part A)", () => {
     renderTopbar();
     expect(screen.getByRole("link", { name: /life os/i })).toHaveAttribute("data-prefetch", "true");

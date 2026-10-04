@@ -226,6 +226,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/morning-routine/actions.ts#getMyMorningRoutineChecklist": { read_only: true },
   "app/(app)/morning-routine/actions.ts#createMorningRoutineItem": { mcp: "day.routine_item.create" },
   "app/(app)/morning-routine/actions.ts#archiveMorningRoutineItem": { mcp: "day.routine_item.archive" },
+  "app/(app)/morning-routine/actions.ts#updateLaunchStep": { pending: "P4-09", note: "IA-P4b: edit a Launch-sequence step in place (day.routine_item.update)" },
   "app/(app)/morning-routine/actions.ts#setLaunchStepDone": { mcp: "day.routine_item.check", note: "IA-P4a absolute setter; MCP check/uncheck share setLaunchStepDoneCore (tick + linked habit vote)" },
   "app/(app)/morning-routine/actions.ts#refreshLaunchViews": { read_only: true, note: "IA-P4a: data-free cache revalidation scheduled by the Launch sequence card" },
   "app/(app)/morning-routine/actions.ts#checkMorningRoutineItem": { mcp: "day.routine_item.check" },

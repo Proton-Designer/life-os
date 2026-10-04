@@ -87,15 +87,19 @@ describe("RhythmSection", () => {
   });
 
   it("wind_down: a Close the day link to /close", () => {
-    render(<RhythmSection data={{ state: "wind_down" }} />);
+    render(<RhythmSection data={{ state: "wind_down", bedtime: "22:30" }} />);
+    expect(screen.getByTestId("lights-out")).toHaveTextContent("Lights out by 22:30");
     expect(screen.getByTestId("close-the-day")).toHaveAttribute("href", "/close");
   });
 
   it("done: says so and lists tomorrow's three (or that nothing is planned)", () => {
-    const { unmount } = render(<RhythmSection data={{ state: "done", tomorrow: [{ id: "t", title: "Write the essay", mitRank: 1 }] }} />);
+    const { unmount } = render(<RhythmSection data={{ state: "done", tomorrow: [{ id: "t", title: "Write the essay", mitRank: 1 }], bedtime: null }} />);
     expect(screen.getByTestId("rhythm-done")).toHaveTextContent("Write the essay");
+    expect(screen.queryByTestId("lights-out")).not.toBeInTheDocument();
     unmount();
-    render(<RhythmSection data={{ state: "done", tomorrow: [] }} />);
+    render(<RhythmSection data={{ state: "done", tomorrow: [], bedtime: "22:30" }} />);
     expect(screen.getByTestId("rhythm-done")).toHaveTextContent("Nothing is planned for tomorrow");
+    // IA-P4b: "Lights out by" only when a wind-down plan gives a bedtime (control: the first render had none)
+    expect(screen.getByTestId("lights-out")).toHaveTextContent("Lights out by 22:30");
   });
 });

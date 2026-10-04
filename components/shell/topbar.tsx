@@ -9,7 +9,7 @@ import { DistractionCaptureDialog } from "@/components/distractions/distraction-
 import { Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CalendarDialogTrigger } from "@/components/calendar/calendar-dialog-trigger";
-import { isReviewOpen } from "@/lib/distractions/plan-rules";
+import { isAfterWindDown } from "@/lib/home/rhythm-state";
 import { getTodayDistractionCountForNow } from "@/app/(app)/distractions/actions";
 import type { WeekCalendarData } from "@/components/calendar/week-calendar-view";
 
@@ -78,6 +78,7 @@ export function Topbar({
   onSaveDeen,
   onSaveBusiness,
   deenMode = false,
+  windDownStart,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
@@ -92,6 +93,8 @@ export function Topbar({
   onSaveBusiness: SaveGoalAction;
   /** profiles.deen_mode as a plain boolean; gates the Deen option in the distraction capture dialog. */
   deenMode?: boolean;
+  /** IA-P4b: the wind-down start ("HH:MM"); the moon link opens at the SAME moment Home's Close-the-day card does. Omitted = 21:00. */
+  windDownStart?: string;
 }) {
   const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
@@ -108,7 +111,7 @@ export function Topbar({
     return () => clearInterval(interval);
   }, []);
 
-  const reviewOpen = isReviewOpen(now, timezone);
+  const reviewOpen = isAfterWindDown(now, timezone, windDownStart);
 
   return (
     <header

@@ -1,3 +1,6 @@
+import { createClient } from "@/lib/supabase/server";
+import { hasOptInFeature } from "@/lib/opt-in-features";
+import { loadHomeWindDown } from "@/lib/home/wind-down-home";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { formatTopbarDate, localDateString } from "@/lib/date-utils";
 import { getActiveWorkSessionDetail } from "@/lib/business/active-session";
@@ -78,6 +81,10 @@ export async function AppShell({
       ? await getKillListSlots(user.id, dateStr)
       : EMPTY_KILL_LIST_SLOTS;
 
+  // IA-P4b: the wind-down start follows the plan only while Sleep plan is ON (one query for those accounts, none otherwise).
+  const homeWindDown = user ? await loadHomeWindDown(await createClient(), user.id, hasOptInFeature(profile?.enabled_features, "sleep_plan")) : null;
+  const windDownStart = homeWindDown?.windDownStart;
+
   const account = {
     displayName: profile?.display_name || user?.email?.split("@")[0] || "Account",
     email: user?.email ?? "",
@@ -105,6 +112,7 @@ export async function AppShell({
       themePreset={themePreset}
       hiddenFeatures={hiddenFeatures}
       deenMode={deenMode}
+      windDownStart={windDownStart}
       activeWorkSession={
         activeWorkSession
           ? {

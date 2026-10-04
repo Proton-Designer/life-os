@@ -20,24 +20,31 @@ export type RhythmData =
       efficiencyPercent: number | null;
       timeboxed: TimeboxedTask[];
     }
-  | { state: "wind_down" }
-  | { state: "done"; tomorrow: { id: string; title: string; mitRank: number }[] };
+  | { state: "wind_down"; bedtime: string | null }
+  | { state: "done"; tomorrow: { id: string; title: string; mitRank: number }[]; bedtime: string | null };
 
 /**
  * Everything Home's rhythm section needs, reading ONLY what the active state shows (the other
  * states' queries are skipped, not fetched-then-hidden). Two cheap reads decide the state; the
  * closed day is effectiveDayString (the 4 AM rollover, same as the close), Start Day is local today.
  */
-export async function getRhythmData(supabase: SupabaseClient, userId: string, now: Date, timezone: string): Promise<RhythmData> {
+export async function getRhythmData(
+  supabase: SupabaseClient,
+  userId: string,
+  now: Date,
+  timezone: string,
+  /** From the wind-down plan when Sleep plan is ON (lib/home/wind-down-home.ts); omitted = the 21:00 default. */
+  wind: { windDownStart?: string; bedtime?: string | null } = {}
+): Promise<RhythmData> {
   const today = localDateString(now, timezone);
   const closeDay = effectiveDayString(now, timezone);
   const [dayStart, closes] = await Promise.all([
     getTodayDayStart(supabase, userId, timezone, now),
     getEveningClosesForRange(supabase, userId, closeDay, addDaysToDateString(closeDay, 1)),
   ]);
-  const state: RhythmState = homeRhythmState({ now, timezone, dayStarted: dayStart !== null, closedEffectiveDay: closes.has(closeDay) });
+  const state: RhythmState = homeRhythmState({ now, timezone, dayStarted: dayStart !== null, closedEffectiveDay: closes.has(closeDay), windDownStart: wind.windDownStart });
 
-  if (state === "wind_down") return { state };
+  if (state === "wind_down") return { state, bedtime: wind.bedtime ?? null };
 
   if (state === "done") {
     const { data } = await supabase
@@ -47,7 +54,7 @@ export async function getRhythmData(supabase: SupabaseClient, userId: string, no
       .eq("planned_date", addDaysToDateString(closeDay, 1))
       .not("mit_rank", "is", null)
       .order("mit_rank", { ascending: true });
-    return { state, tomorrow: (data ?? []).map((t) => ({ id: t.id as string, title: t.title as string, mitRank: t.mit_rank as number })) };
+    return { state, tomorrow: (data ?? []).map((t) => ({ id: t.id as string, title: t.title as string, mitRank: t.mit_rank as number })), bedtime: wind.bedtime ?? null };
   }
 
   if (state === "today" && dayStart) {

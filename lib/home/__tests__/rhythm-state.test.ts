@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { homeRhythmState } from "../rhythm-state";
+import { homeRhythmState, isAfterWindDown } from "../rhythm-state";
 
 const CHI = "America/Chicago";
 const TOK = "Asia/Tokyo";
@@ -58,5 +58,24 @@ describe("homeRhythmState", () => {
     const at = chi("2026-10-05T21:15:00");
     expect(homeRhythmState({ now: at, timezone: CHI, dayStarted: true, closedEffectiveDay: false, windDownStart: "21:30" })).toBe("today");
     expect(homeRhythmState({ now: at, timezone: CHI, dayStarted: true, closedEffectiveDay: false, windDownStart: "21:00" })).toBe("wind_down");
+  });
+});
+
+// IA-P4b: the topbar moon and Home's card share isAfterWindDown, so they flip at the same instant.
+describe("isAfterWindDown", () => {
+  it("defaults to 21:00, follows a custom start, and always includes the 00:00-04:00 tail", () => {
+    expect(isAfterWindDown(chi("2026-10-05T20:59:00"), CHI)).toBe(false);
+    expect(isAfterWindDown(chi("2026-10-05T21:00:00"), CHI)).toBe(true);
+    expect(isAfterWindDown(chi("2026-10-05T21:30:00"), CHI, "22:15")).toBe(false);
+    expect(isAfterWindDown(chi("2026-10-05T22:15:00"), CHI, "22:15")).toBe(true);
+    expect(isAfterWindDown(chi("2026-10-05T02:00:00"), CHI, "22:15")).toBe(true);
+    expect(isAfterWindDown(chi("2026-10-05T04:00:00"), CHI, "22:15")).toBe(false);
+  });
+  it("agrees with homeRhythmState: wind_down exactly when isAfterWindDown (unclosed, not started)", () => {
+    for (const l of ["2026-10-05T20:00:00", "2026-10-05T22:30:00"]) {
+      const at = chi(l);
+      const after = isAfterWindDown(at, CHI, "22:15");
+      expect(homeRhythmState({ now: at, timezone: CHI, dayStarted: false, closedEffectiveDay: false, windDownStart: "22:15" }) === "wind_down").toBe(after);
+    }
   });
 });
