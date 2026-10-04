@@ -285,8 +285,8 @@ carry a stale citation.
 ### Fixed 2026-10-04 — closing the day after midnight closed/planned the wrong day
 `/close` Finish recorded `evening_closes` for the *new* local date and `planningDateForCore('tonight')` planned local-today + 1, so a 00:30 close left the day just ended unclosed and planned two days ahead. Fixed by `effectiveDayString` (4 AM rollover) in `75313d4`; see `.brain/memory/decisions.md`. Rows already written before the fix keep their old dates.
 
-### Open — Launch steps can't be reordered; Work tabs share data; reminder cron registration is operator state
-Steps are ordered by `created_at` (no position column — needs a migration). Same-kind Work tabs show one shared pipeline (T-0002). `/api/cron/sleep-reminder` ships with the app but its pg_cron/pg_net poll registration is operator state. A wind-down start at/after ~23:45 gets a <15-minute reminder window and can be missed by the 15-minute poll.
+### Open — Launch steps can't be reordered; Work tabs share data
+Steps are ordered by `created_at` (no position column — needs a migration). Same-kind Work tabs show one shared pipeline (T-0002). `/api/cron/sleep-reminder` IS scheduled: the `dispatch-notifications-every-15min` pg_cron job posts to it (with daily-due-card, nightly-morning-brief, weekly-synthesis, practice-test-assembly, lecture-transcription, canvas-sync) — verified 2026-10-04 by reading the untruncated `cron.job.command`. Late wind-downs: fixed in a7514a9 (the window opens no later than 23:30).
 
 ## Deliberate constraints that look like bugs
 
