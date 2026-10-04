@@ -31,7 +31,7 @@ import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
-import { buildSectorRows, wantedSnapshots } from "@/lib/home/sector-rows";
+import { buildSectorRows, showBusinessWeeklyGoal, wantedSnapshots } from "@/lib/home/sector-rows";
 import { shouldShowSessionEntry } from "@/lib/home/session-entry-visibility";
 import { resolveAreaWeights } from "@/lib/home/resolve-area-weights";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
@@ -176,7 +176,7 @@ export default async function HomePage() {
   // five rows, unit-tested directly there); the Weekly goals header reads the
   // same answer so the two can never disagree.
   const hasFaith = wantedSectors.deen;
-  const hasBusinessSector = wantedSectors.business;
+  const hasBusinessGoal = showBusinessWeeklyGoal(domainsState, deenMode);
 
   const weeklyGoalsRows = weeklyGoalsResult.data ?? [];
   const deenGoalRow = weeklyGoalsRows.find((g) => g.domain === "deen") ?? null;
@@ -296,7 +296,7 @@ export default async function HomePage() {
           onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
           showPlanningNudge={showPlanningNudge}
           showDeen={hasFaith}
-          showBusiness={hasBusinessSector}
+          showBusiness={hasBusinessGoal}
         />
       </LayoutSlot>
 

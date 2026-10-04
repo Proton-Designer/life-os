@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UserDomainsState } from "@/lib/domains/get-user-domains";
-import { buildSectorRows, wantedSnapshots } from "../sector-rows";
+import { buildSectorRows, showBusinessWeeklyGoal, wantedSnapshots } from "../sector-rows";
 
 type Dom = "faith" | "body" | "learning" | "work" | "school" | "personal_growth";
 const state = (
@@ -73,5 +73,24 @@ describe("wantedSnapshots", () => {
     const rows = buildSectorRows(state(["body", "work"], [{ key: "co-op", label: "Co-op", kind: "job" }]), false);
     expect(wantedSnapshots(rows)).toEqual({ deen: false, business: false, fitness: true, school: false, co_op: true });
     expect(wantedSnapshots([])).toEqual({ deen: false, business: false, fitness: false, school: false, co_op: false });
+  });
+});
+
+// SECTOR-01 review F1/F4.
+describe("Business weekly-goal slot and tab hrefs", () => {
+  it("F1: the Business weekly-goal slot follows the Work DOMAIN, not a business-kind tab", () => {
+    const jobOnly = state(["work"], [{ key: "co-op", label: "Co-op", kind: "job" }]);
+    // Positive control: the sector derivation (what the code used to read) is false here...
+    expect(wantedSnapshots(buildSectorRows(jobOnly, true)).business).toBe(false);
+    // ...but the goal slot must stay on, as before SECTOR-01.
+    expect(showBusinessWeeklyGoal(jobOnly, true)).toBe(true);
+    expect(showBusinessWeeklyGoal(state(["work"]), true)).toBe(true);
+    expect(showBusinessWeeklyGoal(state(["school", "body"]), true)).toBe(false);
+    expect(showBusinessWeeklyGoal({ mode: "legacy", domains: [], subdomains: [] } as never, true)).toBe(true);
+  });
+
+  it("F4: a tab key is URL-encoded in its row href", () => {
+    const rows = buildSectorRows(state(["work"], [{ key: "my shop/2", label: "Shop", kind: "business" }]), false);
+    expect(rows[0]!.href).toBe("/work/my%20shop%2F2");
   });
 });

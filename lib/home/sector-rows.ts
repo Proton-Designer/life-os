@@ -1,5 +1,6 @@
 import type { UserDomainsState } from "@/lib/domains/get-user-domains";
 import { hasArea } from "@/lib/domains/area-vocabulary";
+import { computeDomainVisibility } from "@/lib/home/compute-domain-visibility";
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
 
 /** Which snapshot feeds a row. Business tabs read the business snapshot, job tabs the co-op one. */
@@ -44,7 +45,7 @@ export function buildSectorRows(state: UserDomainsState, deenMode: boolean): Sec
     id: `work:${t.key}`,
     snapshot: t.kind === "business" ? "business" : "co_op",
     label: t.label,
-    href: `/work/${t.key}`,
+    href: `/work/${encodeURIComponent(t.key)}`,
   });
 
   const rows: SectorRow[] = [];
@@ -66,4 +67,13 @@ export function wantedSnapshots(rows: readonly SectorRow[]): Record<SectorSnapsh
   const wanted = { deen: false, business: false, fitness: false, school: false, co_op: false };
   for (const r of rows) wanted[r.snapshot] = true;
   return wanted;
+}
+
+/**
+ * Whether Home's weekly-goals header shows the Business slot. A GOAL slot, not a sector: it follows
+ * the Work domain itself (as before SECTOR-01), NOT whether a business-kind tab exists -- an account
+ * with a work domain but no business tab still has the Business screen and its weekly goal.
+ */
+export function showBusinessWeeklyGoal(state: UserDomainsState, deenMode: boolean): boolean {
+  return computeDomainVisibility(state, deenMode).hasWork;
 }
