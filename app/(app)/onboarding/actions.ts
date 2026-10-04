@@ -138,7 +138,11 @@ export async function saveDomainSelection(keys: DomainKey[]): Promise<void> {
  * anything active and not in `subs` gets archived, everything in `subs` is
  * upserted with archived_at reset to null.
  */
-export async function saveSubdomains(domainKey: DomainKey, subs: SubdomainInput[]): Promise<void> {
+export async function saveSubdomains(domainKey: DomainKey, rawSubs: SubdomainInput[]): Promise<void> {
+  // Deen Mode (R5): onboarding never creates the Faith subdomain, even from a
+  // stale/legacy payload. Only Settings -> Deen Mode turns the Faith area on.
+  const subs =
+    domainKey === "personal_growth" ? rawSubs.filter((s) => s.key !== "faith") : rawSubs;
   if (domainKey === "personal_growth" && subs.length < 1) {
     throw new Error("saveSubdomains: Personal Growth requires at least one subdomain");
   }
@@ -166,7 +170,10 @@ export async function saveSubdomains(domainKey: DomainKey, subs: SubdomainInput[
   if (existingError) throw existingError;
 
   const toArchiveIds = (existing ?? [])
-    .filter((row) => !submittedKeys.has(row.key))
+    // A pre-existing Faith subdomain is left alone (R4: never mutate deen
+    // data): onboarding no longer offers it, so its absence from `subs` must
+    // not read as "the user dropped it".
+    .filter((row) => !submittedKeys.has(row.key) && !(domainKey === "personal_growth" && row.key === "faith"))
     .map((row) => row.id);
   if (toArchiveIds.length > 0) {
     const { error } = await supabase
@@ -367,6 +374,19 @@ export async function completeOnboarding(
 ): Promise<void> {
   const { supabase, userId } = await requireUser();
 
+  // Deen Mode (R5): onboarding never writes location or prayer settings,
+  // even if a stale client sends them -- those belong to Settings, behind
+  // the Deen Mode switch.
+  const {
+    location_lat: _lat,
+    location_lng: _lng,
+    location_label: _label,
+    prayer_calc_method: _calc,
+    asr_madhab: _madhab,
+    ...safeFields
+  } = fields as typeof fields & Record<string, unknown>;
+  void [_lat, _lng, _label, _calc, _madhab];
+
   const { count, error } = await supabase
     .from("user_domains")
     .select("id", { count: "exact", head: true })
@@ -379,7 +399,7 @@ export async function completeOnboarding(
     );
   }
 
-  await updateProfile({ ...fields, onboarding_completed: true });
+  await updateProfile({ ...(safeFields as typeof fields), onboarding_completed: true });
 
   // ONB item 11 (Ayman): removed the automatic Marcus Aurelius "Meditations"
   // starter-deck seed that used to run here unconditionally for anyone who

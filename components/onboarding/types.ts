@@ -5,7 +5,9 @@
 
 export type DomainKey = "personal_growth" | "work" | "school";
 
-export type PersonalSubdomainKey = "faith" | "self_mastery" | "fitness";
+// No "faith": Deen Mode (Settings -> Features) is the only way into the Faith
+// area. Onboarding never offers, asks about or writes it.
+export type PersonalSubdomainKey = "self_mastery" | "fitness";
 
 export type WorkSubdomainKind = "job" | "business";
 
@@ -19,17 +21,6 @@ export interface SubdomainInput {
   kind?: WorkSubdomainKind;
   widgets?: string[];
   config?: Record<string, unknown>;
-}
-
-export interface FaithConfig {
-  location_label: string;
-  // Prayer times need real coordinates and a timezone — a typed city string
-  // yields none of them, so onboarding resolves a real CityMatch rather than
-  // storing free text. Calculation method and Asr madhab are deliberately
-  // absent: they default (MWL / standard) and are changed in Settings.
-  location_lat: number;
-  location_lng: number;
-  timezone: string;
 }
 
 export interface FitnessConfig {

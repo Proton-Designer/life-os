@@ -1,6 +1,6 @@
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { getOnboardingState } from "@/app/(app)/onboarding/actions";
-import type { DomainKey, FaithConfig } from "@/components/onboarding/types";
+import type { DomainKey } from "@/components/onboarding/types";
 
 // AC#5: a user who abandons mid-flow must re-enter where the data says, not
 // blindly at step 1 — resolved here (data fetch) rather than inside the
@@ -16,15 +16,11 @@ export default async function OnboardingPage() {
 
   const domainsWithData = Array.from(new Set(subdomains.map((s) => s.domainKey))) as DomainKey[];
 
-  const faithRow = subdomains.find((s) => s.domainKey === "personal_growth" && s.key === "faith");
-  const initialFaithConfig = (faithRow?.config as unknown as FaithConfig | undefined) ?? null;
-
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-12">
       <OnboardingWizard
         initialSelectedDomains={initialSelectedDomains}
         domainsWithData={domainsWithData}
-        initialFaithConfig={initialFaithConfig}
       />
     </main>
   );

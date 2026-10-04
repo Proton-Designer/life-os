@@ -178,7 +178,7 @@ describe("Onboarding actions", () => {
         user_domains: makeChain({ data: { id: "domain-1" }, error: null }),
         user_subdomains: makeChain({
           data: [
-            { id: "sub-1", key: "faith" },
+            { id: "sub-1", key: "self_mastery" },
             { id: "sub-2", key: "fitness" },
           ],
           error: null,
@@ -188,8 +188,8 @@ describe("Onboarding actions", () => {
       const { saveSubdomains } = await import("../actions");
 
       const submission = [
-        { key: "faith", label: "Faith", widgets: ["prayer_tracker"] },
         { key: "self_mastery", label: "Self-Mastery" },
+        { key: "work_extra", label: "Extra" },
       ];
       await saveSubdomains("personal_growth", submission);
       await saveSubdomains("personal_growth", submission); // double-submit
@@ -204,9 +204,48 @@ describe("Onboarding actions", () => {
       for (const call of tables.user_subdomains.upsert.mock.calls) {
         const [rows, opts] = call;
         expect(opts.onConflict).toBe("user_id,domain_id,key");
-        expect(rows.map((r: { key: string }) => r.key)).toEqual(["faith", "self_mastery"]);
+        expect(rows.map((r: { key: string }) => r.key)).toEqual(["self_mastery", "work_extra"]);
         expect(rows.every((r: { archived_at: null }) => r.archived_at === null)).toBe(true);
       }
+    });
+
+    // Deen Mode (R5/R4): a legacy client payload carrying "faith" must write no
+    // faith row, and an existing faith subdomain must not be archived by a
+    // re-run of onboarding that no longer offers it.
+    it("never upserts a faith subdomain from a legacy payload, and never archives an existing one", async () => {
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_domains: makeChain({ data: { id: "domain-1" }, error: null }),
+        user_subdomains: makeChain({
+          data: [
+            { id: "sub-faith", key: "faith" },
+            { id: "sub-fit", key: "fitness" },
+          ],
+          error: null,
+        }),
+      };
+      fromImpl = (table) => tables[table];
+      const { saveSubdomains } = await import("../actions");
+
+      await saveSubdomains("personal_growth", [
+        { key: "faith", label: "Faith", config: { location_lat: 1 } },
+        { key: "fitness", label: "Fitness" },
+      ]);
+
+      const [rows] = tables.user_subdomains.upsert.mock.calls[0];
+      expect(rows.map((r: { key: string }) => r.key)).toEqual(["fitness"]);
+      // nothing was dropped (fitness resubmitted, faith protected) -> no archive at all
+      const archiveCalls = tables.user_subdomains.update.mock.calls.filter(
+        (c) => "archived_at" in (c[0] as object)
+      );
+      expect(archiveCalls).toHaveLength(0);
+      expect(tables.user_subdomains.delete).not.toHaveBeenCalled();
+    });
+
+    it("a payload of ONLY faith counts as zero subdomains and is refused", async () => {
+      const { saveSubdomains } = await import("../actions");
+      await expect(saveSubdomains("personal_growth", [{ key: "faith", label: "Faith" }])).rejects.toThrow(
+        "Personal Growth requires at least one subdomain"
+      );
     });
 
     it("assigns position by submission order", async () => {
@@ -374,6 +413,28 @@ describe("Onboarding actions", () => {
       expect(updateProfile).toHaveBeenCalledWith(
         expect.objectContaining({ timezone: "America/Chicago", onboarding_completed: true })
       );
+    });
+
+    // Deen Mode (R5): onboarding never writes location or prayer settings, even from a stale client.
+    it("strips location and prayer fields from the profile write but keeps the rest", async () => {
+      const chain = makeChain({ data: null, error: null, count: 1 });
+      fromImpl = () => chain;
+      const { completeOnboarding } = await import("../actions");
+      const { updateProfile } = await import("@/app/(app)/settings/actions");
+      vi.mocked(updateProfile).mockClear();
+
+      await expect(
+        completeOnboarding({
+          timezone: "America/Chicago",
+          location_lat: 41.8,
+          location_lng: -87.7,
+          location_label: "Chicago",
+          prayer_calc_method: "ISNA",
+          asr_madhab: "hanafi",
+        })
+      ).rejects.toThrow("REDIRECT");
+
+      expect(updateProfile).toHaveBeenCalledWith({ timezone: "America/Chicago", onboarding_completed: true });
     });
 
     // ONB item 11: completeOnboarding used to call seedMeditationsDeckForUser

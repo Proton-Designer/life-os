@@ -1,4 +1,4 @@
-import { Compass, Briefcase, GraduationCap, Moon, BookOpen, Dumbbell, type LucideIcon } from "lucide-react";
+import { Compass, Briefcase, GraduationCap, BookOpen, Dumbbell, type LucideIcon } from "lucide-react";
 import type { AccentToken } from "@/lib/accent-tokens";
 import type { DomainKey, PersonalSubdomainKey } from "./types";
 
@@ -19,7 +19,7 @@ export const TOP_DOMAIN_META: Record<DomainKey, DomainMeta> = {
     label: "Personal Growth",
     icon: Compass,
     accent: "deen",
-    description: "Faith, self-mastery, and fitness.",
+    description: "Self-mastery and fitness.",
   },
   work: {
     label: "Work",
@@ -38,12 +38,6 @@ export const TOP_DOMAIN_META: Record<DomainKey, DomainMeta> = {
 export const TOP_DOMAIN_ORDER: DomainKey[] = ["personal_growth", "work", "school"];
 
 export const PERSONAL_SUBDOMAIN_META: Record<PersonalSubdomainKey, DomainMeta> = {
-  faith: {
-    label: "Faith",
-    icon: Moon,
-    accent: "deen",
-    description: "Prayer, Qur'an, reflection.",
-  },
   self_mastery: {
     label: "Self-Mastery",
     icon: BookOpen,
@@ -60,4 +54,4 @@ export const PERSONAL_SUBDOMAIN_META: Record<PersonalSubdomainKey, DomainMeta> =
 
 // Fixed walk order for asking per-subdomain questions — independent of any
 // future reordering UI, matches the order these were specified in.
-export const PERSONAL_SUBDOMAIN_ORDER: PersonalSubdomainKey[] = ["faith", "self_mastery", "fitness"];
+export const PERSONAL_SUBDOMAIN_ORDER: PersonalSubdomainKey[] = ["self_mastery", "fitness"];

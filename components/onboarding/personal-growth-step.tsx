@@ -4,19 +4,19 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StepShell } from "./step-shell";
 import { OptionCard } from "./option-card";
-import { FaithStep } from "./faith-step";
 import { FitnessStep } from "./fitness-step";
 import { SelfMasteryStep } from "./self-mastery-step";
 import { TOP_DOMAIN_META, PERSONAL_SUBDOMAIN_META, PERSONAL_SUBDOMAIN_ORDER } from "./domain-meta";
 import { applyOnboardingFitnessChoice } from "@/app/(app)/fitness/workouts/template-actions";
-import type { FaithConfig, FitnessConfig, PersonalSubdomainKey, SubdomainInput } from "./types";
+import type { FitnessConfig, PersonalSubdomainKey, SubdomainInput } from "./types";
 
 type Phase = "select" | PersonalSubdomainKey;
 
-// Personal Growth: pick subdomains (Fitness + Self-Mastery preselected,
-// Faith is not — ONB item 3 — minimum 1 kept), then walk the kept ones in a
-// fixed order asking each one's own question (Faith and Fitness have one;
-// Self-Mastery's primary path asks nothing).
+// Personal Growth: pick subdomains (Fitness + Self-Mastery, both preselected,
+// minimum 1 kept), then walk the kept ones in a fixed order asking each one's
+// own question (Fitness has one; Self-Mastery's primary path asks nothing).
+// There is deliberately no Faith option: Deen Mode in Settings is the only
+// way to turn the Faith area on.
 export function PersonalGrowthStep({
   onBack,
   onNext,
@@ -37,20 +37,9 @@ export function PersonalGrowthStep({
   active?: boolean;
 }) {
   const accent = TOP_DOMAIN_META.personal_growth.accent;
-  // ONB item 3: Faith is the app's only religious-practice track (deen:
-  // prayer times, Qur'an, adhkar) -- preselecting it, as Fitness/Self-Mastery
-  // are, defaults every new account to practicing Islam without ever asking.
-  // Only Faith starts unchosen; the user must actively opt in. Fitness and
-  // Self-Mastery carry no such assumption and keep the original default.
-  // Safe to leave unset: profiles.location_lat/location_lng have been
-  // nullable with no default since the baseline schema, and
-  // lib/home/get-priority-items.ts already gates prayer-window computation
-  // on `!= null` (R18(4): "no location set" is an absent, already-handled
-  // state, not a crash).
-  const [kept, setKept] = useState<Set<PersonalSubdomainKey>>(new Set(PERSONAL_SUBDOMAIN_ORDER.filter((k) => k !== "faith")));
+  const [kept, setKept] = useState<Set<PersonalSubdomainKey>>(new Set(PERSONAL_SUBDOMAIN_ORDER));
   const [showMinWarning, setShowMinWarning] = useState(false);
   const [phase, setPhase] = useState<Phase>("select");
-  const [faithConfig, setFaithConfig] = useState<FaithConfig | null>(null);
   const [fitnessConfig, setFitnessConfig] = useState<FitnessConfig | null>(null);
 
   function toggle(key: PersonalSubdomainKey) {
@@ -76,14 +65,14 @@ export function PersonalGrowthStep({
 
   // `current` is always the LAST-answered subdomain's own step, so when it is
   // also the last in keptOrder(), `finish()` below runs synchronously in the
-  // same tick as this same click's `setFaithConfig`/`setFitnessConfig` call --
-  // before React re-renders. Reading the `faithConfig`/`fitnessConfig` STATE
+  // same tick as this same click's `setFitnessConfig` call --
+  // before React re-renders. Reading the `fitnessConfig` STATE
   // in that case reads the pre-click, stale value (this bit reproduces
   // exactly, and is fixed the same way as, the identical trap documented on
   // onboarding-wizard.tsx's finishCurrentDomain). `justAnswered` carries the
   // one value this exact call just produced, so finish() never has to guess
   // which of the two sources is current.
-  function advancePast(current: PersonalSubdomainKey, justAnswered?: { faith?: FaithConfig; fitness?: FitnessConfig }) {
+  function advancePast(current: PersonalSubdomainKey, justAnswered?: { fitness?: FitnessConfig }) {
     const order = keptOrder();
     const idx = order.indexOf(current);
     const nextKey = order[idx + 1];
@@ -94,14 +83,10 @@ export function PersonalGrowthStep({
     }
   }
 
-  function finish(justAnswered?: { faith?: FaithConfig; fitness?: FitnessConfig }) {
-    const resolvedFaithConfig = justAnswered?.faith ?? faithConfig;
+  function finish(justAnswered?: { fitness?: FitnessConfig }) {
     const resolvedFitnessConfig = justAnswered?.fitness ?? fitnessConfig;
     const subs: SubdomainInput[] = keptOrder().map((key) => {
       const meta = PERSONAL_SUBDOMAIN_META[key];
-      if (key === "faith") {
-        return { key, label: meta.label, config: resolvedFaithConfig ? { ...resolvedFaithConfig } : {} };
-      }
       if (key === "fitness") {
         return { key, label: meta.label, config: resolvedFitnessConfig ? { ...resolvedFitnessConfig } : {} };
       }
@@ -135,20 +120,6 @@ export function PersonalGrowthStep({
   // ONB item 5: mounted but not shown. All hooks above have already run, so
   // this step's phase and collected answers survive a trip to another domain.
   if (!active) return null;
-
-  if (phase === "faith") {
-    return (
-      <FaithStep
-        onBack={() => backFrom("faith")}
-        onNext={(config) => {
-          setFaithConfig(config);
-          advancePast("faith", { faith: config });
-        }}
-        progressTotal={progressTotal}
-        progressIndex={progressIndex}
-      />
-    );
-  }
 
   if (phase === "self_mastery") {
     return (
@@ -202,7 +173,7 @@ export function PersonalGrowthStep({
       }
     >
       <h1 className="text-xl font-semibold">What&apos;s part of Personal Growth for you?</h1>
-      <p className="text-sm text-muted-foreground">All three are on by default — keep at least one.</p>
+      <p className="text-sm text-muted-foreground">Both are on by default — keep at least one.</p>
       <div className="flex flex-col gap-2">
         {PERSONAL_SUBDOMAIN_ORDER.map((key) => {
           const meta = PERSONAL_SUBDOMAIN_META[key];

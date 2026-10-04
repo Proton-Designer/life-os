@@ -119,24 +119,6 @@ test.describe("stranger journey", () => {
       const url = page.url();
       if (!/\/onboarding/.test(url)) break;
       await page.screenshot({ path: `${SHOT}/03-step-${i}.png`, fullPage: true });
-      // The Faith step asks for a city before it will continue. That is correct
-      // product behaviour — prayer times need a location — and a real stranger
-      // would type theirs. An earlier version of this spec did not, stalled
-      // here, and reported it as "a stranger would be stuck": a spec gap
-      // masquerading as a product defect. Verified against the screenshot
-      // before believing it.
-      const city = page.getByTestId("faith-location-input");
-      if (await city.isVisible().catch(() => false)) {
-        await city.fill("Chicago");
-        await page.getByTestId("faith-location-search").click().catch(() => {});
-        const firstResult = page.getByTestId("faith-location-result").first();
-        await firstResult.waitFor({ state: "visible", timeout: 15_000 }).catch(() => {
-          note("Searched for a city and no results appeared.");
-        });
-        if (await firstResult.isVisible().catch(() => false)) await firstResult.click();
-        await page.waitForTimeout(500);
-      }
-
       const cont = page.getByTestId("selfmastery-continue");
       if (await cont.isVisible().catch(() => false)) { await cont.click(); continue; }
       const next = page.getByTestId("onboarding-next");

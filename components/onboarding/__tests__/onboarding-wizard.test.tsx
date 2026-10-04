@@ -23,34 +23,20 @@ describe("OnboardingWizard", () => {
     expect(screen.getByTestId("onboarding-next")).toBeDisabled();
   });
 
-  // Ayman, 2026-09-19: "When Faith is pressed it automatically assumes Muslim."
-  // Selecting Personal Growth must not decide a user's religion for them, so
-  // faith starts OFF while the two non-confessional subdomains stay ON. The
-  // assertion is deliberately three-way rather than just faith=false: the
-  // failure we care about is faith flipping back on, but the failure we'd
-  // MISS with a narrower test is someone "fixing" this by defaulting
-  // everything off, which would quietly change a different screen's behaviour.
-  it("walks into Personal Growth with faith NOT preselected, the other two on", async () => {
+  // Deen Mode (R5): no religious option anywhere in onboarding (supersedes the
+  // 2026-09-19 "faith not preselected" rule -- there is now no faith card to
+  // preselect). Fitness and Self-Mastery stay on.
+  it("walks into Personal Growth with only Self-Mastery and Fitness, both on, and no faith option", async () => {
     const user = userEvent.setup();
     render(<OnboardingWizard />);
     await user.click(screen.getByTestId("domain-option-personal_growth"));
+    expect(screen.queryByText(/faith|prayer|qur.an/i)).not.toBeInTheDocument();
     await user.click(screen.getByTestId("onboarding-next"));
 
     expect(screen.getByTestId("onboarding-step")).toHaveAttribute("data-step", "personal_growth-subdomains");
-    expect(screen.getByTestId("subdomain-option-faith")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByTestId("subdomain-option-faith")).not.toBeInTheDocument();
     expect(screen.getByTestId("subdomain-option-self_mastery")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("subdomain-option-fitness")).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("lets a user opt INTO faith deliberately", async () => {
-    const user = userEvent.setup();
-    render(<OnboardingWizard />);
-    await user.click(screen.getByTestId("domain-option-personal_growth"));
-    await user.click(screen.getByTestId("onboarding-next"));
-
-    // Not preselected is the requirement; unreachable would be a new bug.
-    await user.click(screen.getByTestId("subdomain-option-faith"));
-    expect(screen.getByTestId("subdomain-option-faith")).toHaveAttribute("aria-pressed", "true");
   });
 
   // ONB item 5 (Ayman): "when the back arrow is pressed during onboarding it
@@ -95,7 +81,7 @@ describe("OnboardingWizard", () => {
     await user.click(screen.getByTestId("domain-option-personal_growth"));
     await user.click(screen.getByTestId("onboarding-next"));
 
-    // Faith is off by default now, so the walk down to one starts from two:
+    // There are two subdomains, so the walk down to one starts from two:
     // remove self_mastery, leaving fitness, then try to remove fitness too.
     await user.click(screen.getByTestId("subdomain-option-self_mastery"));
     await user.click(screen.getByTestId("subdomain-option-fitness"));

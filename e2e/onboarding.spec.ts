@@ -105,8 +105,10 @@ test.describe("onboarding", () => {
     await page.getByTestId("domain-option-personal_growth").click();
     await page.getByTestId("onboarding-next").click();
 
-    // All three subdomains preselected (M3).
-    for (const k of ["faith", "self_mastery", "fitness"]) {
+    // Both subdomains preselected (M3). There is no Faith option: Deen Mode in
+    // Settings is the only way into it (DEEN-05).
+    await expect(page.getByTestId("subdomain-option-faith")).toHaveCount(0);
+    for (const k of ["self_mastery", "fitness"]) {
       await expect(page.getByTestId(`subdomain-option-${k}`)).toHaveAttribute(
         "aria-pressed",
         "true",
@@ -114,8 +116,8 @@ test.describe("onboarding", () => {
     }
 
     // Walk the remaining per-subdomain steps until the flow completes. Keeping
-    // all three subdomains means three further steps (Faith, Self-Mastery,
-    // Fitness), and the last one completes on selection rather than on Next —
+    // both subdomains means two further steps (Self-Mastery, Fitness), and
+    // the last one completes on selection rather than on Next —
     // an earlier version of this test clicked Next once and waited 30s for a
     // navigation that was never coming. Drive it generically instead of
     // hardcoding a step count, so adding a subdomain step doesn't break it.
@@ -133,15 +135,6 @@ test.describe("onboarding", () => {
         .getAttribute("data-step", { timeout: 2_000 })
         .catch(() => null);
       if (step === null) break;
-      if (step === "personal_growth-faith") {
-        // The city field is a real search against the bundled dataset — typing
-        // a string is not enough, a result has to be selected, which is the
-        // whole point of it no longer being free text.
-        await page.getByTestId("faith-location-input").fill("Monroe");
-        await page.getByTestId("faith-location-search").click();
-        await page.getByTestId("faith-location-result").first().click();
-      }
-
       // Self-Mastery has its own primary button (skip-first by design: upload
       // is secondary), so the generic onboarding-next never appears there.
       if (step === "personal_growth-self_mastery") {
@@ -208,7 +201,6 @@ test.describe("onboarding", () => {
     await page.getByTestId("domain-option-personal_growth").click();
     await page.getByTestId("onboarding-next").click();
 
-    await page.getByTestId("subdomain-option-faith").click();
     await page.getByTestId("subdomain-option-self_mastery").click();
 
     // One left. The UI should stop us...

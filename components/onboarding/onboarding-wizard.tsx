@@ -6,7 +6,7 @@ import { DomainSelectStep } from "./domain-select-step";
 import { PersonalGrowthStep } from "./personal-growth-step";
 import { WorkStep } from "./work-step";
 import { SchoolStep } from "./school-step";
-import type { DomainKey, FaithConfig, SubdomainInput, WorkSubdomainDraft } from "./types";
+import type { DomainKey, SubdomainInput, WorkSubdomainDraft } from "./types";
 
 type Phase = "domains" | "walk" | "submitting";
 
@@ -16,23 +16,19 @@ type Phase = "domains" | "walk" | "submitting";
 // talks to the server actions, so every step component below stays a pure,
 // testable, server-ignorant UI.
 //
-// AC#5 (resume, not blind restart): `initialSelectedDomains`/`domainsWithData`/
-// `initialFaithConfig` come from page.tsx's server-side read of
-// getOnboardingState(). A brand-new account passes empty/null for all three
-// and this behaves exactly as before.
+// AC#5 (resume, not blind restart): `initialSelectedDomains`/`domainsWithData`
+// come from page.tsx's server-side read of getOnboardingState(). A brand-new
+// account passes empty for both and this behaves exactly as before.
 export function OnboardingWizard({
   initialSelectedDomains = [],
   domainsWithData = [],
-  initialFaithConfig = null,
 }: {
   initialSelectedDomains?: DomainKey[];
   domainsWithData?: DomainKey[];
-  initialFaithConfig?: FaithConfig | null;
 }) {
   const [phase, setPhase] = useState<Phase>("domains");
   const [selectedDomains, setSelectedDomains] = useState<DomainKey[]>(initialSelectedDomains);
   const [walkIndex, setWalkIndex] = useState(0);
-  const [faithConfig, setFaithConfig] = useState<FaithConfig | null>(initialFaithConfig);
   const [saveFailed, setSaveFailed] = useState(false);
 
   // RC-A (Ayman, 2026-09-19): "a lot of continue/next buttons in the onboarding
@@ -72,20 +68,6 @@ export function OnboardingWizard({
   }
 
   async function finishCurrentDomain(domainKey: DomainKey, subs: SubdomainInput[]) {
-    // Use a local value for the completeOnboarding call below rather than
-    // the `faithConfig` state variable — setFaithConfig here won't have
-    // re-rendered yet, so reading the state directly in this same tick
-    // would silently submit stale (usually null) profile fields whenever
-    // Personal Growth is the last domain in the walk.
-    let resolvedFaithConfig = faithConfig;
-    if (domainKey === "personal_growth") {
-      const faith = subs.find((s) => s.key === "faith");
-      if (faith?.config) {
-        resolvedFaithConfig = faith.config as unknown as FaithConfig;
-        setFaithConfig(resolvedFaithConfig);
-      }
-    }
-
     enqueueWrite(() => saveSubdomains(domainKey, subs));
 
     if (walkIndex + 1 < selectedDomains.length) {
@@ -99,7 +81,7 @@ export function OnboardingWizard({
     // optimistically here would race our own persistence.
     setPhase("submitting");
     await writeQueue.current;
-    await completeOnboarding(resolvedFaithConfig ?? {});
+    await completeOnboarding({});
   }
 
   function backWithinWalk() {
