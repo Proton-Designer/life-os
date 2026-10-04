@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildQadaBacklog, itemsInQadaWindow, qadaWindowStart } from "@/lib/deen/qada-backlog";
+import { resolvePrayerStatuses } from "@/lib/deen/prayer-status";
 import { getDomainSnapshots, type DomainSnapshotDataSource } from "../get-domain-snapshots";
 
 const CHICAGO_PROFILE = {
@@ -144,6 +146,52 @@ describe("getDomainSnapshots", () => {
       const allSnapshot = await getDomainSnapshots("user-1", NOW, allLoggedRecently);
 
       expect(allSnapshot.deen.qadaBacklogCount).toBeLessThan(nothingSnapshot.deen.qadaBacklogCount);
+    });
+  });
+
+  // QADA-3M-b: Home's doorway count and the Deen card come from ONE window
+  // (qadaWindowStart). A miss 67 days back is outside the old 60-day window.
+  describe("qada window parity with the Deen page", () => {
+    const PRAYERS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
+    const TODAY = "2026-08-10";
+    const OLD_MISS = "2026-06-04"; // 67 days before TODAY
+
+    it("counts a 67-day-old miss exactly like the Deen card does", async () => {
+      let handledRange: [string, string] | null = null;
+      const days = (from: string, to: string) => (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+      const dataSource = baseDataSource({
+        // Everything handled except one fajr on OLD_MISS (when inside the asked range).
+        getPrayerHandledCount: async (_u, from, to) => {
+          handledRange = [from, to];
+          return days(from, to) * 5 - (from <= OLD_MISS && OLD_MISS <= to ? 1 : 0);
+        },
+        getPrayerHistory: async () =>
+          PRAYERS.flatMap((prayer_name) => [
+            { date: "2026-08-09", prayer_name, status: "on_time" },
+            { date: TODAY, prayer_name, status: "on_time" },
+          ]),
+      });
+      const home = (await getDomainSnapshots("user-1", NOW, dataSource)).deen.qadaBacklogCount;
+
+      // Deen page: resolve every date in the window, keep items inside it.
+      const start = qadaWindowStart(TODAY);
+      const dates = Array.from({ length: days(start, TODAY) }, (_, i) => new Date(Date.parse(`${start}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10));
+      const rows = dates.flatMap((date) =>
+        PRAYERS.filter((n) => !(date === OLD_MISS && n === "fajr")).map((prayer_name) => ({ date, prayer_name, status: "on_time" })),
+      );
+      const deen = itemsInQadaWindow(
+        buildQadaBacklog(
+          resolvePrayerStatuses({
+            rows, dates, lat: CHICAGO_PROFILE.location_lat, lng: CHICAGO_PROFILE.location_lng, timezone: "America/Chicago",
+            calcMethod: "MWL", asrMadhab: "standard", now: NOW, accountCreatedDateStr: "2026-01-01",
+          }),
+        ).items,
+        TODAY,
+      ).length;
+
+      expect(handledRange![0]).toBe(start);
+      expect(deen).toBe(1);
+      expect(home).toBe(deen);
     });
   });
 

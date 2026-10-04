@@ -9,7 +9,7 @@ import {
   computeTrackingFloorDateStr,
   type StoredPrayerStatus,
 } from "@/lib/deen/prayer-status";
-import { buildQadaBacklog } from "@/lib/deen/qada-backlog";
+import { buildQadaBacklog, qadaWindowStart } from "@/lib/deen/qada-backlog";
 import {
   localDateString,
   dayOfWeekFromDateString,
@@ -371,8 +371,8 @@ export async function getDomainSnapshots(
   const dayOfWeek = dayOfWeekFromDateString(dateStr);
 
   // Qada backlog doorway signal, set up before the batch so the two new
-  // fetches below can run inside it rather than after. Same 60-dates-ending-
-  // today floor convention as app/(app)/deen/page.tsx's own qada backlog —
+  // fetches below can run inside it rather than after. Same 3-calendar-month
+  // window (qadaWindowStart, QADA-3M) as app/(app)/deen/page.tsx's own qada backlog —
   // kept as its own variable rather than reusing sixtyDaysAgoStr above (a
   // slightly different now-minus-60*24h computation, used for the unrelated
   // habit-streak lookback) so the derived count here matches Deen's page.
@@ -390,7 +390,7 @@ export async function getDomainSnapshots(
   // and the deen snapshot comes back neutral/empty. Nothing is deleted (R4).
   const deenOn = isDeenModeOn(profile);
   const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
-  const qadaFloorDateStr = addDaysToDateString(dateStr, -59);
+  const qadaFloorDateStr = qadaWindowStart(dateStr);
   const twoDaysAgoStr = addDaysToDateString(dateStr, -2);
   const oneDayAgoStr = addDaysToDateString(dateStr, -1);
   const oldQadaRangeStart = accountCreatedDateStr > qadaFloorDateStr ? accountCreatedDateStr : qadaFloorDateStr;
