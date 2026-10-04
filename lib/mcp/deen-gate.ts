@@ -53,12 +53,15 @@ export const DEEN_PROFILE_COLUMNS: ReadonlySet<string> = new Set([
 export type DeenReadRestriction =
   | { kind: "domain_column"; column: string } // distractions.trigger, checkins.allocation: domain <> 'deen' (NULL kept)
   | { kind: "events"; dropColumns: string[] } // distractions.event: no deen-trigger events, no reflection-linked events
+  | { kind: "trigger_scoped" } // distractions.action_plan / plan_outcome: no rows of deen-domain triggers
   | { kind: "widget_domain" }; // widgets.widget: data_source->>domain <> 'deen'
 
 const NON_DEEN_ENTITY_RESTRICTIONS: Record<string, DeenReadRestriction> = {
   "distractions.trigger": { kind: "domain_column", column: "domain" },
   "checkins.allocation": { kind: "domain_column", column: "domain" },
   "distractions.event": { kind: "events", dropColumns: ["reflection_tier", "reflection_entry_id"] },
+  "distractions.action_plan": { kind: "trigger_scoped" },
+  "distractions.plan_outcome": { kind: "trigger_scoped" },
   "widgets.widget": { kind: "widget_domain" },
 };
 

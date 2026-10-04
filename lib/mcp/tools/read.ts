@@ -200,6 +200,8 @@ function applyDeenRestriction<Q extends { or(filters: string): Q; is(column: str
       return query.or(`${restriction.column}.is.null,${restriction.column}.neq.deen`);
     case "widget_domain":
       return query.or("data_source->>domain.is.null,data_source->>domain.neq.deen");
+    case "trigger_scoped":
+      return deenTriggers.length > 0 ? query.not("trigger_id", "in", `(${deenTriggers.join(",")})`) : query;
     case "events": {
       let q = query.is("reflection_entry_id", null);
       if (deenTriggers.length > 0) q = q.not("trigger_id", "in", `(${deenTriggers.join(",")})`);
@@ -266,7 +268,7 @@ export async function readTool(supabase: SupabaseClient, userId: string, args: R
   // filtered out and their reflection columns dropped. One extra read only for
   // an affected entity, none otherwise.
   const restriction = await deenReadRestriction(supabase, userId, args.domain, def.entity);
-  const deenTriggers = restriction?.kind === "events" ? await deenTriggerIds(supabase, userId) : [];
+  const deenTriggers = restriction?.kind === "events" || restriction?.kind === "trigger_scoped" ? await deenTriggerIds(supabase, userId) : [];
   if (restriction?.kind === "events") columns = columns.filter((c) => !restriction.dropColumns.includes(c));
   const select = selectClause(def, columns);
 

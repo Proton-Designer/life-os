@@ -190,6 +190,19 @@ describe("non-deen entities carrying deen rows (F2)", () => {
     expect(on.calls.some((c) => c.method === "not")).toBe(false);
   });
 
+  it("OFF: distractions.action_plan and plan_outcome exclude deen-trigger rows (F6); ON applies none", async () => {
+    for (const entity of ["action_plan", "plan_outcome"] as const) {
+      const table = entity === "action_plan" ? "trigger_action_plans" : "trigger_plan_outcomes";
+      const off = fakeClient(false, { deenTriggerRows: [{ id: "t-deen" }] });
+      await readTool(off.client, "u", { domain: "distractions", entity });
+      expect(off.calls, entity).toContainEqual({ table, method: "not", args: ["trigger_id", "in", "(t-deen)"] });
+
+      const on = fakeClient(true);
+      await readTool(on.client, "u", { domain: "distractions", entity });
+      expect(on.calls.some((c) => c.table === table && c.method === "not"), entity).toBe(false);
+    }
+  });
+
   it("OFF: widgets.widget read hides deen widgets, consistent with widget_manage list (F3); ON unfiltered", async () => {
     const off = fakeClient(false);
     await readTool(off.client, "u", { domain: "widgets", entity: "widget" });
