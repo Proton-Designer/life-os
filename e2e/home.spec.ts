@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
+import { useDeenMode } from "./deen-mode-helpers";
+
+// These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
+// the file and restore its prior value afterwards, rather than trusting fixture state.
+useDeenMode(test);
 
 // Every test in this file relies on the shared authenticated session from
 // the "setup" project (e2e/auth.setup.ts / playwright.config.ts's

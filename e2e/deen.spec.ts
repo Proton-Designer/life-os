@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, clickAndSettle } from "./helpers";
+import { useDeenMode } from "./deen-mode-helpers";
+
+// These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
+// the file and restore its prior value afterwards, rather than trusting fixture state.
+useDeenMode(test);
 
 // Isha, specifically: it's the last prayer of the day, so at almost any hour
 // this run happens, today's Isha is the prayer least likely to already carry

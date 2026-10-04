@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
+import { useDeenMode } from "./deen-mode-helpers";
+
+// These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
+// the file and restore its prior value afterwards, rather than trusting fixture state.
+useDeenMode(test);
 
 // Part of the 2026-08-15 structural refactor's Phase A quality floor: "zero
 // horizontal overflow at 390/768/1024/1280/1600px, measured via scrollWidth

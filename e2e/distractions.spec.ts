@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
+import { useDeenMode } from "./deen-mode-helpers";
+
+// These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
+// the file and restore its prior value afterwards, rather than trusting fixture state.
+useDeenMode(test);
 import { isReviewOpen, reviewDateFor } from "@/lib/distractions/plan-rules";
 import { localDateString } from "@/lib/date-utils";
 

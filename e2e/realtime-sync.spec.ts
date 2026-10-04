@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
+import { useDeenMode } from "./deen-mode-helpers";
+
+// These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
+// the file and restore its prior value afterwards, rather than trusting fixture state.
+useDeenMode(test);
 
 // 2026-08-25/26 batch 2, item 2 — Ayman: "when i have the app open on my
 // laptop and my phone, and i make a change on my phone, it doesnt display

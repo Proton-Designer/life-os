@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, clickAndSettle, settleRoute } from "./helpers";
+import { useDeenMode } from "./deen-mode-helpers";
+
+// These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
+// the file and restore its prior value afterwards, rather than trusting fixture state.
+useDeenMode(test);
 
 // Covers A3, the 2026-08-25/26 sunnah disclosure work: the 1.5s
 // auto-collapse (both on Deen's own PrayerRow and Home's Now-module prayer
