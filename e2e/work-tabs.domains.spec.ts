@@ -25,6 +25,16 @@ async function openEditor(page: import("@playwright/test").Page) {
   await expect(page.getByRole("dialog", { name: "Edit tabs" })).toBeVisible();
 }
 
+// Save the tabs and wait for saveWorkTabs to answer: the bar updates optimistically, so a reload or
+// page.close() right after the click would abort the Server Action and nothing would be saved.
+async function saveTabs(page: import("@playwright/test").Page) {
+  const saved = page.waitForResponse(
+    (res) => res.request().method() === "POST" && (res.request().postData() ?? "").includes('"label"')
+  );
+  await page.getByTestId("edit-work-tabs-save").click();
+  await saved;
+}
+
 test("adds a Business tab, which opens the Business screen and is first in the bar", async ({ page }) => {
   await openEditor(page);
   if (await page.getByTestId("add-business-tab").count()) {
@@ -45,7 +55,7 @@ test("renaming a tab updates the bar at once and survives a reload", async ({ pa
   await openEditor(page);
   const name = page.getByLabel("Name of tab 1");
   await name.fill("Studio");
-  await page.getByTestId("edit-work-tabs-save").click();
+  await saveTabs(page);
   await expect(page.locator('[data-testid^="work-subdomain-tab-"]').first()).toContainText("Studio");
   await page.reload();
   await expect(page.locator('[data-testid^="work-subdomain-tab-"]').first()).toContainText("Studio");
@@ -70,6 +80,6 @@ test.afterAll(async ({ browser }) => {
   await page.getByLabel("Name of tab 1").fill("Business");
   const remove = page.getByRole("button", { name: /^Remove Business$/ });
   if (await remove.count()) await remove.click();
-  await page.getByTestId("edit-work-tabs-save").click();
+  await saveTabs(page);
   await page.close();
 });
