@@ -105,7 +105,8 @@ the point is to make a number unavailable the moment it is promised.
 | `250` | Sonnet ENG 2 (P3-05), self-allocated against this ledger's own "next free" marker after 209 (this task's original request) was consumed by P4-22 between request and grant -- flagged to Opus Lead for confirmation | profiles.enabled_features (opt-in flag, shared with P3-11) + reflection_cards + end_of_hour_reflections (composite tenancy FK, append-only) | allocated |
 | `251` | Sonnet ENG 1 (DEEN-02), allocated by Opus Lead, 2026-10-04 | profiles.deen_mode boolean not null default false (Deen Mode switch; no backfill) | allocated |
 | `252` | Sonnet ENG 1 (RS-01), allocated by Opus Lead, 2026-10-04 | profiles.enabled_features CHECK widened: + morning_routine, sleep_plan (no backfill) | allocated |
-| `253`+ | — | next free | — |
+| `253` | Sonnet ENG 1 (IA-P4a), allocated by Opus Lead, 2026-10-04 | morning_routine_items + if_cue/fallback_text/habit_id (composite FK, column-scoped SET NULL); user_settings + wake_time/sleep_need_minutes/wind_down_minutes (no backfill) | allocated |
+| `254`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
