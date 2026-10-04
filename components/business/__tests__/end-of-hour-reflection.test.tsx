@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { configure, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -10,6 +10,14 @@ vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
   startEndOfHourRitual: (...args: unknown[]) => startEndOfHourRitualMock(...args),
   submitEndOfHourReflection: (...args: unknown[]) => submitEndOfHourReflectionMock(...args),
 }));
+
+// Deflake: these flows cross several async boundaries (mocked action -> state -> Radix dialog mount ->
+// second mocked action -> render), and testing-library's default 1 s findBy/waitFor budget is shorter than
+// the wall-clock a full-suite run can take under CPU contention (the "no card" test failed in a loaded full
+// suite and passed 7/7 alone). Nothing here asserts on timing, so a generous ceiling only changes WHEN a
+// real failure is reported, never whether a pass is possible; the happy path still resolves immediately.
+configure({ asyncUtilTimeout: 8_000 });
+vi.setConfig({ testTimeout: 20_000 });
 
 const NUDGE = "Add a reflection card in Settings to unlock the End-of-Hour ritual.";
 
