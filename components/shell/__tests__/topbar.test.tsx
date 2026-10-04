@@ -97,7 +97,7 @@ function renderTopbar(props: Partial<React.ComponentProps<typeof Topbar>> = {}) 
           dateLabel="Fri, Aug 15"
           nowIso="2026-08-15T18:00:00.000-05:00"
           timezone="America/Chicago"
-          getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
+          getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true })}
           onSaveDeen={async () => {}}
           onSaveBusiness={async () => {}}
           {...props}
@@ -161,7 +161,7 @@ describe("Topbar", () => {
     // correctness — schedule/goal data can change from other screens
     // between opens), so a click after the prefetch triggers one more call,
     // not zero.
-    const getWeekCalendar = vi.fn(async () => ({ items: [], undatedDeadlines: [], deen: null, business: null }));
+    const getWeekCalendar = vi.fn(async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true }));
     const user = userEvent.setup();
     renderTopbar({ getWeekCalendar });
 

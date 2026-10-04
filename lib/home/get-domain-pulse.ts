@@ -133,10 +133,11 @@ function defaultDataSource(): PulseDataSource {
 export async function getDomainPulse(
   userId: string,
   date: string,
-  dataSource: PulseDataSource = defaultDataSource(),
-  // Deen Mode (isDeenModeOn(profile)). Fails closed: OFF skips the prayers read
-  // entirely and reports deen: null ("nothing tracked"), never a fake 0.
-  deenOn: boolean = false
+  // Deen Mode (isDeenModeOn(profile)) -- REQUIRED so a caller must decide. OFF
+  // skips the prayers read entirely and reports deen: null ("nothing tracked"),
+  // never a fake 0.
+  deenOn: boolean,
+  dataSource: PulseDataSource = defaultDataSource()
 ): Promise<DomainPulse> {
   const dayOfWeek = dayOfWeekFromDateString(date);
   const [prayers, killList, schoolTasks, coopTaskCompletion, habits, workoutSchedule, workoutSessions] = await Promise.all([

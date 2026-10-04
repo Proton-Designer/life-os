@@ -14,6 +14,8 @@ export type WeekCalendarData = {
   undatedDeadlines: { id: string; title: string; domainLabel: string; dueDate: string }[];
   deen: WeeklyGoalEntry;
   business: WeeklyGoalEntry;
+  /** profiles.deen_mode via isDeenModeOn -- OFF hides the Deen goal slot in the week view. */
+  deenMode: boolean;
 };
 
 function minutesFromTimeString(time: string): number {
@@ -71,6 +73,9 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   // ["deen","business"] literal silently excludes a user who deselected
   // Faith the moment that becomes possible to do.
   const domainsState = await getUserDomains();
+  // Deen Mode OFF: the deen goal row and the quran_sessions read are skipped, not
+  // fetched-then-hidden (rows stay in the database, R4).
+  const deenMode = isDeenModeOn(profile);
 
   const [{ data: eventRows }, { data: weeklyGoalsRows }, { data: taskRows }, { data: activePlanRow }, { data: quranSessionRows }] =
     await Promise.all([
@@ -84,7 +89,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         .select("domain, headline, milestones, quran_page_target")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", weeklyGoalDomains(domainsState, isDeenModeOn(profile))),
+        .in("domain", weeklyGoalDomains(domainsState, deenMode)),
       supabase
         .from("tasks")
         .select("id, title, domain, due_date, due_time, completed")
@@ -98,7 +103,9 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
       // number, quranTarget, is already sitting unused in the
       // weekly_goals row fetched above (quran_page_target), so only this
       // one targeted query was actually needed.
-      supabase.from("quran_sessions").select("pages_read").eq("user_id", userId).gte("date", weekStart),
+      deenMode
+        ? supabase.from("quran_sessions").select("pages_read").eq("user_id", userId).gte("date", weekStart)
+        : Promise.resolve({ data: [] as { pages_read: number }[] }),
     ]);
 
   // Both of these depend on results from the Promise.all above (event ids,
@@ -121,7 +128,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   ]);
 
   const quranWeekPages = (quranSessionRows ?? []).reduce((sum, s) => sum + s.pages_read, 0);
-  const deenGoalRow = (weeklyGoalsRows ?? []).find((g) => g.domain === "deen") ?? null;
+  const deenGoalRow = deenMode ? ((weeklyGoalsRows ?? []).find((g) => g.domain === "deen") ?? null) : null;
   const businessGoalRow = (weeklyGoalsRows ?? []).find((g) => g.domain === "business") ?? null;
   const deen: WeeklyGoalEntry = deenGoalRow
     ? {
@@ -240,5 +247,5 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
     dueDate: t.due_date as string,
   }));
 
-  return { items, undatedDeadlines, deen, business };
+  return { items, undatedDeadlines, deen, business, deenMode };
 }

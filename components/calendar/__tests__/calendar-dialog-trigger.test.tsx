@@ -30,7 +30,7 @@ function freshKey(): string {
   return `test-account-${keyCounter}@example.com`;
 }
 
-const EMPTY_DATA = { items: [], undatedDeadlines: [], deen: null, business: null };
+const EMPTY_DATA = { items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true };
 
 function renderTrigger(overrides: Partial<React.ComponentProps<typeof CalendarDialogTrigger>> = {}) {
   const getWeekCalendar = overrides.getWeekCalendar ?? vi.fn(async () => EMPTY_DATA);

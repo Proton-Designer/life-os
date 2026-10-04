@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Radar, Volume2, Target, Flame, CheckCircle2, BookOpen } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { computeTrackingFloorDateStr } from "@/lib/deen/prayer-status";
 import { createClient } from "@/lib/supabase/server";
 import { getFocusMap } from "@/lib/insights/focus-map";
@@ -118,6 +119,9 @@ export default async function InsightsPage({
   const now = new Date();
 
   const profile = await getProfile();
+  // Deen Mode OFF: prayers/quran/deen-goal reads are skipped, the two Faith KPI
+  // cards + charts and the deen focus-map segment are not rendered. Data stays (R4).
+  const deenMode = isDeenModeOn(profile);
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(todayStr);
@@ -167,7 +171,7 @@ export default async function InsightsPage({
 
   const supabase = await createClient();
   const [
-    { segments },
+    { segments: allSegments },
     kpis,
     weeklyCompletion,
     { data: snCheckinRows },
@@ -190,37 +194,43 @@ export default async function InsightsPage({
       .eq("kind", "allocation")
       .gte("window_start", snWeeks[0].weekStartIso),
     getSignalNoiseForRange(userId, range, anchor),
-    supabase
-      .from("prayers")
-      .select("date, status")
-      .eq("user_id", userId)
-      .gte("date", earliestRecapWeekStart)
-      .lt("date", weekStart),
+    deenMode
+      ? supabase
+          .from("prayers")
+          .select("date, status")
+          .eq("user_id", userId)
+          .gte("date", earliestRecapWeekStart)
+          .lt("date", weekStart)
+      : Promise.resolve({ data: [] as { date: string; status: string }[] }),
     supabase
       .from("kill_list_items")
       .select("date, completed")
       .eq("user_id", userId)
       .gte("date", earliestRecapWeekStart)
       .lt("date", weekStart),
-    supabase
-      .from("quran_sessions")
-      .select("date, pages_read")
-      .eq("user_id", userId)
-      .gte("date", earliestRecapWeekStart)
-      .lt("date", weekStart),
+    deenMode
+      ? supabase
+          .from("quran_sessions")
+          .select("date, pages_read")
+          .eq("user_id", userId)
+          .gte("date", earliestRecapWeekStart)
+          .lt("date", weekStart)
+      : Promise.resolve({ data: [] as { date: string; pages_read: number }[] }),
     supabase
       .from("checkins")
       .select("window_start, checkin_allocations(domain, minutes, is_wasted)")
       .eq("user_id", userId)
       .eq("kind", "allocation")
       .gte("window_start", recapSnWeeks[0].weekStartIso),
-    supabase
-      .from("weekly_goals")
-      .select("quran_page_target")
-      .eq("user_id", userId)
-      .eq("domain", "deen")
-      .eq("week_start_date", previousWeekStart)
-      .maybeSingle(),
+    deenMode
+      ? supabase
+          .from("weekly_goals")
+          .select("quran_page_target")
+          .eq("user_id", userId)
+          .eq("domain", "deen")
+          .eq("week_start_date", previousWeekStart)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { quran_page_target: number | null } | null }),
     getUserDomainWeights(userId),
     getPageLayout("insights"),
   ]);
@@ -232,6 +242,7 @@ export default async function InsightsPage({
   // insert into the middle of a long positional destructure.
   const rescueTimeData = await getRescueTimeInsightsData(supabase, userId);
 
+  const segments = deenMode ? allSegments : allSegments.filter((s) => s.domain !== "deen");
   const hasFocusData = segments.length > 0;
   const domainSegments = segments.filter((s) => s.domain !== "wasted");
   const wastedSegment = segments.find((s) => s.domain === "wasted") ?? null;
@@ -423,6 +434,7 @@ export default async function InsightsPage({
           COMPLETED weeks (ends at last week), unlike the current-week-
           inclusive Signal:Noise panel above. */}
       <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-4">
+        {deenMode && (
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={Flame}
@@ -441,6 +453,7 @@ export default async function InsightsPage({
             }
           />
         </div>
+        )}
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={CheckCircle2}
@@ -451,6 +464,7 @@ export default async function InsightsPage({
             sparkline={recap.map((r) => r.killListDaysCleared)}
           />
         </div>
+        {deenMode && (
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={BookOpen}
@@ -467,6 +481,7 @@ export default async function InsightsPage({
             sparkline={recap.map((r) => r.quranPages)}
           />
         </div>
+        )}
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
           <KpiCard
             icon={Target}
@@ -488,21 +503,25 @@ export default async function InsightsPage({
       <LayoutSlot layout={layoutMap} widgetKey="week_over_week">
       <Panel title="Week over week">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          {deenMode && (
           <SmallMultiple
             label="Prayers on time"
             bars={recap.map((r) => ({ label: r.label, value: r.prayersOnTime }))}
             colorVar="--series-deen"
           />
+          )}
           <SmallMultiple
             label="Days cleared"
             bars={recap.map((r) => ({ label: r.label, value: r.killListDaysCleared }))}
             colorVar="--series-business"
           />
+          {deenMode && (
           <SmallMultiple
             label="Qur'an pages"
             bars={recap.map((r) => ({ label: r.label, value: r.quranPages }))}
             colorVar="--series-deen"
           />
+          )}
           <SmallMultiple label="Signal:Noise" bars={recapSnBars} colorVar="--series-business" />
         </div>
       </Panel>

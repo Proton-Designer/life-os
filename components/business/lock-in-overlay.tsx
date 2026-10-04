@@ -104,9 +104,12 @@ function CustomObjectiveHeadline({ objective, onToggle }: { objective: SessionOb
 export function LockInOverlay({
   timezone,
   killListSlots,
+  deenMode = false,
 }: {
   timezone: string;
   killListSlots: [KillListSlotData, KillListSlotData, KillListSlotData];
+  /** profiles.deen_mode as a plain boolean; gates the Deen option in the distraction capture dialog. */
+  deenMode?: boolean;
 }) {
   const { session, minimized, isPending, minimize, endSession, toggleObjective } = useLockInOverlay();
   const visible = !!session && !minimized;
@@ -285,7 +288,7 @@ export function LockInOverlay({
           <LockInCheckin className="w-full max-w-sm shrink-0 overflow-y-auto max-h-[40vh]" />
 
           <div className="flex w-full flex-col items-center gap-4 pb-2">
-            <DistractionCaptureDialog />
+            <DistractionCaptureDialog deenMode={deenMode} />
             <Button type="button" variant="outline" size="lg" disabled={isPending} onClick={endSession}>
               End Session
             </Button>

@@ -1,5 +1,7 @@
 "use server";
 
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
+import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { getReviewItems } from "@/lib/distractions/queries";
@@ -44,7 +46,7 @@ export async function getReviewData(): Promise<ReviewData | null> {
 
   const reviewDate = reviewDateFor(now, timezone);
   const supabase = await createClient();
-  const groups = await getReviewItems(supabase, user.id, reviewDate);
+  const groups = withoutDeenDomain(await getReviewItems(supabase, user.id, reviewDate), isDeenModeOn(profile));
 
   return { dateLabel: formatReviewDateHeader(reviewDate), groups };
 }

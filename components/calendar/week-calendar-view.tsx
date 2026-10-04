@@ -9,6 +9,7 @@ export type WeekCalendarData = {
   undatedDeadlines: { id: string; title: string; domainLabel: string; dueDate: string }[];
   deen: WeeklyGoalEntry;
   business: WeeklyGoalEntry;
+  deenMode: boolean;
 };
 
 type SaveGoalAction = (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
@@ -33,7 +34,13 @@ export function WeekCalendarView({
 }) {
   return (
     <div className="flex flex-col gap-6">
-      <WeeklyGoalsHeader deen={data.deen} business={data.business} onSaveDeen={onSaveDeen} onSaveBusiness={onSaveBusiness} />
+      <WeeklyGoalsHeader
+        deen={data.deen}
+        business={data.business}
+        showDeen={data.deenMode}
+        onSaveDeen={onSaveDeen}
+        onSaveBusiness={onSaveBusiness}
+      />
 
       <Panel title="Week">
         <WeekHourGrid items={data.items} todayDayOfWeek={todayDayOfWeek} />

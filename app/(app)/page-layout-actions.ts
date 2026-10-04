@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
 import { requireUser } from "@/lib/supabase/auth";
 import { getLayoutCore, saveLayoutCore, type LayoutItem, type SaveLayoutItem } from "@/lib/page-layout/actions-core";
 
@@ -9,6 +10,9 @@ export type { LayoutItem, SaveLayoutItem };
 /** WIDGET-01 -- thin wrapper over getLayoutCore (lib/page-layout/actions-core.ts). Every domain page + WIDGET-02's picker dialog call this to read the caller's own layout. */
 export async function getPageLayout(domainKey: string): Promise<LayoutItem[]> {
   const { supabase, userId } = await requireUser();
+  // Deen Mode OFF: the Faith page's widget layout is not offered (its stored
+  // rows stay; they come back when Deen Mode does).
+  if (domainKey === "deen" && !(await isDeenModeOnForRequest())) return [];
   return getLayoutCore(supabase, userId, domainKey);
 }
 

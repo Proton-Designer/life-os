@@ -39,11 +39,11 @@ const HOME: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "morning_routine", label: "Morning routine", description: "Your own checklist of morning habits, checked off once a day." },
   { widgetKey: "sleep_intent", label: "Sleep intent", description: "Tonight's planned bedtime, set during evening close." },
   { widgetKey: "session_entry", label: "Start a session", description: "One tap into today's spaced-review session, when cards or questions are due." },
-  { widgetKey: "weekly_goals_header", label: "This week's goals", description: "Deen and Business's own one-line weekly goal, editable in place." },
+  { widgetKey: "weekly_goals_header", label: "This week's goals", description: "Your one-line weekly goals, editable in place." },
   { widgetKey: "domain_status", label: "Sector progress", description: "A compact status row across every domain you've turned on." },
   { widgetKey: "now", label: "Now", description: "The Night Plan's starred and crowned tasks for today, in priority order." },
   { widgetKey: "focus", label: "Focus", description: "Today's Deep Work / Deep Study minutes and session count, plus recent distractions." },
-  { widgetKey: "day_shape", label: "The day's shape", description: "A prayer-anchored timeline of the day, when your location is set." },
+  { widgetKey: "day_shape", label: "The day's shape", description: "A timeline of today's classes, work and focus sessions across your day." },
   { widgetKey: "mcp_widgets", label: "Agent widgets", description: "Data tiles an AI agent you connected has created for you over MCP." },
 ];
 

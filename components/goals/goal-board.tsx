@@ -45,8 +45,12 @@ const DOMAIN_OPTIONS: { value: string; label: string }[] = [
   { value: "co_op", label: "Work" },
 ];
 
-function domainLabel(domain: string | null): string | null {
+function domainLabel(domain: string | null, deenMode: boolean): string | null {
   if (!domain) return null;
+  // Deen Mode OFF: a goal already tagged "deen" keeps showing (its title is the
+  // user's own, and hiding it would still leave its rank occupied) but the
+  // religious domain label is not rendered. The tag itself is untouched.
+  if (domain === "deen" && !deenMode) return null;
   return DOMAIN_OPTIONS.find((d) => d.value === domain)?.label ?? domain;
 }
 
@@ -160,8 +164,10 @@ function ActiveGoalCard({
   goal,
   milestone,
   monthStart,
+  deenMode,
   onResolve,
 }: {
+  deenMode: boolean;
   goal: Goal;
   milestone: GoalMilestone | undefined;
   monthStart: string;
@@ -182,7 +188,7 @@ function ActiveGoalCard({
     });
   }
 
-  const label = domainLabel(goal.domain);
+  const label = domainLabel(goal.domain, deenMode);
 
   return (
     <li className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">
@@ -388,6 +394,7 @@ export function GoalBoard({
               goal={goal}
               milestone={milestoneByGoal.get(goal.id)}
               monthStart={monthStart}
+              deenMode={deenMode}
               onResolve={markResolved}
             />
           ))}

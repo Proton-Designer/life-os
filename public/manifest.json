@@ -1,7 +1,7 @@
 {
   "name": "Life OS",
   "short_name": "Life OS",
-  "description": "A personal productivity dashboard for Deen, Business, Fitness, School, and Co-op.",
+  "description": "A personal productivity dashboard for work, school, fitness, learning, and business.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0c",

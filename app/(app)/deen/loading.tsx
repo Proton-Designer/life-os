@@ -1,5 +1,4 @@
 import { PageContainer } from "@/components/shell/page-container";
-import { PageHeader } from "@/components/shell/page-header";
 import { KpiStripSkeleton, PanelSkeleton, RowListSkeleton } from "@/components/shell/route-skeleton";
 
 // Mirrors app/(app)/deen/page.tsx: a 3-card hero strip (Next Prayer, Prayer
@@ -8,7 +7,9 @@ import { KpiStripSkeleton, PanelSkeleton, RowListSkeleton } from "@/components/s
 export default function DeenLoading() {
   return (
     <PageContainer>
-      <PageHeader title="Deen" />
+      {/* Neutral title bar, not "Deen": with Deen Mode off this skeleton can flash for a
+          beat before page.tsx redirects to "/", and it must not name the Faith section. */}
+      <div className="h-9 w-32 animate-pulse rounded-md bg-muted/40" aria-hidden />
       <KpiStripSkeleton count={3} cols="md:grid-cols-2 lg:grid-cols-3" />
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
         <div className="lg:col-span-5">

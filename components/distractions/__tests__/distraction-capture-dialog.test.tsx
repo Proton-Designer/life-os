@@ -38,10 +38,10 @@ function deepWorkSession(overrides: Partial<ActiveWorkSession> = {}): ActiveWork
   };
 }
 
-function renderDialog(session: ActiveWorkSession | null = null) {
+function renderDialog(session: ActiveWorkSession | null = null, deenMode = true) {
   return render(
     <LockInOverlayProvider initialSession={session}>
-      <DistractionCaptureDialog />
+      <DistractionCaptureDialog deenMode={deenMode} />
     </LockInOverlayProvider>
   );
 }
@@ -119,6 +119,24 @@ describe("DistractionCaptureDialog", () => {
       await user.click(screen.getByRole("button", { name: "More options" }));
       expect(screen.getByText("What's the domain?")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Deen" })).toBeInTheDocument();
+    });
+
+    it("Deen Mode OFF: the domain picker has no Deen option (and the default is fail-closed with no prop); ON has it", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([]);
+      const off = renderDialog(null, false);
+      await openDialog();
+      await screen.findByText("What's the domain?");
+      expect(screen.queryByRole("button", { name: "Deen" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Business" })).toBeInTheDocument();
+      off.unmount();
+      render(
+        <LockInOverlayProvider initialSession={null}>
+          <DistractionCaptureDialog />
+        </LockInOverlayProvider>
+      );
+      await openDialog();
+      await screen.findByText("What's the domain?");
+      expect(screen.queryByRole("button", { name: "Deen" })).not.toBeInTheDocument();
     });
 
     it("a first-time user with ZERO triggers skips the empty chip screen and lands on the domain picker directly", async () => {

@@ -103,7 +103,8 @@ function inferDomainFromSession(session: ActiveWorkSession | null): DistractionD
   return session.kind === "deep_work" ? "business" : "school";
 }
 
-export function DistractionCaptureDialog() {
+/** `deenMode` (profiles.deen_mode) as a plain boolean; fails closed. Off drops the Deen domain (and with it the reflection-tier UI, which only exists under Deen). */
+export function DistractionCaptureDialog({ deenMode = false }: { deenMode?: boolean } = {}) {
   const { session } = useLockInOverlay();
   const inferredDomain = inferDomainFromSession(session);
 
@@ -272,7 +273,7 @@ export function DistractionCaptureDialog() {
               <DialogTitle>What's the domain?</DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-3 gap-2">
-              {CAPTURE_DOMAINS.map((d) => (
+              {CAPTURE_DOMAINS.filter((d) => deenMode || d !== "deen").map((d) => (
                 <button
                   key={d}
                   type="button"

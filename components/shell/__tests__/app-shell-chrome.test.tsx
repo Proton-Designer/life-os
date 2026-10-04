@@ -61,7 +61,7 @@ function renderChrome(props: Partial<React.ComponentProps<typeof AppShellChrome>
         { id: null, text: "", completed: false },
         { id: null, text: "", completed: false },
       ]}
-      getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null })}
+      getWeekCalendar={async () => ({ items: [], undatedDeadlines: [], deen: null, business: null, deenMode: true })}
       onSaveDeen={async () => {}}
       onSaveBusiness={async () => {}}
       navMode="legacy"

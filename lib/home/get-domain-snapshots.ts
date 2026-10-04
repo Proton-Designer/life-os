@@ -348,7 +348,7 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .eq("target_id", currentTarget.id);
       return data ?? [];
     },
-    getDomainPulse: (userId, date, deenOn) => getDomainPulse(userId, date, undefined, deenOn),
+    getDomainPulse: (userId, date, deenOn) => getDomainPulse(userId, date, deenOn),
   };
 }
 

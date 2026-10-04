@@ -76,6 +76,7 @@ export function Topbar({
   getWeekCalendar,
   onSaveDeen,
   onSaveBusiness,
+  deenMode = false,
 }: {
   account: { displayName: string; email: string };
   dateLabel: string;
@@ -88,6 +89,8 @@ export function Topbar({
   getWeekCalendar: () => Promise<WeekCalendarData>;
   onSaveDeen: SaveGoalAction;
   onSaveBusiness: SaveGoalAction;
+  /** profiles.deen_mode as a plain boolean; gates the Deen option in the distraction capture dialog. */
+  deenMode?: boolean;
 }) {
   const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
@@ -163,7 +166,7 @@ export function Topbar({
         )}
       >
         <div className="relative">
-          <DistractionCaptureDialog />
+          <DistractionCaptureDialog deenMode={deenMode} />
           <DistractionCountBadge />
         </div>
         {/* Popup, not a navigation (Ayman: "change the 'Review' tab/

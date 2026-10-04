@@ -126,6 +126,7 @@ export function AppShellChrome({
               getWeekCalendar={getWeekCalendar}
               onSaveDeen={onSaveDeen}
               onSaveBusiness={onSaveBusiness}
+              deenMode={deenMode}
             />
             <main className="flex-1 pb-24 lg:pb-6">{children}</main>
           </div>
@@ -144,7 +145,7 @@ export function AppShellChrome({
           <AllocationCheckinGate />
           <CheckinToast />
         </div>
-        <LockInOverlay timezone={timezone} killListSlots={killListSlots} />
+        <LockInOverlay timezone={timezone} killListSlots={killListSlots} deenMode={deenMode} />
         {/* The pre-session goal/objectives prompt (146) — mounted once here,
             same reasoning as LockInOverlay above it: FocusModule's and
             LockInPanel's "Lock In" buttons call the context's

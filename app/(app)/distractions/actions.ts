@@ -1,5 +1,8 @@
 "use server";
 
+import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
+import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
+import { DEEN_MODE_OFF_MESSAGE } from "@/lib/distractions/actions-core";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
@@ -20,6 +23,8 @@ async function todayForUser(supabase: Awaited<ReturnType<typeof requireUser>>["s
  */
 export async function listTriggersForDomain(domain: DistractionDomain): Promise<TriggerSummary[]> {
   const { supabase, userId } = await requireUser();
+  // Deen Mode OFF: the deen domain lists nothing (rows kept, R4).
+  if (domain === "deen" && !(await isDeenModeOnForRequest())) return [];
   const date = await todayForUser(supabase, userId);
   return getTriggersForDomain(supabase, userId, date, domain);
 }
@@ -36,7 +41,7 @@ export async function listTriggersForDomain(domain: DistractionDomain): Promise<
 export async function listTopTriggersForQuickLog(): Promise<TriggerSummary[]> {
   const { supabase, userId } = await requireUser();
   const date = await todayForUser(supabase, userId);
-  return getAllTriggers(supabase, userId, date);
+  return withoutDeenDomain(await getAllTriggers(supabase, userId, date), await isDeenModeOnForRequest());
 }
 
 /**
@@ -114,6 +119,9 @@ async function insertEvent(
 
 export async function logDistraction(triggerId: string, tier?: 1 | 2 | 3, sessionId?: string | null): Promise<void> {
   const { supabase, userId } = await requireUser();
+  // A reflection tier writes a reflection_entries row (deen data): refuse when
+  // Deen Mode is off. Same server-side gate as lib/distractions/actions-core.ts.
+  if (tier && !(await isDeenModeOnForRequest())) throw new Error(DEEN_MODE_OFF_MESSAGE);
   const date = await todayForUser(supabase, userId);
   await insertEvent(supabase, userId, triggerId, date, tier, sessionId);
   revalidatePath("/");
@@ -129,6 +137,9 @@ export async function createTriggerAndLog(input: {
   sessionId?: string | null;
 }): Promise<{ triggerId: string }> {
   const { supabase, userId } = await requireUser();
+  // New deen-domain trigger or a reflection tier = new deen data: refuse when
+  // Deen Mode is off (existing rows untouched).
+  if ((input.domain === "deen" || input.tier) && !(await isDeenModeOnForRequest())) throw new Error(DEEN_MODE_OFF_MESSAGE);
   const date = await todayForUser(supabase, userId);
 
   const { data: created, error } = await supabase

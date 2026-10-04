@@ -8,6 +8,7 @@ import { getDomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import { getHomeExtras } from "@/lib/home/get-home-extras";
 import { getDayShape } from "@/lib/home/get-day-shape";
 import { computeDayRibbon } from "@/lib/home/day-ribbon";
+import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextActions } from "@/components/home/next-actions";
@@ -99,7 +100,7 @@ export default async function HomePage() {
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
         .in("domain", weeklyGoalDomains(domainsState, deenMode)),
-      getAllTriggers(supabase, userId, dateStr),
+      getAllTriggers(supabase, userId, dateStr).then((all) => withoutDeenDomain(all, deenMode)),
       getTodayDistractionCount(supabase, userId, dateStr),
       // D-004: a lightweight "this is still happening" affordance for
       // long-running work — Self-Mastery's book ingestion today, School's

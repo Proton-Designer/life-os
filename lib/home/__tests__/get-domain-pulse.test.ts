@@ -23,7 +23,7 @@ describe("getDomainPulse", () => {
       ],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     // 2 done out of 5 trackables (5 prayers — adhkar dropped from the UI,
     // see the Home/Deen/Business overhaul).
@@ -47,7 +47,7 @@ describe("getDomainPulse", () => {
       ],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     // Only fajr counts — dhuhr's 'unlogged' must read the same as absent,
     // not as done. Before the fix this asserted 2/5 (the exact bug).
@@ -55,7 +55,7 @@ describe("getDomainPulse", () => {
   });
 
   it("returns null for a domain with zero trackables set today rather than dividing by zero", async () => {
-    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource(), true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, emptyDataSource());
 
     expect(pulse.business).toBeNull();
   });
@@ -69,7 +69,7 @@ describe("getDomainPulse", () => {
       ],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     expect(pulse.business).toBeCloseTo(2 / 3);
   });
@@ -80,7 +80,7 @@ describe("getDomainPulse", () => {
       getCurrentCoopTargetTaskCompletion: async () => [{ completed: false }],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     expect(pulse.school).toBeCloseTo(1 / 1);
     expect(pulse.co_op).toBeCloseTo(0 / 1);
@@ -91,14 +91,14 @@ describe("getDomainPulse", () => {
       getCurrentCoopTargetTaskCompletion: async () => [{ completed: true }],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     expect(pulse.school).toBeNull();
     expect(pulse.co_op).toBe(1);
   });
 
   it("has a null Work fraction with no current target, or a current target with zero tasks", async () => {
-    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource(), true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, emptyDataSource());
 
     expect(pulse.co_op).toBeNull();
   });
@@ -110,7 +110,7 @@ describe("getDomainPulse", () => {
       getWorkoutSessions: async () => [{ workout_id: "workout-1" }],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     // 1 habit done + 1 workout done, out of 1 habit + 1 workout.
     expect(pulse.fitness).toBe(1);
@@ -123,14 +123,14 @@ describe("getDomainPulse", () => {
       getWorkoutSessions: async () => [],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     // 1 habit done out of 1 habit + 1 workout.
     expect(pulse.fitness).toBeCloseTo(1 / 2);
   });
 
   it("has a null Fitness fraction on a rest day with no habits", async () => {
-    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource(), true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, emptyDataSource());
 
     expect(pulse.fitness).toBeNull();
   });
@@ -142,7 +142,7 @@ describe("getDomainPulse", () => {
       getWorkoutSessions: async () => [],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     // 1 habit done out of 1 habit only — the unassigned day-slot doesn't
     // add a second trackable.
@@ -155,7 +155,7 @@ describe("getDomainPulse", () => {
       getWorkoutSessions: async () => [{ workout_id: "workout-2" }],
     });
 
-    const pulse = await getDomainPulse("user-1", "2026-08-10", dataSource, true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, dataSource);
 
     // A session logged for a DIFFERENT workout than today's scheduled one
     // must not count as today's workout being done.
@@ -169,24 +169,17 @@ describe("getDomainPulse — Deen Mode OFF", () => {
     const pulse = await getDomainPulse(
       "user-1",
       "2026-08-10",
-      emptyDataSource({ getPrayers, getKillListItems: async () => [{ completed: true }] }),
-      false
+      false,
+      emptyDataSource({ getPrayers, getKillListItems: async () => [{ completed: true }] })
     );
     expect(getPrayers).not.toHaveBeenCalled();
     expect(pulse.deen).toBeNull();
     expect(pulse.business).toBe(1);
   });
 
-  it("fails closed when the flag is omitted", async () => {
-    const getPrayers = vi.fn(async () => []);
-    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource({ getPrayers }));
-    expect(getPrayers).not.toHaveBeenCalled();
-    expect(pulse.deen).toBeNull();
-  });
-
   it("positive control: ON reads prayers", async () => {
     const getPrayers = vi.fn(async () => [{ prayer_name: "fajr", status: "on_time" }]);
-    const pulse = await getDomainPulse("user-1", "2026-08-10", emptyDataSource({ getPrayers }), true);
+    const pulse = await getDomainPulse("user-1", "2026-08-10", true, emptyDataSource({ getPrayers }));
     expect(getPrayers).toHaveBeenCalled();
     expect(pulse.deen).toBeCloseTo(1 / 5);
   });
