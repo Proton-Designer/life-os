@@ -101,7 +101,7 @@ export default async function HomePage() {
         .eq("week_start_date", weekStart)
         .in("domain", weeklyGoalDomains(domainsState, deenMode)),
       getAllTriggers(supabase, userId, dateStr).then((all) => withoutDeenDomain(all, deenMode)),
-      getTodayDistractionCount(supabase, userId, dateStr),
+      getTodayDistractionCount(supabase, userId, dateStr, isDeenModeOn(profile)),
       // D-004: a lightweight "this is still happening" affordance for
       // long-running work — Self-Mastery's book ingestion today, School's
       // syllabus parsing can produce the same InProgressItem[] shape later.

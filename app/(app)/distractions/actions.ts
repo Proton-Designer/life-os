@@ -58,7 +58,7 @@ export async function listTopTriggersForQuickLog(): Promise<TriggerSummary[]> {
 export async function getTodayDistractionCountForNow(): Promise<number> {
   const { supabase, userId } = await requireUser();
   const date = await todayForUser(supabase, userId);
-  return getTodayDistractionCount(supabase, userId, date);
+  return getTodayDistractionCount(supabase, userId, date, await isDeenModeOnForRequest());
 }
 
 /**

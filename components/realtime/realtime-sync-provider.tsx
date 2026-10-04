@@ -32,6 +32,8 @@ import { createClient } from "@/lib/supabase/client";
 // route is mounted re-fetches from the server the same way any other
 // table's change does. A table-keyed refresh would have needed its own
 // wiring per table; this doesn't.
+const DEEN_SYNCED_TABLES = ["prayers", "sunnah_logs", "deen_habit_logs"] as const;
+
 const SYNCED_TABLES = [
   "prayers",
   "sunnah_logs",
@@ -52,7 +54,8 @@ const SYNCED_TABLES = [
 // Coalesce anything within this window into a single refresh.
 const REFRESH_DEBOUNCE_MS = 400;
 
-export function RealtimeSyncProvider({ userId }: { userId: string | null }) {
+/** `deenMode` (profiles.deen_mode) is REQUIRED: OFF skips the prayer/sunnah/deen-habit subscriptions (no refresh storms for hidden data). */
+export function RealtimeSyncProvider({ userId, deenMode }: { userId: string | null; deenMode: boolean }) {
   const router = useRouter();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasSubscribedOnceRef = useRef(false);
@@ -113,7 +116,7 @@ export function RealtimeSyncProvider({ userId }: { userId: string | null }) {
       // independent layer underneath that filter, not a substitute for
       // it.
       channel = supabase.channel(`realtime-sync:${userId}:${Math.random().toString(36).slice(2)}`);
-      for (const table of SYNCED_TABLES) {
+      for (const table of SYNCED_TABLES.filter((t) => deenMode || !(DEEN_SYNCED_TABLES as readonly string[]).includes(t))) {
         channel.on(
           "postgres_changes",
           { event: "*", schema: "public", table, filter: `user_id=eq.${userId}` },
@@ -159,7 +162,7 @@ export function RealtimeSyncProvider({ userId }: { userId: string | null }) {
       hasSubscribedOnceRef.current = false;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [userId, router]);
+  }, [userId, router, deenMode]);
 
   return null;
 }

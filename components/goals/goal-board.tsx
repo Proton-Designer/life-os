@@ -326,7 +326,10 @@ export function GoalBoard({
   goals,
   milestones,
   deenMode = false,
+  reservedRanks = [],
 }: {
+  /** Ranks held by active goals this board is not showing (Deen Mode OFF hides deen goals): still unavailable, and they count toward the 5-goal ceiling. */
+  reservedRanks?: number[];
   /** profiles.deen_mode via isDeenModeOn -- a plain boolean (no function prop). Off hides the "Deen" domain choice; existing goals keep their tag. */
   deenMode?: boolean;
   monthStart: string;
@@ -355,8 +358,8 @@ export function GoalBoard({
 
   const active = allGoals.filter((g) => g.status === "active").sort((a, b) => a.rank - b.rank);
   const resolved = allGoals.filter((g) => g.status !== "active");
-  const availableRanks = RANKS.filter((r) => !active.some((g) => g.rank === r));
-  const atCeiling = active.length >= 5;
+  const availableRanks = RANKS.filter((r) => !active.some((g) => g.rank === r) && !reservedRanks.includes(r));
+  const atCeiling = active.length + reservedRanks.length >= 5;
   const milestoneByGoal = new Map(milestones.map((m) => [m.goalId, m]));
 
   function markResolved(goalId: string, status: "done" | "dropped") {

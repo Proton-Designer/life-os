@@ -86,6 +86,12 @@ describe("GoalBoard — creating a goal reflects a server refresh", () => {
     expect(await screen.findByText("New Goal")).toBeInTheDocument();
   });
 
+  it("reservedRanks (ranks held by hidden deen goals) count toward the 5-goal ceiling", () => {
+    render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[]} milestones={[]} reservedRanks={[1, 2, 3, 4, 5]} />);
+    expect(screen.getByRole("button", { name: /Ceiling reached/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "+ Add a goal" })).not.toBeInTheDocument();
+  });
+
   it("calls router.refresh() after successfully adding a milestone -- the identical bug shape, since `milestone` is a prop, not local state, and addMilestoneAction is also called directly from a client handler", async () => {
     const { addMilestoneAction } = await import("@/app/(app)/goals/actions");
     vi.mocked(addMilestoneAction).mockResolvedValue({ ok: true });

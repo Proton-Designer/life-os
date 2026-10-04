@@ -30,7 +30,9 @@ export type UnfinishedMilestone = {
 export async function getUnfinishedMilestonesForMonth(
   supabase: SupabaseClient,
   userId: string,
-  monthStart: string
+  monthStart: string,
+  /** Goal ids to leave out (Deen Mode OFF passes the ids of "deen"-tagged goals). */
+  excludeGoalIds: ReadonlySet<string> = new Set()
 ): Promise<UnfinishedMilestone[]> {
   const { data, error } = await supabase
     .from("goal_milestones")
@@ -40,11 +42,20 @@ export async function getUnfinishedMilestonesForMonth(
     .is("done_at", null)
     .order("created_at", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((r: { id: string; goal_id: string; title: string }) => ({
-    id: r.id,
-    goalId: r.goal_id,
-    title: r.title,
-  }));
+  return (data ?? [])
+    .filter((r: { goal_id: string }) => !excludeGoalIds.has(r.goal_id))
+    .map((r: { id: string; goal_id: string; title: string }) => ({
+      id: r.id,
+      goalId: r.goal_id,
+      title: r.title,
+    }));
+}
+
+/** Ids of this month's "deen"-tagged goals -- only queried when Deen Mode is OFF. */
+export async function getDeenGoalIdsForMonth(supabase: SupabaseClient, userId: string, monthStart: string): Promise<Set<string>> {
+  const { data, error } = await supabase.from("goals").select("id").eq("user_id", userId).eq("month_start", monthStart).eq("domain", "deen");
+  if (error) throw error;
+  return new Set((data ?? []).map((r: { id: string }) => r.id));
 }
 
 /** First of the month for an already-local `YYYY-MM-DD` date string. Pure string slicing — see this file's header on why no `Date` object is involved. */

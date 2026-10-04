@@ -7,6 +7,7 @@ import { localDateString } from "@/lib/date-utils";
 import { listGoalsForMonth } from "@/lib/goals/actions-core";
 import { getMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
+import { withoutDeenGoals } from "@/lib/goals/deen-filter";
 import { GoalBoard } from "@/components/goals/goal-board";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
@@ -35,11 +36,20 @@ export default async function GoalsPage() {
   const todayStr = localDateString(now, timezone);
   const monthStart = monthStartFor(todayStr);
 
-  const [goals, milestones, layout] = await Promise.all([
+  const deenMode = isDeenModeOn(profile);
+  const [allGoals, allMilestones, layout] = await Promise.all([
     listGoalsForMonth(supabase, user.id, monthStart),
     getMilestonesForMonth(supabase, user.id, monthStart),
     getPageLayout("goals"),
   ]);
+  // Deen Mode OFF: goals tagged "deen" (and their milestones) are not shown --
+  // user-authored religious text included. Data untouched; ON shows them as before.
+  const goals = withoutDeenGoals(allGoals, deenMode);
+  const hiddenGoals = allGoals.filter((g) => !goals.includes(g));
+  const hiddenGoalIds = new Set(hiddenGoals.map((g) => g.id));
+  const milestones = allMilestones.filter((m) => !hiddenGoalIds.has(m.goalId));
+  // Ranks still held by hidden goals stay unavailable in the add form (the DB's per-month rank index is not a UI concern).
+  const reservedRanks = hiddenGoals.filter((g) => g.status === "active").map((g) => g.rank);
   const layoutMap = buildLayoutMap(layout);
 
   return (
@@ -51,7 +61,7 @@ export default async function GoalsPage() {
         </div>
       ) : null}
       <LayoutSlot layout={layoutMap} widgetKey="goal_board">
-        <GoalBoard deenMode={isDeenModeOn(profile)} monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
+        <GoalBoard deenMode={deenMode} reservedRanks={reservedRanks} monthStart={monthStart} todayStr={todayStr} goals={goals} milestones={milestones} />
       </LayoutSlot>
     </PageContainer>
   );

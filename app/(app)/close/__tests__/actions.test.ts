@@ -40,7 +40,7 @@ function assessmentRow(id: string, classId: string, name: string, date: string, 
 describe("computePlanSeeds — Phase 1 #28: school_risk wiring", () => {
   it("seeds nothing due on the planning date as an empty array, not an error — the ordinary case for most users", async () => {
     const supabase = makeFakeSupabase({ tasks: [], goal_milestones: [], classes: [], class_assessments: [] });
-    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-16", new Set());
+    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-16", new Set(), true);
     expect(seeds.filter((s) => s.source === "school_risk")).toEqual([]);
   });
 
@@ -52,7 +52,7 @@ describe("computePlanSeeds — Phase 1 #28: school_risk wiring", () => {
       class_assessments: [assessmentRow("a1", "c1", "Midterm", "2026-09-16")],
     });
     // today (real now) is 09-15; planning FOR tomorrow, 09-16 — the evening-close shape.
-    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-16", new Set());
+    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-16", new Set(), true);
     const schoolSeeds = seeds.filter((s) => s.source === "school_risk");
     expect(schoolSeeds).toHaveLength(1);
     expect(schoolSeeds[0]!.id).toBe("a1");
@@ -69,7 +69,7 @@ describe("computePlanSeeds — Phase 1 #28: school_risk wiring", () => {
       classes: [classRow("c1", "MATH 2418")],
       class_assessments: [assessmentRow("a1", "c1", "Due today, not tomorrow", "2026-09-15")],
     });
-    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-16", new Set());
+    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-16", new Set(), true);
     expect(seeds.filter((s) => s.source === "school_risk")).toEqual([]);
   });
 
@@ -86,7 +86,8 @@ describe("computePlanSeeds — Phase 1 #28: school_risk wiring", () => {
       "America/Chicago",
       new Date("2026-09-15T12:00:00Z"),
       "2026-09-16",
-      new Set(["a1"]) // already dumped/claimed
+      new Set(["a1"]), // already dumped/claimed
+      true
     );
     expect(seeds.filter((s) => s.source === "school_risk")).toEqual([]);
   });
@@ -101,7 +102,7 @@ describe("computePlanSeeds — Phase 1 #28: school_risk wiring", () => {
         assessmentRow("tomorrow-item", "c1", "Due tomorrow", "2026-09-16"),
       ],
     });
-    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-15", new Set());
+    const seeds = await computePlanSeeds(supabase as never, "user-1", "America/Chicago", new Date("2026-09-15T12:00:00Z"), "2026-09-15", new Set(), true);
     const schoolSeeds = seeds.filter((s) => s.source === "school_risk");
     expect(schoolSeeds.map((s) => s.id)).toEqual(["today-item"]);
   });

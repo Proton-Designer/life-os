@@ -104,7 +104,7 @@ export function AppShellChrome({
           matches zero rows, but the channel still reports SUBSCRIBED).
           The provider now awaits the session and sets realtime auth
           itself before ever building the channel. */}
-      <RealtimeSyncProvider userId={userId} />
+      <RealtimeSyncProvider userId={userId} deenMode={deenMode} />
       {/* Wraps the whole shell, not just Business/Home — a session started
           on /business must still show its minimized row (and be endable)
           from the Home Focus module, and vice versa. Mounted once here so

@@ -73,12 +73,12 @@ describe("RealtimeSyncProvider", () => {
   });
 
   it("does nothing when there is no signed-in user", () => {
-    render(<RealtimeSyncProvider userId={null} />);
+    render(<RealtimeSyncProvider userId={null} deenMode />);
     expect(channelMock).not.toHaveBeenCalled();
   });
 
   it("subscribes to every synced table, filtered to the signed-in user's own rows", async () => {
-    render(<RealtimeSyncProvider userId="user-1" />);
+    render(<RealtimeSyncProvider userId="user-1" deenMode />);
     await flushJoin();
 
     const tables = onCalls.map((c) => c.table);
@@ -105,8 +105,16 @@ describe("RealtimeSyncProvider", () => {
     }
   });
 
+  it("Deen Mode OFF skips the prayer / sunnah / deen-habit subscriptions but keeps the rest", async () => {
+    render(<RealtimeSyncProvider userId="user-1" deenMode={false} />);
+    await flushJoin();
+    const tables = onCalls.map((c) => c.table);
+    for (const t of ["prayers", "sunnah_logs", "deen_habit_logs"]) expect(tables).not.toContain(t);
+    expect(tables).toEqual(expect.arrayContaining(["tasks", "kill_list_items", "habit_logs", "workout_sessions"]));
+  });
+
   it("debounces a burst of change events into a single router.refresh()", async () => {
-    render(<RealtimeSyncProvider userId="user-1" />);
+    render(<RealtimeSyncProvider userId="user-1" deenMode />);
     await flushJoin();
 
     // Simulate 5 rapid-fire postgres_changes events (e.g. confirming a
@@ -134,7 +142,7 @@ describe("RealtimeSyncProvider", () => {
         })
     );
 
-    render(<RealtimeSyncProvider userId="user-1" />);
+    render(<RealtimeSyncProvider userId="user-1" deenMode />);
     await vi.advanceTimersByTimeAsync(0);
     // getSession() hasn't resolved yet — the channel must not exist, and
     // subscribe() must not have been called. This is exactly the race
@@ -155,7 +163,7 @@ describe("RealtimeSyncProvider", () => {
   });
 
   it("does not refresh on the initial subscribe — only on a RE-subscribe (reconnect)", async () => {
-    render(<RealtimeSyncProvider userId="user-1" />);
+    render(<RealtimeSyncProvider userId="user-1" deenMode />);
     await flushJoin();
 
     subscribeCallback!("SUBSCRIBED");
@@ -170,14 +178,14 @@ describe("RealtimeSyncProvider", () => {
   });
 
   it("cleans up the channel on unmount", async () => {
-    const { unmount } = render(<RealtimeSyncProvider userId="user-1" />);
+    const { unmount } = render(<RealtimeSyncProvider userId="user-1" deenMode />);
     await flushJoin();
     unmount();
     expect(removeChannelMock).toHaveBeenCalledWith(fakeChannel);
   });
 
   it("a phantom Strict-Mode first mount never subscribes at all — its cleanup cancels the join before the awaited session resolves", async () => {
-    const { unmount } = render(<RealtimeSyncProvider userId="user-1" />);
+    const { unmount } = render(<RealtimeSyncProvider userId="user-1" deenMode />);
     // Unmount immediately, before getSession() has resolved — simulates
     // Strict Mode's dev-only double-invoke's phantom first mount.
     unmount();
@@ -187,13 +195,13 @@ describe("RealtimeSyncProvider", () => {
   });
 
   it("re-subscribes (a new channel) if the signed-in user changes", async () => {
-    const { rerender } = render(<RealtimeSyncProvider userId="user-1" />);
+    const { rerender } = render(<RealtimeSyncProvider userId="user-1" deenMode />);
     await flushJoin();
     expect(channelMock).toHaveBeenCalledTimes(1);
 
     const secondChannel = makeFakeChannel();
     channelMock.mockReturnValueOnce(secondChannel);
-    rerender(<RealtimeSyncProvider userId="user-2" />);
+    rerender(<RealtimeSyncProvider userId="user-2" deenMode />);
     await flushJoin();
 
     expect(removeChannelMock).toHaveBeenCalledWith(fakeChannel);

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { addDaysToDateString, localDateString } from "@/lib/date-utils";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { closeBlockers, type CloseBlocker } from "@/lib/evening-close/evening-close";
@@ -11,7 +12,7 @@ import { getTodayDayStart } from "@/lib/day-structure/day-start";
 import { computeDeltaMinutes } from "@/lib/day-structure/delta-clock";
 import { composeDump, type DumpItem } from "@/lib/night-plan/night-plan";
 import { getOpenWorries, worriesToDumpItems } from "@/lib/night-plan/worries";
-import { getUnfinishedMilestonesForMonth, monthStartFor } from "@/lib/goals/queries";
+import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor } from "@/lib/goals/queries";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -118,7 +119,9 @@ export async function computePlanSeeds(
   timezone: string,
   now: Date,
   planningDate: string,
-  excludeIds: ReadonlySet<string>
+  excludeIds: ReadonlySet<string>,
+  /** profiles.deen_mode (isDeenModeOn). REQUIRED: OFF leaves milestones of "deen"-tagged goals out of the seeds. */
+  deenMode: boolean
 ): Promise<DumpItem[]> {
   const openWorries = await getOpenWorries(supabase, userId);
   const worrySeeds = worriesToDumpItems(openWorries).filter((w) => !excludeIds.has(w.id));
@@ -130,7 +133,9 @@ export async function computePlanSeeds(
   // failure must surface rather than silently drop the user's milestones from
   // tonight's plan — the same posture as the school_risk source below.
   const monthStart = monthStartFor(localDateString(now, timezone));
-  const unfinished = await getUnfinishedMilestonesForMonth(supabase, userId, monthStart);
+  // Deen Mode OFF: milestones of "deen"-tagged goals are not seeded into tonight's plan.
+  const deenGoalIds = deenMode ? new Set<string>() : await getDeenGoalIdsForMonth(supabase, userId, monthStart);
+  const unfinished = await getUnfinishedMilestonesForMonth(supabase, userId, monthStart, deenGoalIds);
   const milestoneSeeds: DumpItem[] = unfinished
     .filter((m) => !excludeIds.has(m.id))
     .map((m) => ({ id: m.id, title: m.title, source: "goal_milestone" as const }));
@@ -175,7 +180,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
 
   const [triggers, unplannedTodayCount, planned, hoursTodayMinutes, tomorrowRows, settings, wakeMark, activeHabits] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
-    getTodayDistractionCount(supabase, user.id, today),
+    getTodayDistractionCount(supabase, user.id, today, isDeenModeOn(profile)),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
     // "dumped, not starred", which is a real state and deliberately not part
     // of today's three.
@@ -210,7 +215,8 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     timezone,
     new Date(),
     tomorrow,
-    new Set(tomorrowLines.map((l) => l.id))
+    new Set(tomorrowLines.map((l) => l.id)),
+    isDeenModeOn(profile)
   );
 
   return {
@@ -272,7 +278,7 @@ export async function getReplanData(): Promise<ReplanData | null> {
     .order("created_at", { ascending: true });
 
   const todayLines = (todayRows ?? []).map((t) => ({ id: t.id, title: t.title }));
-  const planSeeds = await computePlanSeeds(supabase, user.id, timezone, new Date(), today, new Set(todayLines.map((l) => l.id)));
+  const planSeeds = await computePlanSeeds(supabase, user.id, timezone, new Date(), today, new Set(todayLines.map((l) => l.id)), isDeenModeOn(profile));
 
   return { dateLabel: today, todayLines, planSeeds };
 }

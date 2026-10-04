@@ -156,7 +156,20 @@ export async function getAllTriggers(supabase: TypedClient, userId: string, toda
 }
 
 /** Today's total distraction count across all domains — Home Focus module's subtitle. */
-export async function getTodayDistractionCount(supabase: TypedClient, userId: string, todayDate: string): Promise<number> {
+export async function getTodayDistractionCount(supabase: TypedClient, userId: string, todayDate: string, deenMode: boolean): Promise<number> {
+  // Deen Mode OFF: events under a deen-domain trigger are not counted (the rows
+  // stay; they count again when Deen Mode is on). `deenMode` is REQUIRED so a
+  // caller cannot forget the gate. The inner join is only used when OFF.
+  if (!deenMode) {
+    const { count, error } = await supabase
+      .from("distraction_events")
+      .select("id, distraction_triggers!inner(domain)", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("date", todayDate)
+      .neq("distraction_triggers.domain", "deen");
+    if (error) throw error;
+    return count ?? 0;
+  }
   const { count, error } = await supabase
     .from("distraction_events")
     .select("id", { count: "exact", head: true })
