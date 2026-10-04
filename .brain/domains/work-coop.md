@@ -37,16 +37,16 @@ Runs one person's job/freelance work as a bounded queue of up to 3 live "Targets
 | Target | `coop_targets`; `position <= 3` **is** the "target" label (not a stored flag), 4+ is "stretch." Completing a target cascades everything below it up by one. |
 | Task pipeline | `coop_tasks` — one table serves both the "Weekly Agenda" and the "pipeline board." Stages `backlog→in_progress→review→complete`, plus `blocked` as a detached status with `blocked_from` recording origin. |
 | Blocked reason/since | Migration 148; optional, never backfilled/guessed — NULL on an old row means "not recorded," not missing data. |
-| Work subdomains | Nav-only concept in domains-mode; the underlying data is **not** scoped per subdomain — confirmed by an on-screen note and dedicated test id in `[subdomain]/layout.tsx`. |
+| Work tabs | `user_subdomains` rows under the `work` `user_domains` row: stable `key` slug, editable `label`, `position` (first = default tab), `kind` job\|business. `/work` redirects to the first tab; a tab's kind picks its screen (business → the Business screen, job → the Work screen). The **data is still not scoped per tab** (T-0002/W4): same-kind tabs share one pipeline, shown by an on-screen note (`work-shared-data-note`). W1 `51932ef`, W1b `58b45a3`/`36a2734`. |
 
 ## Where the code lives
 
 | What | Path | Notes |
 |---|---|---|
 | Core logic | `lib/coop/{targets,targets-core,tasks,tasks-core}.ts` | `*Core()` functions shared by cookie actions and MCP writes |
-| Actions | `app/(app)/work/{targets-actions,tasks-actions,actions,subdomain-actions}.ts` | |
-| Entrypoint | `app/(app)/work/page.tsx` | The real `/work` screen |
-| Subdomain alias | `app/(app)/work/[subdomain]/{layout,page}.tsx` | All subdomains render the same shared data (documented in-code) |
+| Actions | `app/(app)/work/{targets-actions,tasks-actions,actions,subdomain-actions}.ts` | `subdomain-actions.ts` also has `saveWorkTabs` (one atomic upsert of label/position/archived only; keep ≥1 tab), `ensureBusinessWorkTab` (idempotent; also creates a job tab "Work" when the account has no active tab) and `refreshWorkViews`. Business/Work writers revalidate through `lib/work/revalidate-screens.ts` so `/work/<tab>` refreshes too |
+| Entrypoint | `app/(app)/work/page.tsx` + `work-screen.tsx` | `page.tsx` is the wrapper (`lib/shell/work-tabs.ts` `workEntryTarget`: tabs → redirect to the first; zero tabs + a Work domain → screen **with** the tab bar; legacy → plain screen). The Work screen itself is `work-screen.tsx` (shared with job tabs) |
+| Tabs | `app/(app)/work/[subdomain]/{layout,page}.tsx`, `components/shell/work-tabs-bar.tsx`, `components/business/business-page-content.tsx` | Layout renders the client tab bar + "Edit tabs" dialog (rename/reorder/remove/"Add a Business tab"; optimistic, reverts on failure); `/business` redirects to the Business tab when one exists; the SYSTEM nav drops its own Business link then |
 | UI | `components/co-op/{pipeline-board,target-row,targets-strip,task-card,pipeline-context}.tsx` | Backs `/work`, not a `/co-op` route (naming mismatch, don't "fix") |
 
 ## How it works

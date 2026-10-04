@@ -64,3 +64,6 @@ Day/week toggle via `?range=`. One `Promise.all`: Focus Map segments, KPIs (chec
 ## Unverified
 
 - None outstanding — the legacy/domains divergence was independently re-derived from source, not merely cited from docs.
+
+## Week tab + Rhythm (2026-10-04)
+`/insights?tab=week` renders the retired Weekly Review (`components/week/insights-week-tab.tsx`, `weekly-review-body.tsx`) with a "Start weekly reset" button (`/week`) and, with Sleep plan on, the Rhythm card (`components/insights/rhythm-card.tsx`, `lib/rhythm/insights.ts`: wake-time spread, close vs bedtime; counts only, empty under 3 points). `/weekly-review` redirects here (or to `/week` in the Sunday window). IA-P3a `775c5a4`, IA-P4a `5081712`.

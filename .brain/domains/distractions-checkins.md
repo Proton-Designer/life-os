@@ -76,3 +76,6 @@ Capture inserts a `distraction_events` row (+ optional linked `reflection_entrie
 ## Unverified
 
 - Whether `checkins.kind='point'` has any live writer remaining.
+
+## IA-P1 (2026-10-04)
+One review component (`DistractionPlanReview`: close Account stage + Home dialog; the topbar Review popup and `getReviewData` are gone), one logger (the "+" sheet opens the topbar dialog), one weekly-goal editor (`WeeklyGoalSlot`, one save path `saveWeeklyGoal`). Capture: `captureTask` takes an explicit area (`lib/capture/areas.ts`; "No area" = Inbox, triaged in the close). Commits `40ac3a6`, `fe71a95`.

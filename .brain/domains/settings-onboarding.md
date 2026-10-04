@@ -79,3 +79,7 @@ Onboarding is the resumable, domain-first wizard that writes `user_domains`/`use
 ## Unverified
 
 - Whether a third zero-`user_domains`-rows branch exists elsewhere that also disagrees with the two known ones — flagged as worth a dedicated audit, not performed here.
+
+## Nav + opt-in additions (2026-10-04)
+- Nav is Home / Personal / Work / School + SYSTEM (Insights, Calendar, Business only without a Business tab, Settings) in domains mode; **Today, Review, Worries, Goals, Habits and Weekly Review left all four renderers** (`/week`, Home and Insights replace them; old URLs redirect). Retire no `FeatureId` — none existed for them.
+- Opt-in features `morning_routine` (now the Launch sequence) and `sleep_plan` (set-once wind-down plan: `user_settings.wake_time / sleep_need_minutes / wind_down_minutes`, migration 253; Settings editor `components/settings/wind-down-plan-settings.tsx`). Appearance presets and the Settings section order live in `lib/theme-presets.ts` / `lib/settings/sections.ts`.

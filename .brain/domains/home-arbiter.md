@@ -56,7 +56,7 @@ Home is the single daily entry point, deliberately not a dashboard: what to do r
 
 1. One `Promise.all`: priority items, completed-today, domain snapshots, home extras, day shape, weekly-goals row, distraction triggers, in-progress items, Self-Mastery due summary, MCP widgets.
 2. `resolveAreaWeights` builds the weight lookup; `selectNextActionPerDomain` picks one item per domain, then ranks cross-domain via the arbiter.
-3. Render order: InProgressBanner → (SessionEntryCard if it wins) → WeeklyGoalsHeader → Sector-progress stack → Now/Focus grid → (SessionEntryCard if it doesn't win) → Day-shape ribbon → MCP widgets panel.
+3. Render order (IA Option A): InProgressBanner → morning brief → **`rhythm`** (Morning card / Today strip / Close the day / Done for today, `lib/home/rhythm-state.ts` + `rhythm-data.ts`, `components/home/rhythm/`) → Sunday `weekly_reset` card → Launch sequence (`morning_routine` slot, opt-in) / wind-down set-up (`sleep_intent` slot, opt-in) → (SessionEntryCard if it wins) → WeeklyGoalsHeader (+ Goals sheet) → Sector-progress → Now → `habit_checkoffs` → Focus → … → Day-shape ribbon → MCP widgets panel. The rhythm card flips at the wind-down start (default 21:00, the user's plan when Sleep plan is on; `isAfterWindDown`, shared with the topbar moon link). Only the active state's queries run.
 
 ## Integration points
 

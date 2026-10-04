@@ -5,7 +5,7 @@ layer: L2
 type: memory
 status: canonical
 owner: unassigned
-updated: 2026-09-13
+updated: 2026-10-04
 answers:
   - "what is in flight"
   - "why is this code half-migrated"
@@ -16,7 +16,7 @@ tokens_est: 952
 
 # Active Work
 
-**Last reviewed:** 2026-09-13 — verify against git/docs before relying on this
+**Last reviewed:** 2026-10-04 — verify against git/docs before relying on this
 if it's more than ~2 weeks old at the time you read it.
 
 ---
@@ -89,6 +89,7 @@ engine, risk engine, and a capture parser are ported (consistent with
 | What | Notes |
 |---|---|
 | `mcp_widgets.kind` CHECK widened to 5 kinds (migration 149) | Closes the gap `docs/ai-connector/PROGRAM-PLAN.md` describes — see `.brain/memory/known-issues.md` |
+| IA Option A "Rhythms" (P1–P4, run 20261004-1135) | Home rhythm card, `/week` reset, Insights Week tab, Launch sequence + Wind-down, Work tabs, one capture/review/goal editor — see `.brain/memory/decisions.md` (2026-10-04) and the `.brain/domains/*` notes; deferred: step reorder, MCP twins (`pending` in `lib/mcp/parity-manifest.ts`), per-tab Work data |
 | `pg_cron` MCP scheduled-actions poll registered | `mcp-scheduled-actions-every-5min`, verified firing on schedule with zero audit rows against an empty queue |
 
 <!--

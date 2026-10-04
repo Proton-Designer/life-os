@@ -81,3 +81,8 @@ Account stage computes `closeBlockers()` from distraction triggers; if any curre
 ## Unverified
 
 - None outstanding — the stage mechanism, refusal gate, and redirect behavior were all read directly this pass.
+
+## IA Option A changes (2026-10-04)
+- **Day rollover:** the closed day is `effectiveDayString(now, tz, 4)` (`lib/date-utils.ts`): between 00:00 and 04:00 the day being closed is still yesterday. Used by Finish's `evening_closes` date, `planningDateForCore('tonight')` (= closed day + 1), `getEveningCloseData`, Home's rhythm state and `reviewDateFor`. Replan (`'today'`) and Start Day stay on plain local today. See `.brain/memory/decisions.md` (75313d4).
+- **Plan stage:** Inbox triage step (`lib/inbox/`, `triageInboxItem`; Finish waits for in-flight "Plan tonight" writes), ends on a "Done for today" block; the **Account stage hosts the one distraction-plan review** (`components/distractions/distraction-plan-review.tsx`, also Home's Action Plan dialog) once nothing blocks.
+- **Retired routes → `/`:** `/open`, `/open/today`, `/close/replan` (Re-plan is a dialog on Home's Morning card). `/review` still → `/close`. Today and Review left the nav; the topbar moon link opens `/close` from the wind-down start.

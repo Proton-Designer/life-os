@@ -5,7 +5,7 @@ layer: L2
 type: memory
 status: canonical
 owner: unassigned
-updated: 2026-09-13
+updated: 2026-10-04
 answers:
   - "why was X chosen"
   - "why do we do it this way"
@@ -20,6 +20,29 @@ tokens_est: 1455
 Newest first. Full reasoning lives in the dated source doc under
 `docs/superpowers/` — these entries are pointers with the load-bearing
 conclusion, not a replacement for reading the original when it matters.
+
+---
+
+## 2026-10-04 — IA Option A "Rhythms": the day and the week are rituals on Home, not screens
+
+**Status:** Active — user-approved ("do option A"); plan `audit/IA/IA-A-PLAN.md` (run 20261004-1135)
+**Decision:** Today, Review, Worries, Goals, Habits and Weekly Review stop being nav screens. Home carries the day (Morning card → Today strip → Close the day → Done), `/week` is the Sunday reset, Insights has a Week tab; every retired URL redirects (nothing deleted, bookmarks and pushes keep working; `/review → /close` stays load-bearing). Defaults taken: Calendar stays a screen, week = Sunday, the evening gate stays, habit check-offs live in Home Now.
+**Shipped:** P1 `40ac3a6` `fe71a95` · P2 `75313d4` · P3 `775c5a4` `69fff23` · P4 `7332dfa` `5081712` `ce89ffb`. **Not done:** Launch-step reorder (no position column), MCP twins for the new actions (parity `pending`), per-tab Work data (T-0002).
+
+## 2026-10-04 — The evening close's day rolls over at 4 AM (`effectiveDayString`)
+
+**Status:** Active — Lead ruling during IA-P2 (`75313d4`)
+**Why:** `/close` used `localDateString(now)` everywhere, so a close at 00:30 on Oct 5 recorded `evening_closes` for Oct 5, planned "tonight" for Oct 6 and left Oct 4 unclosed — a night owl planned the wrong day (and Home's Done card would have shown all of Oct 5 as done). **How:** one rule in `lib/date-utils.ts` (`effectiveDayString`, wall-clock hour compare — `resolveLocalTime` is an hour off on the DST-transition morning) used by the close's write date, `planningDateForCore('tonight')`, the close page's data, `reviewDateFor` and `homeRhythmState`. Replan and Start Day keep plain local today. MCP `night_plan_task` writes inherit it (same core).
+
+## 2026-10-04 — Work tabs: stable `key`, editable `label`, kind picks the screen; data NOT scoped yet
+
+**Status:** Active — WORK-W1/W1b (`51932ef`, `58b45a3`)
+A Business tab is a `user_subdomains` row with kind `business` under the Work domain (not a separate area): `/business` redirects to it, Sector progress shows one row per tab with its label (SECTOR-01 `f5508be`), the SYSTEM nav drops the duplicate link. `ensureBusinessWorkTab` is explicit and idempotent (never from a render) and, for an account with no active tab, also creates a job tab so the existing Work content stays reachable. Per-tab data (T-0002/W4) is deferred — extra tabs of one kind share data and the UI says so.
+
+## 2026-10-04 — Launch sequence + Wind-down replace the Morning-routine checklist and nightly sleep intent
+
+**Status:** Active — IA-P4a/b (`7332dfa` migration 253, `5081712`, `ce89ffb`); both stay opt-in, OFF by default
+Launch sequence = ≤5 if-then steps (`morning_routine_items.if_cue / fallback_text / habit_id`), "x of last 7" is a count (never a streak), one tap = tick + the linked habit's vote via `setLaunchStepDone` (rolled back together). Wind-down = a **set-once** plan (`user_settings.wake_time / sleep_need_minutes / wind_down_minutes`); bedtime and wind-down start are derived, never stored, and drive Home's Close-the-day card, the topbar moon link and the reminder push. The reminder is the **Vercel cron route only** (`/api/cron/sleep-reminder`, per-user window, 2h, never past midnight, fallback 21:30) — no edge-function change; registering the pg_cron poll is operator state. `sleep_intents` rows are kept, no longer shown.
 
 ---
 

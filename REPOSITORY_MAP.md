@@ -5,7 +5,7 @@ layer: L2
 type: map
 status: canonical
 owner: unassigned
-updated: 2026-09-13
+updated: 2026-10-04
 answers:
   - "where does the code for X live"
   - "what is in this directory"
@@ -59,6 +59,13 @@ a standalone route).
 
 | To change… | Go to |
 |---|---|
+| Home's day rhythm (Morning / Today / Close the day / Done) | `lib/home/rhythm-state.ts` (pure state + `isAfterWindDown`), `lib/home/rhythm-data.ts`, `components/home/rhythm/` — see `.brain/domains/home-arbiter.md` |
+| Which calendar day the close/plan belongs to | `effectiveDayString` in `lib/date-utils.ts` (4 AM rollover) — see `.brain/memory/decisions.md` |
+| Work tabs (`/work/<key>`, Business tab, tab editor) | `lib/shell/work-tabs.ts`, `app/(app)/work/{page,work-screen,subdomain-actions}`, `components/shell/work-tabs-bar.tsx` — see `.brain/domains/work-coop.md` |
+| Home "Sector progress" rows | `lib/home/sector-rows.ts`, `components/home/domain-status-stack.tsx` |
+| The weekly reset / Insights Week tab | `app/(app)/week/page.tsx`, `lib/week/`, `components/week/`; old `/weekly-review` `/goals` `/habits` `/worries` are redirects |
+| Capture areas + Inbox triage | `lib/capture/areas.ts`, `lib/inbox/`, `components/capture/` |
+| Launch sequence / Wind-down | `lib/rhythm/`, `lib/morning-routine/`, `components/home/launch-sequence-card.tsx`, `components/settings/wind-down-plan-settings.tsx`, `app/api/cron/sleep-reminder` |
 | A domain's business logic | `lib/<domain>/` — check that domain's `.brain/domains/<domain>.md` first |
 | A route or Server Action | `app/(app)/<domain>/` |
 | The cross-domain Home ranking | `lib/home/arbiter.ts` — see `.brain/domains/home-arbiter.md` |
