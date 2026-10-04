@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { isDeenModeOnForRequest } from "@/lib/deen/deen-mode-guard";
+import { isOptInFeatureOnForRequest } from "@/lib/opt-in-guard";
+import { OPT_IN_HOME_WIDGETS } from "@/lib/page-layout/registry";
 import { requireUser } from "@/lib/supabase/auth";
 import { getLayoutCore, saveLayoutCore, type LayoutItem, type SaveLayoutItem } from "@/lib/page-layout/actions-core";
 
@@ -13,7 +15,15 @@ export async function getPageLayout(domainKey: string): Promise<LayoutItem[]> {
   // Deen Mode OFF: the Faith page's widget layout is not offered (its stored
   // rows stay; they come back when Deen Mode does).
   if (domainKey === "deen" && !(await isDeenModeOnForRequest())) return [];
-  return getLayoutCore(supabase, userId, domainKey);
+  const layout = await getLayoutCore(supabase, userId, domainKey);
+  if (domainKey !== "home") return layout;
+  // Opt-in Home modules (RS-01): not offered (and not counted by allWidgetsHidden) while their
+  // feature is OFF. Their stored rows stay; they return when the feature is turned on.
+  const offKeys = new Set<string>();
+  for (const [widgetKey, feature] of Object.entries(OPT_IN_HOME_WIDGETS)) {
+    if (!(await isOptInFeatureOnForRequest(feature))) offKeys.add(widgetKey);
+  }
+  return layout.filter((item) => !offKeys.has(item.widgetKey));
 }
 
 export type SavePageLayoutResult = { ok: true } | { ok: false; message: string };

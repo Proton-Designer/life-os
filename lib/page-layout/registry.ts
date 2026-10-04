@@ -154,3 +154,13 @@ export function widgetsForDomain(domainKey: string): readonly WidgetDef[] {
 export function findWidget(domainKey: string, widgetKey: string): WidgetDef | undefined {
   return BY_DOMAIN.get(domainKey)?.find((w) => w.widgetKey === widgetKey);
 }
+
+/**
+ * Home widgets that belong to an opt-in feature (profiles.enabled_features, RS-01): while the
+ * feature is OFF the module cannot render, so the customiser must not offer to hide/reorder it.
+ * Stored rows are untouched and come back with the feature.
+ */
+export const OPT_IN_HOME_WIDGETS: Readonly<Record<string, "morning_routine" | "sleep_plan">> = {
+  morning_routine: "morning_routine",
+  sleep_intent: "sleep_plan",
+};

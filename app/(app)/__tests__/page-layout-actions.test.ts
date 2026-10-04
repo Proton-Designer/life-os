@@ -6,6 +6,11 @@ vi.mock("@/lib/supabase/auth", () => ({
   requireUser: () => requireUserMock(),
 }));
 
+let enabledFeatures: string[] = [];
+vi.mock("@/lib/opt-in-guard", () => ({
+  isOptInFeatureOnForRequest: async (id: string) => enabledFeatures.includes(id),
+}));
+
 const getLayoutCoreMock = vi.fn();
 const saveLayoutCoreMock = vi.fn();
 vi.mock("@/lib/page-layout/actions-core", () => ({
@@ -18,6 +23,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const { getPageLayout, savePageLayout } = await import("../page-layout-actions");
 
 beforeEach(() => {
+  enabledFeatures = [];
   requireUserMock.mockClear();
   getLayoutCoreMock.mockReset();
   saveLayoutCoreMock.mockReset();
@@ -34,6 +40,36 @@ describe("getPageLayout", () => {
     const layout = [{ widgetKey: "task_list", label: "Task list", description: "d", position: 0, hidden: false }];
     getLayoutCoreMock.mockResolvedValue(layout);
     expect(await getPageLayout("school")).toEqual(layout);
+  });
+});
+
+// RS-01 review F1: Home's customiser must not offer modules whose opt-in feature is OFF.
+describe("getPageLayout — opt-in Home widgets", () => {
+  const w = (widgetKey: string) => ({ widgetKey, label: widgetKey, description: "d", position: 0, hidden: false });
+  const HOME = [w("morning_brief"), w("morning_routine"), w("sleep_intent"), w("now")];
+
+  it("OFF: morning_routine and sleep_intent are not offered; everything else is", async () => {
+    getLayoutCoreMock.mockResolvedValue(HOME);
+    const keys = (await getPageLayout("home")).map((i) => i.widgetKey);
+    expect(keys).toEqual(["morning_brief", "now"]);
+  });
+
+  it("each widget follows ONLY its own feature (morning_routine on, sleep_plan off)", async () => {
+    enabledFeatures = ["morning_routine"];
+    getLayoutCoreMock.mockResolvedValue(HOME);
+    const keys = (await getPageLayout("home")).map((i) => i.widgetKey);
+    expect(keys).toEqual(["morning_brief", "morning_routine", "now"]);
+  });
+
+  it("ON: both are offered", async () => {
+    enabledFeatures = ["morning_routine", "sleep_plan"];
+    getLayoutCoreMock.mockResolvedValue(HOME);
+    expect((await getPageLayout("home")).map((i) => i.widgetKey)).toEqual(["morning_brief", "morning_routine", "sleep_intent", "now"]);
+  });
+
+  it("other domains are never filtered", async () => {
+    getLayoutCoreMock.mockResolvedValue([w("morning_routine")]);
+    expect(await getPageLayout("school")).toHaveLength(1);
   });
 });
 

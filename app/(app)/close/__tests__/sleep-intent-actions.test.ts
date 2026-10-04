@@ -101,15 +101,40 @@ describe("clearMySleepIntent", () => {
 });
 
 // RS-01: Sleep plan is an opt-in feature, OFF by default. A Server Action is a public endpoint,
-// so OFF must refuse (reads degrade to null) and never touch the data.
+// so OFF must refuse and never touch the data. One test per action so a missing gate on any
+// single one fails by name (mutation-checked).
 describe("Sleep plan feature OFF", () => {
-  it("reads null without querying, and refuses save and clear", async () => {
+  beforeEach(() => {
     enabledFeatures = [];
     currentChain = makeChain({ data: { intended_bedtime: "22:30" }, error: null });
+  });
+
+  it("read returns null WITHOUT querying", async () => {
     expect(await getMySleepIntentForToday()).toBeNull();
+    expect(currentChain.select).not.toHaveBeenCalled();
+  });
+
+  it("save is refused and writes nothing", async () => {
     expect(await saveMySleepIntent("22:30")).toEqual({ ok: false, message: "This feature is off." });
-    expect(await clearMySleepIntent()).toEqual({ ok: false, message: "This feature is off." });
     expect(currentChain.upsert).not.toHaveBeenCalled();
+  });
+
+  it("clear is refused and deletes nothing", async () => {
+    expect(await clearMySleepIntent()).toEqual({ ok: false, message: "This feature is off." });
     expect(currentChain.delete).not.toHaveBeenCalled();
+  });
+
+  it("the morning_routine feature alone does not enable sleep intent", async () => {
+    enabledFeatures = ["morning_routine"];
+    expect(await saveMySleepIntent("22:30")).toEqual({ ok: false, message: "This feature is off." });
+  });
+
+  it("ON: the same calls go through (positive control for the OFF tests)", async () => {
+    enabledFeatures = ["sleep_plan"];
+    currentChain = makeChain({ data: [{ id: "x" }], error: null });
+    await saveMySleepIntent("22:30");
+    expect(currentChain.upsert).toHaveBeenCalled();
+    await clearMySleepIntent();
+    expect(currentChain.delete).toHaveBeenCalled();
   });
 });
