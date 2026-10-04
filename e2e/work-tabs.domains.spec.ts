@@ -39,9 +39,10 @@ test("adds a Business tab, which opens the Business screen and is first in the b
   await openEditor(page);
   if (await page.getByTestId("add-business-tab").count()) {
     await page.getByTestId("add-business-tab").click();
-    // Wait for the add to land (it navigates to the new tab); a goto while the Server Action is
-    // in flight aborts it and nothing is saved.
-    await expect(page).toHaveURL(/\/work\/[^/]+$/);
+    // Wait for the add to land (it navigates to the new Business tab); a goto while the Server
+    // Action is in flight aborts it and nothing is saved. Match the business key itself: when the
+    // run starts on another tab the URL is already /work/<key>, so a generic pattern passes at once.
+    await expect(page).toHaveURL(/\/work\/business(-\d+)?$/);
   } else {
     await page.keyboard.press("Escape");
   }
