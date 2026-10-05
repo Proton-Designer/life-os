@@ -91,6 +91,23 @@ export type DayBar = {
   ticks: DayBarTick[];
 };
 
+/** Two clock labels ("Started 7:50 PM", "8:38 PM") closer than this (percent of the bar) would overlap: they merge into one. */
+export const LABEL_COLLISION_PCT = 28;
+export const labelsCollide = (aPct: number, bPct: number) => Math.abs(aPct - bPct) < LABEL_COLLISION_PCT;
+
+/**
+ * The text under a prayer-strip segment. Wide enough -> the full name; on a phone only the CURRENT window is
+ * named (the others stay tappable, no stray initials); on a wide screen a segment too narrow for its full name
+ * gets a 3-letter abbreviation when that fits, else nothing. `widthPct` is the segment's share of the bar.
+ */
+export function prayerStripLabel(args: { label: string; current: boolean; widthPct: number; narrow: boolean }): string | null {
+  const { label, current, widthPct, narrow } = args;
+  if (narrow) return current ? label : null;
+  if (widthPct >= label.length * 1.0) return label;
+  if (widthPct >= 3.5) return label.slice(0, 3);
+  return current ? label : null;
+}
+
 const clampPct = (n: number) => Math.max(0, Math.min(100, n));
 
 /**

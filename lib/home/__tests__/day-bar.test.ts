@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDayBar, dayBarEnd, dayBarRange, formatAwake, toGoLabel } from "../day-bar";
+import { buildDayBar, dayBarEnd, dayBarRange, formatAwake, labelsCollide, prayerStripLabel, toGoLabel } from "../day-bar";
 import { computeDayRibbon } from "../day-ribbon";
 import { HOME_DAY_VIEW } from "../day-view";
 
@@ -237,5 +237,28 @@ describe("DAYBAR-03 range + Started marker", () => {
     const bar = buildDayBar({ layout, wake: new Date("2026-10-06T00:50:00Z"), rangeStart: range.start, end: range.end, now: new Date("2026-10-06T00:55:00Z"), efficiencyPercent: null });
     expect(bar.prayers[0].startPct).toBeCloseTo(77.08, 1);
     expect(bar.prayers[0].endPct).toBeCloseTo(83.33, 1);
+  });
+});
+
+describe("DAYBAR-03 clock-label collision + prayer labels", () => {
+  it("labelsCollide: within 28% of the bar they merge; farther apart they stay two labels", () => {
+    expect(labelsCollide(82.6, 83.0)).toBe(true); // 7:50 PM vs 8:38 PM style
+    expect(labelsCollide(29.2, 58.3)).toBe(false); // 7 AM vs 2 PM (positive control)
+    expect(labelsCollide(10, 37.9)).toBe(true);
+    expect(labelsCollide(10, 38.1)).toBe(false);
+  });
+
+  const lbl = (label: string, widthPct: number, current = false, narrow = false) => prayerStripLabel({ label, current, widthPct, narrow });
+  it("desktop: the full name whenever it fits ('Fajr', not 'F'); 3 letters when it does not; nothing when even that cannot", () => {
+    expect(lbl("Fajr", 5)).toBe("Fajr");
+    expect(lbl("Maghrib", 6.25)).toBe("Mag");
+    expect(lbl("Isha", 2)).toBeNull();
+    expect(lbl("Isha", 2, true)).toBe("Isha"); // the current window is always named
+  });
+
+  it("phone: only the current window is named; the others carry no text", () => {
+    expect(lbl("Maghrib", 6.25, true, true)).toBe("Maghrib");
+    expect(lbl("Isha", 14, false, true)).toBeNull();
+    expect(lbl("Isha", 14, false, false)).toBe("Isha"); // positive control: the same segment IS labelled on desktop
   });
 });

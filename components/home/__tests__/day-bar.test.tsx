@@ -241,7 +241,10 @@ describe("DayBar (HOME-02)", () => {
       render(<DayBar {...lateStart} />);
       const started = parseFloat(screen.getByTestId("day-bar-started").style.left);
       expect(started).toBeCloseTo((19 + 50 / 60) / 24 * 100, 1);
-      expect(screen.getByTestId("day-bar-started-label")).toHaveTextContent("Started 7:50 PM");
+      // 7:50 PM and now 7:55 PM would overlap: ONE combined label, never two
+      expect(screen.getByTestId("day-bar-started-now-label")).toHaveTextContent("Started 7:50 PM · now 7:55 PM");
+      expect(screen.queryByTestId("day-bar-started-label")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("day-bar-now-label")).not.toBeInTheDocument();
       const span = screen.getByTestId("day-bar-awake-span");
       expect(parseFloat(span.style.left)).toBeCloseTo(started, 1); // shading starts at the marker...
       expect(parseFloat(span.style.left) + parseFloat(span.style.width)).toBeCloseTo(parseFloat(screen.getByTestId("day-bar-now").style.left), 1); // ...and ends at NOW
@@ -281,7 +284,10 @@ describe("DayBar (HOME-02)", () => {
       expect(within(screen.getByTestId("day-bar-lanes")).getByRole("button", { name: /Class: Calc/ })).toBeInTheDocument();
       expect(within(screen.getByTestId("day-bar-track")).getByTestId("day-bar-focus-block")).toBeInTheDocument();
       expect(screen.queryByTestId("day-bar-empty")).not.toBeInTheDocument();
+      // 7 AM and 2 PM are 29% apart: two labels, each its own element (positive control for the combined rule above)
       expect(screen.getByTestId("day-bar-started-label")).toHaveTextContent("Started 7:00 AM");
+      expect(screen.getByTestId("day-bar-now-label")).toHaveTextContent("2:00 PM");
+      expect(screen.queryByTestId("day-bar-started-now-label")).not.toBeInTheDocument();
     });
 
     it("C (Deen OFF, no events): no prayer strip, the empty note, still a whole-day bar with Started + NOW", () => {
@@ -297,24 +303,28 @@ describe("DayBar (HOME-02)", () => {
       vi.setSystemTime(at("2026-10-05T01:30:00"));
       render(<DayBar {...whole} layout={null} wokeAtIso={at("2026-10-05T01:00:00").toISOString()} nowIso={at("2026-10-05T01:30:00").toISOString()} />);
       expect(parseFloat(screen.getByTestId("day-bar-started").style.left)).toBeCloseTo(4.17, 1);
-      expect(screen.getByTestId("day-bar-started-label").className).not.toContain("-translate-x-1/2"); // flipped so it cannot spill off the left edge
+      const label = screen.getByTestId("day-bar-started-now-label"); // 1:00 and 1:30 are close: combined, and left-aligned so it cannot spill off the left edge
+      expect(label).toHaveTextContent("Started 1:00 AM · now 1:30 AM");
+      expect(label.className).not.toContain("-translate-x-");
     });
 
-    it("prayer strip segments carry their window geometry, the current one highlighted, initials on a phone", async () => {
+    it("prayer strip segments carry their window geometry and the current one is highlighted; a too-narrow name is abbreviated to 3 letters", async () => {
       vi.setSystemTime(at("2026-10-05T19:55:00"));
       render(<DayBar {...lateStart} />);
       const maghrib = screen.getByTestId("day-bar-prayer-maghrib");
       expect(maghrib).toHaveAttribute("data-current", "true");
       expect(parseFloat(maghrib.style.left)).toBeCloseTo(((18 + 30 / 60) / 24) * 100, 1);
-      expect(maghrib).toHaveTextContent("Maghrib"); // roomy on desktop (>= 6%)
+      expect(maghrib).toHaveTextContent("Mag"); // 6.25% of the bar cannot carry "Maghrib" but fits 3 letters
       expect(screen.getByTestId("day-bar-prayer-isha")).toHaveAttribute("data-current", "false");
     });
 
-    it("on a phone: prayer segments show initials and the scale labels only every 6 h", () => {
+    it("on a phone: only the CURRENT prayer is named (no stray initials; the others stay tappable) and the scale labels only every 6 h", () => {
       vi.stubGlobal("matchMedia", (q: string) => ({ matches: true, media: q, addEventListener: () => {}, removeEventListener: () => {} }));
       vi.setSystemTime(at("2026-10-05T19:55:00"));
       render(<DayBar {...lateStart} />);
-      expect(screen.getByTestId("day-bar-prayer-maghrib")).toHaveTextContent(/^M$/);
+      expect(screen.getByTestId("day-bar-prayer-maghrib")).toHaveTextContent(/^Maghrib$/);
+      expect(screen.getByTestId("day-bar-prayer-isha")).toHaveTextContent(/^$/);
+      expect(screen.getByTestId("day-bar-prayer-isha")).toBeEnabled();
       const scale = screen.getByTestId("day-bar-scale").textContent!;
       expect(scale).toContain("6 AM");
       expect(scale).not.toContain("3 AM");

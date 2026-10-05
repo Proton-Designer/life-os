@@ -9,7 +9,7 @@ import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { Button } from "@/components/ui/button";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
-import { buildDayBar, formatAwake, toGoLabel, type DayBarBlock, type DayBarCalendarEvent, type DayBarKind, type DayBarPopover, type DayBarPrayer } from "@/lib/home/day-bar";
+import { buildDayBar, formatAwake, labelsCollide, prayerStripLabel, toGoLabel, type DayBarBlock, type DayBarCalendarEvent, type DayBarKind, type DayBarPopover, type DayBarPrayer } from "@/lib/home/day-bar";
 import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
 import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
 import { cn } from "@/lib/utils";
@@ -274,7 +274,7 @@ export function DayBar({
             {bar.prayers.map((p) => {
               const shown = marked.has(p.name) ? "logged" : p.state;
               const width = Math.max(p.endPct - p.startPct, 0.8);
-              const roomy = !narrow && width >= 6;
+              const text = prayerStripLabel({ label: p.label, current: p.current, widthPct: width, narrow });
               return (
                 <IndicatorPopover
                   key={p.name}
@@ -298,9 +298,11 @@ export function DayBar({
                           shown === "missed" && "bg-muted-foreground/25"
                         )}
                       />
-                      <span aria-hidden className={cn("absolute inset-x-0 top-2.5 truncate text-center text-[10px] leading-none", p.current ? "font-semibold text-foreground" : "text-muted-foreground")}>
-                        {roomy ? p.label : p.label.charAt(0)}
-                      </span>
+                      {text ? (
+                        <span aria-hidden className={cn("absolute top-2.5 left-1/2 -translate-x-1/2 text-[10px] leading-none whitespace-nowrap", p.current ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                          {text}
+                        </span>
+                      ) : null}
                     </button>
                   }
                 >
@@ -332,16 +334,33 @@ export function DayBar({
               {t.label && (!narrow || t.hour % 6 === 0) ? <span className="mt-0.5 block font-mono text-[10px] leading-none whitespace-nowrap text-muted-foreground tabular-nums">{t.label}</span> : null}
             </div>
           ))}
-          {bar.startedPct !== null ? (
-            <span className={cn("absolute top-5 font-mono text-[10px] leading-none font-medium whitespace-nowrap text-foreground tabular-nums", edgeShift(bar.startedPct))} style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started-label">
-              Started {fmtClock(wake, timezone)}
+          {/* the Started / NOW clock labels share the row under the ticks; within ~28% of each other they merge into one label */}
+          {bar.startedPct !== null && bar.nowPosition === "within" && labelsCollide(bar.startedPct, bar.nowPct) ? (
+            <span
+              className={cn(
+                "absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap tabular-nums",
+                (bar.startedPct + bar.nowPct) / 2 > 70 ? "-translate-x-full" : (bar.startedPct + bar.nowPct) / 2 < 30 ? "" : "-translate-x-1/2"
+              )}
+              style={{ left: `${(bar.startedPct + bar.nowPct) / 2 > 70 ? bar.nowPct : (bar.startedPct + bar.nowPct) / 2 < 30 ? bar.startedPct : (bar.startedPct + bar.nowPct) / 2}%` }}
+              data-testid="day-bar-started-now-label"
+            >
+              <span className="font-medium text-foreground">Started {fmtClock(wake, timezone)}</span>
+              <span className="text-accent-info"> · now {fmtClock(now, timezone)}</span>
             </span>
-          ) : null}
-          {bar.nowPosition === "within" ? (
-            <span className={cn("absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums", edgeShift(bar.nowPct))} style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now-label">
-              {fmtClock(now, timezone)}
-            </span>
-          ) : null}
+          ) : (
+            <>
+              {bar.startedPct !== null ? (
+                <span className={cn("absolute top-5 font-mono text-[10px] leading-none font-medium whitespace-nowrap text-foreground tabular-nums", edgeShift(bar.startedPct))} style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started-label">
+                  Started {fmtClock(wake, timezone)}
+                </span>
+              ) : null}
+              {bar.nowPosition === "within" ? (
+                <span className={cn("absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums", edgeShift(bar.nowPct))} style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now-label">
+                  {fmtClock(now, timezone)}
+                </span>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
 
