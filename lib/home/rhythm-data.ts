@@ -16,6 +16,8 @@ export type RhythmData =
       state: "today";
       /** The user's local date (the Lock-In hint's per-day visible-time key). */
       localDate: string;
+      /** The wind-down plan's bedtime ("HH:MM") when Sleep plan is on and a plan is set; the Day bar's end of day. */
+      bedtime: string | null;
       wokeAtIso: string;
       deltaSeconds: number;
       hoursTodayMinutes: number;
@@ -68,6 +70,7 @@ export async function getRhythmData(
     return {
       state,
       localDate: today,
+      bedtime: wind.bedtime ?? null,
       wokeAtIso: dayStart.wokeAtIso,
       deltaSeconds: computeDeltaSeconds(dayStart.wokeAtIso, now),
       hoursTodayMinutes,

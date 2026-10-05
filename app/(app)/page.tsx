@@ -31,6 +31,8 @@ import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
 import { Stream } from "@/components/home/stream";
+import { loadFocusTargetMinutes } from "@/lib/focus/target-core";
+import { HOME_DAY_VIEW } from "@/lib/home/day-view";
 import { PanelSkeleton, DomainStatusStripSkeleton, WeeklyGoalsHeaderSkeleton } from "@/components/shell/route-skeleton";
 import { getActiveHabitsWithStatus } from "@/lib/habits/queries";
 import { shouldShowWeeklyResetCard } from "@/lib/home/weekly-reset-visibility";
@@ -105,8 +107,10 @@ export default async function HomePage() {
   // A failure must reach the error boundary through <Stream>, not as an unhandled rejection before it is awaited.
   // The Launch card needs the rhythm phase AND the habits; built only for an account with the opt-in on,
   // from the promises already running (no extra reads), and guarded like the others.
+  // HOME-01a: the adjustable daily focus target (weekend override), in minutes; shown on the Day bar / Hours tile.
+  const focusTargetPromise = loadFocusTargetMinutes(supabase, userId, dateStr);
   const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise]) : null;
-  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
+  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, focusTargetPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
   const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
@@ -303,8 +307,8 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">
-        <Stream promise={rhythmPromise} label="Your day" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
-          {(rhythm) => <RhythmSection data={rhythm} />}
+        <Stream promise={Promise.all([rhythmPromise, focusTargetPromise])} label="Your day" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
+          {([rhythm, targetMinutes]) => <RhythmSection data={rhythm} ribbon={ribbonLayout} timezone={timezone} targetMinutes={targetMinutes} dayView={HOME_DAY_VIEW} />}
         </Stream>
       </LayoutSlot>
 
@@ -397,22 +401,26 @@ export default async function HomePage() {
 
       {!sessionEntryHidden && !selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
 
+      {/* HOME-02: in "bar" view the day's shape lives inside the Day bar (rhythm card), so this slot renders
+          nothing; its widget key stays in the registry so saved layouts keep working. "classic" = as before. */}
       <LayoutSlot layout={layoutMap} widgetKey="day_shape">
-        <Panel title="The day's shape">
-          {ribbonLayout ? (
-            <DayRibbon layout={ribbonLayout} todayStr={dateStr} timezone={timezone} />
-          ) : (
-            <EmptyState
-              icon={Inbox}
-              message={
-                deenMode
-                  ? "Set your location in Settings to see today's prayer-anchored timeline"
-                  : "Set your wake and sleep times in Settings to see today's timeline"
-              }
-              action={{ label: "Go to Settings", href: "/settings" }}
-            />
-          )}
-        </Panel>
+        {HOME_DAY_VIEW === "classic" ? (
+          <Panel title="The day's shape">
+            {ribbonLayout ? (
+              <DayRibbon layout={ribbonLayout} todayStr={dateStr} timezone={timezone} />
+            ) : (
+              <EmptyState
+                icon={Inbox}
+                message={
+                  deenMode
+                    ? "Set your location in Settings to see today's prayer-anchored timeline"
+                    : "Set your wake and sleep times in Settings to see today's timeline"
+                }
+                action={{ label: "Go to Settings", href: "/settings" }}
+              />
+            )}
+          </Panel>
+        ) : null}
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="mcp_widgets">

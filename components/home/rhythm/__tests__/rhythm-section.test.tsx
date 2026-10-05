@@ -79,15 +79,35 @@ describe("RhythmSection", () => {
     expect(getReplanData).toHaveBeenCalledTimes(1);
   });
 
-  it("today: the strip shows Delta, Hours and Efficiency (no Start day button)", () => {
-    const data: RhythmData = { state: "today", localDate: "2026-10-05", wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
-    render(<RhythmSection data={data} />);
+  // HOME-02: ONE switch (HOME_DAY_VIEW). "classic" must render exactly the pre-change layout (three tiles and,
+  // on the page, the separate day's-shape panel); "bar" renders the Day bar instead and none of the tiles.
+  const today: RhythmData = { state: "today", localDate: "2026-10-05", bedtime: null, wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
+
+  it("today / classic: the three tiles (Awake for, Hours, Efficiency), no Day bar, no Start day button", () => {
+    render(<RhythmSection data={today} dayView="classic" />);
     expect(screen.getByTestId("rhythm-today")).toBeInTheDocument();
+    expect(screen.getAllByTestId("stat-tile")).toHaveLength(3);
     expect(screen.getByText("42%")).toBeInTheDocument();
     // HOME-01b: the tile says just "Awake for" (no "Delta")
     expect(screen.getByText("Awake for")).toBeInTheDocument();
     expect(screen.queryByText(/delta/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("day-bar")).not.toBeInTheDocument();
     expect(screen.queryByTestId("start-day")).not.toBeInTheDocument();
+  });
+
+  it("today / bar: the Day bar replaces the tiles (positive control for the classic test above)", () => {
+    render(<RhythmSection data={today} dayView="bar" />);
+    expect(screen.getByTestId("day-bar")).toBeInTheDocument();
+    expect(screen.queryAllByTestId("stat-tile")).toHaveLength(0);
+    expect(screen.getByTestId("day-bar-efficiency")).toHaveTextContent("42% focused");
+  });
+
+  it("the other phases are identical in both views (morning card unchanged)", () => {
+    for (const view of ["bar", "classic"] as const) {
+      const { unmount } = render(<RhythmSection data={{ state: "morning", plan: [], diff: { changed: false } as never }} dayView={view} />);
+      expect(screen.getByTestId("rhythm-morning")).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("wind_down: a Close the day link to /close", () => {

@@ -219,4 +219,12 @@ describe("WeeklyGoalsHeader", () => {
     rerender(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} />);
     expect(screen.queryByRole("button", { name: "Goals" })).not.toBeInTheDocument();
   });
+
+  // HOME-02: the floating "+" capture button lives at the far right; the Goals button sits beside the title instead.
+  it("puts extraActions right beside the title, not pushed to the far right (clear of the floating +)", () => {
+    render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} extraActions={<button type="button">Goals</button>} />);
+    const row = screen.getByText("This Week's Focus").parentElement!;
+    expect(row).toContainElement(screen.getByRole("button", { name: "Goals" }));
+    expect(row.className).not.toContain("justify-between");
+  });
 });

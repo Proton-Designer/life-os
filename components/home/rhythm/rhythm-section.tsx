@@ -4,6 +4,11 @@ import { StatTile } from "@/components/ui/stat-tile";
 import { Panel } from "@/components/ui/panel";
 import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
 import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
+import { DayBar } from "@/components/home/day-bar";
+import { dayBarEnd } from "@/lib/home/day-bar";
+import { HOME_DAY_VIEW, type HomeDayView } from "@/lib/home/day-view";
+import { DEFAULT_FOCUS_TARGET_MINUTES } from "@/lib/focus/target";
+import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
 import { LockInHint } from "@/components/home/lock-in-hint";
 import { StartDayButton } from "@/components/home/rhythm/start-day-button";
 import { ReplanDialog } from "@/components/home/rhythm/replan-dialog";
@@ -16,7 +21,22 @@ import type { RhythmData } from "@/lib/home/rhythm-data";
  * (Awake for, Hours, Efficiency, timeboxes) after Start Day, "Close the day" from wind-down, and
  * "Done for today" once the day is closed. A Server Component: every prop is plain data.
  */
-export function RhythmSection({ data }: { data: RhythmData }) {
+export function RhythmSection({
+  data,
+  ribbon = null,
+  timezone = "UTC",
+  targetMinutes = DEFAULT_FOCUS_TARGET_MINUTES,
+  dayView = HOME_DAY_VIEW,
+}: {
+  data: RhythmData;
+  /** The day ribbon's layout (blocks, prayer spans) the Day bar projects onto its own range. */
+  ribbon?: DayRibbonLayout | null;
+  timezone?: string;
+  /** Daily focus target in minutes (HOME-01a's reader; 240 until wired). */
+  targetMinutes?: number;
+  /** HOME-02: "bar" = Day bar; "classic" = the three tiles (and the separate day's-shape panel, rendered by the page). */
+  dayView?: HomeDayView;
+}) {
   switch (data.state) {
     case "morning":
       return (
@@ -62,7 +82,26 @@ export function RhythmSection({ data }: { data: RhythmData }) {
           </div>
         </Panel>
       );
-    case "today":
+    case "today": {
+      if (dayView === "bar") {
+        const wake = new Date(data.wokeAtIso);
+        const end = dayBarEnd({ wake, ribbonEnd: ribbon?.rangeEnd ?? new Date(wake.getTime() + 16 * 3600_000), bedtime: data.bedtime, localDate: data.localDate, timezone });
+        return (
+          <div className="flex flex-col gap-3" data-testid="rhythm-today">
+            <DayBar
+              layout={ribbon}
+              wokeAtIso={data.wokeAtIso}
+              endIso={end.toISOString()}
+              hoursTodayMinutes={data.hoursTodayMinutes}
+              targetMinutes={targetMinutes}
+              efficiencyPercent={data.efficiencyPercent}
+              timezone={timezone}
+              localDate={data.localDate}
+            />
+            <TimeboxedTasks tasks={data.timeboxed} />
+          </div>
+        );
+      }
       return (
         <div className="flex flex-col gap-3" data-testid="rhythm-today">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -72,7 +111,7 @@ export function RhythmSection({ data }: { data: RhythmData }) {
                 icon={Clock}
                 accent="info"
                 label="Hours today"
-                value={hoursOfDailyTarget(data.hoursTodayMinutes)}
+                value={hoursOfDailyTarget(data.hoursTodayMinutes, targetMinutes)}
                 delta={{ direction: "flat", text: formatHoursMinutes(data.hoursTodayMinutes) }}
               />
               <LockInHint localDate={data.localDate} hoursTodayMinutes={data.hoursTodayMinutes} />
@@ -82,6 +121,7 @@ export function RhythmSection({ data }: { data: RhythmData }) {
           <TimeboxedTasks tasks={data.timeboxed} />
         </div>
       );
+    }
     case "wind_down":
       return (
         <Panel title="Wind down" data-testid="rhythm-wind-down">

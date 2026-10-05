@@ -56,8 +56,9 @@ export function WeeklyGoalsHeader({
       className={cn("scroll-mt-20 flex flex-col gap-3", className)}
       data-testid="weekly-goals-header"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">This Week&apos;s Focus</h2>
+        {/* beside the title, NOT at the far right: the floating "+" capture button sits there (HOME-02 fix) */}
         {extraActions}
       </div>
       {showPlanningNudge && (
