@@ -11,14 +11,15 @@ import { setMorningBriefCollapsed } from "../morning-brief-actions";
 beforeEach(() => vi.clearAllMocks());
 
 describe("setMorningBriefCollapsed", () => {
-  it("passes the signed-in user and the absolute value through, and does NOT revalidate (lean tap)", async () => {
+  it("passes the signed-in user and the absolute value through, and revalidates Home so a cached Home cannot resurrect the brief", async () => {
     setCore.mockResolvedValue(undefined);
     expect(await setMorningBriefCollapsed("2026-10-04", true)).toEqual({ ok: true });
     expect(setCore).toHaveBeenCalledWith({ tag: "sb" }, "user-1", "2026-10-04", true);
-    expect(revalidateMock).not.toHaveBeenCalled();
+    expect(revalidateMock).toHaveBeenCalledWith("/");
   });
   it("a refused write is { ok:false, message }, never a throw", async () => {
     setCore.mockRejectedValue(new Error("Invalid brief date."));
     expect(await setMorningBriefCollapsed("bad", false)).toEqual({ ok: false, message: "Invalid brief date." });
+    expect(revalidateMock).not.toHaveBeenCalled(); // nothing changed, nothing to invalidate
   });
 });
