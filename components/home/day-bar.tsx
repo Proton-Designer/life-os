@@ -26,6 +26,7 @@ const KIND_ICON: Record<DayBarKind, LucideIcon> = {
 };
 const KIND_LABEL: Record<DayBarKind, string> = { class: "Class", work: "Work", fitness: "Workout", task: "Task", focus: "Focus", habit: "Habit", calendar: "Calendar" };
 
+const DOT_INSET_PCT = 2.5; // a 14px dot centred on 0%/100% would be half-clipped by the lanes
 const LANE_PX = 28;
 const TRACK_PX = 48;
 
@@ -34,6 +35,17 @@ const fmtClock = (d: Date, timezone: string) =>
 
 const timeRange = (p: DayBarPopover, timezone: string) =>
   p.allDay ? "All day" : p.endAt ? `${fmtClock(p.startAt, timezone)}–${fmtClock(p.endAt, timezone)}` : fmtClock(p.startAt, timezone);
+
+/** Only http(s) links are rendered: an external event's link is untrusted (a javascript: URL would run on click). */
+function safeHref(link: string | null | undefined): string | undefined {
+  if (!link) return undefined;
+  try {
+    const u = new URL(link);
+    return u.protocol === "http:" || u.protocol === "https:" ? link : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function PopoverDetails({ p, timezone }: { p: DayBarPopover; timezone: string }) {
   return (
@@ -44,8 +56,8 @@ function PopoverDetails({ p, timezone }: { p: DayBarPopover; timezone: string })
       {p.location ? <p className="text-xs text-muted-foreground">{p.location}</p> : null}
       {p.instructor ? <p className="text-xs text-muted-foreground">{p.instructor}</p> : null}
       {p.description ? <p className="whitespace-pre-line text-xs">{p.description}</p> : null}
-      {p.link ? (
-        <a href={p.link} target="_blank" rel="noopener noreferrer" className="text-xs underline underline-offset-2">
+      {safeHref(p.link) ? (
+        <a href={safeHref(p.link)} target="_blank" rel="noopener noreferrer" className="text-xs underline underline-offset-2">
           Open
         </a>
       ) : null}
@@ -129,7 +141,7 @@ export function DayBar({
     const width = Math.min(Math.max(b.endPct - b.startPct, 1.2), 100);
     const left = `${Math.min(b.startPct, 100 - width)}%`;
     const label = `${KIND_LABEL[b.kind]}: ${b.popover.title}, ${timeRange(b.popover, timezone)}`;
-    const common = cn("absolute flex items-center gap-1 overflow-hidden text-background", b.upcoming ? "opacity-70" : "opacity-95", b.isFocus && "ring-2 ring-primary");
+    const common = cn("pointer-events-auto absolute flex items-center gap-1 overflow-hidden text-background", b.upcoming ? "opacity-70" : "opacity-95", b.isFocus && "ring-2 ring-primary");
     if (shape === "dot") {
       return (
         <IndicatorPopover
@@ -142,7 +154,7 @@ export function DayBar({
               aria-label={label}
               data-testid="day-bar-dot"
               className={cn(common, "size-3.5 -translate-x-1/2 justify-center rounded-full")}
-              style={{ left: `${b.startPct}%`, ...(b.isFocus ? { top: "50%", marginTop: -7 } : { bottom: b.lane * LANE_PX + 7 }), backgroundColor: `var(${b.colorVar})` }}
+              style={{ left: `${Math.min(Math.max(b.startPct, DOT_INSET_PCT), 100 - DOT_INSET_PCT)}%`, ...(b.isFocus ? { top: "50%", marginTop: -7 } : { bottom: b.lane * LANE_PX + 7 }), backgroundColor: `var(${b.colorVar})` }}
             />
           }
         >
@@ -257,38 +269,47 @@ export function DayBar({
 
           {/* fixed events: lanes above the track; clipped so nothing overhangs the bar */}
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 overflow-hidden" style={{ height: lanesPx }} data-testid="day-bar-lanes">
-            <div className="pointer-events-auto relative h-full">
+            <div className="pointer-events-none relative h-full">
               {fixed.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}
             </div>
           </div>
 
           {/* the track */}
-          <div className="absolute inset-x-0 bottom-0 z-10 rounded-lg" style={{ height: TRACK_PX }} data-testid="day-bar-track">
-            <div className="absolute inset-0 overflow-hidden rounded-lg bg-muted/30">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 rounded-lg" style={{ height: TRACK_PX }} data-testid="day-bar-track">
+            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg bg-muted/30">
               <div className="absolute inset-y-0 left-0 bg-accent-info/15" style={{ width: `${bar.awakePct}%` }} data-testid="day-bar-awake-span" />
               <div className="absolute bottom-0 left-0 h-1.5 bg-primary/60" style={{ width: `${bar.focusSharePct}%` }} data-testid="day-bar-focus-share" />
               <div className="pointer-events-none absolute inset-0" data-testid="day-bar-blocks">
-                <div className="pointer-events-auto relative h-full">{focus.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}</div>
+                <div className="pointer-events-none relative h-full">{focus.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}</div>
               </div>
             </div>
             {bar.nowPosition === "within" ? (
-              <div className="absolute inset-y-0 z-20 w-px bg-accent-info" style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now">
-                <span className="absolute -top-4 left-1/2 -translate-x-1/2 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums">
-                  {fmtClock(now, timezone)}
-                </span>
-              </div>
+              <div className="absolute inset-y-0 z-20 w-px bg-accent-info" style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now" />
             ) : null}
           </div>
         </div>
 
         {/* hour scale */}
-        <div className="relative mt-1 h-5" aria-hidden data-testid="day-bar-scale">
+        <div className="relative mt-1 h-9" aria-hidden data-testid="day-bar-scale">
           {bar.ticks.map((t, i) => (
             <div key={i} className="absolute top-0 -translate-x-1/2" style={{ left: `${t.pct}%` }}>
               <div className={cn("mx-auto w-px bg-border", t.label ? "h-2" : "h-1")} />
               {t.label ? <span className="mt-0.5 block font-mono text-[10px] leading-none whitespace-nowrap text-muted-foreground tabular-nums">{t.label}</span> : null}
             </div>
           ))}
+          {/* the clock label sits on its own row under the scale, so it can never cover an event pill; flipped near the ends */}
+          {bar.nowPosition === "within" ? (
+            <span
+              className={cn(
+                "absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums",
+                bar.nowPct > 92 ? "-translate-x-full" : bar.nowPct < 8 ? "" : "-translate-x-1/2"
+              )}
+              style={{ left: `${bar.nowPct}%` }}
+              data-testid="day-bar-now-label"
+            >
+              {fmtClock(now, timezone)}
+            </span>
+          ) : null}
         </div>
       </div>
 

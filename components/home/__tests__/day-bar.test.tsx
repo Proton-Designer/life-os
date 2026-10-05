@@ -166,6 +166,59 @@ describe("DayBar (HOME-02)", () => {
     expect(scale.textContent).not.toMatch(/7\sAM/);
   });
 
+  // Lead's live finding: the wrappers above the bands swallowed every mouse/touch click on a prayer band.
+  it("pointer-events: every wrapper above the prayer bands is pointer-events-none; only the actual buttons take pointer events", () => {
+    render(<DayBar {...props} />);
+    const chain = (el: HTMLElement) => {
+      const out: string[] = [];
+      for (let n: HTMLElement | null = el; n && n.getAttribute("data-testid") !== "day-bar-chart"; n = n.parentElement) out.push(n.className);
+      return out;
+    };
+    const lanes = screen.getByTestId("day-bar-lanes");
+    for (const el of [lanes, lanes.firstElementChild as HTMLElement, screen.getByTestId("day-bar-track"), screen.getByTestId("day-bar-blocks"), (screen.getByTestId("day-bar-blocks").firstElementChild as HTMLElement), screen.getByTestId("day-bar-awake-span").parentElement as HTMLElement]) {
+      expect(el.className).toContain("pointer-events-none");
+      expect(el.className).not.toContain("pointer-events-auto");
+    }
+    for (const b of [...screen.getAllByTestId("day-bar-block"), screen.getByTestId("day-bar-focus-block")]) expect(b.className).toContain("pointer-events-auto");
+    // the band itself is in no pointer-events-none ancestor chain below the chart, and is not auto-blocked
+    expect(chain(screen.getByTestId("day-bar-prayer-dhuhr")).some((c) => c.includes("pointer-events-none"))).toBe(false);
+    // positive control for the helper: the lane wrapper chain DOES contain pointer-events-none
+    expect(chain(screen.getAllByTestId("day-bar-block")[0]).some((c) => c.includes("pointer-events-none"))).toBe(true);
+  });
+
+  it("the NOW time label is not inside the track or the lanes (it cannot cover an event pill); it sits with the hour scale", () => {
+    render(<DayBar {...props} />);
+    const label = screen.getByTestId("day-bar-now-label");
+    expect(label).toHaveTextContent("11:45 AM");
+    expect(screen.getByTestId("day-bar-track")).not.toContainElement(label);
+    expect(screen.getByTestId("day-bar-lanes")).not.toContainElement(label);
+    expect(screen.getByTestId("day-bar-scale")).toContainElement(label);
+    expect(screen.getByTestId("day-bar-now")).toHaveTextContent(""); // positive control: the line itself carries no text
+  });
+
+  it("only http(s) links render in a popover (a javascript: link is dropped; an https one is kept)", async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const ev = (id: string, link: string) => ({ id, title: `Ev${id}`, startAt: at("2026-10-05T14:00:00"), endAt: at("2026-10-05T15:00:00"), link });
+    const { unmount } = render(<DayBar {...props} calendarEvents={[ev("1", "javascript:alert(1)")]} />);
+    await user.click(await screen.findByRole("button", { name: /Calendar: Ev1/ }));
+    await screen.findByTestId("indicator-popover");
+    expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
+    unmount();
+    render(<DayBar {...props} calendarEvents={[ev("2", "https://example.com/e")]} />);
+    await user.click(await screen.findByRole("button", { name: /Calendar: Ev2/ }));
+    expect(await screen.findByRole("link", { name: "Open" })).toHaveAttribute("href", "https://example.com/e");
+  });
+
+  it("a dot at the very start or end of the bar is inset so it is not half-clipped", () => {
+    const edge = (iso: string) => ({ id: iso, title: "Edge", startAt: at(iso), endAt: new Date(at(iso).getTime() + 60_000) });
+    render(<DayBar {...props} calendarEvents={[edge("2026-10-05T06:00:00"), edge("2026-10-05T21:59:30")]} />);
+    const lefts = screen.getAllByTestId("day-bar-dot").map((d) => parseFloat(d.style.left));
+    expect(Math.min(...lefts)).toBeGreaterThanOrEqual(2.5);
+    expect(Math.max(...lefts)).toBeLessThanOrEqual(97.5);
+    expect(lefts.length).toBe(2); // positive control: both really rendered as dots
+  });
+
   it("the subtle Lock-In hint sits under the bar while hours are 0 (and not otherwise)", () => {
     const { unmount } = render(<DayBar {...props} hoursTodayMinutes={0} efficiencyPercent={null} />);
     act(() => void vi.advanceTimersByTime(10));
