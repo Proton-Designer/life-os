@@ -6,6 +6,7 @@ const startDayAction = vi.fn(async () => {});
 vi.mock("@/app/(app)/open/actions", () => ({ startDayAction: () => startDayAction() }));
 const getReplanData = vi.fn(async () => ({ todayLines: [{ id: "l1", title: "Draft the memo" }], planSeeds: [] }));
 vi.mock("@/app/(app)/close/actions", () => ({ getReplanData: () => getReplanData() }));
+vi.mock("@/app/(app)/day-setup/actions", () => ({ setUpDay: vi.fn() }));
 vi.mock("@/components/evening-close/close-plan-stage", () => ({
   ClosePlanStage: ({ mode, initialLines }: { mode: string; initialLines: { title: string }[] }) => (
     <div data-testid="plan-stage">{mode}:{initialLines.map((l) => l.title).join(",")}</div>
@@ -100,6 +101,15 @@ describe("RhythmSection", () => {
     expect(screen.getByTestId("day-bar")).toBeInTheDocument();
     expect(screen.queryAllByTestId("stat-tile")).toHaveLength(0);
     expect(screen.getByTestId("day-bar-efficiency")).toHaveTextContent("42% focused");
+  });
+
+  it("done: offers 'Set up your day' only when asked to (the page asks only while neither optional feature is on)", async () => {
+    const done = { state: "done", tomorrow: [], bedtime: null } as RhythmData;
+    const { unmount } = render(<RhythmSection data={done} />);
+    expect(screen.queryByTestId("day-setup-card")).not.toBeInTheDocument();
+    unmount();
+    render(<RhythmSection data={done} showDaySetup />);
+    expect(await screen.findByTestId("day-setup-card")).toBeInTheDocument();
   });
 
   it("Re-plan stays available after Start day, in BOTH Today layouts, and opens the same plan stage (mode today)", async () => {

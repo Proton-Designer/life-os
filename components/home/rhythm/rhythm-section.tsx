@@ -13,6 +13,7 @@ import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
 import { LockInHint } from "@/components/home/lock-in-hint";
 import { StartDayButton } from "@/components/home/rhythm/start-day-button";
 import { ReplanDialog } from "@/components/home/rhythm/replan-dialog";
+import { DaySetupCard } from "@/components/home/day-setup-card";
 import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
 import type { RhythmData } from "@/lib/home/rhythm-data";
 
@@ -28,6 +29,7 @@ export function RhythmSection({
   timezone = "UTC",
   targetMinutes = DEFAULT_FOCUS_TARGET_MINUTES,
   dayView = HOME_DAY_VIEW,
+  showDaySetup = false,
 }: {
   data: RhythmData;
   /** The day ribbon's layout (blocks, prayer spans) the Day bar projects onto its own range. */
@@ -37,6 +39,8 @@ export function RhythmSection({
   targetMinutes?: number;
   /** HOME-02: "bar" = Day bar; "classic" = the three tiles (and the separate day's-shape panel, rendered by the page). */
   dayView?: HomeDayView;
+  /** Offer the one-time "Set up your day" on the Done card (the page passes true only while neither Sleep plan nor Morning routine is on). */
+  showDaySetup?: boolean;
 }) {
   switch (data.state) {
     case "morning":
@@ -180,6 +184,7 @@ export function RhythmSection({
               </ol>
             </div>
           )}
+          {showDaySetup ? <DaySetupCard /> : null}
         </Panel>
       );
   }

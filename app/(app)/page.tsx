@@ -335,7 +335,7 @@ export default async function HomePage() {
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">
         <Stream promise={dayCardPromise} label="Your day" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
-          {([rhythm, targetMinutes]) => <RhythmSection data={rhythm} ribbon={ribbonLayout} timezone={timezone} targetMinutes={targetMinutes} dayView={HOME_DAY_VIEW} />}
+          {([rhythm, targetMinutes]) => <RhythmSection data={rhythm} ribbon={ribbonLayout} timezone={timezone} targetMinutes={targetMinutes} dayView={HOME_DAY_VIEW} showDaySetup={!morningRoutineOn && !sleepPlanOn} />}
         </Stream>
       </LayoutSlot>
 

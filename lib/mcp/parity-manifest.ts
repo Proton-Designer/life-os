@@ -251,6 +251,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Day start ───────────────────────────────────────────────────────────
   "app/(app)/page-layout-actions.ts#getPageLayout": { read_only: true },
   "app/(app)/page-layout-actions.ts#savePageLayout": { pending: "P4-cov-WIDGET", note: "arranging a user's own page is a legitimate agent write; hiding never deletes data" },
+  "app/(app)/day-setup/actions.ts#setUpDay": { excluded: "onboarding_wizard: one-time guided setup that composes three writes: enabled_features (settings update, MCP), routine steps (day.routine_item.create, MCP) and the wind-down plan (its own MCP twin is pending under P4-26)" },
   "app/(app)/open/actions.ts#startDayAction": { mcp: "day.day_start.start" },
   "app/(app)/open/actions.ts#startDayAtAction": { mcp: "day.day_start.start", note: "start with an earlier wake time: the same op, via the optional wake_time field" },
 
