@@ -4394,8 +4394,10 @@ export type Database = {
       user_settings: {
         Row: {
           ai_grading_enabled: boolean
+          daily_focus_target_minutes: number | null
           daily_new_limit: number
           desired_retention: number
+          morning_brief_collapsed_on: string | null
           notification_enabled: boolean
           notification_time: string
           session_target_minutes: number
@@ -4404,12 +4406,15 @@ export type Database = {
           user_id: string
           wake_time: string | null
           weekday_baselines: number[] | null
+          weekend_focus_target_minutes: number | null
           wind_down_minutes: number | null
         }
         Insert: {
           ai_grading_enabled?: boolean
+          daily_focus_target_minutes?: number | null
           daily_new_limit?: number
           desired_retention?: number
+          morning_brief_collapsed_on?: string | null
           notification_enabled?: boolean
           notification_time?: string
           session_target_minutes?: number
@@ -4418,12 +4423,15 @@ export type Database = {
           user_id?: string
           wake_time?: string | null
           weekday_baselines?: number[] | null
+          weekend_focus_target_minutes?: number | null
           wind_down_minutes?: number | null
         }
         Update: {
           ai_grading_enabled?: boolean
+          daily_focus_target_minutes?: number | null
           daily_new_limit?: number
           desired_retention?: number
+          morning_brief_collapsed_on?: string | null
           notification_enabled?: boolean
           notification_time?: string
           session_target_minutes?: number
@@ -4432,6 +4440,7 @@ export type Database = {
           user_id?: string
           wake_time?: string | null
           weekday_baselines?: number[] | null
+          weekend_focus_target_minutes?: number | null
           wind_down_minutes?: number | null
         }
         Relationships: []
