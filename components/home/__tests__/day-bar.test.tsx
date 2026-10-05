@@ -67,11 +67,10 @@ describe("DayBar (HOME-02)", () => {
     expect(screen.getByTestId("day-bar-awake")).toHaveTextContent("Awake for 6:00");
   });
 
-  it("an awake span up to a live NOW marker, with the efficiency strip inside it", () => {
+  it("an awake span up to a live NOW marker, with the efficiency share kept in the model", () => {
     render(<DayBar {...props} />);
     // 06:00→22:00 is 16 h; now 11:45 = 5.75 h = 35.9% ; focus share = 30% of that
     expect(screen.getByTestId("day-bar-awake-span").style.width).toMatch(/^35\.9/);
-    expect(parseFloat(screen.getByTestId("day-bar-focus-share").style.width)).toBeCloseTo(10.78, 1);
     expect(screen.getByTestId("day-bar-now").style.left).toMatch(/^35\.9/);
   });
 
@@ -80,12 +79,13 @@ describe("DayBar (HOME-02)", () => {
     const legend = within(screen.getByTestId("day-bar-legend"));
     for (const name of ["Calc", "Lock-In", "Gym"]) expect(legend.getByText(name)).toBeInTheDocument();
     const focus = screen.getByTestId("day-bar-focus-block");
-    expect(focus.className).toContain("ring-2");
+    expect(focus.className).toContain("ring-1");
     expect(within(screen.getByTestId("day-bar-track")).getByTestId("day-bar-focus-block")).toBe(focus); // on the track
     const lanes = within(screen.getByTestId("day-bar-lanes"));
     expect(lanes.getAllByTestId("day-bar-block")).toHaveLength(2); // Calc + Gym sit in the lane ABOVE the track
     expect(lanes.getByRole("button", { name: /Class: Calculus, 10:00\sAM.11:00\sAM/ })).toBeInTheDocument();
-    expect(focus.querySelector("svg")).not.toBeNull(); // icon present
+    expect(focus).toHaveAccessibleName(/Focus: Lock-In/); // a thin segment: named, not iconed (the legend carries the icon)
+    expect(within(screen.getByTestId("day-bar-legend")).getAllByText("Lock-In")[0].parentElement!.querySelector("svg")).not.toBeNull();
   });
 
   it("EVERY indicator opens a popover with its details: class, workout, focus block (and prayer, below)", async () => {
@@ -219,6 +219,109 @@ describe("DayBar (HOME-02)", () => {
     expect(lefts.length).toBe(2); // positive control: both really rendered as dots
   });
 
+  // DAYBAR-03: the whole day, a Start Day marker, a thin separate prayer strip, an empty state.
+  describe("DAYBAR-03 whole-day layouts", () => {
+    const dayStart = at("2026-10-05T00:00:00").toISOString();
+    const dayEnd = at("2026-10-06T00:00:00").toISOString();
+    const whole = { ...props, rangeStartIso: dayStart, endIso: dayEnd };
+    const prayerLayout = (events: boolean) =>
+      computeDayRibbon({
+        dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
+        prayers: [
+          { name: "maghrib", label: "Maghrib", status: "pending", window: { start: at("2026-10-05T18:30:00"), end: at("2026-10-05T20:00:00") } },
+          { name: "isha", label: "Isha", status: "upcoming", window: { start: at("2026-10-05T20:00:00"), end: at("2026-10-05T23:30:00") } },
+        ],
+        activities: events ? [{ label: "Calc", colorVar: "--accent-school", kind: "class", start: at("2026-10-05T10:00:00"), end: at("2026-10-05T11:15:00") }] : [],
+        now: at("2026-10-05T19:55:00"),
+      })!;
+    const lateStart = { ...whole, layout: prayerLayout(false), wokeAtIso: at("2026-10-05T19:50:00").toISOString(), nowIso: at("2026-10-05T19:55:00").toISOString() };
+
+    it("A (late Start Day, Deen ON, nothing scheduled): a 24 h bar with the Started marker at 7:50 PM, awake shading from it to NOW, thin prayer strip, empty note", () => {
+      vi.setSystemTime(at("2026-10-05T19:55:00"));
+      render(<DayBar {...lateStart} />);
+      const started = parseFloat(screen.getByTestId("day-bar-started").style.left);
+      expect(started).toBeCloseTo((19 + 50 / 60) / 24 * 100, 1);
+      expect(screen.getByTestId("day-bar-started-label")).toHaveTextContent("Started 7:50 PM");
+      const span = screen.getByTestId("day-bar-awake-span");
+      expect(parseFloat(span.style.left)).toBeCloseTo(started, 1); // shading starts at the marker...
+      expect(parseFloat(span.style.left) + parseFloat(span.style.width)).toBeCloseTo(parseFloat(screen.getByTestId("day-bar-now").style.left), 1); // ...and ends at NOW
+      expect(screen.getByTestId("day-bar-asleep")).toBeInTheDocument(); // the part before Start Day is faint
+      expect(screen.getByTestId("day-bar-empty")).toBeInTheDocument();
+      // prayers live in a separate strip, thin, never a full-height box in the track
+      const strip = screen.getByTestId("day-bar-prayer-strip");
+      expect(strip).toContainElement(screen.getByTestId("day-bar-prayer-maghrib"));
+      expect(screen.getByTestId("day-bar-track")).not.toContainElement(screen.getByTestId("day-bar-prayer-maghrib"));
+      expect(screen.getByTestId("day-bar-track").style.height).toBe("12px");
+      // 3-hourly labels over the whole day
+      const scale = screen.getByTestId("day-bar-scale").textContent!;
+      for (const l of ["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]) expect(scale).toContain(l);
+    });
+
+    it("no marker and no awake shading before Start Day (positive control: A has both)", () => {
+      vi.setSystemTime(at("2026-10-05T07:00:00"));
+      render(<DayBar {...lateStart} nowIso={at("2026-10-05T07:00:00").toISOString()} />);
+      expect(screen.queryByTestId("day-bar-started")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("day-bar-started-label")).not.toBeInTheDocument();
+      expect(parseFloat(screen.getByTestId("day-bar-awake-span").style.width)).toBe(0);
+    });
+
+    it("B (morning, class + focus block): the class is a pill in a lane, the focus block a segment on the track, no empty note", () => {
+      vi.setSystemTime(at("2026-10-05T14:00:00"));
+      render(
+        <DayBar {...whole} layout={computeDayRibbon({
+          dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
+          prayers: [],
+          activities: [
+            { label: "Calc", colorVar: "--accent-school", kind: "class", start: at("2026-10-05T10:00:00"), end: at("2026-10-05T11:15:00") },
+            { label: "Lock-In", colorVar: "--accent-business", kind: "focus", start: at("2026-10-05T12:00:00"), end: at("2026-10-05T12:45:00") },
+          ],
+          now: at("2026-10-05T14:00:00"),
+        })!} wokeAtIso={at("2026-10-05T07:00:00").toISOString()} nowIso={at("2026-10-05T14:00:00").toISOString()} />
+      );
+      expect(within(screen.getByTestId("day-bar-lanes")).getByRole("button", { name: /Class: Calc/ })).toBeInTheDocument();
+      expect(within(screen.getByTestId("day-bar-track")).getByTestId("day-bar-focus-block")).toBeInTheDocument();
+      expect(screen.queryByTestId("day-bar-empty")).not.toBeInTheDocument();
+      expect(screen.getByTestId("day-bar-started-label")).toHaveTextContent("Started 7:00 AM");
+    });
+
+    it("C (Deen OFF, no events): no prayer strip, the empty note, still a whole-day bar with Started + NOW", () => {
+      vi.setSystemTime(at("2026-10-05T11:45:00"));
+      render(<DayBar {...whole} layout={null} />);
+      expect(screen.queryByTestId("day-bar-prayer-strip")).not.toBeInTheDocument();
+      expect(screen.getByTestId("day-bar-empty")).toBeInTheDocument();
+      expect(screen.getByTestId("day-bar-started")).toBeInTheDocument();
+      expect(screen.getByTestId("day-bar-now")).toBeInTheDocument();
+    });
+
+    it("D (Start Day at 1 AM): the marker sits near the left edge and its label is kept inside the chart", () => {
+      vi.setSystemTime(at("2026-10-05T01:30:00"));
+      render(<DayBar {...whole} layout={null} wokeAtIso={at("2026-10-05T01:00:00").toISOString()} nowIso={at("2026-10-05T01:30:00").toISOString()} />);
+      expect(parseFloat(screen.getByTestId("day-bar-started").style.left)).toBeCloseTo(4.17, 1);
+      expect(screen.getByTestId("day-bar-started-label").className).not.toContain("-translate-x-1/2"); // flipped so it cannot spill off the left edge
+    });
+
+    it("prayer strip segments carry their window geometry, the current one highlighted, initials on a phone", async () => {
+      vi.setSystemTime(at("2026-10-05T19:55:00"));
+      render(<DayBar {...lateStart} />);
+      const maghrib = screen.getByTestId("day-bar-prayer-maghrib");
+      expect(maghrib).toHaveAttribute("data-current", "true");
+      expect(parseFloat(maghrib.style.left)).toBeCloseTo(((18 + 30 / 60) / 24) * 100, 1);
+      expect(maghrib).toHaveTextContent("Maghrib"); // roomy on desktop (>= 6%)
+      expect(screen.getByTestId("day-bar-prayer-isha")).toHaveAttribute("data-current", "false");
+    });
+
+    it("on a phone: prayer segments show initials and the scale labels only every 6 h", () => {
+      vi.stubGlobal("matchMedia", (q: string) => ({ matches: true, media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+      vi.setSystemTime(at("2026-10-05T19:55:00"));
+      render(<DayBar {...lateStart} />);
+      expect(screen.getByTestId("day-bar-prayer-maghrib")).toHaveTextContent(/^M$/);
+      const scale = screen.getByTestId("day-bar-scale").textContent!;
+      expect(scale).toContain("6 AM");
+      expect(scale).not.toContain("3 AM");
+      vi.unstubAllGlobals();
+    });
+  });
+
   it("the subtle Lock-In hint sits under the bar while hours are 0 (and not otherwise)", () => {
     const { unmount } = render(<DayBar {...props} hoursTodayMinutes={0} efficiencyPercent={null} />);
     act(() => void vi.advanceTimersByTime(10));
@@ -229,11 +332,11 @@ describe("DayBar (HOME-02)", () => {
     expect(screen.queryByTestId("lock-in-hint")).not.toBeInTheDocument();
   });
 
-  it("with no ribbon it is still a bar, with a gentle empty line", () => {
+  it("with no ribbon it is still a bar, with a one-line empty note", () => {
     render(<DayBar {...props} layout={null} />);
     expect(screen.getByTestId("day-bar")).toBeInTheDocument();
     expect(screen.queryByTestId("day-bar-legend")).not.toBeInTheDocument();
-    expect(screen.getByText(/will show up here as your day happens/)).toBeInTheDocument();
+    expect(screen.getByTestId("day-bar-empty")).toHaveTextContent("Nothing scheduled today");
   });
 
   // eng1 review L1: seeded from the SERVER's now, so server HTML and first client paint agree.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDayBar, dayBarEnd, formatAwake, toGoLabel } from "../day-bar";
+import { buildDayBar, dayBarEnd, dayBarRange, formatAwake, toGoLabel } from "../day-bar";
 import { computeDayRibbon } from "../day-ribbon";
 import { HOME_DAY_VIEW } from "../day-view";
 
@@ -184,5 +184,58 @@ describe("DAYBAR-02 model", () => {
     expect(withCal.blocks.map((b) => b.label)).not.toContain("Yesterday"); // outside the bar
     expect(withCal.allDay.map((a) => a.title)).toEqual(["Eid"]);
     expect(withCal.blocks.map((b) => b.label)).not.toContain("Eid"); // positive control: all-day is not on the timeline
+  });
+});
+
+// DAYBAR-03: the whole-day range and the Started marker.
+describe("DAYBAR-03 range + Started marker", () => {
+  it("dayBarRange is the whole local day, 12 AM -> 12 AM, in the zone (even when UTC is already the next day)", () => {
+    const r = dayBarRange(new Date("2026-10-06T02:30:00Z"), CHI); // 9:30 PM on Oct 5 in Chicago
+    expect(r.date).toBe("2026-10-05");
+    expect(r.start.toISOString()).toBe("2026-10-05T05:00:00.000Z");
+    expect(r.end.toISOString()).toBe("2026-10-06T05:00:00.000Z");
+  });
+
+  it("a DST day is 25 h long, not +24 h (positive control: a normal day is 24 h)", () => {
+    const normal = dayBarRange(new Date("2026-10-05T18:00:00Z"), CHI);
+    expect(normal.end.getTime() - normal.start.getTime()).toBe(24 * 3600_000);
+    const fallBack = dayBarRange(new Date("2026-11-01T18:00:00Z"), CHI);
+    expect(fallBack.end.getTime() - fallBack.start.getTime()).toBe(25 * 3600_000);
+  });
+
+  const range = dayBarRange(new Date("2026-10-06T00:55:00Z"), CHI); // 7:55 PM Oct 5
+  const late = (now: string) => buildDayBar({ layout: null, wake: new Date("2026-10-06T00:50:00Z"), rangeStart: range.start, end: range.end, now: new Date(now), efficiencyPercent: null, timezone: CHI });
+
+  it("Started pins at the wake's share of the day and the awake span runs from it to NOW", () => {
+    const bar = late("2026-10-06T00:55:00Z");
+    expect(bar.startedPct).toBeCloseTo(((19 + 50 / 60) / 24) * 100, 1);
+    expect(bar.awakeStartPct).toBe(bar.startedPct);
+    expect(bar.awakePct).toBeCloseTo(((19 + 55 / 60) / 24) * 100, 1);
+    expect(bar.ticks.filter((t) => t.label).map((t) => t.label)).toEqual(["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "12 AM"]);
+  });
+
+  it("before Start Day there is no marker and the awake span is empty", () => {
+    const bar = late("2026-10-05T20:00:00Z"); // 3 PM, wake is 7:50 PM
+    expect(bar.startedPct).toBeNull();
+    expect(bar.awakePct).toBe(bar.awakeStartPct);
+  });
+
+  it("a Start Day from before this bar's day has no marker (positive control: today's has one) and shading starts at 0", () => {
+    const bar = buildDayBar({ layout: null, wake: new Date("2026-10-05T03:00:00Z"), rangeStart: range.start, end: range.end, now: new Date("2026-10-06T06:00:00Z"), efficiencyPercent: null, timezone: CHI });
+    expect(bar.startedPct).toBeNull();
+    expect(bar.awakeStartPct).toBe(0);
+    expect(late("2026-10-06T00:55:00Z").startedPct).not.toBeNull();
+  });
+
+  it("prayers project onto the whole day (Maghrib 6:30-8 PM sits at 77.1%-83.3%), not onto a 2-hour sliver", () => {
+    const layout = computeDayRibbon({
+      dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
+      prayers: [{ name: "maghrib", label: "Maghrib", status: "pending", window: { start: at("2026-10-05T18:30:00"), end: at("2026-10-05T20:00:00") } }],
+      activities: [],
+      now: at("2026-10-05T19:55:00"),
+    })!;
+    const bar = buildDayBar({ layout, wake: new Date("2026-10-06T00:50:00Z"), rangeStart: range.start, end: range.end, now: new Date("2026-10-06T00:55:00Z"), efficiencyPercent: null });
+    expect(bar.prayers[0].startPct).toBeCloseTo(77.08, 1);
+    expect(bar.prayers[0].endPct).toBeCloseTo(83.33, 1);
   });
 });

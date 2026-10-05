@@ -5,7 +5,7 @@ import { Panel } from "@/components/ui/panel";
 import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
 import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
 import { DayBar } from "@/components/home/day-bar";
-import { dayBarEnd } from "@/lib/home/day-bar";
+import { dayBarRange } from "@/lib/home/day-bar";
 import { HOME_DAY_VIEW, type HomeDayView } from "@/lib/home/day-view";
 import { DEFAULT_FOCUS_TARGET_MINUTES } from "@/lib/focus/target";
 import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
@@ -84,14 +84,15 @@ export function RhythmSection({
       );
     case "today": {
       if (dayView === "bar") {
-        const wake = new Date(data.wokeAtIso);
-        const end = dayBarEnd({ wake, ribbonEnd: ribbon?.rangeEnd ?? new Date(wake.getTime() + 16 * 3600_000), bedtime: data.bedtime, localDate: data.localDate, timezone });
+        // DAYBAR-03: the bar is always the whole local day, 12 AM -> 12 AM; Start Day is a marker on it.
+        const range = dayBarRange(new Date(data.nowIso), timezone);
         return (
           <div className="flex flex-col gap-3" data-testid="rhythm-today">
             <DayBar
               layout={ribbon}
               wokeAtIso={data.wokeAtIso}
-              endIso={end.toISOString()}
+              rangeStartIso={range.start.toISOString()}
+              endIso={range.end.toISOString()}
               nowIso={data.nowIso}
               hoursTodayMinutes={data.hoursTodayMinutes}
               targetMinutes={targetMinutes}

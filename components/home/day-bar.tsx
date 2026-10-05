@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, ListChecks, Repeat, Timer, type LucideIcon } from "lucide-react";
+import { CalendarDays, Flag, ListChecks, Repeat, Timer, type LucideIcon } from "lucide-react";
 import { LockInHint } from "@/components/home/lock-in-hint";
-import { IndicatorPopover } from "@/components/home/indicator-popover";
+import { IndicatorPopover, useIsNarrow } from "@/components/home/indicator-popover";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
@@ -28,7 +28,10 @@ const KIND_LABEL: Record<DayBarKind, string> = { class: "Class", work: "Work", f
 
 const DOT_INSET_PCT = 2.5; // a 14px dot centred on 0%/100% would be half-clipped by the lanes
 const LANE_PX = 28;
-const TRACK_PX = 48;
+const TRACK_PX = 12;
+
+/** Keeps an edge label inside the chart: flip it at the far ends, centre it otherwise. */
+const edgeShift = (pct: number) => (pct > 92 ? "-translate-x-full" : pct < 8 ? "" : "-translate-x-1/2");
 
 const fmtClock = (d: Date, timezone: string) =>
   new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(d);
@@ -80,6 +83,7 @@ const PRAYER_STATE_LABEL: Record<DayBarPrayer["state"], string> = { logged: "Log
 export function DayBar({
   layout,
   wokeAtIso,
+  rangeStartIso,
   endIso,
   nowIso,
   hoursTodayMinutes,
@@ -90,7 +94,10 @@ export function DayBar({
   calendarEvents = [],
 }: {
   layout: DayRibbonLayout | null;
+  /** Start Day. */
   wokeAtIso: string;
+  /** The bar's start (the day's 12 AM); defaults to Start Day. */
+  rangeStartIso?: string;
   endIso: string;
   /** Server-computed now (ISO) -- the first render uses it, so there is no hydration mismatch or bar-width jump. */
   nowIso: string;
@@ -127,9 +134,11 @@ export function DayBar({
       .finally(scheduleRefresh);
   }
 
+  const narrow = useIsNarrow();
   const wake = new Date(wokeAtIso);
+  const rangeStart = new Date(rangeStartIso ?? wokeAtIso);
   const end = new Date(endIso);
-  const bar = buildDayBar({ layout, wake, end, now, efficiencyPercent, calendarEvents, timezone });
+  const bar = buildDayBar({ layout, wake, rangeStart, end, now, efficiencyPercent, calendarEvents, timezone });
   const awakeSeconds = Math.max(0, (now.getTime() - wake.getTime()) / 1000);
   const toGo = toGoLabel(hoursTodayMinutes, targetMinutes, formatHoursMinutes);
   const fixed = bar.blocks.filter((b) => !b.isFocus);
@@ -141,7 +150,7 @@ export function DayBar({
     const width = Math.min(Math.max(b.endPct - b.startPct, 1.2), 100);
     const left = `${Math.min(b.startPct, 100 - width)}%`;
     const label = `${KIND_LABEL[b.kind]}: ${b.popover.title}, ${timeRange(b.popover, timezone)}`;
-    const common = cn("pointer-events-auto absolute flex items-center gap-1 overflow-hidden text-background", b.upcoming ? "opacity-70" : "opacity-95", b.isFocus && "ring-2 ring-primary");
+    const common = cn("pointer-events-auto absolute flex items-center gap-1 overflow-hidden text-background", b.upcoming ? "opacity-70" : "opacity-95", b.isFocus && "ring-1 ring-primary");
     if (shape === "dot") {
       return (
         <IndicatorPopover
@@ -172,11 +181,15 @@ export function DayBar({
             type="button"
             aria-label={label}
             data-testid={b.isFocus ? "day-bar-focus-block" : "day-bar-block"}
-            className={cn(common, "h-6 min-w-6 rounded-md px-1")}
-            style={{ left, width: `${width}%`, ...(b.isFocus ? { top: "50%", marginTop: -12 } : { bottom: b.lane * LANE_PX + 2 }), backgroundColor: `var(${b.colorVar})` }}
+            className={cn(
+              common,
+              // a focus segment is drawn ON the thin track (its tap area is padded out); a fixed event is a labelled pill in a lane
+              b.isFocus ? "h-3 min-w-2 overflow-visible rounded-full before:absolute before:-inset-y-2 before:inset-x-0 before:content-['']" : "h-6 min-w-6 rounded-md px-1"
+            )}
+            style={{ left, width: `${width}%`, ...(b.isFocus ? { top: "50%", marginTop: -6 } : { bottom: b.lane * LANE_PX + 2 }), backgroundColor: `var(${b.colorVar})` }}
           >
-            <Icon className="size-3.5 shrink-0" aria-hidden />
-            <span className="hidden truncate text-[10px] leading-none font-medium sm:inline">{b.label}</span>
+            {b.isFocus ? null : <Icon className="size-3.5 shrink-0" aria-hidden />}
+            {!b.isFocus && b.endPct - b.startPct >= 7 ? <span className="hidden truncate text-[10px] leading-none font-medium sm:inline">{b.label}</span> : null}
           </button>
         }
       >
@@ -220,93 +233,112 @@ export function DayBar({
         </div>
       ) : null}
 
-      {/* the chart: lanes of fixed events above, the track below; prayer bands sit behind both */}
-      <div className="relative" data-testid="day-bar-chart" role="group" aria-label={`Your day from ${fmtClock(wake, timezone)} to ${fmtClock(end, timezone)}`}>
-        <div className="relative" style={{ height: lanesPx + TRACK_PX }}>
-          {bar.prayers.map((p) => {
-            const shown = marked.has(p.name) ? "logged" : p.state;
-            return (
-              <IndicatorPopover
-                key={p.name}
-                title={p.label}
-                subtitle="Prayer window"
-                trigger={
-                  <button
-                    type="button"
-                    aria-label={`${p.label} window, ${fmtClock(p.windowStart, timezone)}–${fmtClock(p.windowEnd, timezone)} (${PRAYER_STATE_LABEL[shown].toLowerCase()})`}
-                    data-testid={`day-bar-prayer-${p.name}`}
-                    data-state={shown}
-                    data-current={p.current ? "true" : "false"}
-                    className={cn(
-                      "absolute inset-y-0 z-0 overflow-hidden rounded-md border-x text-left",
-                      p.current ? "border-accent-deen/50 bg-accent-deen/25" : "border-accent-deen/20 bg-accent-deen/10",
-                      shown === "logged" && "border-t-2 border-t-accent-deen",
-                      shown === "missed" && "border-dashed border-destructive/60"
-                    )}
-                    style={{ left: `${p.startPct}%`, width: `${Math.max(p.endPct - p.startPct, 0.8)}%` }}
-                  >
-                    <span className="absolute inset-x-1 bottom-0.5 hidden truncate text-[10px] leading-none font-medium text-accent-deen sm:block">{p.label}</span>
-                  </button>
-                }
-              >
-                <p className="text-xs text-muted-foreground" data-testid="indicator-time">
-                  {fmtClock(p.windowStart, timezone)}–{fmtClock(p.windowEnd, timezone)}
-                </p>
-                <p className="text-xs">Status: {PRAYER_STATE_LABEL[shown]}</p>
-                {shown !== "logged" ? (
-                  <Button type="button" size="sm" onClick={() => mark(p.name)} data-testid={`mark-prayer-${p.name}`}>
-                    Mark on time
-                  </Button>
-                ) : null}
-                {markError ? (
-                  <p role="alert" className="text-xs text-destructive">
-                    {markError}
-                  </p>
-                ) : null}
-              </IndicatorPopover>
-            );
-          })}
-
-          {/* fixed events: lanes above the track; clipped so nothing overhangs the bar */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 overflow-hidden" style={{ height: lanesPx }} data-testid="day-bar-lanes">
-            <div className="pointer-events-none relative h-full">
-              {fixed.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}
-            </div>
+      {/* the chart, top to bottom: lanes of fixed events, the thin main track (awake span, Started pin, focus segments, NOW),
+          a separate thin prayer strip, then the hour scale with the clock labels */}
+      <div className="relative" data-testid="day-bar-chart" role="group" aria-label={`Your day from ${fmtClock(rangeStart, timezone)} to ${fmtClock(end, timezone)}`}>
+        {/* fixed events: lanes above the track; clipped so nothing overhangs the bar */}
+        {lanesPx > 0 ? (
+          <div className="pointer-events-none relative overflow-hidden" style={{ height: lanesPx }} data-testid="day-bar-lanes">
+            <div className="pointer-events-none relative h-full">{fixed.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}</div>
           </div>
+        ) : null}
 
-          {/* the track */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 rounded-lg" style={{ height: TRACK_PX }} data-testid="day-bar-track">
-            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg bg-muted/30">
-              <div className="absolute inset-y-0 left-0 bg-accent-info/15" style={{ width: `${bar.awakePct}%` }} data-testid="day-bar-awake-span" />
-              <div className="absolute bottom-0 left-0 h-1.5 bg-primary/60" style={{ width: `${bar.focusSharePct}%` }} data-testid="day-bar-focus-share" />
-              <div className="pointer-events-none absolute inset-0" data-testid="day-bar-blocks">
-                <div className="pointer-events-none relative h-full">{focus.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}</div>
-              </div>
-            </div>
-            {bar.nowPosition === "within" ? (
-              <div className="absolute inset-y-0 z-20 w-px bg-accent-info" style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now" />
-            ) : null}
+        {/* the track */}
+        <div className="pointer-events-none relative mt-1 rounded-full" style={{ height: TRACK_PX }} data-testid="day-bar-track">
+          <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-full bg-muted/50">
+            {bar.awakeStartPct > 0 ? <div className="absolute inset-y-0 left-0 bg-background/50" style={{ width: `${bar.awakeStartPct}%` }} data-testid="day-bar-asleep" /> : null}
+            <div
+              className="absolute inset-y-0 bg-accent-info/30"
+              style={{ left: `${bar.awakeStartPct}%`, width: `${Math.max(0, bar.awakePct - bar.awakeStartPct)}%` }}
+              data-testid="day-bar-awake-span"
+            />
           </div>
+          <div className="pointer-events-none absolute inset-0" data-testid="day-bar-blocks">
+            <div className="pointer-events-none relative h-full">{focus.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}</div>
+          </div>
+          {bar.startedPct !== null ? (
+            <div className="pointer-events-none absolute -inset-y-1 z-10 w-0.5 rounded-full bg-foreground/70" style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started">
+              <Flag className="absolute -top-0.5 left-0 size-3 -translate-x-1/2 -translate-y-full fill-foreground/70 text-foreground/70" aria-hidden />
+            </div>
+          ) : null}
+          {bar.nowPosition === "within" ? (
+            <div className="pointer-events-none absolute -inset-y-1 z-20 w-px bg-accent-info" style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now">
+              <span className="absolute top-1/2 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card bg-accent-info" aria-hidden />
+            </div>
+          ) : null}
         </div>
 
-        {/* hour scale */}
+        {/* the prayer strip (Faith on): thin, quiet, SEPARATE from the track; each segment opens its popover */}
+        {bar.prayers.length > 0 ? (
+          <div className="relative mt-2 h-7" data-testid="day-bar-prayer-strip">
+            {bar.prayers.map((p) => {
+              const shown = marked.has(p.name) ? "logged" : p.state;
+              const width = Math.max(p.endPct - p.startPct, 0.8);
+              const roomy = !narrow && width >= 6;
+              return (
+                <IndicatorPopover
+                  key={p.name}
+                  title={p.label}
+                  subtitle="Prayer window"
+                  trigger={
+                    <button
+                      type="button"
+                      aria-label={`${p.label} window, ${fmtClock(p.windowStart, timezone)}–${fmtClock(p.windowEnd, timezone)} (${PRAYER_STATE_LABEL[shown].toLowerCase()})`}
+                      data-testid={`day-bar-prayer-${p.name}`}
+                      data-state={shown}
+                      data-current={p.current ? "true" : "false"}
+                      className="absolute inset-y-0 text-left"
+                      style={{ left: `${p.startPct}%`, width: `${width}%` }}
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "absolute inset-x-px top-0 block h-2 rounded-full",
+                          p.current ? "bg-accent-deen/70" : shown === "logged" ? "bg-accent-deen/45" : "bg-accent-deen/20",
+                          shown === "missed" && "bg-muted-foreground/25"
+                        )}
+                      />
+                      <span aria-hidden className={cn("absolute inset-x-0 top-2.5 truncate text-center text-[10px] leading-none", p.current ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                        {roomy ? p.label : p.label.charAt(0)}
+                      </span>
+                    </button>
+                  }
+                >
+                  <p className="text-xs text-muted-foreground" data-testid="indicator-time">
+                    {fmtClock(p.windowStart, timezone)}–{fmtClock(p.windowEnd, timezone)}
+                  </p>
+                  <p className="text-xs">Status: {PRAYER_STATE_LABEL[shown]}</p>
+                  {shown !== "logged" ? (
+                    <Button type="button" size="sm" onClick={() => mark(p.name)} data-testid={`mark-prayer-${p.name}`}>
+                      Mark on time
+                    </Button>
+                  ) : null}
+                  {markError ? (
+                    <p role="alert" className="text-xs text-destructive">
+                      {markError}
+                    </p>
+                  ) : null}
+                </IndicatorPopover>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* hour scale: a label every 3 h (every 6 h on a phone); the Started / NOW clock labels share its second row */}
         <div className="relative mt-1 h-9" aria-hidden data-testid="day-bar-scale">
           {bar.ticks.map((t, i) => (
             <div key={i} className="absolute top-0 -translate-x-1/2" style={{ left: `${t.pct}%` }}>
               <div className={cn("mx-auto w-px bg-border", t.label ? "h-2" : "h-1")} />
-              {t.label ? <span className="mt-0.5 block font-mono text-[10px] leading-none whitespace-nowrap text-muted-foreground tabular-nums">{t.label}</span> : null}
+              {t.label && (!narrow || t.hour % 6 === 0) ? <span className="mt-0.5 block font-mono text-[10px] leading-none whitespace-nowrap text-muted-foreground tabular-nums">{t.label}</span> : null}
             </div>
           ))}
-          {/* the clock label sits on its own row under the scale, so it can never cover an event pill; flipped near the ends */}
+          {bar.startedPct !== null ? (
+            <span className={cn("absolute top-5 font-mono text-[10px] leading-none font-medium whitespace-nowrap text-foreground tabular-nums", edgeShift(bar.startedPct))} style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started-label">
+              Started {fmtClock(wake, timezone)}
+            </span>
+          ) : null}
           {bar.nowPosition === "within" ? (
-            <span
-              className={cn(
-                "absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums",
-                bar.nowPct > 92 ? "-translate-x-full" : bar.nowPct < 8 ? "" : "-translate-x-1/2"
-              )}
-              style={{ left: `${bar.nowPct}%` }}
-              data-testid="day-bar-now-label"
-            >
+            <span className={cn("absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums", edgeShift(bar.nowPct))} style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now-label">
               {fmtClock(now, timezone)}
             </span>
           ) : null}
@@ -327,7 +359,9 @@ export function DayBar({
           })}
         </ul>
       ) : (
-        <p className="text-xs text-muted-foreground">Today&apos;s classes, work, workouts and focus sessions will show up here as your day happens.</p>
+        <p className="text-xs text-muted-foreground" data-testid="day-bar-empty">
+          Nothing scheduled today
+        </p>
       )}
 
       <LockInHint localDate={localDate} hoursTodayMinutes={hoursTodayMinutes} />

@@ -1,5 +1,5 @@
 import type { DayRibbonLayout, RibbonActivityKind, RibbonActivityDetail, RibbonSpanState } from "@/lib/home/day-ribbon";
-import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { addDaysToDateString, localDateString, resolveLocalTime } from "@/lib/date-utils";
 
 /**
  * The Day bar's model (HOME-02): one horizontal timeline from Start Day (wake) to bedtime, reusing the day
@@ -68,14 +68,18 @@ export type DayBarPrayer = {
   current: boolean;
 };
 
-export type DayBarTick = { pct: number; label: string | null };
+export type DayBarTick = { pct: number; label: string | null; /** Local hour 0..23 (the phone view labels only every 6th). */ hour: number };
 
 export type DayBar = {
   rangeStart: Date;
   rangeEnd: Date;
   nowPct: number;
   nowPosition: "before" | "within" | "after";
-  /** Wake -> now, as percent of the bar (the shaded "awake so far" span). */
+  /** Where the awake span starts (the Start Day marker), percent of the bar; 0 when the day began before the bar. */
+  awakeStartPct: number;
+  /** Where "Started h:mm" is pinned: the wake's percent, or null when there is no marker (not started yet / began before this day). */
+  startedPct: number | null;
+  /** The END of the shaded awake span (NOW), as percent of the bar; equals awakeStartPct before the wake. */
   awakePct: number;
   /** The efficiency share of the awake span, as percent of the BAR (0..awakePct). */
   focusSharePct: number;
@@ -90,7 +94,17 @@ export type DayBar = {
 const clampPct = (n: number) => Math.max(0, Math.min(100, n));
 
 /**
- * The bar's end: the wind-down plan's bedtime ("HH:MM", local) when Sleep plan is on and a plan is set,
+ * DAYBAR-03: the bar ALWAYS covers the whole local calendar day containing `now`, 12 AM -> 12 AM, so the
+ * hour scale never changes and an evening Start Day reads as "late in a whole day", not a 2-hour sliver.
+ * Both edges are resolved in the zone (a DST day is 23 or 25 h long, never "+24 h").
+ */
+export function dayBarRange(now: Date, timezone: string): { start: Date; end: Date; date: string } {
+  const date = localDateString(now, timezone);
+  return { start: resolveLocalTime(date, "00:00", timezone), end: resolveLocalTime(addDaysToDateString(date, 1), "00:00", timezone), date };
+}
+
+/**
+ * (HOME-02, no longer used for the range) The bar's end: the wind-down plan's bedtime ("HH:MM", local) when Sleep plan is on and a plan is set,
  * else the ribbon's own end of day. A bedtime that reads as earlier than the wake (e.g. 00:30) means the
  * NEXT calendar day; one earlier than wake by more than 12 h is also next-day. Never before wake + 1 h.
  */
@@ -129,14 +143,17 @@ export function hourTicks(rangeStart: Date, rangeEnd: Date, timezone: string): D
   for (let i = 0; t <= rangeEnd.getTime() && i < 48; i++, t += 3_600_000) {
     const d = new Date(t);
     const { h } = localHourMinute(d, timezone);
-    ticks.push({ pct: clampPct(((t - rangeStart.getTime()) / span) * 100), label: h % 3 === 0 ? labelFmt.format(d) : null });
+    ticks.push({ pct: clampPct(((t - rangeStart.getTime()) / span) * 100), label: h % 3 === 0 ? labelFmt.format(d) : null, hour: h });
   }
   return ticks;
 }
 
 export function buildDayBar(args: {
   layout: DayRibbonLayout | null;
+  /** Start Day: where the awake span begins. */
   wake: Date;
+  /** The bar's start (the day's 12 AM); defaults to the wake. */
+  rangeStart?: Date;
   end: Date;
   now: Date;
   /** Efficiency percent (0..100) or null when not computable. */
@@ -147,16 +164,21 @@ export function buildDayBar(args: {
   timezone?: string;
 }): DayBar & { allDay: DayBarPopover[] } {
   const { layout, wake, end, now, efficiencyPercent, calendarEvents = [], timezone = "UTC" } = args;
-  const span = end.getTime() - wake.getTime();
-  const pct = (t: number) => clampPct(((t - wake.getTime()) / span) * 100);
+  const start = args.rangeStart ?? wake;
+  const span = end.getTime() - start.getTime();
+  const pct = (t: number) => clampPct(((t - start.getTime()) / span) * 100);
   const nowPct = pct(now.getTime());
-  const nowPosition = now.getTime() < wake.getTime() ? "before" : now.getTime() > end.getTime() ? "after" : "within";
-  const awakePct = nowPosition === "before" ? 0 : nowPct;
-  const focusSharePct = efficiencyPercent === null ? 0 : (awakePct * Math.max(0, Math.min(100, efficiencyPercent))) / 100;
+  const nowPosition = now.getTime() < start.getTime() ? "before" : now.getTime() > end.getTime() ? "after" : "within";
+  const awakeStartPct = pct(wake.getTime());
+  const notStarted = now.getTime() < wake.getTime();
+  const awakePct = notStarted ? awakeStartPct : nowPct;
+  // Pinned only when Start Day happened inside this bar's day and has already happened.
+  const startedPct = !notStarted && wake.getTime() >= start.getTime() && wake.getTime() <= end.getTime() ? awakeStartPct : null;
+  const focusSharePct = efficiencyPercent === null ? 0 : ((awakePct - awakeStartPct) * Math.max(0, Math.min(100, efficiencyPercent))) / 100;
 
   const raw: Omit<DayBarBlock, "lane" | "tiny">[] = [];
   const prayers: DayBarPrayer[] = [];
-  const overlaps = (s: number, e: number) => !(e <= wake.getTime() && s < wake.getTime()) && s < end.getTime();
+  const overlaps = (s: number, e: number) => !(e <= start.getTime() && s < start.getTime()) && s < end.getTime();
 
   if (layout) {
     const rSpan = layout.rangeEnd.getTime() - layout.rangeStart.getTime();
@@ -189,7 +211,7 @@ export function buildDayBar(args: {
     for (const sp of layout.spans) {
       const ws = sp.windowStart.getTime();
       const we = sp.windowEnd.getTime();
-      if (we <= wake.getTime() || ws >= end.getTime()) continue; // the window does not touch the bar
+      if (we <= start.getTime() || ws >= end.getTime()) continue; // the window does not touch the bar
       prayers.push({
         name: sp.name,
         label: sp.label,
@@ -255,16 +277,18 @@ export function buildDayBar(args: {
   });
 
   return {
-    rangeStart: wake,
+    rangeStart: start,
     rangeEnd: end,
     nowPct,
     nowPosition,
+    awakeStartPct,
+    startedPct,
     awakePct,
     focusSharePct,
     blocks,
     laneCount: laneEnds.length,
     prayers,
-    ticks: hourTicks(wake, end, timezone),
+    ticks: hourTicks(start, end, timezone),
     allDay,
   };
 }
