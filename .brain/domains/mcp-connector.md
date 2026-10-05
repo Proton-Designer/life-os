@@ -49,7 +49,7 @@ A remote MCP server (`/api/mcp`) plus a hand-rolled OAuth 2.1 authorization serv
 | OAuth | `lib/mcp/oauth.ts`, `app/api/mcp/oauth/{authorize,token,register}/route.ts`, `app/.well-known/oauth-*` | PKCE S256, single-use codes, refresh rotation with reuse detection |
 | Registries | `lib/mcp/{registry,write-registry}.ts` | 1627 / 1951 lines (2026-09-15, same script) |
 | Tools | `lib/mcp/tools/{read,write,widget-manage,scheduler-manage,list-capabilities}.ts` | |
-| Rate limit / audit | `lib/mcp/{rate-limit,audit}.ts` | 30 calls/60s per token, counted from `mcp_audit_log`, no in-memory state |
+| Rate limit / audit | `lib/mcp/{rate-limit,audit}.ts` | 120 calls/60s per token and 240/60s per account (interactive lane; scheduler lane 30/60), atomic RPC `mcp_rate_limit_consume` (migration 220), no in-memory state |
 | Entry | `app/api/mcp/route.ts` | `verifyToken` chain, lines 35-71 |
 | Shared operation table | `lib/agent-api/operations.ts`, `lib/agent-api/execute.ts` | The 5 tools' zod input schemas plus `buildOperationSpec`, used by MCP and REST alike (P4-17). `executeOperation(..., transport)` is the transport-neutral chain `runMcpTool` wraps |
 | REST adapter `/api/v1` | `app/api/v1/{route,me/route,actions/route,[...path]/route}.ts` → `lib/agent-api/rest/{handler,parse-path,http}.ts` | Same PATs (Bearer or `X-LifeOS-Token`), same chain with `transport='rest'`. Body = the tool's structuredContent verbatim. Errors are problem+json. Widget/schedule managers sit at `/api/v1/manage/*` because `widgets` is a read domain. Grammar is in `GET /api/v1` |

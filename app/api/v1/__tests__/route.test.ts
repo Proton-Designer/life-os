@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RATE_LIMIT_MAX_CALLS, RATE_LIMIT_USER_MAX_CALLS } from "@/lib/mcp/rate-limit";
 import { fakeServiceClient, fakeUserClient } from "./fake-db";
 // P4-14: dynamically imported in beforeEach, not statically here -- see
 // app/api/mcp/__tests__/route.test.ts's own comment on why (a static import
@@ -193,10 +194,10 @@ describe("discovery", () => {
     const body = await res.json();
     expect(body.token).toEqual(expect.objectContaining({ id: "tok-1", label: "Instinct", scopes: ["read", "write"], expires_at: "2026-12-01T00:00:00.000Z", client_kind: "agent", last4: "abcd" }));
     expect(body.rate_limit).toEqual({
-      max_calls: 30,
+      max_calls: RATE_LIMIT_MAX_CALLS,
       window_seconds: 60,
       scope: "per token, shared by MCP and REST",
-      user_max_calls: 60,
+      user_max_calls: RATE_LIMIT_USER_MAX_CALLS,
       user_scope: "across all of this account's tokens",
     });
     expect(service.auditInserts).toEqual([expect.objectContaining({ operation: "discovery.me", transport: "rest", outcome: "ok", token_id: "tok-1" })]);
@@ -274,7 +275,7 @@ describe("writes, scope, rate limit, errors", () => {
   });
 
   it("a rate-limited token gets 429 with Retry-After", async () => {
-    service = fakeServiceClient({ preloadCounts: { "tok-1": 30 } });
+    service = fakeServiceClient({ preloadCounts: { "tok-1": RATE_LIMIT_MAX_CALLS } });
     const { GET } = await catchAll();
     const res = await GET(req("/deen/prayer", { headers: AUTH }));
     expect(res.status).toBe(429);

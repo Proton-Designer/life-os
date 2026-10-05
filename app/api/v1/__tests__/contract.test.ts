@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { RATE_LIMIT_MAX_CALLS } from "@/lib/mcp/rate-limit";
 import { REGISTRY } from "@/lib/mcp/registry";
 import { WRITE_REGISTRY } from "@/lib/mcp/write-registry";
 import { AGENT_TOOL_NAMES } from "@/lib/agent-api/tool-names";
@@ -174,8 +175,8 @@ describe("contract: REST payload === MCP structuredContent for the same fake DB"
 });
 
 describe("shared rate limit: one per-token budget across MCP and REST", () => {
-  it("28 prior calls, then MCP #29 and REST #30 succeed, and the 31st is refused on BOTH transports", async () => {
-    service = fakeServiceClient({ preloadCounts: { shared: 28, other: 0 } });
+  it("(limit - 2) prior calls, then the last two succeed (one MCP, one REST), and the next is refused on BOTH transports", async () => {
+    service = fakeServiceClient({ preloadCounts: { shared: RATE_LIMIT_MAX_CALLS - 2, other: 0 } });
     createServiceRoleClient.mockImplementation(() => service.client);
     const client = await connectMcp("lifeos_pat_shared");
 

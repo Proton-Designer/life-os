@@ -20,7 +20,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *   scheduler: its own per-token and per-user buckets, so a busy interactive
  *              session never makes scheduled writes fail and pause
  *
- * The numbers are placeholders, same posture as before: no real traffic yet.
+ * 2026-10-05: raised 30/60 -> 120/240 (interactive only). An assistant's session-start sweep of the read tools
+ * is 30+ calls and tripped the old limit in ordinary use; the limit exists to cut off loops and leaked tokens,
+ * which 120/min still does. The scheduler lane is unchanged.
  * The per-user ceiling is 2x the per-token limit, so one token alone never
  * trips it first; it exists to stop "mint more tokens" from multiplying the
  * budget.
@@ -29,8 +31,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * (bounding loops and abuse, not metering) -- see migration 220's header.
  */
 export const RATE_LIMIT_WINDOW_SECONDS = 60;
-export const RATE_LIMIT_MAX_CALLS = 30;
-export const RATE_LIMIT_USER_MAX_CALLS = 60;
+export const RATE_LIMIT_MAX_CALLS = 120;
+export const RATE_LIMIT_USER_MAX_CALLS = 240;
 export const SCHEDULER_RATE_LIMIT_MAX_CALLS = 30;
 export const SCHEDULER_RATE_LIMIT_USER_MAX_CALLS = 60;
 
