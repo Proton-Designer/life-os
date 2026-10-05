@@ -4,6 +4,7 @@ import {
   SOON_MAX_DAYS,
   UPCOMING_MAX_DAYS,
   buildAssessmentsOverview,
+  countAssessmentsInNextTwoWeeks,
   daysBetweenDates,
   daysUntilLabel,
   getAssessmentsOverview,
@@ -103,5 +104,19 @@ describe("getAssessmentsOverview", () => {
     const { client, calls } = fakeClient({ classes: [] });
     expect((await getAssessmentsOverview(client, "user-1", "2026-10-04")).total).toBe(0);
     expect(calls.map((c) => c.table)).toEqual(["classes"]);
+  });
+});
+
+describe("countAssessmentsInNextTwoWeeks", () => {
+  // 2026-10-07 is a Wednesday: the window is Sun 10-04 .. Sat 10-17 (current week + next week).
+  const row = (id: string, date: string) => ({ id, classId: "c", className: "C", name: id, type: "quiz" as const, date, weightPct: null, taskId: null });
+  it("counts this week and next week only, not later and not undated", () => {
+    const o = buildAssessmentsOverview(
+      [row("today", "2026-10-07"), row("sat-next", "2026-10-17"), row("sun-after", "2026-10-18"), row("far", "2026-12-01")],
+      "2026-10-07",
+      [{ id: "u", classId: "c", className: "C", name: "undated", type: "quiz" }]
+    );
+    expect(countAssessmentsInNextTwoWeeks(o, "2026-10-07")).toBe(2);
+    expect(o.total).toBe(5);
   });
 });

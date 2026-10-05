@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addDaysToDateString, getWeekStartDate } from "@/lib/date-utils";
 import { normalizeAssessmentType, type AssessmentType } from "@/lib/school/assessment-types";
 
 /**
@@ -52,6 +53,15 @@ export function groupForDaysUntil(daysUntil: number): AssessmentGroup {
   if (daysUntil <= SOON_MAX_DAYS) return "soon";
   if (daysUntil <= UPCOMING_MAX_DAYS) return "upcoming";
   return "future";
+}
+
+/**
+ * The hero count: dated assessments from `today` through the end (Saturday) of NEXT week, i.e. the current
+ * Sun–Sat week plus the one after it. Undated staged items are not counted (they have no date to be in a window).
+ */
+export function countAssessmentsInNextTwoWeeks(overview: AssessmentsOverview, today: string): number {
+  const windowEnd = addDaysToDateString(getWeekStartDate(today), 13);
+  return [...overview.soon, ...overview.upcoming, ...overview.future].filter((i) => i.date <= windowEnd).length;
 }
 
 /** "Today", "Tomorrow", "In 5 days". */

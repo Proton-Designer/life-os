@@ -17,6 +17,7 @@ import {
   type AssessmentGroup,
   type AssessmentOverviewItem,
   type AssessmentsOverview,
+  countAssessmentsInNextTwoWeeks,
 } from "@/lib/school/assessments-overview";
 import { EXAM_NAME_PLACEHOLDER } from "@/lib/tasks/task-type";
 import { formatShortDate } from "@/lib/date-utils";
@@ -66,6 +67,7 @@ export function AssessmentsModule({ overview, classes, todayStr }: { overview: A
     todayStr,
     overview.noDate
   );
+  const twoWeekCount = countAssessmentsInNextTwoWeeks(grouped, todayStr);
   const classLabel = (id: string) => classes.find((c) => c.id === id)?.label ?? "";
 
   /** Apply `next` now; on a failed write put `previous` back and say why. */
@@ -110,8 +112,8 @@ export function AssessmentsModule({ overview, classes, todayStr }: { overview: A
     <>
       <Panel
         title="Assessments"
-        heroValue={`${grouped.total}`}
-        caption={grouped.total === 0 ? "nothing upcoming" : `upcoming assessment${grouped.total === 1 ? "" : "s"}`}
+        heroValue={`${twoWeekCount}`}
+        caption={twoWeekCount === 0 ? "nothing due in the next 2 weeks" : `upcoming assessment${twoWeekCount === 1 ? "" : "s"} over the next 2 weeks`}
         data-testid="assessments-module"
         controls={
           <div className="flex items-center gap-1">

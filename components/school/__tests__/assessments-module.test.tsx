@@ -36,7 +36,8 @@ describe("AssessmentsModule (SCHOOL-02)", () => {
   it("is collapsed by default (count in the header, no rows) and expands on tap", async () => {
     const user = userEvent.setup();
     renderIt();
-    expect(screen.getByTestId("assessments-module")).toHaveTextContent("4"); // past ones are not counted
+    expect(screen.getByTestId("assessments-module")).toHaveTextContent("2"); // only this week + next week (Quiz 3, Midterm 1); past, 10-20 and December are not counted
+    expect(screen.getByTestId("assessments-module")).toHaveTextContent("upcoming assessments over the next 2 weeks");
     expect(screen.queryByTestId("assessments-groups")).not.toBeInTheDocument();
     expect(screen.getByTestId("assessments-toggle")).toHaveAttribute("aria-expanded", "false");
     await user.click(screen.getByTestId("assessments-toggle"));
