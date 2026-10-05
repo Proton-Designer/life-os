@@ -5,7 +5,7 @@ let session: { id: string } | null = null;
 vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session }) }));
 
 import { LockInHint } from "../lock-in-hint";
-import { visibleTimeKey } from "@/lib/client/visible-time";
+import { HINT_VISIBLE_LIMIT_MS, visibleTimeKey } from "@/lib/client/visible-time";
 
 let visibility: "visible" | "hidden" = "visible";
 let focused = true;
@@ -95,5 +95,48 @@ describe("LockInHint (HOME-01b)", () => {
     expect(() => render(<LockInHint localDate="2026-10-05" hoursTodayMinutes={0} />)).not.toThrow();
     run(5);
     expect(hint()).not.toBeNull();
+  });
+
+  // eng1 review L2 (battery): the 1 s interval must not keep running once there is nothing left to count.
+  describe("the interval stops when it has nothing to do", () => {
+    it("does not start when already retired, and stops writing once the limit is reached", () => {
+      const set = vi.spyOn(Storage.prototype, "setItem");
+      localStorage.setItem(visibleTimeKey("2026-10-05"), String(HINT_VISIBLE_LIMIT_MS + 1000));
+      set.mockClear();
+      render(<LockInHint localDate="2026-10-05" hoursTodayMinutes={0} />);
+      run(30);
+      expect(set).not.toHaveBeenCalled(); // already retired: no ticking, no writes
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("stops itself the moment the limit is reached (positive control: it was ticking before)", () => {
+      render(<LockInHint localDate="2026-10-05" hoursTodayMinutes={0} />);
+      run(5);
+      const ticking = vi.getTimerCount();
+      expect(ticking).toBeGreaterThan(0); // counting
+      run(180);
+      expect(hint()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0); // retired -> interval cleared
+    });
+
+    it("does not tick when hours are already logged today", () => {
+      render(<LockInHint localDate="2026-10-05" hoursTodayMinutes={20} />);
+      run(10);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(localStorage.getItem(visibleTimeKey("2026-10-05"))).toBeNull();
+    });
+  });
+
+  // eng1 review L1: two tabs on the same day must not overwrite each other downward.
+  it("merges with the stored total before writing (a second tab that is ahead is never overwritten downward)", () => {
+    render(<LockInHint localDate="2026-10-05" hoursTodayMinutes={0} />);
+    run(10); // this tab: ~10 s
+    localStorage.setItem(visibleTimeKey("2026-10-05"), String(150_000)); // the other tab reached 150 s
+    run(2);
+    const stored = Number(localStorage.getItem(visibleTimeKey("2026-10-05")));
+    expect(stored).toBeGreaterThanOrEqual(150_000); // NOT dragged back to ~12 s
+    expect(stored).toBeLessThan(160_000);
+    run(40); // 150 + ~2 + 40 passes the limit -> hint retires
+    expect(hint()).toBeNull();
   });
 });

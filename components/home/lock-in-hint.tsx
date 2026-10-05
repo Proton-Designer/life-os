@@ -13,7 +13,7 @@ import { HINT_VISIBLE_LIMIT_MS } from "@/lib/client/visible-time";
  */
 export function LockInHint({ localDate, hoursTodayMinutes }: { localDate: string; hoursTodayMinutes: number }) {
   const { session } = useLockInOverlay();
-  const visibleMs = useHomeVisibleMs(localDate);
+  const visibleMs = useHomeVisibleMs(localDate, hoursTodayMinutes === 0);
   if (hoursTodayMinutes > 0 || session !== null || visibleMs === null || visibleMs >= HINT_VISIBLE_LIMIT_MS) return null;
   return (
     <p className="px-1 text-xs text-muted-foreground" data-testid="lock-in-hint">
