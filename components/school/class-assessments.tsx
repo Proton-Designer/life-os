@@ -3,6 +3,8 @@
 import { Fragment, useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { AssessmentType } from "@/app/(app)/school/class-actions";
+import { PICKABLE_ASSESSMENT_TYPES } from "@/lib/school/assessment-types";
+import { EXAM_NAME_PLACEHOLDER } from "@/lib/tasks/task-type";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatShortDate } from "@/lib/date-utils";
@@ -83,6 +85,9 @@ const TYPE_LABEL: Record<AssessmentType, string> = {
 // pressure). Reusing R6's exact task-type color tokens (lib/tasks/task-
 // type.ts's TASK_TYPE_COLOR) for the matching categories — this row and its
 // linked task, one section down, now read as visibly the same category.
+/** A type picker offers the pickable types (no Final/Midterm); an old row that still carries the legacy value keeps it as its current option. */
+const pickerTypes = (current: AssessmentType): AssessmentType[] => (PICKABLE_ASSESSMENT_TYPES as readonly AssessmentType[]).includes(current) ? [...PICKABLE_ASSESSMENT_TYPES] : [current, ...PICKABLE_ASSESSMENT_TYPES];
+
 const TYPE_SHORT_LABEL: Record<AssessmentType, string> = {
   quiz: "Quiz",
   exam: "Exam",
@@ -318,7 +323,7 @@ export function ClassAssessments({
                     aria-label={`Type for ${a.name || "new assessment"}`}
                     className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
                   >
-                    {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
+                    {pickerTypes(a.type).map((type) => (
                       <option key={type} value={type}>
                         {TYPE_LABEL[type]}
                       </option>
@@ -448,7 +453,7 @@ export function ClassAssessments({
         <div className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
           <p className="text-xs font-medium text-muted-foreground">Assessment type</p>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(TYPE_LABEL) as AssessmentType[]).map((type) => (
+            {PICKABLE_ASSESSMENT_TYPES.map((type) => (
               <Button key={type} type="button" variant="outline" size="sm" onClick={() => chooseType(type)}>
                 {TYPE_LABEL[type]}
               </Button>
@@ -462,7 +467,7 @@ export function ClassAssessments({
       {addStep === "details" && pendingType && (
         <form onSubmit={submitDetails} className="flex flex-col gap-2 rounded-lg border border-border/40 p-3">
           <p className="text-xs font-medium text-muted-foreground">{TYPE_LABEL[pendingType]} details</p>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoFocus />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={pendingType === "exam" ? EXAM_NAME_PLACEHOLDER : "Name"} autoFocus />
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setAddStep("closed")}>

@@ -3,7 +3,6 @@ import { CalendarClock, AlertTriangle, ShieldCheck, CalendarCheck } from "lucide
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, formatShortDate } from "@/lib/date-utils";
-import { deadlineWindow } from "@/lib/tasks/task-groups";
 import { countScheduledThisWeek } from "@/lib/tasks/schedule-metrics";
 import { getCancelledDatesByEvent, isOccurrenceCancelled } from "@/lib/tasks/schedule-cancellations";
 import { TASK_TYPE_LABEL, type TaskType } from "@/lib/tasks/task-type";
@@ -39,7 +38,8 @@ import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-
 import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import { getClassCards } from "@/lib/school/get-class-cards";
 import { ClassCard } from "@/components/school/class-card";
-import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
+import { AssessmentsModule } from "@/components/school/assessments-module";
+import { getAssessmentsOverview } from "@/lib/school/assessments-overview";
 import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
 import { computeCourseLoadForecast, type ForecastableAssessment } from "@/lib/school/course-load-forecast";
 
@@ -76,7 +76,7 @@ export default async function SchoolPage() {
   // getClassCards depends only on userId/weekStart/dateStr (known
   // before any of the three queries below resolve), so it joins this wave instead of
   // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, transcriptionAvailability, layout] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, transcriptionAvailability, assessmentsOverview, layout] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -94,6 +94,8 @@ export default async function SchoolPage() {
     // P3-15 — account-wide (not per-class), fetched once here and threaded down through
     // ClassCard -> ClassDetailDialog -> LecturePanel rather than re-fetched per class.
     getTranscriptionAvailability(),
+    // SCHOOL-01/02 -- the Assessments module's data (class_assessments grouped Soon/Upcoming/Future).
+    getAssessmentsOverview(supabase, userId, dateStr),
     // WIDGET-02 -- this user's saved widget layout for /school, registry
     // defaults filled in for anything never customized.
     getPageLayout("school"),
@@ -107,26 +109,6 @@ export default async function SchoolPage() {
   );
 
   const classNameById = new Map((classRows ?? []).map((c) => [c.id, c.short_name ?? c.code]));
-
-  // Phase 1 #14 — cross-class deadline/risk dashboard. Same deadlineWindow()
-  // TaskListModule uses for bucketTaskGroup, so this panel's buckets can never drift
-  // from the Task list's (lib/tasks/task-groups.ts's own vocabulary) — #51 fix
-  // (2026-09-14): this is now the ONLY place either file derives nextWeekDates/
-  // horizonStr, closing the exact duplication risk that let the old horizon defect
-  // (weekday-dependent 17-23 day "Upcoming" window) go unnoticed.
-  const { nextWeekDates, horizonStr } = deadlineWindow(weekDates);
-  const deadlineRiskRows: DeadlineRiskRow[] = classCards.flatMap((c) =>
-    c.assessments.map((a) => ({
-      id: a.id,
-      name: a.name,
-      className: c.shortName ?? c.code,
-      dueDate: a.date,
-      risk: { score: a.risk.score, band: a.risk.band },
-    }))
-  );
-  // Panel's own one-metric-rule convention (its header comment): the number that
-  // summarizes this panel, not a separate KPI card duplicating it.
-  const highRiskCount = deadlineRiskRows.filter((r) => r.risk.band === "high" || r.risk.band === "critical").length;
 
   // Phase 2 #P2-10 — course-load forecast. Reuses classCards' assessments
   // (the SAME data deadlineRiskRows above is built from), not a second
@@ -393,24 +375,10 @@ export default async function SchoolPage() {
           Due today; the latter was noise). Their widget keys stay in the page-layout registry so saved layouts keep working;
           nothing renders for them. */}
 
-      {/* Phase 1 #14 — the cross-class risk rollup the Task list doesn't provide (it's
-          date-ordered, not risk-ranked, and only ever shows tasks, not assessments).
-          Sits beside the Task list rather than inside it: different unit (assessments,
-          not tasks) and a different ordering principle (risk, not date). */}
+      {/* SCHOOL-02: Assessments replaces Deadline risk (same widget key, so saved layouts keep their place). Collapsed by
+          default; the Edit button opens the per-class add/edit/remove editor. Reads class_assessments (SCHOOL-01). */}
       <LayoutSlot layout={layoutMap} widgetKey="deadline_risk">
-      <Panel
-        title="Deadline risk"
-        heroValue={`${highRiskCount}`}
-        caption={highRiskCount === 0 ? "nothing high-risk right now" : `high/critical-risk assessment${highRiskCount === 1 ? "" : "s"}`}
-      >
-        <DeadlineRiskPanel
-          rows={deadlineRiskRows}
-          todayStr={dateStr}
-          weekDates={weekDates}
-          nextWeekDates={nextWeekDates}
-          horizonStr={horizonStr}
-        />
-      </Panel>
+        <AssessmentsModule overview={assessmentsOverview} classes={classOptions} todayStr={dateStr} />
       </LayoutSlot>
 
       {/* Phase 2 #P2-10 — course-load forecast. Sits beside Deadline risk:

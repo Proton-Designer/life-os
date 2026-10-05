@@ -53,7 +53,7 @@ const HOME: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
 const SCHOOL: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "task_list", label: "Task list", description: "This week's open school tasks across every class." },
   { widgetKey: "school_today", label: "School today", description: "What's due today across your classes." },
-  { widgetKey: "deadline_risk", label: "Deadline risk", description: "Upcoming assessments ranked by how at-risk they are." },
+  { widgetKey: "deadline_risk", label: "Assessments", description: "Every upcoming assessment, grouped Soon / Upcoming / Future, with an editor." },
   { widgetKey: "course_load", label: "Course load", description: "A six-week forecast of how loaded each week ahead is." },
   { widgetKey: "practice_vs_real", label: "Practice vs. real grade", description: "How your closest practice-test score compared to the real exam." },
   { widgetKey: "class_cards", label: "Your classes", description: "A card for every class you're taking, with its own quick actions." },

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { confirmStagingBatch, updateStagedDeliverable, deleteStagedDeliverable } from "@/app/(app)/school/staging-actions";
-import { ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/assessment-types";
+import { PICKABLE_ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/assessment-types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
@@ -134,7 +134,7 @@ export function SyllabusReviewPanel({ batch }: { batch: PendingBatch }) {
                   aria-label={`Type for ${original.name || "new item"}`}
                   className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
                 >
-                  {ASSESSMENT_TYPES.map((t) => (
+                  {((PICKABLE_ASSESSMENT_TYPES as readonly AssessmentType[]).includes(d.type) ? [...PICKABLE_ASSESSMENT_TYPES] : [d.type, ...PICKABLE_ASSESSMENT_TYPES]).map((t) => (
                     <option key={t} value={t}>
                       {TYPE_LABEL[t]}
                     </option>
