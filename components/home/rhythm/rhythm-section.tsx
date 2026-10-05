@@ -92,6 +92,7 @@ export function RhythmSection({
               layout={ribbon}
               wokeAtIso={data.wokeAtIso}
               endIso={end.toISOString()}
+              nowIso={data.nowIso}
               hoursTodayMinutes={data.hoursTodayMinutes}
               targetMinutes={targetMinutes}
               efficiencyPercent={data.efficiencyPercent}

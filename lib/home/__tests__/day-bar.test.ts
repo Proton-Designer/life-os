@@ -38,6 +38,15 @@ describe("dayBarEnd", () => {
   it("a post-midnight bedtime is the NEXT calendar day", () => {
     expect(dayBarEnd({ ...base, bedtime: "00:30" }).getTime()).toBe(at("2026-10-06T00:30:00").getTime());
   });
+  // eng1 review L5: "+24 h" is an hour off across a DST change; the next day's bedtime is resolved on that date.
+  it("a post-midnight bedtime across the fall-back DST change lands on the real local 00:30 (positive control: +24 h would not)", () => {
+    const wake = new Date("2026-11-01T06:00:00-05:00"); // Nov 1, CDT; clocks fall back at 02:00 that night
+    const localDate = "2026-11-01";
+    const end = dayBarEnd({ wake, ribbonEnd: new Date("2026-11-02T04:00:00-06:00"), bedtime: "00:30", localDate, timezone: CHI });
+    expect(end.toISOString()).toBe(new Date("2026-11-02T00:30:00-06:00").toISOString()); // CST
+    const naive = new Date(new Date("2026-11-01T00:30:00-05:00").getTime() + 24 * 3600_000); // the old +24 h
+    expect(naive.toISOString()).not.toBe(end.toISOString());
+  });
   it("never shorter than an hour after wake", () => {
     expect(dayBarEnd({ ...base, ribbonEnd: new Date(WAKE.getTime() + 60_000), bedtime: null }).getTime()).toBe(WAKE.getTime() + 3600_000);
   });

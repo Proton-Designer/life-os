@@ -1,5 +1,5 @@
 import type { DayRibbonLayout, RibbonActivityKind, RibbonActivityDetail, RibbonSpanState } from "@/lib/home/day-ribbon";
-import { resolveLocalTime } from "@/lib/date-utils";
+import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 
 /**
  * The Day bar's model (HOME-02): one horizontal timeline from Start Day (wake) to bedtime, reusing the day
@@ -37,8 +37,6 @@ export type DayBar = {
   prayers: DayBarPrayer[];
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 const clampPct = (n: number) => Math.max(0, Math.min(100, n));
 
 /**
@@ -51,7 +49,9 @@ export function dayBarEnd(args: { wake: Date; ribbonEnd: Date; bedtime: string |
   let end = ribbonEnd;
   if (bedtime) {
     end = resolveLocalTime(localDate, bedtime, timezone);
-    while (end.getTime() <= wake.getTime()) end = new Date(end.getTime() + DAY_MS);
+    // A bedtime at/before the wake is the NEXT local day: resolve it on that date (never "+24 h", which is an
+    // hour off across a DST change).
+    for (let day = 1; end.getTime() <= wake.getTime() && day <= 2; day++) end = resolveLocalTime(addDaysToDateString(localDate, day), bedtime, timezone);
   }
   if (end.getTime() < wake.getTime() + 60 * 60 * 1000) end = new Date(wake.getTime() + 60 * 60 * 1000);
   return end;

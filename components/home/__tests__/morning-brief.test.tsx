@@ -91,4 +91,16 @@ describe("morning brief minimize (HOME-01b)", () => {
     expect(save.mock.calls.map((c) => c[1])).toEqual([true, false]);
     expect(screen.getByTestId("morning-brief")).toBeInTheDocument();
   });
+
+  // eng1 review L4: a failed EXPAND must be visible, not screen-reader-only.
+  it("a failed expand shows a visible message next to the header button and stays folded", async () => {
+    save.mockResolvedValueOnce({ ok: false, message: "Couldn't save that." });
+    const user = userEvent.setup();
+    render(<Page initialCollapsed />);
+    await user.click(screen.getByTestId("brief-expand"));
+    const msg = await screen.findByTestId("brief-expand-error");
+    expect(msg).toHaveTextContent("Couldn't show the brief");
+    expect(msg.className).not.toContain("sr-only");
+    expect(screen.queryByTestId("morning-brief")).not.toBeInTheDocument();
+  });
 });

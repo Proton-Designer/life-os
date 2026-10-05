@@ -77,8 +77,8 @@ export function MorningBriefToggle() {
         <Sunrise className="size-4" aria-hidden />
       </Button>
       {error ? (
-        <span role="alert" className="sr-only">
-          {error}
+        <span role="alert" title={error} className="max-w-40 truncate text-xs text-destructive" data-testid="brief-expand-error">
+          Couldn&apos;t show the brief
         </span>
       ) : null}
     </>

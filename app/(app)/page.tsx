@@ -33,6 +33,7 @@ import { getRhythmData } from "@/lib/home/rhythm-data";
 import { MorningBriefPanel, MorningBriefProvider, MorningBriefToggle } from "@/components/home/morning-brief";
 import { isMorningBriefCollapsed } from "@/lib/morning-brief/collapsed-core";
 import { Stream } from "@/components/home/stream";
+import { DEFAULT_FOCUS_TARGET_MINUTES } from "@/lib/focus/target";
 import { loadFocusTargetMinutes } from "@/lib/focus/target-core";
 import { HOME_DAY_VIEW } from "@/lib/home/day-view";
 import { PanelSkeleton, DomainStatusStripSkeleton, WeeklyGoalsHeaderSkeleton } from "@/components/shell/route-skeleton";
@@ -110,9 +111,11 @@ export default async function HomePage() {
   // The Launch card needs the rhythm phase AND the habits; built only for an account with the opt-in on,
   // from the promises already running (no extra reads), and guarded like the others.
   // HOME-01a: the adjustable daily focus target (weekend override), in minutes; shown on the Day bar / Hours tile.
-  const focusTargetPromise = loadFocusTargetMinutes(supabase, userId, dateStr);
+  // A settings read failing must not take down the 'Your day' card: fall back to the default target.
+  const focusTargetPromise = loadFocusTargetMinutes(supabase, userId, dateStr).catch(() => DEFAULT_FOCUS_TARGET_MINUTES);
+  const dayCardPromise = Promise.all([rhythmPromise, focusTargetPromise]);
   const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise]) : null;
-  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, focusTargetPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
+  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
   const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
@@ -191,7 +194,8 @@ export default async function HomePage() {
       // HOME-01b: whether the user minimized THIS brief (brief_date = today's local date); a new day expands.
       getMorningBriefForToday(supabase, userId, now, timezone).then(async (brief) => ({
         brief,
-        collapsed: brief ? await isMorningBriefCollapsed(supabase, userId, dateStr) : false,
+        // a failed settings read leaves the brief expanded rather than losing it
+        collapsed: brief ? await isMorningBriefCollapsed(supabase, userId, dateStr).catch(() => false) : false,
       })),
       // P2-05: decoupled from the evening close ritual entirely -- see
       // lib/night-plan/sleep-intent.ts's own header for why.
@@ -320,7 +324,7 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">
-        <Stream promise={Promise.all([rhythmPromise, focusTargetPromise])} label="Your day" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
+        <Stream promise={dayCardPromise} label="Your day" fallback={<PanelSkeleton titleWidth="w-28" bodyHeight="h-28" />}>
           {([rhythm, targetMinutes]) => <RhythmSection data={rhythm} ribbon={ribbonLayout} timezone={timezone} targetMinutes={targetMinutes} dayView={HOME_DAY_VIEW} />}
         </Stream>
       </LayoutSlot>

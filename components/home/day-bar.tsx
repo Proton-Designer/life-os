@@ -35,6 +35,7 @@ export function DayBar({
   layout,
   wokeAtIso,
   endIso,
+  nowIso,
   hoursTodayMinutes,
   targetMinutes,
   efficiencyPercent,
@@ -44,13 +45,15 @@ export function DayBar({
   layout: DayRibbonLayout | null;
   wokeAtIso: string;
   endIso: string;
+  /** Server-computed now (ISO) -- the first render uses it, so there is no hydration mismatch or bar-width jump. */
+  nowIso: string;
   hoursTodayMinutes: number;
   targetMinutes: number;
   efficiencyPercent: number | null;
   timezone: string;
   localDate: string;
 }) {
-  const [now, setNow] = useState(() => new Date());
+  const [now, setNow] = useState(() => new Date(nowIso));
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
@@ -96,47 +99,52 @@ export function DayBar({
             style={{ left: `${p.midPct}%` }}
           />
         ))}
-        {bar.blocks.map((b, i) => {
-          const Icon = KIND_ICON[b.kind];
-          const width = Math.max(1.2, b.endPct - b.startPct);
-          const pill = (
-            <div
-              data-testid={b.isFocus ? "day-bar-focus-block" : "day-bar-block"}
-              aria-hidden
-              className={cn(
-                "pointer-events-none absolute top-1.5 flex h-6 min-w-[0.75rem] items-center gap-1 overflow-hidden rounded-full px-1",
-                b.isFocus ? "ring-2 ring-primary" : "",
-                b.upcoming ? "opacity-60" : "opacity-90"
-              )}
-              style={{ left: `${b.startPct}%`, width: `${width}%`, backgroundColor: `var(${b.colorVar})` }}
-            >
-              <Icon className="size-3.5 shrink-0 text-background" aria-hidden />
-            </div>
-          );
-          return b.detail ? (
-            <Popover key={i}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`${KIND_LABEL[b.kind]}: ${b.detail.title}, ${b.detail.timeRange}`}
-                  className="absolute top-1.5 h-6 min-w-6 rounded-full"
-                  style={{ left: `${b.startPct}%`, width: `${width}%` }}
-                />
-              </PopoverTrigger>
-              <PopoverContent align="center" className="w-64">
-                <p className="text-sm font-medium">{b.detail.title}</p>
-                <p className="text-xs text-muted-foreground">{b.detail.timeRange}</p>
-                {b.detail.location && <p className="text-xs text-muted-foreground">{b.detail.location}</p>}
-                {b.detail.instructor && <p className="text-xs text-muted-foreground">{b.detail.instructor}</p>}
-              </PopoverContent>
-              {pill}
-            </Popover>
-          ) : (
-            <div key={i} title={`${KIND_LABEL[b.kind]}: ${b.label}`}>
-              {pill}
-            </div>
-          );
-        })}
+        <div className="absolute inset-0 overflow-hidden rounded-full" data-testid="day-bar-blocks">
+          {bar.blocks.map((b, i) => {
+            const Icon = KIND_ICON[b.kind];
+            // clamped so a block at the end of the day can never overhang the bar: width fits, then left is pulled
+            // back so left + width <= 100 (and the blocks layer below clips any px min-width remainder)
+            const width = Math.min(Math.max(1.2, b.endPct - b.startPct), 100);
+            const left = `${Math.min(b.startPct, 100 - width)}%`;
+            const pill = (
+              <div
+                data-testid={b.isFocus ? "day-bar-focus-block" : "day-bar-block"}
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute top-1.5 flex h-6 min-w-[0.75rem] items-center gap-1 overflow-hidden rounded-full px-1",
+                  b.isFocus ? "ring-2 ring-primary" : "",
+                  b.upcoming ? "opacity-60" : "opacity-90"
+                )}
+                style={{ left, width: `${width}%`, backgroundColor: `var(${b.colorVar})` }}
+              >
+                <Icon className="size-3.5 shrink-0 text-background" aria-hidden />
+              </div>
+            );
+            return b.detail ? (
+              <Popover key={i}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${KIND_LABEL[b.kind]}: ${b.detail.title}, ${b.detail.timeRange}`}
+                    className="absolute top-1.5 h-6 min-w-6 rounded-full"
+                    style={{ left, width: `${width}%` }}
+                  />
+                </PopoverTrigger>
+                <PopoverContent align="center" className="w-64">
+                  <p className="text-sm font-medium">{b.detail.title}</p>
+                  <p className="text-xs text-muted-foreground">{b.detail.timeRange}</p>
+                  {b.detail.location && <p className="text-xs text-muted-foreground">{b.detail.location}</p>}
+                  {b.detail.instructor && <p className="text-xs text-muted-foreground">{b.detail.instructor}</p>}
+                </PopoverContent>
+                {pill}
+              </Popover>
+            ) : (
+              <div key={i} title={`${KIND_LABEL[b.kind]}: ${b.label}`}>
+                {pill}
+              </div>
+            );
+          })}
+        </div>
         {bar.nowPosition === "within" ? (
           <div className="absolute inset-y-0 z-10 w-0.5 bg-accent-info" style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now">
             <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] leading-none whitespace-nowrap text-accent-info">now</span>

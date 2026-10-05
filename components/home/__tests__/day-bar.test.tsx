@@ -25,6 +25,7 @@ const props = {
   layout,
   wokeAtIso: at("2026-10-05T06:00:00").toISOString(),
   endIso: at("2026-10-05T22:00:00").toISOString(),
+  nowIso: at("2026-10-05T11:45:00").toISOString(),
   hoursTodayMinutes: 90,
   targetMinutes: 240,
   efficiencyPercent: 30,
@@ -101,5 +102,29 @@ describe("DayBar (HOME-02)", () => {
     expect(screen.getByTestId("day-bar")).toBeInTheDocument();
     expect(screen.queryByTestId("day-bar-legend")).not.toBeInTheDocument();
     expect(screen.getByText(/will show up here as your day happens/)).toBeInTheDocument();
+  });
+
+  // eng1 review L1: seeded from the SERVER's now, so server HTML and first client paint agree.
+  it("the first render uses the server-computed nowIso (not the client clock), so there is no mismatch or width jump", () => {
+    vi.setSystemTime(at("2026-10-05T16:00:00")); // the client clock disagrees with the server's now
+    render(<DayBar {...props} />);
+    expect(screen.getByTestId("day-bar-awake")).toHaveTextContent("Awake for 5:45"); // from nowIso 11:45, not 10:00
+    expect(screen.getByTestId("day-bar-now").style.left).toMatch(/^35\.9/);
+    act(() => void vi.advanceTimersByTime(1000)); // the first tick adopts the real clock
+    expect(screen.getByTestId("day-bar-awake")).toHaveTextContent("Awake for 10:00");
+  });
+
+  // eng1 review L6: nothing may overhang the end of the bar.
+  it("a block at the very end of the day cannot overhang the bar", () => {
+    const edge = computeDayRibbon({
+      dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
+      prayers: [],
+      activities: [{ label: "Late", colorVar: "--accent-school", kind: "work", start: at("2026-10-05T21:50:00"), end: at("2026-10-05T23:30:00") }],
+      now: at("2026-10-05T11:45:00"),
+    })!;
+    render(<DayBar {...props} layout={edge} />);
+    const pill = screen.getByTestId("day-bar-block");
+    expect(parseFloat(pill.style.left) + parseFloat(pill.style.width)).toBeLessThanOrEqual(100.0001); // fits in the bar
+    expect(screen.getByTestId("day-bar-blocks").className).toContain("overflow-hidden"); // and anything left over is clipped
   });
 });

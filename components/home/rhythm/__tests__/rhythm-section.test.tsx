@@ -81,7 +81,7 @@ describe("RhythmSection", () => {
 
   // HOME-02: ONE switch (HOME_DAY_VIEW). "classic" must render exactly the pre-change layout (three tiles and,
   // on the page, the separate day's-shape panel); "bar" renders the Day bar instead and none of the tiles.
-  const today: RhythmData = { state: "today", localDate: "2026-10-05", bedtime: null, wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
+  const today: RhythmData = { state: "today", localDate: "2026-10-05", nowIso: "2026-10-05T17:00:00Z", bedtime: null, wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
 
   it("today / classic: the three tiles (Awake for, Hours, Efficiency), no Day bar, no Start day button", () => {
     render(<RhythmSection data={today} dayView="classic" />);

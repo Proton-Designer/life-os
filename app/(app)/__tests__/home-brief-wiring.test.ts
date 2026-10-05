@@ -23,4 +23,16 @@ describe("Home morning-brief wiring", () => {
     const wrong = "<WidgetManagerButton /><MorningBriefToggle />";
     expect(wrong.indexOf("<MorningBriefToggle")).toBeGreaterThan(wrong.indexOf("<WidgetManagerButton"));
   });
+
+  // eng1 review L2/L3: a settings read must not take down the 'Your day' card or the brief.
+  it("the focus target falls back to the default, the brief flag to expanded, and the derived Promise.all is guarded", () => {
+    expect(page).toMatch(/loadFocusTargetMinutes\(supabase, userId, dateStr\)\.catch\(\(\) => DEFAULT_FOCUS_TARGET_MINUTES\)/);
+    expect(page).toMatch(/isMorningBriefCollapsed\(supabase, userId, dateStr\)\.catch\(\(\) => false\)/);
+    expect(page).toContain("const dayCardPromise = Promise.all([rhythmPromise, focusTargetPromise])");
+    expect(page).toMatch(/for \(const p of \[[^\]]*dayCardPromise/); // included in the .catch guard list
+    expect(page).toContain("<Stream promise={dayCardPromise}");
+  });
+  it("positive control: an unguarded read would not match the guarded pattern", () => {
+    expect("loadFocusTargetMinutes(supabase, userId, dateStr);").not.toMatch(/\.catch\(\(\) => DEFAULT_FOCUS_TARGET_MINUTES\)/);
+  });
 });
