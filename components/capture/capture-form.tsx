@@ -12,6 +12,7 @@ import { captureTask, captureDistraction, captureDump } from "@/lib/capture/acti
 import { defaultCaptureArea, type CaptureArea, type CaptureAreaConfig } from "@/lib/capture/areas";
 import type { DistractionDomain } from "@/lib/distractions/types";
 import { useDictation } from "@/components/shared/use-dictation";
+import { formatHourMinute12 } from "@/lib/date-utils";
 
 type CaptureType = "task" | "distraction" | "worry" | "note";
 
@@ -83,10 +84,7 @@ function formatParsedWhen(parsed: ParsedUtterance, todayStr: string): string | n
   const dateLabel = parsed.date != null ? formatShortDate(parsed.date, todayStr) : "no date";
   const timeLabel =
     parsed.time != null
-      ? new Date(2000, 0, 1, parsed.time.hour, parsed.time.minute).toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-        })
+      ? formatHourMinute12(parsed.time.hour, parsed.time.minute)
       : null;
   return timeLabel ? `${dateLabel}, ${timeLabel}` : dateLabel;
 }

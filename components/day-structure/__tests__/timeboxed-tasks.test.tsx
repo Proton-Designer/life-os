@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TimeboxedTasks } from "../timeboxed-tasks";
 import type { TimeboxedTask } from "@/lib/day-structure/timebox";
+import { pickTime12, readTime12 } from "@/components/ui/__tests__/time-field-helper";
 
 const setTaskPlannedStartTimeMock = vi.fn();
 const clearTaskPlannedStartTimeMock = vi.fn();
@@ -47,20 +48,28 @@ describe("TimeboxedTasks (Phase 2 #P2-06)", () => {
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
   });
 
-  it("has no duration/estimate input anywhere in the row -- only the time input, Save, and (conditionally) Clear", () => {
+  it("has no duration/estimate input anywhere in the row -- only the 12-hour time control (hour / minute / AM-PM), Save, and (conditionally) Clear", () => {
     render(<TimeboxedTasks tasks={[task()]} />);
     const row = screen.getByTestId("timebox-row-t1");
-    expect(row.querySelectorAll("input")).toHaveLength(1);
-    expect(row.querySelector('input[type="time"]')).toBeInTheDocument();
+    expect(row.querySelectorAll("input")).toHaveLength(0); // no free-text/number field at all
+    expect(row.querySelectorAll("select")).toHaveLength(3); // hour, minute, AM/PM
+    expect(row.querySelector('input[type="time"]')).not.toBeInTheDocument(); // the locale-dependent native control is gone
   });
 
   it("saving calls the Server Action with this task's id and the typed time", async () => {
     const user = userEvent.setup();
     render(<TimeboxedTasks tasks={[task({ plannedStartTime: null })]} />);
-    const input = screen.getByLabelText("Planned start time for Write the report");
-    await user.type(input, "0930");
+    await pickTime12(user, "Planned start time for Write the report", "9:30 AM");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(setTaskPlannedStartTimeMock).toHaveBeenCalledWith("t1", "09:30");
+    expect(setTaskPlannedStartTimeMock).toHaveBeenCalledWith("t1", "09:30"); // stored 24-hour, shown 12-hour
+  });
+
+  it("an afternoon pick is stored as 24-hour (4:15 PM -> 16:15)", async () => {
+    const user = userEvent.setup();
+    render(<TimeboxedTasks tasks={[task({ plannedStartTime: null })]} />);
+    await pickTime12(user, "Planned start time for Write the report", "4:15 PM");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(setTaskPlannedStartTimeMock).toHaveBeenLastCalledWith("t1", "16:15");
   });
 
   it("clearing calls the Server Action with this task's id", async () => {
@@ -74,10 +83,9 @@ describe("TimeboxedTasks (Phase 2 #P2-06)", () => {
     setTaskPlannedStartTimeMock.mockResolvedValueOnce({ ok: false, message: "Couldn't save that start time. Try again." });
     const user = userEvent.setup();
     render(<TimeboxedTasks tasks={[task({ plannedStartTime: null })]} />);
-    const input = screen.getByLabelText("Planned start time for Write the report") as HTMLInputElement;
-    await user.type(input, "0930");
+    await pickTime12(user, "Planned start time for Write the report", "9:30 AM");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Couldn't save that start time. Try again.")).toBeInTheDocument();
-    expect(input.value).toBe("09:30");
+    expect(readTime12("Planned start time for Write the report")).toBe("9:30 AM");
   });
 });

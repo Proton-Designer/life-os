@@ -31,7 +31,8 @@ describe("WeekPreviewCalendar", () => {
     render(<WeekPreviewCalendar preview={preview} />);
     const day = screen.getByTestId("week-preview-day-2").textContent ?? "";
     expect(day).toContain("Push day");
-    expect(day).toContain("07:00");
+    expect(day).toContain("7:00 AM");
+    expect(day).not.toContain("07:00");
     expect(day).toContain("Mobility");
     expect(day).toContain("unscheduled");
   });

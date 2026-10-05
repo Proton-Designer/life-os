@@ -16,6 +16,7 @@ import { buildDayBar, formatAwake, prayerStripLabel, toGoLabel, type DayBarBlock
 import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
 import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
 import { cn } from "@/lib/utils";
+import { formatClock12 } from "@/lib/date-utils";
 
 // Never colour-only: every indicator carries an icon (and a label when wide enough), same vocabulary as the ribbon.
 const KIND_ICON: Record<DayBarKind, LucideIcon> = {
@@ -36,8 +37,7 @@ const TRACK_PX = 12;
 /** Keeps an edge label inside the chart: flip it at the far ends, centre it otherwise. */
 const edgeShift = (pct: number) => (pct > 92 ? "-translate-x-full" : pct < 8 ? "" : "-translate-x-1/2");
 
-const fmtClock = (d: Date, timezone: string) =>
-  new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(d);
+const fmtClock = formatClock12;
 
 const timeRange = (p: DayBarPopover, timezone: string) =>
   p.allDay ? "All day" : p.endAt ? `${fmtClock(p.startAt, timezone)}–${fmtClock(p.endAt, timezone)}` : fmtClock(p.startAt, timezone);

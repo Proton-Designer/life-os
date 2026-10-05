@@ -7,6 +7,7 @@ import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
 import { DayBar } from "@/components/home/day-bar";
 import { dayBarRange } from "@/lib/home/day-bar";
 import { HOME_DAY_VIEW, type HomeDayView } from "@/lib/home/day-view";
+import { formatHHMM12 } from "@/lib/date-utils";
 import { DEFAULT_FOCUS_TARGET_MINUTES } from "@/lib/focus/target";
 import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
 import { LockInHint } from "@/components/home/lock-in-hint";
@@ -132,7 +133,7 @@ export function RhythmSection({
               <p className="text-sm text-muted-foreground">Close the day: account for it, reflect, and choose tomorrow&apos;s three.</p>
               {data.bedtime ? (
                 <p className="mt-1 text-xs text-muted-foreground" data-testid="lights-out">
-                  Lights out by {data.bedtime}
+                  Lights out by {formatHHMM12(data.bedtime)}
                 </p>
               ) : null}
             </div>
@@ -153,7 +154,7 @@ export function RhythmSection({
         <Panel title="Done for today" data-testid="rhythm-done">
           {data.bedtime ? (
             <p className="mb-2 text-sm font-medium" data-testid="lights-out">
-              Lights out by {data.bedtime}
+              Lights out by {formatHHMM12(data.bedtime)}
             </p>
           ) : null}
           {data.tomorrow.length === 0 ? (

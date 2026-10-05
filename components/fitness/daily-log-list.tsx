@@ -9,6 +9,7 @@ import { BenchmarkForm, type BenchmarkExercise } from "./benchmark-form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 /**
  * The Daily Log module's list — every archetype's tap behaviour from the
@@ -154,7 +155,7 @@ function DailyLogRow(props: {
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">{item.name}</span>
             <span className="text-xs text-muted-foreground">
-              {item.startTime ?? "Unscheduled"} · {item.durationMinutes}m
+              {item.startTime ? formatHHMM12(item.startTime) : "Unscheduled"} · {item.durationMinutes}m
             </span>
           </div>
         </button>

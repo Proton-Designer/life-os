@@ -1,7 +1,7 @@
 import { Panel } from "@/components/ui/panel";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { addDaysToDateString, localDateString } from "@/lib/date-utils";
+import { addDaysToDateString, formatHHMM12, localDateString } from "@/lib/date-utils";
 import { isOptInFeatureOnForRequest } from "@/lib/opt-in-guard";
 import { getDayStartsForRange } from "@/lib/day-structure/day-start";
 import { getEveningClosesForRange } from "@/lib/day-structure/closed-day";
@@ -39,7 +39,7 @@ export async function RhythmCard() {
       <div className="space-y-3 text-sm">
         {wake ? (
           <p>
-            <span className="font-medium">Wake time:</span> usually around {wake.median}, between {wake.earliest} and {wake.latest} ({wake.spreadMinutes} min spread over {wake.n} mornings).
+            <span className="font-medium">Wake time:</span> usually around {formatHHMM12(wake.median)}, between {formatHHMM12(wake.earliest)} and {formatHHMM12(wake.latest)} ({wake.spreadMinutes} min spread over {wake.n} mornings).
           </p>
         ) : (
           <p className="text-muted-foreground">Wake time: needs {MIN_POINTS} mornings with Start day tapped in the last {WINDOW_DAYS} days.</p>
@@ -48,7 +48,7 @@ export async function RhythmCard() {
           <p className="text-muted-foreground">Bedtime: set your wake time and sleep need in Settings to compare the close with your bedtime.</p>
         ) : close ? (
           <p>
-            <span className="font-medium">Close vs bedtime ({plan.plan.bedtime}):</span> finished by bedtime on {close.onTime} of {close.n} nights
+            <span className="font-medium">Close vs bedtime ({formatHHMM12(plan.plan.bedtime)}):</span> finished by bedtime on {close.onTime} of {close.n} nights
             {close.medianMinutesLate > 0 ? `, typically ${close.medianMinutesLate} min after` : close.medianMinutesLate < 0 ? `, typically ${Math.abs(close.medianMinutesLate)} min before` : ""}.
           </p>
         ) : (

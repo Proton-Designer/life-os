@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { WeekPreview, WeekPreviewItem } from "@/lib/fitness/plan-types";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -44,7 +45,7 @@ export function WeekPreviewCalendar({ preview, className }: { preview: WeekPrevi
                 className="truncate rounded-md border border-border/40 px-1.5 py-0.5 text-[11px] font-medium"
               >
                 {item.name}
-                {item.startTime ? ` · ${item.startTime}` : " · unscheduled"}
+                {item.startTime ? ` · ${formatHHMM12(item.startTime)}` : " · unscheduled"}
               </span>
             ))}
             {micro.length === 0 && sessions.length === 0 && (

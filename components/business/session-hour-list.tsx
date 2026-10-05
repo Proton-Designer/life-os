@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import type { SessionHourState, ResolvedSessionHour } from "@/lib/checkins/session-hour-status";
+import { formatClock12 } from "@/lib/date-utils";
 
 export type { ResolvedSessionHour };
 export type ResolvedHourState = SessionHourState;
@@ -64,11 +65,7 @@ function SessionHourRow({
               against the user's PROFILE timezone (threaded through from
               the page), never the runtime's local zone, matching
               allocation-checkin.tsx's formatWindowLabel. */}
-          {new Date(hour.hourStartIso).toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-            timeZone: timezone,
-          })}
+          {formatClock12(new Date(hour.hourStartIso), timezone)}
         </span>
         {hour.state === "missed_wasted" && <span className="text-xs text-muted-foreground">Not confirmed</span>}
       </div>

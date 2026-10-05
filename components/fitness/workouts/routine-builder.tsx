@@ -9,6 +9,7 @@ import { SchedulePicker } from "./schedule-picker";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { MuscleGroup } from "@/lib/fitness/volume";
+import { TimeField12 } from "@/components/ui/time-field-12";
 
 function emptySession(): SessionDraft {
   return { id: null, name: "", scheduleDays: [1, 2, 3, 4, 5], startTime: null, exercises: [] };
@@ -164,12 +165,10 @@ export function RoutineBuilder({
             />
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               Start time (optional — unscheduled if blank)
-              <Input
-                type="time"
+              <TimeField12
                 aria-label={`Session ${sessionIndex + 1} start time`}
                 value={session.startTime ?? ""}
-                onChange={(e) => updateSession(sessionIndex, { startTime: e.target.value || null })}
-                className="w-32"
+                onChange={(v) => updateSession(sessionIndex, { startTime: v || null })}
               />
             </label>
 

@@ -112,7 +112,7 @@ describe("RhythmSection", () => {
 
   it("wind_down: a Close the day link to /close", () => {
     render(<RhythmSection data={{ state: "wind_down", bedtime: "22:30" }} />);
-    expect(screen.getByTestId("lights-out")).toHaveTextContent("Lights out by 22:30");
+    expect(screen.getByTestId("lights-out")).toHaveTextContent("Lights out by 10:30 PM");
     expect(screen.getByTestId("close-the-day")).toHaveAttribute("href", "/close");
   });
 
@@ -124,6 +124,6 @@ describe("RhythmSection", () => {
     render(<RhythmSection data={{ state: "done", tomorrow: [], bedtime: "22:30" }} />);
     expect(screen.getByTestId("rhythm-done")).toHaveTextContent("Nothing is planned for tomorrow");
     // IA-P4b: "Lights out by" only when a wind-down plan gives a bedtime (control: the first render had none)
-    expect(screen.getByTestId("lights-out")).toHaveTextContent("Lights out by 22:30");
+    expect(screen.getByTestId("lights-out")).toHaveTextContent("Lights out by 10:30 PM");
   });
 });

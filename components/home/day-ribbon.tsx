@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import type { DayRibbonLayout, RibbonSpanState, RibbonActivityKind } from "@/lib/home/day-ribbon";
+import { formatClock12 } from "@/lib/date-utils";
 
 // An activity block must never be color-only (accessibility, and the dark
 // theme's translucent blocks make color alone even harder to tell apart) —
@@ -66,10 +67,6 @@ const DAY_GRADIENT = [
   "color-mix(in oklch, var(--glow-oxblood) 55%, transparent) 78%,",
   "color-mix(in oklch, var(--accent-info) 14%, transparent) 100%)",
 ].join(" ");
-
-function formatTime(date: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(date);
-}
 
 // The ribbon's headline — rendered OUTSIDE the horizontally-scrolling track
 // (so it's always in view, never clipped on mobile) and always present.
@@ -196,14 +193,14 @@ export function DayRibbon({
                 <button
                   key={s.name}
                   type="button"
-                  aria-label={`${s.label}, ${formatTime(s.windowStart, timezone)}–${formatTime(s.windowEnd, timezone)}${stateOf(s) === "logged" ? " (logged)" : stateOf(s) === "missed" ? " (missed)" : " — mark on time"}`}
+                  aria-label={`${s.label}, ${formatClock12(s.windowStart, timezone)}–${formatClock12(s.windowEnd, timezone)}${stateOf(s) === "logged" ? " (logged)" : stateOf(s) === "missed" ? " (missed)" : " — mark on time"}`}
                   onClick={() => handleMark(s.name)}
                   className="absolute z-10 flex -translate-x-1/2 flex-col items-center gap-0.5"
                   style={{ left: `${(s.startPct + s.endPct) / 2}%`, top: LABEL_ROW_TOP[s.labelRow] }}
                 >
                   <span className="whitespace-nowrap text-sm font-medium">{s.label}</span>
                   <span className="whitespace-nowrap text-xs text-muted-foreground">
-                    {formatTime(s.windowStart, timezone)}
+                    {formatClock12(s.windowStart, timezone)}
                   </span>
                 </button>
               ))}

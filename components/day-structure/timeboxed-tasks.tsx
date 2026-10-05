@@ -6,12 +6,13 @@ import { setTaskPlannedStartTime, clearTaskPlannedStartTime } from "@/app/(app)/
 import { isValidBedtime } from "@/lib/night-plan/sleep-intent";
 import type { TimeboxedTask } from "@/lib/day-structure/timebox";
 import { cn } from "@/lib/utils";
+import { TimeField12 } from "@/components/ui/time-field-12";
 
 /**
  * Phase 2 #P2-06 — timeboxing on Merged Today. Renders Night Plan's
  * already-established "today's plan" set (the starred/crowned items,
  * `mit_rank IS NOT NULL` — see lib/day-structure/timebox.ts's own header)
- * in TIMELINE ORDER, each with an editable "HH:MM" planned start time.
+ * in TIMELINE ORDER, each with an editable planned start time (12-hour control; stored as 24-hour "HH:MM").
  *
  * NO DURATION/ESTIMATE INPUT ANYWHERE HERE, DELIBERATELY — a start time
  * only, matching night-plan.ts's own explicit absence of any duration
@@ -40,7 +41,7 @@ function TimeboxRow({ task }: { task: TimeboxedTask }) {
 
   function handleSave() {
     if (!isValidBedtime(input)) {
-      setError("Enter a time as HH:MM.");
+      setError("Enter a valid time.");
       return;
     }
     setError(null);
@@ -66,14 +67,7 @@ function TimeboxRow({ task }: { task: TimeboxedTask }) {
     >
       <span className={cn("truncate text-sm", task.completed && "text-muted-foreground line-through")}>{task.title}</span>
       <div className="flex items-center gap-1.5">
-        <input
-          type="time"
-          value={input}
-          disabled={isPending}
-          onChange={(e) => setInput(e.target.value)}
-          aria-label={`Planned start time for ${task.title}`}
-          className="rounded-md border border-border/50 bg-transparent px-2 py-1 text-xs"
-        />
+        <TimeField12 value={input} disabled={isPending} onChange={setInput} aria-label={`Planned start time for ${task.title}`} />
         <Button size="sm" variant="outline" disabled={isPending} onClick={handleSave}>
           Save
         </Button>

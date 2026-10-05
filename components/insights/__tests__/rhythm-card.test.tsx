@@ -44,7 +44,7 @@ describe("RhythmCard", () => {
     starts = new Map([["2026-10-01", iso(1, "06:30")], ["2026-10-02", iso(2, "07:00")], ["2026-10-03", iso(3, "08:00")]]);
     closes = new Map([["2026-10-01", iso(1, "22:00")], ["2026-10-02", iso(2, "23:00")], ["2026-10-03", iso(4, "00:30")]]);
     render(await RhythmCard());
-    expect(screen.getByText(/usually around 07:00, between 06:30 and 08:00 \(90 min spread over 3 mornings\)/)).toBeInTheDocument();
+    expect(screen.getByText(/usually around 7:00 AM, between 6:30 AM and 8:00 AM \(90 min spread over 3 mornings\)/)).toBeInTheDocument();
     expect(screen.getByText(/finished by bedtime on 2 of 3 nights/)).toBeInTheDocument();
   });
 

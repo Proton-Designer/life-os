@@ -1,5 +1,6 @@
 import type { WeekDayStatus } from "@/lib/fitness/week-status";
 import { cn } from "@/lib/utils";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 export type ThisWeekMicroItem = { name: string; goalLabel: string };
 export type ThisWeekSession = { name: string; startTime: string | null; durationMinutes: number; confirmed: boolean };
@@ -65,7 +66,7 @@ export function ThisWeekCalendar({ days }: { days: ThisWeekDay[] }) {
                   className={cn("text-[11px]", session.confirmed ? "text-accent-fitness" : "text-foreground")}
                 >
                   {session.name}
-                  {session.startTime ? ` · ${session.startTime}` : ""}
+                  {session.startTime ? ` · ${formatHHMM12(session.startTime)}` : ""}
                 </li>
               ))}
             </ul>
