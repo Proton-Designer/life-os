@@ -38,7 +38,7 @@ export function SleepReminderSettings({ initialEnabled }: { initialEnabled: bool
         <span>Wind-down reminder</span>
       </label>
       <p className="text-xs text-muted-foreground">
-        A push when your wind-down starts (9:30 PM until you set a plan above) that opens the evening close.
+        A push when your wind-down starts (9:00 PM until you set a plan above) that opens the evening close.
       </p>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>

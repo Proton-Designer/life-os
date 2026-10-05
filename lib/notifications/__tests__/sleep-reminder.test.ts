@@ -7,17 +7,19 @@ vi.mock("../send-push", () => ({
   sendPushToUser: (...args: unknown[]) => sendPushToUserMock(...args),
 }));
 
-const { dispatchSleepReminders } = await import("../sleep-reminder");
+const { dispatchSleepReminders, reminderWindowStartLocal } = await import("../sleep-reminder");
+const { DEFAULT_WIND_DOWN } = await import("@/lib/home/rhythm-state");
 
 beforeEach(() => {
   sendPushToUserMock.mockReset();
 });
 
-// America/Chicago is UTC-5 in September. Window is [21:30, 23:30) local.
+// America/Chicago is UTC-5 in September. With no plan the window is [21:00, 23:00) local -- 21:00 is Home's own default wind-down.
+const AT_2059_LOCAL = new Date("2026-09-15T01:59:00.000Z"); // 20:59 CDT -- before the window
+const AT_2100_LOCAL = new Date("2026-09-15T02:00:00.000Z"); // 21:00 CDT -- window opens
+const AT_2259_LOCAL = new Date("2026-09-15T03:59:00.000Z"); // 22:59 -- still inside
+const AT_2300_LOCAL = new Date("2026-09-15T04:00:00.000Z"); // 23:00 -- window just closed
 const AT_2130_LOCAL = new Date("2026-09-15T02:30:00.000Z"); // 21:30 CDT on the 14th
-const AT_2129_LOCAL = new Date("2026-09-15T02:29:00.000Z");
-const AT_2329_LOCAL = new Date("2026-09-15T04:29:00.000Z"); // 23:29 -- still inside
-const AT_2330_LOCAL = new Date("2026-09-15T04:30:00.000Z"); // 23:30 -- window just closed
 
 function makeClient(
   opts: {
@@ -94,30 +96,30 @@ describe("dispatchSleepReminders (P2-05)", () => {
   });
 
   describe("the send window", () => {
-    it("does not send at 21:29 local -- before the window opens", async () => {
+    it("does not send at 20:59 local -- before the window opens", async () => {
       const { client } = makeClient({ optedInProfiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
-      const result = await dispatchSleepReminders(client, AT_2129_LOCAL);
+      const result = await dispatchSleepReminders(client, AT_2059_LOCAL);
       expect(result.dispatched).toBe(0);
       expect(sendPushToUserMock).not.toHaveBeenCalled();
     });
 
-    it("sends at exactly 21:30 local -- the window opening", async () => {
+    it("sends at exactly 21:00 local -- the window opening (the same moment Home's Close-the-day card flips)", async () => {
       sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
       const { client } = makeClient({ optedInProfiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
-      const result = await dispatchSleepReminders(client, AT_2130_LOCAL);
+      const result = await dispatchSleepReminders(client, AT_2100_LOCAL);
       expect(result.dispatched).toBe(1);
     });
 
-    it("still sends near the end of the window (23:29 local)", async () => {
+    it("still sends near the end of the window (22:59 local)", async () => {
       sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
       const { client } = makeClient({ optedInProfiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
-      const result = await dispatchSleepReminders(client, AT_2329_LOCAL);
+      const result = await dispatchSleepReminders(client, AT_2259_LOCAL);
       expect(result.dispatched).toBe(1);
     });
 
-    it("does not send once the window has closed (23:30 local)", async () => {
+    it("does not send once the window has closed (23:00 local)", async () => {
       const { client } = makeClient({ optedInProfiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
-      const result = await dispatchSleepReminders(client, AT_2330_LOCAL);
+      const result = await dispatchSleepReminders(client, AT_2300_LOCAL);
       expect(result.dispatched).toBe(0);
       expect(sendPushToUserMock).not.toHaveBeenCalled();
     });
@@ -230,11 +232,11 @@ describe("dispatchSleepReminders — wind-down plan window (IA-P4a)", () => {
     expect(sendPushToUserMock.mock.calls[0]![4]).toBe("/close");
   });
 
-  it("without a plan the old 21:30 window is unchanged", async () => {
+  it("without a plan the window opens at Home's default 21:00 (not a different 21:30)", async () => {
     const { client } = makeClient({ optedInProfiles: [{ user_id: "u1", timezone: "America/Chicago" }], settings: [] });
     sendPushToUserMock.mockResolvedValue({ hadSubscriptions: true, delivered: 1, total: 1 });
-    expect((await dispatchSleepReminders(client, AT_2129_LOCAL)).dispatched).toBe(0);
-    expect((await dispatchSleepReminders(client, AT_2130_LOCAL)).dispatched).toBe(1);
+    expect((await dispatchSleepReminders(client, AT_2059_LOCAL)).dispatched).toBe(0);
+    expect((await dispatchSleepReminders(client, AT_2100_LOCAL)).dispatched).toBe(1);
   });
 
   it("a wind-down at/after 23:45 still gets a >=30 min window: the reminder opens by 23:30", async () => {
@@ -253,3 +255,14 @@ describe("dispatchSleepReminders — wind-down plan window (IA-P4a)", () => {
     expect((await dispatchSleepReminders(client, new Date("2026-09-15T04:15:00.000Z"))).dispatched).toBe(1); // 23:15
   });
 });
+
+describe("one shared default with Home's Close-the-day card", () => {
+  it("with no plan the reminder window starts at exactly the wind-down default Home flips on", () => {
+    expect(reminderWindowStartLocal(undefined)).toBe(DEFAULT_WIND_DOWN);
+    expect(reminderWindowStartLocal({ wake_time: null, sleep_need_minutes: null, wind_down_minutes: null })).toBe(DEFAULT_WIND_DOWN);
+  });
+  it("with a plan, both follow the plan's wind-down start", () => {
+    expect(reminderWindowStartLocal({ wake_time: "07:00", sleep_need_minutes: 480, wind_down_minutes: 45 })).toBe("22:15");
+  });
+});
+

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysToDateString, localDateString, resolveLocalTime } from "@/lib/date-utils";
 import { deriveWindDown, eveningWindDownStart } from "@/lib/rhythm/wind-down";
 import { sendPushToUser } from "./send-push";
+import { DEFAULT_WIND_DOWN } from "@/lib/home/rhythm-state";
 
 /**
  * P2-05: a fixed 9:30 PM local nudge for any user who opted in via
@@ -22,7 +23,9 @@ import { sendPushToUser } from "./send-push";
  * start) -- logged as an assumption in $SD/OPEN_QUESTIONS.md.
  */
 
-const REMINDER_WINDOW_START_LOCAL = "21:30";
+// ONE default for "when does the evening start": the SAME constant Home's "Close the day" card flips on (lib/home/rhythm-state.ts),
+// so with no wind-down plan the push and the card can never disagree (they used to: 21:30 vs 21:00).
+const REMINDER_WINDOW_START_LOCAL = DEFAULT_WIND_DOWN;
 // Latest local time the reminder window may open (see reminderWindowStartLocal).
 const REMINDER_LATEST_START = "23:30";
 const REMINDER_WINDOW_DURATION_MS = 2 * 60 * 60 * 1000;

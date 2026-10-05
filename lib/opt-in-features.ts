@@ -42,6 +42,6 @@ export const OPT_IN_FEATURES: Record<OptInFeatureId, { label: string; descriptio
   },
   sleep_plan: {
     label: "Sleep plan",
-    description: "A planned bedtime on Home and the 9:30 PM wind-down reminder.",
+    description: "A planned bedtime on Home and a wind-down reminder at your wind-down time.",
   },
 };
