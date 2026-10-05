@@ -25,7 +25,17 @@ export function buildPrimaryNavItems(state: NavDomainState): PrimaryNavItem[] {
   const items: PrimaryNavItem[] = [{ key: "home", href: "/", label: "Home", icon: Home, accent: "info" }];
 
   if (state.hasPersonalGrowth) {
-    items.push({ key: "personal", href: "/personal", label: "Personal", icon: Compass, accent: "deen" });
+    // Straight to the first kept tab, like Work: "/personal" is only a redirect page, and linking to it meant a
+    // redirect hop (and, on a cache miss, Home's skeleton flashing) on every Personal click.
+    const firstPersonalSubdomain = state.personalSubdomains[0]?.key;
+    items.push({
+      key: "personal",
+      href: firstPersonalSubdomain ? `/personal/${firstPersonalSubdomain}` : "/personal",
+      activeBase: "/personal",
+      label: "Personal",
+      icon: Compass,
+      accent: "deen",
+    });
   }
   if (state.hasWork) {
     const firstWorkSubdomain = state.workSubdomains[0]?.key;

@@ -35,6 +35,22 @@ describe("buildPrimaryNavItems", () => {
     expect(work?.activeBase).toBe("/work");
   });
 
+  it("Personal links straight to its first kept tab (no redirect hop) and stays active across /personal/*", () => {
+    const items = buildPrimaryNavItems({
+      ...EMPTY,
+      hasPersonalGrowth: true,
+      personalSubdomains: [
+        { key: "self_mastery", label: "Self-Mastery", kind: null },
+        { key: "fitness", label: "Fitness", kind: null },
+      ],
+    });
+    const personal = items.find((i) => i.key === "personal");
+    expect(personal?.href).toBe("/personal/self_mastery");
+    expect(personal?.activeBase).toBe("/personal");
+    // no kept tabs yet: the bare route (its redirect page sends the user home)
+    expect(buildPrimaryNavItems({ ...EMPTY, hasPersonalGrowth: true }).find((i) => i.key === "personal")?.href).toBe("/personal");
+  });
+
   it("Work falls back to the bare route when it has no subdomains yet", () => {
     const items = buildPrimaryNavItems({ ...EMPTY, hasWork: true });
     expect(items.find((i) => i.key === "work")?.href).toBe("/work");

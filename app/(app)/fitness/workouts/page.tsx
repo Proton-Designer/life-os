@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/supabase/auth";
+import { FitnessLink } from "@/components/fitness/fitness-link";
 import { PageContainer } from "@/components/shell/page-container";
 import { PageHeader } from "@/components/shell/page-header";
 import { PlanWorkoutsClient } from "@/components/fitness/workouts/plan-workouts-client";
@@ -113,9 +113,9 @@ export default async function WorkoutsPage() {
   return (
     <PageContainer>
       <PageHeader title="My Workouts" />
-      <Link href="/fitness" className="text-sm text-muted-foreground underline underline-offset-2">
+      <FitnessLink href="/fitness" className="text-sm text-muted-foreground underline underline-offset-2">
         ← Back to Fitness
-      </Link>
+      </FitnessLink>
       <PlanWorkoutsClient
         initialPlans={plans}
         initialActivePlans={activePlans}

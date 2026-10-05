@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString, getWeekStartDate, weekDatesFrom, dayOfWeekFromDateString, addDaysToDateString } from "@/lib/date-utils";
@@ -18,6 +17,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Panel } from "@/components/ui/panel";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
+import { FitnessLink } from "@/components/fitness/fitness-link";
 import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 import { confirmPlanSession, logWeight, logWaist, quickLogExercise, logCycleBenchmark } from "./actions";
 
@@ -358,7 +358,7 @@ export default async function FitnessPage() {
         <span className="min-w-0 truncate text-sm font-medium">
           Workout Plan: {activePlanNames.length > 0 ? activePlanNames.join(" + ") : "none selected"}
         </span>
-        <Link
+        <FitnessLink
           href="/fitness/workouts"
           className={
             activePlanNames.length === 0
@@ -367,7 +367,7 @@ export default async function FitnessPage() {
           }
         >
           My Workouts →
-        </Link>
+        </FitnessLink>
       </div>
 
       {allWidgetsHidden(layout) ? (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Flag, ListChecks, Repeat, Timer, type LucideIcon } from "lucide-react";
+import { CalendarDays, ListChecks, Repeat, Timer, type LucideIcon } from "lucide-react";
 import { LockInHint } from "@/components/home/lock-in-hint";
 import { IndicatorPopover, useIsNarrow } from "@/components/home/indicator-popover";
 import { markPrayer } from "@/app/(app)/deen/actions";
@@ -307,9 +307,7 @@ export function DayBar({
             <div className="pointer-events-none relative h-full">{focus.map((b, i) => eventButton(b, i, b.tiny ? "dot" : "pill"))}</div>
           </div>
           {bar.startedPct !== null ? (
-            <div className="pointer-events-none absolute -inset-y-1 z-10 w-0.5 rounded-full bg-foreground/70" style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started">
-              <Flag className="absolute -top-0.5 left-0 size-3 -translate-x-1/2 -translate-y-full fill-foreground/70 text-foreground/70" aria-hidden />
-            </div>
+            <div className="pointer-events-none absolute -inset-y-1 z-10 w-0.5 rounded-full bg-foreground/70" style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started" />
           ) : null}
           {bar.nowPosition === "within" ? (
             <div className="pointer-events-none absolute -inset-y-1 z-20 w-px bg-accent-info" style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now">
