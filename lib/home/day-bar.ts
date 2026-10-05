@@ -7,11 +7,38 @@ import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
  * onto the bar's own range (wake -> end of day), and derives the awake span, the focus share and the labels.
  */
 
+/** What the popover shows for ANY indicator (class, work, workout, task, calendar event, focus block, prayer). */
+export type DayBarPopover = {
+  kindLabel: string;
+  title: string;
+  startAt: Date;
+  endAt: Date | null;
+  allDay?: boolean;
+  location?: string | null;
+  instructor?: string | null;
+  description?: string | null;
+  link?: string | null;
+};
+
+export type DayBarKind = RibbonActivityKind | "calendar";
+
+/** A calendar event from an external source (Google Calendar, GCAL-01). Plain data, serialisable. */
+export type DayBarCalendarEvent = {
+  id: string;
+  title: string;
+  startAt: Date;
+  endAt: Date | null;
+  allDay?: boolean;
+  location?: string | null;
+  description?: string | null;
+  link?: string | null;
+};
+
 export type DayBarBlock = {
   label: string;
   colorVar: string;
-  kind: RibbonActivityKind;
-  /** Percent of the bar, clipped into [0, 100]; null = entirely outside the bar. */
+  kind: DayBarKind;
+  /** Percent of the bar, clipped into [0, 100]. */
   startPct: number;
   endPct: number;
   isFocus: boolean;
@@ -20,9 +47,28 @@ export type DayBarBlock = {
   detail?: RibbonActivityDetail;
   /** True when it lies after NOW (what's left of the day). */
   upcoming: boolean;
+  /** Fixed events stack into lanes above the track (0 = nearest the track); focus blocks sit ON the track (lane 0 unused). */
+  lane: number;
+  /** Too narrow to carry a label: shown as a dot (the popover is still one tap away). */
+  tiny: boolean;
+  popover: DayBarPopover;
 };
 
-export type DayBarPrayer = { name: string; label: string; state: RibbonSpanState; midPct: number };
+/** A prayer's window as a band behind everything; present only when the ribbon has prayer spans (Deen Mode ON). */
+export type DayBarPrayer = {
+  name: string;
+  label: string;
+  state: RibbonSpanState;
+  midPct: number;
+  startPct: number;
+  endPct: number;
+  windowStart: Date;
+  windowEnd: Date;
+  /** The window NOW falls in. */
+  current: boolean;
+};
+
+export type DayBarTick = { pct: number; label: string | null };
 
 export type DayBar = {
   rangeStart: Date;
@@ -34,7 +80,11 @@ export type DayBar = {
   /** The efficiency share of the awake span, as percent of the BAR (0..awakePct). */
   focusSharePct: number;
   blocks: DayBarBlock[];
+  /** How many stacked lanes the fixed events need (>= 1 when any exist, else 0). */
+  laneCount: number;
   prayers: DayBarPrayer[];
+  /** Hour tick marks along the bottom, a label on every third hour. */
+  ticks: DayBarTick[];
 };
 
 const clampPct = (n: number) => Math.max(0, Math.min(100, n));
@@ -57,6 +107,33 @@ export function dayBarEnd(args: { wake: Date; ribbonEnd: Date; bedtime: string |
   return end;
 }
 
+const KIND_LABEL: Record<DayBarKind, string> = { class: "Class", work: "Work", fitness: "Workout", task: "Task", focus: "Focus", habit: "Habit", calendar: "Calendar" };
+/** Narrower than this (percent of the bar) cannot carry a label: it becomes a dot. */
+const TINY_PCT = 2.5;
+/** Minimum visual footprint when deciding whether two fixed events collide into the same lane. */
+const LANE_FOOTPRINT_PCT = 4;
+
+function localHourMinute(d: Date, timezone: string): { h: number; m: number } {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(d);
+  return { h: Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24, m: Number(parts.find((p) => p.type === "minute")?.value ?? 0) };
+}
+
+/** Hour ticks along the bar; every third local hour carries a label ("9 AM"). Pure, DST-safe (each tick is read in the zone). */
+export function hourTicks(rangeStart: Date, rangeEnd: Date, timezone: string): DayBarTick[] {
+  const span = rangeEnd.getTime() - rangeStart.getTime();
+  if (span <= 0) return [];
+  const { m } = localHourMinute(rangeStart, timezone);
+  let t = rangeStart.getTime() + (m === 0 ? 0 : (60 - m) * 60_000);
+  const ticks: DayBarTick[] = [];
+  const labelFmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric" });
+  for (let i = 0; t <= rangeEnd.getTime() && i < 48; i++, t += 3_600_000) {
+    const d = new Date(t);
+    const { h } = localHourMinute(d, timezone);
+    ticks.push({ pct: clampPct(((t - rangeStart.getTime()) / span) * 100), label: h % 3 === 0 ? labelFmt.format(d) : null });
+  }
+  return ticks;
+}
+
 export function buildDayBar(args: {
   layout: DayRibbonLayout | null;
   wake: Date;
@@ -64,8 +141,12 @@ export function buildDayBar(args: {
   now: Date;
   /** Efficiency percent (0..100) or null when not computable. */
   efficiencyPercent: number | null;
-}): DayBar {
-  const { layout, wake, end, now, efficiencyPercent } = args;
+  /** External calendar events (Google, GCAL-01); all-day ones are returned apart, not placed on the timeline. */
+  calendarEvents?: readonly DayBarCalendarEvent[];
+  /** For the hour scale; defaults to UTC. */
+  timezone?: string;
+}): DayBar & { allDay: DayBarPopover[] } {
+  const { layout, wake, end, now, efficiencyPercent, calendarEvents = [], timezone = "UTC" } = args;
   const span = end.getTime() - wake.getTime();
   const pct = (t: number) => clampPct(((t - wake.getTime()) / span) * 100);
   const nowPct = pct(now.getTime());
@@ -73,17 +154,18 @@ export function buildDayBar(args: {
   const awakePct = nowPosition === "before" ? 0 : nowPct;
   const focusSharePct = efficiencyPercent === null ? 0 : (awakePct * Math.max(0, Math.min(100, efficiencyPercent))) / 100;
 
-  const blocks: DayBarBlock[] = [];
+  const raw: Omit<DayBarBlock, "lane" | "tiny">[] = [];
   const prayers: DayBarPrayer[] = [];
+  const overlaps = (s: number, e: number) => !(e <= wake.getTime() && s < wake.getTime()) && s < end.getTime();
+
   if (layout) {
     const rSpan = layout.rangeEnd.getTime() - layout.rangeStart.getTime();
     const at = (p: number) => layout.rangeStart.getTime() + (p / 100) * rSpan;
     for (const b of layout.blocks) {
       const s = at(b.startPct);
       const e = at(b.endPct);
-      if (e <= wake.getTime() && s < wake.getTime()) continue; // entirely before the bar
-      if (s >= end.getTime()) continue; // entirely after it
-      blocks.push({
+      if (!overlaps(s, e)) continue;
+      raw.push({
         label: b.label,
         colorVar: b.colorVar,
         kind: b.kind,
@@ -94,15 +176,97 @@ export function buildDayBar(args: {
         endAt: new Date(e),
         detail: b.detail,
         upcoming: s > now.getTime(),
+        popover: {
+          kindLabel: KIND_LABEL[b.kind],
+          title: b.detail?.title ?? b.label,
+          startAt: new Date(s),
+          endAt: new Date(e),
+          location: b.detail?.location ?? null,
+          instructor: b.detail?.instructor ?? null,
+        },
       });
     }
     for (const sp of layout.spans) {
-      const mid = (sp.windowStart.getTime() + sp.windowEnd.getTime()) / 2;
-      if (mid < wake.getTime() || mid > end.getTime()) continue;
-      prayers.push({ name: sp.name, label: sp.label, state: sp.state, midPct: pct(mid) });
+      const ws = sp.windowStart.getTime();
+      const we = sp.windowEnd.getTime();
+      if (we <= wake.getTime() || ws >= end.getTime()) continue; // the window does not touch the bar
+      prayers.push({
+        name: sp.name,
+        label: sp.label,
+        state: sp.state,
+        midPct: pct((ws + we) / 2),
+        startPct: pct(ws),
+        endPct: pct(we),
+        windowStart: sp.windowStart,
+        windowEnd: sp.windowEnd,
+        current: now.getTime() >= ws && now.getTime() < we,
+      });
     }
   }
-  return { rangeStart: wake, rangeEnd: end, nowPct, nowPosition, awakePct, focusSharePct, blocks, prayers };
+
+  const allDay: DayBarPopover[] = [];
+  for (const ev of calendarEvents) {
+    const popover: DayBarPopover = {
+      kindLabel: KIND_LABEL.calendar,
+      title: ev.title,
+      startAt: ev.startAt,
+      endAt: ev.endAt,
+      allDay: ev.allDay,
+      location: ev.location ?? null,
+      description: ev.description ?? null,
+      link: ev.link ?? null,
+    };
+    if (ev.allDay) {
+      allDay.push(popover);
+      continue;
+    }
+    const s = ev.startAt.getTime();
+    const e = (ev.endAt ?? new Date(s + 30 * 60_000)).getTime();
+    if (!overlaps(s, e)) continue;
+    raw.push({
+      label: ev.title,
+      colorVar: "--accent-info",
+      kind: "calendar",
+      startPct: pct(s),
+      endPct: Math.max(pct(e), pct(s)),
+      isFocus: false,
+      startAt: ev.startAt,
+      endAt: new Date(e),
+      upcoming: s > now.getTime(),
+      popover,
+    });
+  }
+
+  // Stack the FIXED events (everything but focus) into lanes by start time: a block takes the first lane
+  // whose last block (at least LANE_FOOTPRINT_PCT wide for the test) has ended; focus blocks sit on the track.
+  raw.sort((x, y) => x.startAt.getTime() - y.startAt.getTime());
+  const laneEnds: number[] = [];
+  const blocks: DayBarBlock[] = raw.map((b) => {
+    const width = b.endPct - b.startPct;
+    const tiny = width < TINY_PCT;
+    if (b.isFocus) return { ...b, lane: 0, tiny };
+    const footprintEnd = b.startPct + Math.max(width, LANE_FOOTPRINT_PCT);
+    let lane = laneEnds.findIndex((e) => e <= b.startPct);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(footprintEnd);
+    } else laneEnds[lane] = footprintEnd;
+    return { ...b, lane, tiny };
+  });
+
+  return {
+    rangeStart: wake,
+    rangeEnd: end,
+    nowPct,
+    nowPosition,
+    awakePct,
+    focusSharePct,
+    blocks,
+    laneCount: laneEnds.length,
+    prayers,
+    ticks: hourTicks(wake, end, timezone),
+    allDay,
+  };
 }
 
 /** "5:45" for a whole-minute duration (the bar's "Awake for" label). */

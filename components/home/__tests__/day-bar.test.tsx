@@ -1,7 +1,10 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let session: unknown = null;
+const markPrayer = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => {}));
+vi.mock("@/app/(app)/deen/actions", () => ({ markPrayer: (...a: unknown[]) => markPrayer(...a), refreshDeenViews: vi.fn(async () => {}) }));
 vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session }) }));
 
 import { DayBar } from "../day-bar";
@@ -72,19 +75,95 @@ describe("DayBar (HOME-02)", () => {
     expect(screen.getByTestId("day-bar-now").style.left).toMatch(/^35\.9/);
   });
 
-  it("blocks carry icon + label (never colour-only): a legend names each with its time; focus is highlighted; upcoming stays visible", () => {
+  it("fixed events and focus blocks carry an icon (never colour-only); a legend names each with its time; focus is on the track and ringed; upcoming stays visible", () => {
     render(<DayBar {...props} />);
     const legend = within(screen.getByTestId("day-bar-legend"));
     for (const name of ["Calc", "Lock-In", "Gym"]) expect(legend.getByText(name)).toBeInTheDocument();
-    expect(screen.getByTestId("day-bar-focus-block").className).toContain("ring-2");
-    expect(screen.getAllByTestId("day-bar-block").length).toBe(2); // Calc + Gym (the class and what's left of the day)
-    expect(screen.getByRole("button", { name: /Class: Calculus, 10:00–11:00/ })).toBeInTheDocument(); // popover trigger kept
+    const focus = screen.getByTestId("day-bar-focus-block");
+    expect(focus.className).toContain("ring-2");
+    expect(within(screen.getByTestId("day-bar-track")).getByTestId("day-bar-focus-block")).toBe(focus); // on the track
+    const lanes = within(screen.getByTestId("day-bar-lanes"));
+    expect(lanes.getAllByTestId("day-bar-block")).toHaveLength(2); // Calc + Gym sit in the lane ABOVE the track
+    expect(lanes.getByRole("button", { name: /Class: Calculus, 10:00\sAM.11:00\sAM/ })).toBeInTheDocument();
+    expect(focus.querySelector("svg")).not.toBeNull(); // icon present
   });
 
-  it("shows the prayer window as a marker when Faith is on, and the wake/bedtime ends of the bar", () => {
+  it("EVERY indicator opens a popover with its details: class, workout, focus block (and prayer, below)", async () => {
+    vi.useRealTimers(); // popovers/sheets animate; findBy* needs real timers
+    const user = userEvent.setup();
     render(<DayBar {...props} />);
-    expect(screen.getByTestId("day-bar-prayer-dhuhr")).toHaveAttribute("aria-label", "Dhuhr (logged)");
-    expect(screen.getByRole("img", { name: /Your day from 6:00 AM to 10:00 PM/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Class: Calculus/ }));
+    expect(await screen.findByTestId("indicator-popover")).toHaveTextContent("Calculus");
+    expect(screen.getByTestId("indicator-time")).toHaveTextContent(/10:00\sAM.11:00\sAM/);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /Workout: Gym/ }));
+    expect(await screen.findByTestId("indicator-popover")).toHaveTextContent("Gym");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /Focus: Lock-In/ }));
+    expect(await screen.findByTestId("indicator-popover")).toHaveTextContent("Lock-In");
+    expect(screen.getByTestId("indicator-time")).toHaveTextContent(/8:00\sAM.9:30\sAM/);
+  });
+
+  it("Faith on: the prayer window is a BAND spanning its whole window (current one stronger); the group names the day's ends", () => {
+    render(<DayBar {...props} />);
+    const band = screen.getByTestId("day-bar-prayer-dhuhr");
+    // 13:00-15:30 of a 06:00-22:00 bar = 43.75% .. 59.4%
+    expect(parseFloat(band.style.left)).toBeCloseTo(43.75, 1);
+    expect(parseFloat(band.style.width)).toBeCloseTo(15.6, 1);
+    expect(band).toHaveAttribute("data-current", "false"); // it is 11:45
+    expect(band).toHaveAttribute("aria-label", expect.stringMatching(/Dhuhr window, 1:00\sPM.3:30\sPM \(logged\)/));
+    expect(screen.getByRole("group", { name: /Your day from 6:00\sAM to 10:00\sPM/ })).toBeInTheDocument();
+  });
+
+  it("the window NOW falls in is marked current (positive control for the band above)", () => {
+    vi.setSystemTime(at("2026-10-05T14:00:00"));
+    render(<DayBar {...props} nowIso={at("2026-10-05T14:00:00").toISOString()} />);
+    expect(screen.getByTestId("day-bar-prayer-dhuhr")).toHaveAttribute("data-current", "true");
+  });
+
+  it("Deen OFF: no prayer bands (a ribbon with no spans draws none)", () => {
+    const noPrayer = computeDayRibbon({ dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") }, prayers: [], activities: [], now: at("2026-10-05T11:45:00") })!;
+    render(<DayBar {...props} layout={noPrayer} />);
+    expect(screen.queryByTestId("day-bar-prayer-dhuhr")).not.toBeInTheDocument();
+  });
+
+  it("a prayer popover shows the window and status, and 'Mark on time' (optimistic, then logged) for a not-yet-logged one", async () => {
+    const pending = computeDayRibbon({
+      dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
+      prayers: [{ name: "asr", label: "Asr", status: "pending", window: { start: at("2026-10-05T11:00:00"), end: at("2026-10-05T14:00:00") } }],
+      activities: [],
+      now: at("2026-10-05T11:45:00"),
+    })!;
+    vi.useRealTimers(); // popovers/sheets animate; findBy* needs real timers
+    const user = userEvent.setup();
+    render(<DayBar {...props} layout={pending} />);
+    await user.click(screen.getByTestId("day-bar-prayer-asr"));
+    expect(await screen.findByTestId("indicator-popover")).toHaveTextContent("Status: Open now");
+    await user.click(screen.getByTestId("mark-prayer-asr"));
+    expect(screen.getByTestId("day-bar-prayer-asr")).toHaveAttribute("data-state", "logged"); // optimistic
+    expect(markPrayer).toHaveBeenCalledWith("2026-10-05", "asr", "on_time");
+  });
+
+  it("on a phone the same indicator opens a BOTTOM SHEET instead of a popover", async () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: true, media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+    vi.useRealTimers(); // popovers/sheets animate; findBy* needs real timers
+    const user = userEvent.setup();
+    render(<DayBar {...props} />);
+    await user.click(await screen.findByRole("button", { name: /Class: Calculus/ }));
+    const sheet = await screen.findByTestId("indicator-sheet");
+    expect(sheet).toHaveTextContent("Calculus");
+    expect(sheet.className).toContain("bottom-0");
+    expect(screen.queryByTestId("indicator-popover")).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("an hour scale runs along the bottom with a label every third hour", () => {
+    render(<DayBar {...props} />);
+    const scale = screen.getByTestId("day-bar-scale");
+    expect(scale.children.length).toBeGreaterThanOrEqual(15); // 06:00..22:00 hourly
+    expect(scale.textContent).toMatch(/6\sAM/);
+    expect(scale.textContent).toMatch(/12\sPM/);
+    expect(scale.textContent).not.toMatch(/7\sAM/);
   });
 
   it("the subtle Lock-In hint sits under the bar while hours are 0 (and not otherwise)", () => {
@@ -119,12 +198,12 @@ describe("DayBar (HOME-02)", () => {
     const edge = computeDayRibbon({
       dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
       prayers: [],
-      activities: [{ label: "Late", colorVar: "--accent-school", kind: "work", start: at("2026-10-05T21:50:00"), end: at("2026-10-05T23:30:00") }],
+      activities: [{ label: "Late", colorVar: "--accent-school", kind: "work", start: at("2026-10-05T21:00:00"), end: at("2026-10-05T23:30:00") }],
       now: at("2026-10-05T11:45:00"),
     })!;
     render(<DayBar {...props} layout={edge} />);
-    const pill = screen.getByTestId("day-bar-block");
+    const pill = within(screen.getByTestId("day-bar-lanes")).getByTestId("day-bar-block");
     expect(parseFloat(pill.style.left) + parseFloat(pill.style.width)).toBeLessThanOrEqual(100.0001); // fits in the bar
-    expect(screen.getByTestId("day-bar-blocks").className).toContain("overflow-hidden"); // and anything left over is clipped
+    expect(screen.getByTestId("day-bar-lanes").className).toContain("overflow-hidden"); // and anything left over is clipped
   });
 });

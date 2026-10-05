@@ -103,3 +103,86 @@ describe("labels", () => {
     expect(toGoLabel(300, 240, fmt)).toBeNull();
   });
 });
+
+// DAYBAR-02: prayer bands, lanes, tiny events, popover data, the hour scale, generic calendar events.
+describe("DAYBAR-02 model", () => {
+  const NOW = at("2026-10-05T14:00:00");
+  const withPrayer = computeDayRibbon({
+    dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") },
+    prayers: [
+      { name: "fajr", label: "Fajr", status: "on_time", window: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T06:30:00") } },
+      { name: "dhuhr", label: "Dhuhr", status: "pending", window: { start: at("2026-10-05T13:00:00"), end: at("2026-10-05T15:30:00") } },
+      { name: "isha", label: "Isha", status: "upcoming", window: { start: at("2026-10-05T21:00:00"), end: at("2026-10-05T23:30:00") } },
+    ],
+    activities: [
+      { label: "Calc", colorVar: "--c", kind: "class", start: at("2026-10-05T10:00:00"), end: at("2026-10-05T11:30:00"), detail: { title: "Calculus", timeRange: "x", location: "Room 4", instructor: "Dr. Lee", domain: "school" } },
+      { label: "Chem", colorVar: "--c", kind: "class", start: at("2026-10-05T10:30:00"), end: at("2026-10-05T12:00:00") }, // overlaps Calc
+      { label: "Call", colorVar: "--c", kind: "task", start: at("2026-10-05T16:00:00"), end: at("2026-10-05T16:05:00") }, // tiny
+      { label: "Shift", colorVar: "--c", kind: "work", start: at("2026-10-05T12:00:00"), end: at("2026-10-05T14:00:00") },
+    ],
+    now: NOW,
+  })!;
+  const bar = buildDayBar({ layout: withPrayer, wake: WAKE, end: END, now: NOW, efficiencyPercent: 20, timezone: CHI });
+
+  it("prayer WINDOWS become bands (start/end clipped to the bar, current marked), and none exist when there are no spans (Deen OFF)", () => {
+    const dhuhr = bar.prayers.find((p) => p.name === "dhuhr")!;
+    expect(dhuhr.startPct).toBeCloseTo(43.75, 1);
+    expect(dhuhr.endPct).toBeCloseTo(59.375, 1);
+    expect(dhuhr.current).toBe(true);
+    const fajr = bar.prayers.find((p) => p.name === "fajr")!; // 05:00-06:30 starts before the 06:00 wake: clipped to 0
+    expect(fajr.startPct).toBe(0);
+    expect(fajr.current).toBe(false);
+    const isha = bar.prayers.find((p) => p.name === "isha")!; // runs past the 22:00 end: clipped to 100
+    expect(isha.endPct).toBe(100);
+    const none = buildDayBar({ layout: { ...withPrayer, spans: [] }, wake: WAKE, end: END, now: NOW, efficiencyPercent: null });
+    expect(none.prayers).toEqual([]);
+  });
+
+  it("overlapping fixed events stack into a second lane; non-overlapping ones share lane 0", () => {
+    const lane = (label: string) => bar.blocks.find((b) => b.label === label)!.lane;
+    expect(lane("Calc")).toBe(0);
+    expect(lane("Chem")).toBe(1); // collides with Calc
+    expect(lane("Shift")).toBe(0); // starts after Calc's footprint ended... Calc ends 11:30, Shift 12:00
+    expect(bar.laneCount).toBe(2);
+  });
+
+  it("a tiny event is flagged so it renders as a dot; a normal one is not", () => {
+    expect(bar.blocks.find((b) => b.label === "Call")!.tiny).toBe(true);
+    expect(bar.blocks.find((b) => b.label === "Calc")!.tiny).toBe(false);
+  });
+
+  it("every block carries popover data: kind, title, time range, location/instructor", () => {
+    const calc = bar.blocks.find((b) => b.label === "Calc")!.popover;
+    expect(calc).toMatchObject({ kindLabel: "Class", title: "Calculus", location: "Room 4", instructor: "Dr. Lee" });
+    expect(calc.endAt!.getTime() - calc.startAt.getTime()).toBe(90 * 60_000);
+    expect(bar.blocks.find((b) => b.label === "Shift")!.popover.kindLabel).toBe("Work");
+    expect(bar.blocks.find((b) => b.label === "Call")!.popover.kindLabel).toBe("Task");
+  });
+
+  it("the hour scale: an hourly tick with a label on every third local hour", () => {
+    expect(bar.ticks[0]).toMatchObject({ pct: 0 }); // 06:00
+    expect(bar.ticks.length).toBe(17); // 06:00 .. 22:00 inclusive
+    const labelled = bar.ticks.filter((t) => t.label).map((t) => t.label);
+    expect(labelled).toEqual(["6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
+  });
+
+  it("generic calendar events (a Google reader can feed these later) become blocks with a popover; all-day ones are listed apart", () => {
+    const withCal = buildDayBar({
+      layout: null,
+      wake: WAKE,
+      end: END,
+      now: NOW,
+      efficiencyPercent: null,
+      calendarEvents: [
+        { id: "1", title: "Dentist", startAt: at("2026-10-05T15:00:00"), endAt: at("2026-10-05T16:00:00"), location: "Main St", description: "Bring forms", link: "https://example.com/e" },
+        { id: "2", title: "Eid", startAt: at("2026-10-05T00:00:00"), endAt: null, allDay: true },
+        { id: "3", title: "Yesterday", startAt: at("2026-10-04T10:00:00"), endAt: at("2026-10-04T11:00:00") },
+      ],
+    });
+    const dentist = withCal.blocks.find((b) => b.kind === "calendar")!;
+    expect(dentist.popover).toMatchObject({ kindLabel: "Calendar", title: "Dentist", location: "Main St", description: "Bring forms", link: "https://example.com/e" });
+    expect(withCal.blocks.map((b) => b.label)).not.toContain("Yesterday"); // outside the bar
+    expect(withCal.allDay.map((a) => a.title)).toEqual(["Eid"]);
+    expect(withCal.blocks.map((b) => b.label)).not.toContain("Eid"); // positive control: all-day is not on the timeline
+  });
+});
