@@ -7,6 +7,7 @@ import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { effectivePrayerStatus, type StoredPrayerStatus } from "@/lib/deen/prayer-status";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
 import type { RibbonPrayerInput, RibbonActivityInput } from "./day-ribbon";
+import { frequencyFromColumns } from "@/lib/habits/frequency";
 
 const PRAYER_LABEL: Record<PrayerName, string> = {
   fajr: "Fajr",
@@ -78,7 +79,7 @@ export type DayShapeScheduleEventRow = {
   cancelled: boolean;
 };
 /** A3 Part 3: any active habit that opted into a daily cue_time (migration 114) — not Faith-specific, despite the table name. */
-export type DayShapeHabitRow = { name: string; cue_time: string };
+export type DayShapeHabitRow = { name: string; cue_time: string; frequency_type?: string | null; frequency_count?: number | null; frequency_days?: number[] | null; frequency_interval?: number | null };
 
 export type DayShapeDataSource = {
   getProfile: (userId: string) => Promise<DayShapeProfile | null>;
@@ -187,7 +188,7 @@ export function defaultDataSource(): DayShapeDataSource {
       const supabase = await createClient();
       const { data } = await supabase
         .from("deen_habits")
-        .select("name, cue_time")
+        .select("name, cue_time, frequency_type, frequency_count, frequency_days, frequency_interval")
         .eq("user_id", userId)
         .eq("archived", false)
         .not("cue_time", "is", null);
@@ -343,6 +344,11 @@ export async function getDayShape(
   // other, not a domain-specific color, since a habit isn't owned by any
   // one area (deen_habits has no domain column at all, by design).
   for (const habit of habitsWithCueTime) {
+    // HABIT-FREQ: a cue time is a fixed daily slot, so it only makes sense for a habit that happens on fixed days. Daily
+    // draws every day; "certain days" draws only on its days; N-per-week/month and every-N-days have no fixed day, so a
+    // block at a clock time would be a promise the habit never made -- they are left off the ribbon.
+    const frequency = frequencyFromColumns(habit);
+    if (frequency.kind === "weekdays" ? !frequency.days.includes(dayOfWeekFromDateString(dateStr)) : frequency.kind !== "daily") continue;
     const start = resolveLocalTime(dateStr, habit.cue_time, timezone);
     activities.push({
       label: habit.name,

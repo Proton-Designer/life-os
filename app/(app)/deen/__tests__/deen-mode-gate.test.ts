@@ -48,6 +48,7 @@ describe("deen/actions.ts refuses when Deen Mode is off", () => {
       archiveDeenHabit: () => actions.archiveDeenHabit("h1"),
       setDeenHabitStageOverride: () => actions.setDeenHabitStageOverride("h1", null),
       setDeenHabitCommittedDate: () => actions.setDeenHabitCommittedDate("h1", "2026-08-10"),
+      setDeenHabitFrequency: () => actions.setDeenHabitFrequency("h1", { kind: "per_week", count: 3 }),
       setDeenHabitLogStatus: () => actions.setDeenHabitLogStatus("h1", "2026-08-10", true),
       refreshFaithPracticeViews: () => actions.refreshFaithPracticeViews(),
       getDeenHabitLogRange: () => actions.getDeenHabitLogRange("h1", "2026-08-01", "2026-08-10"),

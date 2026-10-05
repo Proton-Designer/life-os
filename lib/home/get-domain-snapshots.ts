@@ -17,7 +17,7 @@ import {
   addDaysToDateString,
   resolveLocalTime,
 } from "@/lib/date-utils";
-import { computeHabitStreak } from "@/lib/deen/habit-streak";
+import { computeFrequencyStreak, frequencyFromColumns } from "@/lib/habits/frequency";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
 import { getWeeklySignalNoiseRatio, bucketAllocationMinutes, type SignalNoiseResult, type AllocationRow } from "@/lib/business/sn-ratio";
 import { getUserDomainWeights } from "@/lib/business/domain-weights";
@@ -96,7 +96,19 @@ export type DomainSnapshotDataSource = {
   getPrayerHandledCount: (userId: string, fromDate: string, toDate: string) => Promise<number>;
   getQuranSessions: (userId: string, weekStart: string) => Promise<{ pages_read: number }[]>;
   getQuranWeeklyTarget: (userId: string, weekStart: string) => Promise<number | null>;
-  getWeeklyFocusHabit: (userId: string, weekStart: string) => Promise<{ id: string; name: string } | null>;
+  getWeeklyFocusHabit: (
+    userId: string,
+    weekStart: string
+  ) => Promise<{
+    id: string;
+    name: string;
+    /** HABIT-FREQ: the focus habit's cadence + start, so its streak is counted in the right unit. Absent = daily from the beginning of time. */
+    committed_date?: string | null;
+    frequency_type?: string | null;
+    frequency_count?: number | null;
+    frequency_days?: number[] | null;
+    frequency_interval?: number | null;
+  } | null>;
   getHabitLogDates: (userId: string, habitId: string, sinceDate: string) => Promise<string[]>;
   getActiveWorkSession: (userId: string) => Promise<{ id: string; startedAt: string } | null>;
   getSessionAllocations: (userId: string, sessionId: string) => Promise<AllocationRow[]>;
@@ -217,7 +229,7 @@ export function defaultDataSource(): DomainSnapshotDataSource {
       if (!focusRow) return null;
       const { data: habit } = await supabase
         .from("deen_habits")
-        .select("id, name")
+        .select("id, name, committed_date, frequency_type, frequency_count, frequency_days, frequency_interval")
         .eq("id", focusRow.habit_id)
         .maybeSingle();
       return habit ?? null;
@@ -468,7 +480,17 @@ export async function getDomainSnapshots(
     return effective === "pending" || effective === "upcoming";
   });
   const habitFocusStreak = weeklyFocusHabit
-    ? computeHabitStreak(await dataSource.getHabitLogDates(userId, weeklyFocusHabit.id, sixtyDaysAgoStr), dateStr)
+    ? computeFrequencyStreak(
+        frequencyFromColumns(weeklyFocusHabit),
+        await dataSource.getHabitLogDates(
+          userId,
+          weeklyFocusHabit.id,
+          // flexible cadences need a longer history for their streak than the 60 days a daily habit reads
+          ["per_week", "per_month", "every_n_days"].includes(weeklyFocusHabit.frequency_type ?? "") ? addDaysToDateString(dateStr, -400) : sixtyDaysAgoStr
+        ),
+        dateStr,
+        weeklyFocusHabit.committed_date ?? "0001-01-01"
+      ).count
     : 0;
 
   // Old range (<= T-2): closed by elimination, no row detail needed.

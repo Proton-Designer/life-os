@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { markPrayerCore, unlogPrayerCore, toggleSunnahCore, toggleAdhkarCore, fetchTimezone } from "../actions-core";
+import { markPrayerCore, unlogPrayerCore, toggleSunnahCore, toggleAdhkarCore, fetchTimezone, createDeenHabitCore, setDeenHabitFrequencyCore } from "../actions-core";
 
 function makeClient(opts: { existing?: { completed: boolean } | null; upsertError?: unknown; id?: string } = {}) {
   const upsertCalls: Record<string, unknown>[] = [];
@@ -214,5 +214,45 @@ describe("fetchTimezone", () => {
     });
     const result = await fetchTimezone({ from } as unknown as SupabaseClient, "user-1");
     expect(result).toBe("UTC");
+  });
+});
+
+describe("deen habit cadence (HABIT-FREQ)", () => {
+  function habitClient(updateRows: unknown[] = [{ id: "h1" }]) {
+    const writes: { method: string; arg: unknown }[] = [];
+    const from = vi.fn((_table: string) => {
+      const chain: Record<string, unknown> = {};
+      for (const m of ["select", "eq"]) chain[m] = vi.fn(() => chain);
+      chain.insert = vi.fn((row: unknown) => (writes.push({ method: "insert", arg: row }), chain));
+      chain.update = vi.fn((row: unknown) => (writes.push({ method: "update", arg: row }), chain));
+      chain.single = vi.fn(async () => ({ data: { id: "new-habit" }, error: null }));
+      chain.then = (res: (v: unknown) => void) => res({ data: updateRows, error: null });
+      return chain;
+    });
+    return { client: { from } as unknown as SupabaseClient, writes, from };
+  }
+  const now = new Date("2026-10-05T18:00:00.000Z");
+
+  it("createDeenHabitCore stores the chosen cadence with the row, and daily when none is given", async () => {
+    const a = habitClient();
+    await createDeenHabitCore(a.client, "u1", "America/Chicago", now, "Read", undefined, { kind: "per_week", count: 3 });
+    expect(a.writes[0]!.arg).toMatchObject({ name: "Read", committed_date: "2026-10-05", frequency_type: "per_week", frequency_count: 3, frequency_days: null, frequency_interval: null });
+    const b = habitClient();
+    await createDeenHabitCore(b.client, "u1", "America/Chicago", now, "Read");
+    expect(b.writes[0]!.arg).toMatchObject({ frequency_type: "daily", frequency_count: null });
+  });
+
+  it("an invalid cadence is refused before any write", async () => {
+    const a = habitClient();
+    await expect(createDeenHabitCore(a.client, "u1", "UTC", now, "Read", undefined, { kind: "every_n_days", interval: 1 })).rejects.toThrow(/Days between/);
+    expect(a.from).not.toHaveBeenCalled();
+  });
+
+  it("setDeenHabitFrequencyCore updates only the cadence columns, and reports not-found when no row matched", async () => {
+    const a = habitClient();
+    await setDeenHabitFrequencyCore(a.client, "u1", "h1", { kind: "weekdays", days: [2, 4] });
+    expect(a.writes).toEqual([{ method: "update", arg: { frequency_type: "weekdays", frequency_count: null, frequency_days: [2, 4], frequency_interval: null } }]);
+    const none = habitClient([]);
+    await expect(setDeenHabitFrequencyCore(none.client, "u1", "ghost", { kind: "daily" })).rejects.toThrow(/No deen habit found/);
   });
 });

@@ -1,5 +1,6 @@
 "use server";
 
+import type { HabitFrequency } from "@/lib/habits/frequency";
 import { requireUser } from "@/lib/supabase/auth";
 import { isDeenModeOnForRequest, getRequestTimezone, DEEN_MODE_OFF_MESSAGE } from "@/lib/deen/deen-mode-guard";
 import { localDateString } from "@/lib/date-utils";
@@ -19,6 +20,7 @@ import {
   reflectionEntryLogCore,
   createDeenHabitCore,
   updateDeenHabitCore,
+  setDeenHabitFrequencyCore,
   archiveDeenHabitCore,
   setDeenHabitStageOverrideCore,
   setDeenHabitCommittedDateCore,
@@ -201,11 +203,11 @@ export async function decrementReflectionEntry(tier: 1 | 2 | 3): Promise<void> {
 // Normalized to null (never "") so "no cue set" and "cue cleared" stay
 // distinguishable, matching the column's own nullable-no-default design.
 /** THIN WRAPPER over createDeenHabitCore (P4-06) — the MCP write tool calls the same core. */
-export async function createDeenHabit(name: string, anchorCue?: string): Promise<{ id: string }> {
+export async function createDeenHabit(name: string, anchorCue?: string, frequency?: HabitFrequency): Promise<{ id: string }> {
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) throw new Error(DEEN_MODE_OFF_MESSAGE);
   const timezone = await getRequestTimezone();
-  const result = await createDeenHabitCore(supabase, userId, timezone, new Date(), name, anchorCue);
+  const result = await createDeenHabitCore(supabase, userId, timezone, new Date(), name, anchorCue, frequency);
   revalidatePath("/deen");
   return result;
 }
@@ -283,6 +285,16 @@ export async function updateDeenHabit(habitId: string, name: string, anchorCue: 
   if (!(await isDeenModeOnForRequest())) return;
   await updateDeenHabitCore(supabase, userId, habitId, name, anchorCue);
   revalidatePath("/deen");
+}
+
+/** HABIT-FREQ: thin wrapper over setDeenHabitFrequencyCore. Revalidates /deen, Home and /week, which all read a habit's cadence. */
+export async function setDeenHabitFrequency(habitId: string, frequency: HabitFrequency): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
+  await setDeenHabitFrequencyCore(supabase, userId, habitId, frequency);
+  revalidatePath("/deen");
+  revalidatePath("/");
+  revalidatePath("/week");
 }
 
 /**

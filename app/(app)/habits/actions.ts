@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
+import type { HabitFrequency } from "@/lib/habits/frequency";
 import {
   createIdentityHabitCore,
   archiveIdentityHabitCore,
@@ -10,6 +11,7 @@ import {
   retractHabitVoteCore,
   pauseIdentityHabitCore,
   resumeIdentityHabitCore,
+  setIdentityHabitFrequencyCore,
   type Habit,
 } from "@/lib/habits/actions-core";
 
@@ -45,12 +47,25 @@ function revalidateHabitSurfaces() {
   revalidatePath("/week");
 }
 
-export async function createIdentityHabitAction(identityStatement: string): Promise<ActionResult<{ ok: true; habit: Habit }>> {
+export async function createIdentityHabitAction(identityStatement: string, frequency?: HabitFrequency): Promise<ActionResult<{ ok: true; habit: Habit }>> {
   const { supabase, userId } = await requireUser();
   try {
-    const habit = await createIdentityHabitCore(supabase, userId, identityStatement);
+    const habit = await createIdentityHabitCore(supabase, userId, identityStatement, frequency);
     revalidateHabitSurfaces();
     return { ok: true, habit };
+  } catch (err) {
+    return { error: describeHabitError(err) };
+  }
+}
+
+/** HABIT-FREQ: change a habit's cadence. Revalidates /habits and /week plus Home, which lists the habits due today. */
+export async function setIdentityHabitFrequencyAction(habitId: string, frequency: HabitFrequency): Promise<ActionResult> {
+  const { supabase, userId } = await requireUser();
+  try {
+    await setIdentityHabitFrequencyCore(supabase, userId, habitId, frequency);
+    revalidateHabitSurfaces();
+    revalidatePath("/");
+    return { ok: true };
   } catch (err) {
     return { error: describeHabitError(err) };
   }

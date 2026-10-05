@@ -1,3 +1,4 @@
+import { frequencyToColumns, normalizeFrequency, type HabitFrequency } from "@/lib/habits/frequency";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { localDateString, getWeekStartDate } from "@/lib/date-utils";
@@ -365,11 +366,14 @@ export async function createDeenHabitCore(
   now: Date,
   name: string,
   anchorCue?: string,
+  /** HABIT-FREQ: omitted = daily (every existing caller). Validated here, so no write path can store an invalid cadence. */
+  frequency?: HabitFrequency,
 ): Promise<{ id: string }> {
   const committedDate = localDateString(now, timezone);
+  const columns = frequencyToColumns(normalizeFrequency(frequency));
   const { data, error } = await supabase
     .from("deen_habits")
-    .insert({ user_id: userId, name, committed_date: committedDate, anchor_cue: normalizeAnchorCue(anchorCue) })
+    .insert({ user_id: userId, name, committed_date: committedDate, anchor_cue: normalizeAnchorCue(anchorCue), ...columns })
     .select("id")
     .single();
   if (error) throw error;
@@ -400,6 +404,14 @@ async function requireHabitUpdated(
 
 export async function updateDeenHabitCore(supabase: SupabaseClient, userId: string, habitId: string, name: string, anchorCue: string | null): Promise<void> {
   await requireHabitUpdated(supabase, userId, habitId, { name, anchor_cue: normalizeAnchorCue(anchorCue) });
+}
+
+/**
+ * HABIT-FREQ: change how often a habit is meant to happen. Past logs are untouched (a completion is still one row per
+ * date), so switching a habit from daily to "3× a week" simply re-reads its history under the new rule.
+ */
+export async function setDeenHabitFrequencyCore(supabase: SupabaseClient, userId: string, habitId: string, frequency: HabitFrequency): Promise<void> {
+  await requireHabitUpdated(supabase, userId, habitId, frequencyToColumns(normalizeFrequency(frequency)));
 }
 
 /** Soft delete via the existing `archived` column — NEVER a hard delete. deen_habit_logs rows are left in place, so history survives an un-archive. */

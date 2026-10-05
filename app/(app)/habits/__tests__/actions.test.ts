@@ -43,7 +43,7 @@ describe("habit actions (#39/#40) — 'use server' wrappers over lib/habits/acti
     const { createIdentityHabitAction } = await import("../actions");
     const res = await createIdentityHabitAction("the athlete");
     expect(res).toEqual({ ok: true, habit: { id: "h1", identityStatement: "the athlete", rank: 1, createdAt: "2026-09-14T00:00:00Z" } });
-    expect(createIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "the athlete");
+    expect(createIdentityHabitCoreMock).toHaveBeenCalledWith(fakeSupabase, "user-1", "the athlete", undefined); // no frequency chosen -> core defaults to daily
     expect(revalidatePathMock).toHaveBeenCalledWith("/habits");
   });
 

@@ -1,4 +1,6 @@
-export type HabitConsistencyInput = { id: string; name: string; committedDate: string };
+import { buildFrequencyCells, type HabitFrequency } from "@/lib/habits/frequency";
+
+export type HabitConsistencyInput = { id: string; name: string; committedDate: string; /** HABIT-FREQ: absent = daily (every existing caller). */ frequency?: HabitFrequency };
 export type HabitLogInput = { habitId: string; date: string; completed: boolean };
 
 function addDaysIso(dateStr: string, delta: number): string {
@@ -64,14 +66,13 @@ export function buildHabitConsistencyRows(
   days: string[],
   today: string
 ): { label: string; cells: { date: string; status: string }[] }[] {
-  return habits.map((habit) => ({
-    label: habit.name,
-    cells: days.map((date) => {
-      if (date < habit.committedDate) return { date, status: "not_tracked" };
-      const done = logs.some((l) => l.habitId === habit.id && l.date === date && l.completed);
-      if (done) return { date, status: "done" };
-      if (date === today) return { date, status: "in_progress" };
-      return { date, status: "missed" };
-    }),
-  }));
+  return habits.map((habit) => {
+    const completedDates = logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date);
+    // Daily keeps its exact original cells; other cadences get off-days / neutral "open" days instead of red misses
+    // (a "3× a week" habit has no single day it failed to happen) -- see buildFrequencyCells.
+    return {
+      label: habit.name,
+      cells: buildFrequencyCells(habit.frequency ?? { kind: "daily" }, completedDates, days, today, habit.committedDate),
+    };
+  });
 }

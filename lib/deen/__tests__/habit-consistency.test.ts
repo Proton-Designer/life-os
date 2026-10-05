@@ -177,3 +177,23 @@ describe("buildHabitConsistencyRows", () => {
     expect(afterMidnight[0].cells[2]).toEqual({ date: "2026-08-03", status: "missed" });
   });
 });
+
+describe("buildHabitConsistencyRows — cadence (HABIT-FREQ)", () => {
+  const days = ["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"]; // Fri Sat Sun Mon; today = Mon
+  const logsFor = (...dates: string[]) => dates.map((date) => ({ habitId: "h", date, completed: true }));
+
+  it("a habit with no cadence keeps the original cells exactly (daily)", () => {
+    const [row] = buildHabitConsistencyRows([{ id: "h", name: "H", committedDate: "2026-01-01" }], logsFor("2026-10-03"), days, "2026-10-05");
+    expect(row.cells.map((c) => c.status)).toEqual(["missed", "done", "missed", "in_progress"]);
+  });
+
+  it("'Mon · Wed · Fri': unscheduled days are off_day, not missed", () => {
+    const [row] = buildHabitConsistencyRows([{ id: "h", name: "H", committedDate: "2026-01-01", frequency: { kind: "weekdays", days: [1, 3, 5] } }], [], days, "2026-10-05");
+    expect(row.cells.map((c) => c.status)).toEqual(["missed", "off_day", "off_day", "in_progress"]);
+  });
+
+  it("'3× a week' never paints a day red: done or open", () => {
+    const [row] = buildHabitConsistencyRows([{ id: "h", name: "H", committedDate: "2026-01-01", frequency: { kind: "per_week", count: 3 } }], logsFor("2026-10-03"), days, "2026-10-05");
+    expect(row.cells.map((c) => c.status)).toEqual(["open", "done", "open", "open"]);
+  });
+});

@@ -27,7 +27,8 @@ import { weeklyQuranTarget } from "@/lib/quran/surfaces";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
-import { buildFaithPractices } from "@/lib/deen/practices";
+import { buildFaithPractices, getOlderFlexibleLogs, FAITH_HABIT_COLUMNS } from "@/lib/deen/practices";
+import { frequencyFromColumns } from "@/lib/habits/frequency";
 import { buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
 import { accentForPrayerStreak, computeLongestPrayerStreak } from "@/lib/deen/prayer-streak";
 import { getOnTimePrayerDays } from "@/lib/deen/prayer-streak-reader";
@@ -132,7 +133,7 @@ export default async function DeenPage() {
       .gte("date", reflectionSinceStr),
     supabase
       .from("deen_habits")
-      .select("id, name, committed_date, anchor_cue, stage_override")
+      .select(FAITH_HABIT_COLUMNS)
       .eq("user_id", userId)
       .eq("archived", false),
     supabase
@@ -320,18 +321,24 @@ export default async function DeenPage() {
     completed: l.completed,
   }));
   // HABITS-01: one derivation shared with Home and the weekly reset (lib/deen/practices.ts).
-  const deenHabits: DeenHabitData[] = buildFaithPractices(habitRows ?? [], habitLogRows ?? [], dateStr).map((p) => ({
+  // Flexible cadences (N per week/month, every N days) need a longer log history for their streak than the 60-day read above.
+  const olderFlexibleLogs = await getOlderFlexibleLogs(supabase, userId, habitRows ?? [], dateStr).catch(() => []);
+  const allHabitLogRows = [...(habitLogRows ?? []), ...olderFlexibleLogs];
+  const deenHabits: DeenHabitData[] = buildFaithPractices(habitRows ?? [], allHabitLogRows, dateStr).map((p) => ({
     id: p.id,
     name: p.name,
     committedDate: p.committedDate,
     anchorCue: p.anchorCue,
     streak: p.streak,
+    streakInfo: p.streakInfo,
     rollingRate: p.rollingRate,
     completedToday: p.completedToday,
     stageOverride: p.stageOverride,
+    frequency: p.frequency,
+    due: p.due,
   }));
   const habitConsistencyRows = buildHabitConsistencyRows(
-    (habitRows ?? []).map((h) => ({ id: h.id, name: h.name, committedDate: h.committed_date })),
+    (habitRows ?? []).map((h) => ({ id: h.id, name: h.name, committedDate: h.committed_date, frequency: frequencyFromColumns(h) })),
     habitLogsForConsistency,
     thirtyDays,
     dateStr
