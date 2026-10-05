@@ -59,6 +59,7 @@ import { getMorningBriefForToday } from "@/lib/ai/morning-brief";
 import { loadHomeWindDown } from "@/lib/home/wind-down-home";
 import { WindDownCard } from "@/components/home/wind-down-card";
 import { getMyMorningRoutineChecklist } from "@/app/(app)/morning-routine/actions";
+import { getRehearsalPlan } from "@/lib/distractions/rehearsal";
 import { LaunchSequenceCard } from "@/components/home/launch-sequence-card";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
@@ -124,7 +125,8 @@ export default async function HomePage() {
   // A settings read failing must not take down the 'Your day' card: fall back to the default target.
   const focusTargetPromise = loadFocusTargetMinutes(supabase, userId, dateStr).catch(() => DEFAULT_FOCUS_TARGET_MINUTES);
   const dayCardPromise = Promise.all([rhythmPromise, focusTargetPromise]);
-  const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise]) : null;
+  // The Launch card also rehearses the plan for yesterday's hardest trigger (null when none / nothing planned).
+  const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise, getRehearsalPlan(supabase, userId, dateStr, deenMode).catch(() => null)]) : null;
   for (const p of [snapshotsPromise, quranPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, faithPracticesPromise, habitCheckoffsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
@@ -350,13 +352,14 @@ export default async function HomePage() {
           {/* fallback null: the card only shows in the morning/today phases, and the phase is unknown until
               the rhythm resolves -- a skeleton here would flash and collapse in wind-down/done. */}
           <Stream promise={launchPromise!} label="Launch sequence" fallback={null}>
-            {([rhythm, activeHabits]) =>
+            {([rhythm, activeHabits, rehearsal]) =>
               rhythm.state === "morning" || rhythm.state === "today" ? (
                 <LaunchSequenceCard
                   items={morningRoutineItems}
                   today={dateStr}
                   habits={activeHabits.map((h) => ({ id: h.id, identityStatement: h.identityStatement }))}
                   dayStarted={rhythm.state === "today"}
+                  rehearsal={rehearsal}
                 />
               ) : null
             }

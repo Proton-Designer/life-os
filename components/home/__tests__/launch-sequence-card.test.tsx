@@ -174,3 +174,20 @@ describe("LaunchSequenceCard — offers to start the day (never forces it)", () 
   });
 });
 
+
+describe("LaunchSequenceCard — plan rehearsal", () => {
+  it("shows yesterday's hardest trigger with its plan, above the steps", () => {
+    render(<LaunchSequenceCard items={[step()]} today="2026-10-05" habits={habits} rehearsal={{ trigger: "Phone at my desk", domain: "business", body: "Phone goes in the drawer, then I start the timer", yesterdayCount: 3 }} />);
+    const box = screen.getByTestId("launch-rehearsal");
+    expect(box).toHaveTextContent("Yesterday “Phone at my desk” hit 3 times");
+    expect(box).toHaveTextContent("Phone goes in the drawer, then I start the timer");
+  });
+
+  it("a clean yesterday says it is the most frequent one; no plan renders nothing", () => {
+    const { unmount } = render(<LaunchSequenceCard items={[step()]} today="2026-10-05" habits={habits} rehearsal={{ trigger: "Email", domain: "business", body: "Close the tab", yesterdayCount: 0 }} />);
+    expect(screen.getByTestId("launch-rehearsal")).toHaveTextContent("most frequent distraction");
+    unmount();
+    render(<LaunchSequenceCard items={[step()]} today="2026-10-05" habits={habits} />);
+    expect(screen.queryByTestId("launch-rehearsal")).not.toBeInTheDocument();
+  });
+});

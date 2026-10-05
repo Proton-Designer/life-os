@@ -231,3 +231,8 @@ Deliberately NOT: **editing a wake mark after it exists** (migration 153 has no 
 ## 2026-10-05 — Time is 12-hour everywhere; stored values stay 24-hour
 `formatHHMM12` / `formatClock12` / `formatHourMinute12` (lib/date-utils.ts) are the only way a time becomes text; `components/ui/time-field-12.tsx` is the only time picker. Native `<input type="time">` and `toLocaleTimeString()` follow the browser locale (a 24-hour locale shows "21:00" whatever the page says), so `lib/__tests__/no-24-hour-time-ui.test.ts` bans them in app/ and components/. Columns, MCP inputs and `HH:MM` internals are unchanged. MCP/AI-facing error text keeps "HH:MM (24-hour)" because the tool contract requires it.
 
+
+## 2026-10-05 — One top three: the night plan is the source of truth; the Kill List is Business's view of it
+- Business has no task home (`tasks.domain` is school/co_op), so there is no "Business task" to star. A starred plan line can be marked **Business** in the plan stage (only when the account has a Business Kill List: legacy, or a Business Work tab); on Finish `savePlanRanks(..., killListIds)` mirrors it into that day's `kill_list_items` (`lib/night-plan/kill-list-mirror.ts`: first free slots, idempotent by text, overflow reported not dropped).
+- Deliberately NOT done: unmarking/unstarring later does not delete the Kill List row (nothing links the two and a row may have been edited/completed). A link column + completion sync would be the next step if this proves wanted.
+- The Launch card rehearses ONE distraction plan (`lib/distractions/rehearsal.ts`): yesterday's hardest planned trigger, else the most frequent; plans needing a rewrite are never shown. It reuses `getAllTriggers` with YESTERDAY as the "today" date, so `todayCount` is yesterday's count.

@@ -16,6 +16,7 @@ import type { MorningRoutineChecklistItem } from "@/lib/morning-routine/actions-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/ui/panel";
+import type { RehearsalPlan } from "@/lib/distractions/rehearsal";
 import { StartDayButton } from "@/components/home/rhythm/start-day-button";
 import { cn } from "@/lib/utils";
 
@@ -103,7 +104,7 @@ const EMPTY_DRAFT: Draft = { id: null, label: "", ifCue: "", fallbackText: "", h
  * server render hands in new items (or a new local day), which fixes the old card's
  * never-resyncs / midnight bugs.
  */
-export function LaunchSequenceCard({ items, today, habits, dayStarted = true }: { items: MorningRoutineChecklistItem[]; today: string; habits: LaunchHabitOption[]; /** false = the Start Day mark doesn't exist yet today (Home's "morning" state). Default true so every other caller is unchanged. */ dayStarted?: boolean }) {
+export function LaunchSequenceCard({ items, today, habits, dayStarted = true, rehearsal = null }: { rehearsal?: RehearsalPlan | null; items: MorningRoutineChecklistItem[]; today: string; habits: LaunchHabitOption[]; /** false = the Start Day mark doesn't exist yet today (Home's "morning" state). Default true so every other caller is unchanged. */ dayStarted?: boolean }) {
   const [added, setAdded] = useState<MorningRoutineChecklistItem[]>([]);
   const [edited, setEdited] = useState<Record<string, Partial<MorningRoutineChecklistItem>>>({});
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -187,6 +188,16 @@ export function LaunchSequenceCard({ items, today, habits, dayStarted = true }: 
         </Button>
       }
     >
+      {rehearsal ? (
+        <div className="mb-3 rounded-lg border border-border/60 bg-muted/40 p-3" data-testid="launch-rehearsal">
+          <p className="text-xs text-muted-foreground">
+            {rehearsal.yesterdayCount > 0
+              ? `Yesterday “${rehearsal.trigger}” hit ${rehearsal.yesterdayCount === 1 ? "once" : `${rehearsal.yesterdayCount} times`}. Your plan:`
+              : `Your most frequent distraction, “${rehearsal.trigger}”. Your plan:`}
+          </p>
+          <p className="mt-1 text-sm">{rehearsal.body}</p>
+        </div>
+      ) : null}
       {list.length === 0 ? (
         <p className="text-xs text-muted-foreground">No steps yet. Pick 3 to 5 things that start your day, each tied to a moment: “When I pour my coffee, I stretch.”</p>
       ) : (
