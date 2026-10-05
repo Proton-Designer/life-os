@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Flame, History, BookOpen } from "lucide-react";
+import { Flame, History } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
@@ -20,7 +20,10 @@ import {
 } from "@/lib/date-utils";
 import { PrayerRow } from "@/components/deen/prayer-row";
 import { SalahViewMoreButton } from "@/components/deen/salah-view-more-button";
-import { QuranCard } from "@/components/deen/quran-card";
+import { QuranPlanConnected } from "@/components/deen/quran-plan-connected";
+import { toQuranPlanView } from "@/components/deen/quran-plan-view";
+import { getQuranOverviewCore } from "@/lib/quran/plan-core";
+import { weeklyQuranTarget } from "@/lib/quran/surfaces";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
@@ -100,6 +103,7 @@ export default async function DeenPage() {
     { data: habitLogRows },
     { data: currentFocusRow },
     { data: sunnahLogRows },
+    quranOverview,
     layout,
   ] = await Promise.all([
     // One 60-day range query serves today's status, the 30-day consistency
@@ -141,6 +145,8 @@ export default async function DeenPage() {
       .eq("week_start_date", weekStart)
       .maybeSingle(),
     supabase.from("sunnah_logs").select("prayer_name, slot, completed").eq("user_id", userId).eq("date", dateStr).eq("completed", true),
+    // QURAN-02: the khatm plan's one read (plan, today's portion, status, week). Deen is ON here (the page redirects otherwise).
+    getQuranOverviewCore(supabase, userId, dateStr),
     getPageLayout("deen"),
   ]);
   const layoutMap = buildLayoutMap(layout);
@@ -291,9 +297,9 @@ export default async function DeenPage() {
   const previousWeekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(previousWeekStart, i));
   const previousWeekPages = bucketPagesByDay(sessions, previousWeekDates).reduce((a, b) => a + b, 0);
   const pagesDelta = weekPagesRead - previousWeekPages;
-  const quranTarget = weeklyGoal?.quran_page_target ?? null;
+  // The weekly target: the plan's (daily pace x 7) while a plan is active, else the manually typed one.
+  const quranTarget = weeklyQuranTarget(quranOverview, weeklyGoal?.quran_page_target ?? null);
   const latestSession = sessions[0] ?? null;
-  const recentSessionDates = sessions.filter((s) => s.date >= sixtyDaysAgoStr).map((s) => s.date);
   const weekLabels = weekDates.map((d) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }));
 
   // --- Reflection ---
@@ -458,21 +464,8 @@ export default async function DeenPage() {
           caption="pages read this week"
         >
           <div className="flex flex-col gap-4">
-            {latestSession ? (
-              <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} />
-            ) : (
-              <EmptyState
-                icon={BookOpen}
-                message="No Qur'an sessions logged yet"
-                action={{ label: "Log your first session", href: "#quran-pages" }}
-              />
-            )}
-            <QuranCard
-              currentSurah={latestSession?.surah ?? null}
-              currentJuz={latestSession?.juz ?? null}
-              sessionDates={recentSessionDates}
-              todayStr={dateStr}
-            />
+            <QuranPlanConnected view={toQuranPlanView(quranOverview)} todayStr={dateStr} />
+            {latestSession ? <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} /> : null}
           </div>
         </Panel>
       </LayoutSlot>

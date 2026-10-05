@@ -17,14 +17,16 @@ export type QuranStatus = {
   days: number | null;
   /** Pages/day needed from today to still finish on the target date. */
   neededPerDay: number;
-  /** YYYY-MM-DD at the recent pace, or null when there is too little data. */
+  /** YYYY-MM-DD at the recent pace, or null when there is too little recent data (the plan pace would just repeat the target). */
   projectedFinish: string | null;
+  /** The date to offer for "Move date" (the server's suggestion, else the projected finish). */
+  suggestedDate: string | null;
   /** The needed pace is over 2x the original: suggest moving the date first. */
   suggestMove: boolean;
 };
 
 export type QuranPlanView =
-  | { kind: "none"; /** The bookmark of a past/legacy reading, for "start from my current page". */ currentPage: number | null }
+  | { kind: "none" }
   | {
       kind: "plan";
       khatmNumber: number;
@@ -42,7 +44,7 @@ export type QuranPlanView =
       status: QuranStatus | null;
       /** Days read in the last 7 (0..7). */
       last7Days: number;
-      /** Set right after a juz completes ("Juz 7 complete · 7 of 30"). */
+      /** Juz completed today (server-driven, overview.juz.completedToday): "Juz 7 complete · 7 of 30". */
       juzComplete: { juz: number } | null;
     };
 
@@ -53,7 +55,8 @@ export type QuranActionResult = { ok: true } | { ok: false; message: string };
 export type QuranPlanActions = {
   start(input: QuranStartInput, startPage: number): Promise<QuranActionResult>;
   logPortion(forDate: "today" | "yesterday"): Promise<QuranActionResult>;
-  logToPage(toPage: number, forDate: "today" | "yesterday"): Promise<QuranActionResult>;
+  /** "I'm on page N": the bookmark (the next page to read) becomes N and the pages in between are logged. */
+  logOnPage(page: number, forDate: "today" | "yesterday"): Promise<QuranActionResult>;
   undoLast(): Promise<QuranActionResult>;
   setBookmark(page: number): Promise<QuranActionResult>;
   /** Keep the date (acknowledge) or move it (null = to the projected finish). */

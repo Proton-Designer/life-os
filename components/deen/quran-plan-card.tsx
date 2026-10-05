@@ -4,7 +4,6 @@ import { useState } from "react";
 import { BookOpen, Check, Pause, Play, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { KHATM_DUA } from "@/components/deen/khatm-dua";
 import { QURAN_TOTAL_PAGES, type QuranActionResult, type QuranPlanActions, type QuranPlanView, type QuranStartInput } from "@/components/deen/quran-plan-types";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
@@ -20,7 +19,7 @@ const PRESETS: { key: "30d" | "60d" | "6m" | "ramadan"; label: string; days: num
   { key: "ramadan", label: "Ramadan", days: 30, note: "1 juz a day, about 20 pages" },
 ];
 
-const percentOf = (nextPage: number) => Math.max(0, Math.min(100, Math.round(((nextPage - 1) / QURAN_TOTAL_PAGES) * 100)));
+const percentOf = (nextPage: number) => Math.max(0, Math.min(100, Math.floor(((nextPage - 1) / QURAN_TOTAL_PAGES) * 100)));
 
 /**
  * QURAN-02: the Deen Quran card for a khatm plan. One bookmark (the next page to read) is the only thing tracked;
@@ -34,7 +33,6 @@ export function QuranPlanCard({ view, actions, todayStr }: { view: QuranPlanView
   const [seen, setSeen] = useState<QuranPlanView>(view);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const scheduleRefresh = useScheduleRefresh();
 
   // A server refresh (after the queued writes settle) re-seeds the card from the source of truth.
   if (seen !== view) {
@@ -56,10 +54,7 @@ export function QuranPlanCard({ view, actions, todayStr }: { view: QuranPlanView
         setLocal(previous);
         setError(e instanceof Error ? e.message : "Couldn't save that. Try again.");
       })
-      .finally(() => {
-        setBusy(false);
-        scheduleRefresh();
-      });
+      .finally(() => setBusy(false)); // no extra refresh: each action revalidates its pages and the new view re-seeds the card
   }
 
   const asPlan = (v: QuranPlanView): PlanView | null => (v.kind === "plan" ? v : null);
@@ -71,7 +66,7 @@ export function QuranPlanCard({ view, actions, todayStr }: { view: QuranPlanView
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border/40 p-4" data-testid="quran-plan-card">
       {local.kind === "none" ? (
-        <Setup todayStr={todayStr} currentPage={local.currentPage} busy={busy} onStart={(input, startPage) => run(() => actions.start(input, startPage))} />
+        <Setup todayStr={todayStr} busy={busy} onStart={(input, startPage) => run(() => actions.start(input, startPage))} />
       ) : local.state === "completed" ? (
         <Khatm plan={local} busy={busy} onNext={() => run(() => actions.startNext())} />
       ) : (
@@ -89,12 +84,12 @@ export function QuranPlanCard({ view, actions, todayStr }: { view: QuranPlanView
                 : undefined
             )
           }
-          onLogToPage={(toPage, forDate) =>
+          onLogOnPage={(page, forDate) =>
             run(
-              () => actions.logToPage(toPage, forDate),
+              () => actions.logOnPage(page, forDate),
               forDate === "today"
                 ? patchPlan((p) => {
-                    const next = Math.max(p.currentPage, toPage + 1);
+                    const next = Math.max(p.currentPage, page);
                     return { currentPage: next, percent: percentOf(next), state: next > QURAN_TOTAL_PAGES ? "completed" : p.state };
                   })
                 : undefined
@@ -118,17 +113,19 @@ export function QuranPlanCard({ view, actions, todayStr }: { view: QuranPlanView
   );
 }
 
-function Setup({ todayStr, currentPage, busy, onStart }: { todayStr: string; currentPage: number | null; busy: boolean; onStart: (input: QuranStartInput, startPage: number) => void }) {
+function Setup({ todayStr, busy, onStart }: { todayStr: string; busy: boolean; onStart: (input: QuranStartInput, startPage: number) => void }) {
   const [choice, setChoice] = useState<"30d" | "60d" | "6m" | "ramadan" | "date" | "pace">("60d");
   const [date, setDate] = useState("");
   const [pace, setPace] = useState("");
-  const [from, setFrom] = useState<"first" | "current">("first");
+  const [startAt, setStartAt] = useState("");
   const paceNum = Number(pace);
-  const valid = choice === "date" ? date > todayStr : choice === "pace" ? Number.isFinite(paceNum) && paceNum >= 1 && paceNum <= QURAN_TOTAL_PAGES : true;
+  const startAtNum = startAt === "" ? 1 : Number(startAt);
+  const startOk = Number.isInteger(startAtNum) && startAtNum >= 1 && startAtNum <= QURAN_TOTAL_PAGES;
+  const valid = startOk && (choice === "date" ? date > todayStr : choice === "pace" ? Number.isFinite(paceNum) && paceNum >= 1 && paceNum <= QURAN_TOTAL_PAGES : true);
 
   function submit() {
     const input: QuranStartInput = choice === "date" ? { targetDate: date } : choice === "pace" ? { pagesPerDay: paceNum } : { preset: choice };
-    onStart(input, from === "current" && currentPage ? currentPage : 1);
+    onStart(input, startAtNum);
   }
 
   return (
@@ -185,15 +182,12 @@ function Setup({ todayStr, currentPage, busy, onStart }: { todayStr: string; cur
           )}
         </button>
       </div>
-      {currentPage && currentPage > 1 ? (
-        <div role="radiogroup" aria-label="Start page" className="flex flex-wrap gap-2 text-xs">
-          {(["first", "current"] as const).map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={from === k} onClick={() => setFrom(k)} className={cn("rounded-full border px-3 py-1", from === k ? "border-accent-deen bg-accent-deen/10" : "border-border/40")}>
-              {k === "first" ? "Start at page 1" : `Continue from page ${currentPage}`}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <label htmlFor="quran-start-at" className="text-xs text-muted-foreground">
+          Already reading? I&apos;m on page
+        </label>
+        <Input id="quran-start-at" type="number" min={1} max={QURAN_TOTAL_PAGES} placeholder="1" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="h-8 w-20" />
+      </div>
       <Button type="button" className="w-full sm:w-auto sm:self-start" disabled={!valid || busy} onClick={submit} data-testid="quran-start">
         Start plan
       </Button>
@@ -206,7 +200,7 @@ function ActivePlan({
   busy,
   todayStr,
   onLogPortion,
-  onLogToPage,
+  onLogOnPage,
   onUndo,
   onSetBookmark,
   onKeep,
@@ -218,7 +212,7 @@ function ActivePlan({
   busy: boolean;
   todayStr: string;
   onLogPortion: (forDate: "today" | "yesterday") => void;
-  onLogToPage: (toPage: number, forDate: "today" | "yesterday") => void;
+  onLogOnPage: (page: number, forDate: "today" | "yesterday") => void;
   onUndo: () => void;
   onSetBookmark: (page: number) => void;
   onKeep: () => void;
@@ -230,11 +224,11 @@ function ActivePlan({
   const [editing, setEditing] = useState(false);
   const [bookmark, setBookmark] = useState(String(plan.currentPage));
   const [moving, setMoving] = useState(false);
-  const [moveDate, setMoveDate] = useState(plan.status?.projectedFinish ?? "");
+  const [moveDate, setMoveDate] = useState(plan.status?.suggestedDate ?? "");
   const paused = plan.state === "paused";
   const s = plan.status;
   const pageNum = Number(onPage);
-  const pageOk = Number.isInteger(pageNum) && pageNum >= plan.currentPage && pageNum <= QURAN_TOTAL_PAGES;
+  const pageOk = Number.isInteger(pageNum) && pageNum > plan.currentPage && pageNum <= QURAN_TOTAL_PAGES;
   const bookmarkNum = Number(bookmark);
   const bookmarkOk = Number.isInteger(bookmarkNum) && bookmarkNum >= 1 && bookmarkNum <= QURAN_TOTAL_PAGES;
 
@@ -268,7 +262,7 @@ function ActivePlan({
         </div>
       ) : (
         <div className="flex flex-col gap-3 rounded-lg border border-border/40 p-3" data-testid="quran-today">
-          {plan.portion ? (
+          {plan.portion && !plan.portionDone ? (
             <p className="text-sm" data-testid="quran-portion">
               <span className="text-muted-foreground">Today: </span>
               <span className="font-medium">
@@ -292,14 +286,14 @@ function ActivePlan({
             onSubmit={(e) => {
               e.preventDefault();
               if (!pageOk) return;
-              onLogToPage(pageNum, "today");
+              onLogOnPage(pageNum, "today");
               setOnPage("");
             }}
           >
             <label htmlFor="quran-on-page" className="text-xs text-muted-foreground">
               I&apos;m on page
             </label>
-            <Input id="quran-on-page" type="number" min={plan.currentPage} max={QURAN_TOTAL_PAGES} value={onPage} onChange={(e) => setOnPage(e.target.value)} className="h-8 w-20" />
+            <Input id="quran-on-page" type="number" min={plan.currentPage + 1} max={QURAN_TOTAL_PAGES} value={onPage} onChange={(e) => setOnPage(e.target.value)} className="h-8 w-20" />
             <Button type="submit" size="sm" variant="outline" disabled={!pageOk || busy} data-testid="quran-log-page">
               Log
             </Button>
@@ -402,6 +396,9 @@ function Khatm({ plan, busy, onNext }: { plan: PlanView; busy: boolean; onNext: 
       <h3 className="text-lg font-semibold">Khatm {plan.khatmNumber} complete</h3>
       <p className="text-sm text-muted-foreground">You have read the whole Quran.</p>
       <div className="flex flex-col gap-2 rounded-lg border border-border/40 p-4">
+        <p className="text-xs font-medium text-muted-foreground" data-testid="khatm-dua-label">
+          {KHATM_DUA.label}
+        </p>
         <p lang="ar" dir="rtl" className="text-xl leading-loose" data-testid="khatm-dua-arabic">
           {KHATM_DUA.arabic}
         </p>

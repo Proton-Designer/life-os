@@ -2,8 +2,6 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/deen/use-optimistic-item", () => ({ useScheduleRefresh: () => () => {} }));
-
 import { QuranPlanCard } from "../quran-plan-card";
 import type { QuranPlanActions, QuranPlanView } from "../quran-plan-types";
 import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
@@ -13,7 +11,7 @@ const OK = { ok: true } as const;
 const actions = (): { [K in keyof QuranPlanActions]: ReturnType<typeof vi.fn> } => ({
   start: vi.fn().mockResolvedValue(OK),
   logPortion: vi.fn().mockResolvedValue(OK),
-  logToPage: vi.fn().mockResolvedValue(OK),
+  logOnPage: vi.fn().mockResolvedValue(OK),
   undoLast: vi.fn().mockResolvedValue(OK),
   setBookmark: vi.fn().mockResolvedValue(OK),
   keepDate: vi.fn().mockResolvedValue(OK),
@@ -32,12 +30,12 @@ const plan = (over: Partial<Extract<QuranPlanView, { kind: "plan" }>> = {}): Qur
   pagesPerDay: 10,
   portion: { fromPage: 41, toPage: 50, pages: 10, label: "Al-Baqarah · Juz 2" },
   portionDone: false,
-  status: { kind: "on_track", pages: 0, days: null, neededPerDay: 10, projectedFinish: null, suggestMove: false },
+  status: { kind: "on_track", pages: 0, days: null, neededPerDay: 10, projectedFinish: null, suggestedDate: null, suggestMove: false },
   last7Days: 5,
   juzComplete: null,
   ...over,
 });
-const BEHIND = { kind: "behind", pages: 30, days: 3, neededPerDay: 12, projectedFinish: "2026-12-20", suggestMove: false } as const;
+const BEHIND = { kind: "behind", pages: 30, days: 3, neededPerDay: 12, projectedFinish: "2026-12-20", suggestedDate: "2026-12-20", suggestMove: false } as const;
 
 let a: ReturnType<typeof actions>;
 const renderIt = (view: QuranPlanView) => render(<QuranPlanCard view={view} actions={a as unknown as QuranPlanActions} todayStr={TODAY} />);
@@ -49,7 +47,7 @@ beforeEach(() => {
 describe("QuranPlanCard (QURAN-02)", () => {
   it("no plan: presets with 60 days pre-selected, each with its finish date; Start sends the chosen preset from page 1", async () => {
     const user = userEvent.setup();
-    renderIt({ kind: "none", currentPage: null });
+    renderIt({ kind: "none" });
     expect(screen.getByTestId("quran-preset-60d")).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("quran-preset-30d")).toHaveAttribute("aria-checked", "false");
     expect(screen.getByTestId("quran-preset-60d")).toHaveTextContent("about 10 pages a day · done by Dec. 3rd");
@@ -60,14 +58,14 @@ describe("QuranPlanCard (QURAN-02)", () => {
 
   it("setup: the 60-day default starts as-is; a custom date must be in the future (positive control: a past date disables Start)", async () => {
     const user = userEvent.setup();
-    renderIt({ kind: "none", currentPage: null });
+    renderIt({ kind: "none" });
     await user.click(screen.getByTestId("quran-start"));
     expect(a.start).toHaveBeenCalledWith({ preset: "60d" }, 1);
   });
 
   it("setup: custom date and custom pace; Start is disabled until each is valid", async () => {
     const user = userEvent.setup();
-    renderIt({ kind: "none", currentPage: null });
+    renderIt({ kind: "none" });
     await user.click(screen.getByTestId("quran-preset-date"));
     expect(screen.getByTestId("quran-start")).toBeDisabled();
     await user.type(screen.getByLabelText("Finish date"), "2026-11-30");
@@ -76,12 +74,16 @@ describe("QuranPlanCard (QURAN-02)", () => {
     expect(a.start).toHaveBeenCalledWith({ targetDate: "2026-11-30" }, 1);
   });
 
-  it("setup: with an existing bookmark, 'Continue from page N' starts there", async () => {
+  it("setup: 'Already reading? I'm on page N' sets the start page (optional, 1-604; 0 or 605 disables Start)", async () => {
     const user = userEvent.setup();
-    renderIt({ kind: "none", currentPage: 120 });
-    await user.click(screen.getByRole("radio", { name: "Continue from page 120" }));
+    renderIt({ kind: "none" });
+    const input = screen.getByLabelText(/I'm on page/);
+    await user.type(input, "120");
     await user.click(screen.getByTestId("quran-start"));
     expect(a.start).toHaveBeenCalledWith({ preset: "60d" }, 120);
+    await user.clear(input);
+    await user.type(input, "605");
+    expect(screen.getByTestId("quran-start")).toBeDisabled();
   });
 
   it("active: 'Khatm 1 · 7% · page 41 of 604', today's pages with surah and juz, last-7 count (no streak)", () => {
@@ -101,7 +103,15 @@ describe("QuranPlanCard (QURAN-02)", () => {
     expect(a.logPortion).toHaveBeenCalledWith("today");
     expect(screen.getByTestId("quran-heading")).toHaveTextContent("page 51 of 604");
     expect(screen.getByTestId("quran-done")).toBeInTheDocument();
+    expect(screen.queryByTestId("quran-portion")).not.toBeInTheDocument(); // the "Today: pages" line goes once it is read
     expect(screen.queryByTestId("quran-log-portion")).not.toBeInTheDocument();
+  });
+
+  it("the optimistic percent floors (page 52 of 604 -> 8%, not 9%), matching the server", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ currentPage: 41, portion: { fromPage: 41, toPage: 51, pages: 11, label: "Al-Baqarah · Juz 2" } }));
+    await user.click(screen.getByTestId("quran-log-portion"));
+    expect(screen.getByTestId("quran-heading")).toHaveTextContent("8% · page 52"); // 51/604 = 8.44 -> 8
   });
 
   it("a failed log rolls the card back and says why (positive control: the same tap succeeds above)", async () => {
@@ -122,8 +132,8 @@ describe("QuranPlanCard (QURAN-02)", () => {
     await user.clear(screen.getByLabelText("I'm on page"));
     await user.type(screen.getByLabelText("I'm on page"), "47");
     await user.click(screen.getByTestId("quran-log-page"));
-    expect(a.logToPage).toHaveBeenCalledWith(47, "today");
-    expect(screen.getByTestId("quran-heading")).toHaveTextContent("page 48 of 604");
+    expect(a.logOnPage).toHaveBeenCalledWith(47, "today");
+    expect(screen.getByTestId("quran-heading")).toHaveTextContent("page 47 of 604");
   });
 
   it("log for yesterday, undo, edit bookmark", async () => {
@@ -171,7 +181,7 @@ describe("QuranPlanCard (QURAN-02)", () => {
   });
 
   it("ahead shows 'N pages ahead' with no Keep/Move", () => {
-    renderIt(plan({ status: { kind: "ahead", pages: 12, days: 1, neededPerDay: 9, projectedFinish: null, suggestMove: false } }));
+    renderIt(plan({ status: { kind: "ahead", pages: 12, days: 1, neededPerDay: 9, projectedFinish: null, suggestedDate: null, suggestMove: false } }));
     expect(screen.getByTestId("quran-status")).toHaveTextContent("12 pages ahead");
     expect(screen.queryByTestId("quran-keep")).not.toBeInTheDocument();
   });
@@ -199,6 +209,8 @@ describe("QuranPlanCard (QURAN-02)", () => {
     renderIt(plan({ state: "completed", currentPage: 605, percent: 100, portion: null }));
     expect(screen.getByTestId("quran-khatm")).toHaveTextContent("Khatm 1 complete");
     expect(screen.getByTestId("khatm-dua-arabic")).toHaveAttribute("dir", "rtl");
+    expect(screen.getByTestId("khatm-dua-label")).toHaveTextContent("A dua commonly recited on completing the Quran");
+    expect(screen.getByTestId("quran-khatm")).toHaveTextContent("a leader, a light, a guidance and a mercy");
     await user.click(screen.getByTestId("quran-start-next"));
     expect(a.startNext).toHaveBeenCalled();
   });
