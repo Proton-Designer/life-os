@@ -193,3 +193,50 @@ describe("getPausedHabits (P3-07)", () => {
     expect(chain.eq).toHaveBeenCalledWith("status", "paused");
   });
 });
+
+describe("getActiveHabitsWithStatus — cadence (HABIT-FREQ)", () => {
+  // today 2026-10-07 is a Wednesday; the Sun-Sat week is 10-04..10-10
+  const row = (over: Record<string, unknown>) => ({ id: "h1", identity_statement: "the athlete", rank: 1, created_at: "2026-06-01T00:00:00Z", ...over });
+
+  it("a habit with no cadence columns is daily and due (every pre-existing row)", async () => {
+    const supabase = makeClient({ identity_habits: [{ data: [row({})], error: null }], habit_votes: [{ data: [], error: null }] });
+    const [h] = await getActiveHabitsWithStatus(supabase, "user-1", "2026-10-07", tz);
+    expect(h!.frequency).toEqual({ kind: "daily" });
+    expect(h!.due.due).toBe(true);
+    expect(h!.streak.unit).toBe("day");
+  });
+
+  it("'3× a week': this week's votes drive progress and due-ness, and the score decays per expected gap", async () => {
+    const votesFor = (dates: string[]) => dates.map((date) => ({ habit_id: "h1", date }));
+    const base = { frequency_type: "per_week", frequency_count: 3 };
+    const mid = makeClient({ identity_habits: [{ data: [row(base)], error: null }], habit_votes: [{ data: votesFor(["2026-10-03", "2026-10-05"]), error: null }] });
+    const [h] = await getActiveHabitsWithStatus(mid, "user-1", "2026-10-07", tz);
+    expect(h!.due.progress).toEqual({ done: 1, target: 3, unit: "week" }); // 10-03 was last week
+    expect(h!.due.due).toBe(true);
+
+    const met = makeClient({ identity_habits: [{ data: [row(base)], error: null }], habit_votes: [{ data: votesFor(["2026-10-04", "2026-10-05", "2026-10-06"]), error: null }] });
+    const [m] = await getActiveHabitsWithStatus(met, "user-1", "2026-10-07", tz);
+    expect(m!.due.due).toBe(false);
+    expect(m!.streak).toEqual({ count: 1, unit: "week" });
+
+    // the score uses the per-gap rate: the same single vote 2 days ago decays LESS for a 3x/week habit than for a daily one
+    const one = [{ habit_id: "h1", date: "2026-10-05" }];
+    const daily = makeClient({ identity_habits: [{ data: [row({})], error: null }], habit_votes: [{ data: one, error: null }] });
+    const weekly = makeClient({ identity_habits: [{ data: [row(base)], error: null }], habit_votes: [{ data: one, error: null }] });
+    const [d] = await getActiveHabitsWithStatus(daily, "user-1", "2026-10-07", tz);
+    const [w] = await getActiveHabitsWithStatus(weekly, "user-1", "2026-10-07", tz);
+    expect(w!.score!).toBeGreaterThan(d!.score!);
+    expect(d!.score!).toBeCloseTo(HABIT_VOTE_WEIGHT * HABIT_DECAY_FACTOR ** 2, 10);
+    expect(w!.score!).toBeCloseTo(HABIT_VOTE_WEIGHT * HABIT_DECAY_FACTOR ** (2 * (3 / 7)), 10);
+  });
+
+  it("'Mon · Wed · Fri' is not due on a Tuesday", async () => {
+    const supabase = makeClient({
+      identity_habits: [{ data: [row({ frequency_type: "weekdays", frequency_days: [1, 3, 5] })], error: null }],
+      habit_votes: [{ data: [], error: null }],
+    });
+    const [h] = await getActiveHabitsWithStatus(supabase, "user-1", "2026-10-06", tz);
+    expect(h!.due.due).toBe(false);
+    expect(h!.due.statusText).toBe("Next: Wed");
+  });
+});

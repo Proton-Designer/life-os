@@ -153,3 +153,42 @@ describe("computeHabitDecayScore", () => {
     });
   });
 });
+
+describe("computeHabitDecayScore ratePerDay (HABIT-FREQ)", () => {
+  const asOf = "2026-10-05";
+  const dayStrings = (n: number, stepDays: number) =>
+    Array.from({ length: n }, (_, i) => new Date(Date.UTC(2026, 9, 5 - i * stepDays)).toISOString().slice(0, 10));
+
+  it("the default rate is 1: every existing caller computes exactly the score it always did", () => {
+    const votes = ["2026-10-05", "2026-10-03", "2026-09-30"];
+    expect(computeHabitDecayScore(votes, asOf, [], 1)).toBe(computeHabitDecayScore(votes, asOf));
+    expect(computeHabitDecayScore(votes, asOf, [], 1)).toBeCloseTo(0.04 * (1 + 0.96 ** 2 + 0.96 ** 5), 12);
+  });
+
+  it("a steady WEEKLY voter converges toward 1.0 (without the rate it would sit near 0.2 and read as failing)", () => {
+    const weeklyVotes = dayStrings(100, 7); // a vote exactly every 7 days for ~2 years (score = 1 - 0.96^votes)
+    const withRate = computeHabitDecayScore(weeklyVotes, asOf, [], 1 / 7);
+    const withoutRate = computeHabitDecayScore(weeklyVotes, asOf);
+    expect(withRate).toBeGreaterThan(0.9);
+    expect(withoutRate).toBeLessThan(0.3);
+  });
+
+  it("a steady every-3-days voter and a steady daily voter both converge to ~1", () => {
+    expect(computeHabitDecayScore(dayStrings(100, 3), asOf, [], 1 / 3)).toBeGreaterThan(0.9);
+    expect(computeHabitDecayScore(dayStrings(120, 1), asOf, [], 1)).toBeGreaterThan(0.97);
+  });
+
+  it("still decays when the habit is neglected, in units of its own expected gap", () => {
+    const stoppedFourWeeksAgo = dayStrings(30, 7).map((d) => new Date(Date.parse(d) - 28 * 86400000).toISOString().slice(0, 10));
+    const fresh = computeHabitDecayScore(dayStrings(30, 7), asOf, [], 1 / 7);
+    const stale = computeHabitDecayScore(stoppedFourWeeksAgo, asOf, [], 1 / 7);
+    expect(stale).toBeLessThan(fresh);
+    expect(stale / fresh).toBeCloseTo(0.96 ** 4, 2); // four missed weekly gaps = four decay steps
+  });
+
+  it("a non-positive or non-finite rate falls back to daily rather than freezing or amplifying the decay", () => {
+    const votes = ["2026-09-25"];
+    const daily = computeHabitDecayScore(votes, asOf);
+    for (const bad of [0, -1, NaN, Infinity]) expect(computeHabitDecayScore(votes, asOf, [], bad)).toBe(daily);
+  });
+});

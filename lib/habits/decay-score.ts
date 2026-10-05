@@ -106,6 +106,13 @@ function pausedDaysAfterVote(voteDateStr: string, asOfDateStr: string, range: Ha
  * existing caller before this change computes the exact same score it
  * always did).
  *
+ * `ratePerDay` (HABIT-FREQ, lib/habits/frequency.ts's `expectedRatePerDay`): how many completions the habit is MEANT to
+ * have per day -- 1 for a daily habit (the default, so every existing caller computes the exact same score it always
+ * did), 3/7 for Mon-Wed-Fri, 1/7 for "once a week". The decay per day becomes `0.96^rate`, so a vote still shrinks to
+ * 96% after ONE EXPECTED GAP rather than after one calendar day. Without this a weekly habit would decay ~25% between
+ * two perfectly on-time votes and read as failing in the six days it was never supposed to happen; with it a steady
+ * weekly voter converges toward 1.0 exactly as a steady daily voter does. The per-vote weight is unchanged (0.04).
+ *
  * Returns a 0..1 fraction. Zero votes ever -> 0, exactly matching "refuses
  * to judge early" for a habit with no history yet (though the "New" badge,
  * per the ruling, is what actually covers a habit's first 7 days -- this
@@ -114,15 +121,18 @@ function pausedDaysAfterVote(voteDateStr: string, asOfDateStr: string, range: Ha
 export function computeHabitDecayScore(
   voteDates: readonly string[],
   asOfDateStr: string,
-  pauseRanges: readonly HabitPauseRange[] = []
+  pauseRanges: readonly HabitPauseRange[] = [],
+  ratePerDay: number = 1
 ): number {
+  // A non-positive / non-finite rate would stop decay (or amplify it); fall back to the daily behavior instead.
+  const rate = Number.isFinite(ratePerDay) && ratePerDay > 0 ? ratePerDay : 1;
   let score = 0;
   for (const voteDate of voteDates) {
     const rawDaysAgo = daysBetweenDateStrings(voteDate, asOfDateStr);
     if (rawDaysAgo < 0) continue;
     const pausedDays = pauseRanges.reduce((sum, range) => sum + pausedDaysAfterVote(voteDate, asOfDateStr, range), 0);
     const daysAgo = Math.max(0, rawDaysAgo - pausedDays);
-    score += HABIT_VOTE_WEIGHT * Math.pow(HABIT_DECAY_FACTOR, daysAgo);
+    score += HABIT_VOTE_WEIGHT * Math.pow(HABIT_DECAY_FACTOR, daysAgo * rate);
   }
   return score;
 }

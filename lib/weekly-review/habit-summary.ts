@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { localDateString } from "@/lib/date-utils";
 import { computeHabitDecayScore, daysBetweenDateStrings } from "@/lib/habits/decay-score";
 import { getActiveHabitsWithVotes, NEW_HABIT_WINDOW_DAYS } from "@/lib/habits/queries";
+import { expectedRatePerDay } from "@/lib/habits/frequency";
 
 type TypedClient = SupabaseClient<Database>;
 
@@ -53,7 +54,7 @@ export async function getHabitWeeklySummaries(
       isNew,
       // P3-07: pause-freeze applies here too -- the same habit's score
       // must read identically everywhere it's shown, not just on /habits.
-      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr, h.pauseRanges),
+      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr, h.pauseRanges, expectedRatePerDay(h.frequency)),
       votesThisWeek,
     };
   });

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createIdentityHabitCore,
+  setIdentityHabitFrequencyCore,
   archiveIdentityHabitCore,
   killIdentityHabitCore,
   castHabitVoteCore,
@@ -64,7 +65,7 @@ describe("createIdentityHabitCore", () => {
 
     const habit = await createIdentityHabitCore(client, "user-1", "the athlete");
 
-    expect(habit).toEqual({ id: "h1", identityStatement: "the athlete", rank: 2, createdAt: "2026-09-14T00:00:00Z" });
+    expect(habit).toEqual({ id: "h1", identityStatement: "the athlete", rank: 2, createdAt: "2026-09-14T00:00:00Z", frequency: { kind: "daily" } });
     const inserts = calls.identity_habits!.filter((c) => c.method === "insert");
     expect(inserts[0]!.args[0]).toMatchObject({ user_id: "user-1", identity_statement: "the athlete", rank: 2 });
   });
@@ -448,5 +449,49 @@ describe("castHabitVoteCore / retractHabitVoteCore — today-only, server-enforc
     await castHabitVoteCore(client, "user-1", "h1", "2026-09-13", elevenPmPacific, "America/Los_Angeles");
     const upserts = calls.habit_votes!.filter((c) => c.method === "upsert");
     expect(upserts[0]!.args[0]).toMatchObject({ date: "2026-09-13" });
+  });
+});
+
+describe("identity habit cadence (HABIT-FREQ)", () => {
+  it("createIdentityHabitCore writes the cadence columns with the row and returns the cadence", async () => {
+    const { client, calls } = makeClient({
+      identity_habits: [
+        { data: [], error: null },
+        { data: { id: "h1", identity_statement: "the athlete", rank: 1, created_at: "2026-09-14T00:00:00Z", frequency_type: "weekdays", frequency_count: null, frequency_days: [1, 3, 5], frequency_interval: null }, error: null },
+      ],
+    });
+    const habit = await createIdentityHabitCore(client, "user-1", "the athlete", { kind: "weekdays", days: [5, 1, 3] });
+    expect(habit.frequency).toEqual({ kind: "weekdays", days: [1, 3, 5] });
+    const insert = calls.identity_habits!.find((c) => c.method === "insert")!;
+    expect(insert.args[0]).toMatchObject({ frequency_type: "weekdays", frequency_days: [1, 3, 5], frequency_count: null, frequency_interval: null });
+  });
+
+  it("createIdentityHabitCore writes daily columns by default, and refuses an invalid cadence BEFORE touching the database", async () => {
+    const { client, calls } = makeClient({
+      identity_habits: [
+        { data: [], error: null },
+        { data: { id: "h1", identity_statement: "x", rank: 1, created_at: "2026-09-14T00:00:00Z" }, error: null },
+      ],
+    });
+    await createIdentityHabitCore(client, "user-1", "x");
+    expect(calls.identity_habits!.find((c) => c.method === "insert")!.args[0]).toMatchObject({ frequency_type: "daily", frequency_days: null });
+    const second = makeClient({ identity_habits: [] });
+    await expect(createIdentityHabitCore(second.client, "user-1", "x", { kind: "per_week", count: 9 })).rejects.toThrow(/Times per week/);
+    expect(second.client.from).not.toHaveBeenCalled();
+  });
+
+  it("setIdentityHabitFrequencyCore updates active/paused rows scoped to the user and throws not-found for none", async () => {
+    const ok = makeClient({ identity_habits: [{ data: [{ id: "h1" }], error: null }] });
+    await setIdentityHabitFrequencyCore(ok.client, "user-1", "h1", { kind: "per_month", count: 2 });
+    const calls = ok.calls.identity_habits!;
+    expect(calls.find((c) => c.method === "update")!.args[0]).toEqual({ frequency_type: "per_month", frequency_count: 2, frequency_days: null, frequency_interval: null });
+    expect(calls.find((c) => c.method === "in")!.args).toEqual(["status", ["active", "paused"]]);
+    expect(calls.filter((c) => c.method === "eq").map((c) => c.args)).toEqual(expect.arrayContaining([["id", "h1"], ["user_id", "user-1"]]));
+
+    const none = makeClient({ identity_habits: [{ data: [], error: null }] });
+    await expect(setIdentityHabitFrequencyCore(none.client, "user-1", "nope", { kind: "daily" })).rejects.toThrow(/No identity habit found/);
+    const invalid = makeClient({ identity_habits: [] });
+    await expect(setIdentityHabitFrequencyCore(invalid.client, "user-1", "h1", { kind: "weekdays", days: [] })).rejects.toThrow(/at least one day/);
+    expect(invalid.client.from).not.toHaveBeenCalled();
   });
 });

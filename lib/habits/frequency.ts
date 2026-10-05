@@ -482,6 +482,21 @@ export function computeAdherence(f: HabitFrequency, completedDates: readonly str
   }
 }
 
+/** "12/30" for a daily habit (unchanged from the original), with the unit appended for the others: "3/4 wks", "1/2 mos", "3/4 done". */
+export function formatAdherence(a: { done: number; total: number; unit?: HabitAdherence["unit"] }): string {
+  const base = `${a.done}/${a.total}`;
+  switch (a.unit) {
+    case "week":
+      return `${base} wks`;
+    case "month":
+      return `${base} mos`;
+    case "completion":
+      return `${base} done`;
+    default:
+      return base;
+  }
+}
+
 // ───────────────────────── 30-day grid cells ─────────────────────────
 
 export type HabitCellStatus = "done" | "in_progress" | "missed" | "not_tracked" | "off_day" | "open";

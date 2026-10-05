@@ -10,18 +10,29 @@ type TypedClient = SupabaseClient<Database>;
 import { MAX_ACTIVE_HABITS } from "./constants";
 export { MAX_ACTIVE_HABITS };
 import { killRequiresReason } from "./kill-escalation";
+import { frequencyFromColumns, frequencyToColumns, normalizeFrequency, type HabitFrequency } from "./frequency";
 
 export type Habit = {
   id: string;
   identityStatement: string;
   rank: number;
   createdAt: string;
+  frequency: HabitFrequency;
 };
 
-type HabitRow = { id: string; identity_statement: string; rank: number; created_at: string };
+type HabitRow = {
+  id: string;
+  identity_statement: string;
+  rank: number;
+  created_at: string;
+  frequency_type?: string | null;
+  frequency_count?: number | null;
+  frequency_days?: number[] | null;
+  frequency_interval?: number | null;
+};
 
 function toHabit(row: HabitRow): Habit {
-  return { id: row.id, identityStatement: row.identity_statement, rank: row.rank, createdAt: row.created_at };
+  return { id: row.id, identityStatement: row.identity_statement, rank: row.rank, createdAt: row.created_at, frequency: frequencyFromColumns(row) };
 }
 
 /**
@@ -48,11 +59,13 @@ function toHabit(row: HabitRow): Habit {
  * (mixed active+paused repro, red-first regression test in
  * lib/habits/__tests__/actions-core.test.ts).
  */
-export async function createIdentityHabitCore(supabase: TypedClient, userId: string, identityStatement: string): Promise<Habit> {
+export async function createIdentityHabitCore(supabase: TypedClient, userId: string, identityStatement: string, frequency?: HabitFrequency): Promise<Habit> {
   const trimmed = identityStatement.trim();
   if (!trimmed) {
     throw new Error("An identity habit needs a statement.");
   }
+  // HABIT-FREQ: validated here so no write path (UI or MCP) can store an invalid cadence; omitted = daily.
+  const columns = frequencyToColumns(normalizeFrequency(frequency));
 
   const { data: occupied, error: selectError } = await supabase
     .from("identity_habits")
@@ -75,11 +88,29 @@ export async function createIdentityHabitCore(supabase: TypedClient, userId: str
 
   const { data, error } = await supabase
     .from("identity_habits")
-    .insert({ user_id: userId, identity_statement: trimmed, rank: nextRank })
-    .select("id, identity_statement, rank, created_at")
+    .insert({ user_id: userId, identity_statement: trimmed, rank: nextRank, ...columns })
+    .select("id, identity_statement, rank, created_at, frequency_type, frequency_count, frequency_days, frequency_interval")
     .single();
   if (error) throw error;
   return toHabit(data as HabitRow);
+}
+
+/**
+ * HABIT-FREQ: change how often an identity habit is meant to happen. Works on an active OR paused habit (pausing keeps the
+ * habit; its cadence is still editable). Existing votes are untouched -- the score and streak are replayed from them under
+ * the new rule on the next read. A stale / foreign / archived id matches no row and throws a calm not-found.
+ */
+export async function setIdentityHabitFrequencyCore(supabase: TypedClient, userId: string, habitId: string, frequency: HabitFrequency): Promise<void> {
+  const columns = frequencyToColumns(normalizeFrequency(frequency));
+  const { data, error } = await supabase
+    .from("identity_habits")
+    .update(columns)
+    .eq("id", habitId)
+    .eq("user_id", userId)
+    .in("status", ["active", "paused"])
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) throw new ToolNotFoundError(`No identity habit found with id "${habitId}".`);
 }
 
 /**

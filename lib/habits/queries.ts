@@ -3,6 +3,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { localDateString } from "@/lib/date-utils";
 import { computeHabitDecayScore, daysBetweenDateStrings, type HabitPauseRange } from "./decay-score";
+import {
+  computeDueState,
+  computeFrequencyStreak,
+  expectedRatePerDay,
+  frequencyFromColumns,
+  type HabitDueState,
+  type HabitFrequency,
+  type HabitStreak,
+} from "./frequency";
 
 type TypedClient = SupabaseClient<Database>;
 
@@ -19,6 +28,12 @@ export type HabitWithStatus = {
   score: number | null;
   /** P2-11 -- total habit_votes rows ever cast for this habit, for the kill-flow's escalation gate (lib/habits/kill-escalation.ts). Display-only here; killIdentityHabitCore re-checks its own count server-side before actually gating. */
   voteCount: number;
+  /** HABIT-FREQ: how often it is meant to happen (daily for every habit that never set one). */
+  frequency: HabitFrequency;
+  /** Today's state under that cadence: due today?, "2 of 3 this week", "Next: Wed". */
+  due: HabitDueState;
+  /** The current run in the cadence's own unit (days / weeks / months / in a row). */
+  streak: HabitStreak;
 };
 
 export type HabitWithVotes = {
@@ -28,6 +43,8 @@ export type HabitWithVotes = {
   /** ISO instant, as stored -- callers convert to a local calendar date themselves via `localDateString`. */
   createdAt: string;
   voteDates: string[];
+  /** HABIT-FREQ: how often it is meant to happen. */
+  frequency: HabitFrequency;
   /** P3-07 -- every pause window this habit has EVER had (closed or still open), oldest first, for `computeHabitDecayScore`'s own decay-freeze math. A habit that has never been paused simply has an empty array, which is a genuine no-op for that function (default `[]` behaves identically to omitting the argument). */
   pauseRanges: HabitPauseRange[];
 };
@@ -61,7 +78,7 @@ function untypedFrom(supabase: SupabaseClient, table: string) {
 export async function getActiveHabitsWithVotes(supabase: TypedClient, userId: string): Promise<HabitWithVotes[]> {
   const { data: habits, error: habitsError } = await supabase
     .from("identity_habits")
-    .select("id, identity_statement, rank, created_at")
+    .select("id, identity_statement, rank, created_at, frequency_type, frequency_count, frequency_days, frequency_interval")
     .eq("user_id", userId)
     .eq("status", "active")
     .order("rank", { ascending: true });
@@ -99,6 +116,7 @@ export async function getActiveHabitsWithVotes(supabase: TypedClient, userId: st
     rank: h.rank as number,
     createdAt: h.created_at as string,
     voteDates: voteDatesByHabit.get(h.id as string) ?? [],
+    frequency: frequencyFromColumns(h),
     pauseRanges: pauseRangesByHabit.get(h.id as string) ?? [],
   }));
 }
@@ -135,8 +153,12 @@ export async function getActiveHabitsWithStatus(
       rank: h.rank,
       votedToday: h.voteDates.includes(todayStr),
       isNew,
-      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr, h.pauseRanges),
+      // The decay is per EXPECTED gap, not per calendar day, so a weekly habit isn't read as failing on its six off days.
+      score: isNew ? null : computeHabitDecayScore(h.voteDates, todayStr, h.pauseRanges, expectedRatePerDay(h.frequency)),
       voteCount: h.voteDates.length,
+      frequency: h.frequency,
+      due: computeDueState(h.frequency, todayStr, { completedDates: h.voteDates, committedDate: createdLocalDate }),
+      streak: computeFrequencyStreak(h.frequency, h.voteDates, todayStr, createdLocalDate),
     };
   });
 }
