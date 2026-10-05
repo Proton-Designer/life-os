@@ -12,6 +12,10 @@ import { getHabitWeeklySummaries } from "@/lib/weekly-review/habit-summary";
 import { getMostRecentCompletedWeek, getThisWeekSoFar } from "@/lib/weekly-review/week-range";
 import { getCollegeOsWeeklyNarrative } from "@/lib/weekly-review/weekly-narrative";
 import { WeeklyReviewView } from "@/components/weekly-review/weekly-review-view";
+import { WakePlanNudge } from "@/components/weekly-review/wake-plan-nudge";
+import { isOptInFeatureOnForRequest } from "@/lib/opt-in-guard";
+import { getWindDownSettingsCore } from "@/lib/rhythm/wind-down-core";
+import { wakeVsPlan, LATE_MINUTES } from "@/lib/rhythm/insights";
 import { getForecastableAssessments } from "@/lib/school/get-forecastable-assessments";
 import { computeCourseLoadForecast } from "@/lib/school/course-load-forecast";
 import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
@@ -86,6 +90,27 @@ export async function WeeklyReviewBody({ soFar, viewBasePath, showViewSwitch = t
     getPageLayout("weekly_review"),
   ]);
   const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr, COURSE_LOAD_WEEKS);
+
+  // Sleep plan ON with a plan set: do the real mornings of this week run clearly later than the planned wake time?
+  // Only a clearly-late median is worth a line (an on-time or early week says nothing); and only with enough mornings.
+  let wakeNudge: React.ReactNode = null;
+  if (await isOptInFeatureOnForRequest("sleep_plan")) {
+    const windDown = await getWindDownSettingsCore(supabase, user.id);
+    const wake = windDown.plan && windDown.wakeTime && windDown.sleepNeedMinutes !== null ? wakeVsPlan([...dayStarts.values()], windDown.wakeTime, timezone) : null;
+    if (wake && windDown.wakeTime && windDown.sleepNeedMinutes !== null && wake.medianMinutesLate >= LATE_MINUTES && wake.suggestedWake !== windDown.wakeTime) {
+      wakeNudge = (
+        <WakePlanNudge
+          plannedWake={windDown.wakeTime}
+          suggestedWake={wake.suggestedWake}
+          lateDays={wake.lateDays}
+          n={wake.n}
+          minutesLate={wake.medianMinutesLate}
+          sleepNeedMinutes={windDown.sleepNeedMinutes}
+          windDownMinutes={windDown.windDownMinutes}
+        />
+      );
+    }
+  }
   const layoutMap = buildLayoutMap(layout);
 
   // P3-09: one entry per calendar date in the reviewed range, pairing that
@@ -142,6 +167,7 @@ export async function WeeklyReviewBody({ soFar, viewBasePath, showViewSwitch = t
         habitSummaries={habitSummaries}
       />
       </LayoutSlot>
+      {wakeNudge}
       {/* P3-10: only when there's real signal in the 3 weeks shown here (this week + the next two) --
           same "only show real content" posture the narrative panel above
           already takes on this page, distinct from /school's own always-show
