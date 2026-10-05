@@ -218,6 +218,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/goals/actions.ts#addMilestoneAction": { mcp: "goals.milestone.add" },
   "app/(app)/goals/actions.ts#setMilestoneDoneAction": { mcp: "goals.milestone.set_done" },
   "app/(app)/goals/actions.ts#refreshGoalViews": { read_only: true, note: "PERF-4: data-free cache revalidation scheduled by the milestone checkbox after a burst of taps" },
+  "app/(app)/deen/actions.ts#refreshFaithPracticeViews": { read_only: true, note: "HABITS-01: data-free cache revalidation scheduled by the Home / weekly-reset Faith-practice tick after a burst of taps" },
   "app/(app)/habits/actions.ts#refreshHabitViews": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by the habit vote control after a burst of taps" },
   "app/(app)/habits/actions.ts#createIdentityHabitAction": { mcp: "habits.identity_habit.create" },
   "app/(app)/habits/actions.ts#archiveIdentityHabitAction": { mcp: "habits.identity_habit.archive" },

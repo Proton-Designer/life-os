@@ -87,6 +87,8 @@ Answers "how am I actually doing at daily religious practice," not "did I check 
 
 **Qada preview window (QADA-3M / QADA-3M-b):** the Qada backlog preview on the Deen screen and Home's "n qada" doorway both count the last 3 calendar months via ONE definition, `qadaWindowStart(todayStr)` in `lib/deen/qada-backlog.ts` (calendar arithmetic on the user's LOCAL date string, month-end clamped: May 31 → Feb 28/29). `tracking_started_on` still floors it (`computeTrackingFloorDateStr`). Home derives its old-range count from a head-only handled count over the same window, so the two numbers agree (pinned by a parity test with a 67-day-old miss).
 
+- **Faith practices on Home / weekly reset (HABITS-01, 2026-10-04):** `lib/deen/practices.ts` (`getFaithPractices`, `buildFaithPractices`) is the ONE derivation of a practice's streak / 30-day rate / stage; the Faith page, Home check-offs and /week step 3 all use it. Callers read it only when Deen mode is on. Writes reuse `setDeenHabitLogStatus` (absolute tick, no revalidate) + `refreshFaithPracticeViews` (data-free, debounced) and `archiveDeenHabit` (revalidates /deen, / and /week). No migration.
+
 ## Not covered here
 
 - Evening Close's distraction-plan refusal gate → `domain.evening-close`

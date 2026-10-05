@@ -49,6 +49,7 @@ describe("deen/actions.ts refuses when Deen Mode is off", () => {
       setDeenHabitStageOverride: () => actions.setDeenHabitStageOverride("h1", null),
       setDeenHabitCommittedDate: () => actions.setDeenHabitCommittedDate("h1", "2026-08-10"),
       setDeenHabitLogStatus: () => actions.setDeenHabitLogStatus("h1", "2026-08-10", true),
+      refreshFaithPracticeViews: () => actions.refreshFaithPracticeViews(),
       getDeenHabitLogRange: () => actions.getDeenHabitLogRange("h1", "2026-08-01", "2026-08-10"),
     };
     // Guards against a new exported action silently escaping this test.

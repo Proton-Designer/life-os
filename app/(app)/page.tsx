@@ -47,6 +47,7 @@ import { WeeklyResetCard } from "@/components/home/weekly-reset-card";
 import { GoalsSheetButton } from "@/components/goals/goals-sheet-button";
 import { RhythmSection } from "@/components/home/rhythm/rhythm-section";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
+import { getFaithPractices, type FaithPractice } from "@/lib/deen/practices";
 import { weeklyGoalDomains } from "@/lib/domains/weekly-goal-domains";
 import { buildSectorRows, showBusinessWeeklyGoal, wantedSnapshots } from "@/lib/home/sector-rows";
 import { shouldShowSessionEntry } from "@/lib/home/session-entry-visibility";
@@ -113,6 +114,9 @@ export default async function HomePage() {
   const rhythmPromise = windDownPromise.then((w) => getRhythmData(supabase, userId, now, timezone, { windDownStart: w?.windDownStart, bedtime: w?.bedtime }));
   // IA-P3b: today's habit check-offs (the habits board's own reader).
   const activeHabitsPromise = getActiveHabitsWithStatus(supabase, userId, dateStr, timezone);
+  // HABITS-01: the Faith screen's practices ride along on the check-offs. Deen OFF: the read is skipped, not fetched-then-hidden.
+  const faithPracticesPromise: Promise<FaithPractice[]> = deenMode ? getFaithPractices(supabase, userId, dateStr).catch(() => []) : Promise.resolve([]);
+  const habitCheckoffsPromise = Promise.all([activeHabitsPromise, faithPracticesPromise]);
   // A failure must reach the error boundary through <Stream>, not as an unhandled rejection before it is awaited.
   // The Launch card needs the rhythm phase AND the habits; built only for an account with the opt-in on,
   // from the promises already running (no extra reads), and guarded like the others.
@@ -121,7 +125,7 @@ export default async function HomePage() {
   const focusTargetPromise = loadFocusTargetMinutes(supabase, userId, dateStr).catch(() => DEFAULT_FOCUS_TARGET_MINUTES);
   const dayCardPromise = Promise.all([rhythmPromise, focusTargetPromise]);
   const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise]) : null;
-  for (const p of [snapshotsPromise, quranPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
+  for (const p of [snapshotsPromise, quranPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, faithPracticesPromise, habitCheckoffsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
   const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
@@ -413,8 +417,8 @@ export default async function HomePage() {
         </Panel>
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="habit_checkoffs">
-        <Stream promise={activeHabitsPromise} label="Habits today" fallback={null}>
-          {(activeHabits) => <HabitCheckoffs habits={activeHabits} today={dateStr} />}
+        <Stream promise={habitCheckoffsPromise} label="Habits today" fallback={null}>
+          {([activeHabits, faithPractices]) => <HabitCheckoffs habits={activeHabits} faithPractices={faithPractices} today={dateStr} />}
         </Stream>
       </LayoutSlot>
       <LayoutSlot layout={layoutMap} widgetKey="focus">

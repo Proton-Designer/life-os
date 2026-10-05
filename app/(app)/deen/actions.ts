@@ -297,7 +297,22 @@ export async function archiveDeenHabit(habitId: string): Promise<void> {
   const { supabase, userId } = await requireUser();
   if (!(await isDeenModeOnForRequest())) return;
   await archiveDeenHabitCore(supabase, userId, habitId);
+  // HABITS-01: a dropped practice also leaves Home's check-offs and the weekly reset's habit step.
   revalidatePath("/deen");
+  revalidatePath("/");
+  revalidatePath("/week");
+}
+
+/**
+ * HABITS-01: data-free cache revalidation scheduled by the Home / weekly-reset practice tick after a burst of taps
+ * (setDeenHabitLogStatus stays revalidate-free: hot tap). Deen OFF: nothing to refresh.
+ */
+export async function refreshFaithPracticeViews(): Promise<void> {
+  await requireUser();
+  if (!(await isDeenModeOnForRequest())) return;
+  revalidatePath("/deen");
+  revalidatePath("/");
+  revalidatePath("/week");
 }
 
 /** `stage` of null resets to automatic (derived from committed_date) — see lib/deen/habit-stage.ts. THIN WRAPPER over setDeenHabitStageOverrideCore (P4-06). */

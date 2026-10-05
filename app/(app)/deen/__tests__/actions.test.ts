@@ -419,6 +419,25 @@ describe("Deen actions", () => {
       expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
     });
 
+    it("HABITS-01: archiveDeenHabit revalidates /deen, / and /week (a dropped practice leaves Home and the weekly reset)", async () => {
+      const { revalidatePath } = await import("next/cache");
+      (revalidatePath as ReturnType<typeof vi.fn>).mockClear();
+      fromImpl = () => makeChain({ data: [{ id: "habit-1" }], error: null });
+      const { archiveDeenHabit } = await import("../actions");
+      await archiveDeenHabit("habit-1");
+      expect((revalidatePath as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]).sort()).toEqual(["/", "/deen", "/week"]);
+    });
+
+    it("HABITS-01: refreshFaithPracticeViews revalidates /deen, / and /week and touches no data", async () => {
+      const { revalidatePath } = await import("next/cache");
+      (revalidatePath as ReturnType<typeof vi.fn>).mockClear();
+      fromMock.mockClear();
+      const { refreshFaithPracticeViews } = await import("../actions");
+      await refreshFaithPracticeViews();
+      expect((revalidatePath as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]).sort()).toEqual(["/", "/deen", "/week"]);
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
     it("updateDeenHabit throws ToolNotFoundError (P4-06) for a habit id that doesn't belong to this user, rather than silently no-op'ing", async () => {
       // Positive control: 0 rows affected (an empty array from .select("id"))
       // is what the real update returns when id/user_id don't match a row.

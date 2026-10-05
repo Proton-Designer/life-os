@@ -27,9 +27,8 @@ import { weeklyQuranTarget } from "@/lib/quran/surfaces";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
-import type { StageOverride } from "@/lib/deen/habit-stage";
-import { computeHabitStreak } from "@/lib/deen/habit-streak";
-import { computeHabitRollingRate, buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
+import { buildFaithPractices } from "@/lib/deen/practices";
+import { buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
 import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
 import { buildQadaBacklog, bucketQadaBacklog, itemsInQadaWindow, qadaWindowStart, totalQadaOwed } from "@/lib/deen/qada-backlog";
@@ -318,30 +317,17 @@ export default async function DeenPage() {
     date: l.date,
     completed: l.completed,
   }));
-  const deenHabits: DeenHabitData[] = (habitRows ?? []).map((h) => {
-    const habitLogs = (habitLogRows ?? []).filter((l) => l.habit_id === h.id);
-    const completedDates = habitLogs.filter((l) => l.completed).map((l) => l.date);
-    const completedToday = habitLogs.some((l) => l.date === dateStr && l.completed);
-    return {
-      id: h.id,
-      name: h.name,
-      committedDate: h.committed_date,
-      anchorCue: h.anchor_cue,
-      streak: computeHabitStreak(completedDates, dateStr),
-      rollingRate: computeHabitRollingRate(
-        { id: h.id, name: h.name, committedDate: h.committed_date },
-        habitLogsForConsistency,
-        thirtyDaysAgoStr,
-        dateStr
-      ),
-      completedToday,
-      // The DB column is a plain `string | null` in the generated types (no
-      // CHECK-constraint-aware enum) — habitStage()/isStageOverridden() both
-      // validate at runtime and fall back to the derived stage on garbage,
-      // so this cast is safe even if the column ever holds something stale.
-      stageOverride: h.stage_override as StageOverride,
-    };
-  });
+  // HABITS-01: one derivation shared with Home and the weekly reset (lib/deen/practices.ts).
+  const deenHabits: DeenHabitData[] = buildFaithPractices(habitRows ?? [], habitLogRows ?? [], dateStr).map((p) => ({
+    id: p.id,
+    name: p.name,
+    committedDate: p.committedDate,
+    anchorCue: p.anchorCue,
+    streak: p.streak,
+    rollingRate: p.rollingRate,
+    completedToday: p.completedToday,
+    stageOverride: p.stageOverride,
+  }));
   const habitConsistencyRows = buildHabitConsistencyRows(
     (habitRows ?? []).map((h) => ({ id: h.id, name: h.name, committedDate: h.committed_date })),
     habitLogsForConsistency,
