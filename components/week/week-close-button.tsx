@@ -55,7 +55,7 @@ export function WeekDoneButton() {
   const leave = useLeaveWeek();
   return (
     <div className="flex justify-end pb-4">
-      <Button type="button" onClick={leave} data-testid="week-done">
+      <Button type="button" onClick={leave} data-testid="week-done" className="w-full sm:w-auto">
         Done
       </Button>
     </div>

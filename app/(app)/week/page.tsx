@@ -36,9 +36,13 @@ export default async function WeekPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Weekly reset" description="Look back, sort what's open, then set the week ahead."
-        actions={<WeekCloseButton />}
-      />
+      {/* Close sits in the title row at every width (PageHeader's own actions slot wraps below the text on phones). */}
+      <div className="flex items-start justify-between gap-3">
+        <PageHeader title="Weekly reset" description="Look back, sort what's open, then set the week ahead." />
+        <div className="shrink-0 pt-1">
+          <WeekCloseButton />
+        </div>
+      </div>
       <nav aria-label="Reset steps" className="flex flex-wrap gap-2 text-sm">
         {STEPS.map((s, i) => (
           <a key={s.id} href={`#${s.id}`} className="rounded-full border px-3 py-1 text-muted-foreground hover:text-foreground">
