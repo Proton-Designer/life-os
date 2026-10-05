@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 import { useDeenMode } from "./deen-mode-helpers";
+import { HOME_DAY_VIEW } from "../lib/home/day-view";
 
 // These flows need Faith visible (DEEN-09): put the account in Deen Mode ON for
 // the file and restore its prior value afterwards, rather than trusting fixture state.
@@ -44,12 +45,19 @@ test.describe("Home", () => {
     // always present when rendered — 2026-08-25/26 batch 2, item 1a: a
     // static schedule summary, not prayer-status narration anymore) or, if
     // no location is set yet, its EmptyState fallback pointing at Settings.
+    // HOME-02 (2026-10-04): in the default "bar" view (lib/home/day-view.ts) the day's shape lives
+    // inside the rhythm card's Day bar, so the classic panel must be gone and the rhythm card present.
     const dayShapePanel = page.locator("[data-panel]", { hasText: "The day's shape" });
-    await expect(
-      dayShapePanel
-        .getByText(/Nothing scheduled today|You have .* today/)
-        .or(dayShapePanel.getByText("Set your location in Settings"))
-    ).toBeVisible();
+    if (HOME_DAY_VIEW === "classic") {
+      await expect(
+        dayShapePanel
+          .getByText(/Nothing scheduled today|You have .* today/)
+          .or(dayShapePanel.getByText("Set your location in Settings"))
+      ).toBeVisible();
+    } else {
+      await expect(page.locator('[data-testid^="rhythm-"]').first()).toBeVisible();
+      await expect(dayShapePanel).toHaveCount(0);
+    }
 
     // This Week's Focus — the combined goals module (2026-08-24: replaced
     // the separate bottom "This week's focus" Panel; not a [data-panel] at
