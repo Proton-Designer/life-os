@@ -150,4 +150,28 @@ describe("computeCourseLoadForecast", () => {
     const week = result.weeks.find((w) => w.itemCount > 0)!;
     expect(week.items.map((it) => it.id)).toEqual(["earlier", "later"]);
   });
+
+  it("defaults to a 6-week horizon", () => {
+    expect(computeCourseLoadForecast([], TODAY).weeks).toHaveLength(6);
+  });
+
+  it("horizon 3 returns exactly the current week + the next two", () => {
+    const result = computeCourseLoadForecast([], TODAY, 3);
+    expect(result.weeks.map((w) => w.weekStart)).toEqual(["2026-09-13", "2026-09-20", "2026-09-27"]);
+  });
+
+  it("horizon 3 excludes an item in week 4 and reports no upcoming work when it is the only one", () => {
+    const week4 = assessment({ id: "w4", date: "2026-10-05" });
+    const result = computeCourseLoadForecast([week4], TODAY, 3);
+    expect(result.weeks.flatMap((w) => w.items)).toEqual([]);
+    expect(result.hasAnyUpcomingWork).toBe(false);
+    // the same item is still shown at the default horizon
+    expect(computeCourseLoadForecast([week4], TODAY).hasAnyUpcomingWork).toBe(true);
+  });
+
+  it("horizon 3 keeps an item in the last shown week", () => {
+    const result = computeCourseLoadForecast([assessment({ id: "w3", date: "2026-10-03" })], TODAY, 3);
+    expect(result.weeks[2].items.map((i) => i.id)).toEqual(["w3"]);
+    expect(result.hasAnyUpcomingWork).toBe(true);
+  });
 });

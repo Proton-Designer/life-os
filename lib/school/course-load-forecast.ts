@@ -25,7 +25,8 @@ import { getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
  * all-zero grid that could be misread as "definitely nothing coming."
  */
 
-const FORECAST_HORIZON_WEEKS = 6;
+/** Default horizon (the School page). The weekly review passes 3. */
+export const FORECAST_HORIZON_WEEKS = 6;
 /** 3+ items due in the same week is overflow regardless of their individual weight. */
 const OVERFLOW_ITEM_COUNT_THRESHOLD = 3;
 /** An item worth >=20% of its OWN class's grade counts as "heavy" — same order of magnitude as assignment-risk.ts's WEIGHT_SATURATION_PCT (25), deliberately a touch lower since this is a coarser per-item flag, not that engine's own saturation curve. */
@@ -79,14 +80,17 @@ export interface CourseLoadForecast {
  * so the two features can never silently disagree about what an
  * assessment row means.
  */
-export function computeCourseLoadForecast(assessments: ForecastableAssessment[], todayStr: string): CourseLoadForecast {
+export function computeCourseLoadForecast(assessments: ForecastableAssessment[],
+  todayStr: string,
+  horizonWeeks: number = FORECAST_HORIZON_WEEKS,
+): CourseLoadForecast {
   const upcoming = assessments.filter((a) => !a.isExcused && a.pointsEarned === null && a.date >= todayStr);
 
   const horizonStart = getWeekStartDate(todayStr);
   const weeks: ForecastWeek[] = [];
   let hasAnyUpcomingWork = false;
 
-  for (let i = 0; i < FORECAST_HORIZON_WEEKS; i++) {
+  for (let i = 0; i < horizonWeeks; i++) {
     const weekStart = addDaysToDateString(horizonStart, i * 7);
     const weekEndExclusive = addDaysToDateString(weekStart, 7);
     const weekAssessments = upcoming.filter((a) => a.date >= weekStart && a.date < weekEndExclusive);

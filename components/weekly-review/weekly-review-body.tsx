@@ -19,6 +19,9 @@ import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
 import { WidgetManagerButton } from "@/components/page-layout/widget-manager-button";
 
+// The weekly review shows only the upcoming three weeks (this one + the next two); /school keeps the default 6.
+const COURSE_LOAD_WEEKS = 3;
+
 /**
  * The Weekly Review body (moved out of /weekly-review by IA-P3a, now the Insights "Week" tab and /week step 1) (#46/#47/#48) — NOT at `/review` (that route is a
  * load-bearing redirect into `/close`'s account-stage inline distraction-
@@ -82,7 +85,7 @@ export async function WeeklyReviewBody({ soFar, viewBasePath, showViewSwitch = t
     getForecastableAssessments(supabase, user.id),
     getPageLayout("weekly_review"),
   ]);
-  const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr);
+  const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr, COURSE_LOAD_WEEKS);
   const layoutMap = buildLayoutMap(layout);
 
   // P3-09: one entry per calendar date in the reviewed range, pairing that
@@ -139,7 +142,7 @@ export async function WeeklyReviewBody({ soFar, viewBasePath, showViewSwitch = t
         habitSummaries={habitSummaries}
       />
       </LayoutSlot>
-      {/* P3-10: only when there's real signal in the full 6-week horizon --
+      {/* P3-10: only when there's real signal in the 3 weeks shown here (this week + the next two) --
           same "only show real content" posture the narrative panel above
           already takes on this page, distinct from /school's own always-show
           (with an honest empty-state message) posture, which fits a
