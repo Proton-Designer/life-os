@@ -3293,35 +3293,111 @@ export type Database = {
           },
         ]
       }
+      quran_plans: {
+        Row: {
+          completed_on: string | null
+          created_at: string
+          current_page: number
+          id: string
+          khatm_number: number
+          original_pace_pages_per_day: number
+          pace_pages_per_day: number | null
+          paused_days: number
+          paused_on: string | null
+          plan_set_on: string
+          plan_set_page: number
+          start_date: string
+          start_page: number
+          status: string
+          target_date: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_on?: string | null
+          created_at?: string
+          current_page: number
+          id?: string
+          khatm_number: number
+          original_pace_pages_per_day: number
+          pace_pages_per_day?: number | null
+          paused_days?: number
+          paused_on?: string | null
+          plan_set_on: string
+          plan_set_page: number
+          start_date: string
+          start_page: number
+          status?: string
+          target_date?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          completed_on?: string | null
+          created_at?: string
+          current_page?: number
+          id?: string
+          khatm_number?: number
+          original_pace_pages_per_day?: number
+          pace_pages_per_day?: number | null
+          paused_days?: number
+          paused_on?: string | null
+          plan_set_on?: string
+          plan_set_page?: number
+          start_date?: string
+          start_page?: number
+          status?: string
+          target_date?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       quran_sessions: {
         Row: {
           created_at: string
           date: string
+          from_page: number | null
           id: string
           juz: number | null
           pages_read: number
+          plan_id: string | null
           surah: string | null
+          to_page: number | null
           user_id: string
         }
         Insert: {
           created_at?: string
           date: string
+          from_page?: number | null
           id?: string
           juz?: number | null
           pages_read: number
+          plan_id?: string | null
           surah?: string | null
+          to_page?: number | null
           user_id?: string
         }
         Update: {
           created_at?: string
           date?: string
+          from_page?: number | null
           id?: string
           juz?: number | null
           pages_read?: number
+          plan_id?: string | null
           surah?: string | null
+          to_page?: number | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quran_sessions_plan_same_user"
+            columns: ["user_id", "plan_id"]
+            referencedRelation: "quran_plans"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
       }
       reflection_cards: {
         Row: {
