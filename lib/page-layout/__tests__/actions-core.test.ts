@@ -106,11 +106,11 @@ describe("saveLayoutCore + getLayoutCore -- round trip", () => {
     const { client } = makeDb([]);
     await saveLayoutCore(client, "user-1", "school", [
       { widgetKey: "task_list", position: 3, hidden: true },
-      { widgetKey: "school_today", position: 0, hidden: false },
+      { widgetKey: "deadline_risk", position: 0, hidden: false },
     ]);
     const layout = await getLayoutCore(client, "user-1", "school");
     const taskList = layout.find((w) => w.widgetKey === "task_list")!;
-    const schoolToday = layout.find((w) => w.widgetKey === "school_today")!;
+    const schoolToday = layout.find((w) => w.widgetKey === "deadline_risk")!;
     expect(taskList).toMatchObject({ position: 3, hidden: true });
     expect(schoolToday).toMatchObject({ position: 0, hidden: false });
   });
@@ -177,6 +177,17 @@ describe("unknown/retired widget keys degrade safely", () => {
     const { client } = makeDb([{ user_id: "user-1", domain_key: "school", widget_key: "a_retired_widget", position: 0, hidden: false }]);
     const layout = await getLayoutCore(client, "user-1", "school");
     expect(layout.some((w) => w.widgetKey === "a_retired_widget")).toBe(false);
+  });
+
+  it("a widget the registry marks retired is not offered by getLayoutCore, but a saved layout that mentions it still saves (positive control: a live widget IS offered)", async () => {
+    const { client } = makeDb([]);
+    const layout = await getLayoutCore(client, "user-1", "school");
+    const keys = layout.map((w) => w.widgetKey);
+    expect(keys).not.toContain("school_today");
+    expect(keys).not.toContain("practice_vs_real");
+    expect(keys).toContain("task_list");
+    expect(layout.find((w) => w.widgetKey === "this_weeks_classes")?.label).toBe("Class schedule");
+    await expect(saveLayoutCore(client, "user-1", "school", [{ widgetKey: "school_today", position: 1, hidden: true }])).resolves.not.toThrow();
   });
 
   it("saveLayoutCore rejects a widgetKey that doesn't belong to the registry for that domain -- never silently accepted", async () => {

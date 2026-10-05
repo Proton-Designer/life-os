@@ -33,7 +33,8 @@ interface StoredRow {
  * never deleted from the table either.
  */
 export async function getLayoutCore(supabase: SupabaseClient, userId: string, domainKey: string): Promise<LayoutItem[]> {
-  const registered = widgetsForDomain(domainKey);
+  // A retired widget (the page no longer renders it) is not offered in the manager; its key stays valid for saved layouts.
+  const registered = widgetsForDomain(domainKey).filter((w) => !w.retired);
   if (registered.length === 0) return [];
 
   const { data, error } = await supabase
