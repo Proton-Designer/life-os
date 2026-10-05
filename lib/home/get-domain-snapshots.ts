@@ -23,6 +23,8 @@ import { getWeeklySignalNoiseRatio, bucketAllocationMinutes, type SignalNoiseRes
 import { getUserDomainWeights } from "@/lib/business/domain-weights";
 import type { DomainWeights } from "@/lib/business/domain-classification";
 import { calculateWeeklyConsistency } from "@/lib/fitness/consistency";
+import { getOpenPlanCore } from "@/lib/quran/plan-core";
+import { planPace } from "@/lib/quran/plan";
 import { getDomainPulse, type DomainPulse } from "./get-domain-pulse";
 
 export type DeenSnapshot = {
@@ -192,6 +194,9 @@ export function defaultDataSource(): DomainSnapshotDataSource {
     },
     async getQuranWeeklyTarget(userId, weekStart) {
       const supabase = await createClient();
+      // QURAN-02: while a khatm plan is ACTIVE its pace x 7 IS the weekly target (the manually typed one applies without a plan).
+      const plan = await getOpenPlanCore(supabase, userId).catch(() => null);
+      if (plan?.status === "active") return Math.round(planPace(plan) * 7);
       const { data } = await supabase
         .from("weekly_goals")
         .select("quran_page_target")

@@ -189,4 +189,17 @@ describe("DomainStatusStack", () => {
       expect(screen.getAllByRole("link")).toHaveLength(5);
     });
   });
+
+  it("QURAN-02: the Deen row carries the khatm percent (and behind/paused), and only the Deen row", () => {
+    const { unmount } = render(<DomainStatusStack snapshots={SNAPSHOTS} />);
+    expect(screen.queryByTestId("sector-khatm")).not.toBeInTheDocument(); // positive control: no plan, no khatm text
+    unmount();
+    const { unmount: u2 } = render(<DomainStatusStack snapshots={SNAPSHOTS} deenKhatm={{ label: "Khatm 2 · 14%", percent: 14, kind: "on_track", onTrack: true }} />);
+    expect(screen.getAllByTestId("sector-khatm")).toHaveLength(1);
+    expect(screen.getByTestId("sector-khatm")).toHaveTextContent("· Khatm 2 · 14%");
+    expect(screen.getByTestId("sector-khatm")).not.toHaveTextContent("behind");
+    u2();
+    render(<DomainStatusStack snapshots={SNAPSHOTS} deenKhatm={{ label: "Khatm 2 · 14%", percent: 14, kind: "behind", onTrack: false }} />);
+    expect(screen.getByTestId("sector-khatm")).toHaveTextContent("Khatm 2 · 14% · behind");
+  });
 });

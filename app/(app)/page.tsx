@@ -32,6 +32,9 @@ import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
 import { MorningBriefPanel, MorningBriefProvider, MorningBriefToggle } from "@/components/home/morning-brief";
 import { isMorningBriefCollapsed } from "@/lib/morning-brief/collapsed-core";
+import { QuranNowRow } from "@/components/home/quran-now-row";
+import { getQuranOverviewCore, type QuranOverview } from "@/lib/quran/plan-core";
+import { homeNowItem, sectorRow as quranSectorRow } from "@/lib/quran/surfaces";
 import { Stream } from "@/components/home/stream";
 import { DEFAULT_FOCUS_TARGET_MINUTES } from "@/lib/focus/target";
 import { loadFocusTargetMinutes } from "@/lib/focus/target-core";
@@ -100,6 +103,9 @@ export default async function HomePage() {
   // opt-in gates, Deen): they decide WHAT is started, streaming only changes WHEN it renders.
   // SECTOR-01: only the areas this account has set up are read (and shown).
   const snapshotsPromise = getDomainSnapshots(userId, now, undefined, wantedSectors);
+  // QURAN-02: the khatm plan's one read, streamed (Deen ON only; a failed read just hides the Quran rows).
+  const quranPromise: Promise<QuranOverview | null> = deenMode ? getQuranOverviewCore(supabase, userId, dateStr).catch(() => null) : Promise.resolve(null);
+  const sectorPromise = Promise.all([snapshotsPromise, quranPromise]);
   // L11/R7 Tier 1 declarative widgets -- degrades to [] until the widgets migration lands; now/timezone
   // threaded through for the sparkline kind's local-day bucketing (R12/AGENTS.md).
   const mcpWidgetsPromise = renderWidgets(supabase, userId, "home", now, timezone);
@@ -115,7 +121,7 @@ export default async function HomePage() {
   const focusTargetPromise = loadFocusTargetMinutes(supabase, userId, dateStr).catch(() => DEFAULT_FOCUS_TARGET_MINUTES);
   const dayCardPromise = Promise.all([rhythmPromise, focusTargetPromise]);
   const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise]) : null;
-  for (const p of [snapshotsPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
+  for (const p of [snapshotsPromise, quranPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
   const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
@@ -379,8 +385,8 @@ export default async function HomePage() {
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="domain_status">
-        <Stream promise={snapshotsPromise} label="Sector progress" fallback={<DomainStatusStripSkeleton />}>
-          {(snapshots) => <DomainStatusStack snapshots={snapshots} title="Sector progress" rows={sectorRows} />}
+        <Stream promise={sectorPromise} label="Sector progress" fallback={<DomainStatusStripSkeleton />}>
+          {([snapshots, quran]) => <DomainStatusStack snapshots={snapshots} title="Sector progress" rows={sectorRows} deenKhatm={quranSectorRow(quran)} />}
         </Stream>
       </LayoutSlot>
 
@@ -389,6 +395,14 @@ export default async function HomePage() {
           rather than a fixed side-by-side pair. */}
       <LayoutSlot layout={layoutMap} widgetKey="now">
         <Panel title="Now">
+          {deenMode ? (
+            <Stream promise={quranPromise} label="Quran" fallback={null}>
+              {(quran) => {
+                const item = homeNowItem(quran);
+                return item ? <QuranNowRow item={item} /> : null;
+              }}
+            </Stream>
+          ) : null}
           <NextActions
             items={items}
             weights={weights}

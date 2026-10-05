@@ -6,6 +6,7 @@ import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { cn } from "@/lib/utils";
 import type { DomainSnapshots } from "@/lib/home/get-domain-snapshots";
 import type { SectorRow } from "@/lib/home/sector-rows";
+import type { SectorRow as KhatmRow } from "@/lib/quran/surfaces";
 
 const DOMAIN_LABEL: Record<keyof DomainSnapshots, string> = {
   deen: "Deen",
@@ -86,6 +87,7 @@ export function DomainStatusStack({
   title,
   visibleDomains = ALL_DOMAINS,
   rows,
+  deenKhatm = null,
 }: {
   snapshots: DomainSnapshots;
   title?: string;
@@ -99,6 +101,8 @@ export function DomainStatusStack({
   visibleDomains?: (keyof DomainSnapshots)[];
   /** SECTOR-01: the account's own rows (lib/home/sector-rows.ts: one per Work tab, with its label). When given it wins over `visibleDomains`; an empty list shows a "set up your areas" prompt instead of nothing. */
   rows?: SectorRow[];
+  /** QURAN-02: the Deen row's khatm percent ("Khatm 2 · 14%"), when a plan exists. Plain data. */
+  deenKhatm?: KhatmRow | null;
 }) {
   const list: SectorRow[] =
     rows ?? visibleDomains.map((d) => ({ id: d, snapshot: d, label: DOMAIN_LABEL[d], href: DOMAIN_HREF[d] }));
@@ -142,7 +146,16 @@ export function DomainStatusStack({
                 <IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{row.label}</p>
-                  <p className="truncate text-xs text-muted-foreground">{metricFor(domain, snapshots)}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {metricFor(domain, snapshots)}
+                    {domain === "deen" && deenKhatm ? (
+                      <span data-testid="sector-khatm">
+                        {" · "}
+                        {deenKhatm.label}
+                        {deenKhatm.kind === "behind" ? " · behind" : deenKhatm.kind === "paused" ? " · paused" : ""}
+                      </span>
+                    ) : null}
+                  </p>
                 </div>
               </div>
               <ProgressRing
