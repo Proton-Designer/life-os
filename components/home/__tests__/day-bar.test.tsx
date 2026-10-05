@@ -241,10 +241,12 @@ describe("DayBar (HOME-02)", () => {
       render(<DayBar {...lateStart} />);
       const started = parseFloat(screen.getByTestId("day-bar-started").style.left);
       expect(started).toBeCloseTo((19 + 50 / 60) / 24 * 100, 1);
-      // 7:50 PM and now 7:55 PM would overlap: ONE combined label, never two
-      expect(screen.getByTestId("day-bar-started-now-label")).toHaveTextContent("Started 7:50 PM · now 7:55 PM");
-      expect(screen.queryByTestId("day-bar-started-label")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("day-bar-now-label")).not.toBeInTheDocument();
+      // Started lives under the Awake headline (never on the scale, where it collided with NOW); the scale only carries NOW
+      expect(screen.getByTestId("day-bar-started-label")).toHaveTextContent("Started 7:50 PM");
+      expect(screen.getByTestId("day-bar-awake").parentElement).toContainElement(screen.getByTestId("day-bar-started-label"));
+      expect(screen.getByTestId("day-bar-scale")).not.toContainElement(screen.getByTestId("day-bar-started-label"));
+      expect(screen.getByTestId("day-bar-now-label")).toHaveTextContent("now 7:55 PM");
+      expect(screen.queryByTestId("day-bar-started-now-label")).not.toBeInTheDocument();
       const span = screen.getByTestId("day-bar-awake-span");
       expect(parseFloat(span.style.left)).toBeCloseTo(started, 1); // shading starts at the marker...
       expect(parseFloat(span.style.left) + parseFloat(span.style.width)).toBeCloseTo(parseFloat(screen.getByTestId("day-bar-now").style.left), 1); // ...and ends at NOW
@@ -303,8 +305,9 @@ describe("DayBar (HOME-02)", () => {
       vi.setSystemTime(at("2026-10-05T01:30:00"));
       render(<DayBar {...whole} layout={null} wokeAtIso={at("2026-10-05T01:00:00").toISOString()} nowIso={at("2026-10-05T01:30:00").toISOString()} />);
       expect(parseFloat(screen.getByTestId("day-bar-started").style.left)).toBeCloseTo(4.17, 1);
-      const label = screen.getByTestId("day-bar-started-now-label"); // 1:00 and 1:30 are close: combined, and left-aligned so it cannot spill off the left edge
-      expect(label).toHaveTextContent("Started 1:00 AM · now 1:30 AM");
+      expect(screen.getByTestId("day-bar-started-label")).toHaveTextContent("Started 1:00 AM"); // under the Awake headline, so no edge to spill off
+      const label = screen.getByTestId("day-bar-now-label"); // NOW is near the left edge: left-aligned so it cannot spill off
+      expect(label).toHaveTextContent("now 1:30 AM");
       expect(label.className).not.toContain("-translate-x-");
     });
 

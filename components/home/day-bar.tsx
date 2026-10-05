@@ -9,7 +9,7 @@ import { useScheduleRefresh } from "@/components/deen/use-optimistic-item";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { Button } from "@/components/ui/button";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
-import { buildDayBar, formatAwake, labelsCollide, prayerStripLabel, toGoLabel, type DayBarBlock, type DayBarCalendarEvent, type DayBarKind, type DayBarPopover, type DayBarPrayer } from "@/lib/home/day-bar";
+import { buildDayBar, formatAwake, prayerStripLabel, toGoLabel, type DayBarBlock, type DayBarCalendarEvent, type DayBarKind, type DayBarPopover, type DayBarPrayer } from "@/lib/home/day-bar";
 import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
 import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
 import { cn } from "@/lib/utils";
@@ -201,9 +201,17 @@ export function DayBar({
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4" data-testid="day-bar">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-        <p className="font-mono text-sm font-semibold tabular-nums" data-testid="day-bar-awake">
-          Awake for {formatAwake(awakeSeconds)}
-        </p>
+        <div className="flex flex-col gap-0.5">
+          <p className="font-mono text-sm font-semibold tabular-nums" data-testid="day-bar-awake">
+            Awake for {formatAwake(awakeSeconds)}
+          </p>
+          {/* when Start Day was pressed: it lives under the Awake headline, not on the hour scale (it used to collide with NOW there) */}
+          {bar.startedPct !== null ? (
+            <p className="font-mono text-xs tabular-nums text-muted-foreground" data-testid="day-bar-started-label">
+              Started {fmtClock(wake, timezone)}
+            </p>
+          ) : null}
+        </div>
         <p className="font-mono text-sm tabular-nums" data-testid="day-bar-focus">
           <span className="font-semibold">Focus {formatHoursMinutes(hoursTodayMinutes)}</span>
           <span className="text-muted-foreground"> · {hoursOfDailyTarget(hoursTodayMinutes, targetMinutes)} h</span>
@@ -326,7 +334,7 @@ export function DayBar({
           </div>
         ) : null}
 
-        {/* hour scale: a label every 3 h (every 6 h on a phone); the Started / NOW clock labels share its second row */}
+        {/* hour scale: a label every 3 h (every 6 h on a phone); the NOW clock label sits on its second row */}
         <div className="relative mt-1 h-9" aria-hidden data-testid="day-bar-scale">
           {bar.ticks.map((t, i) => (
             <div key={i} className="absolute top-0 -translate-x-1/2" style={{ left: `${t.pct}%` }}>
@@ -334,33 +342,12 @@ export function DayBar({
               {t.label && (!narrow || t.hour % 6 === 0) ? <span className="mt-0.5 block font-mono text-[10px] leading-none whitespace-nowrap text-muted-foreground tabular-nums">{t.label}</span> : null}
             </div>
           ))}
-          {/* the Started / NOW clock labels share the row under the ticks; within ~28% of each other they merge into one label */}
-          {bar.startedPct !== null && bar.nowPosition === "within" && labelsCollide(bar.startedPct, bar.nowPct) ? (
-            <span
-              className={cn(
-                "absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap tabular-nums",
-                (bar.startedPct + bar.nowPct) / 2 > 70 ? "-translate-x-full" : (bar.startedPct + bar.nowPct) / 2 < 30 ? "" : "-translate-x-1/2"
-              )}
-              style={{ left: `${(bar.startedPct + bar.nowPct) / 2 > 70 ? bar.nowPct : (bar.startedPct + bar.nowPct) / 2 < 30 ? bar.startedPct : (bar.startedPct + bar.nowPct) / 2}%` }}
-              data-testid="day-bar-started-now-label"
-            >
-              <span className="font-medium text-foreground">Started {fmtClock(wake, timezone)}</span>
-              <span className="text-accent-info"> · now {fmtClock(now, timezone)}</span>
+          {/* the NOW clock label sits under the ticks (the Started time is shown under the Awake headline above) */}
+          {bar.nowPosition === "within" ? (
+            <span className={cn("absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums", edgeShift(bar.nowPct))} style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now-label">
+              now {fmtClock(now, timezone)}
             </span>
-          ) : (
-            <>
-              {bar.startedPct !== null ? (
-                <span className={cn("absolute top-5 font-mono text-[10px] leading-none font-medium whitespace-nowrap text-foreground tabular-nums", edgeShift(bar.startedPct))} style={{ left: `${bar.startedPct}%` }} data-testid="day-bar-started-label">
-                  Started {fmtClock(wake, timezone)}
-                </span>
-              ) : null}
-              {bar.nowPosition === "within" ? (
-                <span className={cn("absolute top-5 font-mono text-[10px] leading-none whitespace-nowrap text-accent-info tabular-nums", edgeShift(bar.nowPct))} style={{ left: `${bar.nowPct}%` }} data-testid="day-bar-now-label">
-                  {fmtClock(now, timezone)}
-                </span>
-              ) : null}
-            </>
-          )}
+          ) : null}
         </div>
       </div>
 

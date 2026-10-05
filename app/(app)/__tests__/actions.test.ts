@@ -131,6 +131,57 @@ describe("toggleItem", () => {
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
+  describe("delayItem", () => {
+    it("moves a task's due_date to the day after item.date (and only if still incomplete)", async () => {
+      const chain = makeChain();
+      fromMock.mockReturnValue(chain);
+      const { delayItem } = await import("../actions");
+
+      const res = await delayItem(baseItem({ actionType: "toggle_task", actionRefId: "task-1", date: "2026-08-31", domain: "school" }));
+
+      expect(res).toEqual({ ok: true });
+      expect(fromMock).toHaveBeenCalledWith("tasks");
+      expect(chain.update).toHaveBeenCalledWith({ due_date: "2026-09-01" }); // month rollover, calendar arithmetic
+      expect(chain.eq).toHaveBeenCalledWith("id", "task-1");
+      expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
+      expect(chain.eq).toHaveBeenCalledWith("completed", false);
+    });
+
+    it("moves a kill-list item to tomorrow's first free slot", async () => {
+      const chain = makeChain();
+      // tomorrow already has positions 0 and 2 taken -> 1 is the free slot
+      (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: [{ position: 0 }, { position: 2 }], error: null });
+      fromMock.mockReturnValue(chain);
+      const { delayItem } = await import("../actions");
+
+      const res = await delayItem(baseItem({ actionType: "toggle_kill_list", actionRefId: "k1", date: "2026-08-10", domain: "business" }));
+
+      expect(res).toEqual({ ok: true });
+      expect(chain.eq).toHaveBeenCalledWith("date", "2026-08-11");
+      expect(chain.update).toHaveBeenCalledWith({ date: "2026-08-11", position: 1 });
+      expect(chain.eq).toHaveBeenCalledWith("id", "k1");
+    });
+
+    it("refuses (and writes nothing) when tomorrow's kill list is full", async () => {
+      const chain = makeChain();
+      (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: [{ position: 0 }, { position: 1 }, { position: 2 }], error: null });
+      fromMock.mockReturnValue(chain);
+      const { delayItem } = await import("../actions");
+
+      const res = await delayItem(baseItem({ actionType: "toggle_kill_list", actionRefId: "k1", domain: "business" }));
+
+      expect(res).toEqual({ ok: false, message: "Tomorrow's Kill List is already full" });
+      expect(chain.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects item types that are tied to their own day/window (prayer, habit, adhkar, fitness)", async () => {
+      const { delayItem } = await import("../actions");
+      for (const actionType of ["toggle_prayer", "toggle_habit", "toggle_adhkar", "open_fitness"] as const) {
+        await expect(delayItem(baseItem({ actionType }))).rejects.toThrow(/cannot be delayed/);
+      }
+    });
+  });
+
   it("upserts habit_logs keyed by habit_id + date for toggle_habit", async () => {
     const chain = makeChain();
     fromMock.mockReturnValue(chain);

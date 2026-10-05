@@ -7,7 +7,7 @@ import { getNotifications, type NotificationItem } from "@/lib/notifications/get
 import { markNotificationRead } from "@/lib/notifications/mark-read";
 import { localDateString, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { revalidatePath } from "next/cache";
-import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
+import { revalidateBusinessScreens, revalidateWorkScreens } from "@/lib/work/revalidate-screens";
 import { redirect } from "next/navigation";
 import { markPrayer } from "@/app/(app)/deen/actions";
 import { saveBusinessWeeklyGoalCore } from "@/lib/business/actions-core";
@@ -127,6 +127,61 @@ export async function toggleItem(item: PriorityItem): Promise<void> {
 
   // Hot tap: no revalidatePath here (it made every tap wait for a full Home
   // re-render). Callers schedule ONE deferred refreshHome() after a burst (PERF-2).
+}
+
+/** The Now-module item types Delay applies to: real, movable work (a task, a kill-list item). Prayers, adhkar, habits and the workout are tied to their own day/window, so "tomorrow" is meaningless for them. */
+const DELAYABLE_ACTION_TYPES: ReadonlySet<PriorityItem["actionType"]> = new Set(["toggle_task", "toggle_kill_list"]);
+
+/**
+ * Delay: dismiss a Now item for today and have it show up the day after. `item.date` is the user's local day the
+ * item was computed for (never a raw Date), so "tomorrow" is that day + 1.
+ *  - task: due_date moves to tomorrow (due_time is kept, so a timed task keeps its clock time).
+ *  - kill-list item: moves to tomorrow's list in the first free slot; the list is capped at 3, so a full
+ *    tomorrow refuses (the item stays today) rather than silently dropping or overwriting anything.
+ */
+export async function delayItem(item: PriorityItem): Promise<{ ok: true } | { ok: false; message: string }> {
+  const supabase = await createClient();
+  const user = await getAuthedUser();
+  if (!user) throw new Error("Not authenticated");
+  if (!DELAYABLE_ACTION_TYPES.has(item.actionType)) {
+    throw new Error(`${item.actionType} items cannot be delayed`);
+  }
+  const tomorrow = addDaysToDateString(item.date, 1);
+
+  if (item.actionType === "toggle_task") {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ due_date: tomorrow })
+      .eq("id", item.actionRefId)
+      .eq("user_id", user.id)
+      .eq("completed", false);
+    if (error) throw error;
+  } else {
+    const { data: taken, error: readError } = await supabase
+      .from("kill_list_items")
+      .select("position")
+      .eq("user_id", user.id)
+      .eq("date", tomorrow);
+    if (readError) throw readError;
+    const used = new Set((taken ?? []).map((r) => r.position as number));
+    const freePosition = [0, 1, 2].find((p) => !used.has(p));
+    // Returned, not thrown: Next masks a Server Action's thrown message in production, and this refusal is expected.
+    if (freePosition === undefined) return { ok: false, message: "Tomorrow's Kill List is already full" };
+    const { error } = await supabase
+      .from("kill_list_items")
+      .update({ date: tomorrow, position: freePosition })
+      .eq("id", item.actionRefId)
+      .eq("user_id", user.id)
+      .eq("completed", false);
+    if (error) throw error;
+  }
+
+  revalidatePath("/");
+  revalidatePath("/school");
+  revalidatePath("/calendar");
+  revalidateWorkScreens();
+  revalidateBusinessScreens();
+  return { ok: true };
 }
 
 /**

@@ -68,6 +68,8 @@ export type TaskRowItem = {
    * knows a row wants one.
    */
   expand?: { ariaLabel: string; badge?: string };
+  /** Show a Delay control on this row (only renders when the list was also given `onDelay`). */
+  canDelay?: boolean;
 };
 
 export type TaskLogResult = {
@@ -123,6 +125,7 @@ function ActiveRow({
   onComplete,
   onOpenLog,
   onRemove,
+  onDelay,
   renderExpanded,
 }: {
   item: TaskRowItem;
@@ -130,6 +133,8 @@ function ActiveRow({
   /** Absent when the caller never wired onLog — a log-mode row then renders inert rather than throwing (see the effect below). */
   onOpenLog?: (item: TaskRowItem) => void;
   onRemove?: (item: TaskRowItem) => Promise<void>;
+  /** Present only when the list wired Delay; the button then renders on rows with `canDelay`. */
+  onDelay?: (item: TaskRowItem) => Promise<void>;
   /**
    * See TaskRowItem.expand — the panel content for a row that opts into a
    * chevron disclosure. `collapse` lets that content ask to be closed
@@ -153,6 +158,7 @@ function ActiveRow({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isRemoving, setIsRemoving] = useState(false);
+  const [isDelaying, setIsDelaying] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const inertLog = item.mode === "log" && !onOpenLog;
@@ -183,6 +189,23 @@ function ActiveRow({
       } catch {
         setJustCompleted(false);
         setError("Couldn't save — try again");
+      }
+    });
+  }
+
+  const showDelay = Boolean(onDelay && item.canDelay);
+
+  function handleDelay(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!onDelay || isDelaying || isPending) return;
+    setError(null);
+    setIsDelaying(true);
+    startTransition(async () => {
+      try {
+        await onDelay(item);
+      } catch (err) {
+        setIsDelaying(false);
+        setError(err instanceof Error && err.message ? err.message : "Couldn't delay — try again");
       }
     });
   }
@@ -265,7 +288,7 @@ function ActiveRow({
               the meta is context and can truncate. Cap rather than plain
               `shrink`, because flex shrinks proportionally to content and a
               long meta beside a short title would still dominate. */}
-          {item.meta && !item.metaBelow && (
+          {item.meta && !item.metaBelow && !showDelay && (
             // Shrinkable, not shrink-0 (2026-08-28): an unshrinkable meta
             // could still exceed the row's box, and because the row's
             // siblings (Remove, the expand chevron) sit OUTSIDE it, the
@@ -277,6 +300,31 @@ function ActiveRow({
             <span className="min-w-0 max-w-[12rem] shrink truncate text-xs text-muted-foreground">{item.meta}</span>
           )}
         </button>
+        {showDelay && (
+          <>
+            {/* Delay sits LEFT of the meta ("Today"), so on a delayable row the meta is a sibling of the row button
+                rather than inside it (a <button> can't nest a <button>). Tapping the meta still completes the row,
+                as it did inside the button; aria-hidden because the button beside it is the accessible control. */}
+            <button
+              type="button"
+              onClick={handleDelay}
+              disabled={isDelaying || isPending}
+              aria-label={`Delay "${item.title}" until tomorrow`}
+              className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+            >
+              Delay
+            </button>
+            {item.meta && (
+              <span
+                aria-hidden
+                onClick={handleClick}
+                className="min-w-0 max-w-[12rem] shrink cursor-pointer truncate pl-1 pr-3 text-xs text-muted-foreground"
+              >
+                {item.meta}
+              </span>
+            )}
+          </>
+        )}
         {item.expand && renderExpanded && (
           <button
             type="button"
@@ -447,6 +495,7 @@ export function TaskRowList({
   onComplete,
   onLog,
   onRemove,
+  onDelay,
   emptyState,
   renderExpanded,
 }: {
@@ -476,6 +525,12 @@ export function TaskRowList({
    * record — strictly worse than the delete affordance).
    */
   onRemove?: (item: TaskRowItem) => Promise<void>;
+  /**
+   * Optional — Home's Now module passes this. Moves the item to tomorrow: a Delay button renders on rows with
+   * `canDelay`, and the row leaves the list once the move is confirmed. Reject (throw) to keep the row and show the
+   * message inline (e.g. tomorrow's Kill List is full).
+   */
+  onDelay?: (item: TaskRowItem) => Promise<void>;
   emptyState?: React.ReactNode;
   /** See TaskRowItem.expand. Omit entirely if no item in this list ever sets `expand` — the chevron itself only renders when both are present. */
   renderExpanded?: (item: TaskRowItem, collapse: () => void) => React.ReactNode;
@@ -554,6 +609,13 @@ export function TaskRowList({
     applyOptimistic({ type: "remove", id: item.id });
   }
 
+  async function handleDelay(item: TaskRowItem) {
+    if (!onDelay) return;
+    // Same ordering as handleRemove: the row leaves only once the move is confirmed.
+    await onDelay(item);
+    applyOptimistic({ type: "remove", id: item.id });
+  }
+
   return (
     <div className="flex flex-col gap-1">
       {/* Whenever nothing is PENDING, show emptyState — regardless of
@@ -578,6 +640,7 @@ export function TaskRowList({
               onComplete={handleComplete}
               onOpenLog={onLog ? setLogItem : undefined}
               onRemove={onRemove ? handleRemove : undefined}
+              onDelay={onDelay ? handleDelay : undefined}
               renderExpanded={renderExpanded}
             />
           ))}

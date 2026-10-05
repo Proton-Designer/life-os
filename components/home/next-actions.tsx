@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ListChecks } from "lucide-react";
-import { toggleItem } from "@/app/(app)/actions";
+import { delayItem, toggleItem } from "@/app/(app)/actions";
 import { useHomeRefresh } from "@/components/home/use-home-refresh";
 import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import type { AreaWeightLookup } from "@/lib/home/build-candidates";
@@ -64,6 +64,8 @@ function toTaskRowItem(item: PriorityItem, now: Date, isMostUrgent: boolean): Ta
     domain: item.domain,
     meta: metaFor(item, now, isMostUrgent),
     mode: "toggle",
+    // Tasks and kill-list items can be pushed to tomorrow; prayers/adhkar/habits are tied to their own day or window.
+    canDelay: item.actionType === "toggle_task" || item.actionType === "toggle_kill_list",
     expand: hasSunnah
       ? {
           ariaLabel: `Sunnah for ${item.title}`,
@@ -171,6 +173,17 @@ export function NextActions({
     }
   }
 
+  async function handleDelay(row: TaskRowItem) {
+    const original = byId.get(row.id);
+    if (!original) throw new Error(`Unknown Now-module item: ${row.id}`);
+    try {
+      const result = await delayItem(original);
+      if (!result.ok) throw new Error(result.message);
+    } finally {
+      scheduleRefresh();
+    }
+  }
+
   // TaskRowList is generic and never learns what's inside an `expand`
   // panel — it just calls this. Today the only row that ever sets `expand`
   // is a prayer row (toTaskRowItem above), so this only ever renders
@@ -214,7 +227,7 @@ export function NextActions({
           degrades a log-mode row to inert (rather than throwing) if one
           ever shows up without this, so omitting it here is safe, not a
           landmine. */}
-      <TaskRowList items={rowItems} onComplete={handleComplete} emptyState={emptyStateNode} renderExpanded={renderExpanded} />
+      <TaskRowList items={rowItems} onComplete={handleComplete} onDelay={handleDelay} emptyState={emptyStateNode} renderExpanded={renderExpanded} />
       {fitnessItem && (
         <ul className="flex flex-col gap-1">
           <FitnessRow item={fitnessItem} now={now} isMostUrgent={fitnessItem.id === mostUrgent} />

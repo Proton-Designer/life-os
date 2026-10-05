@@ -5,6 +5,7 @@ import type { PriorityItem, CompletedItem } from "@/lib/home/types";
 
 vi.mock("@/app/(app)/actions", () => ({
   toggleItem: vi.fn(async () => {}),
+  delayItem: vi.fn(async () => ({ ok: true })),
 }));
 
 // sunnah-disclosure.tsx (rendered via renderExpanded for prayer rows) pulls
@@ -14,7 +15,7 @@ vi.mock("@/app/(app)/deen/actions", () => ({
   setSunnah: vi.fn(async () => {}),
 }));
 
-import { toggleItem } from "@/app/(app)/actions";
+import { delayItem, toggleItem } from "@/app/(app)/actions";
 import { NextActions } from "../next-actions";
 
 // A fixed instant, deliberately far from real wall-clock time — any test
@@ -385,6 +386,67 @@ describe("NextActions", () => {
 
       await user.click(screen.getByRole("button", { name: 'Mark "Fajr" done' }));
       expect(toggleItem).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Delay", () => {
+    it("shows a Delay button on a task and a kill-list row, left of the meta, but not on a prayer", () => {
+      render(
+        <NextActions
+          items={[
+            item({ id: "t1", domain: "school", title: "Read ch. 4", actionType: "toggle_task" }),
+            item({ id: "kill-list", domain: "business", title: "Ship it", actionType: "toggle_kill_list" }),
+            item({ id: "prayer-asr", domain: "deen", title: "Asr", actionType: "toggle_prayer", actionRefId: "asr" }),
+          ]}
+          completedToday={[]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+          weights={{}}
+        />
+      );
+      const delay = screen.getByRole("button", { name: 'Delay "Read ch. 4" until tomorrow' });
+      expect(screen.getByRole("button", { name: 'Delay "Ship it" until tomorrow' })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Delay "Asr"/ })).not.toBeInTheDocument();
+      // DOM order: the Delay button comes before the "Today" meta of its own row.
+      const row = delay.closest("li")!;
+      const todayMeta = Array.from(row.querySelectorAll("span")).find((s) => s.textContent === "Today")!;
+      expect(delay.compareDocumentPosition(todayMeta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("delays the item (not completes it) and drops the row from Now", async () => {
+      const user = userEvent.setup();
+      vi.mocked(toggleItem).mockClear();
+      vi.mocked(delayItem).mockClear();
+      render(
+        <NextActions
+          items={[item({ id: "t1", domain: "school", title: "Read ch. 4", actionType: "toggle_task" })]}
+          completedToday={[]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+          weights={{}}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: 'Delay "Read ch. 4" until tomorrow' }));
+      await waitFor(() => expect(delayItem).toHaveBeenCalledWith(expect.objectContaining({ actionRefId: "t1", actionType: "toggle_task" })));
+      expect(toggleItem).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByText("Read ch. 4")).not.toBeInTheDocument());
+    });
+
+    it("keeps the row and shows the reason when the delay is refused", async () => {
+      const user = userEvent.setup();
+      vi.mocked(delayItem).mockResolvedValueOnce({ ok: false, message: "Tomorrow's Kill List is already full" } as never);
+      render(
+        <NextActions
+          items={[item({ id: "kill-list", domain: "business", title: "Ship it", actionType: "toggle_kill_list" })]}
+          completedToday={[]}
+          isFreshInstall={false}
+          nowIso={NOW_ISO}
+          weights={{}}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: 'Delay "Ship it" until tomorrow' }));
+      expect(await screen.findByText("Tomorrow's Kill List is already full")).toBeInTheDocument();
+      expect(screen.getByText("Ship it")).toBeInTheDocument();
     });
   });
 });
