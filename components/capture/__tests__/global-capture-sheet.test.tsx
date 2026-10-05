@@ -16,8 +16,13 @@ vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
 // IA-P1a: the sheet drives the app's ONE distraction logger; stubbed here (its own suite covers it).
 vi.mock("@/components/distractions/distraction-capture-dialog", () => ({
-  DistractionCaptureDialog: ({ open, hideTrigger }: { open?: boolean; hideTrigger?: boolean }) =>
-    open ? <div data-testid="shared-logger" data-hide-trigger={String(!!hideTrigger)} /> : null,
+  DistractionCaptureDialog: ({ inline, onOpenChange }: { inline?: boolean; onOpenChange?: (o: boolean) => void }) => (
+    <div data-testid="shared-logger" data-inline={String(!!inline)}>
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        mock-logged
+      </button>
+    </div>
+  ),
 }));
 
 async function openSheet(user: ReturnType<typeof userEvent.setup>) {
@@ -103,17 +108,33 @@ describe("GlobalCaptureSheet", () => {
     });
   });
 
-  it("Distraction hands off to the shared logger — the sheet closes and writes nothing itself", async () => {
+  it("Distraction embeds the shared logger under the SAME tab bar (not a separate popup); the user can switch back to another type", async () => {
     const user = userEvent.setup();
     render(<GlobalCaptureSheet timezone="America/Chicago" />);
     await openSheet(user);
     expect(screen.queryByTestId("shared-logger")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Distraction" }));
-    expect(screen.getByTestId("shared-logger")).toHaveAttribute("data-hide-trigger", "true");
+    expect(screen.getByTestId("shared-logger")).toHaveAttribute("data-inline", "true");
+    // the tab bar is still there, the text form is not
+    for (const tab of ["Task", "Distraction", "Worry", "Note"]) expect(screen.getByRole("button", { name: tab })).toBeInTheDocument();
     expect(screen.queryByLabelText("Capture input")).toBeNull();
+    // not stuck on Distraction: Worry brings the text form back
+    await user.click(screen.getByRole("button", { name: "Worry" }));
+    expect(screen.queryByTestId("shared-logger")).toBeNull();
+    expect(screen.getByLabelText("Capture input")).toBeInTheDocument();
     expect(captureDistractionMock).toHaveBeenCalledTimes(0);
     expect(captureTaskMock).toHaveBeenCalledTimes(0);
     expect(captureDumpMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("the sheet closes once the embedded logger reports a distraction logged", async () => {
+    const user = userEvent.setup();
+    render(<GlobalCaptureSheet timezone="America/Chicago" />);
+    await openSheet(user);
+    await user.click(screen.getByRole("button", { name: "Distraction" }));
+    await user.click(screen.getByRole("button", { name: "mock-logged" }));
+    expect(screen.queryByTestId("shared-logger")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Worry" })).toBeNull();
   });
 
   describe("Task area (IA-P1a)", () => {

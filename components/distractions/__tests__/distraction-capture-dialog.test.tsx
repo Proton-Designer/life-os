@@ -272,4 +272,64 @@ describe("DistractionCaptureDialog", () => {
       expect(screen.queryByText("What happened?")).toBeNull();
     });
   });
+
+  describe("hovering a trigger shows its full text", () => {
+    const LONG = "Distracted opening instagram on my phone after a notification while I was meant to be studying";
+    it("a chip shows the whole name in a tooltip on hover (the chip itself clamps it)", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t1", name: LONG })]);
+      renderDialog(null);
+      const user = await openDialog();
+      await user.hover(await screen.findByRole("button", { name: LONG }));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(LONG);
+    });
+
+    it("a trigger row in a domain's list does too (positive control: no tooltip before hovering)", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger()]);
+      listTriggersForDomainMock.mockResolvedValue([trigger({ id: "t2", name: LONG })]);
+      renderDialog(null);
+      const user = await openDialog();
+      await user.click(await screen.findByRole("button", { name: "More options" }));
+      await user.click(await screen.findByRole("button", { name: "Business" }));
+      const row = await screen.findByRole("button", { name: new RegExp(LONG.slice(0, 20)) });
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      await user.hover(row);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(LONG);
+    });
+  });
+
+  describe("inline (embedded in the + Capture sheet)", () => {
+    it("renders the chips in place with no dialog/trigger of its own, logs, and asks the host to close", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t9", name: "Phone" })]);
+      const onOpenChange = vi.fn();
+      render(
+        <LockInOverlayProvider initialSession={null}>
+          <DistractionCaptureDialog inline deenMode onOpenChange={onOpenChange} />
+        </LockInOverlayProvider>
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Log a distraction" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "What happened?" })).toBeNull(); // plain text, not a second dialog title
+      expect(await screen.findByText("What happened?")).toBeInTheDocument();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Phone" }));
+      expect(logDistractionMock).toHaveBeenCalledWith("t9", undefined, null);
+      await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    });
+
+    it("a failed write keeps the host open and shows the error right there", async () => {
+      listTopTriggersForQuickLogMock.mockResolvedValue([trigger({ id: "t9", name: "Phone" })]);
+      logDistractionMock.mockRejectedValueOnce(new Error("boom"));
+      const onOpenChange = vi.fn();
+      render(
+        <LockInOverlayProvider initialSession={null}>
+          <DistractionCaptureDialog inline deenMode onOpenChange={onOpenChange} />
+        </LockInOverlayProvider>
+      );
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Phone" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't log that distraction");
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+      expect(screen.getByRole("button", { name: "Phone" })).toBeEnabled(); // can retry
+    });
+  });
 });

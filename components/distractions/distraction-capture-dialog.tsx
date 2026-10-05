@@ -15,6 +15,7 @@ import type { DistractionDomain, TriggerSummary } from "@/lib/distractions/types
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconChip } from "@/components/ui/icon-chip";
@@ -94,6 +95,18 @@ const TEXTAREA_CLASS =
 
 type Step = "quick" | "domain" | "triggers";
 
+// Header pieces: real Dialog parts in the +1 popup; plain elements when the logger is embedded in another dialog
+// (the "+" Capture sheet), which already has its own title (a second DialogTitle would be a duplicate heading).
+function StepHeader({ inline, children }: { inline: boolean; children: React.ReactNode }) {
+  return inline ? <div className="flex flex-col gap-1">{children}</div> : <DialogHeader>{children}</DialogHeader>;
+}
+function StepTitle({ inline, className, children }: { inline: boolean; className?: string; children: React.ReactNode }) {
+  return inline ? <p className={cn("text-sm font-medium", className)}>{children}</p> : <DialogTitle className={className}>{children}</DialogTitle>;
+}
+function StepDescription({ inline, children }: { inline: boolean; children: React.ReactNode }) {
+  return inline ? <p className="text-xs text-muted-foreground">{children}</p> : <DialogDescription>{children}</DialogDescription>;
+}
+
 /** Which domain a Lock-In session implies, so capture never re-asks a
  * question the session already answered (Ayman, 2026-09-10: "if im doing
  * deep work the domain is automatically Business, and if im doing Deep
@@ -110,18 +123,26 @@ export function DistractionCaptureDialog({
   open: controlledOpen,
   onOpenChange,
   hideTrigger = false,
+  inline = false,
 }: {
   deenMode?: boolean;
   /** IA-P1a: the "+" capture sheet drives THIS logger (one logger, not two) — controlled open state, no "+1" trigger of its own. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   hideTrigger?: boolean;
+  /**
+   * Render the logger's steps in place (no Dialog of its own), for embedding inside another dialog -- the "+" Capture
+   * sheet shows it under its own tab bar so the user can still switch type. `onOpenChange(false)` fires when a
+   * distraction has been logged (the host closes itself). Unlike the popup, which closes first and writes in the
+   * background, the embedded form waits for the write so a failure is shown here rather than lost with the closed host.
+   */
+  inline?: boolean;
 } = {}) {
   const { session } = useLockInOverlay();
   const inferredDomain = inferDomainFromSession(session);
 
   const [openState, setOpenState] = useState(false);
-  const open = controlledOpen ?? openState;
+  const open = inline ? true : (controlledOpen ?? openState);
   const setOpen = (next: boolean) => {
     setOpenState(next);
     onOpenChange?.(next);
@@ -136,6 +157,7 @@ export function DistractionCaptureDialog({
   const [newDescription, setNewDescription] = useState("");
   const [tier, setTier] = useState<Tier | null>(null);
   const [, startTransition] = useTransition();
+  const [saving, setSaving] = useState(false);
   const scheduleRefresh = useDistractionRefresh();
   // The dialog closes before the write; a failed write must still be visible (an uncaught
   // async-transition error would go to the nearest error boundary instead).
@@ -222,12 +244,36 @@ export function DistractionCaptureDialog({
     setLoading(false);
   }
 
+  // Embedded mode: wait for the write, then tell the host to close; on failure stay put and say why.
+  function commitInline(write: () => Promise<unknown>) {
+    if (saving) return;
+    setSaving(true);
+    setLogError(null);
+    startTransition(async () => {
+      try {
+        await write();
+        setSessionLogBump((n) => n + 1);
+        scheduleRefresh();
+        setOpen(false);
+      } catch {
+        setLogError("Couldn't log that distraction. Try again.");
+        scheduleRefresh();
+      } finally {
+        setSaving(false);
+      }
+    });
+  }
+
   // Tapping an existing trigger logs and closes in one tap (spec §4) — the
   // dialog closes immediately rather than waiting on the round trip;
   // revalidatePath inside the action refreshes whatever's listening.
   function handleTapTrigger(triggerId: string) {
     const loggedTier = tier ?? undefined;
     const loggedSessionId = session?.id ?? null;
+    if (inline) {
+      commitInline(() => logDistraction(triggerId, loggedTier, loggedSessionId));
+      return;
+    }
     setOpen(false);
     startTransition(async () => {
       try {
@@ -249,6 +295,10 @@ export function DistractionCaptureDialog({
     const description = newDescription.trim() || null;
     const savedTier = tier ?? undefined;
     const loggedSessionId = session?.id ?? null;
+    if (inline) {
+      commitInline(() => createTriggerAndLog({ domain, name, description, tier: savedTier, sessionId: loggedSessionId }));
+      return;
+    }
     setOpen(false);
     startTransition(async () => {
       try {
@@ -269,35 +319,13 @@ export function DistractionCaptureDialog({
     return query ? ranked.filter((t) => t.name.toLowerCase().includes(query)) : ranked;
   })();
 
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <div className="flex items-center gap-2">
-        {!hideTrigger && (
-        <DialogTrigger asChild>
-          {/* P3-02: "+1" is the spec's own entry gesture (docs/audits/2026-09-13-three-app-feature-audit.md #35). aria-label carries the meaning for assistive tech, same posture the Lock-In "Lock In" buttons already established for a short visible label. */}
-          <Button type="button" variant="outline" size="sm" aria-label="Log a distraction">
-            +1
-          </Button>
-        </DialogTrigger>
-        )}
-        {/* #52: only rendered during an active Lock-In/Deep Study session —
-            "N this session" has no meaning with no session running. */}
-        {!hideTrigger && session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
-        {logError && (
-          <span
-            role="alert"
-            className={cn("text-xs text-destructive", hideTrigger && "fixed bottom-40 right-4 z-40 max-w-64 rounded-md border bg-background p-2 shadow")}
-          >
-            {logError}
-          </span>
-        )}
-      </div>
-      <DialogContent className={cn("sm:max-w-md", domain === "deen" && step === "triggers" && "sm:max-w-lg")}>
+  const stepsNode = (
+    <>
         {step === "quick" && (
           <>
-            <DialogHeader>
-              <DialogTitle>What happened?</DialogTitle>
-            </DialogHeader>
+            <StepHeader inline={inline}>
+              <StepTitle inline={inline}>What happened?</StepTitle>
+            </StepHeader>
             <div className="flex flex-col gap-3">
               {quickLoading ? (
                 <p className="px-2 py-6 text-center text-sm text-muted-foreground">Loading…</p>
@@ -306,15 +334,17 @@ export function DistractionCaptureDialog({
                   {rankTriggersForCapture(quickTriggers)
                     .slice(0, QUICK_CHIP_COUNT)
                     .map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => handleTapTrigger(t.id)}
-                        className="flex flex-col items-center gap-1.5 rounded-lg border border-border/40 p-3 text-center transition-colors hover:bg-accent/40"
-                      >
-                        <IconChip icon={DOMAIN_ICON[t.domain]} accent={DOMAIN_ACCENT[t.domain]} size="md" />
-                        <span className="line-clamp-2 text-xs font-medium">{t.name}</span>
-                      </button>
+                      <Tooltip key={t.id} content={t.name}>
+                        <button
+                          type="button"
+                          onClick={() => handleTapTrigger(t.id)}
+                          disabled={saving}
+                          className="flex flex-col items-center gap-1.5 rounded-lg border border-border/40 p-3 text-center transition-colors hover:bg-accent/40 disabled:opacity-60"
+                        >
+                          <IconChip icon={DOMAIN_ICON[t.domain]} accent={DOMAIN_ACCENT[t.domain]} size="md" />
+                          <span className="line-clamp-2 text-xs font-medium">{t.name}</span>
+                        </button>
+                      </Tooltip>
                     ))}
                 </div>
               )}
@@ -327,9 +357,9 @@ export function DistractionCaptureDialog({
 
         {step === "domain" && (
           <>
-            <DialogHeader>
-              <DialogTitle>What's the domain?</DialogTitle>
-            </DialogHeader>
+            <StepHeader inline={inline}>
+              <StepTitle inline={inline}>What's the domain?</StepTitle>
+            </StepHeader>
             <div className="grid grid-cols-3 gap-2">
               {CAPTURE_DOMAINS.filter((d) => deenMode || d !== "deen").map((d) => (
                 <button
@@ -348,18 +378,18 @@ export function DistractionCaptureDialog({
 
         {step === "triggers" && domain && (
           <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+            <StepHeader inline={inline}>
+              <StepTitle inline={inline} className="flex items-center gap-2">
                 <IconChip icon={DOMAIN_ICON[domain]} accent={DOMAIN_ACCENT[domain]} size="sm" />
                 {DOMAIN_LABEL[domain]}
-              </DialogTitle>
+              </StepTitle>
               {/* Unobtrusive, not a control (Ayman/Opus Lead, 2026-09-10):
                   inferring the domain silently is right, hiding what was
                   inferred is not — if it's ever wrong he needs to see it. */}
               {session && inferredDomain === domain && (
-                <DialogDescription>Inferred from your {KIND_LABEL[session.kind]} session</DialogDescription>
+                <StepDescription inline={inline}>Inferred from your {KIND_LABEL[session.kind]} session</StepDescription>
               )}
-            </DialogHeader>
+            </StepHeader>
             <div className={cn("grid grid-cols-1 gap-4", domain === "deen" && "sm:grid-cols-[1fr_9rem]")}>
               <div className="flex min-w-0 flex-col gap-3">
                 {!creating && (
@@ -384,16 +414,19 @@ export function DistractionCaptureDialog({
                       {!loading &&
                         filtered.map((t) => (
                           <li key={t.id}>
-                            <button
-                              type="button"
-                              onClick={() => handleTapTrigger(t.id)}
-                              className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent/40"
-                            >
-                              <span className="min-w-0 truncate">{t.name}</span>
-                              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                                {t.totalCount}
-                              </span>
-                            </button>
+                            <Tooltip content={t.name} side="right">
+                              <button
+                                type="button"
+                                onClick={() => handleTapTrigger(t.id)}
+                                disabled={saving}
+                                className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent/40 disabled:opacity-60"
+                              >
+                                <span className="min-w-0 truncate">{t.name}</span>
+                                <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                                  {t.totalCount}
+                                </span>
+                              </button>
+                            </Tooltip>
                           </li>
                         ))}
                     </ul>
@@ -448,6 +481,47 @@ export function DistractionCaptureDialog({
             </div>
           </>
         )}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="flex flex-col gap-3" data-testid="distraction-logger-inline">
+        {logError && (
+          <p role="alert" className="text-xs text-destructive">
+            {logError}
+          </p>
+        )}
+        {stepsNode}
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <div className="flex items-center gap-2">
+        {!hideTrigger && (
+        <DialogTrigger asChild>
+          {/* P3-02: "+1" is the spec's own entry gesture (docs/audits/2026-09-13-three-app-feature-audit.md #35). aria-label carries the meaning for assistive tech, same posture the Lock-In "Lock In" buttons already established for a short visible label. */}
+          <Button type="button" variant="outline" size="sm" aria-label="Log a distraction">
+            +1
+          </Button>
+        </DialogTrigger>
+        )}
+        {/* #52: only rendered during an active Lock-In/Deep Study session —
+            "N this session" has no meaning with no session running. */}
+        {!hideTrigger && session && <SessionDistractionCounter sessionId={session.id} bump={sessionLogBump} />}
+        {logError && (
+          <span
+            role="alert"
+            className={cn("text-xs text-destructive", hideTrigger && "fixed bottom-40 right-4 z-40 max-w-64 rounded-md border bg-background p-2 shadow")}
+          >
+            {logError}
+          </span>
+        )}
+      </div>
+      <DialogContent className={cn("sm:max-w-md", domain === "deen" && step === "triggers" && "sm:max-w-lg")}>
+        {stepsNode}
       </DialogContent>
     </Dialog>
   );

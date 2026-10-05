@@ -23,9 +23,6 @@ import type { CaptureAreaConfig } from "@/lib/capture/areas";
  */
 export function GlobalCaptureSheet({ timezone, deenMode = false, areas }: { timezone: string; deenMode?: boolean; areas?: CaptureAreaConfig }) {
   const [open, setOpen] = useState(false);
-  // IA-P1a: Distraction in the sheet hands off to the app's one logger (the topbar +1 dialog's component, opened controlled here).
-  const [loggerOpen, setLoggerOpen] = useState(false);
-
   function handleClose() {
     setOpen(false);
   }
@@ -66,17 +63,15 @@ export function GlobalCaptureSheet({ timezone, deenMode = false, areas }: { time
               timezone={timezone}
               deenMode={deenMode}
               areas={areas}
-              onOpenDistractionLogger={() => {
-                handleClose();
-                setLoggerOpen(true);
-              }}
+              // The Distraction tab embeds the app's one logger (same component as the topbar +1 popup) under this
+              // sheet's own tab bar, so the user can still switch type. It closes the sheet once a distraction is logged.
+              distractionLogger={<DistractionCaptureDialog inline deenMode={deenMode} onOpenChange={(o) => !o && handleClose()} />}
               onCaptured={handleClose}
               onCancel={handleClose}
             />
           )}
         </DialogContent>
       </Dialog>
-      <DistractionCaptureDialog deenMode={deenMode} open={loggerOpen} onOpenChange={setLoggerOpen} hideTrigger />
     </>
   );
 }

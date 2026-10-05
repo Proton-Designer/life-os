@@ -112,12 +112,15 @@ export function CaptureForm({
   autoFocus = true,
   deenMode = false,
   areas,
-  onOpenDistractionLogger,
+  distractionLogger,
 }: {
   /** The task homes this account has (School / Work / No area) plus its work-tab kinds. Absent = the legacy two + Inbox. */
   areas?: CaptureAreaConfig;
-  /** When given, picking Distraction hands off to the app's ONE distraction logger (the topbar +1 dialog) instead of a text form here. */
-  onOpenDistractionLogger?: () => void;
+  /**
+   * When given, picking the Distraction tab shows THIS (the app's one distraction logger, embedded) in place of the
+   * text form -- under the same tab bar, so the user can still switch to Task / Worry / Note.
+   */
+  distractionLogger?: React.ReactNode;
   /** profiles.deen_mode as a plain boolean; fails closed (off). Off drops the "Deen" distraction domain. */
   deenMode?: boolean;
   timezone: string;
@@ -182,14 +185,14 @@ export function CaptureForm({
       <SegmentedControl
         options={TYPE_OPTIONS.map((o) => ({ ...o, active: o.value === captureType }))}
         onSelect={(value) => {
-          if (value === "distraction" && onOpenDistractionLogger) {
-            onOpenDistractionLogger();
-            return;
-          }
           setCaptureType(value as CaptureType);
         }}
       />
 
+      {captureType === "distraction" && distractionLogger ? (
+        distractionLogger
+      ) : (
+        <>
       <div className="flex items-start gap-2">
         <textarea
           value={text}
@@ -258,7 +261,7 @@ export function CaptureForm({
             ))}
           </div>
         )}
-        {captureType === "distraction" && !onOpenDistractionLogger && (
+        {captureType === "distraction" && (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             Category
             <select
@@ -287,6 +290,8 @@ export function CaptureForm({
           {submitting ? "Saving…" : confirmLabel}
         </Button>
       </div>
+        </>
+      )}
     </div>
   );
 }
