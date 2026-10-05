@@ -30,6 +30,8 @@ import { SessionEntryCard } from "@/components/self-mastery/session/session-entr
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
+import { MorningBriefPanel, MorningBriefProvider, MorningBriefToggle } from "@/components/home/morning-brief";
+import { isMorningBriefCollapsed } from "@/lib/morning-brief/collapsed-core";
 import { Stream } from "@/components/home/stream";
 import { loadFocusTargetMinutes } from "@/lib/focus/target-core";
 import { HOME_DAY_VIEW } from "@/lib/home/day-view";
@@ -150,7 +152,7 @@ export default async function HomePage() {
     inProgressItems,
     dueSession,
     showPlanningNudge,
-    morningBrief,
+    briefState,
     windDown,
     morningRoutineItems,
     layout,
@@ -186,7 +188,11 @@ export default async function HomePage() {
       // lib/ai/morning-brief.ts's own header. Home renders nothing in all
       // of them, matching gatewayChat's own "degrade to nothing broken"
       // posture rather than surfacing an error for an optional feature.
-      getMorningBriefForToday(supabase, userId, now, timezone),
+      // HOME-01b: whether the user minimized THIS brief (brief_date = today's local date); a new day expands.
+      getMorningBriefForToday(supabase, userId, now, timezone).then(async (brief) => ({
+        brief,
+        collapsed: brief ? await isMorningBriefCollapsed(supabase, userId, dateStr) : false,
+      })),
       // P2-05: decoupled from the evening close ritual entirely -- see
       // lib/night-plan/sleep-intent.ts's own header for why.
       // Opt-in features (RS-01): OFF = the query is skipped, not fetched-then-hidden.
@@ -196,6 +202,7 @@ export default async function HomePage() {
       morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
     ]);
+  const morningBrief = briefState.brief;
   const layoutMap = buildLayoutMap(layout);
   // WIDGET-02 exception, stated rather than silently applied: session_entry's
   // POSITION is not user-configurable -- selfMasteryRanksFirst (below) is a
@@ -288,7 +295,17 @@ export default async function HomePage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Home" actions={<WidgetManagerButton domainKey="home" />} />
+      <MorningBriefProvider briefDate={dateStr} hasBrief={!!morningBrief} initialCollapsed={briefState.collapsed}>
+      <PageHeader
+        title="Home"
+        actions={
+          <>
+            {/* the folded morning brief: a small button immediately left of the edit button (HOME-01b) */}
+            <MorningBriefToggle />
+            <WidgetManagerButton domainKey="home" />
+          </>
+        }
+      />
 
       <InProgressBanner items={inProgressItems} />
 
@@ -299,11 +316,7 @@ export default async function HomePage() {
       ) : null}
 
       <LayoutSlot layout={layoutMap} widgetKey="morning_brief">
-        {morningBrief ? (
-          <Panel title="Your morning brief">
-            <p className="whitespace-pre-line text-sm text-muted-foreground">{morningBrief}</p>
-          </Panel>
-        ) : null}
+        {morningBrief ? <MorningBriefPanel text={morningBrief} /> : null}
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">
@@ -428,6 +441,7 @@ export default async function HomePage() {
           {(mcpWidgets) => <McpWidgetsPanel widgets={mcpWidgets} />}
         </Stream>
       </LayoutSlot>
+      </MorningBriefProvider>
     </PageContainer>
   );
 }
