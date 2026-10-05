@@ -167,12 +167,11 @@ export function surahsInSpan(from: number, to: number): SurahInfo[] {
   return out;
 }
 
-/** "Al-Baqara" or "Al-Baqara – Aal-i-Imraan" for a span; at most 2 names are shown ("Al-Baqara +2" beyond that). */
+/** "Al-Baqara" for one surah, "first – last" for a span across several ("Al-Baqara – At-Tawba"). */
 export function surahLabelForSpan(from: number, to: number): string {
   const list = surahsInSpan(from, to);
   if (list.length === 1) return list[0].transliteration;
-  if (list.length === 2) return `${list[0].transliteration} – ${list[1].transliteration}`;
-  return `${list[0].transliteration} +${list.length - 1}`;
+  return `${list[0].transliteration} – ${list[list.length - 1].transliteration}`;
 }
 
 export type PageMapData = { surahs: readonly SurahInfo[]; juzStartPages: readonly number[]; pageFirstSurah: readonly number[] };

@@ -74,11 +74,33 @@ describe("todaysPortion", () => {
   it("day 2 after finishing day 1 (bookmark 11): pages 11-20", () => {
     expect(todaysPortion(plan60({ currentPage: 11 }), day(2))).toEqual({ from: 11, to: 20, pages: 10, done: false });
   });
-  it("behind: the portion absorbs the catch-up (bookmark 11 on day 5 -> 11..50)", () => {
-    const portion = todaysPortion(plan60({ currentPage: 11 }), day(5))!;
-    expect(portion.from).toBe(11);
-    expect(portion.to).toBe(expectedNextPage(plan60(), day(5)) - 1);
-    expect(portion.to).toBe(50);
+  it("behind: today's portion is the EVEN RE-SPREAD (pages left / days left incl. today, rounded up), not the whole gap to the schedule", () => {
+    // Day 25, still on page 11: the original schedule is already at page 252 (a 242-page gap), but finishing on the date only
+    // needs ceil(594 / 36 days left) = 17 pages today -> pages 11-27 (the old code answered 11-252).
+    expect(expectedNextPage(plan60(), day(25)) - 1).toBe(252);
+    const portion = todaysPortion(plan60({ currentPage: 11 }), day(25))!;
+    expect(portion).toMatchObject({ from: 11, to: 27, pages: 17, done: false });
+    // and it agrees with the status line's "needed per day"
+    const s = status(plan60({ currentPage: 11 }), day(25));
+    expect(portion.pages).toBe(Math.ceil(s.neededPerDay));
+  });
+  it("behind, early: bookmark 11 on day 5 -> 11-21 (11 pages), capped by the schedule target when that is smaller", () => {
+    expect(todaysPortion(plan60({ currentPage: 11 }), day(5))).toMatchObject({ from: 11, to: 21, pages: 11 });
+    // on track the schedule target wins (the re-spread is never LARGER than the day's own target)
+    expect(todaysPortion(plan60({ currentPage: 11 }), day(2))).toMatchObject({ from: 11, to: 20, pages: 10 });
+  });
+  it("following the re-spread every day still finishes ON the target date", () => {
+    let bookmark = 11;
+    for (let n = 25; n <= 60; n++) {
+      const p = todaysPortion(plan60({ currentPage: bookmark }), day(n));
+      if (!p) break;
+      bookmark = p.to + 1;
+    }
+    expect(bookmark).toBe(605);
+  });
+  it("the final day asks for everything left; past the date it still does (daysLeft stays 1)", () => {
+    expect(todaysPortion(plan60({ currentPage: 500 }), day(60))).toMatchObject({ from: 500, to: 604, pages: 105 });
+    expect(todaysPortion(plan60({ currentPage: 500 }), day(70))).toMatchObject({ to: 604 });
   });
   it("ahead: still at least one page while unfinished, and `done` says today's target is already met", () => {
     const portion = todaysPortion(plan60({ currentPage: 100 }), day(3))!;

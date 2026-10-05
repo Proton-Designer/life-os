@@ -7,13 +7,13 @@ import type { QuranOverview } from "@/lib/quran/plan-core";
  * gate on Deen Mode BEFORE loading the overview (OFF hides everything, data kept); a null overview means "show nothing".
  */
 
-export type HomeNowItem = { title: string; from: number; to: number; pages: number; surahLabel: string; juz: number; done: boolean };
+export type HomeNowItem = { title: string; from: number; to: number; pages: number; surahLabel: string; juz: number; /** The juz range of the portion ("Juz 1–10"). Always set by homeNowItem; optional so older fixtures still type-check. */ juzFrom?: number; juzTo?: number; done: boolean };
 
 /** Home -> Now: "Quran · pages a-b" while there is a portion to read (also when today's is already done, so the row can show it ticked). */
 export function homeNowItem(o: QuranOverview | null): HomeNowItem | null {
   if (!o?.plan || o.plan.status !== "active" || !o.portion) return null;
-  const { from, to, pages, done, surahLabel, juz } = o.portion;
-  return { title: from === to ? `Quran · page ${from}` : `Quran · pages ${from}–${to}`, from, to, pages, surahLabel, juz, done };
+  const { from, to, pages, done, surahLabel, juz, juzFrom, juzTo } = o.portion;
+  return { title: from === to ? `Quran · page ${from}` : `Quran · pages ${from}–${to}`, from, to, pages, surahLabel, juz, juzFrom, juzTo, done };
 }
 
 export type SectorRow = { label: string; percent: number; kind: "on_track" | "behind" | "ahead" | "paused" | "completed"; onTrack: boolean };

@@ -102,17 +102,27 @@ export function expectedNextPage(plan: QuranPlanParams, localDate: string): numb
   return Math.min(FINISH_PAGE, plan.planSetPage + cumulativeTargetPages(plan, localDate));
 }
 
+/** Active planned days left INCLUDING today (>= 1 while unfinished; once past the target date it is 1: everything left is due today). */
+export function daysLeftIncludingToday(plan: QuranPlanParams, localDate: string): number {
+  return Math.max(1, planDays(plan) - activeDaysThrough(plan, addDaysToDateString(localDate, -1)));
+}
+
 export type Portion = { from: number; to: number; pages: number; /** The bookmark is already at/after today's target. */ done: boolean };
 
 /**
- * Today's portion: from the bookmark to today's target (catch-up is built in), at least one page while unfinished.
- * null when finished or paused. `done` = today's target is already met (the UI shows it as done, not as "1 more page").
+ * Today's portion: from the bookmark, at least one page while unfinished; null when finished or paused.
+ *  - On track / ahead: up to today's schedule target (the day's cumulative target).
+ *  - BEHIND: NOT the whole gap to the schedule (that would be hundreds of pages): the remaining pages spread evenly over
+ *    the days left including today, ceil(pagesLeft / daysLeft), which is exactly the "needed per day" the status shows and
+ *    still lands on the finish date. So the portion is min(schedule target, bookmark + ceil(pagesLeft / daysLeft) - 1).
+ * `done` = today's schedule target is already met (the UI shows it as done, not as "1 more page").
  */
 export function todaysPortion(plan: QuranPlanParams, localDate: string): Portion | null {
   if (plan.status !== "active" || isFinished(plan.currentPage)) return null;
-  const target = expectedNextPage(plan, localDate) - 1; // last page due by the end of today
+  const target = expectedNextPage(plan, localDate) - 1; // last page due by the end of today on the original schedule
   const from = plan.currentPage;
-  const to = Math.min(TOTAL_PAGES, Math.max(from, target));
+  const spread = from + Math.ceil(pagesLeft(from) / daysLeftIncludingToday(plan, localDate)) - 1; // the even re-spread
+  const to = Math.min(TOTAL_PAGES, Math.max(from, Math.min(target, spread)));
   return { from, to, pages: to - from + 1, done: plan.currentPage > target };
 }
 
@@ -170,7 +180,7 @@ export function planStatus(plan: QuranPlanParams, localDate: string, recent: Rec
     return { ...base, kind: "completed", pages: 0, days: 0, daysLeft: 0, neededPerDay: 0, projectedFinish: null, suggestMoveDate: false, suggestedDate: null };
   }
   const yesterday = addDaysToDateString(localDate, -1);
-  const daysLeft = Math.max(1, planDays(plan) - activeDaysThrough(plan, yesterday));
+  const daysLeft = daysLeftIncludingToday(plan, localDate);
   const neededPerDay = left / daysLeft;
   if (plan.status === "paused") {
     return { ...base, kind: "paused", pages: 0, days: 0, daysLeft, neededPerDay, projectedFinish: null, suggestMoveDate: false, suggestedDate: null };

@@ -49,7 +49,13 @@ describe("page map invariants (verified against Tanzil's Madani metadata)", () =
     expect(surahAtPage(50).number).toBe(3);
     expect(surahsInSpan(50, 50).map((s) => s.number)).toEqual([3]);
     expect(surahLabelForSpan(2, 5)).toBe("Al-Baqara");
-    expect(surahLabelForSpan(1, 60)).toMatch(/^Al-Faatiha \+\d+$/);
+    // a span across several surahs reads "first – last", never "+N"
+    const across = surahsInSpan(2, 187);
+    expect(across[0].number).toBe(2);
+    expect(across[across.length - 1].number).toBe(9);
+    expect(surahLabelForSpan(2, 187)).toBe("Al-Baqara – At-Tawba");
+    expect(surahLabelForSpan(1, 60)).toBe(`${SURAHS[0].transliteration} – ${SURAHS[2].transliteration}`);
+    expect(surahLabelForSpan(1, 60)).not.toMatch(/\+/);
   });
   it("positive control: verifyPageMap catches corrupted tables", () => {
     const good = { surahs: SURAHS, juzStartPages: JUZ_START_PAGES, pageFirstSurah: PAGE_FIRST_SURAH };

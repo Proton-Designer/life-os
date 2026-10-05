@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysToDateString, getWeekStartDate } from "@/lib/date-utils";
+import { ramadanWindow } from "@/lib/quran/ramadan";
 import { JUZ_START_PAGES, TOTAL_PAGES, juzForPage, surahLabelForSpan } from "@/lib/quran/page-map";
 import {
   DEFAULT_PRESET,
@@ -116,7 +117,7 @@ export type QuranOverview = {
     pacePagesPerDay: number;
   } | null;
   /** Today's portion with its labels (null when paused / finished / no plan). */
-  portion: (Portion & { surahLabel: string; juz: number }) | null;
+  portion: (Portion & { surahLabel: string; /** The juz of the first page (kept for older callers). */ juz: number; juzFrom: number; juzTo: number }) | null;
   status: PlanStatus | null;
   /** "5 of the last 7 days": distinct reading days, no streaks. */
   readingDaysLast7: number;
@@ -160,7 +161,7 @@ export async function getQuranOverviewCore(supabase: SupabaseClient, userId: str
   const recent = recentPace(sessions, localDate, plan.planSetOn, pace);
   const status = planStatus(plan, localDate, recent);
   const rawPortion = todaysPortion(plan, localDate);
-  const portion = rawPortion ? { ...rawPortion, surahLabel: surahLabelForSpan(rawPortion.from, rawPortion.to), juz: juzForPage(rawPortion.from) } : null;
+  const portion = rawPortion ? { ...rawPortion, surahLabel: surahLabelForSpan(rawPortion.from, rawPortion.to), juz: juzForPage(rawPortion.from), juzFrom: juzForPage(rawPortion.from), juzTo: juzForPage(rawPortion.to) } : null;
 
   const active = plan.status === "active";
   const plannedToDate = active
@@ -211,7 +212,9 @@ export type StartPlanInput = { preset?: QuranPlanPreset; startFrom?: "beginning"
 export async function startQuranPlanCore(supabase: SupabaseClient, userId: string, localDate: string, input: StartPlanInput = {}): Promise<CoreResult<{ planId: string; khatmNumber: number }>> {
   if (await getOpenPlanCore(supabase, userId)) return { ok: false, message: "You already have a Quran plan. Finish or edit it first." };
   const startPage = input.startPage ?? 1;
-  const setup = planSetupFor(input.preset ?? DEFAULT_PRESET, localDate, startPage);
+  // The Ramadan preset finishes at the end of Ramadan; the server knows it (Hijri calendar), the client doesn't have to.
+  const preset = input.preset?.kind === "ramadan" && !input.preset.ramadanEnd ? { kind: "ramadan" as const, ramadanEnd: ramadanWindow(localDate).ramadanEnd } : (input.preset ?? DEFAULT_PRESET);
+  const setup = planSetupFor(preset, localDate, startPage);
   if (isPlanSetupError(setup)) return { ok: false, message: setup.error };
   const latest = await getLatestPlanCore(supabase, userId);
   const khatmNumber = (latest?.khatmNumber ?? 0) + 1;

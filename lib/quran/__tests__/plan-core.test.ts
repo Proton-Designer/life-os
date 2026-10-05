@@ -219,6 +219,12 @@ describe("getQuranOverviewCore", () => {
     expect(derivedWeeklyQuranTarget(o)).toBe(70);
     expect(o.juz).toEqual({ current: 1, completed: 0, completedToday: [] });
   });
+  it("behind: the overview's portion is the even re-spread with its juz range (11-27 -> Juz 1-2)", async () => {
+    const f = fakeSupabase({ quran_plans: [planRow({ current_page: 11 })] });
+    const o = await getQuranOverviewCore(f.client, U, "2026-10-28"); // day 25
+    expect(o.portion).toMatchObject({ from: 11, to: 27, pages: 17, juz: 1, juzFrom: 1, juzTo: 2, surahLabel: "Al-Baqara" });
+    expect(o.status).toMatchObject({ kind: "behind" });
+  });
   it("juz.completedToday: the juz whose last page today's logs crossed (server-driven milestone note)", async () => {
     // juz 1 ends on page 21, juz 2 on page 41
     const f = fakeSupabase({
