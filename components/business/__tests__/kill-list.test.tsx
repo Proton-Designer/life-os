@@ -122,3 +122,41 @@ describe("KillList", () => {
     expect(screen.getAllByRole("button", { name: "Mark incomplete" })).toHaveLength(1);
   });
 });
+
+describe("KillList: two slots plus a dimmed optional third", () => {
+  const OPTIONAL_EMPTY: React.ComponentProps<typeof KillList>["slots"] = [
+    { id: "s1", text: "First", completed: false },
+    { id: "s2", text: "Second", completed: false },
+    { id: null, text: "", completed: false },
+  ];
+
+  it("the empty third slot is a dimmed 'Optional' placeholder, not an open editor; the two required ones are real rows", () => {
+    render(<KillList date="2026-10-05" slots={OPTIONAL_EMPTY} />);
+    expect(screen.getByText("First")).toBeInTheDocument();
+    expect(screen.getByText("Second")).toBeInTheDocument();
+    const optional = screen.getByTestId("kill-list-optional");
+    expect(optional).toHaveClass("opacity-50");
+    expect(optional).toHaveTextContent(/optional/i);
+    expect(screen.queryByPlaceholderText(/priority 3/i)).not.toBeInTheDocument();
+  });
+
+  it("an empty REQUIRED slot still opens straight into its editor (positive control: the same shape as the optional one, but it edits)", () => {
+    render(<KillList date="2026-10-05" slots={[{ id: "s1", text: "First", completed: false }, { id: null, text: "", completed: false }, { id: null, text: "", completed: false }]} />);
+    expect(screen.getByPlaceholderText("Priority 2")).toBeInTheDocument();
+    expect(screen.getAllByTestId("kill-list-optional")).toHaveLength(1);
+  });
+
+  it("clicking the placeholder opens the editor for the third item", async () => {
+    const user = userEvent.setup();
+    render(<KillList date="2026-10-05" slots={OPTIONAL_EMPTY} />);
+    await user.click(screen.getByTestId("kill-list-optional").querySelector("button")!);
+    expect(await screen.findByPlaceholderText(/priority 3 \(optional\)/i)).toBeInTheDocument();
+  });
+
+  it("a filled third slot renders as a normal row labelled Optional", () => {
+    render(<KillList date="2026-10-05" slots={[OPTIONAL_EMPTY[0], OPTIONAL_EMPTY[1], { id: "s3", text: "Stretch task", completed: false }]} />);
+    expect(screen.getByText("Stretch task")).toBeInTheDocument();
+    expect(screen.queryByTestId("kill-list-optional")).not.toBeInTheDocument();
+    expect(screen.getByText("Optional")).toBeInTheDocument();
+  });
+});

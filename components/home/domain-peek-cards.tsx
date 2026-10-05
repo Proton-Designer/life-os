@@ -105,7 +105,7 @@ function BusinessBody({ snapshot }: { snapshot: DomainSnapshots["business"] }) {
   return (
     <>
       <div className="text-muted-foreground">
-        Kill list: <span className="font-medium text-foreground">{snapshot.killListDone}/{snapshot.killListTotal || 3}</span>
+        Kill list: <span className="font-medium text-foreground">{snapshot.killListDone}/{snapshot.killListTotal || 2}</span>
       </div>
       <div className="text-xs text-muted-foreground">This week&apos;s S:N: {snapshot.weeklyRatioDisplay}</div>
     </>

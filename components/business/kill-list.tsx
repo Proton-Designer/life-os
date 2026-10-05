@@ -6,6 +6,7 @@ import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { KILL_LIST_REQUIRED_SLOTS } from "@/lib/business/kill-list-target";
 
 export type KillListSlotData = { id: string | null; text: string; completed: boolean };
 
@@ -20,7 +21,7 @@ export function KillList({
     <div className="flex flex-col gap-3">
       <ul className="flex flex-col gap-2">
         {slots.map((slot, i) => (
-          <KillListSlot key={i} date={date} position={i as 0 | 1 | 2} slot={slot} />
+          <KillListSlot key={i} date={date} position={i as 0 | 1 | 2} slot={slot} optional={i >= KILL_LIST_REQUIRED_SLOTS} />
         ))}
       </ul>
     </div>
@@ -34,13 +35,18 @@ function KillListSlot({
   date,
   position,
   slot,
+  optional,
 }: {
   date: string;
   position: 0 | 1 | 2;
   slot: KillListSlotData;
+  /** The third slot: dimmed and labelled "Optional" while empty, and left collapsed until the person opens it. */
+  optional: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
-  const [editing, setEditing] = useState(!slot.text);
+  // Required slots open straight into the editor when empty; the optional one stays a quiet placeholder until asked for.
+  const [editing, setEditing] = useState(!slot.text && !optional);
+  const [opened, setOpened] = useState(false);
   const [text, setText] = useState(slot.text);
   // PERF-2: per-slot optimistic state with ordered absolute writes; nothing is
   // disabled while one saves and one deferred refresh re-syncs Business + Home.
@@ -61,13 +67,31 @@ function KillListSlot({
     });
   }
 
+  if (optional && !slot.text && !editing && !opened) {
+    return (
+      <li className="opacity-50 transition-opacity hover:opacity-100 focus-within:opacity-100" data-testid="kill-list-optional">
+        <button
+          type="button"
+          onClick={() => {
+            setOpened(true);
+            setEditing(true);
+          }}
+          className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-dashed border-border/60 px-3 py-2 text-left text-sm text-muted-foreground"
+        >
+          <span aria-hidden className="size-5 shrink-0 rounded-full border border-dashed border-border" />
+          <span className="min-w-0 flex-1 truncate">Optional: a third, only if the day has room</span>
+        </button>
+      </li>
+    );
+  }
+
   if (editing) {
     return (
       <li className="flex gap-2">
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={`Priority ${position + 1}`}
+          placeholder={optional ? "Priority 3 (optional)" : `Priority ${position + 1}`}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
@@ -115,6 +139,7 @@ function KillListSlot({
         <span className={cn("min-w-0 flex-1 truncate text-sm", optimisticCompleted && "text-muted-foreground line-through")}>
           {slot.text}
         </span>
+        {optional && !optimisticCompleted && <span className="shrink-0 text-xs text-muted-foreground">Optional</span>}
         {optimisticCompleted && <Badge variant="positive">Done</Badge>}
         {completion.error && (
           <span role="alert" className="shrink-0 text-xs text-destructive">

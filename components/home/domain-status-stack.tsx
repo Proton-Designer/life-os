@@ -52,7 +52,7 @@ function metricFor(domain: keyof DomainSnapshots, s: DomainSnapshots): string {
       return s.deen.qadaBacklogCount > 0 ? `${base} · ${s.deen.qadaBacklogCount} qada` : base;
     }
     case "business":
-      return `Kill list ${s.business.killListDone}/${s.business.killListTotal || 3}`;
+      return `Kill list ${s.business.killListDone}/${s.business.killListTotal || 2}`;
     case "fitness":
       return `${Math.round(s.fitness.weeklyConsistency * 100)}% this week`;
     case "school":
