@@ -10,6 +10,7 @@ import {
   setTravelingModeCore,
   reflectionEntryLogCore,
   createDeenHabitCore,
+  setDeenHabitFrequencyCore,
   updateDeenHabitCore,
   archiveDeenHabitCore,
   setDeenHabitStageOverrideCore,
@@ -32,7 +33,8 @@ import {
   setLaunchStepDoneCore,
 } from "@/lib/morning-routine/actions-core";
 import { createGoal, completeGoal, dropGoal, addMilestone, completeMilestone, reopenMilestone } from "@/lib/goals/actions-core";
-import { createIdentityHabitCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
+import { FrequencyError, normalizeFrequency, type HabitFrequency } from "@/lib/habits/frequency";
+import { createIdentityHabitCore, setIdentityHabitFrequencyCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
 import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
@@ -257,6 +259,23 @@ function optionalNullableString(patch: WritePatch, field: string): string | null
   if (value === undefined) return undefined;
   if (value !== null && typeof value !== "string") throw new ToolInputError(`patch.${field} must be a string or null. Got: ${JSON.stringify(value)}.`);
   return value;
+}
+
+/** HABIT-FREQ: a habit's cadence from the patch, validated by the SAME normalizer every write path uses. A bad value is the caller's own input error (its message is validation-rule text only), so it reaches the AI client. */
+function optionalFrequency(patch: WritePatch): HabitFrequency | undefined {
+  if (patch.frequency === undefined) return undefined;
+  try {
+    return normalizeFrequency(patch.frequency);
+  } catch (err) {
+    if (err instanceof FrequencyError) throw new ToolInputError(`patch.frequency is invalid: ${err.message}`);
+    throw err;
+  }
+}
+
+function requireFrequency(patch: WritePatch): HabitFrequency {
+  const f = optionalFrequency(patch);
+  if (f === undefined) throw new ToolInputError("patch.frequency is required, e.g. { kind: \"per_week\", count: 3 }.");
+  return f;
 }
 
 function optionalNullableNumber(patch: WritePatch, field: string): number | null | undefined {
@@ -682,14 +701,14 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           create: {
             action: "create",
-            description: "Create a new Deen habit. committed_date is always today (server-computed) -- use habit.set_committed_date to correct it afterward.",
-            patchShape: "{ name: string, anchor_cue?: string }",
+            description: "Create a new Deen habit. committed_date is always today (server-computed) -- use habit.set_committed_date to correct it afterward. frequency is optional and defaults to every day; use it for fixed weekdays, N times a week or month, or every N days.",
+            patchShape: "{ name: string, anchor_cue?: string, frequency?: { kind: 'daily' } | { kind: 'weekdays', days: number[] /* 0=Sun..6=Sat */ } | { kind: 'per_week', count: 1-6 } | { kind: 'per_month', count: 1-28 } | { kind: 'every_n_days', interval: 2-365 } }",
             idempotent: false,
             idempotencyVerification: "createDeenHabitCore does a plain INSERT -- a retry creates a second habit with the same name, not an upsert (there is no natural conflict key for a habit's identity).",
             handler: async (ctx, patch) => {
               const name = requireString(patch, "name");
               const anchorCue = optionalString(patch, "anchor_cue");
-              const result = await createDeenHabitCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, name, anchorCue);
+              const result = await createDeenHabitCore(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, name, anchorCue, optionalFrequency(patch));
               return {
                 result: {
                   content: [{ type: "text", text: JSON.stringify(result) }],
@@ -734,6 +753,25 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { id, updated_at: ctx.now.toISOString(), archived: true },
                 },
                 summary: `archived deen habit ${id}`,
+              };
+            },
+          },
+          set_frequency: {
+            action: "set_frequency",
+            description: "Change how often a Deen habit is meant to happen (every day, certain weekdays, N times a week or month, or every N days). Logged history is kept and simply re-read under the new rule. Requires the top-level id.",
+            patchShape: "{ frequency?: { kind: 'daily' } | { kind: 'weekdays', days: number[] /* 0=Sun..6=Sat */ } | { kind: 'per_week', count: 1-6 } | { kind: 'per_month', count: 1-28 } | { kind: 'every_n_days', interval: 2-365 } }".replace("frequency?:", "frequency:"),
+            idempotent: true,
+            idempotencyVerification: "setDeenHabitFrequencyCore sets the frequency columns to fixed values taken verbatim from the (validated) patch -- a retry sets the identical row state.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const frequency = requireFrequency(patch);
+              await setDeenHabitFrequencyCore(ctx.userClient, ctx.userId, id, frequency);
+              return {
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ id, frequency }) }],
+                  structuredContent: { id, updated_at: ctx.now.toISOString(), frequency },
+                },
+                summary: `set deen habit ${id} frequency`,
               };
             },
           },
@@ -3040,18 +3078,34 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           create: {
             action: "create",
             description: "Create an identity habit, auto-assigned the lowest free rank (an internal slot number, up to MAX_ACTIVE_HABITS -- not a user-facing priority order). The ceiling is enforced by the database's own partial unique index, not this action's pre-check.",
-            patchShape: "{ identity_statement: string }",
+            patchShape: "{ identity_statement: string, frequency?: { kind: 'daily' } | { kind: 'weekdays', days: number[] /* 0=Sun..6=Sat */ } | { kind: 'per_week', count: 1-6 } | { kind: 'per_month', count: 1-28 } | { kind: 'every_n_days', interval: 2-365 } }",
             idempotent: false,
             idempotencyVerification: "createIdentityHabitCore does a plain INSERT into the next free rank -- a retry finds a DIFFERENT free rank and creates a SECOND habit, not a no-op.",
             handler: async (ctx, patch) => {
               const identityStatement = requireString(patch, "identity_statement");
-              const result = await createIdentityHabitCore(ctx.userClient, ctx.userId, identityStatement);
+              const result = await createIdentityHabitCore(ctx.userClient, ctx.userId, identityStatement, optionalFrequency(patch));
               return {
                 result: {
                   content: [{ type: "text", text: JSON.stringify(result) }],
                   structuredContent: { updated_at: ctx.now.toISOString(), ...result },
                 },
                 summary: `created identity habit "${identityStatement}"`,
+              };
+            },
+          },
+          set_frequency: {
+            action: "set_frequency",
+            description: "Change how often an identity habit is meant to happen (every day, certain weekdays, N times a week or month, or every N days). Existing votes are kept; the score and streak are re-read under the new rule. A bogus or another tenant's id throws not-found. Requires the top-level id.",
+            patchShape: "{ frequency?: { kind: 'daily' } | { kind: 'weekdays', days: number[] /* 0=Sun..6=Sat */ } | { kind: 'per_week', count: 1-6 } | { kind: 'per_month', count: 1-28 } | { kind: 'every_n_days', interval: 2-365 } }".replace("frequency?:", "frequency:"),
+            idempotent: true,
+            idempotencyVerification: "setIdentityHabitFrequencyCore sets the frequency columns to fixed values taken verbatim from the (validated) patch -- a retry sets the identical row state.",
+            handler: async (ctx, patch) => {
+              const id = requireId(ctx);
+              const frequency = requireFrequency(patch);
+              await setIdentityHabitFrequencyCore(ctx.userClient, ctx.userId, id, frequency);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ id, frequency }) }], structuredContent: { id, updated_at: ctx.now.toISOString(), frequency } },
+                summary: `set identity habit ${id} frequency`,
               };
             },
           },

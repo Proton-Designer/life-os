@@ -55,7 +55,7 @@ describe("write-registry dispatch shape", () => {
     expect(listWriteActions("deen", "quran_plan")).toEqual(["log_reading"]); // QURAN-01
     expect(listWriteActions("deen", "profile").sort()).toEqual(["adjust_qada", "set_traveling_mode"]);
     expect(listWriteActions("deen", "reflection_entry")).toEqual(["log"]);
-    expect(listWriteActions("deen", "habit").sort()).toEqual(["archive", "create", "set_committed_date", "set_stage_override", "update"]);
+    expect(listWriteActions("deen", "habit").sort()).toEqual(["archive", "create", "set_committed_date", "set_frequency", "set_stage_override", "update"]);
     expect(listWriteActions("deen", "habit_log").sort()).toEqual(["set_status", "toggle"]);
     expect(listWriteActions("deen", "weekly_focus")).toEqual(["set"]);
     expect(listWriteActions("deen", "weekly_goal")).toEqual(["save"]);
@@ -398,6 +398,33 @@ describe("deen.habit handlers", () => {
     const client = makeTableClient({ deen_habits: makeChain({ data: [{ id: "habit-1" }], error: null }) });
     const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "habit-1" }, { stage: null });
     expect(outcome.summary).toMatch(/automatic/);
+  });
+
+  it("set_frequency stores the validated cadence columns and REJECTS an invalid one with a clear input error", async () => {
+    const action = getWriteAction("deen", "habit", "set_frequency")!;
+    const chain = makeChain({ data: [{ id: "habit-1" }], error: null });
+    const client = makeTableClient({ deen_habits: chain });
+    const outcome = await action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "habit-1" }, { frequency: { kind: "per_week", count: 3 } });
+    expect(chain.update).toHaveBeenCalledWith({ frequency_type: "per_week", frequency_count: 3, frequency_days: null, frequency_interval: null });
+    expect(outcome.summary).toMatch(/frequency/);
+    // invalid: 7 a week is just daily; a caller error, surfaced verbatim (ToolInputError), never written
+    chain.update.mockClear();
+    await expect(
+      action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "habit-1" }, { frequency: { kind: "per_week", count: 7 } }),
+    ).rejects.toThrow(/patch\.frequency is invalid.*Times per week/i);
+    expect(chain.update).not.toHaveBeenCalled();
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now, id: "habit-1" }, {})).rejects.toThrow(/patch\.frequency is required/i);
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "UTC", now }, { frequency: { kind: "daily" } })).rejects.toThrow(/requires the top-level.*id/i);
+  });
+
+  it("create accepts an optional frequency (written with the row) and defaults to daily without one", async () => {
+    const action = getWriteAction("deen", "habit", "create")!;
+    const withFreq = makeChain({ data: { id: "h-new" }, error: null });
+    await action.handler({ userClient: makeTableClient({ deen_habits: withFreq }), userId: "user-1", timezone: "UTC", now }, { name: "Read", frequency: { kind: "weekdays", days: [5, 1, 3] } });
+    expect(withFreq.insert).toHaveBeenCalledWith(expect.objectContaining({ frequency_type: "weekdays", frequency_days: [1, 3, 5] }));
+    const noFreq = makeChain({ data: { id: "h-new" }, error: null });
+    await action.handler({ userClient: makeTableClient({ deen_habits: noFreq }), userId: "user-1", timezone: "UTC", now }, { name: "Read" });
+    expect(noFreq.insert).toHaveBeenCalledWith(expect.objectContaining({ frequency_type: "daily", frequency_days: null }));
   });
 
   it("set_committed_date REJECTS a date after today", async () => {
@@ -853,6 +880,27 @@ describe("habits.identity_habit handlers", () => {
     const block = outcome.result.content[0];
     if (block.type !== "text") throw new Error("expected text");
     expect(JSON.parse(block.text)).toMatchObject({ id: "h-1" });
+  });
+
+  it("set_frequency updates active/paused habits only, validates, and reports not-found for a missing row", async () => {
+    const action = getWriteAction("habits", "identity_habit", "set_frequency")!;
+    const chainWith = (rows: unknown[]) => {
+      const chain: Record<string, ReturnType<typeof vi.fn> | unknown> = {};
+      for (const m of ["update", "eq", "in", "select"]) chain[m] = vi.fn(() => chain);
+      chain.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
+      return chain as Record<"update" | "eq" | "in" | "select", ReturnType<typeof vi.fn>>;
+    };
+    const chain = chainWith([{ id: "h-1" }]);
+    const outcome = await action.handler({ userClient: makeTableClient({ identity_habits: chain as unknown as ReturnType<typeof makeChain> }), userId: "user-1", timezone: "UTC", now, id: "h-1" }, { frequency: { kind: "every_n_days", interval: 14 } });
+    expect(chain.update).toHaveBeenCalledWith({ frequency_type: "every_n_days", frequency_count: null, frequency_days: null, frequency_interval: 14 });
+    expect(chain.in).toHaveBeenCalledWith("status", ["active", "paused"]);
+    expect(outcome.summary).toMatch(/h-1/);
+    await expect(
+      action.handler({ userClient: makeTableClient({ identity_habits: chainWith([]) as unknown as ReturnType<typeof makeChain> }), userId: "user-1", timezone: "UTC", now, id: "gone" }, { frequency: { kind: "daily" } }),
+    ).rejects.toThrow(/No identity habit found/);
+    await expect(
+      action.handler({ userClient: makeTableClient({ identity_habits: chainWith([]) as unknown as ReturnType<typeof makeChain> }), userId: "user-1", timezone: "UTC", now, id: "h-1" }, { frequency: { kind: "per_month", count: 40 } }),
+    ).rejects.toThrow(/patch\.frequency is invalid/);
   });
 
   it("archive REQUIRES the top-level id", async () => {

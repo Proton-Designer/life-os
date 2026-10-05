@@ -445,3 +445,7 @@ worth adding is a real judgment call, not done here.
 <!--
 [ ] Under 200 lines   [ ] "Do not" lines filled in
 -->
+- **Parity test missed `delayItem` at deploy (2026-10-05):** Home's Delay (`app/(app)/actions.ts#delayItem`) shipped without a `lib/mcp/parity-manifest.ts` decision because the author ran only app/home/school suites, not `lib/mcp`. Fixed in the HABIT-FREQ commit. Lesson: after adding ANY `"use server"` export, run `npx vitest run lib/mcp` (the parity test is the only thing that sees it).
+- **`identity_habits` / `habit_votes` are absent from the data export (`app/(app)/settings/export/route.ts`) and have no MCP read entity** (found 2026-10-05 while wiring HABIT-FREQ; pre-existing, not fixed there). Also `getActiveHabitsWithVotes` reads all votes with no pagination, so past ~1000 votes (7 daily habits x ~140 days) PostgREST's row cap would silently truncate the decay score.
+- **Pre-existing preflight failures seen 2026-10-05 (none touch habits):** `check-enum-drift` (`class_assessments.type` widened by 257, TS union not), `check-fk-tenancy` (`agent_connect_codes.minted_token_id`, `mcp_webhook_deliveries.webhook_id` single-column FKs), `check-scheduler-cache-drift` (psql errors on a non-UUID `reviews.card_id` "41"), and an unlisted skip in `lib/ai/__tests__/dev-provider-injection.test.ts`.
+

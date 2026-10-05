@@ -93,6 +93,7 @@ export type ParityDecision =
 /** Key: `<repo-relative path>#<export name>`. Keep sorted by file, then source order. */
 export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Home / root ─────────────────────────────────────────────────────────
+  "app/(app)/actions.ts#delayItem": { excluded: "ui_scaffold: Home's one-tap Delay is a convenience over moving a task's due_date, which school.task.edit / work.task.edit already expose; a kill-list item has no MCP move (the kill list is a per-day 3-slot list)" },
   "app/(app)/actions.ts#markNotificationReadForNow": { excluded: "ui_scaffold: per-day notification dismissal state; no user-authored data" },
   "app/(app)/actions.ts#signOut": { excluded: "auth: ends the browser session" },
   "app/(app)/actions.ts#refreshHome": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by Home tap controls after a burst of toggleItem calls" },
@@ -162,6 +163,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/deen/actions.ts#setWeeklyFocus": { mcp: "deen.weekly_focus.set" },
   "app/(app)/deen/actions.ts#updateDeenHabit": { mcp: "deen.habit.update" },
   "app/(app)/deen/actions.ts#archiveDeenHabit": { mcp: "deen.habit.archive", note: "soft archive, so allowed" },
+  "app/(app)/deen/actions.ts#setDeenHabitFrequency": { mcp: "deen.habit.set_frequency" },
   "app/(app)/deen/actions.ts#setDeenHabitStageOverride": { mcp: "deen.habit.set_stage_override" },
   "app/(app)/deen/actions.ts#setDeenHabitCommittedDate": { mcp: "deen.habit.set_committed_date" },
   "app/(app)/deen/actions.ts#setDeenHabitLogStatus": { mcp: "deen.habit_log.set_status" },
@@ -221,6 +223,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/deen/actions.ts#refreshFaithPracticeViews": { read_only: true, note: "HABITS-01: data-free cache revalidation scheduled by the Home / weekly-reset Faith-practice tick after a burst of taps" },
   "app/(app)/habits/actions.ts#refreshHabitViews": { read_only: true, note: "PERF-2: data-free cache revalidation scheduled by the habit vote control after a burst of taps" },
   "app/(app)/habits/actions.ts#createIdentityHabitAction": { mcp: "habits.identity_habit.create" },
+  "app/(app)/habits/actions.ts#setIdentityHabitFrequencyAction": { mcp: "habits.identity_habit.set_frequency" },
   "app/(app)/habits/actions.ts#archiveIdentityHabitAction": { mcp: "habits.identity_habit.archive" },
   "app/(app)/habits/actions.ts#killIdentityHabitAction": { pending: "P4-07", note: "P2-11 escalation-aware kill (habits.identity_habit.archive covers the underlying write; the escalation gate itself is a UI/product concern, not a separate MCP capability)" },
   "app/(app)/habits/actions.ts#pauseIdentityHabitAction": { pending: "P4-cov-P3-07" },

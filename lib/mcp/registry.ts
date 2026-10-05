@@ -287,13 +287,13 @@ export const REGISTRY: Record<string, DomainDef> = {
       habit: {
         entity: "habit",
         table: "deen_habits",
-        description: "A committed worship habit being built (name, cue, stage).",
+        description: "A committed worship habit being built (name, cue, stage, and how often it is meant to happen: frequency_type + the matching frequency_count / frequency_days / frequency_interval).",
         idColumn: "id",
         updatedAtColumn: "updated_at",
         updatedAtVerification:
           "updateDeenHabit, archiveDeenHabit, setDeenHabitStageOverride, and setDeenHabitCommittedDate (all app/(app)/deen/actions.ts) each UPDATE an existing row post-creation -- created_at would go stale on the very first edit; migration 133 adds a real trigger-backed updated_at.",
         summaryColumns: ["name", "committed_date", "archived"],
-        fullColumns: ["name", "committed_date", "archived", "anchor_cue", "commitment_note", "stage_override", "created_at"],
+        fullColumns: ["name", "committed_date", "archived", "anchor_cue", "commitment_note", "stage_override", "created_at", "frequency_type", "frequency_count", "frequency_days", "frequency_interval"],
         filterableColumns: ["archived"],
         rangeFilterableColumns: ["committed_date"],
         orderBy: [

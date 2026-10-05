@@ -42,6 +42,7 @@ export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
   "deen.habit.archive",
   "deen.habit.set_stage_override",
   "deen.habit.set_committed_date",
+  "deen.habit.set_frequency",
   "deen.habit_log.toggle",
   "deen.habit_log.set_status",
   "deen.weekly_focus.set",
@@ -51,6 +52,7 @@ export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
   "goals.goal.set_status",
   "goals.milestone.set_done",
   "habits.identity_habit.archive",
+  "habits.identity_habit.set_frequency",
   "habits.vote.cast",
   "habits.vote.retract",
   // P3-01

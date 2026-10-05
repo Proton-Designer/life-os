@@ -52,7 +52,7 @@ describe("listCapabilitiesTool — P4-03 account map and write detail", () => {
     // P4-06: deen.habit gained 5 write actions — create has no top-level id
     // (a new row), the other 4 target an existing habit by id.
     const habitActions = deen.entities.find((e: { entity: string }) => e.entity === "habit").write_actions;
-    expect(habitActions.map((a: { action: string }) => a.action).sort()).toEqual(["archive", "create", "set_committed_date", "set_stage_override", "update"]);
+    expect(habitActions.map((a: { action: string }) => a.action).sort()).toEqual(["archive", "create", "set_committed_date", "set_frequency", "set_stage_override", "update"]);
     expect(habitActions.find((a: { action: string }) => a.action === "create")).toMatchObject({ requires_id: false });
     expect(habitActions.find((a: { action: string }) => a.action === "update")).toMatchObject({ requires_id: true, patch: expect.any(String) });
   });
@@ -147,7 +147,7 @@ describe("listCapabilitiesTool", () => {
     expect(byEntity.quran_session).toEqual(["read", "write:log"]); // P4-06
     expect(byEntity.reflection_entry).toEqual(["read", "write:log"]); // P4-06
     expect(byEntity.habit?.sort()).toEqual(
-      ["read", "write:archive", "write:create", "write:set_committed_date", "write:set_stage_override", "write:update"].sort(),
+      ["read", "write:archive", "write:create", "write:set_committed_date", "write:set_frequency", "write:set_stage_override", "write:update"].sort(),
     ); // P4-06
     expect(byEntity.habit_log?.sort()).toEqual(["read", "write:set_status", "write:toggle"].sort()); // P4-06
     expect(byEntity.weekly_focus).toEqual(["read", "write:set"]); // P4-06
