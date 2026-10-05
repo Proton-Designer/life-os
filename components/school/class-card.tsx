@@ -4,22 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ClassDetailDialog } from "@/components/school/class-detail-dialog";
 import { formatShortDate } from "@/lib/date-utils";
-import { computeCourseRisk } from "@/lib/school/risk/course-risk";
-import type { RiskBand } from "@/lib/school/risk/assignment-risk";
-import { cn } from "@/lib/utils";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
-
-// Same band vocabulary as deadline-risk-panel.tsx's BAND_COLOR/BAND_LABEL — kept as its
-// own copy rather than a shared import: this card is a compact badge (label only, no
-// full sentence), the panel is a full row, and neither would gain from forcing one
-// shape on the other. The COLORS agree because both key off RiskBand, not by convention.
-const COURSE_RISK_COLOR: Record<RiskBand, string> = {
-  low: "text-muted-foreground",
-  moderate: "text-accent-warning",
-  high: "text-destructive",
-  critical: "text-destructive font-semibold",
-};
-const COURSE_RISK_LABEL: Record<RiskBand, string> = { low: "Low risk", moderate: "Moderate risk", high: "High risk", critical: "Critical risk" };
 
 /**
  * One class's card in the School screen's classes grid (item 6b, Ayman's
@@ -55,14 +40,6 @@ export function ClassCard({
 }) {
   const [open, setOpen] = useState(false);
   const displayName = data.shortName ?? data.code;
-  // Phase 1 #14 — course-risk.ts's first production caller (previously zero callers
-  // anywhere in the app, per that file's own header). Softmax-weighted across this
-  // class's own assessment-level risk scores (already computed by get-class-cards.ts),
-  // never re-scored here. Hidden with zero assessments — computeCourseRisk's own
-  // "insufficient" confidence for that shape, and a risk badge on a class with nothing
-  // to be at risk of is a fabricated number, not a real one.
-  const courseRisk = computeCourseRisk({ items: data.assessments.map((a) => ({ id: a.id, score: a.risk.score })) });
-
   return (
     <>
       <div className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
@@ -70,11 +47,6 @@ export function ClassCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="truncate text-sm font-semibold">{displayName}</h3>
-              {courseRisk.confidence !== "insufficient" && (
-                <span className={cn("shrink-0 text-xs", COURSE_RISK_COLOR[courseRisk.band])}>
-                  {COURSE_RISK_LABEL[courseRisk.band]}
-                </span>
-              )}
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {data.code}

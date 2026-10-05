@@ -96,7 +96,7 @@ describe("ClassCard", () => {
   // anywhere, per that file's own header). Softmax-weighted, so one critical assessment
   // among low-risk ones still reads as high overall, not diluted to "moderate" — proven
   // against the real engine, not a hand-picked band.
-  it("shows a course-risk badge computed from this class's real assessment risk scores", () => {
+  it("shows NO course-risk label, even when the class's assessments score critical (the badge was removed: every class read 'Critical risk')", () => {
     render(
       <ClassCard
         data={classData({
@@ -133,10 +133,10 @@ describe("ClassCard", () => {
         todayStr="2026-08-26"
       />
     );
-    expect(screen.getByText("Critical risk")).toBeInTheDocument();
+    expect(screen.queryByText(/risk$/i)).not.toBeInTheDocument();
   });
 
-  it("hides the course-risk badge for a class with zero assessments — no fabricated risk", () => {
+  it("shows no risk label for a class with zero assessments either", () => {
     render(<ClassCard data={classData({ assessments: [] })} timezone="America/Chicago" todayStr="2026-08-26" />);
     expect(screen.queryByText(/risk$/)).not.toBeInTheDocument();
   });
