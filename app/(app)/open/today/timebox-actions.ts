@@ -18,7 +18,7 @@ import { isValidBedtime } from "@/lib/night-plan/sleep-intent";
  */
 export async function setTaskPlannedStartTime(taskId: string, time: string): Promise<{ ok: boolean; message: string }> {
   if (!isValidBedtime(time)) {
-    return { ok: false, message: "Enter a time as HH:MM (24-hour), e.g. 09:30." };
+    return { ok: false, message: "Enter a valid time, e.g. 9:30 AM." };
   }
   const { supabase, userId } = await requireUser();
   try {

@@ -225,3 +225,65 @@ export function effectiveDayString(now: Date, timezone: string, rolloverHour: nu
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hourCycle: "h23" }).format(now));
   return hour < rolloverHour ? addDaysToDateString(local, -1) : local;
 }
+
+// ───────────────────────── 12-hour clock display (the ONE place the app turns a time into text) ─────────────────────────
+//
+// The app shows time in regular 12-hour form ("9:00 PM"), never 24-hour ("21:00") and never browser-locale-dependent
+// (a bare toLocaleTimeString() flips to 24-hour on a 24-hour locale). Stored values stay "HH:MM" 24-hour strings -- that is
+// the storage/API format (columns, MCP) -- so ONLY these helpers and components/ui/time-field-12.tsx cross the boundary.
+
+const HHMM_RE = /^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/;
+
+/** { hour (0-23), minute } from "HH:MM" or "HH:MM:SS" (a Postgres `time`); null when malformed. */
+export function parseHHMM(hhmm: string | null | undefined): { hour: number; minute: number } | null {
+  const m = typeof hhmm === "string" ? HHMM_RE.exec(hhmm.trim()) : null;
+  return m ? { hour: Number(m[1]), minute: Number(m[2]) } : null;
+}
+
+export type Meridiem = "AM" | "PM";
+
+/** 24-hour (hour, minute) -> "9:05 PM". 0 -> 12 AM, 12 -> 12 PM. Pure string maths, no Intl, no locale. */
+export function formatHourMinute12(hour: number, minute: number): string {
+  const meridiem: Meridiem = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${String(minute).padStart(2, "0")} ${meridiem}`;
+}
+
+/**
+ * "21:00" / "21:00:00" -> "9:00 PM". Returns the input UNCHANGED when it is not a valid time (a corrupt stored value must
+ * never crash a page render or show as "NaN"). null / undefined -> "".
+ */
+export function formatHHMM12(hhmm: string | null | undefined): string {
+  if (hhmm === null || hhmm === undefined) return "";
+  const t = parseHHMM(hhmm);
+  return t ? formatHourMinute12(t.hour, t.minute) : hhmm;
+}
+
+/** "9:00 PM – 10:30 PM" from two stored times (either may be missing: then just the one that exists). */
+export function formatHHMMRange12(start: string | null | undefined, end: string | null | undefined): string {
+  const a = formatHHMM12(start);
+  const b = formatHHMM12(end);
+  return a && b ? `${a} – ${b}` : a || b;
+}
+
+/**
+ * An instant -> "9:05 PM" in the given IANA timezone. `hour12: true` and the "en-US" locale are forced so a 24-hour browser
+ * locale cannot turn it into "21:05".
+ */
+export function formatClock12(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true }).format(date);
+}
+
+/** (12-hour hour 1-12, minute, AM/PM) -> "HH:MM" 24-hour, the storage format. 12 AM -> 00, 12 PM -> 12. */
+export function to24HourString(hour12: number, minute: number, meridiem: Meridiem): string {
+  const h = (hour12 % 12) + (meridiem === "PM" ? 12 : 0);
+  return `${String(h).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/** "HH:MM" -> { hour12 (1-12), minute, meridiem }; null when malformed. */
+export function split12Hour(hhmm: string | null | undefined): { hour12: number; minute: number; meridiem: Meridiem } | null {
+  const t = parseHHMM(hhmm);
+  if (!t) return null;
+  return { hour12: t.hour % 12 === 0 ? 12 : t.hour % 12, minute: t.minute, meridiem: t.hour >= 12 ? "PM" : "AM" };
+}
+

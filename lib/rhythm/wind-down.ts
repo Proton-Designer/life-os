@@ -40,7 +40,7 @@ export function deriveWindDown(input: WindDownInputs): WindDownPlan | null {
 
 /** Validates user input for saving; returns an error message or null. */
 export function validateWindDownInputs(input: { wakeTime: string; sleepNeedMinutes: number; windDownMinutes: number }): string | null {
-  if (!isHHMM(input.wakeTime)) return "Enter your wake time as HH:MM (24-hour).";
+  if (!isHHMM(input.wakeTime)) return "Enter a valid wake time.";
   if (!Number.isInteger(input.sleepNeedMinutes) || input.sleepNeedMinutes < SLEEP_NEED_RANGE.min || input.sleepNeedMinutes > SLEEP_NEED_RANGE.max) {
     return "Sleep need must be between 6 and 10 hours.";
   }

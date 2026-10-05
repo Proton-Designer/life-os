@@ -34,6 +34,7 @@ import {
 } from "@/lib/morning-routine/actions-core";
 import { createGoal, completeGoal, dropGoal, addMilestone, completeMilestone, reopenMilestone } from "@/lib/goals/actions-core";
 import { FrequencyError, normalizeFrequency, type HabitFrequency } from "@/lib/habits/frequency";
+import { formatHHMM12 } from "@/lib/date-utils";
 import { createIdentityHabitCore, setIdentityHabitFrequencyCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
@@ -1789,7 +1790,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               await updateScheduleEventCore(ctx.userClient, ctx.userId, id, { dayOfWeek, eventTime, endTime });
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: null } },
-                summary: `permanently changed class ${id} to day ${dayOfWeek} at ${eventTime}`,
+                summary: `permanently changed class ${id} to day ${dayOfWeek} at ${formatHHMM12(eventTime)}`,
               };
             },
           },
@@ -1809,7 +1810,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               await setScheduleEventOverrideCore(ctx.userClient, ctx.userId, id, date, eventTime, endTime);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id, date }) }], structuredContent: { id, updated_at: null, date } },
-                summary: `moved class ${id}'s ${date} occurrence to ${eventTime}`,
+                summary: `moved class ${id}'s ${date} occurrence to ${formatHHMM12(eventTime)}`,
               };
             },
           },

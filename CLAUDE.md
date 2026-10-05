@@ -61,6 +61,10 @@ Each of these was paid for by a real production incident — full stories in
 - **Only the session's "Lead" role runs `npx playwright test`** — one SEED
   account, one live database, one `storageState` file. `tsc`/`vitest` stay free
   for everyone.
+- **Time shown to a person is always 12-hour ("9:00 PM").** Format with `formatHHMM12` / `formatClock12`
+  (`lib/date-utils.ts`); pick with `components/ui/time-field-12.tsx`. Never `<input type="time">` or
+  `toLocaleTimeString()` (both follow the browser locale and show "21:00"); `lib/__tests__/no-24-hour-time-ui.test.ts`
+  fails if they come back. Stored values stay 24-hour `HH:MM`.
 - **A check that examines nothing reports success.** Before trusting a check about
   a bug, seed the fixture to the bug's shape and confirm the check fails first.
 - **This Next.js is not the one you trained on** — `proxy.ts`, not
