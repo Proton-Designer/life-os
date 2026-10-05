@@ -24,6 +24,14 @@ describe("QuranNowRow", () => {
     expect(screen.getByRole("link")).toHaveAttribute("href", "/deen");
   });
 
+  it("shows 'Juz a–b' when the portion spans several juz (and a single 'Juz n' otherwise)", () => {
+    const { unmount } = render(<QuranNowRow item={{ ...ITEM, juz: 1, juzFrom: 1, juzTo: 10 }} />);
+    expect(screen.getByText("Al-Baqarah · Juz 1–10")).toBeInTheDocument();
+    unmount();
+    render(<QuranNowRow item={{ ...ITEM, juzFrom: 2, juzTo: 2 }} />);
+    expect(screen.getByText("Al-Baqarah · Juz 2")).toBeInTheDocument();
+  });
+
   it("one tap ticks the row at once and logs today's portion", async () => {
     const user = userEvent.setup();
     render(<QuranNowRow item={ITEM} />);

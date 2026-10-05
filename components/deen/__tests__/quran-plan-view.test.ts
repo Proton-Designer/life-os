@@ -5,7 +5,7 @@ import type { QuranOverview } from "@/lib/quran/plan-core";
 const overview = (over: Partial<QuranOverview> = {}, statusOver: Record<string, unknown> = {}): QuranOverview =>
   ({
     plan: { id: "p", khatmNumber: 2, status: "active", currentPage: 41, startPage: 1, startDate: "2026-10-01", targetDate: "2026-12-04", completedOn: null, percent: 6, pagesLeft: 564, pacePagesPerDay: 9.97 },
-    portion: { from: 41, to: 50, pages: 10, done: false, surahLabel: "Al-Baqarah", juz: 2 },
+    portion: { from: 41, to: 50, pages: 10, done: false, surahLabel: "Al-Baqarah", juz: 2, juzFrom: 2, juzTo: 2 },
     status: { kind: "behind", pages: 30, days: 3, pagesLeft: 564, daysLeft: 47, neededPerDay: 11.2, planPace: 9.97, effectiveTargetDate: "2026-12-06", projectedFinish: "2026-12-20", recent: { pagesPerDay: 8, dataPoints: 5, usedPlanPace: false }, suggestMoveDate: false, suggestedDate: null, ...statusOver },
     readingDaysLast7: 5,
     week: { pagesRead: 20, plannedToDate: 30, weeklyTargetPages: 70 },
@@ -26,6 +26,14 @@ describe("toQuranPlanView", () => {
     if (v.kind !== "plan") throw new Error("plan");
     expect(v.portion).toEqual({ fromPage: 41, toPage: 50, pages: 10, label: "Al-Baqarah · Juz 2" });
     expect(v.status).toMatchObject({ kind: "behind", pages: 30, days: 3, neededPerDay: 12 }); // 11.2 -> 12
+  });
+
+  it("a portion that spans several juz is labelled 'Juz a–b' (positive control: one juz stays 'Juz n')", () => {
+    const wide = toQuranPlanView(overview({ portion: { from: 1, to: 200, pages: 200, done: false, surahLabel: "Al-Fatiha – Al-Anfal", juz: 1, juzFrom: 1, juzTo: 10 } as unknown as QuranOverview["portion"] }));
+    const one = toQuranPlanView(overview());
+    if (wide.kind !== "plan" || one.kind !== "plan") throw new Error("plan");
+    expect(wide.portion?.label).toBe("Al-Fatiha – Al-Anfal · Juz 1–10");
+    expect(one.portion?.label).toBe("Al-Baqarah · Juz 2");
   });
 
   it("the projected finish is hidden when it only repeats the plan pace (too little data), and shown with real data (positive control)", () => {

@@ -38,7 +38,7 @@ export function QuranNowRow({ item }: { item: HomeNowItem }) {
             <span className={done ? "text-muted-foreground line-through" : undefined}>{item.title}</span>
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {item.surahLabel} · Juz {item.juz}
+            {item.surahLabel} · {item.juzFrom !== undefined && item.juzTo !== undefined && item.juzFrom !== item.juzTo ? `Juz ${item.juzFrom}–${item.juzTo}` : `Juz ${item.juzFrom ?? item.juz}`}
           </p>
         </Link>
         {done ? (

@@ -8,6 +8,7 @@ import { KHATM_DUA } from "@/components/deen/khatm-dua";
 import { QURAN_TOTAL_PAGES, type QuranActionResult, type QuranPlanActions, type QuranPlanView, type QuranStartInput } from "@/components/deen/quran-plan-types";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { addDaysToDateString, formatShortDate } from "@/lib/date-utils";
+import { ramadanWindow } from "@/lib/quran/ramadan";
 import { cn } from "@/lib/utils";
 
 type PlanView = Extract<QuranPlanView, { kind: "plan" }>;
@@ -119,6 +120,12 @@ function Setup({ todayStr, busy, onStart }: { todayStr: string; busy: boolean; o
   const [pace, setPace] = useState("");
   const [startAt, setStartAt] = useState("");
   const paceNum = Number(pace);
+  // Ramadan is only offered in Sha'ban/Ramadan, and its finish is the real end of Ramadan (never "30 days from today" in October).
+  const ramadan = ramadanWindow(todayStr);
+  const presets = PRESETS.filter((p) => p.key !== "ramadan" || ramadan.offer).map((p) => ({
+    ...p,
+    doneBy: p.key === "ramadan" && ramadan.ramadanEnd ? ramadan.ramadanEnd : addDaysToDateString(todayStr, p.days - 1),
+  }));
   const startAtNum = startAt === "" ? 1 : Number(startAt);
   const startOk = Number.isInteger(startAtNum) && startAtNum >= 1 && startAtNum <= QURAN_TOTAL_PAGES;
   const valid = startOk && (choice === "date" ? date > todayStr : choice === "pace" ? Number.isFinite(paceNum) && paceNum >= 1 && paceNum <= QURAN_TOTAL_PAGES : true);
@@ -135,7 +142,7 @@ function Setup({ todayStr, busy, onStart }: { todayStr: string; busy: boolean; o
         <p className="text-xs text-muted-foreground">Pick a pace. Each day shows the pages to read, and the plan follows you if a day is missed.</p>
       </div>
       <div role="radiogroup" aria-label="Plan length" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {PRESETS.map((p) => (
+        {presets.map((p) => (
           <button
             key={p.key}
             type="button"
@@ -147,7 +154,7 @@ function Setup({ todayStr, busy, onStart }: { todayStr: string; busy: boolean; o
           >
             <span className="block text-sm font-medium">{p.label}</span>
             <span className="block text-xs text-muted-foreground">
-              {p.note} · done by {formatShortDate(addDaysToDateString(todayStr, p.days - 1))}
+              {p.note} · done by {formatShortDate(p.doneBy)}
             </span>
           </button>
         ))}

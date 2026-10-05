@@ -19,7 +19,7 @@ export function toQuranPlanView(o: QuranOverview | null): QuranPlanView {
     percent: plan.percent,
     targetDate: status?.effectiveTargetDate ?? plan.targetDate,
     pagesPerDay: Math.round(plan.pacePagesPerDay),
-    portion: portion ? { fromPage: portion.from, toPage: portion.to, pages: portion.pages, label: `${portion.surahLabel} · Juz ${portion.juz}` } : null,
+    portion: portion ? { fromPage: portion.from, toPage: portion.to, pages: portion.pages, label: `${portion.surahLabel} · ${portion.juzFrom === portion.juzTo ? `Juz ${portion.juzFrom}` : `Juz ${portion.juzFrom}–${portion.juzTo}`}` } : null,
     portionDone: portion?.done ?? false,
     status:
       status && (kind === "on_track" || kind === "behind" || kind === "ahead")

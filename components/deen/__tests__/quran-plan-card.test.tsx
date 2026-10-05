@@ -56,6 +56,16 @@ describe("QuranPlanCard (QURAN-02)", () => {
     expect(a.start).toHaveBeenCalledWith({ preset: "30d" }, 1);
   });
 
+  it("Ramadan is offered only in Sha'ban/Ramadan, with the real end of Ramadan as its finish (positive control: October has no Ramadan preset)", () => {
+    const { unmount } = render(<QuranPlanCard view={{ kind: "none" }} actions={a as unknown as QuranPlanActions} todayStr="2026-10-05" />);
+    expect(screen.queryByTestId("quran-preset-ramadan")).not.toBeInTheDocument();
+    unmount();
+    render(<QuranPlanCard view={{ kind: "none" }} actions={a as unknown as QuranPlanActions} todayStr="2027-02-20" />); // Ramadan 1448 begins ~Feb 8 2027
+    const ramadan = screen.getByTestId("quran-preset-ramadan");
+    expect(ramadan).toBeInTheDocument();
+    expect(ramadan).toHaveTextContent(/done by Mar\. /); // ends in March, not "30 days from today"
+  });
+
   it("setup: the 60-day default starts as-is; a custom date must be in the future (positive control: a past date disables Start)", async () => {
     const user = userEvent.setup();
     renderIt({ kind: "none" });
