@@ -17,7 +17,7 @@ export default async function WorkPage() {
   if (target.kind === "redirect") redirect(target.href);
   return (
     <>
-      {target.kind === "screen-with-bar" ? <WorkTabsBar tabs={[]} activeKey="" showSharedNote={false} /> : null}
+      {target.kind === "screen-with-bar" ? <WorkTabsBar tabs={[]} activeKey="" /> : null}
       <WorkScreen />
     </>
   );

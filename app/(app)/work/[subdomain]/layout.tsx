@@ -30,7 +30,6 @@ export default async function WorkSubdomainLayout({
       <WorkTabsBar
         tabs={workSubdomains.map((s) => ({ key: s.key, label: s.label, kind: s.kind }))}
         activeKey={subdomain}
-        showSharedNote
       />
       {children}
     </>

@@ -57,7 +57,7 @@ const SCHOOL: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "course_load", label: "Course load", description: "A six-week forecast of how loaded each week ahead is." },
   { widgetKey: "practice_vs_real", label: "Practice vs. real grade", description: "How your closest practice-test score compared to the real exam." },
   { widgetKey: "class_cards", label: "Your classes", description: "A card for every class you're taking, with its own quick actions." },
-  { widgetKey: "this_weeks_classes", label: "This week's classes", description: "Your class schedule for the current week." },
+  { widgetKey: "this_weeks_classes", label: "Classes", description: "Your class schedule for the current week." },
 ];
 
 const WORK: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [

@@ -177,10 +177,9 @@ function TaskRows({
  * replaces the old today/tomorrow "Due Soon" subsection — This week on top,
  * Next week below it, each independently collapsible). This week starts
  * expanded, the same way the old Due Soon head always did — it's the list
- * that should never need a tap to be seen. Next week starts collapsed,
- * matching the urgency gradient every other level of this file already
- * uses (the most urgent thing opens on its own, everything else is a tap
- * away). Hidden entirely when empty rather than rendering an empty header:
+ * that should never need a tap to be seen. Next week ALSO starts expanded
+ * (SCHOOL-02, the user's call: the week ahead is worth seeing without a tap),
+ * and both stay collapsible. Hidden entirely when empty rather than rendering an empty header:
  * a permanently-visible "Next week · 0" trains you to stop reading it,
  * which is the opposite of the point.
  */
@@ -306,7 +305,7 @@ function GroupSection({
             <WeekSubsection
               label="Next week"
               tasks={nextWeek}
-              defaultExpanded={false}
+              defaultExpanded
               todayStr={todayStr}
               onComplete={onComplete}
               editing={editing}

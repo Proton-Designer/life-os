@@ -183,7 +183,7 @@ export function ClassEditorDialog({
       </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editingKey === null ? "This week's classes" : editingKey === "new" ? "Add a class" : "Edit class"}</DialogTitle>
+          <DialogTitle>{editingKey === null ? "Classes" : editingKey === "new" ? "Add a class" : "Edit class"}</DialogTitle>
         </DialogHeader>
 
         {editingKey === null ? (

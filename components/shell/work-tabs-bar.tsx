@@ -24,7 +24,7 @@ const refreshWork = () => refreshWorkViews();
  * once; the whole edit is ONE atomic server write (saveWorkTabs), queued so two quick edits land
  * in order, and a failure puts the bar back with an inline error.
  */
-export function WorkTabsBar({ tabs: serverTabs, activeKey, showSharedNote }: { tabs: WorkTab[]; activeKey: string; showSharedNote: boolean }) {
+export function WorkTabsBar({ tabs: serverTabs, activeKey }: { tabs: WorkTab[]; activeKey: string }) {
   const router = useRouter();
   const scheduleRefresh = useScheduleRefresh(refreshWork);
   const [tabs, setTabs] = useState<WorkTab[]>(serverTabs);
@@ -88,13 +88,6 @@ export function WorkTabsBar({ tabs: serverTabs, activeKey, showSharedNote }: { t
       {error ? (
         <p role="alert" data-testid="work-tabs-error" className="text-xs text-destructive">
           {error}
-        </p>
-      ) : null}
-      {/* Honest, not fake: per-tab data scoping (T-0002) hasn't landed, so tabs of the SAME kind show
-          the same shared data below. Shown whenever there is more than one tab to be confused between. */}
-      {showSharedNote && tabs.length > 1 ? (
-        <p data-testid="work-shared-data-note" className="text-xs text-muted-foreground">
-          Tabs of the same kind share one pipeline for now — per-tab separation is coming.
         </p>
       ) : null}
     </div>

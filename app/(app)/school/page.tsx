@@ -42,11 +42,6 @@ import { ClassCard } from "@/components/school/class-card";
 import { DeadlineRiskPanel, type DeadlineRiskRow } from "@/components/school/deadline-risk-panel";
 import { CourseLoadForecastPanel } from "@/components/school/course-load-forecast-panel";
 import { computeCourseLoadForecast, type ForecastableAssessment } from "@/lib/school/course-load-forecast";
-import { PracticeVsRealBenchmarkPanel } from "@/components/school/practice-vs-real-benchmark-panel";
-import { computePracticeVsRealBenchmark } from "@/lib/school/practice-vs-real-benchmark";
-import { getPracticeBenchmarkInputs } from "@/lib/school/get-practice-benchmark-inputs";
-import { SchoolTodayPanel } from "@/components/school/school-today-panel";
-import { getSchoolTodayFeed } from "@/lib/school/school-today";
 
 type TaskData = {
   id: string;
@@ -78,10 +73,10 @@ export default async function SchoolPage() {
   const weekStart = getWeekStartDate(dateStr);
   const weekDates = weekDatesFrom(weekStart);
 
-  // getClassCards/getSchoolTodayFeed depend only on userId/weekStart/dateStr (known
-  // before any of the three queries below resolve), so both join this wave instead of
+  // getClassCards depends only on userId/weekStart/dateStr (known
+  // before any of the three queries below resolve), so it joins this wave instead of
   // waiting behind them — 3 waves down to 2 for this page (2026-08-28 audit).
-  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, schoolTodayItems, transcriptionAvailability, practiceBenchmarkInputs, layout] = await Promise.all([
+  const [{ data: taskRows }, { data: eventRows }, { data: classRows }, classCards, transcriptionAvailability, layout] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, due_date, completed, completed_at, created_at, task_type, task_type_other_label, class_id")
@@ -96,17 +91,9 @@ export default async function SchoolPage() {
       .eq("domain", "school"),
     supabase.from("classes").select("id, short_name, code").eq("user_id", userId),
     getClassCards(supabase, userId, weekStart, dateStr),
-    // Phase 1 #15 — /school wants TODAY specifically, so both date params are dateStr
-    // here; #28 (Night Plan, an evening ritual planning tomorrow) will pass a different
-    // targetDate than todayStr when it becomes this function's second caller.
-    getSchoolTodayFeed(supabase, userId, dateStr, dateStr),
     // P3-15 — account-wide (not per-class), fetched once here and threaded down through
     // ClassCard -> ClassDetailDialog -> LecturePanel rather than re-fetched per class.
     getTranscriptionAvailability(),
-    // P3-12 — its own lean classes+class_assessments+practice_tests read
-    // (not built from classCards, which doesn't fetch practice_tests at
-    // all) — see get-practice-benchmark-inputs.ts's own header.
-    getPracticeBenchmarkInputs(supabase, userId),
     // WIDGET-02 -- this user's saved widget layout for /school, registry
     // defaults filled in for anything never customized.
     getPageLayout("school"),
@@ -157,9 +144,6 @@ export default async function SchoolPage() {
   );
   const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, dateStr);
   const overflowWeekCount = courseLoadForecast.weeks.filter((w) => w.overflow).length;
-
-  // P3-12 — practice-test vs real-grade benchmarking.
-  const practiceVsRealBenchmark = computePracticeVsRealBenchmark(practiceBenchmarkInputs);
 
   const classOptions: TaskWizardClassOption[] = (classRows ?? []).map((c) => ({
     id: c.id,
@@ -405,13 +389,9 @@ export default async function SchoolPage() {
       </Panel>
       </LayoutSlot>
 
-      {/* Phase 1 #15 — day-level, sits above #14's wider window: "what does school look
-          like today" is a narrower, more urgent question than "what's coming up." */}
-      <LayoutSlot layout={layoutMap} widgetKey="school_today">
-      <Panel title="School today" heroValue={`${schoolTodayItems.length}`} caption="due today across your classes">
-        <SchoolTodayPanel items={schoolTodayItems} />
-      </Panel>
-      </LayoutSlot>
+      {/* SCHOOL-02: the "School today" and "Practice vs. real grade" modules are gone from this screen (the former repeated
+          Due today; the latter was noise). Their widget keys stay in the page-layout registry so saved layouts keep working;
+          nothing renders for them. */}
 
       {/* Phase 1 #14 — the cross-class risk rollup the Task list doesn't provide (it's
           date-ordered, not risk-ranked, and only ever shows tasks, not assessments).
@@ -448,16 +428,6 @@ export default async function SchoolPage() {
       </Panel>
       </LayoutSlot>
 
-      {/* P3-12 — practice-test vs real-grade benchmarking. Always rendered,
-          same as Course load/Deadline risk on this page -- the panel's own
-          !hasData branch shows an honest "not enough data yet" message
-          rather than this page hiding the panel outright. */}
-      <LayoutSlot layout={layoutMap} widgetKey="practice_vs_real">
-      <Panel title="Practice vs. real grade">
-        <PracticeVsRealBenchmarkPanel benchmark={practiceVsRealBenchmark} todayStr={dateStr} />
-      </Panel>
-      </LayoutSlot>
-
       {/* Item 6b (Ayman, verbatim): "a module card for every single class
           im taking," below the top mini modules. Cards are visibly
           non-uniform by design — Lin Alg (MATH 2418) has no room/instructor/
@@ -482,7 +452,7 @@ export default async function SchoolPage() {
 
       <LayoutSlot layout={layoutMap} widgetKey="this_weeks_classes">
       <Panel
-        title="This week's classes"
+        title="Classes"
         heroValue={`${scheduledThisWeekCount}`}
         caption={scheduledThisWeekCount === 0 ? "Nothing scheduled this week" : "classes this week"}
         controls={

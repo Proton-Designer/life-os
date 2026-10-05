@@ -62,7 +62,7 @@ describe("WorkTabsBar", () => {
   afterEach(() => resetDeferredRefreshForTests());
 
   it("renders the tabs in the given order, linking /work/<key>", () => {
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     expect(tabLabels()).toEqual(["Co-op", "Side"]);
     expect(screen.getByTestId("work-subdomain-tab-side")).toHaveAttribute("href", "/work/side");
   });
@@ -71,7 +71,7 @@ describe("WorkTabsBar", () => {
     const user = userEvent.setup();
     let release!: () => void;
     saveWorkTabs.mockImplementation(() => new Promise<void>((r) => (release = r)));
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     const list = await openEditor(user);
     const name = within(list).getByLabelText("Name of tab 2");
     await user.clear(name);
@@ -91,7 +91,7 @@ describe("WorkTabsBar", () => {
 
   it("the last remaining tab cannot be removed (positive control: with two tabs Remove is enabled)", async () => {
     const user = userEvent.setup();
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     const list = await openEditor(user);
     expect(within(list).getByRole("button", { name: "Remove Co-op" })).toBeEnabled();
     await user.click(within(list).getByRole("button", { name: "Remove Co-op" }));
@@ -100,7 +100,7 @@ describe("WorkTabsBar", () => {
 
   it("removing the active tab sends it archived and moves to the first remaining tab", async () => {
     const user = userEvent.setup();
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     const list = await openEditor(user);
     await user.click(within(list).getByRole("button", { name: "Remove Co-op" }));
     await user.click(screen.getByTestId("edit-work-tabs-save"));
@@ -116,7 +116,7 @@ describe("WorkTabsBar", () => {
   it("a failed save puts the bar back and shows an inline alert", async () => {
     const user = userEvent.setup();
     saveWorkTabs.mockRejectedValueOnce(new Error("saveWorkTabs: keep at least one Work tab"));
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     const list = await openEditor(user);
     await user.click(within(list).getByRole("button", { name: "Move Co-op down" }));
     await user.click(screen.getByTestId("edit-work-tabs-save"));
@@ -126,7 +126,7 @@ describe("WorkTabsBar", () => {
 
   it("a blank name disables Save", async () => {
     const user = userEvent.setup();
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     const list = await openEditor(user);
     expect(screen.getByTestId("edit-work-tabs-save")).toBeEnabled();
     await user.clear(within(list).getByLabelText("Name of tab 1"));
@@ -139,7 +139,7 @@ describe("WorkTabsBar", () => {
     saveWorkTabs.mockImplementation(async (...a: unknown[]) => {
       order.push(((a[0] as { label: string }[])[0]).label);
     });
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     for (const label of ["First", "Second"]) {
       const list = await openEditor(user);
       const name = within(list).getByLabelText("Name of tab 1");
@@ -152,31 +152,29 @@ describe("WorkTabsBar", () => {
 
   it("offers 'Add a Business tab' only when there is none, and opens the new tab", async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<WorkTabsBar tabs={[TABS[0]]} activeKey="co-op" showSharedNote={false} />);
+    const { unmount } = render(<WorkTabsBar tabs={[TABS[0]]} activeKey="co-op" />);
     await openEditor(user);
     await user.click(screen.getByTestId("add-business-tab"));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/work/business"));
     unmount();
 
-    render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     await openEditor(user);
     expect(screen.queryByTestId("add-business-tab")).toBeNull();
   });
 
   it("WORK-W1b: with ZERO tabs the editor still opens and offers 'Add a Business tab' (Save stays disabled: nothing to save)", async () => {
     const user = userEvent.setup();
-    render(<WorkTabsBar tabs={[]} activeKey="" showSharedNote={false} />);
+    render(<WorkTabsBar tabs={[]} activeKey="" />);
     await openEditor(user);
     expect(screen.getByTestId("add-business-tab")).toBeEnabled();
     expect(screen.getByTestId("edit-work-tabs-save")).toBeDisabled();
   });
 
-  it("shows the shared-data note only with several tabs and when asked", () => {
-    const { rerender } = render(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote />);
-    expect(screen.getByTestId("work-shared-data-note")).toBeInTheDocument();
-    rerender(<WorkTabsBar tabs={[TABS[0]]} activeKey="co-op" showSharedNote />);
+  it("no longer shows the 'share one pipeline' note, even with several tabs", () => {
+    render(<WorkTabsBar tabs={TABS} activeKey="co-op" />);
     expect(screen.queryByTestId("work-shared-data-note")).toBeNull();
-    rerender(<WorkTabsBar tabs={TABS} activeKey="co-op" showSharedNote={false} />);
-    expect(screen.queryByTestId("work-shared-data-note")).toBeNull();
+    expect(screen.queryByText(/share one pipeline/)).toBeNull();
+    expect(tabLabels()).toEqual(["Co-op", "Side"]); // positive control: several tabs really rendered
   });
 });

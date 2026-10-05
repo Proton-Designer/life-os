@@ -102,12 +102,13 @@ describe("TaskListModule", () => {
       expect(screen.getByRole("button", { name: /This week/ })).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByText("Due today")).toBeInTheDocument();
       expect(screen.getByText("Due Saturday")).toBeInTheDocument();
-      // Next week is collapsed by default — present in the DOM only once expanded.
-      expect(screen.queryByText("Due next Sunday")).not.toBeInTheDocument();
-      const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: /Next week/ }));
+      // SCHOOL-02: Next week is EXPANDED by default too, and can still be collapsed (positive control: collapsing hides it).
+      expect(screen.getByRole("button", { name: /Next week/ })).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByText("Due next Sunday")).toBeInTheDocument();
       expect(screen.getByText("Due next Friday")).toBeInTheDocument();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Next week/ }));
+      expect(screen.queryByText("Due next Sunday")).not.toBeInTheDocument();
     });
 
     it("orders This week above Next week, top to bottom", () => {
