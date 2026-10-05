@@ -208,6 +208,7 @@ function discoveryBody(url: URL) {
       "GET  /{domain}/{entity}[?detail=ids|summary|full&fields=a,b&cursor=&filter[column]=value]",
       "GET  /{domain}/{entity}/{id}[?detail=&fields=]",
       'POST /{domain}/{entity}/{action}  {"id"?: "...", "patch"?: {...}}',
+      'GET  /write/{domain}/{entity}/{action}?id=&patch=<url-encoded JSON>  (the same write, for agents that can only send GET; still needs the Bearer header and a write-scoped token)',
       "GET  /manage/widgets | /manage/schedules",
       'POST /manage/widgets | /manage/schedules  {"patch": {...}}  (create)',
       "POST /manage/widgets/{id}/update|delete, /manage/schedules/{id}/cancel|pause",

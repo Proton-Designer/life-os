@@ -111,6 +111,17 @@ curl -s ${origin}/api/v1/<domain>/<entity>/<action> \\
   -d '{"patch": {"...": "..."}}'
 \`\`\`
 
+**If your only HTTP tool is GET** (you can read but have no way to POST), write with a GET instead -- same
+token, same write scope, same validation, same audit log; the JSON goes URL-encoded in \`patch\`:
+
+\`\`\`
+GET ${origin}/api/v1/write/<domain>/<entity>/<action>?id=<id, when the action needs one>&patch=<URL-encoded JSON>
+Authorization: Bearer <token>        (the token must still go in the header, never in the URL)
+\`\`\`
+
+Example: \`/api/v1/write/deen/habit/create?patch=%7B%22name%22%3A%22Read%203%20pages%20of%20Quran%22%2C%22frequency%22%3A%7B%22type%22%3A%22daily%22%7D%7D\`.
+A GET write is never cached; do not retry it blindly -- a repeated create makes a second row.
+
 MCP is available at the same account/token at \`${origin}/api/mcp\`.
 
 ## Notes

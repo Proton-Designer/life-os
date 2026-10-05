@@ -117,7 +117,7 @@ describe("listCapabilitiesTool", () => {
     const outcome = await listCapabilitiesTool("deen");
     const payload = textPayload(outcome);
     expect(payload.domain).toBe("deen");
-    expect(payload.entities).toHaveLength(9);
+    expect(payload.entities).toHaveLength(10);
     const prayer = payload.entities.find((e: { entity: string }) => e.entity === "prayer");
     expect(prayer).toMatchObject({
       entity: "prayer",
@@ -176,7 +176,7 @@ describe("listCapabilitiesTool", () => {
   it("write-only entities carry the same per-action detail, and never duplicate a readable entity", async () => {
     const payload = textPayload(await listCapabilitiesTool("deen"));
     const writeOnly = Object.fromEntries((payload.write_only_entities ?? []).map((e: { entity: string }) => [e.entity, e]));
-    expect(Object.keys(writeOnly).sort()).toEqual(["profile", "weekly_goal"]);
+    expect(Object.keys(writeOnly).sort()).toEqual(["profile"]); // weekly_goal gained its read entity; only profile is write-only now
     for (const e of Object.values(writeOnly) as { write_actions: Record<string, unknown>[]; note: string }[]) {
       expect(e.note).toEqual(expect.any(String));
       for (const a of e.write_actions) expect(Object.keys(a).sort()).toEqual(["action", "description", "patch", "requires_id", "schedulable"]);

@@ -329,6 +329,21 @@ export const REGISTRY: Record<string, DomainDef> = {
         rangeFilterableColumns: ["week_start_date"],
         orderBy: [{ column: "week_start_date", ascending: false }],
       },
+      weekly_goal: {
+        entity: "weekly_goal",
+        table: "weekly_goals",
+        description: "One week's deen-domain goal (headline + milestones): the read side of deen.weekly_goal.save. Shares the weekly_goals table with business; fixedFilter keeps it to domain='deen'.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "Migration 135 added a real trigger-backed updated_at to weekly_goals (touch_updated_at(), 074); same table and trigger as business.weekly_goal, which is why the on-conflict upsert in saveDeenWeeklyGoalCore is reflected here.",
+        summaryColumns: ["week_start_date", "headline", "milestones", "locked"],
+        fullColumns: ["week_start_date", "headline", "milestones", "locked", "quran_page_target", "created_at", "updated_at"],
+        filterableColumns: ["week_start_date", "locked"],
+        rangeFilterableColumns: ["week_start_date"],
+        orderBy: [{ column: "week_start_date", ascending: false }],
+        fixedFilter: { domain: "deen" },
+      },
     },
   },
   work: {

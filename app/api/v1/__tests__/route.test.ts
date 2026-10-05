@@ -22,6 +22,9 @@ const verifyAccessTokenMock = vi.fn(async (_c: unknown, raw: string): Promise<Ve
   if (!raw.startsWith("lifeos_pat_")) return null;
   return raw.includes("readonly") ? { userId: "user-1", tokenId: "tok-ro", scopes: ["read"] } : { userId: "user-1", tokenId: "tok-1", scopes: ["read", "write"] };
 });
+// after() needs a real request scope (a successful write schedules webhook delivery); same stub as contract.test.ts.
+vi.mock("next/server", () => ({ after: (task: () => unknown) => void task() }));
+
 vi.mock("@/lib/mcp/tokens", async () => {
   const actual = await vi.importActual<typeof import("@/lib/mcp/tokens")>("@/lib/mcp/tokens");
   return { ...actual, verifyAccessToken: verifyAccessTokenMock };
@@ -272,6 +275,33 @@ describe("writes, scope, rate limit, errors", () => {
     expect(body.code).toBe("insufficient_scope");
     expect(body.operation).toBe("deen.prayer.log");
     expect(service.auditInserts).toEqual([expect.objectContaining({ outcome: "denied", transport: "rest", token_id: "tok-ro" })]);
+  });
+
+  it("GET /write/... is scope-checked exactly like the POST: a read-only token is 403 denied, never written", async () => {
+    const { GET } = await catchAll();
+    const patch = encodeURIComponent(JSON.stringify({ date: "2026-09-08", prayer_name: "fajr", status: "on_time" }));
+    const res = await GET(req(`/write/deen/prayer/log?patch=${patch}`, { headers: { Authorization: "Bearer lifeos_pat_readonly" } }));
+    expect(res.status).toBe(403);
+    const body = await problem(res);
+    expect(body.code).toBe("insufficient_scope");
+    expect(body.operation).toBe("deen.prayer.log");
+    expect(service.auditInserts).toEqual([expect.objectContaining({ outcome: "denied", transport: "rest", token_id: "tok-ro" })]);
+  });
+
+  it("GET /write/... with a write token reaches the SAME write operation as the POST (audited under the same operation) and is never cached", async () => {
+    const { GET } = await catchAll();
+    const patch = encodeURIComponent(JSON.stringify({ date: "2026-09-08", prayer_name: "fajr", status: "on_time" }));
+    const res = await GET(req(`/write/deen/prayer/log?patch=${patch}`, { headers: AUTH }));
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(service.auditInserts).toEqual([expect.objectContaining({ operation: "deen.prayer.log", transport: "rest", token_id: "tok-1" })]);
+    expect(res.status).not.toBe(403); // scope passed; what the fake DB then answers is not this test's concern
+  });
+
+  it("a token in the URL is still refused on the GET write form", async () => {
+    const { GET } = await catchAll();
+    const res = await GET(req("/write/deen/prayer/log?access_token=lifeos_pat_live"));
+    expect(res.status).toBe(400);
+    expect((await problem(res)).code).toBe("token_in_query");
   });
 
   it("a rate-limited token gets 429 with Retry-After", async () => {

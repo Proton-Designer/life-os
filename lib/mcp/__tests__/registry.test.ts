@@ -36,7 +36,7 @@ describe("registry", () => {
     expect(getEntity("deen", "fasting")).toBeNull();
   });
 
-  it("deen has exactly the 9 entities wired (prayer + the 7 added once 131/133 landed + quran_plan, QURAN-01)", () => {
+  it("deen has exactly the 10 entities wired (prayer + the 7 added once 131/133 landed + quran_plan, QURAN-01 + weekly_goal read, the write's missing other half)", () => {
     expect(Object.keys(REGISTRY.deen.entities).sort()).toEqual([
       "adhkar",
       "habit",
@@ -47,6 +47,7 @@ describe("registry", () => {
       "reflection_entry",
       "sunnah_log",
       "weekly_focus",
+      "weekly_goal",
     ]);
   });
 

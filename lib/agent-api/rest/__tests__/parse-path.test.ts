@@ -130,6 +130,30 @@ describe("parseRestRoute — refusals", () => {
   });
 });
 
+describe("GET /write/{domain}/{entity}/{action} — the same write for agents that can only send GET", () => {
+  const patch = encodeURIComponent(JSON.stringify({ name: "Read 3 pages of Quran", frequency: { type: "daily" } }));
+
+  it("maps onto EXACTLY the {tool, args} the POST form produces", () => {
+    const viaGet = parse("GET", "write/deen/habit/create", `id=h1&patch=${patch}`);
+    const viaPost = parse("POST", "deen/habit/create", "", { id: "h1", patch: { name: "Read 3 pages of Quran", frequency: { type: "daily" } } });
+    expect(viaGet).toEqual(viaPost);
+    expect(viaGet).toMatchObject({ ok: true, route: { tool: "write", args: { domain: "deen", entity: "habit", action: "create", id: "h1" } } });
+  });
+
+  it("id and patch are both optional; a bad or non-object patch, a repeated param and unknown params are refused", () => {
+    expect(parse("GET", "write/deen/prayer/unlog")).toEqual({ ok: true, route: { kind: "tool", tool: "write", args: { domain: "deen", entity: "prayer", action: "unlog" } } });
+    expect(parse("GET", "write/deen/habit/create", "patch=%7Bnope")).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(parse("GET", "write/deen/habit/create", `patch=${encodeURIComponent("[1]")}`)).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(parse("GET", "write/deen/habit/create", "id=a&id=b")).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(parse("GET", "write/deen/habit/create", "x=1")).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("wrong shape or method is refused (POST uses the plain route)", () => {
+    expect(parse("GET", "write/deen/habit")).toMatchObject({ ok: false, code: "route_not_found" });
+    expect(parse("POST", "write/deen/habit/create", "", {})).toMatchObject({ ok: false, code: "method_not_allowed" });
+  });
+});
+
 describe("findTokenInQuery — a credential in the URL is never accepted", () => {
   it("flags token-named params and any lifeos_pat_ value", () => {
     expect(findTokenInQuery(q("access_token=abc"))).toBe("access_token");
@@ -144,6 +168,6 @@ describe("reserved top-level segments never shadow a registry domain", () => {
   it("no REGISTRY / WRITE_REGISTRY domain is named like a reserved REST segment", () => {
     const domains = new Set([...Object.keys(REGISTRY), ...Object.keys(WRITE_REGISTRY)]);
     for (const reserved of RESERVED_TOP_SEGMENTS) expect(domains.has(reserved)).toBe(false);
-    expect(RESERVED_TOP_SEGMENTS).toEqual(expect.arrayContaining(["me", "capabilities", "actions", "manage"]));
+    expect(RESERVED_TOP_SEGMENTS).toEqual(expect.arrayContaining(["me", "capabilities", "actions", "manage", "write"]));
   });
 });

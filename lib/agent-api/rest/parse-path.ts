@@ -21,6 +21,9 @@ import { AGENT_TOOL_NAMES, isAgentToolName, type AgentToolName } from "@/lib/age
  *   POST manage/widgets/{id}/(update|delete)  {patch?}
  *   POST manage/schedules/{id}/(cancel|pause) {patch?}
  *   POST actions  {tool, args}                                  any tool, MCP args verbatim
+ *   GET  write/{domain}/{entity}/{action}[?id=&patch=<url-encoded JSON>]   the SAME write as the POST above, for agents whose
+ *        only HTTP tool is GET-with-headers (they could read but never write). Still needs the Bearer header (a token in the
+ *        URL is refused before this is reached), still needs a write-scoped token, and is never cached (Cache-Control: no-store).
  *
  * The widget/schedule managers sit under `manage/` (not `/widgets` as the
  * audit's §3.2 sketched) because `widgets` is already a READ registry domain
@@ -28,7 +31,7 @@ import { AGENT_TOOL_NAMES, isAgentToolName, type AgentToolName } from "@/lib/age
  * registries in parse-path.test.ts.
  */
 
-export const RESERVED_TOP_SEGMENTS = ["me", "capabilities", "actions", "manage"] as const;
+export const RESERVED_TOP_SEGMENTS = ["me", "capabilities", "actions", "manage", "write"] as const;
 
 export type RestMethod = "GET" | "POST";
 
@@ -205,6 +208,30 @@ export function parseRestRoute({ method, segments, query, body }: RestRequestPar
     const extra = Object.keys(body).filter((k) => k !== "tool" && k !== "args");
     if (extra.length > 0) return badInput(`Unexpected body field(s): ${extra.join(", ")}. The body is {"tool", "args"}.`);
     return ok({ kind: "tool", tool, args: args ?? {} });
+  }
+
+  if (first === "write") {
+    if (segments.length !== 4) return notFound("A GET write is /write/{domain}/{entity}/{action}?id=&patch=<url-encoded JSON>.");
+    if (method !== "GET") return wrongMethod("GET"); // the POST form is /{domain}/{entity}/{action}
+    const unknown = checkQueryParams(query, ["id", "patch"], false);
+    if (unknown) return badInput(unknown);
+    const id = single(query, "id");
+    if (id.error) return badInput(id.error);
+    const patchText = single(query, "patch");
+    if (patchText.error) return badInput(patchText.error);
+    const args: Record<string, unknown> = { domain: second, entity: third, action: fourth };
+    if (id.value !== undefined) args.id = id.value;
+    if (patchText.value !== undefined) {
+      let patch: unknown;
+      try {
+        patch = JSON.parse(patchText.value);
+      } catch {
+        return badInput('"patch" must be a URL-encoded JSON object, e.g. patch=%7B%22name%22%3A%22...%22%7D.');
+      }
+      if (!isPlainObject(patch)) return badInput('"patch" must be a JSON object.');
+      args.patch = patch;
+    }
+    return ok({ kind: "tool", tool: "write", args });
   }
 
   if (first === "manage") {
