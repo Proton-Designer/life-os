@@ -225,7 +225,7 @@ export function planSetupFor(preset: QuranPlanPreset, startDate: string, startPa
     case "days":
       return byDate(addDaysToDateString(startDate, preset.days - 1), `Finish in ${preset.days} days`);
     case "six_months":
-      return byDate(addDaysToDateString(startDate, 182), "Finish in 6 months");
+      return byDate(addDaysToDateString(startDate, 181), "Finish in 6 months"); // 26 weeks = 182 days inclusive (the card previews the same date)
     case "ramadan": {
       const end = preset.ramadanEnd && preset.ramadanEnd >= startDate ? preset.ramadanEnd : addDaysToDateString(startDate, 29);
       return byDate(end, "One juz a day (Ramadan)");

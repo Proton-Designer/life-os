@@ -217,7 +217,29 @@ describe("getQuranOverviewCore", () => {
     expect(o.week.plannedToDate).toBe(20); // days 1-2 of the plan fall in the 2026-10-04 (Sun) week
     expect(o.week.weeklyTargetPages).toBe(70);
     expect(derivedWeeklyQuranTarget(o)).toBe(70);
-    expect(o.juz).toEqual({ current: 1, completed: 0 });
+    expect(o.juz).toEqual({ current: 1, completed: 0, completedToday: [] });
+  });
+  it("juz.completedToday: the juz whose last page today's logs crossed (server-driven milestone note)", async () => {
+    // juz 1 ends on page 21, juz 2 on page 41
+    const f = fakeSupabase({
+      quran_plans: [planRow({ current_page: 38 })],
+      quran_sessions: [
+        { id: "a", user_id: U, date: TODAY, pages_read: 5, from_page: 17, to_page: 21, plan_id: "plan-1", created_at: "x" }, // crosses juz 1
+        { id: "b", user_id: U, date: TODAY, pages_read: 4, from_page: 38, to_page: 41, plan_id: "plan-1", created_at: "y" }, // crosses juz 2
+        { id: "c", user_id: U, date: "2026-10-04", pages_read: 5, from_page: 58, to_page: 62, plan_id: "plan-1", created_at: "z" }, // yesterday's (crosses juz 3): not today
+        { id: "d", user_id: U, date: TODAY, pages_read: 30, from_page: null, to_page: null, plan_id: null, created_at: "w" }, // legacy: no span
+      ],
+    });
+    expect((await getQuranOverviewCore(f.client, U, TODAY)).juz.completedToday).toEqual([1, 2]);
+    // a log that ends INSIDE a juz completes nothing
+    const g = fakeSupabase({ quran_plans: [planRow({ current_page: 12 })], quran_sessions: [{ id: "e", user_id: U, date: TODAY, pages_read: 5, from_page: 7, to_page: 11, plan_id: "plan-1", created_at: "x" }] });
+    expect((await getQuranOverviewCore(g.client, U, TODAY)).juz.completedToday).toEqual([]);
+    expect((await getQuranOverviewCore(fakeSupabase().client, U, TODAY)).juz.completedToday).toEqual([]);
+  });
+  it("end to end: logging through a juz boundary shows it in today's overview", async () => {
+    const f = fakeSupabase({ quran_plans: [planRow({ current_page: 18 })] });
+    await logQuranReadingCore(f.client, U, TODAY, { toPage: 22 });
+    expect((await getQuranOverviewCore(f.client, U, TODAY)).juz.completedToday).toEqual([1]);
   });
   it("paused: no portion, no derived weekly target (callers fall back to the manual one)", async () => {
     const f = fakeSupabase({ quran_plans: [planRow({ status: "paused", paused_on: TODAY })] });

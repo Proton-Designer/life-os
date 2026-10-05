@@ -245,7 +245,8 @@ describe("setup presets", () => {
     const b = planSetupFor({ kind: "days", days: 60 }, START, 1);
     expect((b as { originalPacePagesPerDay: number }).originalPacePagesPerDay).toBeCloseTo(10.07, 2);
     const c = planSetupFor({ kind: "six_months" }, START, 1);
-    expect((c as { targetDate: string }).targetDate).toBe("2027-04-04");
+    expect((c as { targetDate: string }).targetDate).toBe("2027-04-03"); // start + 181 = 182 days inclusive (26 weeks), matching the card's preview
+    expect(daysBetween(START, "2027-04-03") + 1).toBe(182);
     expect((c as { originalPacePagesPerDay: number }).originalPacePagesPerDay).toBeLessThan(4);
   });
   it("Ramadan uses the end date when known (and not in the past), else 30 days", () => {

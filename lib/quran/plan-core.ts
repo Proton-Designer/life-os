@@ -4,6 +4,7 @@ import { addDaysToDateString, getWeekStartDate } from "@/lib/date-utils";
 import { JUZ_START_PAGES, TOTAL_PAGES, juzForPage, surahLabelForSpan } from "@/lib/quran/page-map";
 import {
   DEFAULT_PRESET,
+  juzCompletedBetween,
   applyReading,
   cumulativeTargetPages,
   isPlanSetupError,
@@ -90,12 +91,12 @@ export async function getLatestPlanCore(supabase: SupabaseClient, userId: string
   return row ? rowToPlan(row as PlanRow) : null;
 }
 
-export type OverviewSession = { date: string; pages: number };
+export type OverviewSession = { date: string; pages: number; /** The span a plan log covered (null on legacy rows). */ fromPage: number | null; toPage: number | null };
 
 async function recentSessions(supabase: SupabaseClient, userId: string, sinceDate: string): Promise<OverviewSession[]> {
-  const { data, error } = await supabase.from("quran_sessions").select("date, pages_read").eq("user_id", userId).gte("date", sinceDate);
+  const { data, error } = await supabase.from("quran_sessions").select("date, pages_read, from_page, to_page").eq("user_id", userId).gte("date", sinceDate);
   if (error) throw error;
-  return (data ?? []).map((r) => ({ date: r.date as string, pages: r.pages_read as number }));
+  return (data ?? []).map((r) => ({ date: r.date as string, pages: r.pages_read as number, fromPage: (r.from_page as number | null) ?? null, toPage: (r.to_page as number | null) ?? null }));
 }
 
 export type QuranOverview = {
@@ -123,8 +124,23 @@ export type QuranOverview = {
   week: { pagesRead: number; plannedToDate: number; weeklyTargetPages: number | null };
   /** Pages the user read TODAY (any log). */
   pagesReadToday: number;
-  juz: { current: number; completed: number };
+  juz: {
+    current: number;
+    completed: number;
+    /** Juz whose last page a log filed under TODAY crossed (server-driven "Juz 7 complete · 7 of 30" note); [] otherwise. */
+    completedToday: number[];
+  };
 };
+
+/** Juz completed by the plan logs filed under `localDate` (a log from page a through b completes every juz ending in [a, b]). */
+export function juzCompletedToday(sessions: ReadonlyArray<OverviewSession>, localDate: string): number[] {
+  const done = new Set<number>();
+  for (const s of sessions) {
+    if (s.date !== localDate || s.fromPage === null || s.toPage === null) continue;
+    for (const j of juzCompletedBetween(s.fromPage, s.toPage + 1)) done.add(j);
+  }
+  return [...done].sort((a, b) => a - b);
+}
 
 const EMPTY_WEEK = { pagesRead: 0, plannedToDate: 0, weeklyTargetPages: null };
 
@@ -137,7 +153,7 @@ export async function getQuranOverviewCore(supabase: SupabaseClient, userId: str
 
   const plan = (await getOpenPlanCore(supabase, userId)) ?? (await getLatestPlanCore(supabase, userId));
   if (!plan) {
-    return { plan: null, portion: null, status: null, readingDaysLast7: readingDaysInLast7(sessions, localDate), week: { ...EMPTY_WEEK, pagesRead: weekPagesRead }, pagesReadToday, juz: { current: 1, completed: 0 } };
+    return { plan: null, portion: null, status: null, readingDaysLast7: readingDaysInLast7(sessions, localDate), week: { ...EMPTY_WEEK, pagesRead: weekPagesRead }, pagesReadToday, juz: { current: 1, completed: 0, completedToday: [] } };
   }
 
   const pace = planPace(plan);
@@ -172,7 +188,7 @@ export async function getQuranOverviewCore(supabase: SupabaseClient, userId: str
     readingDaysLast7: readingDaysInLast7(sessions, localDate),
     week: { pagesRead: weekPagesRead, plannedToDate, weeklyTargetPages: active ? Math.round(pace * 7) : null },
     pagesReadToday,
-    juz: { current: juzForPage(current), completed: completedJuz },
+    juz: { current: juzForPage(current), completed: completedJuz, completedToday: juzCompletedToday(sessions, localDate) },
   };
 }
 
