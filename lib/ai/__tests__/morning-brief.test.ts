@@ -33,7 +33,7 @@ describe("normalizeBriefText()", () => {
 });
 
 describe("computeNightlyBriefInputs()", () => {
-  function makeClient(opts: { completedYesterday?: number; dueToday?: number } = {}) {
+  function makeClient(opts: { completedYesterday?: number; dueToday?: number; planned?: { title: string | null; mit_rank: number }[] } = {}) {
     const calls: { eq: Record<string, unknown>; gte?: string; lt?: string }[] = [];
     const from = vi.fn(() => {
       const eqArgs: Record<string, unknown> = {};
@@ -41,6 +41,9 @@ describe("computeNightlyBriefInputs()", () => {
       let ltArg: string | undefined;
       const chain: Record<string, unknown> = {};
       chain.select = vi.fn(() => chain);
+      chain.not = vi.fn(() => chain);
+      chain.order = vi.fn(() => chain);
+      chain.limit = vi.fn(() => chain);
       chain.eq = vi.fn((col: string, val: unknown) => {
         eqArgs[col] = val;
         return chain;
@@ -53,8 +56,9 @@ describe("computeNightlyBriefInputs()", () => {
         ltArg = val;
         return chain;
       });
-      chain.then = (resolve: (v: { count: number; error: null }) => void) => {
+      chain.then = (resolve: (v: { count?: number; data?: unknown; error: null }) => void) => {
         calls.push({ eq: { ...eqArgs }, gte: gteArg, lt: ltArg });
+        if ("planned_date" in eqArgs) return resolve({ data: opts.planned ?? [], error: null });
         const isCompletedQuery = eqArgs.completed === true;
         const count = isCompletedQuery ? (opts.completedYesterday ?? 0) : (opts.dueToday ?? 0);
         resolve({ count, error: null });
@@ -67,7 +71,7 @@ describe("computeNightlyBriefInputs()", () => {
   it("counts tasks completed within [yesterday-local-start, today-local-start) and tasks due today, per the user's own timezone", async () => {
     const { client, calls } = makeClient({ completedYesterday: 3, dueToday: 2 });
     const result = await computeNightlyBriefInputs(client, "user-1", new Date("2026-09-15T13:00:00.000Z"), "America/Chicago");
-    expect(result).toEqual({ tasksCompletedYesterday: 3, tasksDueToday: 2 });
+    expect(result).toEqual({ tasksCompletedYesterday: 3, tasksDueToday: 2, plannedTitles: [] });
 
     const completedCall = calls.find((c) => c.eq.completed === true)!;
     expect(completedCall.gte).toBe("2026-09-14T05:00:00.000Z"); // yesterday 00:00 CDT
@@ -75,6 +79,16 @@ describe("computeNightlyBriefInputs()", () => {
 
     const dueCall = calls.find((c) => c.eq.completed === false)!;
     expect(dueCall.eq.due_date).toBe("2026-09-15");
+  });
+
+  it("reads last night's plan for today (planned_date = the user's local today, ranked by mit_rank), titles trimmed and capped", async () => {
+    const long = "x".repeat(200);
+    const { client, calls } = makeClient({ planned: [{ title: "  Ship the fix ", mit_rank: 1 }, { title: long, mit_rank: 2 }, { title: null, mit_rank: 3 }] });
+    const result = await computeNightlyBriefInputs(client, "user-1", new Date("2026-09-15T13:00:00.000Z"), "America/Chicago");
+    expect(result.plannedTitles).toEqual(["Ship the fix", "x".repeat(80)]); // blank/null titles dropped
+    const planCall = calls.find((c) => "planned_date" in c.eq)!;
+    expect(planCall.eq.planned_date).toBe("2026-09-15");
+    expect(planCall.eq.user_id).toBe("user-1");
   });
 
   it("both counts are scoped to the given user_id", async () => {
@@ -86,7 +100,7 @@ describe("computeNightlyBriefInputs()", () => {
   it("a null count (Supabase's own shape for a count query with no matching rows) degrades to 0, never null/undefined", async () => {
     const { client } = makeClient({}); // undefined opts -> the fake resolves { count: undefined, error: null } -> ?? 0
     const result = await computeNightlyBriefInputs(client, "user-1", new Date("2026-09-15T13:00:00.000Z"), "UTC");
-    expect(result).toEqual({ tasksCompletedYesterday: 0, tasksDueToday: 0 });
+    expect(result).toEqual({ tasksCompletedYesterday: 0, tasksDueToday: 0, plannedTitles: [] });
   });
 });
 
@@ -94,7 +108,7 @@ describe("generateMorningBrief()", () => {
   it("calls gatewayChat with provider/tier OMITTED (resolves the user's own saved preference), feature 'morning_brief'", async () => {
     gatewayChatMock.mockResolvedValue({ ok: true, content: "Line one.\nLine two.\nLine three.", keySource: "user" });
     const fakeClient = {} as unknown as SupabaseClient;
-    const result = await generateMorningBrief(fakeClient, "user-1", { tasksCompletedYesterday: 2, tasksDueToday: 1 });
+    const result = await generateMorningBrief(fakeClient, "user-1", { tasksCompletedYesterday: 2, tasksDueToday: 1, plannedTitles: [] });
 
     expect(result).toEqual({ ok: true, briefText: "Line one.\nLine two.\nLine three.", provider: "user", model: "" });
     const call = gatewayChatMock.mock.calls[0];
@@ -107,13 +121,13 @@ describe("generateMorningBrief()", () => {
 
   it("gatewayChat ok:false (no key, cap hit, provider failure) surfaces as ok:false with its own message -- never throws", async () => {
     gatewayChatMock.mockResolvedValue({ ok: false, message: "AI features aren't enabled for this account." });
-    const result = await generateMorningBrief({} as unknown as SupabaseClient, "user-1", { tasksCompletedYesterday: 0, tasksDueToday: 0 });
+    const result = await generateMorningBrief({} as unknown as SupabaseClient, "user-1", { tasksCompletedYesterday: 0, tasksDueToday: 0, plannedTitles: [] });
     expect(result).toEqual({ ok: false, reason: "AI features aren't enabled for this account." });
   });
 
   it("empty/unusable content after normalization is treated as a failure, not a blank brief", async () => {
     gatewayChatMock.mockResolvedValue({ ok: true, content: "\n\n  \n" });
-    const result = await generateMorningBrief({} as unknown as SupabaseClient, "user-1", { tasksCompletedYesterday: 0, tasksDueToday: 0 });
+    const result = await generateMorningBrief({} as unknown as SupabaseClient, "user-1", { tasksCompletedYesterday: 0, tasksDueToday: 0, plannedTitles: [] });
     expect(result.ok).toBe(false);
   });
 });
@@ -141,9 +155,12 @@ describe("dispatchNightlyMorningBriefs()", () => {
       });
       chain.gte = vi.fn(() => chain);
       chain.lt = vi.fn(() => chain);
+      chain.not = vi.fn(() => chain);
+      chain.order = vi.fn(() => chain);
+      chain.limit = vi.fn(() => chain);
       chain.then = (resolve: (v: { data?: unknown; count?: number; error: null }) => void) => {
         if (table === "profiles") return resolve({ data: opts.profiles ?? [], error: null });
-        if (table === "tasks") return resolve({ count: 0, error: null }); // no brief-content assertions in this describe block
+        if (table === "tasks") return resolve({ count: 0, data: [], error: null }); // no brief-content assertions in this describe block
         resolve({ error: null });
       };
       chain.insert = vi.fn((row: Record<string, unknown>) => {
@@ -308,3 +325,32 @@ describe("getMorningBriefForToday()", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("brief prompt uses the night plan", () => {
+  const userMessage = async (inputs: { tasksCompletedYesterday: number; tasksDueToday: number; plannedTitles: string[] }) => {
+    gatewayChatMock.mockResolvedValue({ ok: true, content: "a\nb\nc", keySource: "user" });
+    await generateMorningBrief({} as unknown as SupabaseClient, "user-1", inputs);
+    const messages = gatewayChatMock.mock.calls.at(-1)![3] as { role: string; content: string }[];
+    return { system: messages[0]!.content, user: messages[1]!.content };
+  };
+
+  it("names the crown first, then the others, when a plan exists", async () => {
+    const { user, system } = await userMessage({ tasksCompletedYesterday: 1, tasksDueToday: 2, plannedTitles: ["Ship the fix", "Call the bank", "Gym"] });
+    expect(user).toContain('(the crown) is: "Ship the fix"');
+    expect(user).toContain('"Call the bank", "Gym"');
+    expect(system).toMatch(/crowned top priority/);
+  });
+
+  it("says nothing about a plan when none was made (positive control: the counts are still there)", async () => {
+    const { user } = await userMessage({ tasksCompletedYesterday: 1, tasksDueToday: 2, plannedTitles: [] });
+    expect(user).not.toMatch(/crown|planned/i);
+    expect(user).toContain("Today they have 2 tasks due.");
+  });
+
+  it("a plan with only a crown mentions no 'others'", async () => {
+    const { user } = await userMessage({ tasksCompletedYesterday: 0, tasksDueToday: 0, plannedTitles: ["Only one"] });
+    expect(user).toContain('"Only one"');
+    expect(user).not.toContain("The others are");
+  });
+});
+

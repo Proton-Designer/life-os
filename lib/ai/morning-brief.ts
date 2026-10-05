@@ -49,7 +49,7 @@ const BRIEF_WINDOW_DURATION_MS = 5 * 60 * 60 * 1000;
 const SYSTEM_PROMPT =
   "You write a short daily brief for a personal productivity app. Reply with EXACTLY three lines of plain text, " +
   "no markdown, no emoji, no numbering, no preamble. Line 1: one warm, specific sentence about yesterday. " +
-  "Line 2: one sentence about what's ahead today. Line 3: one short, genuine encouragement. " +
+  "Line 2: one sentence about what's ahead today; if a crowned top priority is given, name it plainly and do not invent others. Line 3: one short, genuine encouragement. " +
   "Each line under 100 characters.";
 
 function isWithinBriefWindow(now: Date, timezone: string, briefDate: string): boolean {
@@ -75,7 +75,16 @@ function untypedFrom(supabase: SupabaseClient, table: string) {
 export interface NightlyBriefInputs {
   tasksCompletedYesterday: number;
   tasksDueToday: number;
+  /**
+   * Last night's plan for TODAY (tasks.planned_date = today, ranked by mit_rank): the crown first, then the starred
+   * ones. The night plan is the one thing the user DECIDED, so the brief leads with it instead of a bare task count.
+   * Empty when no plan was made (the brief then says nothing about it, never scolds).
+   */
+  plannedTitles: string[];
 }
+
+const MAX_PLANNED_IN_BRIEF = 3;
+const MAX_TITLE_CHARS = 80;
 
 /**
  * Direct, lean queries against `tasks` (domain-generic: school, co_op,
@@ -94,7 +103,7 @@ export async function computeNightlyBriefInputs(
   const yesterdayStartIso = resolveLocalTime(yesterdayStr, "00:00", timezone).toISOString();
   const todayStartIso = resolveLocalTime(todayStr, "00:00", timezone).toISOString();
 
-  const [{ count: completedYesterday }, { count: dueToday }] = await Promise.all([
+  const [{ count: completedYesterday }, { count: dueToday }, { data: planned }] = await Promise.all([
     supabase
       .from("tasks")
       .select("id", { count: "exact", head: true })
@@ -108,9 +117,20 @@ export async function computeNightlyBriefInputs(
       .eq("user_id", userId)
       .eq("completed", false)
       .eq("due_date", todayStr),
+    supabase
+      .from("tasks")
+      .select("title, mit_rank")
+      .eq("user_id", userId)
+      .eq("planned_date", todayStr)
+      .not("mit_rank", "is", null)
+      .order("mit_rank", { ascending: true })
+      .limit(MAX_PLANNED_IN_BRIEF),
   ]);
 
-  return { tasksCompletedYesterday: completedYesterday ?? 0, tasksDueToday: dueToday ?? 0 };
+  const plannedTitles = ((planned ?? []) as { title: string | null }[])
+    .map((t) => (t.title ?? "").trim().slice(0, MAX_TITLE_CHARS))
+    .filter((t) => t.length > 0);
+  return { tasksCompletedYesterday: completedYesterday ?? 0, tasksDueToday: dueToday ?? 0, plannedTitles };
 }
 
 function buildBriefUserMessage(inputs: NightlyBriefInputs): string {
@@ -122,7 +142,13 @@ function buildBriefUserMessage(inputs: NightlyBriefInputs): string {
     inputs.tasksDueToday > 0
       ? `Today they have ${inputs.tasksDueToday} task${inputs.tasksDueToday === 1 ? "" : "s"} due.`
       : "Today they have nothing due yet.";
-  return `${yesterdayLine} ${todayLine}`;
+  // The night plan, when there is one: first title is the crown (the single most important thing), the rest are starred.
+  const [crown, ...others] = inputs.plannedTitles;
+  const planLine = crown
+    ? ` Last night they planned today's priorities. The most important one (the crown) is: "${crown}".` +
+      (others.length > 0 ? ` The others are: ${others.map((t) => `"${t}"`).join(", ")}.` : "")
+    : "";
+  return `${yesterdayLine} ${todayLine}${planLine}`;
 }
 
 /** At most 3 non-empty lines, trimmed -- a model that returns more (or fewer, with blank lines) must never break Home's rendering or silently show a 10-line wall of text. */
