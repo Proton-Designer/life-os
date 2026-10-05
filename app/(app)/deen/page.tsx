@@ -29,7 +29,9 @@ import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
 import { HabitBuilder, type DeenHabitData } from "@/components/deen/habit-builder";
 import { buildFaithPractices } from "@/lib/deen/practices";
 import { buildHabitConsistencyRows } from "@/lib/deen/habit-consistency";
-import { computePrayerStreak, accentForPrayerStreak } from "@/lib/deen/prayer-streak";
+import { accentForPrayerStreak, computeLongestPrayerStreak } from "@/lib/deen/prayer-streak";
+import { getOnTimePrayerDays } from "@/lib/deen/prayer-streak-reader";
+import { computeHabitStreak } from "@/lib/deen/habit-streak";
 import { countRecentQadaCatchUps, countRecentMisses, accentForQadaBacklog } from "@/lib/deen/qada-progress";
 import { buildQadaBacklog, bucketQadaBacklog, itemsInQadaWindow, qadaWindowStart, totalQadaOwed } from "@/lib/deen/qada-backlog";
 import { QadaBacklogCard } from "@/components/deen/qada-backlog-card";
@@ -104,6 +106,7 @@ export default async function DeenPage() {
     { data: sunnahLogRows },
     quranOverview,
     layout,
+    onTimePrayerDays,
   ] = await Promise.all([
     // One 60-day range query serves today's status, the 30-day consistency
     // grid, the streak, and the 7-day qada catch-up count — sliced in
@@ -147,6 +150,7 @@ export default async function DeenPage() {
     // QURAN-02: the khatm plan's one read (plan, today's portion, status, week). Deen is ON here (the page redirects otherwise).
     getQuranOverviewCore(supabase, userId, dateStr),
     getPageLayout("deen"),
+    getOnTimePrayerDays(supabase, userId),
   ]);
   const layoutMap = buildLayoutMap(layout);
 
@@ -158,7 +162,6 @@ export default async function DeenPage() {
   // be derived as missed — see computeTrackingFloorDateStr's own doc
   // comment for the full "why" (R7's account wipe, migration 051).
   const accountCreatedDateStr = computeTrackingFloorDateStr(profile, timezone, now);
-  const sixtyDayDates = Array.from({ length: 60 }, (_, i) => addDaysToDateString(sixtyDaysAgoStr, i));
   const historyDayCount = Math.round((Date.parse(`${dateStr}T00:00:00Z`) - Date.parse(`${prayerHistoryStartStr}T00:00:00Z`)) / 86_400_000) + 1;
   const historyDates = Array.from({ length: historyDayCount }, (_, i) => addDaysToDateString(prayerHistoryStartStr, i));
   const resolvedStatuses = resolvePrayerStatuses({
@@ -269,11 +272,10 @@ export default async function DeenPage() {
   const hasTrackableConsistencyDay = thirtyDays.some((d) => d < dateStr && d >= accountCreatedDateStr);
 
   // --- Prayer streak ---
-  const prayersByDate: Record<string, string[]> = {};
-  for (const date of sixtyDayDates) {
-    prayersByDate[date] = PRAYERS.map((p) => resolvedStatuses[date][p.name]);
-  }
-  const prayerStreak = computePrayerStreak(prayersByDate, dateStr);
+  // On-time only: a prayer made up through Qada breaks the day. Computed from the user's WHOLE history of on-time days
+  // (not the 60-day window the rest of this page uses), so a long streak isn't capped and the best-ever one is known.
+  const prayerStreak = computeHabitStreak(onTimePrayerDays, dateStr);
+  const longestPrayerStreak = Math.max(computeLongestPrayerStreak(onTimePrayerDays), prayerStreak);
 
   // --- Qada backlog: recent catch-up vs. newly-missed counts (real derived signal — qada_owed itself has no history) ---
   const sevenDayRows = allPrayerRows.filter((p) => p.date >= sevenDaysAgoStr);
@@ -376,8 +378,16 @@ export default async function DeenPage() {
             icon={Flame}
             accent={accentForPrayerStreak(prayerStreak)}
             label="Prayer streak"
-            value={`${prayerStreak}`}
-            caption={prayerStreak === 0 ? "Pray all 5 today to start one" : "Keep it going"}
+            value={
+              <>
+                {prayerStreak}
+                {/* Best ever, beside the current number in smaller type (not a second card: it is the same fact's context). */}
+                <span className="ml-2 align-baseline text-sm font-medium text-muted-foreground" data-testid="prayer-streak-longest">
+                  Longest {longestPrayerStreak}
+                </span>
+              </>
+            }
+            caption={prayerStreak === 0 ? "Pray all 5 on time today to start one" : "All 5 on time · Qada breaks it"}
           />
         </div>
         <div className="w-[78vw] shrink-0 snap-start md:w-auto">
