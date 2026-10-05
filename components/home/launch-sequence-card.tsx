@@ -16,6 +16,7 @@ import type { MorningRoutineChecklistItem } from "@/lib/morning-routine/actions-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/ui/panel";
+import { StartDayButton } from "@/components/home/rhythm/start-day-button";
 import { cn } from "@/lib/utils";
 
 export type LaunchHabitOption = { id: string; identityStatement: string };
@@ -23,13 +24,15 @@ export type LaunchHabitOption = { id: string; identityStatement: string };
 // Lazy on purpose: the action is only touched when the debounced refresh fires.
 const refreshLaunch = () => refreshLaunchViews();
 
-function StepRow({ item, today, editing, habits, onEdit, onRemove }: {
+function StepRow({ item, today, editing, habits, onEdit, onRemove, onTicked }: {
   item: MorningRoutineChecklistItem;
   today: string;
   editing: boolean;
   habits: LaunchHabitOption[];
   onEdit: (item: MorningRoutineChecklistItem) => void;
   onRemove: (item: MorningRoutineChecklistItem) => void;
+  /** Fired when the user ticks (not un-ticks) the step: the card uses it to offer starting the day. */
+  onTicked: () => void;
 }) {
   // ABSOLUTE tick (setLaunchStepDone = tick + the linked habit's vote, rolled back together on the
   // server). Keyed by step AND local date, so a tab left open past midnight starts the new day
@@ -53,7 +56,10 @@ function StepRow({ item, today, editing, habits, onEdit, onRemove }: {
           type="button"
           role="checkbox"
           aria-checked={done}
-          onClick={() => void tick.set(!done)}
+          onClick={() => {
+            void tick.set(!done);
+            if (!done) onTicked();
+          }}
           className="flex min-h-10 flex-1 items-start gap-2 rounded-md px-1 text-left text-sm"
         >
           {done ? <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden /> : <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />}
@@ -97,7 +103,7 @@ const EMPTY_DRAFT: Draft = { id: null, label: "", ifCue: "", fallbackText: "", h
  * server render hands in new items (or a new local day), which fixes the old card's
  * never-resyncs / midnight bugs.
  */
-export function LaunchSequenceCard({ items, today, habits }: { items: MorningRoutineChecklistItem[]; today: string; habits: LaunchHabitOption[] }) {
+export function LaunchSequenceCard({ items, today, habits, dayStarted = true }: { items: MorningRoutineChecklistItem[]; today: string; habits: LaunchHabitOption[]; /** false = the Start Day mark doesn't exist yet today (Home's "morning" state). Default true so every other caller is unchanged. */ dayStarted?: boolean }) {
   const [added, setAdded] = useState<MorningRoutineChecklistItem[]>([]);
   const [edited, setEdited] = useState<Record<string, Partial<MorningRoutineChecklistItem>>>({});
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -105,6 +111,10 @@ export function LaunchSequenceCard({ items, today, habits }: { items: MorningRou
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Ticking a step while the day isn't started offers (never forces) starting it. Not auto-started on purpose: a late
+  // catch-up tick would otherwise record the wrong wake time, and the wake mark can't be corrected afterwards.
+  const [ticked, setTicked] = useState(false);
+  const offerStart = !dayStarted && ticked;
 
   // A new server render (new items array, or a new local day) replaces the overlays: props win.
   useEffect(() => {
@@ -182,7 +192,7 @@ export function LaunchSequenceCard({ items, today, habits }: { items: MorningRou
       ) : (
         <ul className="flex flex-col gap-1">
           {list.map((item) => (
-            <StepRow key={`${item.id}:${today}`} item={item} today={today} editing={editing} habits={habits} onEdit={startEdit} onRemove={remove} />
+            <StepRow key={`${item.id}:${today}`} item={item} today={today} editing={editing} habits={habits} onEdit={startEdit} onRemove={remove} onTicked={() => setTicked(true)} />
           ))}
         </ul>
       )}
@@ -217,6 +227,12 @@ export function LaunchSequenceCard({ items, today, habits }: { items: MorningRou
               Save step
             </Button>
           </div>
+        </div>
+      ) : null}
+      {offerStart ? (
+        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border/60 p-3" data-testid="launch-start-offer">
+          <p className="text-xs text-muted-foreground">Up already? Start your day too.</p>
+          <StartDayButton />
         </div>
       ) : null}
       {error ? (

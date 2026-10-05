@@ -102,6 +102,18 @@ describe("RhythmSection", () => {
     expect(screen.getByTestId("day-bar-efficiency")).toHaveTextContent("42% focused");
   });
 
+  it("Re-plan stays available after Start day, in BOTH Today layouts, and opens the same plan stage (mode today)", async () => {
+    for (const view of ["bar", "classic"] as const) {
+      const { unmount } = render(<RhythmSection data={today} dayView={view} />);
+      expect(screen.getByTestId("today-replan")).toContainElement(screen.getByTestId("replan-open"));
+      unmount();
+    }
+    const user = userEvent.setup();
+    render(<RhythmSection data={today} dayView="bar" />);
+    await user.click(screen.getByTestId("replan-open"));
+    expect(await screen.findByTestId("plan-stage")).toHaveTextContent("today:Draft the memo");
+  });
+
   it("the other phases are identical in both views (morning card unchanged)", () => {
     for (const view of ["bar", "classic"] as const) {
       const { unmount } = render(<RhythmSection data={{ state: "morning", plan: [], diff: { changed: false } as never }} dayView={view} />);

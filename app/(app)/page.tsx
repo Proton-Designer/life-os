@@ -356,6 +356,7 @@ export default async function HomePage() {
                   items={morningRoutineItems}
                   today={dateStr}
                   habits={activeHabits.map((h) => ({ id: h.id, identityStatement: h.identityStatement }))}
+                  dayStarted={rhythm.state === "today"}
                 />
               ) : null
             }

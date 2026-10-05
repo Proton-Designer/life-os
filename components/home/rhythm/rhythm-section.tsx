@@ -102,6 +102,10 @@ export function RhythmSection({
               localDate={data.localDate}
             />
             <TimeboxedTasks tasks={data.timeboxed} />
+            {/* Plans change mid-day: the same Re-plan the Morning card has, kept after Start day (same ClosePlanStage, same rank rules). */}
+            <div className="flex justify-end" data-testid="today-replan">
+              <ReplanDialog />
+            </div>
           </div>
         );
       }
@@ -122,6 +126,10 @@ export function RhythmSection({
             <StatTile icon={Gauge} accent="info" label="Efficiency" value={data.efficiencyPercent === null ? "—" : `${data.efficiencyPercent}%`} />
           </div>
           <TimeboxedTasks tasks={data.timeboxed} />
+            {/* Plans change mid-day: the same Re-plan the Morning card has, kept after Start day (same ClosePlanStage, same rank rules). */}
+            <div className="flex justify-end" data-testid="today-replan">
+              <ReplanDialog />
+            </div>
         </div>
       );
     }

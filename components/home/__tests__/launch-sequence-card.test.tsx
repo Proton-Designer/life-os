@@ -7,6 +7,7 @@ const setLaunchStepDone = vi.fn(async (..._a: unknown[]): Promise<{ ok: true } |
 const refreshLaunchViews = vi.fn(async () => {});
 const archive = vi.fn(async (..._a: unknown[]): Promise<{ ok: true } | { ok: false; message: string }> => ({ ok: true }));
 const create = vi.fn();
+vi.mock("@/app/(app)/open/actions", () => ({ startDayAction: vi.fn(async () => {}), startDayAtAction: vi.fn(async () => ({ ok: true, alreadyStarted: false })) }));
 const update = vi.fn(async (..._a: unknown[]): Promise<{ ok: true } | { ok: false; message: string }> => ({ ok: true }));
 vi.mock("@/app/(app)/morning-routine/actions", () => ({
   setLaunchStepDone: (...a: unknown[]) => setLaunchStepDone(...a),
@@ -135,3 +136,41 @@ describe("LaunchSequenceCard", () => {
     expect(screen.getByText("When I pour my coffee, I stretch")).toBeInTheDocument();
   });
 });
+
+describe("LaunchSequenceCard — offers to start the day (never forces it)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetKeyedQueuesForTests();
+    resetDeferredRefreshForTests();
+  });
+
+  it("before the day is started, ticking a step offers 'Start your day too' with the Start day button (and Woke earlier?)", async () => {
+    const user = userEvent.setup();
+    render(<LaunchSequenceCard items={[step()]} today="2026-10-05" habits={habits} dayStarted={false} />);
+    expect(screen.queryByTestId("launch-start-offer")).not.toBeInTheDocument(); // nothing until a tick
+    await user.click(screen.getByRole("checkbox"));
+    const offer = await screen.findByTestId("launch-start-offer");
+    expect(within(offer).getByTestId("start-day")).toBeInTheDocument();
+    expect(within(offer).getByTestId("woke-earlier")).toBeInTheDocument();
+  });
+
+  it("un-ticking does not offer it; once the day is started (the default) there is never an offer", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<LaunchSequenceCard items={[step({ checkedToday: true })]} today="2026-10-05" habits={habits} dayStarted={false} />);
+    await user.click(screen.getByRole("checkbox")); // un-tick
+    expect(screen.queryByTestId("launch-start-offer")).not.toBeInTheDocument();
+    unmount();
+    render(<LaunchSequenceCard items={[step()]} today="2026-10-05" habits={habits} />); // dayStarted defaults to true
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.queryByTestId("launch-start-offer")).not.toBeInTheDocument();
+  });
+
+  it("ticking alone never starts the day (a late catch-up tick must not record a wrong wake time)", async () => {
+    const { startDayAction } = await import("@/app/(app)/open/actions");
+    const user = userEvent.setup();
+    render(<LaunchSequenceCard items={[step()]} today="2026-10-05" habits={habits} dayStarted={false} />);
+    await user.click(screen.getByRole("checkbox"));
+    expect(startDayAction).not.toHaveBeenCalled();
+  });
+});
+
