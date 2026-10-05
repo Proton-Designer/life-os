@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Same pattern as onboarding/__tests__/actions.test.ts: redirect() throws in
 // real Next (it works via a thrown NEXT_REDIRECT signal), so a mock that
@@ -25,8 +25,12 @@ vi.mock("@/lib/supabase/auth", () => ({
 }));
 
 const markDayStartedMock = vi.fn(async (..._args: unknown[]) => undefined);
-vi.mock("@/lib/day-structure/day-start", () => ({
+const getTodayDayStartMock = vi.fn(async (..._args: unknown[]) => null as unknown);
+// resolveWakeInstant stays REAL (the future-time refusal is the behavior under test); only the writes/reads are mocked.
+vi.mock("@/lib/day-structure/day-start", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/day-structure/day-start")>()),
   markDayStarted: (...args: unknown[]) => markDayStartedMock(...args),
+  getTodayDayStart: (...args: unknown[]) => getTodayDayStartMock(...args),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -60,3 +64,45 @@ describe("startDayAction", () => {
     expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 });
+
+describe("startDayAtAction — start with an earlier wake time", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-05T14:30:00.000Z")); // 9:30 AM Chicago
+    getAuthedUserMock.mockResolvedValue({ id: "user-1", email: "u@example.com" });
+    getTodayDayStartMock.mockResolvedValue(null);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("writes the first mark at the chosen time (not now), revalidates Home", async () => {
+    const { startDayAtAction } = await import("../actions");
+    const res = await startDayAtAction("07:00");
+    expect(res).toEqual({ ok: true, alreadyStarted: false });
+    const args = markDayStartedMock.mock.calls[0]!;
+    expect(args[4]).toEqual(new Date("2026-10-05T12:00:00.000Z")); // 7:00 AM CDT
+    expect(revalidatePathMock).toHaveBeenCalledWith("/");
+  });
+
+  it("a day that was already started is reported as such (the write itself is insert-only and cannot move the mark)", async () => {
+    getTodayDayStartMock.mockResolvedValue({ localDate: "2026-10-05", wokeAtIso: "2026-10-05T13:00:00.000Z" });
+    const { startDayAtAction } = await import("../actions");
+    expect(await startDayAtAction("07:00")).toEqual({ ok: true, alreadyStarted: true });
+  });
+
+  it("refuses a future time or a malformed one, with the reason RETURNED, and writes nothing", async () => {
+    const { startDayAtAction } = await import("../actions");
+    expect(await startDayAtAction("11:00")).toEqual({ ok: false, message: "That time hasn't happened yet today." });
+    expect(await startDayAtAction("7am")).toEqual({ ok: false, message: "Enter a valid wake time." });
+    expect(markDayStartedMock).not.toHaveBeenCalled();
+  });
+
+  it("an unauthenticated caller is redirected to /login and nothing is written", async () => {
+    getAuthedUserMock.mockResolvedValue(null);
+    const { startDayAtAction } = await import("../actions");
+    await expect(startDayAtAction("07:00")).rejects.toThrow("REDIRECT");
+    expect(redirectMock).toHaveBeenCalledWith("/login");
+    expect(markDayStartedMock).not.toHaveBeenCalled();
+  });
+});
+

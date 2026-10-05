@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getTodayDayStart, markDayStarted, getDayStartsForRange } from "../day-start";
+import { getTodayDayStart, markDayStarted, getDayStartsForRange, resolveWakeInstant } from "../day-start";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown } = { data: null, error: null }) {
   const chain: Record<string, unknown> = {};
@@ -124,3 +124,46 @@ describe("getDayStartsForRange — P3-09's per-day wake marks for a review week"
     await expect(getDayStartsForRange(client, "user-1", "2026-09-08", "2026-09-15")).rejects.toThrow("boom");
   });
 });
+
+describe("markDayStarted — an earlier wake time (recovery)", () => {
+  it("records the chosen wake instant instead of now, still insert-only (ignoreDuplicates): an existing mark is never moved", async () => {
+    const dayStarts = makeChain({ data: { local_date: "2026-09-14", woke_at: "2026-09-14T12:00:00.000Z" }, error: null });
+    const client = { from: vi.fn(() => dayStarts) } as unknown as SupabaseClient;
+    const now = new Date("2026-09-14T14:00:00.000Z");
+    const wokeAt = new Date("2026-09-14T12:00:00.000Z");
+    await markDayStarted(client, "user-1", "UTC", now, wokeAt);
+    expect(dayStarts.upsert).toHaveBeenCalledWith(
+      { user_id: "user-1", local_date: "2026-09-14", woke_at: wokeAt.toISOString() },
+      { onConflict: "user_id,local_date", ignoreDuplicates: true }
+    );
+  });
+});
+
+describe("resolveWakeInstant", () => {
+  const CHI = "America/Chicago";
+  const now = new Date("2026-10-05T14:30:00.000Z"); // 9:30 AM Chicago, Mon Oct 5
+
+  it("turns a local time of day into the instant on the user's local TODAY", () => {
+    const r = resolveWakeInstant("07:00", CHI, now);
+    expect(r).toEqual({ ok: true, at: new Date("2026-10-05T12:00:00.000Z") }); // 7:00 AM CDT
+  });
+
+  it("uses the user's own local date, not UTC's: at 8 PM Chicago (already Oct 6 in UTC) 'today' is still Oct 5", () => {
+    const evening = new Date("2026-10-06T01:00:00.000Z"); // 8:00 PM CDT Oct 5
+    const r = resolveWakeInstant("07:00", CHI, evening);
+    expect(r).toEqual({ ok: true, at: new Date("2026-10-05T12:00:00.000Z") });
+  });
+
+  it("accepts exactly now, refuses a time that hasn't happened yet today", () => {
+    expect(resolveWakeInstant("09:30", CHI, now).ok).toBe(true);
+    const future = resolveWakeInstant("09:31", CHI, now);
+    expect(future).toEqual({ ok: false, message: "That time hasn't happened yet today." });
+  });
+
+  it("refuses malformed values, never a NaN date", () => {
+    for (const bad of ["", "7am", "25:00", "07:60", "7:00", "07:00:00", "noon"]) {
+      expect(resolveWakeInstant(bad, CHI, now), bad).toEqual({ ok: false, message: "Enter a valid wake time." });
+    }
+  });
+});
+

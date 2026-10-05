@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { localDateString } from "@/lib/date-utils";
+import { localDateString, parseHHMM, resolveLocalTime } from "@/lib/date-utils";
 
 export type DayStart = { localDate: string; wokeAtIso: string };
 
@@ -76,11 +76,17 @@ export async function markDayStarted(
   supabase: SupabaseClient,
   userId: string,
   timezone: string,
-  now: Date
+  now: Date,
+  /**
+   * "I woke earlier than I tapped": the wake instant to record INSTEAD of `now`. Only meaningful for the FIRST mark of a
+   * local day -- the table has no update policy (migration 153), so an existing mark is never moved by this or anything
+   * else. Callers get it from `resolveWakeInstant`, which refuses a future time.
+   */
+  wokeAt: Date = now
 ): Promise<DayStart> {
   const localDate = localDateString(now, timezone);
   const { error } = await supabase.from("day_starts").upsert(
-    { user_id: userId, local_date: localDate, woke_at: now.toISOString() },
+    { user_id: userId, local_date: localDate, woke_at: wokeAt.toISOString() },
     { onConflict: "user_id,local_date", ignoreDuplicates: true }
   );
   if (error) throw error;
@@ -98,3 +104,18 @@ export async function markDayStarted(
   }
   return existing;
 }
+
+export type WakeInstantResult = { ok: true; at: Date } | { ok: false; message: string };
+
+/**
+ * A wake time of day ("HH:MM", local) -> the instant on the caller's local TODAY. Refuses a malformed value and a time
+ * that hasn't happened yet (you cannot have woken at a future time). The date is always local today, never derived from a
+ * raw Date: `localDateString(now, tz)` + `resolveLocalTime`, the app's rule.
+ */
+export function resolveWakeInstant(hhmm: string, timezone: string, now: Date): WakeInstantResult {
+  if (!parseHHMM(hhmm) || !/^\d{2}:\d{2}$/.test(hhmm)) return { ok: false, message: "Enter a valid wake time." };
+  const at = resolveLocalTime(localDateString(now, timezone), hhmm, timezone);
+  if (at.getTime() > now.getTime()) return { ok: false, message: "That time hasn't happened yet today." };
+  return { ok: true, at };
+}
+

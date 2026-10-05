@@ -737,6 +737,25 @@ describe("day.day_start.start handler", () => {
   });
 });
 
+describe("day.day_start.start with wake_time", () => {
+  const now = new Date("2026-09-08T20:00:00.000Z"); // 3:00 PM Chicago
+
+  it("records the earlier wake time and rejects a future or malformed one as a clear input error", async () => {
+    const action = getWriteAction("day", "day_start", "start")!;
+    const chain = makeChain({ data: { local_date: "2026-09-08", woke_at: "2026-09-08T12:00:00.000Z" }, error: null });
+    const client = makeTableClient({ day_starts: chain });
+    await action.handler({ userClient: client, userId: "user-1", timezone: "America/Chicago", now }, { wake_time: "07:00" });
+    expect(chain.upsert).toHaveBeenCalledWith(
+      { user_id: "user-1", local_date: "2026-09-08", woke_at: "2026-09-08T12:00:00.000Z" },
+      { onConflict: "user_id,local_date", ignoreDuplicates: true }
+    );
+    chain.upsert.mockClear();
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "America/Chicago", now }, { wake_time: "16:00" })).rejects.toThrow(/hasn't happened yet/);
+    await expect(action.handler({ userClient: client, userId: "user-1", timezone: "America/Chicago", now }, { wake_time: "7am" })).rejects.toThrow(/patch\.wake_time/);
+    expect(chain.upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe("goals.goal handlers", () => {
   const now = new Date("2026-09-08T20:00:00.000Z");
 

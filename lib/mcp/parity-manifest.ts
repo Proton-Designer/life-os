@@ -252,6 +252,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/page-layout-actions.ts#getPageLayout": { read_only: true },
   "app/(app)/page-layout-actions.ts#savePageLayout": { pending: "P4-cov-WIDGET", note: "arranging a user's own page is a legitimate agent write; hiding never deletes data" },
   "app/(app)/open/actions.ts#startDayAction": { mcp: "day.day_start.start" },
+  "app/(app)/open/actions.ts#startDayAtAction": { mcp: "day.day_start.start", note: "start with an earlier wake time: the same op, via the optional wake_time field" },
 
   // ── Timeboxing (P2-06) ──────────────────────────────────────────────────
   "app/(app)/open/today/timebox-actions.ts#setTaskPlannedStartTime": { pending: "P4-cov-P2-06", note: "a plain HH:MM patch to a task the caller already owns, not a credential" },

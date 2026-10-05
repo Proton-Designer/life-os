@@ -26,7 +26,7 @@ import { logQuranReadingCore, type LogReadingInput } from "@/lib/quran/plan-core
 import { planningDateForCore, dumpLineCore, claimSeedLinesCore, savePlanRanksCore, type PlanMode, type SeedLine, type SeedSource } from "@/lib/night-plan/plan-actions-core";
 import { markWorryHandledCore, reopenWorryCore } from "@/lib/night-plan/worries";
 import { saveSleepIntentCore, clearSleepIntentCore } from "@/lib/night-plan/sleep-intent-core";
-import { markDayStarted } from "@/lib/day-structure/day-start";
+import { markDayStarted, resolveWakeInstant } from "@/lib/day-structure/day-start";
 import {
   createMorningRoutineItemCore,
   archiveMorningRoutineItemCore,
@@ -2852,12 +2852,19 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           start: {
             action: "start",
-            description: "Mark today's day as started (the morning open's one write). Idempotent by a real DB unique key (user_id, local_date) -- tapping/calling twice the same local day never creates a second mark or moves the first one's woke_at.",
-            patchShape: "{}",
+            description: "Mark today's day as started (the morning open's one write). Optional wake_time (HH:MM, 24-hour, local) records an EARLIER wake time instead of now -- refused if it is in the future. Idempotent by a real DB unique key (user_id, local_date) -- tapping/calling twice the same local day never creates a second mark or moves the first one's woke_at (a day that was already started keeps its original wake time, whatever wake_time says).",
+            patchShape: "{ wake_time?: string }",
             idempotent: true,
             idempotencyVerification: "markDayStarted (lib/day-structure/day-start.ts) upserts with ignoreDuplicates:true on the DB's own unique(user_id,local_date) constraint -- a retry is a true INSERT...ON CONFLICT DO NOTHING no-op, not merely one this code happens to tolerate.",
-            handler: async (ctx) => {
-              const result = await markDayStarted(ctx.userClient, ctx.userId, ctx.timezone, ctx.now);
+            handler: async (ctx, patch) => {
+              const wakeTime = optionalString(patch, "wake_time");
+              let wokeAt: Date | undefined;
+              if (wakeTime !== undefined) {
+                const resolved = resolveWakeInstant(wakeTime, ctx.timezone, ctx.now);
+                if (!resolved.ok) throw new ToolInputError(`patch.wake_time: ${resolved.message} Use HH:MM, 24-hour.`);
+                wokeAt = resolved.at;
+              }
+              const result = await markDayStarted(ctx.userClient, ctx.userId, ctx.timezone, ctx.now, wokeAt);
               return {
                 result: {
                   content: [{ type: "text", text: JSON.stringify(result) }],
