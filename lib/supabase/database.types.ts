@@ -1117,6 +1117,10 @@ export type Database = {
           committed_date: string
           created_at: string
           cue_time: string | null
+          frequency_count: number | null
+          frequency_days: number[] | null
+          frequency_interval: number | null
+          frequency_type: string
           id: string
           name: string
           stage_override: string | null
@@ -1130,6 +1134,10 @@ export type Database = {
           committed_date: string
           created_at?: string
           cue_time?: string | null
+          frequency_count?: number | null
+          frequency_days?: number[] | null
+          frequency_interval?: number | null
+          frequency_type?: string
           id?: string
           name: string
           stage_override?: string | null
@@ -1143,6 +1151,10 @@ export type Database = {
           committed_date?: string
           created_at?: string
           cue_time?: string | null
+          frequency_count?: number | null
+          frequency_days?: number[] | null
+          frequency_interval?: number | null
+          frequency_type?: string
           id?: string
           name?: string
           stage_override?: string | null
@@ -1686,6 +1698,10 @@ export type Database = {
         Row: {
           archived_at: string | null
           created_at: string
+          frequency_count: number | null
+          frequency_days: number[] | null
+          frequency_interval: number | null
+          frequency_type: string
           id: string
           identity_statement: string
           kill_reason: string | null
@@ -1697,6 +1713,10 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           created_at?: string
+          frequency_count?: number | null
+          frequency_days?: number[] | null
+          frequency_interval?: number | null
+          frequency_type?: string
           id?: string
           identity_statement: string
           kill_reason?: string | null
@@ -1708,6 +1728,10 @@ export type Database = {
         Update: {
           archived_at?: string | null
           created_at?: string
+          frequency_count?: number | null
+          frequency_days?: number[] | null
+          frequency_interval?: number | null
+          frequency_type?: string
           id?: string
           identity_statement?: string
           kill_reason?: string | null

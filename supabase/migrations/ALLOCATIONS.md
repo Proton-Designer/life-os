@@ -111,7 +111,8 @@ the point is to make a number unavailable the moment it is promised.
 | `256` | Sonnet ENG 1 (HOME-01a), allocated by Opus Lead, 2026-10-04 | user_settings += daily_focus_target_minutes / weekend_focus_target_minutes (smallint null, CHECK 30-720) + morning_brief_collapsed_on date null | allocated |
 | `257` | Sonnet ENG 1 (SCHOOL-01), allocated by Opus Lead, 2026-10-04 | class_assessments.type / tasks.task_type: final_midterm -> exam (data only; CHECKs stay permissive; app cores normalise) | allocated |
 | `258` | Sonnet ENG 1 (QURAN-01), allocated by Opus Lead, 2026-10-04 | quran_plans (one open khatm per user, owner-only RLS) + quran_sessions from_page/to_page/plan_id (composite FK, column-scoped SET NULL) | allocated |
-| `259`+ | — | next free | — |
+| `259` | Sonnet (HABIT-FREQ), allocated at the product owner's direction, 2026-10-05 | `deen_habits` + `identity_habits`: `frequency_type` (NOT NULL DEFAULT 'daily'), `frequency_count`, `frequency_days`, `frequency_interval` + one shape CHECK per table (additive; logs unchanged) | allocated |
+| `260`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
