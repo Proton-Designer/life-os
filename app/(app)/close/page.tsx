@@ -5,6 +5,13 @@ import { getEveningCloseData } from "./actions";
 import { CloseAccountStage } from "@/components/evening-close/close-account-stage";
 import { CloseReflectStage } from "@/components/evening-close/close-reflect-stage";
 import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
+import { QuranCloseLine } from "@/components/evening-close/quran-close-line";
+import { getQuranOverviewCore, type QuranOverview } from "@/lib/quran/plan-core";
+import { closeLine } from "@/lib/quran/surfaces";
+import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/server";
+import { isDeenModeOn } from "@/lib/deen/deen-mode";
+import { effectiveDayString } from "@/lib/date-utils";
 import { Stream } from "@/components/home/stream";
 import { PanelSkeleton } from "@/components/shell/route-skeleton";
 import { VerdictDueList } from "@/components/promotions/verdict-card";
@@ -35,8 +42,16 @@ export default async function EveningClosePage() {
   // component supplies its own <h3>.
   // NAV-01b: promotions and the Inbox start now and stream in; the Account stage and the rest paint first.
   const duePromotionsPromise = getDuePromotions();
+  // QURAN-02: the khatm plan's one read for the close's Quran line (Deen ON only), for the day being CLOSED.
+  const quranPromise: Promise<QuranOverview | null> = (async () => {
+    const profile = await getProfile();
+    if (!isDeenModeOn(profile)) return null;
+    const user = await getAuthedUser();
+    if (!user) return null;
+    return getQuranOverviewCore(await createClient(), user.id, effectiveDayString(new Date(), profile?.timezone ?? "UTC"));
+  })().catch(() => null);
   const inboxPromise = data.blockers.length === 0 ? loadCloseInbox() : Promise.resolve(null);
-  for (const p of [duePromotionsPromise, inboxPromise]) p.catch(() => undefined);
+  for (const p of [duePromotionsPromise, inboxPromise, quranPromise]) p.catch(() => undefined);
 
   return (
     <PageContainer>
@@ -61,6 +76,9 @@ export default async function EveningClosePage() {
               deltaMinutes={data.deltaMinutes}
               activeHabits={data.activeHabits}
             />
+            <Stream promise={quranPromise} label="Quran" fallback={null}>
+              {(quran) => <QuranCloseLine line={closeLine(quran)} />}
+            </Stream>
             <Stream promise={duePromotionsPromise} label="Promotions" fallback={null}>
               {(duePromotions) => <VerdictDueList promotions={duePromotions} />}
             </Stream>

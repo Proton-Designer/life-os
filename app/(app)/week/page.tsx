@@ -9,6 +9,7 @@ import { WeeklyReviewBody } from "@/components/weekly-review/weekly-review-body"
 import { GoalsSection } from "@/components/goals/goals-section";
 import { HabitsSection } from "@/components/habits/habits-section";
 import { WorriesSection } from "@/components/worries/worries-section";
+import { QuranLookBack } from "@/components/week/quran-look-back";
 import { WeeklyGoalStep } from "@/components/week/weekly-goal-step";
 
 const STEPS = [
@@ -48,6 +49,11 @@ export default async function WeekPage() {
           <InlineErrorBoundary label="Look back">
             <Suspense fallback={<PanelSkeleton titleWidth="w-24" bodyHeight="h-40" />}>
               <WeeklyReviewBody soFar={false} viewBasePath="/insights?tab=week" showViewSwitch={false} />
+            </Suspense>
+          </InlineErrorBoundary>
+          <InlineErrorBoundary label="Quran look back">
+            <Suspense fallback={null}>
+              <QuranLookBack />
             </Suspense>
           </InlineErrorBoundary>
         </section>
