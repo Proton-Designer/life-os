@@ -440,6 +440,8 @@ worth adding is a real judgment call, not done here.
 - **`.claude/` is excluded from tsc and vitest (1d5cc9c).** A QA worktree created inside the repo polluted both runs ("useState of null", duplicate files). Put worktrees OUTSIDE the repo (`~/.cache/lifeos-qa-wt`).
 - **Playwright browser build pin:** the installed chromium-headless-shell is v1234 (Playwright GC removed 1246 builds); a different Playwright version needs its matching browser.
 - Home's `qadaBacklogCount` and the Deen card must keep using `qadaWindowStart` together (parity test in `lib/home/__tests__/get-domain-snapshots.test.ts`).
+- **`e2e/deen-mode.domains.spec.ts:146` flake (2026-10-04 23:40):** `salahPanel.locator("li", { hasText: "Isha" })` once resolved to 2 `<li>` (one hidden) on /deen → strict-mode violation; the same spec passed 6/6 on an immediate re-run against the same build. Likely a transient duplicate during the route's streaming/transition. If it recurs, scope the locator with `.filter({ visible: true })` or `.first()` after checking which element is hidden.
+- **`e2e/home.spec.ts` asserted the retired "The day's shape" panel** from HOME-02 (day bar, deployed 2026-10-04) until b7e3cb5; nobody ran home.spec at that deploy. It now follows `HOME_DAY_VIEW`. Lesson: when a UI switch retires a panel, grep `e2e/` for its title in the same task.
 <!--
 [ ] Under 200 lines   [ ] "Do not" lines filled in
 -->
