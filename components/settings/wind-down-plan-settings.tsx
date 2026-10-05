@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { saveWindDownPlan } from "@/app/(app)/settings/wind-down-actions";
 import { DEFAULT_WIND_DOWN_MINUTES, deriveWindDown, validateWindDownInputs } from "@/lib/rhythm/wind-down";
+import { formatHHMM12 } from "@/lib/date-utils";
+import { TimeField12 } from "@/components/ui/time-field-12";
 
 /**
  * The set-once wind-down plan (IA-P4a, Sleep plan opt-in): when you want to be up, how long you
@@ -37,7 +39,7 @@ export function WindDownPlanSettings({
     setMessage(null);
     startTransition(async () => {
       const res = await saveWindDownPlan({ wakeTime: wake, sleepNeedMinutes: needMinutes, windDownMinutes: windMinutes });
-      setMessage(res.ok ? { ok: true, text: `Saved. Lights out by ${res.bedtime}; wind-down starts ${res.windDownStart}.` } : { ok: false, text: res.message });
+      setMessage(res.ok ? { ok: true, text: `Saved. Lights out by ${formatHHMM12(res.bedtime)}; wind-down starts ${formatHHMM12(res.windDownStart)}.` } : { ok: false, text: res.message });
     });
   }
 
@@ -45,10 +47,10 @@ export function WindDownPlanSettings({
     <div className="flex flex-col gap-3" data-testid="wind-down-plan-settings">
       <p className="text-xs text-muted-foreground">Set once — no nightly question. Your bedtime and wind-down time follow from these.</p>
       <div className="flex flex-wrap items-end gap-3 text-sm">
-        <label className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Wake time</span>
-          <input type="time" value={wake} onChange={(e) => setWake(e.target.value)} aria-label="Wake time" className="h-9 rounded-md border bg-background px-2" />
-        </label>
+          <TimeField12 value={wake} onChange={setWake} aria-label="Wake time" />
+        </div>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Sleep I need (hours)</span>
           <input type="number" min={6} max={10} step={0.25} value={needHours} onChange={(e) => setNeedHours(e.target.value)} aria-label="Sleep need in hours" className="h-9 w-24 rounded-md border bg-background px-2" />
@@ -63,7 +65,7 @@ export function WindDownPlanSettings({
       </div>
       {preview ? (
         <p className="text-sm" data-testid="wind-down-preview">
-          Lights out by <span className="font-medium">{preview.bedtime}</span> · wind-down starts <span className="font-medium">{preview.windDownStart}</span>
+          Lights out by <span className="font-medium">{formatHHMM12(preview.bedtime)}</span> · wind-down starts <span className="font-medium">{formatHHMM12(preview.windDownStart)}</span>
         </p>
       ) : null}
       {message ? (

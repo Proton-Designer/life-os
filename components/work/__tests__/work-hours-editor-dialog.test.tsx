@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { WorkHoursEditorDialog, type PermanentWorkRow, type OneOffWorkRow } from "../work-hours-editor-dialog";
 import type { ExceptionsByEvent } from "@/lib/tasks/schedule-cancellations";
+import { pickTime12 } from "@/components/ui/__tests__/time-field-helper";
 
 const WEEK_DATES = ["2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29"];
 const NEXT_WEEK_DATES = ["2026-08-30", "2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05"];
@@ -62,9 +63,8 @@ describe("WorkHoursEditorDialog", () => {
     );
     const user = await openDialog();
     await user.click(screen.getByRole("button", { name: "Add a day" }));
-    const timeInputs = screen.getAllByDisplayValue("");
-    await user.type(timeInputs[0], "09:00");
-    await user.type(timeInputs[1], "17:00");
+    await pickTime12(user, "Start time", "9:00 AM");
+    await pickTime12(user, "End time", "5:00 PM");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(addWorkHours).toHaveBeenCalledWith(1, "09:00", "17:00");
   });
@@ -120,9 +120,8 @@ describe("WorkHoursEditorDialog", () => {
     );
     const user = await openDialog();
     await user.click(screen.getAllByRole("button", { name: "Change hours" })[0]);
-    const timeInputs = screen.getAllByDisplayValue("");
-    await user.type(timeInputs[0], "12:00");
-    await user.type(timeInputs[1], "15:00");
+    await pickTime12(user, "Start time", "12:00 PM");
+    await pickTime12(user, "End time", "3:00 PM");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(setWorkHoursOverride).toHaveBeenCalledWith("e-mon", "2026-08-24", "12:00", "15:00");
   });
@@ -162,9 +161,8 @@ describe("WorkHoursEditorDialog", () => {
     const user = await openDialog();
     // Sunday (2026-08-23) has no permanent pattern.
     await user.click(screen.getAllByRole("button", { name: "Add hours" })[0]);
-    const timeInputs = screen.getAllByDisplayValue("");
-    await user.type(timeInputs[0], "09:00");
-    await user.type(timeInputs[1], "12:00");
+    await pickTime12(user, "Start time", "9:00 AM");
+    await pickTime12(user, "End time", "12:00 PM");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(addOneOffWorkShift).toHaveBeenCalledWith("2026-08-23", "09:00", "12:00");
   });

@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Panel } from "@/components/ui/panel";
 import type { CalcMethod, AsrMadhab } from "@/lib/prayer-times/calculate";
+import { TimeField12 } from "@/components/ui/time-field-12";
 
 export type SettingsFormData = {
   displayName: string;
@@ -187,21 +188,11 @@ export function SettingsForm({
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>
-            <Input form="settings-main-form"
-              id="window-start"
-              type="time"
-              value={form.checkinWindowStart}
-              onChange={(e) => setForm((f) => ({ ...f, checkinWindowStart: e.target.value }))}
-            />
+            <TimeField12 id="window-start" aria-label="Window start" value={form.checkinWindowStart} onChange={(v) => setForm((f) => ({ ...f, checkinWindowStart: v }))} />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-end">Window end</Label>
-            <Input form="settings-main-form"
-              id="window-end"
-              type="time"
-              value={form.checkinWindowEnd}
-              onChange={(e) => setForm((f) => ({ ...f, checkinWindowEnd: e.target.value }))}
-            />
+            <TimeField12 id="window-end" aria-label="Window end" value={form.checkinWindowEnd} onChange={(v) => setForm((f) => ({ ...f, checkinWindowEnd: v }))} />
           </div>
         </div>
       </Panel>

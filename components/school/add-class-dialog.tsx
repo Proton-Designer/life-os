@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { ClassEventInput } from "@/app/(app)/school/actions";
+import { TimeField12 } from "@/components/ui/time-field-12";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -161,21 +162,11 @@ export function AddClassDialog({
                 though the accessible names were already correct. */}
             <div className="flex flex-1 flex-col gap-1">
               <span className="text-xs text-muted-foreground">Start</span>
-              <Input
-                type="time"
-                aria-label="Start time"
-                value={form.eventTime}
-                onChange={(e) => setForm((f) => ({ ...f, eventTime: e.target.value }))}
-              />
+              <TimeField12 aria-label="Start time" value={form.eventTime} onChange={(v) => setForm((f) => ({ ...f, eventTime: v }))} />
             </div>
             <div className="flex flex-1 flex-col gap-1">
               <span className="text-xs text-muted-foreground">End</span>
-              <Input
-                type="time"
-                aria-label="End time"
-                value={form.endTime}
-                onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
-              />
+              <TimeField12 aria-label="End time" value={form.endTime} onChange={(v) => setForm((f) => ({ ...f, endTime: v }))} />
             </div>
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}

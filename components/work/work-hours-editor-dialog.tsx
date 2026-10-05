@@ -7,18 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { resolveOccurrence, type ExceptionsByEvent } from "@/lib/tasks/schedule-cancellations";
 import { cn } from "@/lib/utils";
+import { TimeField12 } from "@/components/ui/time-field-12";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export type PermanentWorkRow = { id: string; dayOfWeek: number; eventTime: string | null; endTime: string | null };
 export type OneOffWorkRow = { id: string; eventDate: string; eventTime: string | null; endTime: string | null };
-
-function formatTime(time: string): string {
-  const [h, m] = time.split(":").map(Number);
-  const suffix = h < 12 ? "AM" : "PM";
-  const displayHour = h % 12 === 0 ? 12 : h % 12;
-  return `${displayHour}:${String(m).padStart(2, "0")} ${suffix}`;
-}
 
 type Actions = {
   addWorkHours: (dayOfWeek: number, eventTime: string, endTime?: string) => Promise<void>;
@@ -61,8 +56,8 @@ function PermanentRow({
           ))}
         </select>
         <div className="flex gap-2">
-          <Input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} />
-          <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
+          <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
         </div>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => setEditing(false)} disabled={isPending}>
@@ -92,8 +87,8 @@ function PermanentRow({
         {row.eventTime && (
           <span className="text-muted-foreground">
             {" · "}
-            {formatTime(row.eventTime)}
-            {row.endTime ? `–${formatTime(row.endTime)}` : ""}
+            {formatHHMM12(row.eventTime)}
+            {row.endTime ? `–${formatHHMM12(row.endTime)}` : ""}
           </span>
         )}
       </span>
@@ -150,8 +145,8 @@ function AddPermanentRow({ onAdd }: { onAdd: (dayOfWeek: number, eventTime: stri
         ))}
       </select>
       <div className="flex gap-2">
-        <Input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} />
-        <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+        <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
+        <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
       </div>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
@@ -205,8 +200,8 @@ function OccurrenceRow({
           {oneOffRow.eventTime && (
             <span className="text-muted-foreground">
               {" · "}
-              {formatTime(oneOffRow.eventTime)}
-              {oneOffRow.endTime ? `–${formatTime(oneOffRow.endTime)}` : ""} (one-off)
+              {formatHHMM12(oneOffRow.eventTime)}
+              {oneOffRow.endTime ? `–${formatHHMM12(oneOffRow.endTime)}` : ""} (one-off)
             </span>
           )}
         </span>
@@ -228,8 +223,8 @@ function OccurrenceRow({
         <li className="flex flex-col gap-2 rounded-lg border border-border/40 p-2 text-xs">
           <span>{label}</span>
           <div className="flex gap-2">
-            <Input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} />
-            <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+            <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
+            <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setAddingHours(false)} className="text-muted-foreground hover:underline">
@@ -269,8 +264,8 @@ function OccurrenceRow({
       <li className="flex flex-col gap-2 rounded-lg border border-border/40 p-2 text-xs">
         <span>{label}</span>
         <div className="flex gap-2">
-          <Input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} />
-          <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
+          <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => setChangingHours(false)} className="text-muted-foreground hover:underline">
@@ -301,15 +296,15 @@ function OccurrenceRow({
         {resolved.kind === "cancelled" && <span className="ml-1 font-medium text-destructive">Cancelled</span>}
         {resolved.kind === "override" && (
           <span className="ml-1 text-muted-foreground">
-            {formatTime(resolved.eventTime)}
-            {resolved.endTime ? `–${formatTime(resolved.endTime)}` : ""} <span className="text-accent-warning">(this week)</span>
+            {formatHHMM12(resolved.eventTime)}
+            {resolved.endTime ? `–${formatHHMM12(resolved.endTime)}` : ""} <span className="text-accent-warning">(this week)</span>
           </span>
         )}
         {resolved.kind === "normal" && permanentRow.eventTime && (
           <span className="text-muted-foreground">
             {" · "}
-            {formatTime(permanentRow.eventTime)}
-            {permanentRow.endTime ? `–${formatTime(permanentRow.endTime)}` : ""}
+            {formatHHMM12(permanentRow.eventTime)}
+            {permanentRow.endTime ? `–${formatHHMM12(permanentRow.endTime)}` : ""}
           </span>
         )}
       </span>

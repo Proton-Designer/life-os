@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 export type ClassScheduleEvent = {
   id: string;
@@ -22,13 +23,6 @@ export type ClassScheduleEvent = {
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function formatTime(time: string): string {
-  const [h, m] = time.split(":").map(Number);
-  const suffix = h < 12 ? "AM" : "PM";
-  const displayHour = h % 12 === 0 ? 12 : h % 12;
-  return `${displayHour}:${String(m).padStart(2, "0")} ${suffix}`;
-}
 
 /**
  * The week's recurring classes grouped by day, each showing its time
@@ -85,8 +79,8 @@ export function ClassScheduleWeek({
                       ) : (
                         <>
                           <span className="text-muted-foreground">
-                            {formatTime(e.eventTime!)}
-                            {e.endTime ? `–${formatTime(e.endTime)}` : ""}
+                            {formatHHMM12(e.eventTime!)}
+                            {e.endTime ? `–${formatHHMM12(e.endTime)}` : ""}
                           </span>
                           {e.location && <span className="text-muted-foreground">{e.location}</span>}
                           {e.instructor && <span className="text-muted-foreground">{e.instructor}</span>}

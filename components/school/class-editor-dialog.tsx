@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { TimeField12 } from "@/components/ui/time-field-12";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 export type ClassGroupDay = { dayOfWeek: number; eventId: string; date: string; cancelledThisWeek: boolean };
 
@@ -22,12 +24,6 @@ export type ClassGroup = {
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function formatTime(time: string): string {
-  const [h, m] = time.split(":").map(Number);
-  const suffix = h < 12 ? "AM" : "PM";
-  const displayHour = h % 12 === 0 ? 12 : h % 12;
-  return `${displayHour}:${String(m).padStart(2, "0")} ${suffix}`;
-}
 
 type FormState = {
   title: string;
@@ -199,7 +195,7 @@ export function ClassEditorDialog({
                         <span className="text-sm font-medium">{group.title}</span>
                         <span className="text-xs text-muted-foreground">
                           {group.days.map((d) => DAY_LABELS[d.dayOfWeek]).join("/")}
-                          {group.eventTime && ` · ${formatTime(group.eventTime)}${group.endTime ? `–${formatTime(group.endTime)}` : ""}`}
+                          {group.eventTime && ` · ${formatHHMM12(group.eventTime)}${group.endTime ? `–${formatHHMM12(group.endTime)}` : ""}`}
                         </span>
                         {(group.location || group.instructor) && (
                           <span className="text-xs text-muted-foreground">
@@ -293,18 +289,8 @@ export function ClassEditorDialog({
               </div>
             </div>
             <div className="flex gap-2">
-              <Input
-                type="time"
-                value={form.eventTime}
-                onChange={(e) => setForm((f) => ({ ...f, eventTime: e.target.value }))}
-                placeholder="Start"
-              />
-              <Input
-                type="time"
-                value={form.endTime}
-                onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
-                placeholder="End"
-              />
+              <TimeField12 aria-label="Start time" value={form.eventTime} onChange={(v) => setForm((f) => ({ ...f, eventTime: v }))} />
+              <TimeField12 aria-label="End time" value={form.endTime} onChange={(v) => setForm((f) => ({ ...f, endTime: v }))} />
             </div>
             <Input
               value={form.location}

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { AddClassDialog } from "../add-class-dialog";
+import { pickTime12, readTime12 } from "@/components/ui/__tests__/time-field-helper";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
@@ -69,8 +70,8 @@ describe("AddClassDialog", () => {
     await user.type(screen.getByPlaceholderText("Professor (optional)"), "Andrew Schmidt Nemec");
     await user.click(screen.getByRole("button", { name: "Tue" }));
     await user.click(screen.getByRole("button", { name: "Thu" }));
-    await user.type(screen.getByLabelText("Start time"), "1300");
-    await user.type(screen.getByLabelText("End time"), "1415");
+    await pickTime12(user, "Start time", "1:00 PM");
+    await pickTime12(user, "End time", "2:15 PM");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(createClass).toHaveBeenCalled());
@@ -99,8 +100,8 @@ describe("AddClassDialog", () => {
     await user.type(screen.getByPlaceholderText("Class name"), "Phys Lab");
     await user.type(screen.getByPlaceholderText("Class code"), "PHYS-2126-105");
     await user.click(screen.getByRole("button", { name: "Tue" }));
-    await user.type(screen.getByLabelText("Start time"), "1700");
-    await user.type(screen.getByLabelText("End time"), "1600");
+    await pickTime12(user, "Start time", "5:00 PM");
+    await pickTime12(user, "End time", "4:00 PM");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByText("End time must be after start time")).toBeInTheDocument();

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 export type WorkScheduleEvent = {
   id: string;
@@ -13,13 +14,6 @@ export type WorkScheduleEvent = {
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function formatTime(time: string): string {
-  const [h, m] = time.split(":").map(Number);
-  const suffix = h < 12 ? "AM" : "PM";
-  const displayHour = h % 12 === 0 ? 12 : h % 12;
-  return `${displayHour}:${String(m).padStart(2, "0")} ${suffix}`;
-}
 
 /** One day's resolved shift list — the override/cancellation resolution shared by the full grid and the compact strip, so there's exactly one place that decides what a day's schedule actually says. */
 function eventsForDay(events: WorkScheduleEvent[], dow: number, dateForDay: string) {
@@ -38,7 +32,7 @@ function eventsForDay(events: WorkScheduleEvent[], dow: number, dateForDay: stri
 function shiftLabel(shift: ReturnType<typeof eventsForDay>[number]): string {
   if (shift.isCancelled) return "Cancelled";
   if (!shift.eventTime) return "—";
-  return `${formatTime(shift.eventTime)}${shift.endTime ? `–${formatTime(shift.endTime)}` : ""}`;
+  return `${formatHHMM12(shift.eventTime)}${shift.endTime ? `–${formatHHMM12(shift.endTime)}` : ""}`;
 }
 
 /** Today's timings for the schedule strip — e.g. "9:00 AM–5:00 PM", joined if more than one shift, or a clear "No shift today". Never derives today from `new Date()` — todayStr comes from the caller's own local-timezone computation. */

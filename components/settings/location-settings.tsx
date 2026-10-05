@@ -9,6 +9,7 @@ import { getTimezoneOffsetMinutes, localDateString } from "@/lib/date-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { formatClock12 } from "@/lib/date-utils";
 
 type Location = { lat: number; lng: number; label: string; timezone: string };
 
@@ -21,10 +22,6 @@ const PRAYER_LABEL: Record<(typeof PRAYER_ORDER)[number], string> = {
   maghrib: "Maghrib",
   isha: "Isha",
 };
-
-function formatTime(date: Date, timezone: string): string {
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: timezone });
-}
 
 const GEOLOCATION_UNAVAILABLE_MESSAGE =
   "Couldn't access your location — search for your city below instead.";
@@ -137,7 +134,7 @@ export function LocationSettings({
               {PRAYER_ORDER.map((name) => (
                 <div key={name} className="flex flex-col gap-0.5">
                   <dt className="text-muted-foreground">{PRAYER_LABEL[name]}</dt>
-                  <dd className="font-mono tabular-nums">{formatTime(prayerTimes[name], location.timezone)}</dd>
+                  <dd className="font-mono tabular-nums">{formatClock12(prayerTimes[name], location.timezone)}</dd>
                 </div>
               ))}
             </dl>
