@@ -117,7 +117,7 @@ describe("listCapabilitiesTool", () => {
     const outcome = await listCapabilitiesTool("deen");
     const payload = textPayload(outcome);
     expect(payload.domain).toBe("deen");
-    expect(payload.entities).toHaveLength(8);
+    expect(payload.entities).toHaveLength(9);
     const prayer = payload.entities.find((e: { entity: string }) => e.entity === "prayer");
     expect(prayer).toMatchObject({
       entity: "prayer",

@@ -247,10 +247,25 @@ export const REGISTRY: Record<string, DomainDef> = {
         updatedAtVerification:
           "logQuranSession (app/(app)/deen/actions.ts) only ever INSERTs -- no update or delete path for this table exists anywhere in actions.ts -- so created_at IS the true last-modified time; deliberately no new column added (team-lead's ruling: append-only tables are legitimately served by created_at).",
         summaryColumns: ["date", "pages_read", "surah", "juz"],
-        fullColumns: ["date", "pages_read", "surah", "juz", "created_at"],
-        filterableColumns: ["date"],
+        fullColumns: ["date", "pages_read", "surah", "juz", "from_page", "to_page", "plan_id", "created_at"],
+        filterableColumns: ["date", "plan_id"],
         rangeFilterableColumns: ["date"],
         orderBy: [{ column: "date", ascending: false }],
+      },
+      // QURAN-01: the khatm plan. current_page is the NEXT page to read (605 = finished); today's portion, ahead/behind and the
+      // projected finish are derived in the app (lib/quran/plan.ts) and are not table columns.
+      quran_plan: {
+        entity: "quran_plan",
+        table: "quran_plans",
+        description: "One Quran khatm plan: its pace/finish date, the bookmark (current_page = the next page to read, 605 = finished) and status (active/paused/completed). One open plan at a time; finished khatms stay as history.",
+        idColumn: "id",
+        updatedAtColumn: "updated_at",
+        updatedAtVerification:
+          "Migration 258 attaches touch_updated_at() as a BEFORE UPDATE trigger on quran_plans (same pattern as migration 253/137), and every write path (lib/quran/plan-core.ts: log, undo, bookmark, keep/move date, pause/resume) is a plain UPDATE/INSERT on the table, so updated_at moves on every change.",
+        summaryColumns: ["khatm_number", "status", "current_page", "target_date"],
+        fullColumns: ["khatm_number", "status", "current_page", "start_date", "start_page", "plan_set_on", "plan_set_page", "target_date", "pace_pages_per_day", "original_pace_pages_per_day", "paused_on", "paused_days", "completed_on", "created_at", "updated_at"],
+        filterableColumns: ["status", "khatm_number"],
+        orderBy: [{ column: "khatm_number", ascending: false }, { column: "id", ascending: true }],
       },
       reflection_entry: {
         entity: "reflection_entry",

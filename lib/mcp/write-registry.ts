@@ -21,6 +21,7 @@ import {
 } from "@/lib/deen/actions-core";
 import type { HabitStage } from "@/lib/deen/habit-stage";
 import { localDateString } from "@/lib/date-utils";
+import { logQuranReadingCore, type LogReadingInput } from "@/lib/quran/plan-core";
 import { planningDateForCore, dumpLineCore, claimSeedLinesCore, savePlanRanksCore, type PlanMode, type SeedLine, type SeedSource } from "@/lib/night-plan/plan-actions-core";
 import { markWorryHandledCore, reopenWorryCore } from "@/lib/night-plan/worries";
 import { saveSleepIntentCore, clearSleepIntentCore } from "@/lib/night-plan/sleep-intent-core";
@@ -576,6 +577,36 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: ctx.now.toISOString(), ...result },
                 },
                 summary: `logged ${pages} Quran page${pages === 1 ? "" : "s"} on ${date}`,
+              };
+            },
+          },
+        },
+      },
+      // QURAN-01: log reading toward the khatm plan (moves the bookmark, writes a quran_sessions row with its page span).
+      quran_plan: {
+        entity: "quran_plan",
+        actions: {
+          log_reading: {
+            action: "log_reading",
+            description: "Log Quran reading toward the active khatm plan: give `to_page` (the last page read), `next_page` (\"I'm on page N\"), or `todays_portion: true`. `for_date: \"yesterday\"` files it under yesterday. The bookmark only moves forward; fails if there is no active plan or it is paused.",
+            patchShape: "{ to_page?: number, next_page?: number, todays_portion?: boolean, for_date?: 'today' | 'yesterday' }",
+            idempotent: false,
+            idempotencyVerification: "logQuranReadingCore appends a quran_sessions row and advances the bookmark with a UPDATE guarded on the page it read; a retry after success reads the NEW bookmark, so to_page/next_page <= the bookmark is refused and todays_portion logs the next portion -- it never double-counts the same pages, but it is not a no-op either.",
+            handler: async (ctx, patch) => {
+              const toPage = optionalNumber(patch, "to_page");
+              const nextPage = optionalNumber(patch, "next_page");
+              const portion = patch.todays_portion === true;
+              if ([toPage !== undefined, nextPage !== undefined, portion].filter(Boolean).length !== 1) {
+                throw new ToolInputError("patch needs exactly one of to_page, next_page or todays_portion: true.");
+              }
+              const forDate = optionalString(patch, "for_date");
+              if (forDate !== undefined && forDate !== "today" && forDate !== "yesterday") throw new ToolInputError('patch.for_date must be "today" or "yesterday".');
+              const input: LogReadingInput = toPage !== undefined ? { toPage } : nextPage !== undefined ? { nextPage } : { todaysPortion: true };
+              const result = await logQuranReadingCore(ctx.userClient, ctx.userId, localDateString(ctx.now, ctx.timezone), input, forDate ?? "today");
+              if (!result.ok) throw new ToolInputError(result.message);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: { updated_at: ctx.now.toISOString(), ...result } },
+                summary: `logged Quran pages ${result.fromPage}-${result.toPage}${result.khatmComplete ? " (khatm complete)" : ""}`,
               };
             },
           },

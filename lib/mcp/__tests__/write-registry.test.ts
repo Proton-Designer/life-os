@@ -41,6 +41,7 @@ describe("write-registry dispatch shape", () => {
       "habit_log",
       "prayer",
       "profile",
+      "quran_plan",
       "quran_session",
       "reflection_entry",
       "sunnah_log",
@@ -51,6 +52,7 @@ describe("write-registry dispatch shape", () => {
     expect(listWriteActions("deen", "sunnah_log")).toEqual(["toggle"]);
     expect(listWriteActions("deen", "adhkar")).toEqual(["toggle"]);
     expect(listWriteActions("deen", "quran_session")).toEqual(["log"]);
+    expect(listWriteActions("deen", "quran_plan")).toEqual(["log_reading"]); // QURAN-01
     expect(listWriteActions("deen", "profile").sort()).toEqual(["adjust_qada", "set_traveling_mode"]);
     expect(listWriteActions("deen", "reflection_entry")).toEqual(["log"]);
     expect(listWriteActions("deen", "habit").sort()).toEqual(["archive", "create", "set_committed_date", "set_stage_override", "update"]);
