@@ -64,3 +64,17 @@ describe("HabitList votes (PERF-2)", () => {
     expect(screen.getAllByRole("button", { name: "Vote for this identity today" })).toHaveLength(2);
   });
 });
+
+describe("HabitList faith practices (HABITS-02)", () => {
+  const practice = { id: "p1", name: "Read Quran", anchorCue: null, committedDate: "2026-09-01", completedToday: false, stage: "locked" as const, stageOverride: null, rollingRate: { done: 20, total: 30 }, streak: 3 };
+
+  it("shows the Faith practices block only when practices are passed (positive control)", async () => {
+    const { render, screen } = await import("@testing-library/react");
+    const { HabitList } = await import("../habit-list");
+    const { unmount } = render(<HabitList habits={[]} pausedHabits={[]} today="2026-10-05" />);
+    expect(screen.queryByTestId("faith-practices")).not.toBeInTheDocument();
+    unmount();
+    render(<HabitList habits={[]} pausedHabits={[]} today="2026-10-05" faithPractices={[practice]} />);
+    expect(screen.getByTestId("faith-practices")).toHaveTextContent("Read Quran");
+  });
+});

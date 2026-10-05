@@ -15,6 +15,8 @@ import {
 import { MAX_ACTIVE_HABITS } from "@/lib/habits/constants";
 import type { HabitWithStatus, PausedHabit } from "@/lib/habits/queries";
 import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
+import { FaithPracticesList } from "@/components/habits/faith-practices-list";
+import type { FaithPractice } from "@/lib/deen/practices";
 import { KillHabitDialog } from "@/components/habits/kill-habit-dialog";
 
 /**
@@ -249,10 +251,13 @@ export function HabitList({
   habits,
   pausedHabits,
   today,
+  faithPractices = [],
 }: {
   habits: HabitWithStatus[];
   pausedHabits: PausedHabit[];
   today: string;
+  /** Faith screen practices, shown under the identities ([] when Deen Mode is OFF). */
+  faithPractices?: FaithPractice[];
 }) {
   const [allHabits, setAllHabits] = useState(habits);
   const [pausedList, setPausedList] = useState(pausedHabits);
@@ -356,6 +361,8 @@ export function HabitList({
           + Add an identity habit
         </Button>
       )}
+
+      <FaithPracticesList practices={faithPractices} />
     </div>
   );
 }
