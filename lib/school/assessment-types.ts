@@ -35,3 +35,23 @@ export const ASSESSMENT_TYPES = ["quiz", "exam", "final_midterm", "homework_assi
 
 /** Derived from ASSESSMENT_TYPES so the list and the type can never drift apart. */
 export type AssessmentType = (typeof ASSESSMENT_TYPES)[number];
+
+/**
+ * SCHOOL-01 (migration 257): "Exam" absorbs "Final/Midterm" -- the name says which ("Midterm 1", "Final
+ * exam"). 'final_midterm' stays in ASSESSMENT_TYPES/the DB CHECK on purpose (an old client, a Canvas or
+ * syllabus extraction or an MCP write that still sends it must not fail), but every write core runs the
+ * value through this, so nothing new is ever stored as 'final_midterm' and pickers never offer it.
+ */
+export function normalizeAssessmentType(type: AssessmentType): AssessmentType {
+  return type === "final_midterm" ? "exam" : type;
+}
+
+/** What a type picker offers: ASSESSMENT_TYPES without the legacy 'final_midterm'. */
+export const PICKABLE_ASSESSMENT_TYPES = ASSESSMENT_TYPES.filter((t) => t !== "final_midterm") as readonly Exclude<AssessmentType, "final_midterm">[];
+
+export function isAssessmentType(value: unknown): value is AssessmentType {
+  return typeof value === "string" && (ASSESSMENT_TYPES as readonly string[]).includes(value);
+}
+
+/** Pages that show an assessment (directly, or through its paired task) and must be revalidated after ANY write to one. */
+export const ASSESSMENT_VIEW_PATHS = ["/school", "/", "/calendar", "/close"] as const;

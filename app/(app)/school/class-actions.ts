@@ -15,6 +15,7 @@ import {
   type AssessmentType,
   type GradeCategoryInput,
 } from "@/lib/school/actions-core";
+import { ASSESSMENT_VIEW_PATHS } from "@/lib/school/assessment-types";
 
 export type { GradeCategoryInput };
 
@@ -26,6 +27,11 @@ const SYLLABUS_BUCKET = "syllabi";
 // lecture-actions.ts (same reasoning that file's own header gives for
 // duplicating sanitizeFilenameSegment instead of importing it).
 const LECTURES_BUCKET = "lectures";
+
+/** SCHOOL-01: an assessment shows on /school, Home, /calendar and the evening close (through its paired task); revalidate all of them after any write. */
+function revalidateAssessmentViews() {
+  for (const path of ASSESSMENT_VIEW_PATHS) revalidatePath(path);
+}
 const SYLLABUS_SIGNED_URL_TTL_SECONDS = 300; // 5 minutes — short-lived, minted fresh per view, never cached.
 
 /**
@@ -37,7 +43,7 @@ const SYLLABUS_SIGNED_URL_TTL_SECONDS = 300; // 5 minutes — short-lived, minte
 export async function addClassAssessment(classId: string, name: string, type: AssessmentType, date: string) {
   const { supabase, userId } = await requireUser();
   await addClassAssessmentCore(supabase, userId, classId, name, type, date);
-  revalidatePath("/school");
+  revalidateAssessmentViews();
 }
 
 /**
@@ -50,7 +56,7 @@ export async function deleteClassAssessment(assessmentId: string) {
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("delete_class_assessment", { p_assessment_id: assessmentId });
   if (error) throw error;
-  revalidatePath("/school");
+  revalidateAssessmentViews();
 }
 
 /**
@@ -80,7 +86,7 @@ export async function updateClassAssessment(
 ) {
   const { supabase, userId } = await requireUser();
   await updateClassAssessmentCore(supabase, userId, assessmentId, fields);
-  revalidatePath("/school");
+  revalidateAssessmentViews();
 }
 
 /** Phase 1 #11 — a real weight category (grade_categories, migration 152). */

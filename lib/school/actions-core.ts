@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/assessment-types";
+import { ASSESSMENT_TYPES, normalizeAssessmentType, type AssessmentType } from "@/lib/school/assessment-types";
 import { requireRowUpdated } from "@/lib/mcp/require-row-updated";
 import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
 
@@ -180,6 +180,8 @@ export async function addClassAssessmentCore(
   type: AssessmentType,
   date: string
 ): Promise<AddClassAssessmentResult> {
+  // SCHOOL-01: a legacy 'final_midterm' is stored as 'exam' (the name says Midterm/Final).
+  type = normalizeAssessmentType(type);
   const { data: task, error: taskError } = await supabase
     .from("tasks")
     .insert({
@@ -268,8 +270,10 @@ export async function updateClassAssessmentCore(
   supabase: SupabaseClient,
   userId: string,
   assessmentId: string,
-  fields: UpdateClassAssessmentInput
+  input: UpdateClassAssessmentInput
 ): Promise<void> {
+  // SCHOOL-01: never store a new 'final_midterm'.
+  const fields = { ...input, type: normalizeAssessmentType(input.type) };
   const { data: existing, error: fetchError } = await supabase
     .from("class_assessments")
     .select("task_id")

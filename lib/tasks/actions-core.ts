@@ -20,7 +20,8 @@
  * cookie-authed callers need that shape too, not because MCP can reach them.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TaskType } from "./task-type";
+import { normalizeTaskType, type TaskType } from "./task-type";
+import { isAssessmentType, normalizeAssessmentType } from "@/lib/school/assessment-types";
 
 export type TaskDomain = "school" | "co_op";
 export type { TaskType };
@@ -67,18 +68,35 @@ export type UpdateTaskInput = {
 
 /** Item 5's Edit popup: "change the contents of any task." Full-replace update, scoped by id + user_id like every other task mutation here. */
 export async function updateTaskCore(supabase: SupabaseClient, userId: string, id: string, input: UpdateTaskInput): Promise<void> {
+  // SCHOOL-01: a legacy 'final_midterm' is an Exam.
+  const taskType = input.taskType ? normalizeTaskType(input.taskType) : undefined;
   const { error } = await supabase
     .from("tasks")
     .update({
       title: input.title,
       due_date: input.dueDate ?? null,
-      task_type: input.taskType ?? null,
-      task_type_other_label: input.taskType === "other" ? (input.taskTypeOtherLabel ?? null) : null,
+      task_type: taskType ?? null,
+      task_type_other_label: taskType === "other" ? (input.taskTypeOtherLabel ?? null) : null,
       class_id: input.classId ?? null,
     })
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;
+
+  // SCHOOL-01 (G1): a task that is the PAIRED task of a class assessment (class_assessments.task_id) must not
+  // drift from it. addClassAssessmentCore/updateClassAssessmentCore already push assessment -> task; this is the
+  // other direction, so editing the task in the School task list shows up in the Assessments module, the risk
+  // panel and the grade ledger. Only name, date and (an assessable) type travel; a task that has no assessment
+  // is untouched, and an emptied date never blanks the assessment's NOT NULL date.
+  const { data: linked, error: linkError } = await supabase.from("class_assessments").select("id").eq("task_id", id).eq("user_id", userId).maybeSingle();
+  if (linkError) throw linkError;
+  if (linked) {
+    const patch: { name: string; date?: string; type?: string } = { name: input.title };
+    if (input.dueDate) patch.date = input.dueDate;
+    if (taskType && isAssessmentType(taskType)) patch.type = normalizeAssessmentType(taskType);
+    const { error: assessmentError } = await supabase.from("class_assessments").update(patch).eq("id", linked.id).eq("user_id", userId);
+    if (assessmentError) throw assessmentError;
+  }
 }
 
 export interface ToggleTaskResult {
@@ -123,8 +141,17 @@ export async function setTaskCompletedCore(supabase: SupabaseClient, userId: str
 
 /** A real DELETE — not reachable from lib/mcp/write-registry.ts. See this file's header comment. */
 export async function removeTaskCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
+  // SCHOOL-01 (G1): removing the PAIRED task of a class assessment removes the assessment too (the same pair
+  // delete_class_assessment removes from the other side); otherwise an orphan assessment (task_id nulled by the
+  // FK) would keep showing in the Assessments module and the risk panel after the user deleted it.
+  const { data: linked, error: linkError } = await supabase.from("class_assessments").select("id").eq("task_id", id).eq("user_id", userId).maybeSingle();
+  if (linkError) throw linkError;
   const { error } = await supabase.from("tasks").delete().eq("id", id).eq("user_id", userId);
   if (error) throw error;
+  if (linked) {
+    const { error: assessmentError } = await supabase.from("class_assessments").delete().eq("id", linked.id).eq("user_id", userId);
+    if (assessmentError) throw assessmentError;
+  }
 }
 
 /**

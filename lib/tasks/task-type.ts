@@ -19,9 +19,23 @@ export const TASK_TYPE_LABEL: Record<TaskType, string> = {
   other: "Other",
 };
 
+/**
+ * What the type pickers offer. SCHOOL-01: 'final_midterm' is NOT offered any more (Exam covers it; the name says
+ * Midterm or Final). It stays in TaskType and TASK_TYPE_LABEL/COLOR so a legacy row still renders.
+ */
 export const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = (
   Object.keys(TASK_TYPE_LABEL) as TaskType[]
-).map((value) => ({ value, label: TASK_TYPE_LABEL[value] }));
+)
+  .filter((value) => value !== "final_midterm")
+  .map((value) => ({ value, label: TASK_TYPE_LABEL[value] }));
+
+/** The name field's placeholder for an Exam (SCHOOL-01). */
+export const EXAM_NAME_PLACEHOLDER = "e.g. Midterm 1, Final exam";
+
+/** A legacy 'final_midterm' is an Exam. */
+export function normalizeTaskType(type: TaskType): TaskType {
+  return type === "final_midterm" ? "exam" : type;
+}
 
 /**
  * "Due Date" for handed-in work with a deadline, "Date" for everything that

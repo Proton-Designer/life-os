@@ -110,7 +110,7 @@ describe("updateClassCore", () => {
 });
 
 describe("addClassAssessmentCore", () => {
-  it("creates the task first, then the assessment pointing at it (ruling R5)", async () => {
+  it("creates the task first, then the assessment pointing at it (ruling R5); a legacy final_midterm is stored as exam (SCHOOL-01)", async () => {
     const tasksChain = makeChain({ data: { id: "task-new" }, error: null });
     const assessmentsChain = makeChain({ data: { id: "assessment-new" }, error: null });
     const from = vi.fn((table: string) => (table === "tasks" ? tasksChain : assessmentsChain));
@@ -119,10 +119,10 @@ describe("addClassAssessmentCore", () => {
     const result = await addClassAssessmentCore(client, "user-1", "class-1", "Midterm 2", "final_midterm", "2026-10-15");
 
     expect(tasksChain.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: "user-1", domain: "school", title: "Midterm 2", due_date: "2026-10-15", task_type: "final_midterm", class_id: "class-1" })
+      expect.objectContaining({ user_id: "user-1", domain: "school", title: "Midterm 2", due_date: "2026-10-15", task_type: "exam", class_id: "class-1" })
     );
     expect(assessmentsChain.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: "user-1", class_id: "class-1", name: "Midterm 2", type: "final_midterm", date: "2026-10-15", task_id: "task-new" })
+      expect.objectContaining({ user_id: "user-1", class_id: "class-1", name: "Midterm 2", type: "exam", date: "2026-10-15", task_id: "task-new" })
     );
     expect(result).toEqual({ assessmentId: "assessment-new", taskId: "task-new" });
   });
@@ -183,6 +183,18 @@ describe("updateClassAssessmentCore", () => {
     expect(assessmentsChain.update).toHaveBeenCalledWith({ name: "Renamed", type: "exam", date: "2026-10-20" });
     expect(tasksChain.update).toHaveBeenCalledWith({ title: "Renamed", due_date: "2026-10-20", task_type: "exam" });
     expect(tasksChain.eq).toHaveBeenCalledWith("id", "task-1");
+  });
+
+  it("SCHOOL-01: a legacy final_midterm update is stored (and pushed to the paired task) as exam", async () => {
+    const assessmentsChain = makeChain({ data: { task_id: "task-1" }, error: null });
+    const tasksChain = makeChain();
+    const from = vi.fn((table: string) => (table === "class_assessments" ? assessmentsChain : tasksChain));
+    const client = { from } as unknown as SupabaseClient;
+
+    await updateClassAssessmentCore(client, "user-1", "assessment-1", { name: "Midterm 1", type: "final_midterm", date: "2026-10-20" });
+
+    expect(assessmentsChain.update).toHaveBeenCalledWith({ name: "Midterm 1", type: "exam", date: "2026-10-20" });
+    expect(tasksChain.update).toHaveBeenCalledWith({ title: "Midterm 1", due_date: "2026-10-20", task_type: "exam" });
   });
 
   it("never syncs a task when the assessment has none (task_id null)", async () => {

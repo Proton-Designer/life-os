@@ -264,7 +264,7 @@ describe("school.class_assessment.add", () => {
 
     expect(textOf(outcome)).toEqual({ id: "assessment-new", taskId: "task-new" });
     expect(calls.tasks.insert[0]).toMatchObject({ domain: "school", class_id: "class-1", due_date: "2026-10-15" });
-    expect(calls.class_assessments.insert[0]).toMatchObject({ class_id: "class-1", name: "Midterm 2", type: "final_midterm" });
+    expect(calls.class_assessments.insert[0]).toMatchObject({ class_id: "class-1", name: "Midterm 2", type: "exam" }) // SCHOOL-01: a legacy final_midterm from an old MCP client is normalised to exam;
   });
 
   it("REJECTS an invalid assessment type", async () => {
