@@ -109,7 +109,8 @@ the point is to make a number unavailable the moment it is promised.
 | `254` | Sonnet ENG 1 (RS-03), allocated by Opus Lead, 2026-10-04 | withdrawn, never applied (route already scheduled inside dispatch-notifications-every-15min) | withdrawn |
 | `255` | Sonnet ENG 1 (DB-AUDIT), allocated by Opus Lead, 2026-10-04 | CREATE INDEX (catalog-guarded, idempotent) on 67 per-user FK column sets that had no leading-prefix index (distraction_events/trigger_*_plans trigger_id, reviews, card_states, cards/lessons/chunks, sessions, logs, ...) | allocated |
 | `256` | Sonnet ENG 1 (HOME-01a), allocated by Opus Lead, 2026-10-04 | user_settings += daily_focus_target_minutes / weekend_focus_target_minutes (smallint null, CHECK 30-720) + morning_brief_collapsed_on date null | allocated |
-| `257`+ | — | next free | — |
+| `257` | Sonnet ENG 1 (SCHOOL-01), allocated by Opus Lead, 2026-10-04 | class_assessments.type / tasks.task_type: final_midterm -> exam (data only; CHECKs stay permissive; app cores normalise) | allocated |
+| `258`+ | — | next free | — |
 
 **`112`'s prerequisite: RUN 2026-09-02 04:44, result recorded below.**
 
