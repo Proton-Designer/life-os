@@ -11,6 +11,7 @@ import { HabitsSection } from "@/components/habits/habits-section";
 import { WorriesSection } from "@/components/worries/worries-section";
 import { QuranLookBack } from "@/components/week/quran-look-back";
 import { WeeklyGoalStep } from "@/components/week/weekly-goal-step";
+import { WeekCloseButton, WeekDoneButton } from "@/components/week/week-close-button";
 
 const STEPS = [
   { id: "lookback", title: "Look back" },
@@ -35,7 +36,9 @@ export default async function WeekPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Weekly reset" description="Look back, sort what's open, then set the week ahead." />
+      <PageHeader title="Weekly reset" description="Look back, sort what's open, then set the week ahead."
+        actions={<WeekCloseButton />}
+      />
       <nav aria-label="Reset steps" className="flex flex-wrap gap-2 text-sm">
         {STEPS.map((s, i) => (
           <a key={s.id} href={`#${s.id}`} className="rounded-full border px-3 py-1 text-muted-foreground hover:text-foreground">
@@ -90,6 +93,7 @@ export default async function WeekPage() {
           </InlineErrorBoundary>
         </section>
       </div>
+      <WeekDoneButton />
     </PageContainer>
   );
 }
