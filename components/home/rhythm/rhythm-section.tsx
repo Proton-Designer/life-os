@@ -4,6 +4,7 @@ import { StatTile } from "@/components/ui/stat-tile";
 import { Panel } from "@/components/ui/panel";
 import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
 import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
+import { LockInHint } from "@/components/home/lock-in-hint";
 import { StartDayButton } from "@/components/home/rhythm/start-day-button";
 import { ReplanDialog } from "@/components/home/rhythm/replan-dialog";
 import { formatHoursMinutes, hoursOfDailyTarget } from "@/lib/evening-close/format-hours";
@@ -12,7 +13,7 @@ import type { RhythmData } from "@/lib/home/rhythm-data";
 /**
  * Home's day-rhythm section (IA-P2): one card for the phase of the day, chosen by homeRhythmState
  * (lib/home/rhythm-state.ts) -- Morning (last night's three + Start day + Re-plan), the Today strip
- * (Delta, Hours, Efficiency, timeboxes) after Start Day, "Close the day" from wind-down, and
+ * (Awake for, Hours, Efficiency, timeboxes) after Start Day, "Close the day" from wind-down, and
  * "Done for today" once the day is closed. A Server Component: every prop is plain data.
  */
 export function RhythmSection({ data }: { data: RhythmData }) {
@@ -65,14 +66,17 @@ export function RhythmSection({ data }: { data: RhythmData }) {
       return (
         <div className="flex flex-col gap-3" data-testid="rhythm-today">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <StatTile icon={Sunrise} accent="info" label="Delta — awake for" value={<DeltaClockDisplay wokeAtIso={data.wokeAtIso} initialSeconds={data.deltaSeconds} />} />
-            <StatTile
-              icon={Clock}
-              accent="info"
-              label="Hours today"
-              value={hoursOfDailyTarget(data.hoursTodayMinutes)}
-              delta={{ direction: "flat", text: formatHoursMinutes(data.hoursTodayMinutes) }}
-            />
+            <StatTile icon={Sunrise} accent="info" label="Awake for" value={<DeltaClockDisplay wokeAtIso={data.wokeAtIso} initialSeconds={data.deltaSeconds} />} />
+            <div className="flex flex-col gap-1.5">
+              <StatTile
+                icon={Clock}
+                accent="info"
+                label="Hours today"
+                value={hoursOfDailyTarget(data.hoursTodayMinutes)}
+                delta={{ direction: "flat", text: formatHoursMinutes(data.hoursTodayMinutes) }}
+              />
+              <LockInHint localDate={data.localDate} hoursTodayMinutes={data.hoursTodayMinutes} />
+            </div>
             <StatTile icon={Gauge} accent="info" label="Efficiency" value={data.efficiencyPercent === null ? "—" : `${data.efficiencyPercent}%`} />
           </div>
           <TimeboxedTasks tasks={data.timeboxed} />

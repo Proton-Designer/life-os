@@ -12,6 +12,7 @@ vi.mock("@/components/evening-close/close-plan-stage", () => ({
   ),
 }));
 vi.mock("@/app/(app)/open/today/timebox-actions", () => ({ setTaskPlannedStartTime: vi.fn(), clearTaskPlannedStartTime: vi.fn() }));
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null }) }));
 vi.mock("next/link", async () => {
   const React = await import("react");
   return {
@@ -79,10 +80,13 @@ describe("RhythmSection", () => {
   });
 
   it("today: the strip shows Delta, Hours and Efficiency (no Start day button)", () => {
-    const data: RhythmData = { state: "today", wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
+    const data: RhythmData = { state: "today", localDate: "2026-10-05", wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
     render(<RhythmSection data={data} />);
     expect(screen.getByTestId("rhythm-today")).toBeInTheDocument();
     expect(screen.getByText("42%")).toBeInTheDocument();
+    // HOME-01b: the tile says just "Awake for" (no "Delta")
+    expect(screen.getByText("Awake for")).toBeInTheDocument();
+    expect(screen.queryByText(/delta/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId("start-day")).not.toBeInTheDocument();
   });
 

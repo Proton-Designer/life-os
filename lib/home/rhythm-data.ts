@@ -14,6 +14,8 @@ export type RhythmData =
   | { state: "morning"; plan: OpenRankedTask[]; diff: OpenDiff }
   | {
       state: "today";
+      /** The user's local date (the Lock-In hint's per-day visible-time key). */
+      localDate: string;
       wokeAtIso: string;
       deltaSeconds: number;
       hoursTodayMinutes: number;
@@ -65,6 +67,7 @@ export async function getRhythmData(
     const efficiency = computeEfficiency(hoursTodayMinutes, computeDeltaMinutes(dayStart.wokeAtIso, now));
     return {
       state,
+      localDate: today,
       wokeAtIso: dayStart.wokeAtIso,
       deltaSeconds: computeDeltaSeconds(dayStart.wokeAtIso, now),
       hoursTodayMinutes,
