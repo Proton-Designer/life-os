@@ -37,6 +37,13 @@ export interface WidgetDef {
    * validate (findWidget / saveLayout), but the widget manager list does not offer it (getLayoutCore filters it).
    */
   retired?: boolean;
+  /**
+   * Starts hidden until the person adds it in the widget manager. Used for the cross-domain widgets (Work's modules
+   * on the Business page, Business's modules on the Work page): offered, never on by default.
+   */
+  defaultHidden?: boolean;
+  /** Set on a cross-domain widget: the domain it natively belongs to, so the manager can say "From Work". */
+  fromDomain?: string;
 }
 
 const HOME: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
@@ -66,6 +73,8 @@ const SCHOOL: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
 ];
 
 const WORK: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
+  { widgetKey: "work_schedule", label: "Work schedule", description: "Today's shift and your work week at a glance, with the hours editor." },
+  { widgetKey: "targets", label: "Targets & goals", description: "Your three ranked targets, stretch goals and the completed-goals history." },
   { widgetKey: "pipeline", label: "Weekly Agenda Pipeline", description: "The current target's tasks, moving from Backlog through Complete." },
 ];
 
@@ -76,6 +85,12 @@ const BUSINESS: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "weekly_goal", label: "This week's goal", description: "The one outcome this week is actually about." },
   { widgetKey: "completed_goals_archive", label: "Completed goals", description: "Past weekly goals you've already finished." },
 ];
+
+
+/** Work's modules, offered (off by default) on the Business page, and the other way round. Keys never collide: the two sets are disjoint. */
+function offered(from: string, widgets: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[]): Omit<WidgetDef, "domainKey" | "defaultPosition">[] {
+  return widgets.filter((w) => !w.retired).map((w) => ({ ...w, defaultHidden: true, fromDomain: from }));
+}
 
 const DEEN: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "salah", label: "Salah", description: "Today's five prayers, logged as you pray them." },
@@ -127,8 +142,8 @@ const WEEKLY_REVIEW: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[]
 const DOMAIN_WIDGETS: readonly [string, readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[]][] = [
   ["home", HOME],
   ["school", SCHOOL],
-  ["work", WORK],
-  ["business", BUSINESS],
+  ["work", [...WORK, ...offered("business", BUSINESS)]],
+  ["business", [...BUSINESS, ...offered("work", WORK)]],
   ["deen", DEEN],
   ["fitness", FITNESS],
   ["self_mastery", SELF_MASTERY],
@@ -172,3 +187,7 @@ export const OPT_IN_HOME_WIDGETS: Readonly<Record<string, "morning_routine" | "s
   morning_routine: "morning_routine",
   sleep_intent: "sleep_plan",
 };
+
+/** Widget keys that natively belong to Work / Business, for the pages deciding whether any cross-domain module is switched on. */
+export const WORK_WIDGET_KEYS: readonly string[] = WORK.map((w) => w.widgetKey);
+export const BUSINESS_WIDGET_KEYS: readonly string[] = BUSINESS.map((w) => w.widgetKey);

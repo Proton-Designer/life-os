@@ -23,7 +23,7 @@ describe("one weekly-goal editor", () => {
   });
   it("Home/calendar header and the Business widget both render the slot, and none calls saveBusinessWeeklyGoal from UI", () => {
     const users = importing("weekly-goal-slot");
-    expect(users).toEqual(expect.arrayContaining(["components/shared/weekly-goals-header.tsx", "components/business/business-page-content.tsx"]));
+    expect(users).toEqual(expect.arrayContaining(["components/shared/weekly-goals-header.tsx", "components/business/business-modules.tsx"]));
     expect(importing("saveBusinessWeeklyGoal")).toEqual([]);
   });
   it("positive control: the scan can see a real import (the slot itself imports GoalCard)", () => {

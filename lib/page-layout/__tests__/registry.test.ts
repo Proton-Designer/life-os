@@ -55,3 +55,15 @@ describe("findWidget", () => {
     expect(findWidget("school", "not_a_real_widget")).toBeUndefined();
   });
 });
+
+describe("cross-domain widgets", () => {
+  it("a Work key is valid on Business and a Business key is valid on Work, but neither leaks anywhere else", () => {
+    expect(findWidget("business", "pipeline")?.fromDomain).toBe("work");
+    expect(findWidget("work", "kill_list")?.fromDomain).toBe("business");
+    expect(findWidget("school", "kill_list")).toBeUndefined();
+    expect(findWidget("business", "kill_list")?.fromDomain).toBeUndefined(); // native there
+  });
+  it("every offered widget starts hidden; no native widget does", () => {
+    for (const w of WIDGET_REGISTRY) expect(Boolean(w.defaultHidden)).toBe(Boolean(w.fromDomain));
+  });
+});

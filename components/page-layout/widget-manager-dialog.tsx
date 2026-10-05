@@ -148,7 +148,14 @@ export function WidgetManagerDialog({
               >
                 <GripVertical className="mt-1 size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="text-sm font-medium">
+                    {item.label}
+                    {item.fromDomain ? (
+                      <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[0.65rem] font-normal capitalize text-muted-foreground" data-testid="widget-from-domain">
+                        From {item.fromDomain}
+                      </span>
+                    ) : null}
+                  </p>
                   <p className="text-xs text-muted-foreground">{item.description}</p>
                 </div>
                 <div className="flex shrink-0 flex-col">

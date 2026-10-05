@@ -29,6 +29,11 @@ export function allWidgetsHidden(layout: readonly LayoutItem[]): boolean {
   return layout.length > 0 && layout.every((item) => item.hidden);
 }
 
+/** True when at least one of `keys` is switched on in `layout`: a page uses it to skip loading data for cross-domain modules nobody added. */
+export function anyWidgetVisible(layout: readonly LayoutItem[], keys: readonly string[]): boolean {
+  return layout.some((item) => keys.includes(item.widgetKey) && !item.hidden);
+}
+
 export function LayoutSlot({
   layout,
   widgetKey,

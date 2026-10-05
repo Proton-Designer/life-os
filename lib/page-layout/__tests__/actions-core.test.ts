@@ -216,3 +216,53 @@ describe("cross-user isolation", () => {
     expect(rows.every((r) => r.user_id === "user-1")).toBe(true);
   });
 });
+
+// Work and Business can each offer the OTHER's modules, off by default, stored under the host page's own layout key.
+describe("getLayoutCore -- cross-domain widgets (Work <-> Business)", () => {
+  const BUSINESS_KEYS = ["focus_time", "incomplete_tasks", "kill_list", "weekly_goal", "completed_goals_archive"];
+  const WORK_KEYS = ["work_schedule", "targets", "pipeline"];
+
+  it("Work offers every Business module, OFF by default and tagged 'business'; its own modules stay on", async () => {
+    const layout = await getLayoutCore(makeDb([]).client, "user-1", "work");
+    for (const k of WORK_KEYS) expect(layout.find((w) => w.widgetKey === k)).toMatchObject({ hidden: false });
+    for (const k of BUSINESS_KEYS) expect(layout.find((w) => w.widgetKey === k)).toMatchObject({ hidden: true, fromDomain: "business" });
+    expect(layout.find((w) => w.widgetKey === "pipeline")?.fromDomain).toBeUndefined();
+  });
+
+  it("Business offers every Work module, OFF by default and tagged 'work'; its own modules stay on", async () => {
+    const layout = await getLayoutCore(makeDb([]).client, "user-1", "business");
+    for (const k of BUSINESS_KEYS) expect(layout.find((w) => w.widgetKey === k)).toMatchObject({ hidden: false });
+    for (const k of WORK_KEYS) expect(layout.find((w) => w.widgetKey === k)).toMatchObject({ hidden: true, fromDomain: "work" });
+  });
+
+  it("native modules come first, offered ones after them", async () => {
+    const layout = await getLayoutCore(makeDb([]).client, "user-1", "business");
+    const native = layout.filter((w) => !w.fromDomain).map((w) => w.position);
+    const offered = layout.filter((w) => w.fromDomain).map((w) => w.position);
+    expect(Math.max(...native)).toBeLessThan(Math.min(...offered));
+  });
+
+  it("adding one on Business (saving it visible) is stored under 'business' and does NOT change Work's layout", async () => {
+    const db = makeDb([]);
+    await saveLayoutCore(db.client, "user-1", "business", [{ widgetKey: "pipeline", position: 5, hidden: false }]);
+    expect((await getLayoutCore(db.client, "user-1", "business")).find((w) => w.widgetKey === "pipeline")).toMatchObject({ hidden: false });
+    // Work's own pipeline is untouched, and Work's offered Business modules are still off
+    const work = await getLayoutCore(db.client, "user-1", "work");
+    expect(work.find((w) => w.widgetKey === "pipeline")).toMatchObject({ hidden: false, position: 2 });
+    expect(work.find((w) => w.widgetKey === "kill_list")).toMatchObject({ hidden: true });
+    expect(db.rows.every((r) => r.domain_key === "business")).toBe(true);
+  });
+
+  it("the reverse: a Business module turned on in Work is stored under 'work' only, and Business's own copy is unaffected", async () => {
+    const db = makeDb([]);
+    await saveLayoutCore(db.client, "user-1", "work", [{ widgetKey: "kill_list", position: 4, hidden: false }]);
+    expect((await getLayoutCore(db.client, "user-1", "work")).find((w) => w.widgetKey === "kill_list")).toMatchObject({ hidden: false });
+    expect((await getLayoutCore(db.client, "user-1", "business")).find((w) => w.widgetKey === "kill_list")).toMatchObject({ hidden: false, position: 2 });
+    expect(db.rows.every((r) => r.domain_key === "work")).toBe(true);
+  });
+
+  it("a stored row wins over the default: an offered module the person turned on, then off again, is hidden", async () => {
+    const db = makeDb([{ user_id: "user-1", domain_key: "work", widget_key: "kill_list", position: 4, hidden: true }]);
+    expect((await getLayoutCore(db.client, "user-1", "work")).find((w) => w.widgetKey === "kill_list")).toMatchObject({ hidden: true });
+  });
+});

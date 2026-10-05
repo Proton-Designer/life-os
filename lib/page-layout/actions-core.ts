@@ -16,6 +16,8 @@ export interface LayoutItem {
   description: string;
   position: number;
   hidden: boolean;
+  /** Present on a cross-domain widget (e.g. Work's pipeline on the Business page): the domain it natively belongs to. */
+  fromDomain?: string;
 }
 
 interface StoredRow {
@@ -54,7 +56,9 @@ export async function getLayoutCore(supabase: SupabaseClient, userId: string, do
         label: w.label,
         description: w.description,
         position: row?.position ?? w.defaultPosition,
-        hidden: row?.hidden ?? false,
+        // A cross-domain widget starts OFF until the person adds it; a stored row always wins.
+        hidden: row?.hidden ?? w.defaultHidden ?? false,
+        ...(w.fromDomain ? { fromDomain: w.fromDomain } : {}),
       };
     })
     .sort((a, b) => a.position - b.position);
