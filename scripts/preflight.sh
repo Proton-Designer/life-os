@@ -57,7 +57,9 @@ grep -c "error TS" /tmp/preflight-tsc.log | sed 's/^/  errors: /'
 step "unit tests"
 VITEST_JSON=/tmp/preflight-vitest.json
 rm -f "$VITEST_JSON"
-npx vitest run --reporter=default --reporter=json --outputFile.json="$VITEST_JSON" </dev/null > /tmp/preflight-vitest.log 2>&1
+# Capped workers (2026-10-04, laptop heat): an uncapped run uses every core but one. 4 workers runs the
+# same tests, a bit slower. PREFLIGHT_MAX_WORKERS overrides.
+npx vitest run --maxWorkers="${PREFLIGHT_MAX_WORKERS:-4}" --reporter=default --reporter=json --outputFile.json="$VITEST_JSON" </dev/null > /tmp/preflight-vitest.log 2>&1
 record $? "vitest"
 grep -E "Test Files|Tests " /tmp/preflight-vitest.log | tail -2 | sed 's/^/  /'
 
