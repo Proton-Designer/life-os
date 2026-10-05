@@ -58,6 +58,7 @@ describe("hoursOfDailyTarget -- Phase 2 #P2-04's 'N of 4 Hours today' framing", 
   });
 
   it("accepts a non-default target", () => {
-    expect(hoursOfDailyTarget(120, 6)).toBe("2 of 6");
+    expect(hoursOfDailyTarget(120, 360)).toBe("2 of 6");
+    expect(hoursOfDailyTarget(120, 270)).toBe("2 of 4.5");
   });
 });

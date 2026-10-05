@@ -6,6 +6,7 @@ import { NotificationSettings } from "@/components/settings/notification-setting
 import { WindDownPlanSettings } from "@/components/settings/wind-down-plan-settings";
 import { SleepReminderSettings } from "@/components/settings/sleep-reminder-settings";
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
+import { FocusTargetSettings } from "@/components/settings/focus-target-settings";
 import { StreamedIntegrationPanels } from "@/components/settings/streamed-panels";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
@@ -36,10 +37,15 @@ export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: settingsRow } = await supabase
     .from("user_settings")
-    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes")
+    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes")
     .eq("user_id", user.id)
     .maybeSingle();
   const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
+  // HOME-01a (migration 256): NULL = unset; the editor shows the 4:00 default.
+  const focusTargets = {
+    dailyMinutes: settingsRow?.daily_focus_target_minutes ?? null,
+    weekendMinutes: settingsRow?.weekend_focus_target_minutes ?? null,
+  };
 
   // L10: same defensive-cast reasoning as components/shell/app-shell.tsx —
   // theme_preset/hidden_features are a NEW migration, not yet reflected in
@@ -102,6 +108,9 @@ export default async function SettingsPage() {
               ),
               afterCheckins: (
                 <>
+          <Panel title="Daily focus target">
+                    <FocusTargetSettings initial={focusTargets} />
+                  </Panel>
           <Panel title="Weekly shape">
                     <p className="text-xs text-muted-foreground">
                       What a normal day looks like, so the evening close can tell you whether today matched it.
