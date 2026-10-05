@@ -16,6 +16,7 @@ import {
   type ClaimedSeed,
 } from "@/lib/night-plan/plan-actions-core";
 import { triageInboxCore, type InboxTriage } from "@/lib/inbox/inbox-core";
+import { mirrorToKillListCore } from "@/lib/night-plan/kill-list-mirror";
 
 export type { PlanMode, SeedLine, SeedSource, ClaimedSeed };
 
@@ -208,14 +209,30 @@ export async function claimSeedLines(
 export async function savePlanRanks(
   starred: string[],
   crowned: string | null,
-  mode: PlanMode = "tonight"
-): Promise<{ ok: true } | { error: string }> {
+  mode: PlanMode = "tonight",
+  /** Starred lines marked "Business": mirrored into that day's Kill List (lib/night-plan/kill-list-mirror.ts). Anything not starred is ignored. */
+  killListIds: string[] = []
+): Promise<{ ok: true; killListOverflow?: string[] } | { error: string }> {
   const ctx = await planningDateFor(mode);
   if (ctx === null) return { error: "Not signed in" };
 
   const supabase = await createClient();
   const result = await savePlanRanksCore(supabase, ctx.userId, ctx.plannedDate, starred, crowned);
   if (!("ok" in result)) return result;
+
+  // ONE TOP THREE: the plan is saved first (it is the source of truth); the Kill List mirror is best-effort on
+  // top of it and reports what did not fit rather than failing a plan that already saved.
+  let killListOverflow: string[] = [];
+  let killListError: string | null = null;
+  const wanted = killListIds.filter((id) => starred.includes(id));
+  if (wanted.length > 0) {
+    const { data: rows } = await supabase.from("tasks").select("id, title").eq("user_id", ctx.userId).eq("planned_date", ctx.plannedDate).in("id", wanted);
+    const titleById = new Map((rows ?? []).map((r) => [r.id as string, r.title as string]));
+    const mirrored = await mirrorToKillListCore(supabase, ctx.userId, ctx.plannedDate, wanted.map((id) => titleById.get(id) ?? "").filter(Boolean));
+    if ("error" in mirrored) killListError = `Your plan saved, but the Kill List didn't update (${mirrored.error}). Add it on the Business page.`;
+    else killListOverflow = mirrored.overflow;
+    revalidatePath("/business");
+  }
 
   // P3-09: this is the one place the evening-close ritual's plan stage
   // ALWAYS commits (commit(), close-plan-stage.tsx, calls this on Finish
@@ -236,5 +253,7 @@ export async function savePlanRanks(
   revalidatePath("/close/replan");
   revalidatePath("/open");
   revalidatePath("/");
-  return { ok: true };
+  // Returned only after the close is recorded above: a Kill List hiccup must not leave the day un-closed.
+  if (killListError) return { error: killListError };
+  return killListOverflow.length > 0 ? { ok: true, killListOverflow } : { ok: true };
 }

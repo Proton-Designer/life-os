@@ -7,7 +7,7 @@ import type { DumpItem } from "@/lib/night-plan/night-plan";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
-type ReplanData = { todayLines: { id: string; title: string }[]; planSeeds: DumpItem[] };
+type ReplanData = { todayLines: { id: string; title: string }[]; planSeeds: DumpItem[]; killList: boolean };
 
 /**
  * "Re-plan" on the Morning card (IA-P2): today's plan stage (the SAME ClosePlanStage, mode "today",
@@ -24,7 +24,7 @@ export function ReplanDialog() {
     try {
       const res = await getReplanData();
       if (res === null) setError("Sign in again to re-plan.");
-      else setData({ todayLines: res.todayLines, planSeeds: res.planSeeds });
+      else setData({ todayLines: res.todayLines, planSeeds: res.planSeeds, killList: res.killList });
     } catch {
       setError("Couldn't load today's plan. Try again.");
     }
@@ -54,7 +54,7 @@ export function ReplanDialog() {
           </p>
         ) : null}
         {!error && data === null ? <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p> : null}
-        {data ? <ClosePlanStage initialLines={data.todayLines} seeds={data.planSeeds} mode="today" /> : null}
+        {data ? <ClosePlanStage initialLines={data.todayLines} seeds={data.planSeeds} mode="today" killList={data.killList} /> : null}
       </DialogContent>
     </Dialog>
   );

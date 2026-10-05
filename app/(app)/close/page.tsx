@@ -90,6 +90,7 @@ export default async function EveningClosePage() {
                   mode="tonight"
                   inbox={inbox?.items}
                   inboxAreas={inbox?.areas}
+                  killList={inbox?.killList}
                 />
               )}
             </Stream>

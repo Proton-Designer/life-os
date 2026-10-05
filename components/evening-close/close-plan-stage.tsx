@@ -74,6 +74,7 @@ export function ClosePlanStage({
   mode = "tonight",
   inbox = [],
   inboxAreas = [],
+  killList = false,
 }: {
   initialLines: { id: string; title: string }[];
   seeds?: DumpItem[];
@@ -82,6 +83,8 @@ export function ClosePlanStage({
   inbox?: InboxEntry[];
   /** The task homes this account has (School / Work) — one "Make it a task" button per entry. */
   inboxAreas?: InboxAreas;
+  /** The account has a Business Kill List: starred lines can be marked "Business" and are mirrored into it on Finish (one top three). */
+  killList?: boolean;
 }) {
   const [inboxItems, setInboxItems] = useState<InboxEntry[]>(inbox);
   const pendingPlanTriage = useRef(new Map<string, Promise<boolean>>());
@@ -91,6 +94,8 @@ export function ClosePlanStage({
   ]);
   const [starred, setStarred] = useState<string[]>([]);
   const [crowned, setCrowned] = useState<string | null>(null);
+  const [business, setBusiness] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -228,11 +233,13 @@ export function ClosePlanStage({
       const remappedStarred = starred.map(remap).filter((id): id is string => id !== null);
       const remappedCrowned = crowned === null ? null : remap(crowned);
 
-      const res = await savePlanRanks(remappedStarred, remappedCrowned, mode);
+      const remappedBusiness = killList ? business.map(remap).filter((id): id is string => id !== null) : [];
+      const res = remappedBusiness.length > 0 ? await savePlanRanks(remappedStarred, remappedCrowned, mode, remappedBusiness) : await savePlanRanks(remappedStarred, remappedCrowned, mode);
       if ("error" in res) {
         setError(res.error);
         return;
       }
+      setNotice(res.killListOverflow?.length ? `Your Kill List is already full, so these stayed off it: ${res.killListOverflow.join(", ")}.` : null);
       setSaved(true);
     });
   }
@@ -317,6 +324,22 @@ export function ClosePlanStage({
                     {l.seedSource === "worry" ? "worry" : l.seedSource === "goal_milestone" ? "goal" : "school"}
                   </span>
                 ) : null}
+                {/* One top three: a starred line marked Business is mirrored into that day's Kill List on Finish. */}
+                {killList && isStarred ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSaved(false);
+                      setBusiness((prev) => (prev.includes(l.id) ? prev.filter((x) => x !== l.id) : [...prev, l.id]));
+                    }}
+                    aria-pressed={business.includes(l.id)}
+                    aria-label={business.includes(l.id) ? `Remove ${l.title} from the Kill List` : `Add ${l.title} to the Kill List`}
+                    data-testid="plan-business"
+                    className="shrink-0 rounded border px-2 py-0.5 text-xs aria-pressed:border-primary aria-pressed:text-primary"
+                  >
+                    Business
+                  </button>
+                ) : null}
                 {/* The crown affordance exists ONLY for starred lines. That is
                     the two-stage narrowing, enforced by absence. */}
                 {isStarred ? (
@@ -367,6 +390,7 @@ export function ClosePlanStage({
       )}
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {notice ? <p data-testid="plan-notice" className="text-sm text-muted-foreground">{notice}</p> : null}
 
       {/* Absent until a crown exists, for the same reason Continue is absent
           while a rewrite is outstanding: a disabled control still says there is

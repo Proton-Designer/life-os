@@ -260,3 +260,43 @@ describe("ClosePlanStage — Plan tonight then Finish fast (P1a F1)", () => {
     expect(savePlanRanksMock).not.toHaveBeenCalled();
   });
 });
+
+// ONE TOP THREE: a starred line marked "Business" rides along to savePlanRanks and lands on the Kill List.
+describe("ClosePlanStage — Business marks (one top three)", () => {
+  const lines = [{ id: "t1", title: "Send the invoices" }, { id: "t2", title: "Gym" }];
+
+  it("only offers 'Business' on STARRED lines, and only when the account has a Kill List", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<ClosePlanStage initialLines={lines} killList />);
+    expect(screen.queryByTestId("plan-business")).not.toBeInTheDocument(); // nothing starred yet
+    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
+    expect(screen.getAllByTestId("plan-business")).toHaveLength(1);
+    unmount();
+    render(<ClosePlanStage initialLines={lines} />);
+    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
+    expect(screen.queryByTestId("plan-business")).not.toBeInTheDocument(); // no Kill List on this account
+  });
+
+  it("Finish passes the marked ids as the 4th argument", async () => {
+    savePlanRanksMock.mockClear();
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={lines} killList />);
+    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
+    await user.click(screen.getByRole("button", { name: /star gym/i }));
+    await user.click(screen.getByRole("button", { name: /add send the invoices to the kill list/i }));
+    await user.click(screen.getByRole("button", { name: /crown send the invoices/i }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+    expect(savePlanRanksMock).toHaveBeenCalledWith(["t1", "t2"], "t1", "tonight", ["t1"]);
+  });
+
+  it("says so when the Kill List was full", async () => {
+    savePlanRanksMock.mockResolvedValueOnce({ ok: true, killListOverflow: ["Send the invoices"] } as never);
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={lines} killList />);
+    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
+    await user.click(screen.getByRole("button", { name: /add send the invoices to the kill list/i }));
+    await user.click(screen.getByRole("button", { name: /crown send the invoices/i }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+    expect(await screen.findByTestId("plan-notice")).toHaveTextContent("Kill List is already full");
+  });
+});

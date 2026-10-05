@@ -17,6 +17,7 @@ import { getOpenWorries, worriesToDumpItems } from "@/lib/night-plan/worries";
 import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor } from "@/lib/goals/queries";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
+import { loadHasKillList } from "@/lib/inbox/close-inbox";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -259,6 +260,8 @@ export type ReplanData = {
   /** Today's already-dumped lines (typed or previously claimed seeds), same shape as tomorrowLines above but for TODAY. */
   todayLines: { id: string; title: string }[];
   planSeeds: DumpItem[];
+  /** The account has a Business Kill List (the plan stage offers "Business" on starred lines). */
+  killList: boolean;
 };
 
 /**
@@ -289,5 +292,5 @@ export async function getReplanData(): Promise<ReplanData | null> {
   const todayLines = (todayRows ?? []).map((t) => ({ id: t.id, title: t.title }));
   const planSeeds = await computePlanSeeds(supabase, user.id, timezone, new Date(), today, new Set(todayLines.map((l) => l.id)), isDeenModeOn(profile));
 
-  return { dateLabel: today, todayLines, planSeeds };
+  return { dateLabel: today, todayLines, planSeeds, killList: await loadHasKillList() };
 }
