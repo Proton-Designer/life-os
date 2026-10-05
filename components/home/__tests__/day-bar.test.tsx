@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let session: unknown = null;
 const markPrayer = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => {}));
 vi.mock("@/app/(app)/deen/actions", () => ({ markPrayer: (...a: unknown[]) => markPrayer(...a), refreshDeenViews: vi.fn(async () => {}) }));
-vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session }) }));
+const startSession = vi.hoisted(() => vi.fn());
+const expandSession = vi.hoisted(() => vi.fn());
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session, isPending: false, startSession, expand: expandSession }) }));
 
 import { DayBar } from "../day-bar";
 import { computeDayRibbon } from "@/lib/home/day-ribbon";
@@ -45,6 +47,47 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("DayBar (HOME-02)", () => {
+  describe("Focus button", () => {
+    it("sits at the far right of the header, after the '% focused' label", () => {
+      render(<DayBar {...props} />);
+      const eff = screen.getByTestId("day-bar-efficiency");
+      const btn = screen.getByTestId("day-bar-focus-button");
+      expect(btn).toHaveTextContent("Focus");
+      expect(eff.parentElement).toContainElement(btn);
+      expect(eff.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("opens a Deep Work / Deep Study picker, and choosing one starts that session the normal way", async () => {
+      startSession.mockClear();
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      render(<DayBar {...props} />);
+      expect(screen.queryByTestId("day-bar-focus-picker")).toBeNull();
+      await user.click(screen.getByTestId("day-bar-focus-button"));
+      const picker = await screen.findByTestId("day-bar-focus-picker");
+      expect(startSession).not.toHaveBeenCalled(); // opening the picker starts nothing
+      await user.click(within(picker).getByRole("button", { name: "Deep Study" }));
+      expect(startSession).toHaveBeenCalledWith("deep_study");
+      expect(screen.queryByTestId("day-bar-focus-picker")).toBeNull();
+      await user.click(screen.getByTestId("day-bar-focus-button"));
+      await user.click(within(await screen.findByTestId("day-bar-focus-picker")).getByRole("button", { name: "Deep Work" }));
+      expect(startSession).toHaveBeenLastCalledWith("deep_work");
+    });
+
+    it("while a session is running the button reopens it instead of offering a second one", async () => {
+      expandSession.mockClear();
+      startSession.mockClear();
+      vi.useRealTimers();
+      session = { id: "s1" };
+      const user = userEvent.setup();
+      render(<DayBar {...props} />);
+      await user.click(screen.getByTestId("day-bar-focus-button"));
+      expect(expandSession).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("day-bar-focus-picker")).toBeNull();
+      expect(startSession).not.toHaveBeenCalled();
+    });
+  });
+
   it("labels: 'Awake for 5:45', 'Focus 1:30 · 1 of 4 h · 2:30 to go', '30% focused'", () => {
     render(<DayBar {...props} />);
     expect(screen.getByTestId("day-bar-awake")).toHaveTextContent("Awake for 5:45");
