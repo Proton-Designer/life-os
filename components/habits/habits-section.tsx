@@ -20,12 +20,13 @@ export async function HabitsSection() {
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
 
+  const deenOn = isDeenModeOn(profile);
   // HABITS-01: Faith practices only when Deen mode is on (OFF: not read at all).
   const [habits, pausedHabits, layout, faithPractices] = await Promise.all([
     getActiveHabitsWithStatus(supabase, user.id, todayStr, timezone),
     getPausedHabits(supabase, user.id),
     getPageLayout("habits"),
-    isDeenModeOn(profile) ? getFaithPractices(supabase, user.id, todayStr).catch(() => []) : Promise.resolve([]),
+    deenOn ? getFaithPractices(supabase, user.id, todayStr).catch(() => []) : Promise.resolve([]),
   ]);
   const layoutMap = buildLayoutMap(layout);
 
@@ -33,7 +34,8 @@ export async function HabitsSection() {
     <div className="space-y-4" data-testid="habits-section">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Your identities and faith practices. Keep, pause or drop. Vote once a day for who you&apos;re becoming — up to seven identities.
+          {deenOn ? "Your identities and faith practices. Keep, pause or drop. " : "Keep, pause or drop. "}
+          Vote once a day for who you&apos;re becoming — up to seven identities.
         </p>
         <WidgetManagerButton domainKey="habits" />
       </div>
