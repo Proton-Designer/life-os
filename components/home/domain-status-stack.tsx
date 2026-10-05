@@ -146,16 +146,14 @@ export function DomainStatusStack({
                 <IconChip icon={DOMAIN_ICON[domain]} accent={accent} size="sm" />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{row.label}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {metricFor(domain, snapshots)}
-                    {domain === "deen" && deenKhatm ? (
-                      <span data-testid="sector-khatm">
-                        {" · "}
-                        {deenKhatm.label}
-                        {deenKhatm.kind === "behind" ? " · behind" : deenKhatm.kind === "paused" ? " · paused" : ""}
-                      </span>
-                    ) : null}
-                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{metricFor(domain, snapshots)}</p>
+                  {/* QURAN-02: the khatm is its OWN short line, so a long prayer/qada metric (truncated on a phone) can never hide it */}
+                  {domain === "deen" && deenKhatm ? (
+                    <p className="truncate text-xs text-muted-foreground" data-testid="sector-khatm">
+                      {deenKhatm.label}
+                      {deenKhatm.kind === "behind" ? " · behind" : deenKhatm.kind === "paused" ? " · paused" : ""}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <ProgressRing

@@ -196,8 +196,11 @@ describe("DomainStatusStack", () => {
     unmount();
     const { unmount: u2 } = render(<DomainStatusStack snapshots={SNAPSHOTS} deenKhatm={{ label: "Khatm 2 · 14%", percent: 14, kind: "on_track", onTrack: true }} />);
     expect(screen.getAllByTestId("sector-khatm")).toHaveLength(1);
-    expect(screen.getByTestId("sector-khatm")).toHaveTextContent("· Khatm 2 · 14%");
+    expect(screen.getByTestId("sector-khatm")).toHaveTextContent("Khatm 2 · 14%");
     expect(screen.getByTestId("sector-khatm")).not.toHaveTextContent("behind");
+    // its own line: a sibling of the metric line, not appended to it (a long metric truncates on a phone)
+    expect(screen.getByTestId("sector-khatm").previousElementSibling).toHaveTextContent("prayers");
+    expect(screen.getByText("2/5 prayers")).not.toHaveTextContent("Khatm");
     u2();
     render(<DomainStatusStack snapshots={SNAPSHOTS} deenKhatm={{ label: "Khatm 2 · 14%", percent: 14, kind: "behind", onTrack: false }} />);
     expect(screen.getByTestId("sector-khatm")).toHaveTextContent("Khatm 2 · 14% · behind");
