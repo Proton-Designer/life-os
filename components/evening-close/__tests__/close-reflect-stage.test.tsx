@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CloseReflectStage } from "../close-reflect-stage";
 import type { HabitWithStatus } from "@/lib/habits/queries";
+import { DAILY_FIELDS } from "@/lib/habits/__tests__/daily-fixture";
 
 const NO_PLAN = { todaysThree: [], hoursTodayMinutes: 90, weekdayBaselines: null, weekdayIndex: 1, activeHabits: [] as HabitWithStatus[] };
 
@@ -14,6 +15,8 @@ function habit(overrides: Partial<HabitWithStatus> = {}): HabitWithStatus {
     isNew: false,
     score: 0.6,
     voteCount: 10,
+    ...DAILY_FIELDS,
+    streak: { count: 0, unit: "day" },
     ...overrides,
   };
 }
@@ -86,4 +89,29 @@ describe("CloseReflectStage — habit-vote display (P3-04)", () => {
     expect(screen.getByText("1/1 today")).toBeInTheDocument();
     expect(screen.getByText("Voted")).toBeInTheDocument();
   });
+
+  it("habits that aren't due today are left out of the count and the list (HABIT-FREQ), unless already voted", () => {
+    const NOT_DUE = { due: false, doneToday: false, progress: null, nextDueDate: null, statusText: "Next: Wed" };
+    render(
+      <CloseReflectStage
+        {...NO_PLAN}
+        deltaMinutes={null}
+        activeHabits={[
+          habit({ id: "h1", identityStatement: "the reader", votedToday: true }),
+          habit({ id: "h2", identityStatement: "the lifter", frequency: { kind: "weekdays", days: [1, 3, 5] }, due: NOT_DUE }),
+          habit({ id: "h3", identityStatement: "the stretcher", frequency: { kind: "per_week", count: 2 }, due: NOT_DUE, votedToday: true }),
+        ]}
+      />
+    );
+    expect(screen.getByText("2/2 today")).toBeInTheDocument(); // reader + the already-voted stretcher; the lifter isn't today's
+    expect(screen.queryByText("the lifter")).not.toBeInTheDocument();
+    expect(screen.getByText("the stretcher")).toBeInTheDocument();
+  });
+
+  it("the section is absent when every habit is off-day", () => {
+    const NOT_DUE = { due: false, doneToday: false, progress: null, nextDueDate: null, statusText: "Next: Wed" };
+    render(<CloseReflectStage {...NO_PLAN} deltaMinutes={null} activeHabits={[habit({ due: NOT_DUE })]} />);
+    expect(screen.queryByText(/Habits/)).not.toBeInTheDocument();
+  });
 });
+

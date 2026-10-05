@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HabitBuilder, type DeenHabitData } from "../habit-builder";
+import { DAILY_FIELDS } from "@/lib/habits/__tests__/daily-fixture";
 
 vi.mock("@/app/(app)/deen/actions", () => ({
   toggleDeenHabitLog: vi.fn(),
@@ -12,6 +13,7 @@ vi.mock("@/app/(app)/deen/actions", () => ({
   setDeenHabitStageOverride: vi.fn(),
   setDeenHabitCommittedDate: vi.fn(),
   setDeenHabitLogStatus: vi.fn(),
+  setDeenHabitFrequency: vi.fn(),
   getDeenHabitLogRange: vi.fn(async () => []),
 }));
 
@@ -25,6 +27,7 @@ function habit(overrides: Partial<DeenHabitData> = {}): DeenHabitData {
     rollingRate: { done: 10, total: 15 },
     completedToday: false,
     stageOverride: null,
+    ...DAILY_FIELDS,
     ...overrides,
   };
 }
@@ -337,7 +340,7 @@ describe("HabitBuilder", () => {
     await user.type(screen.getByPlaceholderText(/cue \(optional\)/i), "Fajr");
     await user.click(screen.getByRole("button", { name: "Start" }));
 
-    expect(createDeenHabit).toHaveBeenCalledWith("Read Qur'an", "Fajr");
+    expect(createDeenHabit).toHaveBeenCalledWith("Read Qur'an", "Fajr", { kind: "daily" }); // untouched picker = every day, exactly as before
     expect(setWeeklyFocus).toHaveBeenCalledWith("new-habit");
     // A brand-new habit, not yet done today, must show 0/0 — not 0/1. The
     // day isn't over, so it shouldn't be counted against a habit that's
@@ -391,5 +394,91 @@ describe("HabitBuilder", () => {
 
     expect(screen.getByText("Grid habit 6")).toBeInTheDocument();
     expect(screen.getByText("Grid habit 7")).toBeInTheDocument();
+  });
+});
+
+describe("HabitBuilder — cadence (HABIT-FREQ)", () => {
+  it("a daily habit shows no cadence line at all (exactly as before — positive control for the cases below)", () => {
+    render(<HabitBuilder todayStr="2026-08-15" habits={[habit()]} currentFocusHabitId={null} habitConsistencyRows={[]} />);
+    expect(screen.queryByTestId("habit-cadence")).not.toBeInTheDocument();
+    expect(screen.getByText("3d streak")).toBeInTheDocument();
+    expect(screen.getByText("10/15")).toBeInTheDocument();
+  });
+
+  it("a '3× a week' habit shows its cadence + where the week stands, the streak in weeks, and adherence in weeks", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[
+          habit({
+            frequency: { kind: "per_week", count: 3 },
+            due: { due: true, doneToday: false, progress: { done: 1, target: 3, unit: "week" }, nextDueDate: null, statusText: "1 of 3 this week" },
+            streak: 2,
+            streakInfo: { count: 2, unit: "week" },
+            rollingRate: { done: 3, total: 4, unit: "week" },
+          }),
+        ]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    expect(screen.getByTestId("habit-cadence")).toHaveTextContent("3× a week · 1 of 3 this week");
+    expect(screen.getByText("2 wk streak")).toBeInTheDocument();
+    expect(screen.getByText("3/4 wks")).toBeInTheDocument();
+  });
+
+  it("a habit that is not due today is shown quieter but can still be ticked", () => {
+    render(
+      <HabitBuilder
+        todayStr="2026-08-15"
+        habits={[habit({ frequency: { kind: "weekdays", days: [1, 3, 5] }, due: { due: false, doneToday: false, progress: null, nextDueDate: null, statusText: "Next: Wed" } })]}
+        currentFocusHabitId={null}
+        habitConsistencyRows={[]}
+      />
+    );
+    const row = screen.getByTestId("habit-cadence").closest("li")!;
+    expect(row.className).toContain("opacity-60");
+    expect(screen.getByTestId("habit-cadence")).toHaveTextContent("Mon · Wed · Fri · Next: Wed");
+    expect(screen.getByRole("button", { name: "Mark complete" })).toBeEnabled();
+  });
+
+  async function createWeeklyHabit(todayStr: string) {
+    const { createDeenHabit } = await import("@/app/(app)/deen/actions");
+    vi.mocked(createDeenHabit).mockClear();
+    vi.mocked(createDeenHabit).mockResolvedValue({ id: "new-habit" });
+    const user = userEvent.setup();
+    render(<HabitBuilder todayStr={todayStr} habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />);
+    await user.click(screen.getByRole("button", { name: /add a habit/i }));
+    await user.type(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an"), "Review notes");
+    await user.click(screen.getByRole("radio", { name: "Per week" }));
+    const count = screen.getByRole("spinbutton", { name: "Times per week" });
+    await user.clear(count);
+    await user.type(count, "2");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(createDeenHabit).toHaveBeenCalledWith("Review notes", "", { kind: "per_week", count: 2 });
+  }
+
+  it("creating a habit with a chosen cadence sends it to createDeenHabit and shows it on the new row", async () => {
+    await createWeeklyHabit("2026-08-16"); // a Sunday: the whole Sun-Sat week is still ahead
+    expect(await screen.findByTestId("habit-cadence")).toHaveTextContent("Twice a week · 0 of 2 this week");
+  });
+
+  it("a habit created late in the week only owes what that week can still hold (Saturday: 0 of 1, not 0 of 2)", async () => {
+    await createWeeklyHabit("2026-08-15"); // a Saturday
+    expect(await screen.findByTestId("habit-cadence")).toHaveTextContent("Twice a week · 0 of 1 this week");
+  });
+
+  it("Start is blocked while the chosen cadence is invalid (no day picked), and nothing is sent", async () => {
+    const { createDeenHabit } = await import("@/app/(app)/deen/actions");
+    vi.mocked(createDeenHabit).mockClear();
+    const user = userEvent.setup();
+    render(<HabitBuilder todayStr="2026-08-15" habits={[]} currentFocusHabitId={null} habitConsistencyRows={[]} />);
+    await user.click(screen.getByRole("button", { name: /add a habit/i }));
+    await user.type(screen.getByPlaceholderText("Describe the habit — e.g. Read one page of Qur'an"), "Walk");
+    await user.click(screen.getByRole("radio", { name: "Certain days" }));
+    for (const d of ["Monday", "Wednesday", "Friday"]) await user.click(screen.getByRole("button", { name: d }));
+    expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(createDeenHabit).not.toHaveBeenCalled();
   });
 });

@@ -8,8 +8,11 @@ import {
   setDeenHabitStageOverride,
   setDeenHabitCommittedDate,
   setDeenHabitLogStatus,
+  setDeenHabitFrequency,
   getDeenHabitLogRange,
 } from "@/app/(app)/deen/actions";
+import { FrequencyPicker, isFrequencyValid } from "@/components/habits/frequency-picker";
+import { computeDueState, describeFrequency, formatAdherence, normalizeFrequency, streakLabel, type HabitFrequency } from "@/lib/habits/frequency";
 import { habitStage, isStageOverridden, type HabitStage } from "@/lib/deen/habit-stage";
 import { addDaysToDateString } from "@/lib/date-utils";
 import { Button } from "@/components/ui/button";
@@ -206,10 +209,10 @@ function removeConsequence(habit: DeenHabitData): string {
   if (!hasHistory) {
     return `Removing “${habit.name}” can’t be undone.`;
   }
-  const stats =
-    habit.streak > 0
-      ? `${habit.streak}-day streak, ${habit.rollingRate.done}/${habit.rollingRate.total} last 30 days`
-      : `${habit.rollingRate.done}/${habit.rollingRate.total} last 30 days`;
+  const rate = `${formatAdherence(habit.rollingRate)} last 30 days`;
+  // A daily habit keeps its original wording ("3-day streak"); the other cadences use their own unit ("2 wk streak").
+  const streak = habit.streakInfo && habit.streakInfo.unit !== "day" ? streakLabel(habit.streakInfo) : `${habit.streak}-day streak`;
+  const stats = habit.streak > 0 ? `${streak}, ${rate}` : rate;
   return `Removing “${habit.name}” also deletes its logged history (${stats}). This can’t be undone.`;
 }
 
@@ -256,6 +259,9 @@ function HabitEditRow({
         <div className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{habit.name}</span>
           {habit.anchorCue && <span className="text-xs text-muted-foreground">{habit.anchorCue}</span>}
+          <span className="block text-xs text-muted-foreground" data-testid="habit-edit-frequency">
+            {describeFrequency(habit.frequency)}
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {/* Single entry point for everything about this habit — name/cue,
@@ -347,6 +353,8 @@ function AdvancedScreen({
   const [anchorCue, setAnchorCue] = useState(selectedHabit?.anchorCue ?? "");
   const [logsByDate, setLogsByDate] = useState<Record<string, boolean>>({});
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [frequency, setFrequency] = useState<HabitFrequency>(selectedHabit?.frequency ?? { kind: "daily" });
+  const [frequencyError, setFrequencyError] = useState<string | null>(null);
 
   const startDate = addDaysToDateString(todayStr, -(ADVANCED_LOG_WINDOW_DAYS - 1));
   const dayRange: string[] = [];
@@ -359,6 +367,8 @@ function AdvancedScreen({
     setCommittedDate(selectedHabit.committedDate);
     setName(selectedHabit.name);
     setAnchorCue(selectedHabit.anchorCue ?? "");
+    setFrequency(selectedHabit.frequency);
+    setFrequencyError(null);
     setLoadingLogs(true);
     getDeenHabitLogRange(selectedHabit.id, startDate, todayStr)
       .then((rows) => {
@@ -407,6 +417,33 @@ function AdvancedScreen({
       onHabitsChange((prev) =>
         prev.map((h) => (h.id === selectedHabit!.id ? { ...h, name: trimmedName, anchorCue: trimmedCue } : h))
       );
+    });
+  }
+
+  function saveFrequency() {
+    if (!isFrequencyValid(frequency)) return;
+    const canonical = normalizeFrequency(frequency);
+    setFrequencyError(null);
+    startTransition(async () => {
+      try {
+        await setDeenHabitFrequency(selectedHabit!.id, canonical);
+        setFrequency(canonical);
+        onHabitsChange((prev) =>
+          prev.map((h) =>
+            h.id === selectedHabit!.id
+              ? {
+                  ...h,
+                  frequency: canonical,
+                  // Re-derive today's state under the new cadence now; the debounced refresh brings the exact server numbers.
+                  due: computeDueState(canonical, todayStr, { completedDates: h.completedToday ? [todayStr] : [], committedDate: h.committedDate }),
+                }
+              : h
+          )
+        );
+        scheduleRefresh();
+      } catch {
+        setFrequencyError("Couldn't save that — try again.");
+      }
     });
   }
 
@@ -469,6 +506,22 @@ function AdvancedScreen({
         >
           Save name
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-muted-foreground">How often</span>
+        <FrequencyPicker value={frequency} onChange={setFrequency} disabled={isPending} idPrefix="deen-edit-habit" />
+        {frequencyError && <p className="text-xs text-destructive">{frequencyError}</p>}
+        <Button
+          type="button"
+          size="sm"
+          className="self-start"
+          disabled={isPending || !isFrequencyValid(frequency) || describeFrequency(normalizeFrequency(frequency)) === describeFrequency(selectedHabit.frequency)}
+          onClick={saveFrequency}
+        >
+          Save frequency
+        </Button>
+        <p className="text-[11px] text-muted-foreground">Your logged history is kept — it is simply read under the new rule.</p>
       </div>
 
       <div className="flex flex-col gap-1">

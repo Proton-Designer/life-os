@@ -16,6 +16,18 @@ import { ConsistencyGrid, type ConsistencyRow } from "@/components/charts/consis
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { featuredCardStyle } from "@/lib/featured-card-style";
+import { FrequencyPicker, isFrequencyValid } from "@/components/habits/frequency-picker";
+import {
+  DAILY,
+  computeDueState,
+  formatAdherence,
+  frequencyBadge,
+  normalizeFrequency,
+  streakLabel,
+  type HabitDueState,
+  type HabitFrequency,
+  type HabitStreak,
+} from "@/lib/habits/frequency";
 
 export type DeenHabitData = {
   id: string;
@@ -27,10 +39,15 @@ export type DeenHabitData = {
    * that weren't authored as verb phrases). */
   anchorCue: string | null;
   streak: number;
-  /** Rolling count over the last 30 days (or since committed_date if
-   * younger) — the primary progress signal now, not the hard-reset streak.
+  /** The streak with its unit (days / weeks / months / in a row), for a label that matches the habit's cadence. Optional so a freshly created, not-yet-refreshed habit needs no value. */
+  streakInfo?: HabitStreak;
+  /** HABIT-FREQ: how often it is meant to happen. Daily for every habit that never set one. */
+  frequency: HabitFrequency;
+  /** Today's state under that cadence (due today?, "2 of 3 this week", "Next: Wed"). */
+  due: HabitDueState;
+  /** Adherence over the last 30 days — in days for a daily habit (the original "N of 30"), otherwise weeks / months / completions (see formatAdherence). Primary progress signal, not the hard-reset streak.
    * See redesign proposal §2 and lib/deen/habit-consistency.ts. */
-  rollingRate: { done: number; total: number };
+  rollingRate: { done: number; total: number; unit?: "day" | "week" | "month" | "completion" };
   completedToday: boolean;
   /** Manual pin set from the habit editor (item 6) — wins over the
    * committedDate-derived stage when set. See lib/deen/habit-stage.ts. */
@@ -92,6 +109,17 @@ function HabitToggleButton({
   );
 }
 
+function CadenceLine({ habit }: { habit: DeenHabitData }) {
+  const badge = frequencyBadge(habit.frequency);
+  const status = habit.due.statusText;
+  if (!badge && !status) return null;
+  return (
+    <span className="line-clamp-2 text-[11px] leading-snug text-muted-foreground" data-testid="habit-cadence">
+      {[badge, status].filter(Boolean).join(" · ")}
+    </span>
+  );
+}
+
 function AnchorCueTag({ cue }: { cue: string | null }) {
   if (!cue) return null;
   return (
@@ -113,7 +141,7 @@ function HabitRow({
   onToggle: (habitId: string, completed: boolean) => void;
 }) {
   return (
-    <li className={cn("flex items-center gap-3 rounded-lg border border-border/40 px-3 py-2", quiet && "opacity-60")}>
+    <li className={cn("flex items-center gap-3 rounded-lg border border-border/40 px-3 py-2", (quiet || (!habit.due.due && !habit.completedToday)) && "opacity-60")}>
       <HabitToggleButton habitId={habit.id} todayStr={todayStr} completed={habit.completedToday} onToggle={onToggle} />
       <span className="min-w-0 flex-1">
         <AnchorCueTag cue={habit.anchorCue} />
@@ -131,13 +159,16 @@ function HabitRow({
             </span>
           )}
         </span>
+        {/* HABIT-FREQ: the cadence and where this period stands ("3× a week · 2 of 3 this week"). A daily habit shows
+            neither, exactly as before. */}
+        <CadenceLine habit={habit} />
       </span>
       <div className="flex shrink-0 flex-col items-end gap-0.5">
-        <span className="font-mono text-xs tabular-nums">
-          {habit.rollingRate.done}/{habit.rollingRate.total}
-        </span>
+        <span className="font-mono text-xs tabular-nums">{formatAdherence(habit.rollingRate)}</span>
         {habit.streak > 0 && (
-          <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{habit.streak}d streak</span>
+          <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
+            {streakLabel(habit.streakInfo ?? { count: habit.streak, unit: "day" })}
+          </span>
         )}
       </div>
     </li>
@@ -194,12 +225,14 @@ function HabitFocusPicker({
   onCancel,
 }: {
   candidates: DeenHabitData[];
-  onDone: (habitId: string, createdName?: string, createdAnchorCue?: string | null) => void;
+  onDone: (habitId: string, createdName?: string, createdAnchorCue?: string | null, createdFrequency?: HabitFrequency) => void;
   onCancel: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [newName, setNewName] = useState("");
   const [anchorCue, setAnchorCue] = useState("");
+  const [frequency, setFrequency] = useState<HabitFrequency>(DAILY);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   function selectExisting(habitId: string) {
     startTransition(async () => {
@@ -213,12 +246,20 @@ function HabitFocusPicker({
     const trimmed = newName.trim();
     if (!trimmed) return;
     const trimmedCue = anchorCue.trim() || null;
+    if (!isFrequencyValid(frequency)) return;
+    const canonical = normalizeFrequency(frequency);
+    setCreateError(null);
     startTransition(async () => {
-      const { id } = await createDeenHabit(trimmed, anchorCue);
-      await setWeeklyFocus(id);
-      onDone(id, trimmed, trimmedCue);
-      setNewName("");
-      setAnchorCue("");
+      try {
+        const { id } = await createDeenHabit(trimmed, anchorCue, canonical);
+        await setWeeklyFocus(id);
+        onDone(id, trimmed, trimmedCue, canonical);
+        setNewName("");
+        setAnchorCue("");
+        setFrequency(DAILY);
+      } catch {
+        setCreateError("Couldn't create that habit — try again.");
+      }
     });
   }
 
@@ -256,8 +297,14 @@ function HabitFocusPicker({
           onChange={(e) => setAnchorCue(e.target.value)}
           placeholder="Cue (optional) — e.g. After Fajr"
         />
+        {/* HABIT-FREQ: how often. Defaults to every day, so a quick "name + Start" works exactly as before. */}
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">How often</span>
+          <FrequencyPicker value={frequency} onChange={setFrequency} disabled={isPending} idPrefix="deen-new-habit" />
+        </div>
+        {createError && <p className="text-xs text-destructive">{createError}</p>}
         <div className="flex gap-2">
-          <Button type="submit" disabled={isPending}>
+          <Button type="submit" disabled={isPending || !isFrequencyValid(frequency)}>
             Start
           </Button>
           {/* The only way out of this section used to be refreshing the page —
@@ -296,7 +343,7 @@ export function HabitBuilder({
     setHabits((prev) => prev.map((h) => (h.id === habitId ? { ...h, completedToday: completed } : h)));
   }
 
-  function handleFocusChosen(habitId: string, createdName?: string, createdAnchorCue?: string | null) {
+  function handleFocusChosen(habitId: string, createdName?: string, createdAnchorCue?: string | null, createdFrequency?: HabitFrequency) {
     setFocusHabitId(habitId);
     setShowPicker(false);
     setHabits((prev) =>
@@ -310,6 +357,8 @@ export function HabitBuilder({
               committedDate: todayStr,
               anchorCue: createdAnchorCue ?? null,
               streak: 0,
+              frequency: createdFrequency ?? DAILY,
+              due: computeDueState(createdFrequency ?? DAILY, todayStr, { completedDates: [], committedDate: todayStr }),
               // Committed today, not yet done today — today doesn't count
               // against the rate until it's either completed or over (see
               // computeHabitRollingRate), so the honest optimistic value is
@@ -356,8 +405,10 @@ export function HabitBuilder({
               <AnchorCueTag cue={focusHabit.anchorCue} />
               <div className="truncate font-medium">{focusHabit.name}</div>
               <div className="font-mono text-xs text-muted-foreground tabular-nums">
-                {focusHabit.rollingRate.done}/{focusHabit.rollingRate.total} last 30 days
-                {focusHabit.streak > 0 && ` · ${focusHabit.streak}d streak`}
+                {focusHabit.rollingRate.done}/{focusHabit.rollingRate.total}
+                {focusHabit.rollingRate.unit && focusHabit.rollingRate.unit !== "day" ? ` ${formatAdherence(focusHabit.rollingRate).split(" ")[1]}` : ""} last 30 days
+                {focusHabit.streak > 0 && ` · ${streakLabel(focusHabit.streakInfo ?? { count: focusHabit.streak, unit: "day" })}`}
+                {frequencyBadge(focusHabit.frequency) && ` · ${frequencyBadge(focusHabit.frequency)}`}
               </div>
             </div>
           </div>

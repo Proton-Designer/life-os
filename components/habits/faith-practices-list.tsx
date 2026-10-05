@@ -6,6 +6,21 @@ import { archiveDeenHabit } from "@/app/(app)/deen/actions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { FaithPractice } from "@/lib/deen/practices";
+import { describeFrequency } from "@/lib/habits/frequency";
+
+/** Daily keeps its original wording ("Done 12 of last 30 days"); the other cadences speak in their own unit. */
+function adherenceSentence(r: FaithPractice["rollingRate"]): string {
+  switch (r.unit) {
+    case "week":
+      return `Hit the goal ${r.done} of the last ${r.total} weeks`;
+    case "month":
+      return `Hit the goal ${r.done} of the last ${r.total} months`;
+    case "completion":
+      return `Done ${r.done} of about ${r.total} expected in the last 30 days`;
+    default:
+      return `Done ${r.done} of last ${r.total} days`;
+  }
+}
 
 const STAGE_LABEL: Record<FaithPractice["stage"], string> = {
   active_build: "Building",
@@ -93,7 +108,8 @@ export function FaithPracticesList({ practices }: { practices: FaithPractice[] }
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm">{p.name}</span>
               <span className="block text-xs text-muted-foreground">
-                Done {p.rollingRate.done} of last {p.rollingRate.total} days
+                {p.frequency.kind === "daily" ? null : <>{describeFrequency(p.frequency)} · </>}
+                {adherenceSentence(p.rollingRate)}
               </span>
             </span>
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{STAGE_LABEL[p.stage]}</span>

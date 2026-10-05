@@ -22,9 +22,10 @@ import { HabitCheckoffs } from "../habit-checkoffs";
 import { resetKeyedQueuesForTests } from "@/lib/client/keyed-queue";
 import { resetDeferredRefreshForTests } from "@/lib/client/deferred-refresh";
 import type { HabitWithStatus } from "@/lib/habits/queries";
+import { DAILY_FIELDS } from "@/lib/habits/__tests__/daily-fixture";
 
 const habit = (over: Partial<HabitWithStatus> = {}): HabitWithStatus => ({
-  id: "h1", identityStatement: "I am someone who reads daily", rank: 1, votedToday: false, isNew: false, score: 0.5, voteCount: 3, ...over,
+  id: "h1", identityStatement: "I am someone who reads daily", rank: 1, votedToday: false, isNew: false, score: 0.5, voteCount: 3, ...DAILY_FIELDS, streak: { count: 0, unit: "day" }, ...over,
 });
 
 describe("HabitCheckoffs (Home)", () => {
@@ -74,7 +75,7 @@ describe("HabitCheckoffs (Home)", () => {
     const practice = (over = {}) => ({
       id: "p1", name: "Read Quran", anchorCue: "After Fajr", completedToday: false,
       stage: "active_build" as const, rollingRate: { done: 1, total: 3 },
-      committedDate: "2026-09-20", stageOverride: null, streak: 0, ...over,
+      committedDate: "2026-09-20", stageOverride: null, streak: 0, streakInfo: { count: 0, unit: "day" as const }, ...DAILY_FIELDS, ...over,
     });
 
     it("lists identity habits, then practices with cue + Faith tag; panel shows for practices alone", () => {
@@ -115,5 +116,58 @@ describe("HabitCheckoffs (Home)", () => {
       await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
       expect(screen.getByTestId("faith-practice-checkoff")).toHaveAttribute("aria-checked", "false");
     });
+  });
+});
+
+describe("HabitCheckoffs — only what is due today (HABIT-FREQ)", () => {
+  const NOT_DUE = { due: false, doneToday: false, progress: null, nextDueDate: null, statusText: "Next: Wed" };
+
+  it("a habit that isn't due today does not appear; one that is, does (positive control)", () => {
+    render(
+      <HabitCheckoffs
+        habits={[
+          habit({ id: "a", identityStatement: "I lift", frequency: { kind: "weekdays", days: [1, 3, 5] }, due: NOT_DUE }),
+          habit({ id: "b", identityStatement: "I read" }),
+        ]}
+        today="2026-10-06"
+      />
+    );
+    expect(screen.queryByRole("checkbox", { name: /I lift/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /I read/ })).toBeInTheDocument();
+  });
+
+  it("the panel disappears entirely when nothing is due", () => {
+    const { container } = render(<HabitCheckoffs habits={[habit({ due: NOT_DUE })]} today="2026-10-06" />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("a not-due habit already ticked today stays, so the tick can be undone", () => {
+    render(<HabitCheckoffs habits={[habit({ votedToday: true, due: NOT_DUE })]} today="2026-10-06" />);
+    expect(screen.getByRole("checkbox")).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("a flexible habit says where its period stands; a daily one says nothing extra", () => {
+    render(
+      <HabitCheckoffs
+        habits={[
+          habit({ id: "a", identityStatement: "I stretch", frequency: { kind: "per_week", count: 3 }, due: { due: true, doneToday: false, progress: { done: 1, target: 3, unit: "week" }, nextDueDate: null, statusText: "1 of 3 this week" } }),
+          habit({ id: "b", identityStatement: "I read" }),
+        ]}
+        today="2026-10-06"
+      />
+    );
+    const cadence = screen.getAllByTestId("habit-checkoff-cadence");
+    expect(cadence).toHaveLength(1);
+    expect(cadence[0]).toHaveTextContent("3× a week · 1 of 3 this week");
+  });
+
+  it("Faith practices follow the same rule", () => {
+    const practice = (over: Record<string, unknown>) => ({
+      id: "p", name: "Read Quran", anchorCue: null, completedToday: false, stage: "locked" as const, rollingRate: { done: 1, total: 2 },
+      committedDate: "2026-09-20", stageOverride: null, streak: 0, streakInfo: { count: 0, unit: "day" as const }, ...DAILY_FIELDS, ...over,
+    });
+    render(<HabitCheckoffs habits={[]} faithPractices={[practice({ id: "x", name: "Fast Mondays", frequency: { kind: "weekdays", days: [1] }, due: NOT_DUE }), practice({ id: "y", name: "Dhikr" })]} today="2026-10-06" />);
+    expect(screen.queryByText("Fast Mondays")).not.toBeInTheDocument();
+    expect(screen.getByText("Dhikr")).toBeInTheDocument();
   });
 });

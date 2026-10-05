@@ -51,6 +51,7 @@ export function CloseReflectStage({
   activeHabits: HabitWithStatus[];
 }) {
   const done = todaysThree.filter((t) => t.completed).length;
+  const dueHabits = activeHabits.filter((h) => h.due.due || h.votedToday);
   const verdict = dayWonVerdict(hoursTodayMinutes, weekdayBaselines, weekdayIndex);
   const efficiency = deltaMinutes !== null ? computeEfficiency(hoursTodayMinutes, deltaMinutes) : null;
 
@@ -136,16 +137,18 @@ export function CloseReflectStage({
           all), not a "0 of 0", when there are genuinely no active habits
           yet -- same "empty is a real answer" rule this whole stage
           already follows for todaysThree/weekdayBaselines/deltaMinutes. */}
-      {activeHabits.length > 0 ? (
+      {/* HABIT-FREQ: only habits that are due today (or already voted) count -- a Mon/Wed/Fri habit on a Tuesday, or a
+          "3x a week" habit whose week is already met, is not "Not yet", it simply isn't today's. */}
+      {dueHabits.length > 0 ? (
         <div className="rounded-lg border p-4 space-y-3">
           <p className="text-sm">
             Habits{" "}
             <span className="font-medium tabular-nums">
-              {activeHabits.filter((h) => h.votedToday).length}/{activeHabits.length} today
+              {dueHabits.filter((h) => h.votedToday).length}/{dueHabits.length} today
             </span>
           </p>
           <ul className="space-y-1.5">
-            {activeHabits.map((h) => (
+            {dueHabits.map((h) => (
               <li key={h.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="truncate">{h.identityStatement}</span>
                 <span className={cn("shrink-0 text-xs", h.votedToday ? "text-accent-business" : "text-muted-foreground")}>

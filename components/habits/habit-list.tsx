@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Circle, Pause, Play, X } from "lucide-react";
+import { Check, Circle, Pause, Play, Repeat, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,11 +10,15 @@ import {
   retractHabitVoteAction,
   pauseIdentityHabitAction,
   resumeIdentityHabitAction,
+  setIdentityHabitFrequencyAction,
   refreshHabitViews,
 } from "@/app/(app)/habits/actions";
+import { FrequencyPicker, isFrequencyValid } from "@/components/habits/frequency-picker";
+import { DAILY, computeDueState, describeFrequency, frequencyBadge, normalizeFrequency, streakLabel, type HabitFrequency } from "@/lib/habits/frequency";
 import { MAX_ACTIVE_HABITS } from "@/lib/habits/constants";
 import type { HabitWithStatus, PausedHabit } from "@/lib/habits/queries";
 import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
+import { cn } from "@/lib/utils";
 import { FaithPracticesList } from "@/components/habits/faith-practices-list";
 import type { FaithPractice } from "@/lib/deen/practices";
 import { KillHabitDialog } from "@/components/habits/kill-habit-dialog";
@@ -79,14 +83,19 @@ function HabitRow({
   onVoteChange,
   onArchive,
   onPause,
+  onFrequencyChange,
 }: {
   habit: HabitWithStatus;
   today: string;
   onVoteChange: (habitId: string, voted: boolean) => void;
   onArchive: (habitId: string) => void;
   onPause: (habit: HabitWithStatus) => void;
+  onFrequencyChange: (habitId: string, frequency: HabitFrequency) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [editingFrequency, setEditingFrequency] = useState(false);
+  const [draftFrequency, setDraftFrequency] = useState<HabitFrequency>(habit.frequency);
+  const [frequencyPending, startFrequencyTransition] = useTransition();
   const [killDialogOpen, setKillDialogOpen] = useState(false);
   const [pausePending, startPauseTransition] = useTransition();
 
@@ -112,6 +121,21 @@ function HabitRow({
     void vote.set(next);
   }
 
+  function saveFrequency() {
+    if (!isFrequencyValid(draftFrequency)) return;
+    const canonical = normalizeFrequency(draftFrequency);
+    setError(null);
+    startFrequencyTransition(async () => {
+      const res = await setIdentityHabitFrequencyAction(habit.id, canonical);
+      if ("error" in res) {
+        setError(res.error);
+      } else {
+        onFrequencyChange(habit.id, canonical);
+        setEditingFrequency(false);
+      }
+    });
+  }
+
   function handlePause() {
     setError(null);
     startPauseTransition(async () => {
@@ -125,7 +149,7 @@ function HabitRow({
   }
 
   return (
-    <li className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">
+    <li className={cn("flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4", !habit.due.due && !voted && "opacity-70")}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button
@@ -139,10 +163,28 @@ function HabitRow({
           >
             {voted ? <Check className="size-4" aria-hidden /> : <Circle className="size-4" aria-hidden />}
           </Button>
-          <span className="truncate text-sm font-medium">{habit.identityStatement}</span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{habit.identityStatement}</span>
+            {/* HABIT-FREQ: the cadence + where this period stands + the streak in the cadence's own unit. Daily shows none, as before. */}
+            <CadenceLine habit={habit} />
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <ScoreBadge habit={habit} />
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => {
+              setDraftFrequency(habit.frequency);
+              setEditingFrequency((v) => !v);
+            }}
+            aria-label="Change how often"
+            aria-expanded={editingFrequency}
+            title="How often"
+          >
+            <Repeat className="size-4" aria-hidden />
+          </Button>
           <Button
             type="button"
             size="icon-sm"
@@ -166,6 +208,26 @@ function HabitRow({
           </Button>
         </div>
       </div>
+      {editingFrequency && (
+        <div className="flex flex-col gap-2 rounded-xl border border-border/40 p-3" data-testid="habit-frequency-editor">
+          <span className="text-xs font-medium text-muted-foreground">How often</span>
+          <FrequencyPicker value={draftFrequency} onChange={setDraftFrequency} disabled={frequencyPending} idPrefix={`habit-${habit.id}`} />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={frequencyPending || !isFrequencyValid(draftFrequency) || describeFrequency(normalizeFrequency(draftFrequency)) === describeFrequency(habit.frequency)}
+              onClick={saveFrequency}
+            >
+              Save
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={frequencyPending} onClick={() => setEditingFrequency(false)}>
+              Cancel
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">Your votes are kept; the score and streak are re-read under the new rule.</p>
+        </div>
+      )}
       {(error ?? voteError) && <p className="text-xs text-destructive">{error ?? voteError}</p>}
       <KillHabitDialog
         open={killDialogOpen}
@@ -176,6 +238,19 @@ function HabitRow({
         onKilled={onArchive}
       />
     </li>
+  );
+}
+
+function CadenceLine({ habit }: { habit: HabitWithStatus }) {
+  const badge = frequencyBadge(habit.frequency);
+  const status = habit.due.statusText;
+  const streak = habit.frequency.kind === "daily" ? "" : streakLabel(habit.streak);
+  const parts = [badge, status, streak].filter(Boolean);
+  if (parts.length === 0) return null;
+  return (
+    <span className="line-clamp-2 text-xs leading-snug text-muted-foreground" data-testid="habit-cadence">
+      {parts.join(" · ")}
+    </span>
   );
 }
 
@@ -209,10 +284,11 @@ function PausedHabitRow({ habit, onResume }: { habit: PausedHabit; onResume: (ha
   );
 }
 
-type NewHabit = { id: string; identityStatement: string; rank: number };
+type NewHabit = { id: string; identityStatement: string; rank: number; frequency?: HabitFrequency };
 
 function AddHabitForm({ onAdded, onCancel }: { onAdded: (habit: NewHabit) => void; onCancel: () => void }) {
   const [statement, setStatement] = useState("");
+  const [frequency, setFrequency] = useState<HabitFrequency>(DAILY);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -222,9 +298,10 @@ function AddHabitForm({ onAdded, onCancel }: { onAdded: (habit: NewHabit) => voi
       onSubmit={(e) => {
         e.preventDefault();
         const trimmed = statement.trim();
-        if (!trimmed) return;
+        if (!trimmed || !isFrequencyValid(frequency)) return;
+        const canonical = normalizeFrequency(frequency);
         startTransition(async () => {
-          const res = await createIdentityHabitAction(trimmed);
+          const res = await createIdentityHabitAction(trimmed, canonical);
           if ("error" in res) {
             setError(res.error);
           } else {
@@ -234,8 +311,12 @@ function AddHabitForm({ onAdded, onCancel }: { onAdded: (habit: NewHabit) => voi
       }}
     >
       <Input value={statement} onChange={(e) => setStatement(e.target.value)} placeholder='Identity statement, e.g. "the athlete"' autoFocus />
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-muted-foreground">How often</span>
+        <FrequencyPicker value={frequency} onChange={setFrequency} disabled={isPending} idPrefix="new-identity-habit" />
+      </div>
       <div className="flex gap-2">
-        <Button type="submit" disabled={isPending || !statement.trim()}>
+        <Button type="submit" disabled={isPending || !statement.trim() || !isFrequencyValid(frequency)}>
           Add habit
         </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -277,10 +358,37 @@ export function HabitList({
     setAllHabits((prev) => prev.filter((h) => h.id !== habitId));
   }
 
+  function handleFrequencyChange(habitId: string, frequency: HabitFrequency) {
+    setAllHabits((prev) =>
+      prev.map((h) =>
+        h.id === habitId
+          ? {
+              ...h,
+              frequency,
+              // Today's state under the new cadence now; the revalidated page brings the exact server numbers.
+              due: computeDueState(frequency, today, { completedDates: h.votedToday ? [today] : [], committedDate: today }),
+            }
+          : h
+      )
+    );
+  }
+
   function handleAdded(habit: NewHabit) {
+    const frequency = habit.frequency ?? DAILY;
     setAllHabits((prev) => [
       ...prev,
-      { id: habit.id, identityStatement: habit.identityStatement, rank: habit.rank, votedToday: false, isNew: true, score: null, voteCount: 0 },
+      {
+        id: habit.id,
+        identityStatement: habit.identityStatement,
+        rank: habit.rank,
+        votedToday: false,
+        isNew: true,
+        score: null,
+        voteCount: 0,
+        frequency,
+        due: computeDueState(frequency, today, { completedDates: [], committedDate: today }),
+        streak: { count: 0, unit: "day" },
+      },
     ]);
     setAdding(false);
   }
@@ -315,7 +423,7 @@ export function HabitList({
         <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border/60 py-10 text-center">
           <p className="text-sm font-medium">No identity habits yet.</p>
           <p className="max-w-xs text-xs text-muted-foreground">
-            Pick who you&apos;re becoming — up to seven identities — and vote for each one, once a day.
+            Pick who you&apos;re becoming — up to seven identities — and vote for each one on its own schedule: every day, certain days, a few times a week or month.
           </p>
         </div>
       ) : (
@@ -331,6 +439,7 @@ export function HabitList({
                 onVoteChange={handleVoteChange}
                 onArchive={handleArchive}
                 onPause={handlePause}
+                onFrequencyChange={handleFrequencyChange}
               />
             ))}
         </ul>

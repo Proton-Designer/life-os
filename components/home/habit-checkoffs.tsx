@@ -8,6 +8,13 @@ import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import type { HabitWithStatus } from "@/lib/habits/queries";
 import { Panel } from "@/components/ui/panel";
 import { cn } from "@/lib/utils";
+import { frequencyBadge } from "@/lib/habits/frequency";
+
+/** "3× a week · 2 of 3 this week" / "Mon · Wed · Fri" / "Due again in 2 days" -- null for a plain daily habit (as before). */
+function cadenceText(frequency: Parameters<typeof frequencyBadge>[0], statusText: string | null): string | null {
+  const parts = [frequencyBadge(frequency), statusText].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 // Lazy on purpose: the action is only touched when the debounced refresh fires.
 const refreshHabits = () => refreshHabitViews();
@@ -42,7 +49,14 @@ function CheckoffRow({ habit, today }: { habit: HabitWithStatus; today: string }
         )}
       >
         {voted ? <Check className="size-4 shrink-0 text-primary" aria-hidden /> : <Circle className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
-        <span className={cn("min-w-0 flex-1 truncate", voted && "text-muted-foreground line-through")}>{habit.identityStatement}</span>
+        <span className="min-w-0 flex-1">
+          <span className={cn("block truncate", voted && "text-muted-foreground line-through")}>{habit.identityStatement}</span>
+          {cadenceText(habit.frequency, habit.due.statusText) ? (
+            <span className="block truncate text-xs text-muted-foreground" data-testid="habit-checkoff-cadence">
+              {cadenceText(habit.frequency, habit.due.statusText)}
+            </span>
+          ) : null}
+        </span>
       </button>
       {vote.error ? (
         <p role="alert" className="mt-1 text-xs text-destructive">
@@ -80,6 +94,11 @@ function PracticeRow({ practice, today }: { practice: FaithPractice; today: stri
         <span className="min-w-0 flex-1">
           <span className={cn("block truncate", done && "text-muted-foreground line-through")}>{practice.name}</span>
           {practice.anchorCue ? <span className="block truncate text-xs text-muted-foreground">{practice.anchorCue}</span> : null}
+          {cadenceText(practice.frequency, practice.due.statusText) ? (
+            <span className="block truncate text-xs text-muted-foreground" data-testid="faith-practice-cadence">
+              {cadenceText(practice.frequency, practice.due.statusText)}
+            </span>
+          ) : null}
         </span>
         <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Faith</span>
       </button>
@@ -93,9 +112,13 @@ function PracticeRow({ practice, today }: { practice: FaithPractice; today: stri
 }
 
 /**
- * Daily habit check-offs on Home (IA-P3b): today's vote for each active identity habit in one tap,
+ * Habit check-offs on Home (IA-P3b): today's vote for each active identity habit in one tap,
  * without opening the habits board, then the Faith practices (`faithPractices`, only passed when Deen Mode is
  * ON). Renders nothing when both lists are empty. Identity habits carry no Deen tag.
+ *
+ * HABIT-FREQ: only habits that are DUE TODAY appear (a "Mon · Wed · Fri" habit on a Tuesday, a "3× a week" habit once the
+ * week's quota is met, an "every 3 days" habit mid-gap do not), plus any already ticked today so a tap can be undone.
+ * Each row says where its period stands. A daily habit looks exactly as it always did.
  */
 export function HabitCheckoffs({
   habits,
@@ -106,14 +129,16 @@ export function HabitCheckoffs({
   faithPractices?: FaithPractice[];
   today: string;
 }) {
-  if (habits.length === 0 && faithPractices.length === 0) return null;
+  const dueHabits = habits.filter((h) => h.due.due || h.votedToday);
+  const duePractices = faithPractices.filter((p) => p.due.due || p.completedToday);
+  if (dueHabits.length === 0 && duePractices.length === 0) return null;
   return (
     <Panel title="Habits" data-testid="habit-checkoffs">
       <ul className="flex flex-col gap-2">
-        {habits.map((h) => (
+        {dueHabits.map((h) => (
           <CheckoffRow key={h.id} habit={h} today={today} />
         ))}
-        {faithPractices.map((p) => (
+        {duePractices.map((p) => (
           <PracticeRow key={p.id} practice={p} today={today} />
         ))}
       </ul>

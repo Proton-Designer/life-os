@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HabitEditorDialog } from "../habit-editor-dialog";
 import type { DeenHabitData } from "../habit-builder";
+import { DAILY_FIELDS } from "@/lib/habits/__tests__/daily-fixture";
 
 const {
   updateDeenHabitMock,
@@ -10,6 +11,7 @@ const {
   setDeenHabitStageOverrideMock,
   setDeenHabitCommittedDateMock,
   setDeenHabitLogStatusMock,
+  setDeenHabitFrequencyMock,
   getDeenHabitLogRangeMock,
 } = vi.hoisted(() => ({
   updateDeenHabitMock: vi.fn(async () => {}),
@@ -17,6 +19,7 @@ const {
   setDeenHabitStageOverrideMock: vi.fn(async () => {}),
   setDeenHabitCommittedDateMock: vi.fn(async () => {}),
   setDeenHabitLogStatusMock: vi.fn(async () => {}),
+  setDeenHabitFrequencyMock: vi.fn(async (_id: string, _f: unknown) => {}),
   getDeenHabitLogRangeMock: vi.fn(async (_habitId: string, _start: string, _end: string) => [] as { date: string; completed: boolean }[]),
 }));
 
@@ -26,6 +29,7 @@ vi.mock("@/app/(app)/deen/actions", () => ({
   setDeenHabitStageOverride: setDeenHabitStageOverrideMock,
   setDeenHabitCommittedDate: setDeenHabitCommittedDateMock,
   setDeenHabitLogStatus: setDeenHabitLogStatusMock,
+  setDeenHabitFrequency: setDeenHabitFrequencyMock,
   getDeenHabitLogRange: getDeenHabitLogRangeMock,
 }));
 
@@ -41,6 +45,7 @@ function habit(overrides: Partial<DeenHabitData> = {}): DeenHabitData {
     rollingRate: { done: 10, total: 15 },
     completedToday: false,
     stageOverride: null,
+    ...DAILY_FIELDS,
     ...overrides,
   };
 }
@@ -231,3 +236,61 @@ describe("HabitEditorDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
+
+describe("HabitEditorDialog — cadence (HABIT-FREQ)", () => {
+  it("the main screen names each habit's cadence", () => {
+    renderDialog([habit({ id: "a" }), habit({ id: "b", name: "Review", frequency: { kind: "per_week", count: 3 } })]);
+    const labels = screen.getAllByTestId("habit-edit-frequency").map((el) => el.textContent);
+    expect(labels).toEqual(expect.arrayContaining(["Every day", "3× a week"]));
+  });
+
+  it("Advanced: changing 'How often' and saving persists the canonical cadence, updates the caller's list, and keeps history", async () => {
+    setDeenHabitFrequencyMock.mockClear();
+    const user = userEvent.setup();
+    const { onHabitsChange } = renderDialog([habit({ id: "a" })]);
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const save = screen.getByRole("button", { name: "Save frequency" });
+    expect(save).toBeDisabled(); // unchanged: nothing to save
+    await user.click(screen.getByRole("radio", { name: "Certain days" }));
+    await user.click(screen.getByRole("button", { name: "Tuesday" })); // Mon Tue Wed Fri
+    expect(save).toBeEnabled();
+    await user.click(save);
+    expect(setDeenHabitFrequencyMock).toHaveBeenCalledWith("a", { kind: "weekdays", days: [1, 2, 3, 5] });
+    expect(onHabitsChange).toHaveBeenCalled();
+    const updater = onHabitsChange.mock.calls.at(-1)![0] as (prev: DeenHabitData[]) => DeenHabitData[];
+    const next = updater([habit({ id: "a" })]);
+    expect(next[0]!.frequency).toEqual({ kind: "weekdays", days: [1, 2, 3, 5] });
+    expect(screen.getByText(/logged history is kept/i)).toBeInTheDocument();
+  });
+
+  it("Advanced: an invalid cadence cannot be saved, and a failed save says so without changing the list", async () => {
+    setDeenHabitFrequencyMock.mockClear();
+    const user = userEvent.setup();
+    const { onHabitsChange } = renderDialog([habit({ id: "a" })]);
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("radio", { name: "Per week" }));
+    const count = screen.getByRole("spinbutton", { name: "Times per week" });
+    await user.clear(count);
+    await user.type(count, "9");
+    expect(screen.getByRole("button", { name: "Save frequency" })).toBeDisabled();
+
+    await user.clear(count);
+    await user.type(count, "2");
+    setDeenHabitFrequencyMock.mockRejectedValueOnce(new Error("boom"));
+    await user.click(screen.getByRole("button", { name: "Save frequency" }));
+    expect(await screen.findByText("Couldn't save that — try again.")).toBeInTheDocument();
+    expect(onHabitsChange).not.toHaveBeenCalled();
+  });
+
+  it("the remove confirmation keeps its original wording for a daily habit and uses the cadence's own unit otherwise", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderDialog([habit({ id: "a" })]);
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.getByText(/\(3-day streak, 10\/15 last 30 days\)/)).toBeInTheDocument();
+    unmount();
+    renderDialog([habit({ id: "a", frequency: { kind: "per_week", count: 3 }, streak: 4, streakInfo: { count: 4, unit: "week" }, rollingRate: { done: 3, total: 4, unit: "week" } })]);
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.getByText(/\(4 wk streak, 3\/4 wks last 30 days\)/)).toBeInTheDocument();
+  });
+});
+
