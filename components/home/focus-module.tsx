@@ -8,6 +8,7 @@ import { useLockInOverlay, type ActiveWorkSession } from "@/components/business/
 import type { TriggerSummary } from "@/lib/distractions/types";
 import { Button } from "@/components/ui/button";
 import { ActionPlanDialog } from "@/components/home/action-plan-dialog";
+import { FocusKindPicker } from "@/components/home/focus-kind-picker";
 
 // Elapsed is minute-precision (formatElapsedDuration floors partial
 // minutes), so a 60s tick matches LockInSession/PriorityList's convention
@@ -67,45 +68,13 @@ function ActiveView({
   );
 }
 
-function IdleRow({
-  kind,
-  minutes,
-  sessions,
-  disabled,
-  onLockIn,
-}: {
-  kind: WorkSessionKind;
-  minutes: number;
-  sessions: number;
-  disabled: boolean;
-  onLockIn: () => void;
-}) {
+// One stat, label above the number. Two of these sit side by side (Deep Work | Deep Study).
+function Stat({ kind, minutes, sessions }: { kind: WorkSessionKind; minutes: number; sessions: number }) {
   return (
-    <div className="flex items-stretch justify-between gap-3">
-      <div className="flex flex-col justify-center gap-1">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">{KIND_LABEL[kind]}</p>
-        <p className="font-mono text-2xl font-semibold tabular-nums">{formatElapsedDuration(minutes * 60_000)}</p>
-        <p className="text-xs text-muted-foreground">
-          {sessions === 0 ? "No sessions yet today" : `${sessions} session${sessions === 1 ? "" : "s"} today`}
-        </p>
-      </div>
-      {/* Visible text stays the app-wide "Lock In" verb (Lead review,
-          2026-08-24) — aria-label carries the kind distinction for
-          assistive tech without changing the visual design. Two buttons
-          both named "Lock In" with only a visually-adjacent label to tell
-          them apart is a real accessibility defect (a screen-reader user
-          hears "Lock In button" twice with no way to distinguish), caught
-          by e2e/home.spec.ts's strict-mode getByRole failure once it
-          resolved two matches instead of one. */}
-      <Button
-        type="button"
-        onClick={onLockIn}
-        disabled={disabled}
-        aria-label={`Lock In — ${KIND_LABEL[kind]}`}
-        className="shrink-0 self-stretch px-6"
-      >
-        Lock In
-      </Button>
+    <div className="flex min-w-0 flex-col gap-1" data-testid={`focus-stat-${kind}`}>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{KIND_LABEL[kind]}</p>
+      <p className="font-mono text-2xl font-semibold tabular-nums">{formatElapsedDuration(minutes * 60_000)}</p>
+      <p className="text-xs text-muted-foreground">{sessions === 0 ? "No sessions yet today" : `${sessions} session${sessions === 1 ? "" : "s"} today`}</p>
     </div>
   );
 }
@@ -154,7 +123,8 @@ export function FocusModule({
   distractionsToday: number;
   triggers: TriggerSummary[];
 }) {
-  const { session, isPending, error, startSession, endSession, expand } = useLockInOverlay();
+  const { session, isPending, error, endSession, expand } = useLockInOverlay();
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-3">
@@ -162,24 +132,22 @@ export function FocusModule({
         <ActiveView session={session} isPending={isPending} onEnd={endSession} onExpand={expand} />
       ) : (
         <>
-          <IdleRow
-            kind="deep_work"
-            minutes={deepWorkMinutes}
-            sessions={deepWorkSessions}
-            disabled={isPending}
-            onLockIn={() => startSession("deep_work")}
-          />
-          <IdleRow
-            kind="deep_study"
-            minutes={deepStudyMinutes}
-            sessions={deepStudySessions}
-            disabled={isPending}
-            onLockIn={() => startSession("deep_study")}
-          />
+          {/* The stats sit side by side; ONE Lock In sits top right and asks Deep Work or Deep Study (the same
+              popup as the Day bar's Focus button). */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-4">
+              <Stat kind="deep_work" minutes={deepWorkMinutes} sessions={deepWorkSessions} />
+              <Stat kind="deep_study" minutes={deepStudyMinutes} sessions={deepStudySessions} />
+            </div>
+            <Button type="button" onClick={() => setPickerOpen(true)} disabled={isPending} className="shrink-0 px-5">
+              Lock In
+            </Button>
+          </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </>
       )}
       <DistractionsSection distractionsToday={distractionsToday} triggers={triggers} />
+      <FocusKindPicker open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
 }

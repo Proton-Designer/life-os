@@ -89,56 +89,39 @@ describe("FocusModule", () => {
     expect(screen.getByText("2 sessions today")).toBeInTheDocument();
   });
 
-  it("gives each Lock In button a distinct accessible name, not two identical 'Lock In' buttons", () => {
+  it("shows ONE Lock In button, with the two stats side by side", () => {
     renderFocus();
-    // Visible text stays "Lock In" for both (aria-label carries the
-    // distinction) — asserted via the accessible name below, which a
-    // screen reader announces, and separately via the visible text still
-    // reading "Lock In" for sighted users (Lead review, 2026-08-24: two
-    // buttons sharing one accessible name is a real defect, not cosmetic).
-    expect(screen.getByRole("button", { name: "Lock In — Deep Work" })).toHaveTextContent("Lock In");
-    expect(screen.getByRole("button", { name: "Lock In — Deep Study" })).toHaveTextContent("Lock In");
+    expect(screen.getAllByRole("button", { name: "Lock In" })).toHaveLength(1);
+    const work = screen.getByTestId("focus-stat-deep_work");
+    const study = screen.getByTestId("focus-stat-deep_study");
+    expect(work.parentElement).toBe(study.parentElement);
+    expect(work.parentElement).toHaveClass("grid-cols-2");
   });
 
-  // 146/Phase 3: Lock In no longer starts a session on tap — it opens the
-  // setup dialog (mounted centrally, SessionSetupDialogHost, not by
-  // FocusModule itself), and startWorkSession only fires once that dialog's
-  // Start is pressed. The full start-and-swap-to-active-view flow is
-  // exercised at the provider level instead
-  // (lock-in-overlay-context.test.tsx's confirmSessionStart tests), which is
-  // the layer that actually owns it now.
-  it("opens the setup dialog on tap rather than starting a Deep Work session immediately", async () => {
+  // 146/Phase 3: Lock In never starts a session on tap. It asks Deep Work or Deep Study (the Day bar's Focus
+  // popup), then opens the setup dialog; startWorkSession only fires once that dialog's Start is pressed.
+  it("Lock In asks which kind (the same popup as the Day bar's Focus button) and starts nothing yet", async () => {
     const user = userEvent.setup();
     renderFocus();
-
-    await user.click(screen.getByRole("button", { name: "Lock In — Deep Work" }));
-
+    await user.click(screen.getByRole("button", { name: "Lock In" }));
+    const popup = screen.getByTestId("day-bar-focus-picker");
+    expect(popup).toHaveTextContent("Start focusing");
+    expect(popup).toHaveTextContent("Deep Work");
+    expect(popup).toHaveTextContent("Deep Study");
     expect(startWorkSession).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Deep Work — locked in/)).not.toBeInTheDocument();
-  });
-
-  it("opens the setup dialog on tap rather than starting a Deep Study session immediately", async () => {
-    const user = userEvent.setup();
-    renderFocus();
-
-    await user.click(screen.getByRole("button", { name: "Lock In — Deep Study" }));
-
-    expect(startWorkSession).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Deep Study — locked in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/locked in/)).not.toBeInTheDocument();
   });
 
   it("renders the active view directly when an active deep_work session is passed in, with an Open session link", () => {
     renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_work", goalMinutes: null, objectives: [] });
     expect(screen.getByRole("link", { name: "Open session →" })).toHaveAttribute("href", "/business");
-    expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
   });
 
   it("renders the active view directly when an active deep_study session is passed in, with no Open session link", () => {
     renderFocus({}, { id: "s1", startedAtIso: "2026-08-17T22:00:00Z", kind: "deep_study", goalMinutes: null, objectives: [] });
     expect(screen.queryByRole("link", { name: "Open session →" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Lock In — Deep Work" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Lock In — Deep Study" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
   });
 
   it("prefetches the Open session link (navigation-prefetch-fix, Part A)", () => {
@@ -158,8 +141,7 @@ describe("FocusModule", () => {
     // positionally as `undefined`, so the real call carries two arguments.
     expect(endWorkSession).toHaveBeenCalledWith("s1", undefined);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Lock In — Deep Work" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Lock In — Deep Study" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Lock In" })).toBeInTheDocument();
     });
   });
 

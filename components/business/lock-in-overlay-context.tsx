@@ -122,6 +122,47 @@ export function LockInOverlayProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The server is the truth about whether a session is running; this provider's copy can fall behind it (a
+  // session started from another surface or tab, a Home page served from the client's router cache, a start whose
+  // response never reached the page). So it re-reads whenever the tab becomes visible again or the window regains focus, and
+  // makes the session visible + endable instead of leaving a count running that nothing on screen shows.
+  const reconcilingRef = useRef(false);
+  const reconcile = useCallback(async () => {
+    if (reconcilingRef.current) return;
+    reconcilingRef.current = true;
+    try {
+      const detail = await getActiveSessionDetail();
+      setSession((prev) => {
+        if (!detail) return prev === null ? prev : null;
+        if (detail.kind !== "deep_work" && detail.kind !== "deep_study") return prev;
+        if (prev?.id === detail.id) return prev;
+        return { id: detail.id, startedAtIso: detail.startedAt, kind: detail.kind, goalMinutes: detail.goalMinutes, objectives: detail.objectives };
+      });
+      if (detail && sessionRef.current?.id !== detail.id) {
+        setMinimized(false);
+        writeLockInMinimized(detail.id, false);
+      }
+    } catch {
+      // Offline or signed out: keep what we have.
+    } finally {
+      reconcilingRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    // Not on mount: the provider mounts from a fresh server read (initialSession). It is the tab coming back to the
+    // foreground, or a window refocus, that can find the world changed.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void reconcile();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [reconcile]);
+
   const setSetupOpen = useCallback((open: boolean) => {
     setSetupOpenState(open);
     if (!open) setPendingKind(null);

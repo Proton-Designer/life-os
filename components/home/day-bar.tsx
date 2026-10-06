@@ -10,7 +10,7 @@ import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { Button } from "@/components/ui/button";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { KIND_LABEL as SESSION_KIND_LABEL } from "@/lib/business/work-session-kind";
+import { FocusKindPicker } from "@/components/home/focus-kind-picker";
 import { useLockInOverlay } from "@/components/business/lock-in-overlay-context";
 import { buildDayBar, formatAwake, prayerStripLabel, toGoLabel, type DayBarBlock, type DayBarCalendarEvent, type DayBarKind, type DayBarPopover, type DayBarPrayer } from "@/lib/home/day-bar";
 import type { DayRibbonLayout } from "@/lib/home/day-ribbon";
@@ -142,7 +142,7 @@ export function DayBar({
   const rangeStart = new Date(rangeStartIso ?? wokeAtIso);
   const end = new Date(endIso);
   const bar = buildDayBar({ layout, wake, rangeStart, end, now, efficiencyPercent, calendarEvents, timezone });
-  const { session, isPending: sessionPending, startSession, expand } = useLockInOverlay();
+  const { session, isPending: sessionPending, expand } = useLockInOverlay();
   const [focusPickerOpen, setFocusPickerOpen] = useState(false);
   const awakeSeconds = Math.max(0, (now.getTime() - wake.getTime()) / 1000);
   const toGo = toGoLabel(hoursTodayMinutes, targetMinutes, formatHoursMinutes);
@@ -239,30 +239,7 @@ export function DayBar({
           </Button>
         </div>
       </div>
-      <Dialog open={focusPickerOpen} onOpenChange={setFocusPickerOpen}>
-        <DialogContent className="sm:max-w-sm" data-testid="day-bar-focus-picker">
-          <DialogHeader>
-            <DialogTitle>Start focusing</DialogTitle>
-            <DialogDescription>Choose what kind of session.</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-2">
-            {(["deep_work", "deep_study"] as const).map((kind) => (
-              <Button
-                key={kind}
-                type="button"
-                variant="outline"
-                className="h-14"
-                onClick={() => {
-                  setFocusPickerOpen(false);
-                  startSession(kind);
-                }}
-              >
-                {SESSION_KIND_LABEL[kind]}
-              </Button>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <FocusKindPicker open={focusPickerOpen} onOpenChange={setFocusPickerOpen} />
 
       {bar.allDay.length > 0 ? (
         <div className="flex flex-wrap gap-1.5" data-testid="day-bar-allday">

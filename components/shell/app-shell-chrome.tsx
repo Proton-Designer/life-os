@@ -9,6 +9,7 @@ import { AllocationQueueProvider } from "@/lib/checkins/allocation-queue-context
 import { RealtimeSyncProvider } from "@/components/realtime/realtime-sync-provider";
 import { LockInOverlayProvider, type ActiveWorkSession } from "@/components/business/lock-in-overlay-context";
 import { LockInOverlay } from "@/components/business/lock-in-overlay";
+import { ActiveSessionPill } from "@/components/shell/active-session-pill";
 import { SessionSetupDialogHost } from "@/components/business/session-setup-dialog-host";
 import type { KillListSlotData } from "@/components/business/kill-list";
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
@@ -127,6 +128,7 @@ export function AppShellChrome({
               deenMode={deenMode}
               windDownStart={windDownStart}
             />
+            <ActiveSessionPill />
             <main className="flex-1 pb-24 lg:pb-6">{children}</main>
           </div>
           {/* BOSS-VISION §5's Global capture — every screen. Mounted here (Boss brief,
