@@ -53,7 +53,7 @@ export function QuickTimeField({
               onChange("");
               setOpen(false);
             }}
-            className="text-xs text-muted-foreground underline underline-offset-4"
+            className="text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
           >
             Clear
           </button>

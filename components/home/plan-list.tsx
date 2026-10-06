@@ -145,16 +145,16 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
                   <span data-testid="plan-timer" aria-live="off" className={cn("shrink-0 font-mono text-sm tabular-nums", readout.done && "text-primary")}>
                     {readout.done ? "Time's up" : `${readout.mode === "up" ? "" : "−"}${formatClockSeconds(readout.seconds)}`}
                   </span>
-                  <button type="button" onClick={() => void stop(item)} aria-label={`Stop timer for ${item.title}`} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground">
+                  <button type="button" onClick={() => void stop(item)} aria-label={`Stop timer for ${item.title}`} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
                     <Square className="size-3.5" aria-hidden />
                   </button>
-                  <button type="button" onClick={() => void complete(item, true)} aria-label={`Complete ${item.title}`} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">
+                  <button type="button" onClick={() => void complete(item, true)} aria-label={`Complete ${item.title}`} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85">
                     <Check className="size-3.5" aria-hidden />
                     Done
                   </button>
                 </>
               ) : behavior.kind === "complete_only" ? (
-                <button type="button" onClick={() => void complete(item, true)} aria-label={`Mark ${item.title} done`} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-3 text-xs font-medium">
+                <button type="button" onClick={() => void complete(item, true)} aria-label={`Mark ${item.title} done`} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-accent">
                   <Check className="size-3.5" aria-hidden />
                   Mark Done
                 </button>
@@ -164,7 +164,7 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
                   onClick={() => void start(item)}
                   disabled={busy === item.id}
                   aria-label={`Start ${item.title}`}
-                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
                 >
                   {busy === item.id ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
                   {busy === item.id ? "Starting" : "Start"}
@@ -180,7 +180,7 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
             <li key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
               <Check className="size-3.5 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate line-through">{item.title}</span>
-              <button type="button" onClick={() => void complete(item, false)} aria-label={`Undo ${item.title}`} className="shrink-0 underline underline-offset-4">
+              <button type="button" onClick={() => void complete(item, false)} aria-label={`Undo ${item.title}`} className="shrink-0 underline underline-offset-4 transition-colors hover:text-foreground">
                 Undo
               </button>
             </li>

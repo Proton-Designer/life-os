@@ -358,7 +358,7 @@ export function ClosePlanStage({
           type="button"
           onClick={add}
           disabled={pending || draft.trim().length === 0}
-          className="h-10 shrink-0 rounded-md border px-3 text-sm disabled:opacity-50"
+          className="h-10 shrink-0 rounded-md border px-3 text-sm transition-colors enabled:hover:bg-accent disabled:opacity-50"
         >
           Add
         </button>
@@ -406,7 +406,7 @@ export function ClosePlanStage({
                         }}
                         aria-pressed={isCrowned}
                         aria-label={isCrowned ? `Remove crown from ${l.title}` : `Crown ${l.title}`}
-                        className="shrink-0 rounded border px-2 py-0.5 text-xs"
+                        className="shrink-0 rounded border px-2 py-0.5 text-xs transition-colors hover:bg-accent"
                       >
                         {isCrowned ? "Crowned" : "Crown"}
                       </button>
@@ -425,26 +425,26 @@ export function ClosePlanStage({
                       {summary.length > 0 ? summary.join(" · ") : "Add domain, time or timer"}
                     </button>
                     <span className="ml-auto flex items-center gap-1">
-                      <button type="button" onClick={() => move(l.id, -1)} disabled={index === 0} aria-label={`Move ${l.title} up`} className="min-h-8 min-w-8 rounded border text-xs disabled:opacity-30">
+                      <button type="button" onClick={() => move(l.id, -1)} disabled={index === 0} aria-label={`Move ${l.title} up`} className="min-h-8 min-w-8 rounded border text-xs transition-colors enabled:hover:bg-accent disabled:opacity-30">
                         ↑
                       </button>
-                      <button type="button" onClick={() => move(l.id, 1)} disabled={index === lines.length - 1} aria-label={`Move ${l.title} down`} className="min-h-8 min-w-8 rounded border text-xs disabled:opacity-30">
+                      <button type="button" onClick={() => move(l.id, 1)} disabled={index === lines.length - 1} aria-label={`Move ${l.title} down`} className="min-h-8 min-w-8 rounded border text-xs transition-colors enabled:hover:bg-accent disabled:opacity-30">
                         ↓
                       </button>
                       {l.seedSource === "worry" ? (
-                        <button type="button" onClick={() => dismissWorrySeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                        <button type="button" onClick={() => dismissWorrySeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
                           Not a worry anymore
                         </button>
                       ) : l.seedSource === "goal_milestone" ? (
-                        <button type="button" onClick={() => dismissSeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                        <button type="button" onClick={() => dismissSeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
                           Not this month
                         </button>
                       ) : l.seedSource === "school_risk" ? (
-                        <button type="button" onClick={() => dismissSeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                        <button type="button" onClick={() => dismissSeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
                           Not tonight
                         </button>
                       ) : (
-                        <button type="button" onClick={() => removeLine(l)} aria-label={`Remove ${l.title}`} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                        <button type="button" onClick={() => removeLine(l)} aria-label={`Remove ${l.title}`} className="px-1 text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
                           Remove
                         </button>
                       )}
@@ -481,7 +481,7 @@ export function ClosePlanStage({
           type="button"
           onClick={commit}
           disabled={pending}
-          className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/85 disabled:opacity-50"
         >
           {saved ? "Saved" : pending ? "Saving…" : mode === "today" ? "Save plan" : "Finish"}
         </button>
@@ -507,7 +507,7 @@ export function ClosePlanStage({
 
 function InboxButton({ label, onClick, title }: { label: string; onClick: () => void; title: string }) {
   return (
-    <button type="button" onClick={onClick} aria-label={`${label}: ${title}`} className="min-h-9 rounded-md border px-2.5 text-xs">
+    <button type="button" onClick={onClick} aria-label={`${label}: ${title}`} className="min-h-9 rounded-md border px-2.5 text-xs transition-colors hover:bg-accent">
       {label}
     </button>
   );

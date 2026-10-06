@@ -338,6 +338,16 @@ html {
   html {
     @apply font-sans;
   }
+  /* Tailwind v4's preflight leaves buttons on the default arrow: anything clickable shows it. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="option"],
+  summary,
+  select:not(:disabled),
+  input[type="range"]:not(:disabled),
+  input[type="checkbox"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 /* useLinkStatus pending affordance (Phase 2 of the 2026-08-16 navigation-

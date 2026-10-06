@@ -75,7 +75,7 @@ function Wheel<T extends number | string>({ items, selected, label, format, onPi
           role="option"
           aria-selected={i === index}
           onClick={() => onPick(item)}
-          className={cn("flex snap-center items-center justify-center text-xl tabular-nums transition-[opacity,transform] select-none", i === index ? "font-semibold text-foreground" : "text-muted-foreground opacity-60")}
+          className={cn("flex snap-center items-center justify-center text-xl tabular-nums transition-[opacity,transform] select-none", i === index ? "font-semibold text-foreground" : "cursor-pointer text-muted-foreground opacity-60 hover:opacity-100")}
           style={{ height: ROW }}
         >
           {format(item)}

@@ -51,7 +51,7 @@ export function DurationField({ value, onChange, label = "Timer" }: { value: num
           <span className="text-xs text-muted-foreground">min</span>
         </div>
         {value !== null ? (
-          <button type="button" onClick={() => onChange(null)} className="ml-auto text-xs text-muted-foreground underline underline-offset-4">
+          <button type="button" onClick={() => onChange(null)} className="ml-auto text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
             Clear
           </button>
         ) : null}

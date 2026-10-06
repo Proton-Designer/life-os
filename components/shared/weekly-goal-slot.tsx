@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { IconChip } from "@/components/ui/icon-chip";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { GoalCard, isGoalHeadlineSet } from "@/components/shared/goal-card";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
@@ -31,10 +32,13 @@ export function WeeklyGoalSlot({
   domain,
   goal,
   onSave,
+  compact = false,
 }: {
   domain: GoalDomain;
   goal: WeeklyGoalEntry;
   onSave: (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
+  /** Inside the page-header bar (Home): stacked rows below 2xl, side by side from 2xl up. */
+  compact?: boolean;
 }) {
   const accent = DOMAIN_ACCENT[domain];
   const Icon = DOMAIN_ICON[domain];
@@ -52,7 +56,7 @@ export function WeeklyGoalSlot({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-3 py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4">
+    <div className={cn("flex min-w-0 flex-1 items-center gap-3", compact ? "py-2 first:pt-0 last:pb-0 2xl:px-4 2xl:py-0 2xl:first:pl-0 2xl:last:pr-0" : "py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4")}>
       <IconChip icon={Icon} accent={accent} size="md" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span

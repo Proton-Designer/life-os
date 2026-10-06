@@ -311,6 +311,7 @@ export default async function HomePage() {
       showDeen={hasFaith}
       showBusiness={hasBusinessGoal}
       extraActions={<GoalsSheetButton />}
+      compact
     />
   );
 

@@ -36,7 +36,7 @@ export function planDraftSummary(draft: PlanLineDraft): string[] {
   return out;
 }
 
-const CHIP = "min-h-8 rounded-md border px-2.5 text-xs transition-colors aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary";
+const CHIP = "min-h-8 rounded-md border px-2.5 text-xs transition-colors hover:bg-accent/60 aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary aria-pressed:hover:bg-primary/20";
 
 export function PlanLineDetails({
   title,

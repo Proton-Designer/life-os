@@ -60,7 +60,7 @@ export function ReplanDialog() {
           data-testid="replan-open"
           onPointerEnter={() => void load()}
           onFocus={() => void load()}
-          className="text-muted-foreground underline underline-offset-4"
+          className="text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
         >
           Edit Plan
         </Button>
