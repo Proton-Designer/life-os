@@ -4201,11 +4201,16 @@ export type Database = {
           due_time: string | null
           dump_source: string | null
           id: string
+          kill_list_item_id: string | null
           mit_rank: number | null
+          plan_area: string | null
+          plan_order: number | null
           planned_date: string | null
+          planned_duration_minutes: number | null
           planned_start_time: string | null
           task_type: string | null
           task_type_other_label: string | null
+          timer_started_at: string | null
           title: string
           updated_at: string
           user_id: string
@@ -4221,11 +4226,16 @@ export type Database = {
           due_time?: string | null
           dump_source?: string | null
           id?: string
+          kill_list_item_id?: string | null
           mit_rank?: number | null
+          plan_area?: string | null
+          plan_order?: number | null
           planned_date?: string | null
+          planned_duration_minutes?: number | null
           planned_start_time?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
+          timer_started_at?: string | null
           title: string
           updated_at?: string
           user_id?: string
@@ -4241,11 +4251,16 @@ export type Database = {
           due_time?: string | null
           dump_source?: string | null
           id?: string
+          kill_list_item_id?: string | null
           mit_rank?: number | null
+          plan_area?: string | null
+          plan_order?: number | null
           planned_date?: string | null
+          planned_duration_minutes?: number | null
           planned_start_time?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
+          timer_started_at?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -4256,6 +4271,12 @@ export type Database = {
             foreignKeyName: "tasks_class_same_user"
             columns: ["user_id", "class_id"]
             referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "tasks_kill_list_item_fk"
+            columns: ["user_id", "kill_list_item_id"]
+            referencedRelation: "kill_list_items"
             referencedColumns: ["user_id", "id"]
           },
         ]

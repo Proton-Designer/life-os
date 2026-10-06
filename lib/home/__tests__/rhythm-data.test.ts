@@ -4,8 +4,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 vi.mock("server-only", () => ({}));
 const hours = vi.fn(async (..._a: unknown[]) => 90);
 vi.mock("@/lib/evening-close/hours-today", () => ({ getHoursTodayMinutes: (...a: unknown[]) => hours(...a) }));
-const timebox = vi.fn(async (..._a: unknown[]) => []);
-vi.mock("@/lib/day-structure/timebox", () => ({ getTodaysTimeboxedTasks: (...a: unknown[]) => timebox(...a) }));
 
 import { getRhythmData } from "../rhythm-data";
 
@@ -35,22 +33,20 @@ const WOKE = { local_date: "2026-10-05", woke_at: "2026-10-05T12:00:00Z" };
 describe("getRhythmData", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("morning (before Start Day): reads last night's ranked tasks only -- no hours/timebox queries", async () => {
+  it("morning (before Start Day): reads last night's ranked tasks only -- no hours query", async () => {
     const f = fake({ day_starts: [], evening_closes: [], tasks: [{ id: "a", title: "Ship", mit_rank: 1, completed: false }] });
     const d = await getRhythmData(f.client, "u", at("2026-10-05T09:00:00"), CHI);
     expect(d.state).toBe("morning");
     expect(d.state === "morning" && d.plan).toHaveLength(1);
     expect(hours).not.toHaveBeenCalled();
-    expect(timebox).not.toHaveBeenCalled();
     expect(f.eqs).toContainEqual(["tasks", "planned_date", "2026-10-05"]);
   });
 
-  it("today (after Start Day): runs hours + timebox, no tasks plan query", async () => {
+  it("today (after Start Day): runs the hours read, no tasks plan query", async () => {
     const f = fake({ day_starts: [WOKE], evening_closes: [], tasks: [] });
     const d = await getRhythmData(f.client, "u", at("2026-10-05T13:00:00"), CHI);
     expect(d.state).toBe("today");
     expect(hours).toHaveBeenCalledTimes(1);
-    expect(timebox).toHaveBeenCalledTimes(1);
     expect(f.tables).not.toContain("tasks");
   });
 

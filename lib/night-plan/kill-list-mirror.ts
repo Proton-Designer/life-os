@@ -46,9 +46,19 @@ export function planKillListFill(
   return { place, alreadyThere, overflow };
 }
 
-/** Writes the plan's Business lines into `date`'s Kill List. Returns the titles that did not fit (list already full). */
-export async function mirrorToKillListCore(supabase: SupabaseClient, userId: string, date: string, titles: readonly string[]): Promise<{ placed: number; overflow: string[] } | { error: string }> {
-  if (titles.length === 0) return { placed: 0, overflow: [] };
+/**
+ * Writes the plan's Business lines into `date`'s Kill List. Returns the titles that did not fit (list already full)
+ * and, for the ones that are on the list afterwards (just placed, or already there), their row ids -- keyed by
+ * normalised title -- so a plan line can be paired with its Kill List row.
+ */
+export async function mirrorToKillListCore(
+  supabase: SupabaseClient,
+  userId: string,
+  date: string,
+  titles: readonly string[],
+): Promise<{ placed: number; overflow: string[]; idsByTitle: Map<string, string> } | { error: string }> {
+  const idsByTitle = new Map<string, string>();
+  if (titles.length === 0) return { placed: 0, overflow: [], idsByTitle };
   const { data, error } = await supabase.from("kill_list_items").select("position, text").eq("user_id", userId).eq("date", date);
   if (error) return { error: error.message };
   const { place, overflow } = planKillListFill(data ?? [], titles);
@@ -57,5 +67,10 @@ export async function mirrorToKillListCore(supabase: SupabaseClient, userId: str
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't write the Kill List" };
   }
-  return { placed: place.length, overflow };
+  const { data: after, error: afterError } = await supabase.from("kill_list_items").select("id, text").eq("user_id", userId).eq("date", date);
+  if (afterError) return { error: afterError.message };
+  for (const row of after ?? []) idsByTitle.set(norm(row.text as string), row.id as string);
+  return { placed: place.length, overflow, idsByTitle };
 }
+
+export { norm as normalizeKillListTitle };

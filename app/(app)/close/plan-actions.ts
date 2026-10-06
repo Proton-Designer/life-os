@@ -17,6 +17,10 @@ import {
 } from "@/lib/night-plan/plan-actions-core";
 import { triageInboxCore, type InboxTriage } from "@/lib/inbox/inbox-core";
 import { mirrorToKillListCore } from "@/lib/night-plan/kill-list-mirror";
+import { applyPlanDetailsCore, removePlanLinesCore } from "@/lib/night-plan/plan-details-core";
+import type { PlanLineInput } from "@/lib/night-plan/plan-details";
+import { MAX_STARRED } from "@/lib/night-plan/night-plan";
+import { loadHasKillList } from "@/lib/inbox/close-inbox";
 
 export type { PlanMode, SeedLine, SeedSource, ClaimedSeed };
 
@@ -256,4 +260,64 @@ export async function savePlanRanks(
   // Returned only after the close is recorded above: a Kill List hiccup must not leave the day un-closed.
   if (killListError) return { error: killListError };
   return killListOverflow.length > 0 ? { ok: true, killListOverflow } : { ok: true };
+}
+
+export type CommitPlanInput = {
+  mode: PlanMode;
+  /** Ids of the starred lines (at most three) and the crowned one (must be among them). */
+  starred: string[];
+  crowned: string | null;
+  /** Every line that stays on the plan, with what the person chose for it. */
+  lines: PlanLineInput[];
+  /** Lines the person took off the plan (Edit Plan's remove). */
+  removed: string[];
+};
+
+const MAX_PLAN_LINES = 200;
+
+/**
+ * ONE round trip for the whole plan stage's Finish and Edit Plan's Save: take dropped lines off, write each line's
+ * domain / Kill List / start time / timer / order, then the star and crown ranks -- with the line writes and the rank
+ * writes running together rather than one after the other (the Replan dialog felt slow partly because Finish was a
+ * chain of separate calls). Revalidation is the minimum the views need and happens once, last.
+ *
+ * `savePlanRanks` (above) stays as the rank-only entry point the MCP write tool shares; this is the plan stage's own
+ * richer commit and calls the same `savePlanRanksCore`, so there is still ONE writer of `mit_rank`.
+ */
+export async function commitPlan(input: CommitPlanInput): Promise<{ ok: true; killListOverflow: string[]; notices: string[] } | { error: string }> {
+  if (input.lines.length > MAX_PLAN_LINES || input.removed.length > MAX_PLAN_LINES) return { error: "That is too many lines for one plan." };
+  const lineIds = new Set(input.lines.map((l) => l.id));
+  if (lineIds.size !== input.lines.length) return { error: "A line appears twice in the plan." };
+  if (input.starred.length > MAX_STARRED) return { error: `Star at most ${MAX_STARRED}.` };
+  if (input.starred.some((id) => !lineIds.has(id))) return { error: "A starred line is not on the plan." };
+  if (input.crowned !== null && !input.starred.includes(input.crowned)) return { error: "Crown one of the starred lines." };
+
+  const ctx = await planningDateFor(input.mode);
+  if (ctx === null) return { error: "Not signed in" };
+  const supabase = await createClient();
+
+  const removed = await removePlanLinesCore(supabase, ctx.userId, ctx.plannedDate, input.removed);
+  if ("error" in removed) return removed;
+
+  const wantsKillList = input.lines.some((l) => l.area === "business" && l.addToKillList);
+  const killListAvailable = wantsKillList ? await loadHasKillList() : false;
+
+  const [details, ranks] = await Promise.all([
+    applyPlanDetailsCore(supabase, ctx.userId, ctx.plannedDate, input.lines, { killListAvailable }),
+    savePlanRanksCore(supabase, ctx.userId, ctx.plannedDate, input.starred, input.crowned),
+  ]);
+  if ("error" in details) return details;
+  if (!("ok" in ranks)) return ranks;
+
+  // Same anchor as savePlanRanks: only the real evening close marks the day closed, keyed to TODAY's local date.
+  if (input.mode === "tonight") {
+    const now = new Date();
+    await recordEveningCloseCore(supabase, ctx.userId, effectiveDayString(now, ctx.timezone), now);
+  }
+
+  if (wantsKillList) revalidatePath("/business");
+  revalidatePath("/close");
+  revalidatePath("/open");
+  revalidatePath("/");
+  return { ok: true, killListOverflow: details.killListOverflow, notices: details.notices };
 }

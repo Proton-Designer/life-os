@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toggleTaskCore, setTaskCompletedCore } from "@/lib/tasks/actions-core";
+import { syncPlanTaskFromKillList } from "@/lib/plan/pair-sync";
 
 /**
  * R5 core(supabase, userId, ...) extraction for app/(app)/business/actions.ts
@@ -32,6 +33,7 @@ export async function toggleKillListItemCore(supabase: SupabaseClient, userId: s
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;
+  await syncPlanTaskFromKillList(supabase, userId, id, nowCompleted, nowCompleted ? new Date().toISOString() : null);
   return { completed: nowCompleted };
 }
 
@@ -49,6 +51,7 @@ export async function setKillListItemCompletedCore(supabase: SupabaseClient, use
     .select("id");
   if (error) throw error;
   if (!data || data.length === 0) throw new Error("Kill list item not found");
+  await syncPlanTaskFromKillList(supabase, userId, id, completed, completed ? new Date().toISOString() : null);
   return { completed };
 }
 

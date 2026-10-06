@@ -3,7 +3,6 @@ import { AlertCircle, Clock, Gauge, Moon, Sunrise } from "lucide-react";
 import { StatTile } from "@/components/ui/stat-tile";
 import { Panel } from "@/components/ui/panel";
 import { DeltaClockDisplay } from "@/components/day-structure/delta-clock-display";
-import { TimeboxedTasks } from "@/components/day-structure/timeboxed-tasks";
 import { DayBar } from "@/components/home/day-bar";
 import { dayBarRange } from "@/lib/home/day-bar";
 import { HOME_DAY_VIEW, type HomeDayView } from "@/lib/home/day-view";
@@ -19,7 +18,7 @@ import type { RhythmData } from "@/lib/home/rhythm-data";
 
 /**
  * Home's day-rhythm section (IA-P2): one card for the phase of the day, chosen by homeRhythmState
- * (lib/home/rhythm-state.ts) -- Morning (last night's three + Start day + Re-plan), the Today strip
+ * (lib/home/rhythm-state.ts) -- Morning (last night's three + Start day + Edit Plan), the Today strip
  * (Awake for, Hours, Efficiency, timeboxes) after Start Day, "Close the day" from wind-down, and
  * "Done for today" once the day is closed. A Server Component: every prop is plain data.
  */
@@ -105,8 +104,7 @@ export function RhythmSection({
               timezone={timezone}
               localDate={data.localDate}
             />
-            <TimeboxedTasks tasks={data.timeboxed} />
-            {/* Plans change mid-day: the same Re-plan the Morning card has, kept after Start day (same ClosePlanStage, same rank rules). */}
+            {/* Plans change mid-day: the same Edit Plan the Morning card has, kept after Start day (same ClosePlanStage, same rank rules). */}
             <div className="flex justify-end" data-testid="today-replan">
               <ReplanDialog />
             </div>
@@ -129,8 +127,7 @@ export function RhythmSection({
             </div>
             <StatTile icon={Gauge} accent="info" label="Efficiency" value={data.efficiencyPercent === null ? "—" : `${data.efficiencyPercent}%`} />
           </div>
-          <TimeboxedTasks tasks={data.timeboxed} />
-            {/* Plans change mid-day: the same Re-plan the Morning card has, kept after Start day (same ClosePlanStage, same rank rules). */}
+            {/* Plans change mid-day: the same Edit Plan the Morning card has, kept after Start day (same ClosePlanStage, same rank rules). */}
             <div className="flex justify-end" data-testid="today-replan">
               <ReplanDialog />
             </div>

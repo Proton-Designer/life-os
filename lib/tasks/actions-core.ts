@@ -22,6 +22,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTaskType, type TaskType } from "./task-type";
 import { isAssessmentType, normalizeAssessmentType } from "@/lib/school/assessment-types";
+import { syncKillListFromTask } from "@/lib/plan/pair-sync";
 
 export type TaskDomain = "school" | "co_op";
 export type { TaskType };
@@ -106,7 +107,7 @@ export interface ToggleTaskResult {
 export async function toggleTaskCore(supabase: SupabaseClient, userId: string, id: string): Promise<ToggleTaskResult> {
   const { data: existing } = await supabase
     .from("tasks")
-    .select("completed")
+    .select("completed, kill_list_item_id")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -120,6 +121,7 @@ export async function toggleTaskCore(supabase: SupabaseClient, userId: string, i
     .eq("id", id)
     .eq("user_id", userId);
   if (error) throw error;
+  await syncKillListFromTask(supabase, userId, existing.kill_list_item_id, nowCompleted, nowCompleted ? new Date().toISOString() : null);
   return { completed: nowCompleted };
 }
 
@@ -133,9 +135,10 @@ export async function setTaskCompletedCore(supabase: SupabaseClient, userId: str
     .update({ completed, completed_at: completed ? new Date().toISOString() : null })
     .eq("id", id)
     .eq("user_id", userId)
-    .select("id");
+    .select("id, kill_list_item_id");
   if (error) throw error;
   if (!data || data.length === 0) throw new Error("Task not found");
+  await syncKillListFromTask(supabase, userId, data[0].kill_list_item_id as string | null, completed, completed ? new Date().toISOString() : null);
   return { completed };
 }
 

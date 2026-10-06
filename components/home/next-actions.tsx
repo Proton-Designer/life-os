@@ -115,6 +115,7 @@ export function NextActions({
   isFreshInstall,
   nowIso,
   weights,
+  hasPendingPlan = false,
 }: {
   items: PriorityItem[];
   completedToday: CompletedItem[];
@@ -129,6 +130,8 @@ export function NextActions({
   nowIso: string;
   /** resolveAreaWeights(domainsState) -- server-resolved, passed down as a plain serializable prop (no functions, no class instances beyond Dates). An area with no entry falls to the arbiter's own "important" floor. */
   weights: AreaWeightLookup;
+  /** Today's plan list (above this module) still has unfinished tasks: "You're all clear" would be a lie beneath it. */
+  hasPendingPlan?: boolean;
 }) {
   const scheduleRefresh = useHomeRefresh();
   const [now, setNow] = useState(() => new Date(nowIso));
@@ -212,7 +215,7 @@ export function NextActions({
   // "something's still due" — its own Completed section (if any) still
   // renders independently below that gap, since finishing everything ELSE
   // today is still worth showing even with the workout outstanding.
-  const emptyStateNode = fitnessItem ? null : (
+  const emptyStateNode = fitnessItem || hasPendingPlan ? null : (
     <EmptyState
       icon={ListChecks}
       message={isFreshInstall ? "Welcome — head into a domain tab to get started" : "You're all clear"}

@@ -91,6 +91,8 @@ export default async function EveningClosePage() {
                   inbox={inbox?.items}
                   inboxAreas={inbox?.areas}
                   killList={inbox?.killList}
+                  areas={inbox?.planAreas}
+                  timezone={inbox?.timezone}
                 />
               )}
             </Stream>

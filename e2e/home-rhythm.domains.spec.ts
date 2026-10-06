@@ -51,12 +51,12 @@ test("Morning card: Start day flips at once and the Today strip replaces it", as
   await expect(page.getByTestId("rhythm-today")).toBeVisible({ timeout: 15_000 });
 });
 
-test("Re-plan opens today's plan in a dialog without leaving Home", async ({ page }) => {
+test("Edit Plan opens today's plan in a dialog without leaving Home", async ({ page }) => {
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
   test.skip((await page.getByTestId("replan-open").count()) === 0, "Morning card not showing");
   await page.getByTestId("replan-open").click();
-  await expect(page.getByRole("dialog", { name: "Re-plan today" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Edit plan" })).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
 });
 

@@ -17,7 +17,9 @@ import { getOpenWorries, worriesToDumpItems } from "@/lib/night-plan/worries";
 import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor } from "@/lib/goals/queries";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
-import { loadHasKillList } from "@/lib/inbox/close-inbox";
+import { getPlanLines, type PlanLineState } from "@/lib/night-plan/plan-line";
+import { loadPlanAreaOptions } from "@/lib/night-plan/plan-areas";
+import type { PlanArea } from "@/lib/plan/plan-behavior";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -61,7 +63,7 @@ export type EveningCloseData = {
   /** The USER'S weekday, 0 = Sunday. Computed in their timezone, never the server's. */
   weekdayIndex: number;
   /** Lines already dumped for TOMORROW, so re-entering the ceremony resumes rather than restarts. */
-  tomorrowLines: { id: string; title: string }[];
+  tomorrowLines: PlanLineState[];
   /**
    * #28/#45 — seeded-but-not-yet-claimed lines for tomorrow's dump: parked
    * worries and unfinished goal milestones, filtered to exclude anything
@@ -128,28 +130,27 @@ export async function computePlanSeeds(
   /** profiles.deen_mode (isDeenModeOn). REQUIRED: OFF leaves milestones of "deen"-tagged goals out of the seeds. */
   deenMode: boolean
 ): Promise<DumpItem[]> {
-  const openWorries = await getOpenWorries(supabase, userId);
-  const worrySeeds = worriesToDumpItems(openWorries).filter((w) => !excludeIds.has(w.id));
-
-  // Goal milestones (#45) come from goals/goal_milestones — migration 165,
-  // applied to production 2026-09-14. This used to be wrapped in a try/catch
-  // that swallowed every error into "no milestone seeds", justified only while
-  // 165 was unapplied (and mislabelled as 157). With the tables live, a real
-  // failure must surface rather than silently drop the user's milestones from
-  // tonight's plan — the same posture as the school_risk source below.
+  // Independent reads run together (the Replan dialog used to wait ~8 sequential round trips): worries, the
+  // milestone chain (Deen-goal ids -> milestones, the only real dependency) and the school feed share one wait.
+  // Goal milestones (#45) come from goals/goal_milestones — migration 165. A real failure must surface rather than
+  // silently drop the user's milestones from the plan, the same posture as the school_risk source below.
   const monthStart = monthStartFor(localDateString(now, timezone));
-  // Deen Mode OFF: milestones of "deen"-tagged goals are not seeded into tonight's plan.
-  const deenGoalIds = deenMode ? new Set<string>() : await getDeenGoalIdsForMonth(supabase, userId, monthStart);
-  const unfinished = await getUnfinishedMilestonesForMonth(supabase, userId, monthStart, deenGoalIds);
+  const todayStr = localDateString(now, timezone);
+  const [openWorries, unfinished, schoolItems] = await Promise.all([
+    getOpenWorries(supabase, userId),
+    // Deen Mode OFF: milestones of "deen"-tagged goals are not seeded into the plan.
+    (async () => {
+      const deenGoalIds = deenMode ? new Set<string>() : await getDeenGoalIdsForMonth(supabase, userId, monthStart);
+      return getUnfinishedMilestonesForMonth(supabase, userId, monthStart, deenGoalIds);
+    })(),
+    // #28: school_risk. Not wrapped in try/catch: classes/class_assessments are long-live tables, so a real
+    // failure should surface, not be swallowed into a silent "no school seeds."
+    getSchoolTodayFeed(supabase, userId, todayStr, planningDate),
+  ]);
+  const worrySeeds = worriesToDumpItems(openWorries).filter((w) => !excludeIds.has(w.id));
   const milestoneSeeds: DumpItem[] = unfinished
     .filter((m) => !excludeIds.has(m.id))
     .map((m) => ({ id: m.id, title: m.title, source: "goal_milestone" as const }));
-
-  // #28: school_risk. Not wrapped in try/catch: classes/class_assessments are
-  // long-live tables, so a real failure here should surface, not be swallowed
-  // into a silent "no school seeds."
-  const todayStr = localDateString(now, timezone);
-  const schoolItems = await getSchoolTodayFeed(supabase, userId, todayStr, planningDate);
   const schoolRiskSeeds: DumpItem[] = schoolItems
     .filter((item) => !excludeIds.has(item.id))
     .map((item) => ({ id: item.id, title: item.title, source: "school_risk" as const }));
@@ -201,12 +202,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .not("mit_rank", "is", null)
       .order("mit_rank", { ascending: true }),
     getHoursTodayMinutes(supabase, user.id, today, timezone, now),
-    supabase
-      .from("tasks")
-      .select("id, title")
-      .eq("user_id", user.id)
-      .eq("planned_date", tomorrow)
-      .order("created_at", { ascending: true }),
+    getPlanLines(supabase, user.id, tomorrow),
     supabase.from("user_settings").select("weekday_baselines").eq("user_id", user.id).maybeSingle(),
     // #33/#34 (Day Structure), read-only.
     getTodayDayStart(supabase, user.id, timezone, resolveLocalTime(today, "12:00", timezone)),
@@ -217,7 +213,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   const blockers = closeBlockers({ triggers, unplannedTodayCount });
   const blockingIds = new Set(blockers.map((b) => b.triggerId));
 
-  const tomorrowLines = (tomorrowRows.data ?? []).map((t) => ({ id: t.id, title: t.title }));
+  const tomorrowLines = tomorrowRows;
   const planSeeds = await computePlanSeeds(
     supabase,
     user.id,
@@ -257,11 +253,14 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
 
 export type ReplanData = {
   dateLabel: string;
-  /** Today's already-dumped lines (typed or previously claimed seeds), same shape as tomorrowLines above but for TODAY. */
-  todayLines: { id: string; title: string }[];
+  /** Today's lines (typed or previously claimed seeds) WITH what the person already decided for each: star, crown, domain, Kill List, start time, timer, order. */
+  todayLines: PlanLineState[];
   planSeeds: DumpItem[];
-  /** The account has a Business Kill List (the plan stage offers "Business" on starred lines). */
+  /** The account has a Business Kill List (a Business line can be added to it). */
   killList: boolean;
+  /** The person's own domains a line can be attached to. */
+  areas: PlanArea[];
+  timezone: string;
 };
 
 /**
@@ -282,15 +281,17 @@ export async function getReplanData(): Promise<ReplanData | null> {
   const today = localDateString(new Date(), timezone);
   const supabase = await createClient();
 
-  const { data: todayRows } = await supabase
-    .from("tasks")
-    .select("id, title")
-    .eq("user_id", user.id)
-    .eq("planned_date", today)
-    .order("created_at", { ascending: true });
+  // One wait, not three in a row: today's lines, the seed reads and the Kill List check are independent. The seeds
+  // are computed unfiltered and then drop whatever is already a line today (the exclude set was only ever a filter).
+  const [todayLines, allSeeds, areaOptions] = await Promise.all([
+    getPlanLines(supabase, user.id, today),
+    computePlanSeeds(supabase, user.id, timezone, new Date(), today, new Set(), isDeenModeOn(profile)),
+    loadPlanAreaOptions(),
+  ]);
 
-  const todayLines = (todayRows ?? []).map((t) => ({ id: t.id, title: t.title }));
-  const planSeeds = await computePlanSeeds(supabase, user.id, timezone, new Date(), today, new Set(todayLines.map((l) => l.id)), isDeenModeOn(profile));
 
-  return { dateLabel: today, todayLines, planSeeds, killList: await loadHasKillList() };
+  const todayIds = new Set(todayLines.map((l) => l.id));
+  const planSeeds = allSeeds.filter((s) => !todayIds.has(s.id));
+
+  return { dateLabel: today, todayLines, planSeeds, killList: areaOptions.killList, areas: areaOptions.areas, timezone };
 }

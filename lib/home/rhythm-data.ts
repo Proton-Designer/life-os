@@ -6,7 +6,6 @@ import { getEveningClosesForRange } from "@/lib/day-structure/closed-day";
 import { computeDeltaMinutes, computeDeltaSeconds } from "@/lib/day-structure/delta-clock";
 import { computeEfficiency } from "@/lib/day-structure/efficiency";
 import { getHoursTodayMinutes } from "@/lib/evening-close/hours-today";
-import { getTodaysTimeboxedTasks, type TimeboxedTask } from "@/lib/day-structure/timebox";
 import { computeOpenDiff, type OpenDiff, type OpenRankedTask } from "@/lib/night-plan/diff-banner";
 import { homeRhythmState, type RhythmState } from "@/lib/home/rhythm-state";
 
@@ -24,7 +23,6 @@ export type RhythmData =
       deltaSeconds: number;
       hoursTodayMinutes: number;
       efficiencyPercent: number | null;
-      timeboxed: TimeboxedTask[];
     }
   | { state: "wind_down"; bedtime: string | null }
   | { state: "done"; tomorrow: { id: string; title: string; mitRank: number }[]; bedtime: string | null };
@@ -64,10 +62,7 @@ export async function getRhythmData(
   }
 
   if (state === "today" && dayStart) {
-    const [hoursTodayMinutes, timeboxed] = await Promise.all([
-      getHoursTodayMinutes(supabase, userId, today, timezone, now),
-      getTodaysTimeboxedTasks(supabase, userId, today),
-    ]);
+    const hoursTodayMinutes = await getHoursTodayMinutes(supabase, userId, today, timezone, now);
     const efficiency = computeEfficiency(hoursTodayMinutes, computeDeltaMinutes(dayStart.wokeAtIso, now));
     return {
       state,
@@ -78,7 +73,6 @@ export async function getRhythmData(
       deltaSeconds: computeDeltaSeconds(dayStart.wokeAtIso, now),
       hoursTodayMinutes,
       efficiencyPercent: efficiency ? efficiency.percent : null,
-      timeboxed,
     };
   }
 

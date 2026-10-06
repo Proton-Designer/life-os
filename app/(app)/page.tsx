@@ -12,6 +12,8 @@ import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
 import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
 import { NextActions } from "@/components/home/next-actions";
+import { PlanList } from "@/components/home/plan-list";
+import { getTodaysPlanItems } from "@/lib/plan/get-plan-items";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyGoalsHeader } from "@/components/shared/weekly-goals-header";
 import { DomainStatusStack } from "@/components/home/domain-status-stack";
@@ -171,6 +173,7 @@ export default async function HomePage() {
     windDown,
     morningRoutineItems,
     layout,
+    planItems,
   ] = await Promise.all([
       getPriorityItems(userId, now),
       getCompletedItemsToday(userId, now),
@@ -217,6 +220,8 @@ export default async function HomePage() {
       // lib/morning-routine/actions-core.ts's own header for why.
       morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
+      // Today's committed plan (starred / domain / time / timer) for the plan list inside Now; one cheap read in the same batch.
+      getTodaysPlanItems(supabase, userId, dateStr),
     ]);
   const morningBrief = briefState.brief;
   const layoutMap = buildLayoutMap(layout);
@@ -411,12 +416,14 @@ export default async function HomePage() {
               }}
             </Stream>
           ) : null}
+          <PlanList items={planItems} nowIso={now.toISOString()} />
           <NextActions
             items={items}
             weights={weights}
             completedToday={completedToday}
             isFreshInstall={isFreshInstall}
             nowIso={now.toISOString()}
+            hasPendingPlan={planItems.some((p) => !p.completed)}
           />
         </Panel>
       </LayoutSlot>

@@ -1,8 +1,12 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { dumpLine, refreshCloseViews, savePlanRanks, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
+import { dumpLine, refreshCloseViews, commitPlan, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
+import type { PlanLineState } from "@/lib/night-plan/plan-line";
+import type { PlanLineInput } from "@/lib/night-plan/plan-details";
+import type { PlanArea } from "@/lib/plan/plan-behavior";
+import { EMPTY_PLAN_DRAFT, PlanLineDetails, planDraftSummary, type PlanLineDraft } from "@/components/plan/plan-line-details";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { useScheduleRefresh } from "@/lib/client/use-optimistic-item";
 import { markWorryHandled } from "@/app/(app)/worries/actions";
@@ -47,12 +51,19 @@ import { markWorryHandled } from "@/app/(app)/worries/actions";
  * plain data, not a function — passing it down is not the RSC function-prop
  * hazard.
  *
+ * EACH LINE CAN CARRY DETAILS (2026-10-06): an optional domain (Business also offers "Add to Kill List", preselected),
+ * a start time and a timer, open under the row's summary. Lines can also be reordered and removed, and a line that
+ * already has a star / crown / details (Edit Plan, or reopening tonight's plan) arrives with them. Nothing here is
+ * written until Finish / Save, which sends the whole plan in ONE `commitPlan` call -- removals, line details and
+ * ranks together -- so Edit Plan is one wait, not a chain. The star cap and the crown-needs-a-star rule are unchanged.
+ *
  * Server actions are IMPORTED here, not passed down as props. A function prop
  * from a Server Component is the RSC boundary bug AGENTS.md records twice;
  * importing removes the hazard rather than testing for it.
  */
 
-type Line = { id: string; title: string; seedSource?: SeedSource };
+type Line = { id: string; title: string; seedSource?: SeedSource; draft: PlanLineDraft };
+type InitialLine = { id: string; title: string } & Partial<Omit<PlanLineState, "id" | "title">>;
 type InboxEntry = { id: string; title: string; dueDate?: string | null };
 type InboxAreas = { value: "school" | "co_op"; label: string }[];
 
@@ -68,6 +79,11 @@ function isSeedable(item: DumpItem): item is DumpItem & { source: SeedSource } {
 // Lazy on purpose: the action is only touched when the debounced refresh fires.
 const refreshClose = () => refreshCloseViews();
 
+function draftFrom(state: Partial<PlanLineState> | undefined): PlanLineDraft {
+  if (!state) return EMPTY_PLAN_DRAFT;
+  return { area: state.area ?? null, addToKillList: state.addToKillList ?? false, startTime: state.startTime ?? "", durationMinutes: state.durationMinutes ?? null };
+}
+
 export function ClosePlanStage({
   initialLines,
   seeds = [],
@@ -75,26 +91,40 @@ export function ClosePlanStage({
   inbox = [],
   inboxAreas = [],
   killList = false,
+  areas = [],
+  timezone = "UTC",
+  onSaved,
 }: {
-  initialLines: { id: string; title: string }[];
+  /** Lines already on the plan day. Each may carry what the person already decided (star, crown, domain, time, timer). */
+  initialLines: InitialLine[];
   seeds?: DumpItem[];
   mode?: PlanMode;
   /** IA-P1a: items the "+" sheet parked without an area (Notes, "No area" Tasks), triaged here in one tap each. */
   inbox?: InboxEntry[];
   /** The task homes this account has (School / Work) — one "Make it a task" button per entry. */
   inboxAreas?: InboxAreas;
-  /** The account has a Business Kill List: starred lines can be marked "Business" and are mirrored into it on Finish (one top three). */
+  /** The account has a Business Kill List: a line attached to Business can be added to it (preselected). */
   killList?: boolean;
+  /** The person's own domains a line can be attached to. Empty hides the picker; start time and timer still work. */
+  areas?: PlanArea[];
+  /** IANA timezone, for the time picker's "Now" shortcuts. */
+  timezone?: string;
+  /** Called after a successful save (Edit Plan closes its dialog). A plain callback between client components. */
+  onSaved?: () => void;
 }) {
   const [inboxItems, setInboxItems] = useState<InboxEntry[]>(inbox);
   const pendingPlanTriage = useRef(new Map<string, Promise<boolean>>());
   const [lines, setLines] = useState<Line[]>([
-    ...initialLines,
-    ...seeds.filter(isSeedable).map((s) => ({ id: s.id, title: s.title, seedSource: s.source })),
+    ...initialLines.map((l) => ({ id: l.id, title: l.title, draft: draftFrom(l) })),
+    ...seeds.filter(isSeedable).map((s) => ({ id: s.id, title: s.title, seedSource: s.source, draft: EMPTY_PLAN_DRAFT })),
   ]);
-  const [starred, setStarred] = useState<string[]>([]);
-  const [crowned, setCrowned] = useState<string | null>(null);
-  const [business, setBusiness] = useState<string[]>([]);
+  const [starred, setStarred] = useState<string[]>(() => {
+    const ids = initialLines.filter((l) => l.starred).map((l) => l.id);
+    return ids.slice(0, MAX_STARRED);
+  });
+  const [crowned, setCrowned] = useState<string | null>(() => initialLines.find((l) => l.crowned && l.starred)?.id ?? null);
+  const [removed, setRemoved] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +149,7 @@ export function ClosePlanStage({
           setDraft((d) => (d.length === 0 ? title : d));
           return;
         }
-        setLines((prev) => [...prev, { id: res.id, title }]);
+        setLines((prev) => [...prev, { id: res.id, title, draft: EMPTY_PLAN_DRAFT }]);
       })
       .catch(() => {
         setError("Couldn't add that line. Try again.");
@@ -134,7 +164,7 @@ export function ClosePlanStage({
   function triage(item: InboxEntry, action: "plan" | "school" | "co_op" | "worry" | "done") {
     setError(null);
     setInboxItems((prev) => prev.filter((i) => i.id !== item.id));
-    if (action === "plan") setLines((prev) => [...prev, { id: item.id, title: item.title }]);
+    if (action === "plan") setLines((prev) => [...prev, { id: item.id, title: item.title, draft: EMPTY_PLAN_DRAFT }]);
     const undo = (message: string) => {
       setError(message);
       setInboxItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, item]));
@@ -161,8 +191,8 @@ export function ClosePlanStage({
         pendingPlanTriage.current.delete(item.id);
       });
     // A "Plan" line is not on the plan day until its write lands; Finish waits for it (commit()) --
-    // savePlanRanks clears old ranks first and then ranks by planned_date, so ranking an id whose
-    // planned_date write is still in flight would clear ranks and then fail (P1a review F1).
+    // the rank write is scoped by planned_date, so ranking an id whose planned_date write is still in
+    // flight would fail (P1a review F1).
     if (action === "plan") pendingPlanTriage.current.set(item.id, write);
   }
 
@@ -179,31 +209,49 @@ export function ClosePlanStage({
     setStarred((prev) => [...prev, id]);
   }
 
+  /** Takes a line out of the local plan (and out of the star/crown). */
+  function dropLocal(id: string) {
+    setSaved(false);
+    setLines((prev) => prev.filter((l) => l.id !== id));
+    setStarred((prev) => prev.filter((x) => x !== id));
+    if (crowned === id) setCrowned(null);
+    if (expanded === id) setExpanded(null);
+  }
+
   /** Seeded-worry-only: "this isn't weighing on me anymore" removes the line AND marks the worry Handled — see this file's header on why that IS the SPEC's "removing a seeded line is a planning act". */
   function dismissWorrySeed(line: Line) {
-    setLines((prev) => prev.filter((l) => l.id !== line.id));
-    setStarred((prev) => prev.filter((x) => x !== line.id));
-    if (crowned === line.id) setCrowned(null);
+    dropLocal(line.id);
     startTransition(async () => {
       await markWorryHandled(line.id);
     });
   }
 
-  /** Seeded-milestone-only: purely local — nothing was ever claimed for it, so there is nothing to undo server-side. It simply isn't part of tonight's dump. */
-  function dismissMilestoneSeed(line: Line) {
-    setLines((prev) => prev.filter((l) => l.id !== line.id));
-    setStarred((prev) => prev.filter((x) => x !== line.id));
-    if (crowned === line.id) setCrowned(null);
+  /** Seeded-milestone / school-risk: purely local — nothing was claimed for it, so there is nothing to undo server-side. It reappears next time it is still due, which is correct: dismissing it here is "not now," not "resolved." */
+  function dismissSeed(line: Line) {
+    dropLocal(line.id);
   }
 
-  /** Seeded-school-risk-only: same purely-local shape as the milestone dismiss above —
-   * nothing is claimed for a school_risk seed until Finish, so there is nothing to undo
-   * server-side. It reappears next time getSchoolTodayFeed still finds it due, which is
-   * correct: dismissing it here is "not tonight," not "resolved." */
-  function dismissSchoolSeed(line: Line) {
-    setLines((prev) => prev.filter((l) => l.id !== line.id));
-    setStarred((prev) => prev.filter((x) => x !== line.id));
-    if (crowned === line.id) setCrowned(null);
+  /** Edit Plan's remove for a real line: dropped from the screen now, taken off the plan (typed lines deleted, worries only un-planned) at Save. */
+  function removeLine(line: Line) {
+    dropLocal(line.id);
+    setRemoved((prev) => [...prev, line.id]);
+  }
+
+  function move(id: string, delta: -1 | 1) {
+    setSaved(false);
+    setLines((prev) => {
+      const i = prev.findIndex((l) => l.id === id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      return next;
+    });
+  }
+
+  function setLineDraft(id: string, next: PlanLineDraft) {
+    setSaved(false);
+    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, draft: next } : l)));
   }
 
   function commit() {
@@ -227,20 +275,39 @@ export function ClosePlanStage({
         idMap = new Map(claimRes.claimed.map((c) => [c.seedId, c.taskId]));
       }
       // A seed dropped mid-claim (someone handled the worry elsewhere) has no
-      // entry in idMap — remap drops it from starred/crowned rather than
-      // ranking an id that no longer represents tonight's dump.
+      // entry in idMap — remap drops it from the plan rather than ranking an id
+      // that no longer represents this plan's dump.
       const remap = (id: string) => idMap.get(id) ?? (lines.some((l) => l.id === id && !l.seedSource) ? id : null);
       const remappedStarred = starred.map(remap).filter((id): id is string => id !== null);
       const remappedCrowned = crowned === null ? null : remap(crowned);
 
-      const remappedBusiness = killList ? business.map(remap).filter((id): id is string => id !== null) : [];
-      const res = remappedBusiness.length > 0 ? await savePlanRanks(remappedStarred, remappedCrowned, mode, remappedBusiness) : await savePlanRanks(remappedStarred, remappedCrowned, mode);
+      const planLines: PlanLineInput[] = [];
+      lines.forEach((l, order) => {
+        const id = remap(l.id);
+        if (id === null) return;
+        planLines.push({
+          id,
+          area: l.draft.area,
+          addToKillList: l.draft.area === "business" && killList && l.draft.addToKillList,
+          startTime: l.draft.startTime === "" ? null : l.draft.startTime,
+          durationMinutes: l.draft.durationMinutes,
+          order: Math.min(order, 999),
+        });
+      });
+
+      const res = await commitPlan({ mode, starred: remappedStarred, crowned: remappedCrowned, lines: planLines, removed });
       if ("error" in res) {
         setError(res.error);
         return;
       }
-      setNotice(res.killListOverflow?.length ? `Your Kill List is already full, so these stayed off it: ${res.killListOverflow.join(", ")}.` : null);
+      const messages = [
+        res.killListOverflow.length > 0 ? `Your Kill List is already full, so these stayed off it: ${res.killListOverflow.join(", ")}.` : null,
+        ...res.notices,
+      ].filter((m): m is string => m !== null);
+      setNotice(messages.length > 0 ? messages.join(" ") : null);
+      setRemoved([]);
       setSaved(true);
+      if (messages.length === 0) onSaved?.();
     });
   }
 
@@ -302,91 +369,105 @@ export function ClosePlanStage({
           Everything on your mind, then star three, then crown one. An empty list is a real answer.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {lines.map((l) => {
-            const isStarred = starred.includes(l.id);
-            const isCrowned = crowned === l.id;
-            return (
-              <li key={l.id} className="flex items-center gap-2 rounded-md border p-2">
-                <button
-                  type="button"
-                  onClick={() => toggleStar(l.id)}
-                  aria-pressed={isStarred}
-                  aria-label={isStarred ? `Unstar ${l.title}` : `Star ${l.title}`}
-                  hidden={!isStarred && atStarCap}
-                  className="shrink-0 text-sm"
-                >
-                  {isStarred ? "★" : "☆"}
-                </button>
-                <span className="flex-1 text-sm">{l.title}</span>
-                {l.seedSource ? (
-                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[0.65rem] text-muted-foreground">
-                    {l.seedSource === "worry" ? "worry" : l.seedSource === "goal_milestone" ? "goal" : "school"}
-                  </span>
-                ) : null}
-                {/* One top three: a starred line marked Business is mirrored into that day's Kill List on Finish. */}
-                {killList && isStarred ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSaved(false);
-                      setBusiness((prev) => (prev.includes(l.id) ? prev.filter((x) => x !== l.id) : [...prev, l.id]));
-                    }}
-                    aria-pressed={business.includes(l.id)}
-                    aria-label={business.includes(l.id) ? `Remove ${l.title} from the Kill List` : `Add ${l.title} to the Kill List`}
-                    data-testid="plan-business"
-                    className="shrink-0 rounded border px-2 py-0.5 text-xs aria-pressed:border-primary aria-pressed:text-primary"
-                  >
-                    Business
-                  </button>
-                ) : null}
-                {/* The crown affordance exists ONLY for starred lines. That is
-                    the two-stage narrowing, enforced by absence. */}
-                {isStarred ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSaved(false);
-                      setCrowned(isCrowned ? null : l.id);
-                    }}
-                    aria-pressed={isCrowned}
-                    aria-label={isCrowned ? `Remove crown from ${l.title}` : `Crown ${l.title}`}
-                    className="shrink-0 rounded border px-2 py-0.5 text-xs"
-                  >
-                    {isCrowned ? "Crowned" : "Crown"}
-                  </button>
-                ) : null}
-                {l.seedSource === "worry" ? (
-                  <button
-                    type="button"
-                    onClick={() => dismissWorrySeed(l)}
-                    className="shrink-0 text-xs text-muted-foreground underline underline-offset-4"
-                  >
-                    Not a worry anymore
-                  </button>
-                ) : null}
-                {l.seedSource === "goal_milestone" ? (
-                  <button
-                    type="button"
-                    onClick={() => dismissMilestoneSeed(l)}
-                    className="shrink-0 text-xs text-muted-foreground underline underline-offset-4"
-                  >
-                    Not this month
-                  </button>
-                ) : null}
-                {l.seedSource === "school_risk" ? (
-                  <button
-                    type="button"
-                    onClick={() => dismissSchoolSeed(l)}
-                    className="shrink-0 text-xs text-muted-foreground underline underline-offset-4"
-                  >
-                    Not tonight
-                  </button>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <ul className="space-y-2">
+            {lines.map((l, index) => {
+              const isStarred = starred.includes(l.id);
+              const isCrowned = crowned === l.id;
+              const isOpen = expanded === l.id;
+              const summary = planDraftSummary({ ...l.draft, addToKillList: l.draft.addToKillList && killList });
+              return (
+                <li key={l.id} className="space-y-2 rounded-md border p-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleStar(l.id)}
+                      aria-pressed={isStarred}
+                      aria-label={isStarred ? `Unstar ${l.title}` : `Star ${l.title}`}
+                      hidden={!isStarred && atStarCap}
+                      className="shrink-0 text-sm"
+                    >
+                      {isStarred ? "★" : "☆"}
+                    </button>
+                    <span className="min-w-0 flex-1 break-words text-sm">{l.title}</span>
+                    {l.seedSource ? (
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[0.65rem] text-muted-foreground">
+                        {l.seedSource === "worry" ? "worry" : l.seedSource === "goal_milestone" ? "goal" : "school"}
+                      </span>
+                    ) : null}
+                    {/* The crown affordance exists ONLY for starred lines. That is
+                        the two-stage narrowing, enforced by absence. */}
+                    {isStarred ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaved(false);
+                          setCrowned(isCrowned ? null : l.id);
+                        }}
+                        aria-pressed={isCrowned}
+                        aria-label={isCrowned ? `Remove crown from ${l.title}` : `Crown ${l.title}`}
+                        className="shrink-0 rounded border px-2 py-0.5 text-xs"
+                      >
+                        {isCrowned ? "Crowned" : "Crown"}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(isOpen ? null : l.id)}
+                      aria-expanded={isOpen}
+                      aria-label={`Details for ${l.title}`}
+                      data-testid="plan-line-details-toggle"
+                      className="min-h-8 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground aria-expanded:border-primary aria-expanded:text-primary"
+                    >
+                      {summary.length > 0 ? summary.join(" · ") : "Add domain, time or timer"}
+                    </button>
+                    <span className="ml-auto flex items-center gap-1">
+                      <button type="button" onClick={() => move(l.id, -1)} disabled={index === 0} aria-label={`Move ${l.title} up`} className="min-h-8 min-w-8 rounded border text-xs disabled:opacity-30">
+                        ↑
+                      </button>
+                      <button type="button" onClick={() => move(l.id, 1)} disabled={index === lines.length - 1} aria-label={`Move ${l.title} down`} className="min-h-8 min-w-8 rounded border text-xs disabled:opacity-30">
+                        ↓
+                      </button>
+                      {l.seedSource === "worry" ? (
+                        <button type="button" onClick={() => dismissWorrySeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                          Not a worry anymore
+                        </button>
+                      ) : l.seedSource === "goal_milestone" ? (
+                        <button type="button" onClick={() => dismissSeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                          Not this month
+                        </button>
+                      ) : l.seedSource === "school_risk" ? (
+                        <button type="button" onClick={() => dismissSeed(l)} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                          Not tonight
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => removeLine(l)} aria-label={`Remove ${l.title}`} className="px-1 text-xs text-muted-foreground underline underline-offset-4">
+                          Remove
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
+                  {isOpen ? (
+                    <PlanLineDetails
+                      title={l.title}
+                      draft={l.draft}
+                      onChange={(next) => setLineDraft(l.id, next)}
+                      areas={areas}
+                      killListAvailable={killList}
+                      timezone={timezone}
+                      relativeToNow={mode === "today"}
+                    />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          {lines.length > 1 ? <p className="text-xs text-muted-foreground">Lines with a start time run in clock order; the rest follow the order here.</p> : null}
+        </>
       )}
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -402,7 +483,7 @@ export function ClosePlanStage({
           disabled={pending}
           className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
-          {saved ? "Saved" : "Finish"}
+          {saved ? "Saved" : pending ? "Saving…" : mode === "today" ? "Save plan" : "Finish"}
         </button>
       ) : (
         <p className="text-xs text-muted-foreground">

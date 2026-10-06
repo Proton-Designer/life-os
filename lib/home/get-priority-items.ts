@@ -123,13 +123,19 @@ export function defaultDataSource(): HomeDataSource {
     },
     async getKillListItems(userId, date) {
       const supabase = await createClient();
-      const { data } = await supabase
-        .from("kill_list_items")
-        .select("id, text, completed, position, completed_at")
-        .eq("user_id", userId)
-        .eq("date", date)
-        .order("position", { ascending: true });
-      return data ?? [];
+      // A Kill List row that today's plan list already owns (a Business plan line "Added to Kill List") is shown ONCE,
+      // there -- left here it would read as two tasks for one decision. Same pair, completion kept in step by lib/plan/pair-sync.ts.
+      const [{ data }, { data: paired }] = await Promise.all([
+        supabase
+          .from("kill_list_items")
+          .select("id, text, completed, position, completed_at")
+          .eq("user_id", userId)
+          .eq("date", date)
+          .order("position", { ascending: true }),
+        supabase.from("tasks").select("kill_list_item_id").eq("user_id", userId).eq("planned_date", date).not("kill_list_item_id", "is", null),
+      ]);
+      const ownedByPlan = new Set((paired ?? []).map((r) => r.kill_list_item_id as string));
+      return (data ?? []).filter((r) => !ownedByPlan.has(r.id));
     },
     async getTasks(userId, date) {
       const supabase = await createClient();
@@ -138,6 +144,9 @@ export function defaultDataSource(): HomeDataSource {
         .select("id, domain, title, due_date, due_time, completed, completed_at")
         .eq("user_id", userId)
         .eq("due_date", date)
+        // A task attached to a domain by today's plan (plan_area set) is shown in the plan list, once, with its
+        // Start / timer; left here it would be listed twice.
+        .is("plan_area", null)
         // Migration 119 made `domain` nullable so the Night Plan's dump has
         // somewhere to write. A null-domain row is a dumped plan item, not
         // class work, and the Night Plan reads it via planned_date/mit_rank.
@@ -156,6 +165,7 @@ export function defaultDataSource(): HomeDataSource {
         .eq("completed", true)
         .gte("completed_at", dayStartIso)
         .lt("completed_at", dayEndIso)
+        .is("plan_area", null) // plan-owned tasks are shown (done) in the plan list
         .not("domain", "is", null); // same reason as getTasks above (119)
       return (data ?? []) as HomeTaskRow[];
     },

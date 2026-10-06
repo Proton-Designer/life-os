@@ -287,3 +287,30 @@ export function split12Hour(hhmm: string | null | undefined): { hour12: number; 
   return { hour12: t.hour % 12 === 0 ? 12 : t.hour % 12, minute: t.minute, meridiem: t.hour >= 12 ? "PM" : "AM" };
 }
 
+
+/**
+ * An instant -> the clock time "HH:MM" (24-hour, the storage format) on the given IANA timezone's wall clock. For a
+ * "Now" shortcut on a time picker: it is the time of day only -- never use it to derive a calendar date.
+ */
+export function localClockHHMM(now: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  const hour = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const minute = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${hour === "24" ? "00" : hour}:${minute}`;
+}
+
+/** "HH:MM" + minutes -> "HH:MM", wrapping past midnight in either direction. Returns the input when it is malformed. */
+export function addMinutesToHHMM(hhmm: string, deltaMinutes: number): string {
+  const t = parseHHMM(hhmm);
+  if (!t) return hhmm;
+  const total = (((t.hour * 60 + t.minute + deltaMinutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Rounds "HH:MM" UP to the next multiple of `step` minutes (a "start in a few minutes" default reads cleaner than 9:47 PM). */
+export function ceilHHMMToStep(hhmm: string, step: number): string {
+  const t = parseHHMM(hhmm);
+  if (!t || step <= 0) return hhmm;
+  const total = t.hour * 60 + t.minute;
+  return addMinutesToHHMM("00:00", Math.ceil(total / step) * step);
+}

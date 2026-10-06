@@ -66,7 +66,7 @@ export const PENDING_TASKS = {
   "P4-cov-P3-15": "lecture transcription MCP coverage",
   "P4-cov-P2-01": "monthly AI spend cap setting MCP coverage",
   "P4-cov-P2-20": "Canvas course mapping + sync trigger MCP coverage",
-  "P4-cov-P2-06": "timeboxing (task planned start time) MCP coverage",
+  "P4-cov-PLAN-DETAILS": "plan line details (domain, start time, timer, order) + Home plan list start/complete/stop MCP coverage",
 } as const;
 
 /**
@@ -255,9 +255,11 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/open/actions.ts#startDayAction": { mcp: "day.day_start.start" },
   "app/(app)/open/actions.ts#startDayAtAction": { mcp: "day.day_start.start", note: "start with an earlier wake time: the same op, via the optional wake_time field" },
 
-  // ── Timeboxing (P2-06) ──────────────────────────────────────────────────
-  "app/(app)/open/today/timebox-actions.ts#setTaskPlannedStartTime": { pending: "P4-cov-P2-06", note: "a plain HH:MM patch to a task the caller already owns, not a credential" },
-  "app/(app)/open/today/timebox-actions.ts#clearTaskPlannedStartTime": { pending: "P4-cov-P2-06" },
+  // ── Plan details (domain / start time / timer) and the Home plan list ──
+  "app/(app)/close/plan-actions.ts#commitPlan": { pending: "P4-cov-PLAN-DETAILS", note: "the plan stage's one-call Finish/Save: removals + per-line domain/Kill List/Work Backlog/School task/start time/timer/order + ranks (same savePlanRanksCore as review.night_plan_task.save_ranks); no hard delete reachable by MCP (typed lines are deleted, so the MCP twin must un-plan instead)" },
+  "app/(app)/open/today/plan-item-actions.ts#startPlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "starts a Deep Work/Study session (work_session.start twin exists) or an inline timer" },
+  "app/(app)/open/today/plan-item-actions.ts#setPlanItemCompleted": { pending: "P4-cov-PLAN-DETAILS" },
+  "app/(app)/open/today/plan-item-actions.ts#stopPlanItemTimer": { pending: "P4-cov-PLAN-DETAILS" },
 
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────
   "app/(app)/personal/answer-feedback-actions.ts#getAnswerFeedback": { excluded: "llm_spend: grades a typed answer with gatewayChat; the agent can judge the answer itself" },

@@ -1,60 +1,101 @@
 "use client";
 
-import { useState } from "react";
-import { getReplanData } from "@/app/(app)/close/actions";
+import { useRef, useState } from "react";
+import { getReplanData, type ReplanData } from "@/app/(app)/close/actions";
 import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
-import type { DumpItem } from "@/lib/night-plan/night-plan";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
-type ReplanData = { todayLines: { id: string; title: string }[]; planSeeds: DumpItem[]; killList: boolean };
-
 /**
- * "Re-plan" on the Morning card (IA-P2): today's plan stage (the SAME ClosePlanStage, mode "today",
- * whose Finish writes the ranks) inside a dialog, replacing the old /close/replan page. The data is
- * read when the dialog opens through the getReplanData Server Action, so Home's render stays lean.
+ * "Edit Plan" on Home's day card: today's plan, editable in place -- add, remove and reorder lines, change which are
+ * starred and which is crowned, and change each line's domain, start time or timer. It is the SAME ClosePlanStage
+ * (mode "today") the nightly close uses, opened already filled with what the plan holds now, inside a dialog.
+ *
+ * Speed: the data is read through the getReplanData Server Action (so Home's own render stays lean), and the read
+ * STARTS when the pointer reaches the button or it takes focus -- by the time the tap lands, the plan is usually
+ * already here -- instead of waiting for the click. The dialog opens at once with a skeleton either way.
  */
 export function ReplanDialog() {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<ReplanData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // One read at a time; a fresh read replaces the last (a stale prefetch is never shown after the plan changed).
+  const inflight = useRef<Promise<void> | null>(null);
+  const loadedAt = useRef(0);
 
-  async function load() {
+  function load(force = false): Promise<void> {
+    if (!force && inflight.current && Date.now() - loadedAt.current < 30_000) return inflight.current;
     setError(null);
-    try {
-      const res = await getReplanData();
-      if (res === null) setError("Sign in again to re-plan.");
-      else setData({ todayLines: res.todayLines, planSeeds: res.planSeeds, killList: res.killList });
-    } catch {
-      setError("Couldn't load today's plan. Try again.");
-    }
+    loadedAt.current = Date.now();
+    const run = (async () => {
+      try {
+        const res = await getReplanData();
+        if (res === null) setError("Sign in again to edit your plan.");
+        else setData(res);
+      } catch {
+        inflight.current = null;
+        setError("Couldn't load today's plan. Try again.");
+      }
+    })();
+    inflight.current = run;
+    return run;
   }
 
   function onOpenChange(next: boolean) {
     setOpen(next);
     if (next) void load();
-    else setData(null);
+    else {
+      setData(null);
+      inflight.current = null;
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" data-testid="replan-open" className="text-muted-foreground underline underline-offset-4">
-          Re-plan
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="replan-open"
+          onPointerEnter={() => void load()}
+          onFocus={() => void load()}
+          className="text-muted-foreground underline underline-offset-4"
+        >
+          Edit Plan
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-y-auto">
+      <DialogContent className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Re-plan today</DialogTitle>
-          <DialogDescription>Today&apos;s plan, redone. Yesterday&apos;s crown is cleared the moment you finish.</DialogDescription>
+          <DialogTitle>Edit plan</DialogTitle>
+          <DialogDescription>Change today&apos;s plan: add, remove or reorder tasks, change the star and crown, and set each task&apos;s domain, start time or timer.</DialogDescription>
         </DialogHeader>
         {error ? (
           <p role="alert" className="text-sm text-destructive">
-            {error}
+            {error}{" "}
+            <button type="button" className="underline underline-offset-4" onClick={() => void load(true)}>
+              Retry
+            </button>
           </p>
         ) : null}
-        {!error && data === null ? <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p> : null}
-        {data ? <ClosePlanStage initialLines={data.todayLines} seeds={data.planSeeds} mode="today" killList={data.killList} /> : null}
+        {!error && data === null ? (
+          <div role="status" aria-label="Loading your plan" className="space-y-2 py-2">
+            <div className="h-10 animate-pulse rounded-md bg-muted" />
+            <div className="h-16 animate-pulse rounded-md bg-muted" />
+            <div className="h-16 animate-pulse rounded-md bg-muted" />
+          </div>
+        ) : null}
+        {data ? (
+          <ClosePlanStage
+            initialLines={data.todayLines}
+            seeds={data.planSeeds}
+            mode="today"
+            killList={data.killList}
+            areas={data.areas}
+            timezone={data.timezone}
+            onSaved={() => onOpenChange(false)}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   );

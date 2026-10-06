@@ -17,13 +17,13 @@ import type { ClaimedSeed } from "@/app/(app)/close/plan-actions";
 
 const dumpLineMock = vi.fn(async (..._args: unknown[]) => ({ id: "new-id" }));
 const refreshCloseViewsMock = vi.fn(async () => {});
-const savePlanRanksMock = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+const commitPlanMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true; killListOverflow: string[]; notices: string[] } | { error: string }> => ({ ok: true, killListOverflow: [], notices: [] }));
 const claimSeedLinesMock = vi.fn(async (..._args: unknown[]): Promise<{ claimed: ClaimedSeed[] }> => ({ claimed: [] }));
 const triageInboxItemMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true } | { error: string }> => ({ ok: true }));
 vi.mock("@/app/(app)/close/plan-actions", () => ({
   dumpLine: (...args: unknown[]) => dumpLineMock(...args),
   refreshCloseViews: () => refreshCloseViewsMock(),
-  savePlanRanks: (...args: unknown[]) => savePlanRanksMock(...args),
+  commitPlan: (...args: unknown[]) => commitPlanMock(...args),
   claimSeedLines: (...args: unknown[]) => claimSeedLinesMock(...args),
   triageInboxItem: (...args: unknown[]) => triageInboxItemMock(...args),
 }));
@@ -84,7 +84,7 @@ describe("ClosePlanStage — #28 school_risk seed", () => {
       [{ id: "assessment-1", title: "VERIFY-101 · Problem Set 3 · due Tue", source: "school_risk" }],
       "tonight"
     );
-    expect(savePlanRanksMock).toHaveBeenCalledWith(["new-task-1"], "new-task-1", "tonight");
+    expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ mode: "tonight", starred: ["new-task-1"], crowned: "new-task-1" }));
   });
 
   it("still renders worry and goal_milestone seeds unchanged alongside a school_risk one", () => {
@@ -244,9 +244,9 @@ describe("ClosePlanStage — Plan tonight then Finish fast (P1a F1)", () => {
     await planStarFinish(user);
     await waitFor(() => expect(triageInboxItemMock).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 50));
-    expect(savePlanRanksMock).not.toHaveBeenCalled(); // still waiting on the write
+    expect(commitPlanMock).not.toHaveBeenCalled(); // still waiting on the write
     release();
-    await waitFor(() => expect(savePlanRanksMock).toHaveBeenCalledWith(["n1"], "n1", "tonight"));
+    await waitFor(() => expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ mode: "tonight", starred: ["n1"], crowned: "n1" })));
   });
 
   it("if the triage write fails, ranks are NOT saved (nothing cleared) and the error shows", async () => {
@@ -257,46 +257,123 @@ describe("ClosePlanStage — Plan tonight then Finish fast (P1a F1)", () => {
     await planStarFinish(user); // Finish is pressed while the write is still in flight
     fail();
     expect(await screen.findByText("That item was already sorted.")).toBeInTheDocument();
-    expect(savePlanRanksMock).not.toHaveBeenCalled();
+    expect(commitPlanMock).not.toHaveBeenCalled();
   });
 });
 
-// ONE TOP THREE: a starred line marked "Business" rides along to savePlanRanks and lands on the Kill List.
-describe("ClosePlanStage — Business marks (one top three)", () => {
+// PLAN DETAILS (2026-10-06): every line can carry a domain, a start time and a timer; Business offers "Add to Kill List"
+// (preselected). All of it rides along on the ONE commitPlan call at Finish.
+describe("ClosePlanStage — line details", () => {
   const lines = [{ id: "t1", title: "Send the invoices" }, { id: "t2", title: "Gym" }];
 
-  it("only offers 'Business' on STARRED lines, and only when the account has a Kill List", async () => {
+  async function openDetails(user: ReturnType<typeof userEvent.setup>, title: string) {
+    await user.click(screen.getByRole("button", { name: new RegExp(`details for ${title}`, "i") }));
+  }
+  async function starCrownFinish(user: ReturnType<typeof userEvent.setup>, title: string) {
+    await user.click(screen.getByRole("button", { name: new RegExp(`star ${title}`, "i") }));
+    await user.click(screen.getByRole("button", { name: new RegExp(`crown ${title}`, "i") }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+  }
+
+  beforeEach(() => commitPlanMock.mockClear());
+
+  it("choosing Business preselects 'Add to Kill List'; Finish sends it", async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<ClosePlanStage initialLines={lines} killList />);
-    expect(screen.queryByTestId("plan-business")).not.toBeInTheDocument(); // nothing starred yet
-    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
-    expect(screen.getAllByTestId("plan-business")).toHaveLength(1);
-    unmount();
-    render(<ClosePlanStage initialLines={lines} />);
-    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
-    expect(screen.queryByTestId("plan-business")).not.toBeInTheDocument(); // no Kill List on this account
+    render(<ClosePlanStage initialLines={lines} killList areas={["business", "school", "work", "body"]} />);
+    await openDetails(user, "Send the invoices");
+    await user.click(screen.getByRole("button", { name: "Business" }));
+    expect(screen.getByTestId("plan-add-to-kill-list")).toBeChecked();
+    await starCrownFinish(user, "Send the invoices");
+    expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ id: "t1", area: "business", addToKillList: true })]) }));
   });
 
-  it("Finish passes the marked ids as the 4th argument", async () => {
-    savePlanRanksMock.mockClear();
+  it("unchecking it keeps the line a Business task that is not on the Kill List", async () => {
     const user = userEvent.setup();
-    render(<ClosePlanStage initialLines={lines} killList />);
-    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
-    await user.click(screen.getByRole("button", { name: /star gym/i }));
-    await user.click(screen.getByRole("button", { name: /add send the invoices to the kill list/i }));
-    await user.click(screen.getByRole("button", { name: /crown send the invoices/i }));
-    await user.click(screen.getByRole("button", { name: "Finish" }));
-    expect(savePlanRanksMock).toHaveBeenCalledWith(["t1", "t2"], "t1", "tonight", ["t1"]);
+    render(<ClosePlanStage initialLines={lines} killList areas={["business"]} />);
+    await openDetails(user, "Send the invoices");
+    await user.click(screen.getByRole("button", { name: "Business" }));
+    await user.click(screen.getByTestId("plan-add-to-kill-list"));
+    await starCrownFinish(user, "Send the invoices");
+    expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ id: "t1", area: "business", addToKillList: false })]) }));
   });
 
-  it("says so when the Kill List was full", async () => {
-    savePlanRanksMock.mockResolvedValueOnce({ ok: true, killListOverflow: ["Send the invoices"] } as never);
+  it("no Kill List on the account: the checkbox is absent and nothing is sent for it", async () => {
     const user = userEvent.setup();
-    render(<ClosePlanStage initialLines={lines} killList />);
-    await user.click(screen.getByRole("button", { name: /star send the invoices/i }));
-    await user.click(screen.getByRole("button", { name: /add send the invoices to the kill list/i }));
-    await user.click(screen.getByRole("button", { name: /crown send the invoices/i }));
-    await user.click(screen.getByRole("button", { name: "Finish" }));
+    render(<ClosePlanStage initialLines={lines} areas={["business"]} />);
+    await openDetails(user, "Send the invoices");
+    await user.click(screen.getByRole("button", { name: "Business" }));
+    expect(screen.queryByTestId("plan-add-to-kill-list")).not.toBeInTheDocument();
+    await starCrownFinish(user, "Send the invoices");
+    expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ id: "t1", addToKillList: false })]) }));
+  });
+
+  it("Work and School say where the line goes", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={lines} areas={["school", "work"]} />);
+    await openDetails(user, "Gym");
+    await user.click(screen.getByRole("button", { name: "Work" }));
+    expect(screen.getByText(/added to your work backlog/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "School" }));
+    expect(screen.getByText(/added to your school tasks/i)).toBeInTheDocument();
+  });
+
+  it("a timer and a start time work with no domain, and Finish sends them (24-hour storage)", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={lines} areas={[]} />);
+    await openDetails(user, "Gym");
+    await user.click(screen.getByRole("button", { name: "1h 30m" }));
+    await user.click(screen.getByRole("button", { name: "6 AM" }));
+    await starCrownFinish(user, "Gym");
+    expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ id: "t2", area: null, startTime: "06:00", durationMinutes: 90 })]) }));
+  });
+
+  it("reorders and removes lines; the order and the removal reach commitPlan", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[...lines, { id: "t3", title: "Read" }]} />);
+    await user.click(screen.getByRole("button", { name: "Move Gym up" }));
+    await user.click(screen.getByRole("button", { name: "Remove Read" }));
+    await starCrownFinish(user, "Gym");
+    const call = commitPlanMock.mock.calls[0]![0] as { lines: { id: string; order: number }[]; removed: string[] };
+    expect(call.removed).toEqual(["t3"]);
+    expect(call.lines.map((l) => [l.id, l.order])).toEqual([["t2", 0], ["t1", 1]]);
+  });
+
+  it("opens an existing plan with its stars, crown, domain and timing already set (Edit Plan)", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClosePlanStage
+        mode="today"
+        areas={["business"]}
+        killList
+        initialLines={[
+          { id: "t1", title: "Send the invoices", starred: true, crowned: true, area: "business", addToKillList: true, startTime: "09:00", durationMinutes: 45, order: 0 },
+          { id: "t2", title: "Gym" },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Unstar Send the invoices" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Remove crown from Send the invoices" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /details for send the invoices/i })).toHaveTextContent("Business · Kill List · 9:00 AM · 45m");
+    await user.click(screen.getByRole("button", { name: "Save plan" }));
+    expect(commitPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "today", starred: ["t1"], crowned: "t1", lines: [expect.objectContaining({ id: "t1", area: "business", addToKillList: true, startTime: "09:00", durationMinutes: 45, order: 0 }), expect.objectContaining({ id: "t2", area: null })] }),
+    );
+  });
+
+  it("says so when the Kill List was full, and shows an error from the commit", async () => {
+    commitPlanMock.mockResolvedValueOnce({ ok: true, killListOverflow: ["Send the invoices"], notices: [] });
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={lines} killList areas={["business"]} />);
+    await starCrownFinish(user, "Send the invoices");
     expect(await screen.findByTestId("plan-notice")).toHaveTextContent("Kill List is already full");
+  });
+
+  it("an error from the commit is shown and nothing claims 'Saved'", async () => {
+    commitPlanMock.mockResolvedValueOnce({ error: "Your plan wasn't saved." });
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={lines} />);
+    await starCrownFinish(user, "Gym");
+    expect(await screen.findByText("Your plan wasn't saved.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Saved" })).not.toBeInTheDocument();
   });
 });

@@ -12,7 +12,6 @@ vi.mock("@/components/evening-close/close-plan-stage", () => ({
     <div data-testid="plan-stage">{mode}:{initialLines.map((l) => l.title).join(",")}</div>
   ),
 }));
-vi.mock("@/app/(app)/open/today/timebox-actions", () => ({ setTaskPlannedStartTime: vi.fn(), clearTaskPlannedStartTime: vi.fn() }));
 vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null }) }));
 vi.mock("next/link", async () => {
   const React = await import("react");
@@ -38,7 +37,7 @@ describe("RhythmSection", () => {
     resetKeyedQueuesForTests();
   });
 
-  it("morning: last night's three with the crown marked, plus Start day and Re-plan", () => {
+  it("morning: last night's three with the crown marked, plus Start day and Edit Plan", () => {
     render(<RhythmSection data={{ state: "morning", plan, diff: { changed: false } as never }} />);
     expect(screen.getByTestId("rhythm-morning")).toBeInTheDocument();
     expect(screen.getByText("Ship the report")).toBeInTheDocument();
@@ -71,7 +70,7 @@ describe("RhythmSection", () => {
     expect(screen.getByTestId("start-day")).toHaveTextContent("Start day");
   });
 
-  it("Re-plan opens today's plan stage (mode today) with data read on open", async () => {
+  it("Edit Plan opens today's plan stage (mode today) with data read on open", async () => {
     const user = userEvent.setup();
     render(<RhythmSection data={{ state: "morning", plan, diff: { changed: false } as never }} />);
     expect(getReplanData).not.toHaveBeenCalled();
@@ -80,9 +79,20 @@ describe("RhythmSection", () => {
     expect(getReplanData).toHaveBeenCalledTimes(1);
   });
 
+  it("Edit Plan starts reading the plan the moment the pointer reaches it (the click then finds it loaded)", async () => {
+    const user = userEvent.setup();
+    render(<RhythmSection data={{ state: "morning", plan, diff: { changed: false } as never }} />);
+    getReplanData.mockClear();
+    await user.hover(screen.getByTestId("replan-open"));
+    expect(getReplanData).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByTestId("replan-open"));
+    expect(await screen.findByTestId("plan-stage")).toBeInTheDocument();
+    expect(getReplanData).toHaveBeenCalledTimes(1); // the click reused the hover's read
+  });
+
   // HOME-02: ONE switch (HOME_DAY_VIEW). "classic" must render exactly the pre-change layout (three tiles and,
   // on the page, the separate day's-shape panel); "bar" renders the Day bar instead and none of the tiles.
-  const today: RhythmData = { state: "today", localDate: "2026-10-05", nowIso: "2026-10-05T17:00:00Z", bedtime: null, wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42, timeboxed: [] };
+  const today: RhythmData = { state: "today", localDate: "2026-10-05", nowIso: "2026-10-05T17:00:00Z", bedtime: null, wokeAtIso: "2026-10-05T12:00:00Z", deltaSeconds: 3600, hoursTodayMinutes: 90, efficiencyPercent: 42 };
 
   it("today / classic: the three tiles (Awake for, Hours, Efficiency), no Day bar, no Start day button", () => {
     render(<RhythmSection data={today} dayView="classic" />);
@@ -112,7 +122,7 @@ describe("RhythmSection", () => {
     expect(await screen.findByTestId("day-setup-card")).toBeInTheDocument();
   });
 
-  it("Re-plan stays available after Start day, in BOTH Today layouts, and opens the same plan stage (mode today)", async () => {
+  it("Edit Plan stays available after Start day, in BOTH Today layouts, and opens the same plan stage (mode today)", async () => {
     for (const view of ["bar", "classic"] as const) {
       const { unmount } = render(<RhythmSection data={today} dayView={view} />);
       expect(screen.getByTestId("today-replan")).toContainElement(screen.getByTestId("replan-open"));
