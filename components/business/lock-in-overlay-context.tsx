@@ -53,6 +53,8 @@ type LockInOverlayContextValue = {
   /** The setup dialog's onStart — does the actual session creation. */
   confirmSessionStart: (payload: SessionStartPayload) => Promise<void>;
   endSession: () => Promise<void>;
+  /** A session that was started somewhere other than the setup dialog (Home's plan list): show it, full screen. */
+  adoptSession: (next: ActiveWorkSession) => void;
   /** Optimistic, write-through toggle for one objective — see
    * toggleSessionObjectiveCore's header (lib/business/actions-core.ts) for
    * why kill_list_item/task objectives write through to the existing
@@ -168,6 +170,12 @@ export function LockInOverlayProvider({
   }, []);
 
   const endSession = useCallback(() => endSessionAt(), [endSessionAt]);
+
+  const adoptSession = useCallback((next: ActiveWorkSession) => {
+    setSession(next);
+    setMinimized(false);
+    writeLockInMinimized(next.id, false);
+  }, []);
 
   const confirmSessionStart = useCallback(
     async (payload: SessionStartPayload) => {
@@ -315,11 +323,12 @@ export function LockInOverlayProvider({
       setSetupOpen,
       confirmSessionStart,
       endSession,
+      adoptSession,
       toggleObjective,
       minimize,
       expand,
     }),
-    [session, minimized, isPending, error, setupOpen, pendingKind, startSession, setSetupOpen, confirmSessionStart, endSession, toggleObjective, minimize, expand]
+    [session, minimized, isPending, error, setupOpen, pendingKind, startSession, setSetupOpen, confirmSessionStart, endSession, adoptSession, toggleObjective, minimize, expand]
   );
 
   return <LockInOverlayContext.Provider value={value}>{children}</LockInOverlayContext.Provider>;

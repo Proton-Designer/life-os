@@ -7,14 +7,13 @@
  *
  *   Business + timer          -> a timed Deep Work session (goal = the timer)
  *   Business + start time     -> an elapsed Deep Work session (no goal)
- *   School (anything)         -> a Deep Study session (timed if a timer was set, otherwise elapsed)
+ *   School + timer           -> a timed Deep Study session (goal = the timer)
+ *   School + start time      -> an elapsed Deep Study session
  *   any other + timer         -> an inline countdown beside the task
  *   any other + start time    -> an inline elapsed timer beside the task
- *   no start time, no timer   -> Complete only (a tick that finishes it)
+ *   no start time, no timer   -> Mark Done only, in every domain (a tap that finishes it)
  *
- * School always offers Start: a School task has nothing else to do but study, and "Deep Study" is the session that
- * counts it toward the day's hours. Business and everything else offer Start only when the person timed the task,
- * because a Business line with no time is a Kill List line -- finishing it is the action.
+ * A line with neither a start time nor a timer has nothing to start, whatever its domain: it is just marked done.
  *
  * Pure: no React, no Supabase, no Date. Tested in __tests__/plan-behavior.test.ts.
  */
@@ -50,8 +49,8 @@ export type StartBehavior =
 export function startBehavior(area: string | null, timing: PlanTiming): StartBehavior {
   const goalMinutes = timing.durationMinutes;
   const timed = goalMinutes !== null || timing.startTime !== null;
-  if (area === "school") return { kind: "deep_study", goalMinutes };
   if (!timed) return { kind: "complete_only" };
+  if (area === "school") return { kind: "deep_study", goalMinutes };
   if (area === "business") return { kind: "deep_work", goalMinutes };
   return { kind: "inline_timer", goalMinutes };
 }
@@ -76,13 +75,15 @@ export function isValidDuration(minutes: unknown): minutes is number {
 export type OrderablePlanItem = { id: string; startTime: string | null; planOrder: number | null; mitRank: number | null; createdAt?: string };
 
 /**
- * Timeline order: timed lines by start time (a 5:00 AM line before a 9:00 AM one), then the untimed ones. Ties --
+ * The crowned task (rank 1) always leads. Then timeline order: timed lines by start time (a 5:00 AM line before a 9:00 AM one), then the untimed ones. Ties --
  * two lines at the same time, or both untimed -- fall to the person's own manual order, then the crown/star rank
  * (the crown is rank 1), then creation order. Lines with no manual order sort after those that have one.
  */
 export function orderPlanItems<T extends OrderablePlanItem>(items: readonly T[]): T[] {
   const n = (v: number | null) => (v === null ? Number.POSITIVE_INFINITY : v);
   return [...items].sort((a, b) => {
+    // The crowned task (rank 1) is the day's one thing: it leads the list, whatever the clock order of the rest.
+    if ((a.mitRank === 1) !== (b.mitRank === 1)) return a.mitRank === 1 ? -1 : 1;
     if (a.startTime !== b.startTime) {
       if (a.startTime === null) return 1;
       if (b.startTime === null) return -1;

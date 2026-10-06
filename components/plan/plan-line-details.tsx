@@ -55,7 +55,7 @@ export function PlanLineDetails({
   /** The account has a Business Kill List to add to. */
   killListAvailable: boolean;
   timezone: string;
-  /** Planning today: offer Now / In 30 min / In 1 hr. */
+  /** Planning today: the time wheel opens on the current time. */
   relativeToNow: boolean;
 }) {
   function pickArea(area: PlanArea | null) {
@@ -96,7 +96,7 @@ export function PlanLineDetails({
       </div>
 
       <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground">Timer: how long to work on it (optional)</p>
+        <p className="text-xs font-medium text-muted-foreground">Timer (optional)</p>
         <DurationField value={draft.durationMinutes} onChange={(durationMinutes) => onChange({ ...draft, durationMinutes })} />
       </div>
     </div>

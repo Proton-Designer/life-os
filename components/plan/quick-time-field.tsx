@@ -1,20 +1,16 @@
 "use client";
 
-import { TimeField12 } from "@/components/ui/time-field-12";
+import { useState } from "react";
+import { Clock } from "lucide-react";
+import { WheelTimePicker } from "@/components/plan/wheel-time-picker";
 import { addMinutesToHHMM, ceilHHMMToStep, formatHHMM12, localClockHHMM } from "@/lib/date-utils";
-import { cn } from "@/lib/utils";
 
 /**
- * A start-time picker that needs one tap for the usual cases: "Now" / "In 30 min" / "In 1 hr" (planning today) or a
- * handful of common clock times, with the exact 12-hour field underneath for anything else. Reads and writes the
- * storage format, "HH:MM" 24-hour (or "" for none); the shortcuts are computed on the user's own timezone clock
- * (`timezone`), never the browser's. Display is always 12-hour (TimeField12 / formatHHMM12).
+ * A start-time control that takes one line until it is needed: a pill showing the time (or "Set a time"), and an
+ * iOS-alarm-style wheel under it when opened. Planning today opens on the next 5 minutes from the user's own clock
+ * (`timezone`, never the browser's); tonight's plan opens on 9:00 AM. Reads and writes "HH:MM" 24-hour (or "" for
+ * none); displays 12-hour.
  */
-
-const COMMON_TIMES = ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"] as const;
-
-const CHIP = "min-h-8 rounded-md border px-2.5 text-xs transition-colors aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary";
-
 export function QuickTimeField({
   value,
   onChange,
@@ -26,38 +22,44 @@ export function QuickTimeField({
   value: string;
   onChange: (next: string) => void;
   timezone: string;
-  /** Offer Now / In 30 min / In 1 hr (a plan for today). Tonight's plan has no "now" to be relative to. */
+  /** Planning for today: the wheel opens on the current time instead of 9:00 AM. */
   relativeToNow?: boolean;
   label?: string;
 }) {
-  function nowStart(offset: number): string {
-    return addMinutesToHHMM(ceilHHMMToStep(localClockHHMM(new Date(), timezone), 5), offset);
+  const [open, setOpen] = useState(false);
+
+  function openWheel() {
+    if (!value) onChange(relativeToNow ? addMinutesToHHMM(ceilHHMMToStep(localClockHHMM(new Date(), timezone), 5), 0) : "09:00");
+    setOpen(true);
   }
 
   return (
-    <div className="space-y-1.5">
-      <div role="group" aria-label={`${label} shortcuts`} className="flex flex-wrap gap-1.5">
-        {relativeToNow
-          ? ([["Now", 0], ["In 30 min", 30], ["In 1 hr", 60]] as const).map(([text, offset]) => (
-              <button key={text} type="button" className={cn(CHIP)} onClick={() => onChange(nowStart(offset))}>
-                {text}
-              </button>
-            ))
-          : null}
-        {COMMON_TIMES.map((t) => (
-          <button key={t} type="button" aria-pressed={value === t} className={cn(CHIP)} onClick={() => onChange(value === t ? "" : t)}>
-            {formatHHMM12(t).replace(":00", "")}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <TimeField12 value={value} onChange={onChange} aria-label={label} />
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={value ? `${label}: ${formatHHMM12(value)}. Change` : `Set ${label.toLowerCase()}`}
+          onClick={() => (open ? setOpen(false) : openWheel())}
+          className="inline-flex min-h-9 items-center gap-2 rounded-full border px-3.5 text-sm transition-colors hover:bg-accent/50 aria-expanded:border-primary aria-expanded:bg-primary/10"
+        >
+          <Clock className="size-3.5 text-muted-foreground" aria-hidden />
+          {value ? formatHHMM12(value) : "Set a time"}
+        </button>
         {value ? (
-          <button type="button" onClick={() => onChange("")} className="text-xs text-muted-foreground underline underline-offset-4">
+          <button
+            type="button"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+            className="text-xs text-muted-foreground underline underline-offset-4"
+          >
             Clear
           </button>
         ) : null}
       </div>
+      {open ? <WheelTimePicker value={value || "09:00"} onChange={onChange} label={label} /> : null}
     </div>
   );
 }

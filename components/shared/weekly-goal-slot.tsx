@@ -52,7 +52,7 @@ export function WeeklyGoalSlot({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-3 py-3 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4">
+    <div className="flex min-w-0 flex-1 items-center gap-3 py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4">
       <IconChip icon={Icon} accent={accent} size="md" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span

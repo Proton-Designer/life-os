@@ -12,7 +12,7 @@ describe("startBehavior", () => {
     expect(startBehavior("business", T("09:00", null))).toEqual({ kind: "deep_work", goalMinutes: null });
   });
   it("School always starts Deep Study, timed only when a timer was set", () => {
-    expect(startBehavior("school", T(null, null))).toEqual({ kind: "deep_study", goalMinutes: null });
+    expect(startBehavior("school", T(null, null))).toEqual({ kind: "complete_only" });
     expect(startBehavior("school", T("14:00", null))).toEqual({ kind: "deep_study", goalMinutes: null });
     expect(startBehavior("school", T(null, 120))).toEqual({ kind: "deep_study", goalMinutes: 120 });
   });
@@ -63,4 +63,16 @@ describe("timerReadout / formatting", () => {
     expect(isPlanArea("body")).toBe(true);
     expect(isPlanArea("co_op")).toBe(false);
   });
+
+describe("orderPlanItems: the crown leads", () => {
+  it("puts the crowned task first even when others are timed earlier or manually ordered above it", () => {
+    const out = orderPlanItems([
+      { id: "a", startTime: "05:00", planOrder: 0, mitRank: null },
+      { id: "b", startTime: null, planOrder: 1, mitRank: null },
+      { id: "c", startTime: null, planOrder: 2, mitRank: 1 },
+      { id: "d", startTime: "04:00", planOrder: 3, mitRank: 2 },
+    ]);
+    expect(out.map((x) => x.id)).toEqual(["c", "d", "a", "b"]);
+  });
+});
 });

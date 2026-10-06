@@ -4,18 +4,28 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { startWorkSessionCore, type StartSessionObjectiveInput } from "@/lib/business/actions-core";
 import { setPlanLineCompletedCore, startTaskTimerCore, stopTaskTimerCore } from "@/lib/night-plan/plan-details-core";
+import type { SessionObjective } from "@/lib/business/session-objectives";
 import { startBehavior } from "@/lib/plan/plan-behavior";
-import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
+import { getActiveWorkSessionDetail } from "@/lib/business/active-session";
 
 /**
  * Home's plan list actions -- the cookie-authed layer over the cores. Each returns `{ ok: false, message }` for an
  * expected refusal (a session already running) rather than throwing, so the row can say so in place.
  */
 
+/** The running session, in the Lock-In provider's own shape, so the client can show it with no second round trip. */
+export type StartedSession = { id: string; startedAtIso: string; kind: "deep_work" | "deep_study"; goalMinutes: number | null; objectives: SessionObjective[] };
+
 export type StartPlanItemResult =
-  | { ok: true; kind: "session"; sessionKind: "deep_work" | "deep_study" }
+  | { ok: true; kind: "session"; sessionKind: "deep_work" | "deep_study"; session: StartedSession }
   | { ok: true; kind: "timer"; startedAt: string }
-  | { ok: false; message: string };
+  /** `activeSession`: the refusal was "a session is already running" -- here it is, so the client can open it. */
+  | { ok: false; message: string; activeSession?: StartedSession };
+
+function toStartedSession(detail: Awaited<ReturnType<typeof getActiveWorkSessionDetail>>): StartedSession | null {
+  if (!detail || (detail.kind !== "deep_work" && detail.kind !== "deep_study")) return null;
+  return { id: detail.id, startedAtIso: detail.startedAt, kind: detail.kind, goalMinutes: detail.goalMinutes, objectives: detail.objectives };
+}
 
 /**
  * Start pressed on a plan line. What starting MEANS comes from the one pure rule (lib/plan/plan-behavior.ts):
@@ -40,7 +50,6 @@ export async function startPlanItem(taskId: string): Promise<StartPlanItemResult
   try {
     if (behavior.kind === "inline_timer") {
       const { startedAt } = await startTaskTimerCore(supabase, userId, taskId, new Date());
-      revalidatePath("/");
       return { ok: true, kind: "timer", startedAt };
     }
     // A paired Kill List line is a Kill List objective (completing it from the session completes both rows); anything else is a task objective.
@@ -51,12 +60,17 @@ export async function startPlanItem(taskId: string): Promise<StartPlanItemResult
       classId: behavior.kind === "deep_study" ? ((task.class_id as string | null) ?? null) : null,
       objectives: [objective],
     });
-    revalidateBusinessScreens();
-    revalidatePath("/");
-    return { ok: true, kind: "session", sessionKind: behavior.kind };
+    // No revalidatePath here: it would make this action wait for Home to re-render before answering (the 2-3 s
+    // lag). The client shows the session from the detail below and schedules its own refresh afterwards.
+    const session = toStartedSession(await getActiveWorkSessionDetail(userId));
+    if (!session) return { ok: false, message: "Started, but couldn't open the session. Refresh the page." };
+    return { ok: true, kind: "session", sessionKind: behavior.kind, session };
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
-    if (message.includes("already active")) return { ok: false, message: "A session is already running. End it first." };
+    if (message.includes("already active")) {
+      const activeSession = toStartedSession(await getActiveWorkSessionDetail(userId)) ?? undefined;
+      return { ok: false, message: "Another session is already running. Opening it.", activeSession };
+    }
     return { ok: false, message: "Couldn't start that. Try again." };
   }
 }

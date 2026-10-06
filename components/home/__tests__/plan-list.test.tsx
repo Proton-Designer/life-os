@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanItem } from "@/lib/plan/get-plan-items";
 import type { StartPlanItemResult } from "@/app/(app)/open/today/plan-item-actions";
 
-const startMock = vi.fn(async (..._a: unknown[]): Promise<StartPlanItemResult> => ({ ok: true, kind: "session", sessionKind: "deep_work" }));
+const SESSION = { id: "s1", startedAtIso: "2026-10-06T14:00:00.000Z", kind: "deep_work" as const, goalMinutes: 60, objectives: [] };
+const startMock = vi.fn(async (..._a: unknown[]): Promise<StartPlanItemResult> => ({ ok: true, kind: "session", sessionKind: "deep_work", session: SESSION }));
+const lockIn = { session: null as unknown, adoptSession: vi.fn(), expand: vi.fn() };
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => lockIn }));
+vi.mock("@/app/(app)/business/actions", () => ({ refreshBusinessViews: async () => {} }));
 const completeMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, message: "Saved." }));
 const stopMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, message: "Stopped." }));
 vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({
@@ -23,7 +27,10 @@ function plan(over: Partial<PlanItem> & Pick<PlanItem, "id" | "title">): PlanIte
 }
 
 describe("PlanList", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lockIn.session = null;
+  });
 
   it("renders nothing for an empty plan", () => {
     const { container } = render(<PlanList items={[]} nowIso={NOW_ISO} />);
@@ -36,7 +43,8 @@ describe("PlanList", () => {
         nowIso={NOW_ISO}
         items={[
           plan({ id: "b", title: "Ship the proposal", area: "business", durationMinutes: 90 }),
-          plan({ id: "s", title: "Study stats", area: "school" }),
+          plan({ id: "s", title: "Study stats", area: "school", durationMinutes: 120 }),
+          plan({ id: "sn", title: "Finish the HW", area: "school" }),
           plan({ id: "f", title: "Run", area: "body", startTime: "06:30" }),
           plan({ id: "n", title: "Call the bank" }),
           plan({ id: "bn", title: "Email the client", area: "business" }),
@@ -47,9 +55,12 @@ describe("PlanList", () => {
     expect(screen.getByRole("button", { name: "Start Study stats" })).toBeInTheDocument(); // School: always a Deep Study start
     expect(screen.getByRole("button", { name: "Start Run" })).toBeInTheDocument();
     // No timing: Complete only, never Start.
-    expect(screen.getByRole("button", { name: "Complete Call the bank" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark Call the bank done" })).toHaveTextContent("Mark Done");
     expect(screen.queryByRole("button", { name: "Start Call the bank" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Complete Email the client" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark Email the client done" })).toBeInTheDocument();
+    // School with no start time and no timer is just marked done, like any other domain.
+    expect(screen.getByRole("button", { name: "Mark Finish the HW done" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start Finish the HW" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start Email the client" })).not.toBeInTheDocument();
   });
 
@@ -91,6 +102,23 @@ describe("PlanList", () => {
     expect(screen.queryByRole("button", { name: "Start Run" })).not.toBeInTheDocument();
   });
 
+  it("a started session opens the Lock-In overlay at once (the provider is told, not left to a refresh)", async () => {
+    const user = userEvent.setup();
+    render(<PlanList nowIso={NOW_ISO} items={[plan({ id: "b", title: "Ship", area: "business", durationMinutes: 60 })]} />);
+    await user.click(screen.getByRole("button", { name: "Start Ship" }));
+    await waitFor(() => expect(lockIn.adoptSession).toHaveBeenCalledWith(SESSION));
+  });
+
+  it("with a session already running, Start opens it instead of asking the server to refuse", async () => {
+    lockIn.session = SESSION;
+    const user = userEvent.setup();
+    render(<PlanList nowIso={NOW_ISO} items={[plan({ id: "b", title: "Ship", area: "business", durationMinutes: 60 })]} />);
+    await user.click(screen.getByRole("button", { name: "Start Ship" }));
+    expect(startMock).not.toHaveBeenCalled();
+    expect(lockIn.expand).toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("already running");
+  });
+
   it("a refused Start says why on the row", async () => {
     startMock.mockResolvedValueOnce({ ok: false, message: "A session is already running. End it first." });
     const user = userEvent.setup();
@@ -102,7 +130,7 @@ describe("PlanList", () => {
   it("Complete checks the task off and moves it to the done list, with Undo", async () => {
     const user = userEvent.setup();
     render(<PlanList nowIso={NOW_ISO} items={[plan({ id: "n", title: "Call the bank" })]} />);
-    await user.click(screen.getByRole("button", { name: "Complete Call the bank" }));
+    await user.click(screen.getByRole("button", { name: "Mark Call the bank done" }));
     expect(completeMock).toHaveBeenCalledWith("n", true);
     await waitFor(() => expect(screen.queryByTestId("plan-row")).not.toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Undo Call the bank" }));
@@ -114,7 +142,7 @@ describe("PlanList", () => {
     completeMock.mockResolvedValueOnce({ ok: false, message: "Couldn't update that task. Try again." });
     const user = userEvent.setup();
     render(<PlanList nowIso={NOW_ISO} items={[plan({ id: "n", title: "Call the bank" })]} />);
-    await user.click(screen.getByRole("button", { name: "Complete Call the bank" }));
+    await user.click(screen.getByRole("button", { name: "Mark Call the bank done" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't update that task");
     expect(screen.getByTestId("plan-row")).toBeInTheDocument();
   });

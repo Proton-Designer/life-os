@@ -326,7 +326,18 @@ export default async function HomePage() {
             <WidgetManagerButton domainKey="home" />
           </>
         }
-      />
+      >
+        <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
+          {/* Only an account with a saved Deen goal needs the Quran numbers from the (streamed) snapshots; everyone else renders at once. */}
+          {hasFaith && deenGoalRow ? (
+            <Stream promise={snapshotsPromise} label="Weekly goals" fallback={<WeeklyGoalsHeaderSkeleton />}>
+              {(snapshots) => renderGoalsHeader(deenGoalFor(snapshots))}
+            </Stream>
+          ) : (
+            renderGoalsHeader(deenGoalFor(null))
+          )}
+        </LayoutSlot>
+      </PageHeader>
 
       <InProgressBanner items={inProgressItems} />
 
@@ -385,17 +396,6 @@ export default async function HomePage() {
           own comment on why this widget's ORDER is deliberately not
           user-configurable even though its VISIBILITY is (WIDGET-02). */}
       {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
-
-      <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
-        {/* Only an account with a saved Deen goal needs the Quran numbers from the (streamed) snapshots; everyone else renders at once. */}
-        {hasFaith && deenGoalRow ? (
-          <Stream promise={snapshotsPromise} label="Weekly goals" fallback={<WeeklyGoalsHeaderSkeleton />}>
-            {(snapshots) => renderGoalsHeader(deenGoalFor(snapshots))}
-          </Stream>
-        ) : (
-          renderGoalsHeader(deenGoalFor(null))
-        )}
-      </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="domain_status">
         <Stream promise={sectorPromise} label="Sector progress" fallback={<DomainStatusStripSkeleton />}>

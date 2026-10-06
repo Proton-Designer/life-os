@@ -321,8 +321,14 @@ describe("ClosePlanStage — line details", () => {
     const user = userEvent.setup();
     render(<ClosePlanStage initialLines={lines} areas={[]} />);
     await openDetails(user, "Gym");
-    await user.click(screen.getByRole("button", { name: "1h 30m" }));
-    await user.click(screen.getByRole("button", { name: "6 AM" }));
+    // Timer: the exact-minutes box (the slider steps by 15; the box takes any value).
+    await user.type(screen.getByLabelText("Timer minutes"), "90");
+    await user.tab();
+    // Start time: the pill opens an alarm-style wheel on 9:00 AM; ArrowUp on the hour wheel steps back to 6.
+    await user.click(screen.getByRole("button", { name: /set start time/i }));
+    const hour = screen.getByRole("listbox", { name: "Start time hour" });
+    hour.focus();
+    await user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}");
     await starCrownFinish(user, "Gym");
     expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ id: "t2", area: null, startTime: "06:00", durationMinutes: 90 })]) }));
   });

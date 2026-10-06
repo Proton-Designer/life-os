@@ -53,7 +53,7 @@ export function WeeklyGoalsHeader({
   return (
     <div
       id="weekly-focus"
-      className={cn("scroll-mt-20 flex flex-col gap-3", className)}
+      className={cn("scroll-mt-20 flex flex-col gap-2 sm:gap-3", className)}
       data-testid="weekly-goals-header"
     >
       <div className="flex items-center gap-3">
@@ -69,7 +69,7 @@ export function WeeklyGoalsHeader({
         </p>
       )}
       <div
-        className="flex flex-col divide-y divide-border/40 rounded-2xl border border-white/70 bg-card p-4 sm:flex-row sm:divide-x sm:divide-y-0"
+        className="flex flex-col divide-y divide-border/40 rounded-2xl border border-white/70 bg-card px-3 py-2.5 sm:flex-row sm:p-4 sm:divide-x sm:divide-y-0"
         style={{
           boxShadow:
             "0 0 0 1px color-mix(in oklch, var(--glow-white) 30%, transparent), 0 0 20px 2px color-mix(in oklch, var(--glow-white) 22%, transparent)",

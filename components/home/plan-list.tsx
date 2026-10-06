@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Play, Square } from "lucide-react";
+import { Check, Loader2, Play, Square } from "lucide-react";
 import { setPlanItemCompleted, startPlanItem, stopPlanItemTimer } from "@/app/(app)/open/today/plan-item-actions";
+import { refreshBusinessViews } from "@/app/(app)/business/actions";
+import { useLockInOverlay } from "@/components/business/lock-in-overlay-context";
 import { useHomeRefresh } from "@/components/home/use-home-refresh";
 import { formatHHMM12 } from "@/lib/date-utils";
 import type { PlanItem } from "@/lib/plan/get-plan-items";
@@ -15,7 +17,7 @@ import { cn } from "@/lib/utils";
  *
  *   Start      Business -> Deep Work, School -> Deep Study (a session), anything else with a start time or timer
  *              -> a timer / elapsed count right here on the row (lib/plan/plan-behavior.ts is the rule)
- *   Complete   a task with no start time and no timer: one tap checks it off
+ *   Mark Done  a task with no start time and no timer: one tap checks it off
  *   Done       once an inline timer is running: the readout, Done, and a small stop
  *
  * Completed tasks leave the list (they are not deleted: they sit below, struck through, with Undo).
@@ -28,6 +30,7 @@ type Local = { completed: boolean; timerStartedAt: string | null };
 
 export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string }) {
   const scheduleRefresh = useHomeRefresh();
+  const lockIn = useLockInOverlay();
   const [local, setLocal] = useState<Record<string, Local>>({});
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -83,12 +86,26 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
 
   async function start(item: PlanItem) {
     say(item.id, null);
+    // The provider already knows about a running session: open it instead of asking the server to refuse.
+    if (item.timerStartedAt === null && lockIn.session) {
+      say(item.id, "Another session is already running. Opening it.");
+      lockIn.expand();
+      return;
+    }
     setBusy(item.id);
     const res = await startPlanItem(item.id);
     setBusy(null);
-    if (!res.ok) return say(item.id, res.message);
+    if (!res.ok) {
+      if (res.activeSession) lockIn.adoptSession(res.activeSession);
+      return say(item.id, res.message);
+    }
     if (res.kind === "timer") setLocal((l) => ({ ...l, [item.id]: { completed: false, timerStartedAt: res.startedAt } }));
-    // A session start revalidates Home server-side: the Lock-In overlay takes over from there.
+    // The action returns the running session, so the Lock-In overlay opens at once (nothing else tells the
+    // provider); Home and the Business screens catch up in the background.
+    else {
+      lockIn.adoptSession(res.session);
+      void refreshBusinessViews().catch(() => {});
+    }
     scheduleRefresh();
   }
 
@@ -137,9 +154,9 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
                   </button>
                 </>
               ) : behavior.kind === "complete_only" ? (
-                <button type="button" onClick={() => void complete(item, true)} aria-label={`Complete ${item.title}`} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-3 text-xs font-medium">
+                <button type="button" onClick={() => void complete(item, true)} aria-label={`Mark ${item.title} done`} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-3 text-xs font-medium">
                   <Check className="size-3.5" aria-hidden />
-                  Complete
+                  Mark Done
                 </button>
               ) : (
                 <button
@@ -149,8 +166,8 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
                   aria-label={`Start ${item.title}`}
                   className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50"
                 >
-                  <Play className="size-3.5" aria-hidden />
-                  Start
+                  {busy === item.id ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
+                  {busy === item.id ? "Starting" : "Start"}
                 </button>
               )}
             </li>
