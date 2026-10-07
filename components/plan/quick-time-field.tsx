@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Clock } from "lucide-react";
-import { WheelTimePicker } from "@/components/plan/wheel-time-picker";
+import { WheelTimePicker } from "@/components/ui/wheel-time-picker";
 import { addMinutesToHHMM, ceilHHMMToStep, formatHHMM12, localClockHHMM } from "@/lib/date-utils";
 
 /**

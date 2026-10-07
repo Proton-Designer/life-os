@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMinutesToHHMM, ceilHHMMToStep, localClockHHMM } from "@/lib/date-utils";
+import { addMinutesToHHMM, ceilHHMMToStep, floorHHMMToStep, localClockHHMM } from "@/lib/date-utils";
 
 describe("localClockHHMM", () => {
   it("reads the wall clock of the given timezone, 24-hour", () => {
@@ -26,5 +26,14 @@ describe("ceilHHMMToStep", () => {
     expect(ceilHHMMToStep("21:47", 5)).toBe("21:50");
     expect(ceilHHMMToStep("21:50", 5)).toBe("21:50");
     expect(ceilHHMMToStep("23:58", 5)).toBe("00:00");
+  });
+});
+
+describe("floorHHMMToStep", () => {
+  it("rounds down to the step and never past the input", () => {
+    expect(floorHHMMToStep("21:47", 5)).toBe("21:45");
+    expect(floorHHMMToStep("21:50", 5)).toBe("21:50");
+    expect(floorHHMMToStep("00:03", 5)).toBe("00:00");
+    expect(floorHHMMToStep("nope", 5)).toBe("nope");
   });
 });

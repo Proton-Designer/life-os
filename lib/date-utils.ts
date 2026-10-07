@@ -307,6 +307,14 @@ export function addMinutesToHHMM(hhmm: string, deltaMinutes: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/** Rounds "HH:MM" DOWN to a multiple of `step` minutes (never into the future: "I woke up at" can't be later than now). */
+export function floorHHMMToStep(hhmm: string, step: number): string {
+  const t = parseHHMM(hhmm);
+  if (!t || step <= 0) return hhmm;
+  const total = t.hour * 60 + t.minute;
+  return addMinutesToHHMM("00:00", Math.floor(total / step) * step);
+}
+
 /** Rounds "HH:MM" UP to the next multiple of `step` minutes (a "start in a few minutes" default reads cleaner than 9:47 PM). */
 export function ceilHHMMToStep(hhmm: string, step: number): string {
   const t = parseHHMM(hhmm);
