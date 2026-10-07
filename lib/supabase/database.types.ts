@@ -4210,6 +4210,7 @@ export type Database = {
           planned_start_time: string | null
           task_type: string | null
           task_type_other_label: string | null
+          timer_elapsed_seconds: number
           timer_started_at: string | null
           title: string
           updated_at: string
@@ -4235,6 +4236,7 @@ export type Database = {
           planned_start_time?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
+          timer_elapsed_seconds?: number
           timer_started_at?: string | null
           title: string
           updated_at?: string
@@ -4260,6 +4262,7 @@ export type Database = {
           planned_start_time?: string | null
           task_type?: string | null
           task_type_other_label?: string | null
+          timer_elapsed_seconds?: number
           timer_started_at?: string | null
           title?: string
           updated_at?: string

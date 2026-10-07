@@ -95,12 +95,42 @@ export function orderPlanItems<T extends OrderablePlanItem>(items: readonly T[])
   });
 }
 
-/** Seconds left on a countdown (never below 0), or seconds elapsed on a count-up. `startedAtMs` is a real instant, so plain epoch math is correct here. */
-export function timerReadout(startedAtMs: number, durationMinutes: number | null, nowMs: number): { seconds: number; mode: "down" | "up"; done: boolean } {
-  const elapsed = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+/**
+ * Seconds left on a countdown (never below 0), or seconds elapsed on a count-up. `startedAtMs` is a real instant, so plain
+ * epoch math is correct here; `null` = NOT running (paused), the readout is then frozen at what was banked.
+ * `bankedSeconds` is the time already worked in earlier stretches (tasks.timer_elapsed_seconds): the total is banked plus
+ * the running stretch, so a resumed timer continues from where it stopped instead of from zero.
+ */
+export function timerReadout(startedAtMs: number | null, durationMinutes: number | null, nowMs: number, bankedSeconds = 0): { seconds: number; mode: "down" | "up"; done: boolean } {
+  const running = startedAtMs === null ? 0 : Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+  const elapsed = Math.max(0, bankedSeconds) + running;
   if (durationMinutes === null) return { seconds: elapsed, mode: "up", done: false };
   const left = Math.max(0, durationMinutes * 60 - elapsed);
   return { seconds: left, mode: "down", done: left === 0 };
+}
+
+/**
+ * The state of a plan line's work, DERIVED (no stored flag), by the rule in migration 262:
+ *   running-session  a Deep Work / Deep Study session whose plan task is this line is active (`activeSessionTaskId`)
+ *   running-inline   an inline timer is running (`timerStartedAt` set)
+ *   paused           nothing running, time already banked, not completed
+ *   idle             nothing running, nothing banked (or already completed)
+ */
+export type PlanTimerState = "idle" | "running-inline" | "running-session" | "paused";
+
+export function planTimerState(item: { id: string; timerStartedAt: string | null; timerElapsedSeconds: number; completed: boolean }, activeSessionTaskId: string | null = null): PlanTimerState {
+  if (item.completed) return "idle";
+  if (activeSessionTaskId !== null && activeSessionTaskId === item.id) return "running-session";
+  if (item.timerStartedAt !== null) return "running-inline";
+  if (item.timerElapsedSeconds > 0) return "paused";
+  return "idle";
+}
+
+/** The goal (minutes) for a RESUMED Deep Session: what is left of the line's timer after the banked time, or null when there is no timer or nothing is left (the session then runs open-ended). */
+export function remainingGoalMinutes(durationMinutes: number | null, bankedSeconds: number): number | null {
+  if (durationMinutes === null) return null;
+  const left = Math.ceil((durationMinutes * 60 - Math.max(0, bankedSeconds)) / 60);
+  return left >= 1 ? left : null;
 }
 
 /** "1:05:09" / "12:03". */

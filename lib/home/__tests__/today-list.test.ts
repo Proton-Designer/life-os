@@ -6,7 +6,7 @@ import type { PlanItem } from "@/lib/plan/get-plan-items";
 const NOW = new Date("2026-10-07T15:00:00.000Z");
 
 function plan(over: Partial<PlanItem> & Pick<PlanItem, "id">): PlanItem {
-  return { title: over.id, area: null, startTime: null, durationMinutes: null, timerStartedAt: null, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-10-06T20:00:00Z", ...over };
+  return { title: over.id, area: null, startTime: null, durationMinutes: null, timerStartedAt: null, timerElapsedSeconds: 0, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-10-06T20:00:00Z", ...over };
 }
 function prio(over: Partial<PriorityItem> & Pick<PriorityItem, "id">): PriorityItem {
   return { domain: "school", title: over.id, dueAt: null, windowEndAt: null, date: "2026-10-07", urgencyBucket: "later_today", completed: false, actionType: "toggle_task", actionRefId: over.id.replace(/^task-/, ""), cost: null, ...over };
@@ -74,6 +74,12 @@ describe("buildTodayList", () => {
     const l = list(running, []);
     expect(ids(l)[l.focusIndex!]).toBe("c");
     expect(list([], []).focusIndex).toBeNull();
+    // a Deep Session working on a plan line makes THAT row "running" for the focus (Package E), even when it is not first
+    const withSession = buildTodayList({ planItems: [plan({ id: "a", mitRank: 1 }), plan({ id: "b" }), plan({ id: "c" })], priorityItems: [], weights: {}, now: NOW, deenMode: true, activeSessionTaskId: "c" });
+    expect(withSession.rows[withSession.focusIndex!]!.id).toBe("c");
+    // ...and a session on a line that is not in the list changes nothing
+    const unrelated = buildTodayList({ planItems: [plan({ id: "a", mitRank: 1 }), plan({ id: "b" })], priorityItems: [], weights: {}, now: NOW, deenMode: true, activeSessionTaskId: "zzz" });
+    expect(unrelated.rows[unrelated.focusIndex!]!.id).toBe("a");
     // a COMPLETED line with a stale timer is not "running"
     expect(list([plan({ id: "a" }), plan({ id: "z", completed: true, timerStartedAt: "2026-10-07T14:00:00.000Z" })], []).focusIndex).toBe(0);
   });

@@ -4,17 +4,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanItem } from "@/lib/plan/get-plan-items";
 import type { StartPlanItemResult } from "@/app/(app)/open/today/plan-item-actions";
 
-const SESSION = { id: "s1", startedAtIso: "2026-10-06T14:00:00.000Z", kind: "deep_work" as const, goalMinutes: 60, objectives: [] };
+const SESSION = { id: "s1", startedAtIso: "2026-10-06T14:00:00.000Z", kind: "deep_work" as const, goalMinutes: 60, objectives: [], planTaskId: null as string | null, bankedSeconds: 0 };
 const startMock = vi.fn(async (..._a: unknown[]): Promise<StartPlanItemResult> => ({ ok: true, kind: "session", sessionKind: "deep_work", session: SESSION }));
-const lockIn = { session: null as unknown, adoptSession: vi.fn(), expand: vi.fn() };
+const lockIn = { session: null as unknown, adoptSession: vi.fn(), expand: vi.fn(), pausedHints: {} as Record<string, number>, completedTaskIds: [] as string[], pauseSession: vi.fn(async () => {}), completePlanSession: vi.fn(async () => {}) };
 vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => lockIn }));
 vi.mock("@/app/(app)/business/actions", () => ({ refreshBusinessViews: async () => {} }));
 const completeMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, message: "Saved." }));
-const stopMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, message: "Stopped." }));
+const pauseMock = vi.fn(async (..._a: unknown[]): Promise<{ ok: boolean; kind?: string; elapsedSeconds?: number; message?: string }> => ({ ok: true, kind: "timer", elapsedSeconds: 600 }));
 vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({
   startPlanItem: (...a: unknown[]) => startMock(...a),
   setPlanItemCompleted: (...a: unknown[]) => completeMock(...a),
-  stopPlanItemTimer: (...a: unknown[]) => stopMock(...a),
+  pausePlanItem: (...a: unknown[]) => pauseMock(...a),
 }));
 vi.mock("@/components/home/use-home-refresh", () => ({ useHomeRefresh: () => () => {} }));
 
@@ -29,7 +29,7 @@ function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string }) {
 const NOW_ISO = "2026-10-06T14:00:00.000Z";
 
 function plan(over: Partial<PlanItem> & Pick<PlanItem, "id" | "title">): PlanItem {
-  return { area: null, startTime: null, durationMinutes: null, timerStartedAt: null, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-10-05T20:00:00Z", ...over };
+  return { area: null, startTime: null, durationMinutes: null, timerStartedAt: null, timerElapsedSeconds: 0, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-10-05T20:00:00Z", ...over };
 }
 
 describe("PlanList", () => {
@@ -90,16 +90,18 @@ describe("PlanList", () => {
     expect(startMock).toHaveBeenCalledWith("b");
   });
 
-  it("Start on an inline-timer task shows the timer, a stop and Done", async () => {
+  it("Start on an inline-timer task shows the timer with Pause and Mark Done; Pause freezes it as 'Paused' with Resume", async () => {
     startMock.mockResolvedValueOnce({ ok: true, kind: "timer", startedAt: new Date().toISOString() });
     const user = userEvent.setup();
     render(<PlanList nowIso={new Date().toISOString()} items={[plan({ id: "f", title: "Run", area: "body", durationMinutes: 30 })]} />);
     await user.click(screen.getByRole("button", { name: "Start Run" }));
     expect(await screen.findByTestId("plan-timer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Complete Run" })).toHaveTextContent("Done");
-    await user.click(screen.getByRole("button", { name: "Stop timer for Run" }));
-    expect(stopMock).toHaveBeenCalledWith("f");
-    expect(await screen.findByRole("button", { name: "Start Run" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Complete Run" })).toHaveTextContent("Mark Done");
+    expect(screen.queryByRole("button", { name: /Stop timer/ })).not.toBeInTheDocument(); // the old reset-to-zero Stop is gone
+    await user.click(screen.getByRole("button", { name: "Pause Run" }));
+    expect(pauseMock).toHaveBeenCalledWith("f");
+    expect(await screen.findByRole("button", { name: "Resume Run" })).toBeInTheDocument();
+    expect(screen.getByTestId("plan-timer")).toHaveTextContent("Paused · 20:00 left"); // 30 min timer, the server banked 600 s
   });
 
   it("a timer already running on load is shown (survives a reload)", () => {

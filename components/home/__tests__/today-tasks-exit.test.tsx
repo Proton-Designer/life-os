@@ -10,15 +10,15 @@ import type { PlanItem } from "@/lib/plan/get-plan-items";
 const completePlan = vi.fn(async (..._a: unknown[]): Promise<{ ok: boolean; message: string }> => ({ ok: true, message: "Saved." }));
 const toggle = vi.fn(async (..._a: unknown[]): Promise<void> => {});
 vi.mock("@/app/(app)/actions", () => ({ toggleItem: (...a: unknown[]) => toggle(...a), delayItem: vi.fn(async () => ({ ok: true })) }));
-vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: (...a: unknown[]) => completePlan(...a), stopPlanItemTimer: vi.fn() }));
-vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn() }) }));
+vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: (...a: unknown[]) => completePlan(...a), pausePlanItem: vi.fn() }));
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn(), pausedHints: {}, completedTaskIds: [], pauseSession: vi.fn(), completePlanSession: vi.fn() }) }));
 vi.mock("@/app/(app)/business/actions", () => ({ refreshBusinessViews: async () => {} }));
 vi.mock("@/components/home/use-home-refresh", () => ({ useHomeRefresh: () => () => {} }));
 
 import { TodayTasks } from "../today-tasks";
 
 const NOW_ISO = "2026-10-07T15:00:00.000Z";
-const plan = (id: string, title: string, over: Partial<PlanItem> = {}): PlanItem => ({ id, title, area: null, startTime: null, durationMinutes: null, timerStartedAt: null, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-10-06T20:00:00Z", ...over });
+const plan = (id: string, title: string, over: Partial<PlanItem> = {}): PlanItem => ({ id, title, area: null, startTime: null, durationMinutes: null, timerStartedAt: null, timerElapsedSeconds: 0, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-10-06T20:00:00Z", ...over });
 const task = (id: string, title: string, over: Partial<PriorityItem> = {}): PriorityItem => ({ id, domain: "school", title, dueAt: null, windowEndAt: null, date: "2026-10-07", urgencyBucket: "later_today", completed: false, actionType: "toggle_task", actionRefId: id.replace(/^task-/, ""), cost: null, ...over });
 const done = (id: string, title: string): CompletedItem => ({ id, domain: "school", title, actionType: "toggle_task", actionRefId: id.replace(/^task-/, ""), completedAtIso: "2026-10-07T15:00:30.000Z" });
 

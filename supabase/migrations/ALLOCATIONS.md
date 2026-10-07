@@ -226,3 +226,5 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 | `208` | Sonnet ENG 1 (CANVAS-GAP-06), allocated by Opus Lead, 2026-09-16 | canvas_connections: allow a token-less (ICS-only) row | allocated |
 | `260` | Plan details, 2026-10-06 | `tasks.plan_area`, `planned_duration_minutes`, `timer_started_at`, `plan_order`, `kill_list_item_id` (composite FK, scoped SET NULL) + partial index. Additive, nullable. **Apply BEFORE deploying the code that reads it** | allocated |
 | `261` | Today panel, 2026-10-07 | `user_settings.quran_reminder_start`, `quran_reminder_end` (nullable local HH:MM text + format CHECKs; NULL = default 22:00 / 01:00). Additive. **Apply BEFORE deploying the code that reads it** | allocated |
+| `262` | Pause / Resume, 2026-10-07 | `tasks.timer_elapsed_seconds` (integer not null default 0, CHECK >= 0): banked seconds worked on a plan line across paused stretches. Additive. **Apply BEFORE deploying the code that reads it** | allocated |
+
