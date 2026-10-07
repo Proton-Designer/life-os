@@ -74,9 +74,9 @@ grep -E "Test Files|Tests " /tmp/preflight-vitest.log | tail -2 | sed 's/^/  /'
 # Add an entry below ONLY for a skip a human has reviewed and decided is safe to
 # leave un-run by default (see the test's own comment for why). Every entry names
 # exactly ONE test. A skip appearing ANYWHERE else still fails this script.
-# NOTE: the repo root is passed as `pwd -P` (the real path). Vitest reports real-cased paths, and macOS is
-# case-insensitive, so a shell opened at .../desktop/tracking-app made `pwd` differ from the report's .../Desktop/...
-# and the allowlisted skip below was reported as unexpected.
+# NOTE: the audit below canonicalises the repo root with fs.realpathSync.native. Vitest reports real-cased paths, and
+# macOS is case-insensitive, so a shell opened at .../desktop/tracking-app made `pwd` (and even `pwd -P`) differ from the
+# report's .../Desktop/... and the allowlisted skip was reported as unexpected.
 ALLOWED_SKIPS=(
   "lib/ai/__tests__/dev-provider-injection.test.ts::R22 gate 1 — a document cannot act on this machine produces no file, shell or network effect"
 )
@@ -88,7 +88,8 @@ else
   node -e '
     const fs = require("fs");
     const reportPath = process.argv[1];
-    const root = process.argv[2].endsWith("/") ? process.argv[2] : process.argv[2] + "/";
+    const realRoot = fs.realpathSync.native(process.argv[2]);
+    const root = realRoot.endsWith("/") ? realRoot : realRoot + "/";
     const allowed = new Set(process.argv.slice(3));
     let report;
     try {
@@ -120,7 +121,7 @@ else
     }
     console.log("  all skip(s) are named on the allowlist (reviewed, deliberate)");
     process.exit(0);
-  ' "$VITEST_JSON" "$(pwd -P)" "${ALLOWED_SKIPS[@]}"
+  ' "$VITEST_JSON" "$(pwd)" "${ALLOWED_SKIPS[@]}"
   record $? "vitest-skips"
 fi
 
