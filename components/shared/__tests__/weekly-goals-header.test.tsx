@@ -296,6 +296,18 @@ describe("WeeklyGoalsHeader", () => {
       expect(onSaveBusiness).toHaveBeenCalledWith("Close 5 deals", [], undefined);
     });
 
+    it("phone: the whole slot is the edit button (an overlay, icon hidden below md); md and up keep the small icon button -- same accessible name and dialog", async () => {
+      render(<WeeklyGoalsHeader {...base} deen={{ headline: "Read 3 pages of Quran everyday", milestones: [] }} business={null} />);
+      const edit = screen.getByRole("button", { name: "Edit Deen goal" });
+      expect(edit.className).toContain("max-md:absolute");
+      expect(edit.className).toContain("max-md:inset-0");
+      expect(edit.querySelector("svg")!.getAttribute("class")).toContain("max-md:hidden");
+      expect(edit.className).toContain("size-6"); // md and up: the small icon button
+      expect(edit.parentElement!.className).toContain("relative"); // the overlay is positioned over its own slot only
+      await userEvent.setup().click(edit);
+      expect(screen.getByPlaceholderText("This week's headline goal")).toHaveValue("Read 3 pages of Quran everyday");
+    });
+
     it("the non-compact (Calendar) layout is unchanged: heading visible, nudge is still a text line, no dot", () => {
       render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />);
       expect(screen.getByText("This Week's Focus").className).not.toContain("sr-only");

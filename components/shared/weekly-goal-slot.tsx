@@ -37,7 +37,7 @@ export function WeeklyGoalSlot({
   domain: GoalDomain;
   goal: WeeklyGoalEntry;
   onSave: (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
-  /** Inside the page-header bar (Home): a slim column -- 24px chip, tiny label, one-line headline (2 lines on a phone), small edit control. */
+  /** Inside the page-header bar (Home): a slim column -- 24px chip, tiny label, one-line headline (2 lines on a phone), small edit control (on a phone the whole slot is the edit button, no icon). */
   compact?: boolean;
 }) {
   const accent = DOMAIN_ACCENT[domain];
@@ -57,7 +57,7 @@ export function WeeklyGoalSlot({
 
   const label = GOAL_DOMAIN_LABEL[domain];
   return (
-    <div className={cn("flex min-w-0 flex-1 items-center", compact ? "gap-2 px-2.5" : "gap-3 py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4")}>
+    <div className={cn("flex min-w-0 flex-1 items-center", compact ? "relative gap-2 px-2.5" : "gap-3 py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4")}>
       <IconChip icon={Icon} accent={accent} size={compact ? "sm" : "md"} className={compact ? "size-6 rounded-lg [&>svg]:size-3.5" : undefined} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span
@@ -81,9 +81,11 @@ export function WeeklyGoalSlot({
             variant="ghost"
             size="icon-sm"
             aria-label={`Edit ${GOAL_DOMAIN_LABEL[domain]} goal`}
-            className={cn("shrink-0 text-muted-foreground", compact && "size-6")}
+            // Phone (<md): the whole slot is the edit button -- an invisible overlay over chip + label + headline -- and the
+            // icon is dropped, so the headline gets the width the icon took. md and up: the small icon button, as before.
+            className={cn("shrink-0 text-muted-foreground", compact && "size-6 max-md:absolute max-md:inset-0 max-md:size-auto max-md:rounded-lg")}
           >
-            {compact && !isSet ? <Plus className="size-3.5" /> : <Pencil className="size-3.5" />}
+            {compact && !isSet ? <Plus className="size-3.5 max-md:hidden" /> : <Pencil className={cn("size-3.5", compact && "max-md:hidden")} />}
           </Button>
         </DialogTrigger>
         <DialogContent className="sm:max-w-md">
