@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
 import { updateProfile } from "@/app/(app)/settings/actions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -21,22 +21,34 @@ function isValidTimezone(tz: string): boolean {
   }
 }
 
-function listTimezones(current: string | null): string[] {
-  let zones: string[] = [];
-  try {
-    zones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
-  } catch {
-    zones = [];
+// The zone list is whatever THIS runtime's Intl knows, and Node (the server) and the browser do NOT agree (the server listed
+// America/Coyhaique where Chrome listed America/Creston). Rendering it on the server therefore made /settings fail to hydrate
+// on every load ("Hydration failed because the server rendered text didn't match the client"), and React discarded and
+// rebuilt the whole page on the client. So the server, and the hydration pass, render only the CURRENT zone; the full list
+// appears right after hydration (useSyncExternalStore: its server snapshot is used while hydrating, then the client one).
+const subscribeNever = () => () => {};
+const NO_ZONES: string[] = [];
+let browserZones: string[] | null = null;
+function getBrowserZones(): string[] {
+  if (browserZones === null) {
+    try {
+      browserZones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
+    } catch {
+      browserZones = [];
+    }
   }
-  if (current && !zones.includes(current)) zones = [current, ...zones];
-  return zones;
+  return browserZones;
+}
+function getServerZones(): string[] {
+  return NO_ZONES;
 }
 
 export function TimezoneSettings({ initial }: { initial: string | null }) {
   const [timezone, setTimezone] = useState<string | null>(initial);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const zones = listTimezones(timezone);
+  const known = useSyncExternalStore(subscribeNever, getBrowserZones, getServerZones);
+  const zones = timezone && !known.includes(timezone) ? [timezone, ...known] : known;
 
   function save(next: string) {
     if (!isValidTimezone(next)) {
