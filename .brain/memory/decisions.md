@@ -279,3 +279,10 @@ Home's header is one slim row from md (768px) up: `Home | focus card | actions` 
 - **Prayers** left the list for the strip: only the one current prayer, only inside its window, never all at once.
 - **Quran reminder window** lives on `user_settings` (migration 261), NULL = default 22:00 -> 01:00.
 
+## 2026-10-07 — Mark Done beside Start; Pause / Resume / Mark Done for timers and Deep Sessions (Package E)
+- **State is derived, banking is idempotent:** `tasks.timer_elapsed_seconds` (migration 262) holds the seconds worked in earlier stretches; idle / running / paused come from `timer_started_at`, that bank and the active session's plan task. Time is only ever banked from SERVER instants, and only by the call that actually closed the stretch (a guarded UPDATE on `timer_started_at`; `endWorkSessionCore` now returns whether it ended the session). Concurrent taps are tested against a stateful fake.
+- **One end path banks every session:** `endSessionAndBankCore` is used by End Session, the goal-reached and all-objectives auto-ends, Pause, Mark Done and the MCP end op, so a plan line's time is never lost whichever way its session ends. A session counts as "a plan line's" only with exactly ONE plan task among its objectives (no double counting); otherwise it ends normally and the overlay keeps End Session.
+- **Pause replaces Stop:** the Square stop reset the timer (lost time); Pause banks it. `stopPlanItemTimer` / `stopTaskTimerCore` are gone (nothing else called them, MCP included). Resume is `startPlanItem` (inline keeps the bank; a session gets a goal of the remaining minutes, open-ended when none is left).
+- **Dim the content, never the actions:** whole-row `opacity-70` turned primary Start buttons a flat grey that read as disabled; now only `data-dim` content dims.
+- **Pause from the overlay shows at once on Home** via the provider's `pausedHints` / `completedTaskIds` (the row would otherwise read idle for the 1-3 s before Home's refresh), and a line completed from the overlay leaves the list through the same overlay leave rule as every tick.
+

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ListChecks } from "lucide-react";
 import { delayItem, toggleItem } from "@/app/(app)/actions";
+import { useLockInOverlay } from "@/components/business/lock-in-overlay-context";
 import { FitnessRow } from "@/components/home/fitness-row";
 import { PlanRow } from "@/components/home/plan-row";
 import { metaFor, mostUrgentId, toTaskRowItem } from "@/components/home/priority-row";
@@ -15,6 +16,7 @@ import type { AreaWeightLookup } from "@/lib/home/build-candidates";
 import { buildTodayList, pickFocusId, todayRowId } from "@/lib/home/today-list";
 import type { CompletedItem, PriorityItem } from "@/lib/home/types";
 import type { PlanItem } from "@/lib/plan/get-plan-items";
+import { planTimerState } from "@/lib/plan/plan-behavior";
 import { cn } from "@/lib/utils";
 
 /**
@@ -70,11 +72,13 @@ export function TodayTasks({
     return () => clearInterval(interval);
   }, []);
 
+  const lockIn = useLockInOverlay();
   const plan = usePlanActions(planItems);
   const viewPlan = planItems.map(plan.view);
-  const built = buildTodayList({ planItems: viewPlan, priorityItems, weights, now, deenMode });
+  // A Deep Session working on a plan line makes that row "running" for the focus too (its task id comes from the Lock-In context).
+  const built = buildTodayList({ planItems: viewPlan, priorityItems, weights, now, deenMode, activeSessionTaskId: plan.activeSessionTaskId });
 
-  const anyRunning = built.rows.some((r) => r.source === "plan" && r.plan.timerStartedAt !== null);
+  const anyRunning = built.rows.some((r) => r.source === "plan" && planTimerState(r.plan, plan.activeSessionTaskId).startsWith("running"));
   useEffect(() => {
     const tick = () => setNowMs(Date.now());
     tick();
@@ -98,11 +102,22 @@ export function TodayTasks({
   const pendingPriority = pending.flatMap((i) => (i.kind === "priority" ? [i.priority] : []));
   const urgentId = mostUrgentId(pendingPriority);
   const focusId = pickFocusId(
-    pending.map((i) => ({ id: i.id, running: i.kind === "plan" && i.plan.timerStartedAt !== null })),
+    pending.map((i) => ({ id: i.id, running: i.kind === "plan" && planTimerState(i.plan, plan.activeSessionTaskId).startsWith("running") })),
     overlay.exitingIds,
   );
   const priorityByRowId = new Map(priorityItems.map((p) => [todayRowId(p), p]));
   const emphasisOf = (id: string): "focus" | "dim" => (id === focusId ? "focus" : "dim");
+
+  // Mark Done pressed on the Deep Session overlay: the line is completed there, so let its row leave the same way as a tick here.
+  const handledCompleted = useRef(new Set<string>());
+  const { leaveRow } = overlay;
+  useEffect(() => {
+    for (const id of lockIn.completedTaskIds) {
+      if (handledCompleted.current.has(id)) continue;
+      handledCompleted.current.add(id);
+      void leaveRow(id);
+    }
+  }, [lockIn.completedTaskIds, leaveRow]);
 
   function tickPlan(item: PlanItem) {
     setTicked((s) => new Set(s).add(item.id));
@@ -168,7 +183,9 @@ export function TodayTasks({
                 <PlanRow
                   key={item.id}
                   item={item.plan}
+                  state={planTimerState(item.plan, plan.activeSessionTaskId)}
                   nowMs={nowMs}
+                  sessionStartedAtMs={lockIn.session?.planTaskId === item.id ? new Date(lockIn.session.startedAtIso).getTime() : null}
                   busy={plan.busy === item.id}
                   message={plan.messages[item.id] ?? overlay.rowErrors[item.id]}
                   struck={ticked.has(item.id)}
@@ -176,7 +193,8 @@ export function TodayTasks({
                   emphasis={emphasisOf(item.id)}
                   onComplete={() => tickPlan(item.plan)}
                   onStart={() => void plan.start(item.plan)}
-                  onStop={() => void plan.stop(item.plan)}
+                  onPause={() => void plan.pause(item.plan)}
+                  onOpenSession={lockIn.expand}
                 />
               );
             }

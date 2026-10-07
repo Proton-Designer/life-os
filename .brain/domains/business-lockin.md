@@ -55,6 +55,9 @@ The owner's personal daily-focus system: a capped 3-item "Kill List," a weekly b
 
 Business page shows Kill List, weekly goal, and last/active session. Starting a Lock-In session can prompt for duration + objectives. Ending happens manually, on goal-reached (auto-end at exactly `startedAt+goalMinutes`), or when all objectives are checked (auto-end at real `now()` — the one case that legitimately uses wall-clock time). Objective completion for kill-list/task kinds is **never mirrored** — always derived live from the referenced row, so toggling from either the panel or the overlay can never desync.
 
+### Plan-linked sessions: Pause / Resume / Mark Done (Package E)
+A session Home's Today list starts from a plan line works on exactly ONE plan task (a `task` objective, or the line's paired Kill List objective). Its overlay shows **Pause** and **Mark Done** instead of End Session (`session.planTaskId`, from `getActiveWorkSessionDetail`, which also returns `bankedSeconds`); any other session keeps End Session exactly as before. Every way a session ends (End Session, both auto-ends, Pause, Mark Done, the MCP end op) goes through `endSessionAndBankCore` (`lib/night-plan/plan-work-core.ts`): `endWorkSessionCore` (now returning true only when THIS call ended it) and, only then, the DB-recorded `ended_at - started_at` is banked into `tasks.timer_elapsed_seconds` (migration 262), so a retry or double tap banks nothing twice. Resume is `startPlanItem` again: a new session whose goal is what is left of the line's timer (`remainingGoalMinutes`), or open-ended.
+
 ## Integration points
 
 | Direction | With | Via |

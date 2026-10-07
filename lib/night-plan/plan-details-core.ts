@@ -159,11 +159,6 @@ export async function startTaskTimerCore(supabase: SupabaseClient, userId: strin
   return { startedAt };
 }
 
-export async function stopTaskTimerCore(supabase: SupabaseClient, userId: string, id: string): Promise<void> {
-  const { error } = await supabase.from("tasks").update({ timer_started_at: null }).eq("id", id).eq("user_id", userId);
-  if (error) throw error;
-}
-
 /**
  * SETS a plan line's completion and keeps its paired Kill List row in step (the pair is one decision shown in two
  * places). Completing also stops a running inline timer.

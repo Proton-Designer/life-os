@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { startWorkSessionCore, type StartSessionObjectiveInput } from "@/lib/business/actions-core";
-import { setPlanLineCompletedCore, startTaskTimerCore, stopTaskTimerCore } from "@/lib/night-plan/plan-details-core";
+import { setPlanLineCompletedCore, startTaskTimerCore } from "@/lib/night-plan/plan-details-core";
 import { activeSessionForTaskCore, endSessionAndBankCore, pauseTaskTimerCore, settleTaskWorkCore } from "@/lib/night-plan/plan-work-core";
 import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import type { SessionObjective } from "@/lib/business/session-objectives";
@@ -139,16 +139,4 @@ export async function pausePlanItem(taskId: string): Promise<PausePlanItemResult
   } catch {
     return { ok: false, message: "Couldn't pause that. Try again." };
   }
-}
-
-/** Stops an inline timer without completing the task. (Replaced by pausePlanItem in the next commit.) */
-export async function stopPlanItemTimer(taskId: string): Promise<{ ok: boolean; message: string }> {
-  const { supabase, userId } = await requireUser();
-  try {
-    await stopTaskTimerCore(supabase, userId, taskId);
-  } catch {
-    return { ok: false, message: "Couldn't stop the timer. Try again." };
-  }
-  revalidatePath("/");
-  return { ok: true, message: "Stopped." };
 }

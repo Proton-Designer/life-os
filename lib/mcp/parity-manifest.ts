@@ -259,7 +259,6 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/close/plan-actions.ts#commitPlan": { pending: "P4-cov-PLAN-DETAILS", note: "the plan stage's one-call Finish/Save: removals + per-line domain/Kill List/Work Backlog/School task/start time/timer/order + ranks (same savePlanRanksCore as review.night_plan_task.save_ranks); no hard delete reachable by MCP (typed lines are deleted, so the MCP twin must un-plan instead)" },
   "app/(app)/open/today/plan-item-actions.ts#startPlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "starts a Deep Work/Study session (work_session.start twin exists) or an inline timer" },
   "app/(app)/open/today/plan-item-actions.ts#setPlanItemCompleted": { pending: "P4-cov-PLAN-DETAILS" },
-  "app/(app)/open/today/plan-item-actions.ts#stopPlanItemTimer": { pending: "P4-cov-PLAN-DETAILS" },
   "app/(app)/open/today/plan-item-actions.ts#pausePlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "Package E: Pause replaces Stop; banks tasks.timer_elapsed_seconds. Resume is startPlanItem" },
 
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────

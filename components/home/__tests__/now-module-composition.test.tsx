@@ -17,8 +17,8 @@ import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 // version of TodaysHomeNowSection before the A2 wiring landed; this file
 // now mirrors the FIXED composition and is the regression pin for it.
 vi.mock("@/app/(app)/actions", () => ({ toggleItem: vi.fn(async () => {}), delayItem: vi.fn(async () => ({ ok: true })) }));
-vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: vi.fn(), stopPlanItemTimer: vi.fn() }));
-vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn() }) }));
+vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: vi.fn(), pausePlanItem: vi.fn() }));
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn(), pausedHints: {}, completedTaskIds: [], pauseSession: vi.fn(), completePlanSession: vi.fn() }) }));
 vi.mock("@/app/(app)/business/actions", () => ({ refreshBusinessViews: async () => {} }));
 vi.mock("@/components/home/use-home-refresh", () => ({ useHomeRefresh: () => () => {} }));
 vi.mock("@/app/(app)/deen/actions", () => ({ setSunnah: vi.fn(async () => {}) }));
