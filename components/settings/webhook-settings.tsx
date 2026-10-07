@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createWebhook, deleteWebhook, testFireWebhook, type WebhookStatus } from "@/app/(app)/settings/webhook-actions";
+import { formatDateTime12 } from "@/lib/date-utils";
 
 /**
  * P4-22 -- outbound webhooks, vertical slice: add / test-fire / remove one,
@@ -127,7 +128,7 @@ export function WebhookSettings({ initialWebhooks }: { initialWebhooks: WebhookS
                   <span className="font-mono text-xs text-muted-foreground break-all">
                     ····{w.secretLast4} · {w.event}
                     {w.active ? "" : " · disabled after repeated failures"}
-                    {w.lastDeliveryAt ? ` · last delivery ${w.lastDeliveryStatus} ${new Date(w.lastDeliveryAt).toLocaleString()}` : " · never delivered yet"}
+                    {w.lastDeliveryAt ? ` · last delivery ${w.lastDeliveryStatus} ${formatDateTime12(new Date(w.lastDeliveryAt))}` : " · never delivered yet"}
                   </span>
                   {w.lastDeliveryStatus === "failed" && w.lastDeliveryError ? (
                     <span className="text-xs text-destructive break-all">{w.lastDeliveryError}</span>

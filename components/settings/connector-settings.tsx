@@ -19,6 +19,7 @@ import {
   type ScheduledActionItem,
 } from "@/app/(app)/settings/mcp-token-actions";
 import { DEFAULT_TOKEN_EXPIRY, TOKEN_EXPIRY_CHOICES, TOKEN_EXPIRY_LABELS, isTokenExpiryChoice, type TokenExpiryChoice } from "@/lib/mcp/token-expiry";
+import { formatDateTime12 } from "@/lib/date-utils";
 
 /** "expires Oct 3" / "expired" / "never expires" — an instant compared to now, shown in the viewer's locale like createdAt. */
 function expiryText(expiresAt: string | null): string {
@@ -491,7 +492,7 @@ export function ConnectorSettings({
                         <ul className="flex flex-col gap-1">
                           {audit.map((entry) => (
                             <li key={entry.id} className="font-mono text-xs text-muted-foreground break-all">
-                              {new Date(entry.createdAt).toLocaleString()} · {entry.operation} · {entry.outcome}
+                              {formatDateTime12(new Date(entry.createdAt))} · {entry.operation} · {entry.outcome}
                               {entry.resultSummary ? ` · ${entry.resultSummary}` : ""}
                             </li>
                           ))}
@@ -522,7 +523,7 @@ export function ConnectorSettings({
                     {a.tool_name === "notify" ? (a.title ?? "Reminder") : `${a.domain}.${a.entity}.${a.action}`}
                   </span>
                   <span className="font-mono text-xs text-muted-foreground break-all">
-                    {a.status} · next {new Date(a.next_run_at).toLocaleString()}
+                    {a.status} · next {formatDateTime12(new Date(a.next_run_at))}
                     {a.cron_expression ? ` · recurring` : " · one-off"}
                     {a.last_outcome ? ` · last ${a.last_outcome}` : ""}
                   </span>

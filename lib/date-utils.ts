@@ -322,3 +322,13 @@ export function ceilHHMMToStep(hhmm: string, step: number): string {
   const total = t.hour * 60 + t.minute;
   return addMinutesToHHMM("00:00", Math.ceil(total / step) * step);
 }
+
+/**
+ * An instant -> "10/7/2026, 1:06 PM": a numeric date plus a 12-hour clock, both in `timezone` (default: this runtime's own).
+ * For audit-log style timestamps. `toLocaleString()` follows the browser locale and shows "13:06" on a 24-hour locale.
+ */
+export function formatDateTime12(date: Date, timezone?: string): string {
+  const tz = timezone ?? new Intl.DateTimeFormat("en-US").resolvedOptions().timeZone;
+  const day = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "numeric", day: "numeric" }).format(date);
+  return `${day}, ${formatClock12(date, tz)}`;
+}

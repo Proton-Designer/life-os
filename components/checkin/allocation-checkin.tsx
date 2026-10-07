@@ -35,6 +35,7 @@ import {
 import { ACCENT_VAR, DOMAIN_ACCENT } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { cn } from "@/lib/utils";
+import { formatClock12 } from "@/lib/date-utils";
 
 const DOMAIN_LABEL: Record<DomainKey, string> = {
   deen: "Deen",
@@ -61,8 +62,7 @@ function formatMinutes(n: number): string {
 function formatWindowLabel(windowStart: string, windowEnd: string, timezone: string, now: Date): string {
   const start = new Date(windowStart);
   const end = new Date(windowEnd);
-  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" });
-  const range = `${fmt.format(start)} – ${fmt.format(end)}`;
+  const range = `${formatClock12(start, timezone)} – ${formatClock12(end, timezone)}`;
   // A closed window must read as something that already happened — this
   // component's primary path is retroactive (see PROJECT_STATUS), not live.
   return end <= now ? `${range}, earlier` : range;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMinutesToHHMM, ceilHHMMToStep, floorHHMMToStep, localClockHHMM } from "@/lib/date-utils";
+import { addMinutesToHHMM, ceilHHMMToStep, floorHHMMToStep, formatDateTime12, localClockHHMM } from "@/lib/date-utils";
 
 describe("localClockHHMM", () => {
   it("reads the wall clock of the given timezone, 24-hour", () => {
@@ -37,3 +37,16 @@ describe("floorHHMMToStep", () => {
     expect(floorHHMMToStep("nope", 5)).toBe("nope");
   });
 });
+
+describe("formatDateTime12", () => {
+  it("a numeric date plus a 12-hour clock in the given timezone, never 24-hour", () => {
+    const d = new Date("2026-10-07T18:06:00.000Z"); // 1:06 PM in Chicago (CDT)
+    expect(formatDateTime12(d, "America/Chicago")).toBe("10/7/2026, 1:06 PM");
+    expect(formatDateTime12(new Date("2026-10-07T03:30:00.000Z"), "America/Chicago")).toBe("10/6/2026, 10:30 PM");
+    expect(formatDateTime12(d, "America/Chicago")).not.toMatch(/13:06/);
+  });
+  it("defaults to the runtime's own timezone", () => {
+    expect(formatDateTime12(new Date("2026-10-07T18:06:00.000Z"))).toMatch(/^\d{1,2}\/\d{1,2}\/2026, \d{1,2}:06 (AM|PM)$/);
+  });
+});
+

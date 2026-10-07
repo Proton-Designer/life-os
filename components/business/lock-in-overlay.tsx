@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { Minimize2, Check, Pause } from "lucide-react";
 import { useLockInOverlay } from "./lock-in-overlay-context";
 import { formatClockSeconds } from "@/lib/plan/plan-behavior";
+import { formatClock12 } from "@/lib/date-utils";
 import { elapsedMinutesSince } from "@/lib/business/format-elapsed";
 import { goalProgress } from "@/lib/business/session-goal";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
@@ -127,11 +128,8 @@ export function LockInOverlay({
   if (!session || minimized) return null;
 
   const minutes = Math.max(0, elapsedMinutesSince(session.startedAtIso, now));
-  const clockLabel = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: timezone,
-  }).format(now);
+  // 12-hour whatever the browser locale (Intl.DateTimeFormat(undefined, ...) showed "13:06" on a 24-hour locale).
+  const clockLabel = formatClock12(now, timezone);
   const kindLabel = KIND_LABEL[session.kind];
 
   // The switch between "legacy" (render exactly as before 146) and

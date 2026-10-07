@@ -12,7 +12,7 @@ import { captureTask, captureDistraction, captureDump } from "@/lib/capture/acti
 import { defaultCaptureArea, type CaptureArea, type CaptureAreaConfig } from "@/lib/capture/areas";
 import type { DistractionDomain } from "@/lib/distractions/types";
 import { useDictation } from "@/components/shared/use-dictation";
-import { formatHourMinute12 } from "@/lib/date-utils";
+import { formatHourMinute12, localClockHHMM } from "@/lib/date-utils";
 
 type CaptureType = "task" | "distraction" | "worry" | "note";
 
@@ -65,12 +65,8 @@ function inferDefaultDomain(pathname: string, deenMode: boolean): DistractionDom
 // Minutes since local midnight, in the user's IANA zone — never derived from a raw
 // `Date`'s UTC parts, same discipline as `localDateString` itself (AGENTS.md).
 function nowMinutesIntoDayFor(timezone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(
-    new Date()
-  );
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
-  return hour * 60 + minute;
+  const [hour, minute] = localClockHHMM(new Date(), timezone).split(":").map(Number);
+  return (hour ?? 0) * 60 + (minute ?? 0);
 }
 
 /** "HH:MM" (24h, zero-padded) for `tasks.due_time` — the column addTaskCore writes.
