@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
 /**
  * RS-01 -- Morning routine and Sleep plan are opt-in features (profiles.enabled_features),
@@ -40,6 +40,7 @@ test("both off by default: Home shows neither module", async ({ page }) => {
   await setFeature(page, /Sleep plan/, false);
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
+  await settleRoute(page); // wait out Suspense streaming: a text locator must not see the hidden copy next to the real one
   await expect(page.getByText(ROUTINE, { exact: true })).toHaveCount(0);
   await expect(page.getByText(SLEEP)).toHaveCount(0);
 });
@@ -48,11 +49,13 @@ test("Morning routine on shows only the routine; off hides it again", async ({ p
   await setFeature(page, /Morning routine/, true);
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
+  await settleRoute(page); // wait out Suspense streaming: a text locator must not see the hidden copy next to the real one
   const evening = (await page.getByTestId("rhythm-wind-down").count()) + (await page.getByTestId("rhythm-done").count()) > 0;
   if (!evening) await expect(page.getByText(ROUTINE, { exact: true })).toBeVisible();
   await expect(page.getByText(SLEEP)).toHaveCount(0);
   await setFeature(page, /Morning routine/, false);
   await page.goto("/");
+  await settleRoute(page);
   await expect(page.getByText(ROUTINE, { exact: true })).toHaveCount(0);
 });
 
@@ -60,6 +63,7 @@ test("Sleep plan on shows only the sleep module and its reminder setting", async
   await setFeature(page, /Sleep plan/, true);
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
+  await settleRoute(page); // wait out Suspense streaming: a text locator must not see the hidden copy next to the real one
   // The set-up card shows only while no wind-down plan is saved (fixture resting state: none).
   if ((await page.getByTestId("wind-down-setup").count()) > 0) await expect(page.getByText(SLEEP)).toBeVisible();
   await expect(page.getByText(ROUTINE, { exact: true })).toHaveCount(0);

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, dismissCheckinToastIfPresent, fillReliably, openLockInSetup } from "./helpers";
 
 /**
  * The full-screen Lock-In session view (2026-08-26 night batch 3). Written
@@ -86,7 +86,7 @@ async function startSession(page: Page, kind: "Deep Work" | "Deep Study") {
   // can appear mid-test, unrelated to anything this spec does — see
   // dismissCheckinToastIfPresent's own header.
   await dismissCheckinToastIfPresent(page);
-  await page.getByRole("button", { name: `Lock In — ${kind}` }).click();
+  await openLockInSetup(page, kind);
 
   const setupDialog = page.getByRole("dialog", { name: /set a goal/i });
   await expect(setupDialog).toBeVisible();
@@ -241,8 +241,8 @@ test.describe("Lock-In full-screen session view", () => {
     await expect(page.getByRole("button", { name: "Expand" })).toBeVisible();
     await expect(page.getByRole("button", { name: /^End session$/i }).first()).toBeVisible();
 
-    // The session kept running — the idle Lock In buttons must NOT be back.
-    await expect(page.getByRole("button", { name: "Lock In — Deep Work" })).toHaveCount(0);
+    // The session kept running — the idle Lock In button must NOT be back.
+    await expect(page.getByRole("button", { name: "Lock In", exact: true })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Expand" }).click();
     await expect(overlay(page)).toBeVisible();
@@ -269,7 +269,7 @@ test.describe("Lock-In full-screen session view", () => {
     await expect(view).toBeHidden();
     // Home is back to offering a fresh session, which is the real proof the
     // row was closed rather than just hidden client-side.
-    await expect(page.getByRole("button", { name: "Lock In — Deep Work" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Lock In", exact: true })).toBeVisible();
     sessionMayBeRunning = false;
   });
 

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, fillReliably, openLockInSetup } from "./helpers";
 
 /**
  * #52: a distraction logged during an active Lock-In session links to that
@@ -11,7 +11,7 @@ import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
  * real minute.
  *
  * DOES NOT REUSE e2e/lock-in-overlay.spec.ts's own `startSession()` helper
- * — that helper only clicks "Lock In — Deep Work" and asserts the
+ * — that helper only presses Lock In, picks the kind and asserts the
  * full-screen view immediately, with no interaction with the setup dialog
  * at all. Read against the real component (components/business/
  * lock-in-overlay-context.tsx's `startSession` callback only ever opens
@@ -58,7 +58,7 @@ async function startDeepWorkSession(page: Page, objective: string) {
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
   sessionMayBeRunning = true;
-  await page.getByRole("button", { name: "Lock In — Deep Work" }).click();
+  await openLockInSetup(page, "Deep Work");
 
   const setup = page.getByRole("dialog", { name: /set a goal/i });
   await expect(setup).toBeVisible();
@@ -121,7 +121,7 @@ test("a distraction logged during a Lock-In session shows a live '1 this session
     // The real proof the row was closed, not merely hidden client-side —
     // Home offers a fresh session again (lock-in-overlay.spec.ts's own
     // "End Session" test uses the identical assertion).
-    await expect(page.getByRole("button", { name: "Lock In — Deep Work" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Lock In", exact: true })).toBeVisible();
     sessionMayBeRunning = false;
   } finally {
     await page.request

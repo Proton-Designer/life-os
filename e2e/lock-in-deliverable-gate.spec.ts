@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { dismissCheckinDialogIfPresent, fillReliably } from "./helpers";
+import { dismissCheckinDialogIfPresent, fillReliably, openLockInSetup } from "./helpers";
 
 /**
  * #37 (f042c80, ruled 2026-09-14): every Lock-In session — not a distinct
@@ -18,7 +18,7 @@ test("Lock In — Deep Work: Start stays disabled, with its reason visible, unti
   await page.goto("/");
   await dismissCheckinDialogIfPresent(page);
 
-  await page.getByRole("button", { name: "Lock In — Deep Work" }).click();
+  await openLockInSetup(page, "Deep Work");
   const dialog = page.getByRole("dialog", { name: /set a goal/i });
   await expect(dialog).toBeVisible();
 

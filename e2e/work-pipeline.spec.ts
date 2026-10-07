@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
-import { dismissCheckinDialogIfPresent } from "./helpers";
+import { dismissCheckinDialogIfPresent, settleRoute } from "./helpers";
 
 /**
  * The Work-screen restructure (batch 5): the old separate "Weekly Agenda"
@@ -29,6 +29,9 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 async function openWork(page: Page) {
   await page.goto("/work");
   await dismissCheckinDialogIfPresent(page);
+  // Wait out Suspense streaming first: for a moment the panel exists in React's hidden streaming container AND in place, and a
+  // strict-mode locator then fails at once with "resolved to 2 elements" (the user never sees two: one is hidden).
+  await settleRoute(page);
 }
 
 function pipelinePanel(page: Page): Locator {

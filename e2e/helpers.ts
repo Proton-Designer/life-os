@@ -66,6 +66,11 @@ export async function dismissCheckinDialogIfPresent(page: Page) {
  * a form, submitting one), not just once after `page.goto()`.
  */
 export async function dismissCheckinToastIfPresent(page: Page) {
+  // While a modal dialog is open (e.g. the Lock-In setup dialog) its overlay covers the page: the toast's Dismiss cannot be
+  // clicked (Playwright reports the overlay "intercepts pointer events" and waits out the whole test timeout), and a toast
+  // in the corner does not stand in the way of the dialog's own controls. Dismiss it BEFORE opening the dialog, as the
+  // callers do; once a modal is open there is nothing useful to click.
+  if ((await page.locator('[data-slot="dialog-overlay"]').count()) > 0) return;
   const dismissButton = page.getByRole("button", { name: "Dismiss" });
   if (await dismissButton.isVisible().catch(() => false)) {
     await dismissButton.click();
@@ -99,6 +104,12 @@ export async function dismissCheckinToastIfPresent(page: Page) {
  */
 export async function settleRoute(page: Page) {
   await expect(page.locator(".route-skeleton-fade-in")).toHaveCount(0);
+  // React streams a resolved Suspense boundary into a hidden container (`<div hidden id="S:n">`) and only then moves it
+  // into place. page.goto() resolves on the load event, which can fire BEFORE that move, so for a moment the same panel
+  // exists twice (a strict-mode locator then fails at once: "resolved to 2 elements") and a node acted on can be
+  // detached by the move ("Element is not attached to the DOM"). Seen as work-pipeline.spec.ts, optional-features and
+  // settings-connect-flow flakes. Once no streaming container is left, every boundary is in its final place.
+  await page.waitForFunction(() => document.querySelector('div[hidden][id^="S:"]') === null);
 }
 
 /**
@@ -192,4 +203,16 @@ export async function checkReliably(locator: Locator, attempts = 3) {
     await locator.page().waitForTimeout(150);
   }
   await expect(locator).toBeChecked();
+}
+
+/**
+ * Starts the Lock-In flow the way a person does since the Focus panel got ONE "Lock In" button (df38b81, 2026-10-06; it
+ * used to be two buttons, "Lock In — Deep Work" / "Lock In — Deep Study"): press Lock In, choose the kind in the "Start
+ * focusing" popup. Leaves the session setup dialog open. Call it on Home with no session running.
+ */
+export async function openLockInSetup(page: Page, kind: "Deep Work" | "Deep Study") {
+  await page.getByRole("button", { name: "Lock In", exact: true }).click();
+  const picker = page.getByTestId("day-bar-focus-picker");
+  await expect(picker).toBeVisible();
+  await picker.getByRole("button", { name: kind, exact: true }).click();
 }
