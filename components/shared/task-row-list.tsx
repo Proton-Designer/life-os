@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 import { getDomainIcon } from "@/lib/domain-icons";
 import { getDomainAccent } from "@/lib/accent-tokens";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { COMPLETE_ANIMATION_MS, sleep, useRowOverlay } from "@/components/shared/use-row-overlay";
+import { RowShell } from "@/components/shared/row-shell";
 
 /**
  * Shared one-tap task row + log-dialog list — the single component behind
@@ -78,22 +80,7 @@ export type TaskLogResult = {
   current?: number;
 };
 
-// Long enough to read as a deliberate confirmation, short enough not to feel
-// laggy — Lead review: "an instant vanish reads as a glitch, not a
-// confirmation."
-const COMPLETE_ANIMATION_MS = 550;
-// After that beat the row leaves Pending with a quick fade + height collapse. Keep in step with `duration-200` on the row.
-const EXIT_ANIMATION_MS = 200;
-// Safety valve for a local overlay entry that the server never "confirms" (e.g. it was changed back elsewhere): after
-// this long past the write settling, trust the server list again instead of hiding a pending task forever. Home's
-// debounced refresh lands in 1-3 s, well inside this.
-const LOCAL_OVERLAY_MAX_MS = 15_000;
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function Checkbox({ checked }: { checked: boolean }) {
+export function Checkbox({ checked }: { checked: boolean }) {
   return (
     <span
       aria-hidden
@@ -126,9 +113,10 @@ function RemoveButton({ title, onClick }: { title: string; onClick: (e: React.Mo
   );
 }
 
-function ActiveRow({
+export function ActiveRow({
   item,
   exiting = false,
+  emphasis,
   initialError = null,
   onComplete,
   onOpenLog,
@@ -139,6 +127,8 @@ function ActiveRow({
   item: TaskRowItem;
   /** The row is playing its exit (fade + collapse) after completing; it is already struck through. */
   exiting?: boolean;
+  /** Home's Today list: "focus" = the row to do now, "dim" = the other pending rows. Omit for a plain list. */
+  emphasis?: "focus" | "dim";
   /** An error from a save that failed after this row had already left and came back (a remount can't keep its own state). */
   initialError?: string | null;
   onComplete: (item: TaskRowItem) => Promise<void>;
@@ -242,12 +232,7 @@ function ActiveRow({
   }
 
   return (
-    <li
-      data-exiting={exiting ? "true" : undefined}
-      // Exit motion: a 1fr -> 0fr grid row collapses the height without measuring it, together with a fade (no layout jump).
-      className={cn("grid min-w-0 transition-[grid-template-rows,opacity] duration-200 ease-out", exiting ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]")}
-    >
-     <div className={cn("flex min-w-0 flex-col", exiting && "min-h-0 overflow-hidden")}>
+    <RowShell exiting={exiting} emphasis={emphasis}>
       {/* min-w-0: without it this flex row sizes to max-content, so the
           button below can't actually shrink and a long title + long meta
           push the whole row past its container instead of truncating
@@ -361,12 +346,11 @@ function ActiveRow({
       </div>
       {error && <p className="px-3 pb-1 text-xs text-destructive">{error}</p>}
       {expanded && item.expand && renderExpanded && renderExpanded(item, () => setExpanded(false))}
-     </div>
-    </li>
+    </RowShell>
   );
 }
 
-function CompletedRow({
+export function CompletedRow({
   item,
   onRemove,
 }: {
@@ -503,19 +487,6 @@ function LogDialog({
   );
 }
 
-/**
- * What this list has done locally and is waiting for the server list to confirm. PLAIN state, deliberately NOT
- * useOptimistic: that only holds while the surrounding transition is pending and then falls back to the `items` prop,
- * which is still the OLD server list until Home's debounced refresh lands 1-3 s later -- so a completed row used to
- * come back (un-struck) in Pending until then (Package F). An entry is dropped only when the server list confirms it,
- * a failed save, or the safety valve (LOCAL_OVERLAY_MAX_MS).
- */
-type LocalEntry = { token: number } & (
-  | { kind: "complete"; completedAtIso: string; phase: "leaving" | "gone" }
-  | { kind: "remove" }
-  | { kind: "progress"; current: number }
-);
-
 export function TaskRowList({
   items,
   onComplete,
@@ -561,162 +532,34 @@ export function TaskRowList({
   /** See TaskRowItem.expand. Omit entirely if no item in this list ever sets `expand` — the chevron itself only renders when both are present. */
   renderExpanded?: (item: TaskRowItem, collapse: () => void) => React.ReactNode;
 }) {
-  const [local, setLocal] = useState<Record<string, LocalEntry>>({});
-  // A failed save that happened after the row had already left: the row comes back as a fresh ActiveRow, which shows this.
-  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const overlay = useRowOverlay(items);
   const [logItem, setLogItem] = useState<TaskRowItem | null>(null);
   const [completedOpen, setCompletedOpen] = useState(false);
-  const seq = useRef(0);
-  const valves = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  useEffect(() => {
-    const timers = valves.current;
-    return () => timers.forEach((t) => clearTimeout(t));
-  }, []);
 
-  /** (Re)start the safety valve for `id`: drop its entry LOCAL_OVERLAY_MAX_MS from now unless a newer one replaced it. */
-  function armValve(id: string, token: number) {
-    const prior = valves.current.get(id);
-    if (prior) clearTimeout(prior);
-    valves.current.set(
-      id,
-      setTimeout(() => dropEntry(id, token), LOCAL_OVERLAY_MAX_MS)
-    );
-  }
-
-  function dropEntry(id: string, token: number) {
-    setLocal((prev) => {
-      if (prev[id]?.token !== token) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  }
-
-  function putEntry(id: string, entry: LocalEntry) {
-    setLocal((prev) => ({ ...prev, [id]: entry }));
-  }
-
-  function newToken() {
-    return ++seq.current;
-  }
-
-  // The server list takes over once it shows what the entry assumed (the same row, now confirmed). A server list that
-  // PREDATES the write (an unrelated refresh) shows the row still pending and changes nothing here, so it cannot
-  // resurrect it. A completing row keeps its entry until its exit has played.
-  useEffect(() => {
-    setLocal((prev) => {
-      let next: Record<string, LocalEntry> | null = null;
-      for (const [id, entry] of Object.entries(prev)) {
-        const current = items.find((i) => i.id === id);
-        const confirmed =
-          entry.kind === "complete"
-            ? entry.phase === "gone" && (!current || !!current.completedAtIso)
-            : entry.kind === "remove"
-              ? !current
-              : !current || !!current.completedAtIso || (current.log?.kind === "count" && current.log.current >= entry.current);
-        if (confirmed) {
-          next ??= { ...prev };
-          delete next[id];
-        }
-      }
-      return next ?? prev;
-    });
-  }, [items, local]);
-
-  const view = items.flatMap((item): TaskRowItem[] => {
-    const entry = local[item.id];
-    if (!entry) return [item];
-    if (entry.kind === "remove") return [];
-    if (entry.kind === "progress") return [item.log?.kind === "count" ? { ...item, log: { ...item.log, current: entry.current } } : item];
-    // complete: still a (struck, fading) Pending row while it leaves, then a Completed row.
-    if (entry.phase === "leaving") return [{ ...item, completedAtIso: null }];
-    return [{ ...item, completedAtIso: item.completedAtIso ?? entry.completedAtIso }];
-  });
-  const exitingIds = new Set(Object.entries(local).filter(([, e]) => e.kind === "complete" && e.phase === "leaving").map(([id]) => id));
-
+  const view = overlay.view;
   const pending = view.filter((i) => !i.completedAtIso);
   // Completion order, oldest first (Ayman: "in order of completion").
   const completed = view
     .filter((i) => i.completedAtIso)
     .sort((a, b) => (a.completedAtIso! < b.completedAtIso! ? -1 : 1));
 
-  /** Fade the row out (still struck), then file it under Completed. Resolves with the entry's token once it is gone. */
-  async function leaveRow(id: string): Promise<number> {
-    const token = newToken();
-    putEntry(id, { kind: "complete", completedAtIso: new Date().toISOString(), phase: "leaving", token });
-    await sleep(EXIT_ANIMATION_MS);
-    setLocal((prev) => {
-      const entry = prev[id];
-      return entry?.token === token && entry.kind === "complete" ? { ...prev, [id]: { ...entry, phase: "gone" } } : prev;
-    });
-    armValve(id, token);
-    return token;
-  }
-
-  async function handleComplete(item: TaskRowItem) {
-    setRowErrors((prev) => {
-      if (!(item.id in prev)) return prev;
-      const next = { ...prev };
-      delete next[item.id];
-      return next;
-    });
-    // Kick off the real call immediately (don't wait for the animation beat
-    // to even start it), but only move the row out of Pending once the beat
-    // has played. ActiveRow's own local `justCompleted` state already gives
-    // the instant checkbox+strikethrough response; this governs when the row
-    // actually leaves the active list.
-    const settled = onComplete(item);
-    // Track an early failure without leaving an unhandled rejection while the
-    // animation runs; the real outcome is awaited below and rethrown.
-    let failedEarly = false;
-    settled.catch(() => {
-      failedEarly = true;
-    });
-    await sleep(COMPLETE_ANIMATION_MS);
-    // A save that already failed by the time the beat ends: the row never left Pending; ActiveRow shows the error.
-    if (failedEarly) await settled;
-    // PERF-1: move the row once the beat has played, NOT when the server (and the Home re-render the action triggers,
-    // 1-3 s) has finished. That is safe because the move is local state that only the SERVER LIST (or a failure)
-    // takes back: it does not depend on this transition's lifetime, so the row can no longer reappear in Pending
-    // between the write resolving and the refresh landing (Package F).
-    const token = await leaveRow(item.id);
-    try {
-      await settled;
-    } catch (err) {
-      // The write failed after the row had left: put it back in Pending with its error. If its ActiveRow was already
-      // unmounted the remount shows `rowErrors`; if it was still mounted its own catch shows the same message.
-      dropEntry(item.id, token);
-      setRowErrors((prev) => ({ ...prev, [item.id]: "Couldn't save — try again" }));
-      throw err;
-    }
-    armValve(item.id, token); // restart the valve from "the write is confirmed"
-  }
+  // The row's own strike + beat + fade + "never comes back" rules live in useRowOverlay (shared with Home's Today list).
+  const handleComplete = (item: TaskRowItem) => overlay.completeRow(item.id, () => onComplete(item));
 
   async function handleLogSubmit(item: TaskRowItem, value: TaskLogValue) {
     if (!onLog) return;
     const result = await onLog(item, value);
     if (result.completed) {
       await sleep(COMPLETE_ANIMATION_MS);
-      await leaveRow(item.id);
+      await overlay.leaveRow(item.id);
     } else if (typeof result.current === "number") {
-      const token = newToken();
-      putEntry(item.id, { kind: "progress", current: result.current, token });
-      armValve(item.id, token);
+      overlay.progressRow(item.id, result.current);
     }
     setLogItem(null);
   }
 
-  async function removeAfter(item: TaskRowItem, action: ((item: TaskRowItem) => Promise<void>) | undefined) {
-    if (!action) return;
-    // The row leaves only once the action is confirmed, and stays gone until the server list agrees.
-    await action(item);
-    const token = newToken();
-    putEntry(item.id, { kind: "remove", token });
-    armValve(item.id, token);
-  }
-
-  const handleRemove = (item: TaskRowItem) => removeAfter(item, onRemove);
-  const handleDelay = (item: TaskRowItem) => removeAfter(item, onDelay);
+  const handleRemove = (item: TaskRowItem) => (onRemove ? overlay.removeRow(item.id, () => onRemove(item)) : Promise.resolve());
+  const handleDelay = (item: TaskRowItem) => (onDelay ? overlay.removeRow(item.id, () => onDelay(item)) : Promise.resolve());
 
   return (
     <div className="flex flex-col gap-1">
@@ -739,8 +582,8 @@ export function TaskRowList({
             <ActiveRow
               key={item.id}
               item={item}
-              exiting={exitingIds.has(item.id)}
-              initialError={rowErrors[item.id] ?? null}
+              exiting={overlay.exitingIds.has(item.id)}
+              initialError={overlay.rowErrors[item.id] ?? null}
               onComplete={handleComplete}
               onOpenLog={onLog ? setLogItem : undefined}
               onRemove={onRemove ? handleRemove : undefined}
