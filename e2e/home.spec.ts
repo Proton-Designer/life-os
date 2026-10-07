@@ -12,17 +12,18 @@ useDeenMode(test);
 // storageState) rather than logging in itself.
 
 test.describe("Home", () => {
-  test("renders the Now module, Focus module, the day's shape, This Week's Focus, and sector progress", async ({
+  test("renders the Today panel, Focus module, the day's shape, This Week's Focus, and sector progress", async ({
     page,
   }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    // "Now" module. Scoped to the panel whose title span is exactly "Now" —
-    // a plain hasText substring match would also catch other panel titles.
-    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
+    // "Today" panel (renamed from "Now"; the widget key is still `now`). Scoped to the panel whose title span is exactly
+    // "Today" and that holds the unified list: a plain hasText substring match would also catch other panel titles.
+    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Today", { exact: true }) }).filter({ has: page.getByTestId("today-tasks") });
+    // Every task for today in one list (plan rows say `Mark X done`, priority rows `Mark "X" done`), or the empty state.
     await expect(
-      nowPanel.getByRole("button", { name: /^Mark ".*" done$/ }).first().or(nowPanel.getByText(/all clear|Welcome/))
+      nowPanel.getByRole("button", { name: /^Mark .* done$/ }).first().or(nowPanel.getByText(/all clear|Welcome/))
     ).toBeVisible();
 
     // Focus module — idle (both Deep Work and Deep Study rows, each with its
@@ -105,7 +106,7 @@ test.describe("Home", () => {
     await expect(page.getByText("Signal:Noise this week")).not.toBeVisible();
   });
 
-  test("toggling a visible item in the Now module updates its state without a full page reload", async ({
+  test("toggling a visible item in the Today panel updates its state without a full page reload", async ({
     page,
   }) => {
     // Adhkar (this test's original target — a real flip, not a one-way
@@ -140,7 +141,7 @@ test.describe("Home", () => {
     await dismissCheckinDialogIfPresent(page);
 
     // Kill-list is rolled into a single Home item (per get-priority-items.ts).
-    // The Now module is the only place on Home it can appear now that the
+    // The Today panel is the only place on Home it can appear now that the
     // priority-list panel is gone, so scoping to it isn't strictly required
     // for uniqueness anymore — kept anyway so this test still targets the
     // right module if that ever changes back.
@@ -149,13 +150,15 @@ test.describe("Home", () => {
     // all there) and read 0 — a silent false skip of a run that actually
     // had a Business item to toggle.
     await settleRoute(page);
-    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
+    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Today", { exact: true }) }).filter({ has: page.getByTestId("today-tasks") });
     const businessRow = nowPanel.locator("li").filter({ hasText: "Business" });
-    const toggleButton = businessRow.getByRole("button", { name: /^Mark ".*" done$/ });
+    const firstButton = businessRow.getByRole("button", { name: /^Mark ".*" done$/ }).first();
 
-    if ((await toggleButton.count()) === 0) {
+    if ((await firstButton.count()) === 0) {
       test.skip(true, "No Business item currently visible on Home in this account — nothing to toggle in this run");
     }
+    // Today lists EVERY open Kill List line, so pin the button by its own name: the "first" one changes once it is ticked.
+    const toggleButton = nowPanel.getByRole("button", { name: (await firstButton.getAttribute("aria-label"))!, exact: true });
 
     const urlBefore = page.url();
 

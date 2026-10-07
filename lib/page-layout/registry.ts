@@ -55,7 +55,7 @@ const HOME: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "session_entry", label: "Start a session", description: "One tap into today's spaced-review session, when cards or questions are due." },
   { widgetKey: "weekly_goals_header", label: "This week's goals", description: "Your one-line weekly goals, editable in place." },
   { widgetKey: "domain_status", label: "Sector progress", description: "A compact status row across every domain you've turned on." },
-  { widgetKey: "now", label: "Now", description: "The Night Plan's starred and crowned tasks for today, in priority order." },
+  { widgetKey: "now", label: "Today", description: "Every task for today in one list, the one to do right now highlighted; the current prayer and the Quran reminder sit above it." },
   { widgetKey: "habit_checkoffs", label: "Habits today", description: "Tick off today's identity habits without opening the habits board." },
   { widgetKey: "focus", label: "Focus", description: "Today's Deep Work / Deep Study minutes and session count, plus recent distractions." },
   { widgetKey: "day_shape", label: "The day's shape", description: "A timeline of today's classes, work and focus sessions across your day." },

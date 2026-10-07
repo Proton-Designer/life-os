@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 import { dismissCheckinDialogIfPresent } from "./helpers";
 
 // Exercises the shared TaskRowList component (2026-08-25 tap-to-complete
-// redesign) end to end: instant tap-anywhere completion on Home's Now
+// redesign) end to end: instant tap-anywhere completion on Home's Today
 // module, the collapsed-by-default Completed section, and persistence
 // across a reload.
 //
@@ -18,15 +18,15 @@ import { dismissCheckinDialogIfPresent } from "./helpers";
 // Cleans up the task it creates via the test-only clear-task route
 // (app/api/test/clear-task), not through the UI: the current redesign scopes
 // both TaskListModule and TaskEditDialog on /school to open (not completed)
-// tasks, and neither Home's Now module nor School's KPI dialogs wire
+// tasks, and neither Home's Today panel nor School's KPI dialogs wire
 // TaskRowList's onRemove — so once this spec completes the task (which it
 // must, to test persistence-across-reload), there is no in-app path left to
 // remove or revert it. Same "no UI affordance to undo this" shape as
 // clear-prayer/clear-sunnah/clear-distraction-trigger.
 
-// Home's Now module shows only the MOST URGENT pending item per domain, so a "Playwright tap-to-complete"
-// task left behind by an earlier failed run (this spec cannot delete through the UI) stays "next" and hides
-// this run's new task (E2E-01: "row not found" on a fresh SEED). Clear any residue before AND after each run.
+// Home's Today panel lists every task for today (it used to show only the MOST URGENT pending item per domain), but a
+// "Playwright tap-to-complete" task left behind by an earlier failed run (this spec cannot delete through the UI) is still
+// an extra row that muddies the Completed section (E2E-01). Clear any residue before AND after each run.
 const TITLE_PREFIX = "Playwright tap-to-complete ";
 
 async function clearResidue(request: APIRequestContext, baseURL: string | undefined) {
@@ -41,7 +41,7 @@ test.beforeEach(async ({ request, baseURL }) => clearResidue(request, baseURL));
 test.afterEach(async ({ request, baseURL }) => clearResidue(request, baseURL));
 
 test.describe("TaskRowList — tap to complete", () => {
-  test("completing a task on Home's Now module is instant, moves it into the collapsed Completed section, and persists across reload", async ({
+  test("completing a task on Home's Today panel is instant, moves it into the collapsed Completed section, and persists across reload", async ({
     page,
     baseURL,
   }) => {
@@ -67,11 +67,11 @@ test.describe("TaskRowList — tap to complete", () => {
     await describeDialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(taskPanel.getByText(taskTitle)).toBeVisible();
 
-    // --- Complete it via Home's Now module, whole-row tap ---
+    // --- Complete it via Home's Today panel, whole-row tap ---
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
+    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Today", { exact: true }) }).filter({ has: page.getByTestId("today-tasks") });
     const row = nowPanel.getByRole("button", { name: `Mark "${taskTitle}" done` });
     await expect(row).toBeVisible();
 
@@ -102,7 +102,7 @@ test.describe("TaskRowList — tap to complete", () => {
     await expect(async () => {
       await page.reload();
       await dismissCheckinDialogIfPresent(page);
-      const nowPanelAfterReload = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
+      const nowPanelAfterReload = page.locator("[data-panel]").filter({ has: page.getByText("Today", { exact: true }) }).filter({ has: page.getByTestId("today-tasks") });
       await nowPanelAfterReload.getByRole("button", { name: "Completed" }).click({ timeout: 4_000 });
       await expect(nowPanelAfterReload.getByText(taskTitle)).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 25_000 });

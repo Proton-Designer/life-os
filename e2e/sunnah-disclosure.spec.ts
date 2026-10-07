@@ -7,7 +7,7 @@ import { useDeenMode } from "./deen-mode-helpers";
 useDeenMode(test);
 
 // Covers A3, the 2026-08-25/26 sunnah disclosure work: the 1.5s
-// auto-collapse (both on Deen's own PrayerRow and Home's Now-module prayer
+// auto-collapse (both on Deen's own PrayerRow and Home's "Right now" strip prayer
 // row, which share components/deen/sunnah-disclosure.tsx), and — the part
 // unit tests structurally cannot answer — that a sunnah tap really does
 // leave the `prayers` table alone, read from the actual database via the
@@ -110,26 +110,25 @@ test.describe("Sunnah disclosure — auto-collapse and the fard-prayer isolation
     expect((await sunnahRes.json()).completed).toBe(true);
   });
 
-  test("Home: the Now module's prayer row exposes the sunnah disclosure, and completing the prayer still works independently", async ({
+  test("Home: the Right now strip's prayer exposes the sunnah disclosure, and praying it still works independently", async ({
     page,
     baseURL,
   }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
-    const nowPanel = page.locator("[data-panel]").filter({ has: page.getByText("Now", { exact: true }) });
-    const chevron = nowPanel.getByRole("button", { name: /^Sunnah for /i });
-
-    // Home shows at most one prayer at a time (selectNextActionPerDomain) —
-    // if nothing is currently actionable there's no row to test against,
+    // The "Right now" strip (Deen Mode only) shows at most ONE prayer: the one whose own window contains now —
+    // if none is open (or Deen Mode is off) there's no row to test against,
     // and this spec skips rather than forcing state to manufacture one.
     // settleRoute FIRST: .count() does not auto-wait, so right after goto
     // it could read Home's loading.tsx skeleton (no chevron there at all)
     // and skip a run that actually had a real row to test — a silent
     // false skip, not a red failure, which is worse.
     await settleRoute(page);
+    const strip = page.getByTestId("right-now-strip");
+    const chevron = strip.getByRole("button", { name: /^Sunnah for /i });
     if ((await chevron.count()) === 0) {
-      test.skip(true, "No pending prayer currently showing in Home's Now module");
+      test.skip(true, "No prayer window currently open in Home's Right now strip");
     }
 
     const ariaLabel = await chevron.getAttribute("aria-label");
@@ -142,7 +141,7 @@ test.describe("Sunnah disclosure — auto-collapse and the fard-prayer isolation
     test.skip(!secret, "E2E_TEST_SECRET not set — see .env.local");
     const before = await readPrayerStatus(page, baseURL, secret!, prayerName);
 
-    const row = nowPanel.getByRole("button", { name: new RegExp(`^Mark "${label}" done$`) });
+    const row = strip.getByTestId("right-now-prayed");
     await expect(row).toBeVisible();
     await expect(chevron).toHaveAttribute("aria-expanded", "false");
 

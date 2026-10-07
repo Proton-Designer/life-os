@@ -10,12 +10,12 @@ test.use({ storageState: { cookies: [], origins: [] } });
 test("sign in with the seeded user redirects to Home", async ({ page }) => {
   await login(page);
   await dismissCheckinDialogIfPresent(page);
-  // The "Now" module renders either a real item (title + `Mark "…" done`)
+  // The "Today" panel renders either a real item (title + `Mark "…" done`)
   // or the all-clear/fresh-install empty state — either is proof Home
   // actually rendered. Updated for the 2026-08-17 restructure: NextUpHero's
   // plain "Mark done" button is gone from Home (still live on /deen).
   await expect(
-    page.getByRole("button", { name: /^Mark ".*" done$/ }).first().or(page.getByText(/all clear|Welcome/))
+    page.getByRole("button", { name: /^Mark .* done$/ }).first().or(page.getByText(/all clear|Welcome/))
   ).toBeVisible();
 });
 

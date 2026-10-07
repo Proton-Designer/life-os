@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  *   - a domain (their own, from Settings), so the day can be read back by domain;
  *   - Business: "Add to Kill List" (preselected the moment Business is chosen; untick it to keep the line a plain
  *     Business task);
- *   - Work: it is added to the Backlog; School: it is added to today's School tasks (and shows in Now);
+ *   - Work: it is added to the Backlog; School: it is added to today's School tasks (and shows in Today);
  *   - a start time and/or a timer, on ANY line, with or without a domain.
  * The editor is controlled: the plan stage owns the draft and writes it on Finish.
  */
@@ -86,7 +86,7 @@ export function PlanLineDetails({
           ) : null}
           {draft.area === "business" && !killListAvailable ? <p className="text-xs text-muted-foreground">Kept as a Business task. Your account has no Kill List to add it to.</p> : null}
           {draft.area === "work" ? <p className="text-xs text-muted-foreground">Added to your Work Backlog.</p> : null}
-          {draft.area === "school" ? <p className="text-xs text-muted-foreground">Added to your School tasks for the day, and shown in Now.</p> : null}
+          {draft.area === "school" ? <p className="text-xs text-muted-foreground">Added to your School tasks for the day, and shown in Today.</p> : null}
         </div>
       ) : null}
 

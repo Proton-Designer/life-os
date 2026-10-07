@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { PriorityItem } from "@/lib/home/types";
-import { NextActions } from "../next-actions";
+import { TodayTasks } from "../today-tasks";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate, type AreaWeightLookup, type SelfMasterySummary } from "@/lib/home/build-candidates";
 import { rankCandidates } from "@/lib/home/arbiter";
@@ -16,7 +16,11 @@ import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 // text at position 9, School's at 48) against the unconditional-position
 // version of TodaysHomeNowSection before the A2 wiring landed; this file
 // now mirrors the FIXED composition and is the regression pin for it.
-vi.mock("@/app/(app)/actions", () => ({ toggleItem: vi.fn(async () => {}) }));
+vi.mock("@/app/(app)/actions", () => ({ toggleItem: vi.fn(async () => {}), delayItem: vi.fn(async () => ({ ok: true })) }));
+vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: vi.fn(), stopPlanItemTimer: vi.fn() }));
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn() }) }));
+vi.mock("@/app/(app)/business/actions", () => ({ refreshBusinessViews: async () => {} }));
+vi.mock("@/components/home/use-home-refresh", () => ({ useHomeRefresh: () => () => {} }));
 vi.mock("@/app/(app)/deen/actions", () => ({ setSunnah: vi.fn(async () => {}) }));
 vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
   loadTodaysSession: vi.fn(async () => new Promise(() => {})),
@@ -78,7 +82,7 @@ function TodaysHomeNowSection({
     !!selfMasteryCandidate && (!topOtherCandidate || rankCandidates([selfMasteryCandidate, topOtherCandidate], now)[0]?.area === "self_mastery");
 
   const sessionEntryCard = <SessionEntryCard dueSummary={dueSummary} />;
-  const nextActions = <NextActions items={items} weights={weights} completedToday={[]} isFreshInstall={false} nowIso={now.toISOString()} />;
+  const nextActions = <TodayTasks planItems={[]} priorityItems={items} weights={weights} completedToday={[]} isFreshInstall={false} nowIso={now.toISOString()} deenMode={false} />;
 
   return selfMasteryRanksFirst ? (
     <>
@@ -93,7 +97,7 @@ function TodaysHomeNowSection({
   );
 }
 
-describe("Today's Home 'Now' section, as actually composed (app/(app)/page.tsx) -- the Boss's first red, now the regression pin for the fix", () => {
+describe("Home's Today section, as actually composed (app/(app)/page.tsx) -- the Boss's first red, now the regression pin for the fix", () => {
   it("a School deadline in 5 minutes outranks a Self-Mastery deck with nothing due yet -- School renders first", () => {
     const now = new Date("2026-09-02T12:00:00.000Z");
     const urgentSchoolTask = priorityItem({

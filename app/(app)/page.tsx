@@ -10,9 +10,11 @@ import { getDayShape } from "@/lib/home/get-day-shape";
 import { computeDayRibbon } from "@/lib/home/day-ribbon";
 import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
 import { getAllTriggers, getTodayDistractionCount } from "@/lib/distractions/queries";
-import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString } from "@/lib/date-utils";
-import { NextActions } from "@/components/home/next-actions";
-import { PlanList } from "@/components/home/plan-list";
+import { localDateString, localWeekday, getTimezoneOffsetMinutes, getWeekStartDate, addDaysToDateString, localClockHHMM } from "@/lib/date-utils";
+import { TodayTasks } from "@/components/home/today-tasks";
+import { RightNowStrip } from "@/components/home/right-now-strip";
+import { getQuranReminderWindowCore } from "@/lib/quran/reminder-core";
+import { quranReminderState } from "@/lib/home/quran-reminder";
 import { getTodaysPlanItems } from "@/lib/plan/get-plan-items";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyGoalsHeader } from "@/components/shared/weekly-goals-header";
@@ -34,7 +36,6 @@ import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
 import { MorningBriefPanel, MorningBriefProvider, MorningBriefToggle } from "@/components/home/morning-brief";
 import { isMorningBriefCollapsed } from "@/lib/morning-brief/collapsed-core";
-import { QuranNowRow } from "@/components/home/quran-now-row";
 import { getQuranOverviewCore, type QuranOverview } from "@/lib/quran/plan-core";
 import { homeNowItem, sectorRow as quranSectorRow } from "@/lib/quran/surfaces";
 import { Stream } from "@/components/home/stream";
@@ -109,6 +110,18 @@ export default async function HomePage() {
   const snapshotsPromise = getDomainSnapshots(userId, now, undefined, wantedSectors);
   // QURAN-02: the khatm plan's one read, streamed (Deen ON only; a failed read just hides the Quran rows).
   const quranPromise: Promise<QuranOverview | null> = deenMode ? getQuranOverviewCore(supabase, userId, dateStr).catch(() => null) : Promise.resolve(null);
+  // The "Right now" strip's Quran row: today's portion only inside the person's Quran reminder window (Settings; default 10 PM -> 1 AM),
+  // and in the post-midnight part of that window the PREVIOUS local date's portion (read from the previous date, never a raw Date).
+  const quranStripPromise = deenMode
+    ? (async () => {
+        const reminderWindow = await getQuranReminderWindowCore(supabase, userId).catch(() => ({ start: null, end: null }));
+        const state = quranReminderState(localClockHHMM(now, timezone), reminderWindow.start, reminderWindow.end);
+        if (!state) return null;
+        const overview = await getQuranOverviewCore(supabase, userId, state.forDate === "yesterday" ? addDaysToDateString(dateStr, -1) : dateStr).catch(() => null);
+        const item = homeNowItem(overview);
+        return item ? { item, forDate: state.forDate, start: reminderWindow.start, end: reminderWindow.end } : null;
+      })()
+    : Promise.resolve(null);
   const sectorPromise = Promise.all([snapshotsPromise, quranPromise]);
   // L11/R7 Tier 1 declarative widgets -- degrades to [] until the widgets migration lands; now/timezone
   // threaded through for the sparkline kind's local-day bucketing (R12/AGENTS.md).
@@ -129,7 +142,7 @@ export default async function HomePage() {
   const dayCardPromise = Promise.all([rhythmPromise, focusTargetPromise]);
   // The Launch card also rehearses the plan for yesterday's hardest trigger (null when none / nothing planned).
   const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise, getRehearsalPlan(supabase, userId, dateStr, deenMode).catch(() => null)]) : null;
-  for (const p of [snapshotsPromise, quranPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, faithPracticesPromise, habitCheckoffsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
+  for (const p of [snapshotsPromise, quranPromise, quranStripPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, faithPracticesPromise, habitCheckoffsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
   const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
@@ -175,7 +188,8 @@ export default async function HomePage() {
     layout,
     planItems,
   ] = await Promise.all([
-      getPriorityItems(userId, now),
+      // allKillListItems: the Today list shows EVERY open Kill List line for today (the Now-era default is one, the next).
+      getPriorityItems(userId, now, undefined, { allKillListItems: true }),
       getCompletedItemsToday(userId, now),
       getHomeExtras(userId, now, profile),
       getDayShape(userId, now),
@@ -409,23 +423,20 @@ export default async function HomePage() {
           widgets now (registry), so each is its own full-width LayoutSlot
           rather than a fixed side-by-side pair. */}
       <LayoutSlot layout={layoutMap} widgetKey="now">
-        <Panel title="Now">
+        <Panel title="Today">
           {deenMode ? (
-            <Stream promise={quranPromise} label="Quran" fallback={null}>
-              {(quran) => {
-                const item = homeNowItem(quran);
-                return item ? <QuranNowRow item={item} /> : null;
-              }}
+            <Stream promise={quranStripPromise} label="Right now" fallback={null}>
+              {(quran) => <RightNowStrip prayers={items.filter((i) => i.actionType === "toggle_prayer")} quran={quran} nowIso={now.toISOString()} timezone={timezone} date={dateStr} />}
             </Stream>
           ) : null}
-          <PlanList items={planItems} nowIso={now.toISOString()} />
-          <NextActions
-            items={items}
+          <TodayTasks
+            planItems={planItems}
+            priorityItems={items}
             weights={weights}
             completedToday={completedToday}
             isFreshInstall={isFreshInstall}
             nowIso={now.toISOString()}
-            hasPendingPlan={planItems.some((p) => !p.completed)}
+            deenMode={deenMode}
           />
         </Panel>
       </LayoutSlot>
