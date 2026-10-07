@@ -23,3 +23,11 @@ export function quranReminderState(nowLocalHHMM: string, startHHMM: string | nul
   if (nowLocalHHMM < end) return { forDate: "yesterday" };
   return null;
 }
+
+/** The Settings write rule: both times valid "HH:MM", and not equal (an empty window would never show the Quran row). Returns a message or null. */
+export function validateQuranReminderWindow(start: unknown, end: unknown): string | null {
+  if (typeof start !== "string" || !HHMM.test(start)) return "Enter a valid start time.";
+  if (typeof end !== "string" || !HHMM.test(end)) return "Enter a valid end time.";
+  if (start === end) return "The start and end times can't be the same. Pick a window with some hours in it.";
+  return null;
+}

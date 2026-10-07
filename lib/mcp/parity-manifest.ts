@@ -420,6 +420,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/focus-target-actions.ts#saveFocusTargets": { pending: "P4-26", note: "HOME-01a daily/weekend focus target (user_settings.daily_focus_target_minutes/weekend_focus_target_minutes); MCP settings write widening" },
   "app/(app)/morning-brief-actions.ts#setMorningBriefCollapsed": { pending: "P4-26", note: "HOME-01a minimize/expand the morning brief for one brief_date (user_settings.morning_brief_collapsed_on); a UI-state preference, MCP twin optional" },
   "app/(app)/settings/wind-down-actions.ts#getWindDownSettings": { read_only: true },
+  "app/(app)/settings/quran-reminder-actions.ts#saveQuranReminderWindow": { pending: "P4-26", note: "Package D Quran reminder window (user_settings.quran_reminder_start/end); MCP settings write widening" },
   "app/(app)/settings/wind-down-actions.ts#saveWindDownPlan": { pending: "P4-26", note: "IA-P4a set-once wind-down plan (user_settings.wake_time/sleep_need_minutes/wind_down_minutes); MCP settings write widening" },
   "app/(app)/settings/weekday-baseline-actions.ts#saveWeekdayBaselines": { mcp: "settings.user_setting.set_weekday_baselines" },
   "app/(app)/settings/weekday-baseline-actions.ts#clearWeekdayBaselines": { mcp: "settings.user_setting.clear_weekday_baselines" },

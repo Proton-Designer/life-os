@@ -12,6 +12,7 @@ import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
 import { OptInFeaturesSettings } from "@/components/settings/opt-in-features-settings";
 import { DeenModeSettings } from "@/components/settings/deen-mode-settings";
+import { QuranReminderSettings } from "@/components/settings/quran-reminder-settings";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { resolveThemePreset } from "@/lib/theme-presets";
 import { sanitizeHiddenFeatures } from "@/lib/features";
@@ -37,7 +38,7 @@ export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: settingsRow } = await supabase
     .from("user_settings")
-    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes")
+    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes, quran_reminder_start, quran_reminder_end")
     .eq("user_id", user.id)
     .maybeSingle();
   const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
@@ -99,6 +100,11 @@ export default async function SettingsPage() {
                     <div className="mb-4 border-b border-border/40 pb-4">
                       <DeenModeSettings initialOn={deenMode} />
                     </div>
+                    {deenMode && (
+                      <div className="mb-4 border-b border-border/40 pb-4">
+                        <QuranReminderSettings initialStart={settingsRow?.quran_reminder_start ?? null} initialEnd={settingsRow?.quran_reminder_end ?? null} />
+                      </div>
+                    )}
                     <FeatureVisibilitySettings initialHidden={hiddenFeatures} />
                   </Panel>
                   <Panel id="optional-features" className="scroll-mt-24" title="Optional features">

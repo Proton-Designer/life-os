@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_QURAN_REMINDER_END, DEFAULT_QURAN_REMINDER_START, quranReminderState } from "../quran-reminder";
+import { DEFAULT_QURAN_REMINDER_END, DEFAULT_QURAN_REMINDER_START, quranReminderState, validateQuranReminderWindow } from "../quran-reminder";
 
 describe("quranReminderState (default window 22:00 -> 01:00, crossing midnight)", () => {
   const s = (now: string) => quranReminderState(now, null, null);
@@ -40,5 +40,18 @@ describe("quranReminderState (custom windows)", () => {
     expect(quranReminderState("22:30", "22:00", "22:00")).toBeNull();
     expect(quranReminderState("25:00", null, null)).toBeNull();
     expect(quranReminderState("22:30", "bad", null)).toBeNull();
+  });
+});
+
+describe("validateQuranReminderWindow", () => {
+  it("accepts any two different valid times, including a window that crosses midnight", () => {
+    expect(validateQuranReminderWindow("22:00", "01:00")).toBeNull();
+    expect(validateQuranReminderWindow("20:00", "21:00")).toBeNull();
+  });
+  it("refuses start == end, malformed or non-string input", () => {
+    expect(validateQuranReminderWindow("22:00", "22:00")).toMatch(/can't be the same/);
+    expect(validateQuranReminderWindow("24:00", "01:00")).toMatch(/start/);
+    expect(validateQuranReminderWindow("22:00", "1:00")).toMatch(/end/);
+    expect(validateQuranReminderWindow(null, "01:00")).toMatch(/start/);
   });
 });

@@ -4521,6 +4521,8 @@ export type Database = {
           morning_brief_collapsed_on: string | null
           notification_enabled: boolean
           notification_time: string
+          quran_reminder_end: string | null
+          quran_reminder_start: string | null
           session_target_minutes: number
           sleep_need_minutes: number | null
           updated_at: string
@@ -4538,6 +4540,8 @@ export type Database = {
           morning_brief_collapsed_on?: string | null
           notification_enabled?: boolean
           notification_time?: string
+          quran_reminder_end?: string | null
+          quran_reminder_start?: string | null
           session_target_minutes?: number
           sleep_need_minutes?: number | null
           updated_at?: string
@@ -4555,6 +4559,8 @@ export type Database = {
           morning_brief_collapsed_on?: string | null
           notification_enabled?: boolean
           notification_time?: string
+          quran_reminder_end?: string | null
+          quran_reminder_start?: string | null
           session_target_minutes?: number
           sleep_need_minutes?: number | null
           updated_at?: string
