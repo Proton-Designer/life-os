@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTodayList } from "../today-list";
+import { buildTodayList, pickFocusId } from "../today-list";
 import type { PriorityItem } from "../types";
 import type { PlanItem } from "@/lib/plan/get-plan-items";
 
@@ -62,6 +62,9 @@ describe("buildTodayList", () => {
   it("dedups: a Kill List line mirrored into the plan shows once, as the plan row", () => {
     const l = list([plan({ id: "uuid-2", killListItemId: "kl-9", area: "business", mitRank: 1 })], [prio({ id: "kill-list", domain: "business", actionType: "toggle_kill_list", actionRefId: "kl-9" }), prio({ id: "kill-list-kl-10", domain: "business", actionType: "toggle_kill_list", actionRefId: "kl-10" })]);
     expect(ids(l)).toEqual(["uuid-2", "kill-list-kl-10"]); // only the PAIRED Kill List line is dropped
+    // a Kill List row's id is per LINE, never the shared constant "kill-list" (completing A must not hide B arriving under the same id)
+    const first = list([], [prio({ id: "kill-list", domain: "business", actionType: "toggle_kill_list", actionRefId: "kl-1" })]);
+    expect(ids(first)).toEqual(["kill-list-kl-1"]);
   });
 
   it("focus: the row with a running timer, else the first pending row, else null", () => {
@@ -85,5 +88,18 @@ describe("buildTodayList", () => {
     const deenTask = prio({ id: "task-d", domain: "deen" });
     expect(ids(list([], [deenTask], false))).toEqual([]);
     expect(ids(list([], [deenTask], true))).toEqual(["task-d"]);
+  });
+});
+
+describe("pickFocusId", () => {
+  const rows = [{ id: "a", running: false }, { id: "b", running: false }, { id: "c", running: true }];
+  it("the running row wins, else the first", () => {
+    expect(pickFocusId(rows)).toBe("c");
+    expect(pickFocusId(rows.map((r) => ({ ...r, running: false })))).toBe("a");
+    expect(pickFocusId([])).toBeNull();
+  });
+  it("a row that is leaving never takes the focus: it moves on to the next row", () => {
+    expect(pickFocusId(rows.map((r) => ({ ...r, running: false })), new Set(["a"]))).toBe("b");
+    expect(pickFocusId(rows, new Set(["c"]))).toBe("a");
   });
 });

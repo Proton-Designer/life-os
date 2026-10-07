@@ -263,7 +263,17 @@ export function defaultDataSource(): HomeDataSource {
 export async function getPriorityItems(
   userId: string,
   now: Date,
-  dataSource: HomeDataSource = defaultDataSource()
+  dataSource: HomeDataSource = defaultDataSource(),
+  options: {
+    /**
+     * Emit EVERY incomplete Kill List line for today (one PriorityItem each) instead of only the first. Opt-in, for Home's
+     * Today list, which shows all of today's tasks. The default (one item, the first line) is the Now-era "next action"
+     * rule that every other consumer was built on -- the notification builder, the cross-domain ranking, the Self-Mastery
+     * placement -- so it must not change under them. The FIRST line keeps the id "kill-list" and the extras are
+     * `kill-list-<row id>`, so a consumer that only looks at the first item sees exactly what it always saw.
+     */
+    allKillListItems?: boolean;
+  } = {}
 ): Promise<PriorityItem[]> {
   const profile = await dataSource.getProfile(userId);
   const timezone = profile?.timezone ?? "UTC";
@@ -347,18 +357,17 @@ export async function getPriorityItems(
   // own next render, since actionRefId is that item's real id — no extra
   // logic needed here for the "automatically advances" behavior.
   const incompleteKillList = killListRows.filter((k) => !k.completed);
-  if (incompleteKillList.length > 0) {
-    const next = incompleteKillList[0];
+  for (const [index, line] of (options.allKillListItems ? incompleteKillList : incompleteKillList.slice(0, 1)).entries()) {
     items.push({
-      id: "kill-list",
+      id: index === 0 ? "kill-list" : `kill-list-${line.id}`,
       domain: "business",
-      title: next.text,
+      title: line.text,
       dueAt: null,
       windowEndAt: null,
       urgencyBucket: "later_today",
       completed: false,
       actionType: "toggle_kill_list",
-      actionRefId: next.id,
+      actionRefId: line.id,
       cost: null,
     });
   }

@@ -38,6 +38,25 @@ export type TodayList = {
   focusIndex: number | null;
 };
 
+/**
+ * A row's id must be unique to the ROW, because the list's "completed, waiting for the server to confirm" bookkeeping is
+ * keyed by it. The Kill List item's own id is the constant "kill-list" whichever line is first, so completing line A would
+ * leave line B arriving under the same id and being hidden as "still the one you just ticked". Per-line ids
+ * (`kill-list-<row id>`) also match the ids of the completed Kill List items, so the server's confirmation lines up.
+ */
+export function todayRowId(item: PriorityItem): string {
+  return item.actionType === "toggle_kill_list" ? `kill-list-${item.actionRefId}` : item.id;
+}
+
+/**
+ * The id of the row to highlight: the one RUNNING (inline timer started) if there is one, else the first pending row. A row
+ * that is already leaving (struck, fading out) never takes the focus, so it moves on to the next row as soon as you tick one.
+ */
+export function pickFocusId(rows: readonly { id: string; running: boolean }[], leavingIds: ReadonlySet<string> = new Set()): string | null {
+  const candidates = rows.filter((r) => !leavingIds.has(r.id));
+  return (candidates.find((r) => r.running) ?? candidates[0])?.id ?? null;
+}
+
 const isStarred = (p: PlanItem) => p.mitRank !== null && p.mitRank >= 1 && p.mitRank <= 3;
 
 export function buildTodayList({
@@ -75,10 +94,10 @@ export function buildTodayList({
 
   const rows: TodayRow[] = [
     ...[...crown, ...starred, ...rest].map((plan): TodayRow => ({ source: "plan", id: plan.id, plan })),
-    ...rankedPriority.map((priority): TodayRow => ({ source: "priority", id: priority.id, priority })),
+    ...rankedPriority.map((priority): TodayRow => ({ source: "priority", id: todayRowId(priority), priority })),
   ];
 
-  const running = rows.findIndex((r) => r.source === "plan" && r.plan.timerStartedAt !== null);
-  const focusIndex = rows.length === 0 ? null : running >= 0 ? running : 0;
+  const focusId = pickFocusId(rows.map((r) => ({ id: r.id, running: r.source === "plan" && r.plan.timerStartedAt !== null })));
+  const focusIndex = focusId === null ? null : rows.findIndex((r) => r.id === focusId);
   return { rows, completedPlan, focusIndex };
 }

@@ -195,6 +195,37 @@ describe("getPriorityItems", () => {
     expect(killItem?.actionRefId).toBe("k2");
   });
 
+  describe("allKillListItems (opt-in, for Home's Today list)", () => {
+    const now = new Date("2026-08-10T18:00:00Z");
+    const lines = [
+      { id: "k1", text: "Call the vendor", completed: false, position: 0, completed_at: null },
+      { id: "k2", text: "Send the proposal", completed: false, position: 1, completed_at: null },
+      { id: "k3", text: "Review contract", completed: true, position: 2, completed_at: null },
+    ];
+
+    it("emits EVERY incomplete line: the first keeps the id 'kill-list', the others are 'kill-list-<row id>'", async () => {
+      const items = await getPriorityItems("user-1", now, emptyDataSource({ getKillListItems: async () => lines }), { allKillListItems: true });
+      const kill = items.filter((i) => i.actionType === "toggle_kill_list");
+      expect(kill.map((i) => [i.id, i.actionRefId, i.title])).toEqual([
+        ["kill-list", "k1", "Call the vendor"],
+        ["kill-list-k2", "k2", "Send the proposal"],
+      ]);
+    });
+
+    it("the DEFAULT is unchanged: exactly one line, the first (every other consumer relies on this)", async () => {
+      const items = await getPriorityItems("user-1", now, emptyDataSource({ getKillListItems: async () => lines }));
+      expect(items.filter((i) => i.actionType === "toggle_kill_list").map((i) => i.id)).toEqual(["kill-list"]);
+      const explicitOff = await getPriorityItems("user-1", now, emptyDataSource({ getKillListItems: async () => lines }), { allKillListItems: false });
+      expect(explicitOff.filter((i) => i.actionType === "toggle_kill_list")).toHaveLength(1);
+    });
+
+    it("still emits nothing when every line is done", async () => {
+      const done = lines.map((l) => ({ ...l, completed: true }));
+      const items = await getPriorityItems("user-1", now, emptyDataSource({ getKillListItems: async () => done }), { allKillListItems: true });
+      expect(items.some((i) => i.actionType === "toggle_kill_list")).toBe(false);
+    });
+  });
+
   it("emits no kill-list row once all three items are completed", async () => {
     const now = new Date("2026-08-10T18:00:00Z");
     const dataSource = emptyDataSource({
