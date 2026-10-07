@@ -55,4 +55,35 @@ describe("QuranNowRow", () => {
     expect(screen.getByTestId("quran-now-done")).toBeInTheDocument();
     expect(screen.queryByTestId("quran-now-read")).not.toBeInTheDocument();
   });
+
+  describe("post-midnight (forDate 'yesterday')", () => {
+    it("logs EXACTLY the displayed range: { toPage: item.to } filed under yesterday, never todaysPortion", async () => {
+      const user = userEvent.setup();
+      render(<QuranNowRow item={ITEM} forDate="yesterday" />);
+      expect(screen.getByText(/Last night's portion/)).toBeInTheDocument();
+      await user.click(screen.getByTestId("quran-now-read"));
+      expect(logQuranReading).toHaveBeenCalledWith({ toPage: 50 }, { forDate: "yesterday" });
+      expect(logQuranReading).not.toHaveBeenCalledWith({ todaysPortion: true });
+    });
+
+    it("a refusal (stale row: the bookmark moved) shows the core's message, un-ticks, and asks for a refresh; nothing else is logged", async () => {
+      logQuranReading.mockResolvedValue({ ok: false, message: "That page is behind your bookmark. Use Edit bookmark to move it back." });
+      const onStale = vi.fn();
+      const user = userEvent.setup();
+      render(<QuranNowRow item={ITEM} forDate="yesterday" onStale={onStale} />);
+      await user.click(screen.getByTestId("quran-now-read"));
+      await waitFor(() => expect(screen.getByTestId("quran-now-error")).toHaveTextContent("behind your bookmark"));
+      expect(onStale).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("quran-now-read")).toBeInTheDocument();
+      expect(logQuranReading).toHaveBeenCalledTimes(1);
+    });
+
+    it("today (the default) is unchanged: todaysPortion", async () => {
+      const user = userEvent.setup();
+      render(<QuranNowRow item={ITEM} forDate="today" />);
+      await user.click(screen.getByTestId("quran-now-read"));
+      expect(logQuranReading).toHaveBeenCalledWith({ todaysPortion: true });
+    });
+  });
 });
+

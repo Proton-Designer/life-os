@@ -9,23 +9,31 @@ import { enqueueByKey } from "@/lib/client/keyed-queue";
 import type { HomeNowItem } from "@/lib/quran/surfaces";
 
 /**
- * QURAN-02: Home -> Now, "Quran · pages a–b": today's khatm portion with a one-tap "Read". Optimistic (the row ticks at
- * once; a failed write un-ticks it and says why). The action revalidates "/" so the server view catches up.
+ * QURAN-02: Home -> Today's "Right now" strip, "Quran · pages a–b": the khatm portion with a one-tap "Read". Optimistic
+ * (the row ticks at once; a failed write un-ticks it and says why). The action revalidates "/" so the server view catches up.
+ *
+ * `forDate` "yesterday" is the post-midnight part of the reminder window: the row shows the PREVIOUS local date's portion,
+ * and "Read" must credit exactly what is displayed. The core's `{ todaysPortion: true }` computes the portion from TODAY's
+ * date even with forDate "yesterday" (it would credit up to a day more than shown), so after midnight this logs
+ * `{ toPage: item.to }` filed under yesterday instead: the bookmark moves to exactly the displayed page. If the core refuses
+ * (the bookmark already moved past it: a stale row) the core's message is shown and `onStale` refreshes Home; nothing
+ * different is ever logged silently.
  */
-export function QuranNowRow({ item }: { item: HomeNowItem }) {
+export function QuranNowRow({ item, forDate = "today", onStale }: { item: HomeNowItem; forDate?: "today" | "yesterday"; onStale?: () => void }) {
   const [done, setDone] = useState(item.done);
   const [error, setError] = useState<string | null>(null);
 
   function read() {
     setError(null);
     setDone(true);
-    enqueueByKey("quran:plan", () => logQuranReading({ todaysPortion: true }))
+    enqueueByKey("quran:plan", () => (forDate === "yesterday" ? logQuranReading({ toPage: item.to }, { forDate: "yesterday" }) : logQuranReading({ todaysPortion: true })))
       .then((res) => {
         if (!res.ok) throw new Error(res.message);
       })
       .catch((e: unknown) => {
         setDone(false);
         setError(e instanceof Error ? e.message : "Couldn't save that. Try again.");
+        onStale?.();
       });
   }
 
@@ -38,6 +46,7 @@ export function QuranNowRow({ item }: { item: HomeNowItem }) {
             <span className={done ? "text-muted-foreground line-through" : undefined}>{item.title}</span>
           </p>
           <p className="truncate text-xs text-muted-foreground">
+            {forDate === "yesterday" ? "Last night's portion · " : ""}
             {item.surahLabel} · {item.juzFrom !== undefined && item.juzTo !== undefined && item.juzFrom !== item.juzTo ? `Juz ${item.juzFrom}–${item.juzTo}` : `Juz ${item.juzFrom ?? item.juz}`}
           </p>
         </Link>
