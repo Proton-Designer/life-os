@@ -227,4 +227,80 @@ describe("WeeklyGoalsHeader", () => {
     expect(row).toContainElement(screen.getByRole("button", { name: "Goals" }));
     expect(row.className).not.toContain("justify-between");
   });
+
+  // Home's slim title-row version (compact). Calendar's layout above must stay as it was.
+  describe("compact (Home's title row)", () => {
+    const base = { onSaveDeen: noop, onSaveBusiness: noop, compact: true } as const;
+
+    it("both goals: side by side in one column group, headline in a title tooltip, same id / testid", () => {
+      render(<WeeklyGoalsHeader {...base} deen={{ headline: "Read 3 pages of Quran everyday", milestones: [] }} business={{ headline: "Get interns onboarded efficiently and delegate tasks", milestones: [] }} />);
+      const header = screen.getByTestId("weekly-goals-header");
+      expect(header).toHaveAttribute("id", "weekly-focus");
+      const deen = screen.getByText("Read 3 pages of Quran everyday");
+      const business = screen.getByText("Get interns onboarded efficiently and delegate tasks");
+      expect(deen).toHaveAttribute("title", "Read 3 pages of Quran everyday");
+      expect(business).toHaveAttribute("title", "Get interns onboarded efficiently and delegate tasks");
+      expect(deen.parentElement!.parentElement!.parentElement).toBe(business.parentElement!.parentElement!.parentElement); // one shared row
+      expect(deen.className).toContain("md:line-clamp-1"); // one line (ellipsis) from md up
+      expect(deen.className).toContain("line-clamp-2"); // two lines on a phone
+      expect(screen.getByRole("button", { name: "Edit Deen goal" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Business goal" })).toBeInTheDocument();
+    });
+
+    it("keeps the 'This Week's Focus' heading for screen readers and shows it only from lg", () => {
+      render(<WeeklyGoalsHeader {...base} deen={null} business={null} />);
+      const h = screen.getByRole("heading", { name: "This Week's Focus" });
+      expect(h.className).toContain("sr-only");
+      expect(h.className).toContain("lg:not-sr-only");
+    });
+
+    it("one goal only: the other slot is absent and the remaining one is the only column", () => {
+      render(<WeeklyGoalsHeader {...base} showDeen={false} deen={{ headline: "ignored", milestones: [] }} business={{ headline: "Ship it", milestones: [] }} />);
+      expect(screen.getByText("Ship it")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Edit Deen goal" })).not.toBeInTheDocument();
+      expect(screen.queryByText("ignored")).not.toBeInTheDocument();
+    });
+
+    it("no goals visible: nothing renders", () => {
+      const { container } = render(<WeeklyGoalsHeader {...base} showDeen={false} showBusiness={false} deen={null} business={null} />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("an empty slot shows the prompt and a + (still the 'Edit ... goal' button), a set slot a pencil", () => {
+      render(<WeeklyGoalsHeader {...base} deen={null} business={{ headline: "Ship it", milestones: [] }} />);
+      expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Deen goal" }).querySelector("svg.lucide-plus")).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Edit Business goal" }).querySelector("svg.lucide-pencil")).not.toBeNull();
+    });
+
+    it("the weekend nudge is a dot + tooltip on the Goals control, not a text line; absent when not the weekend", () => {
+      const goals = <button type="button" aria-label="Goals">G</button>;
+      const { rerender } = render(<WeeklyGoalsHeader {...base} deen={null} business={null} extraActions={goals} showPlanningNudge />);
+      expect(screen.getByTestId("weekly-nudge-dot")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Goals" }).parentElement).toHaveAttribute("title", expect.stringMatching(/weekend — set next week's Deen and Business goals/));
+      rerender(<WeeklyGoalsHeader {...base} showDeen={false} deen={null} business={null} extraActions={goals} showPlanningNudge />);
+      expect(screen.getByRole("button", { name: "Goals" }).parentElement).toHaveAttribute("title", expect.stringMatching(/Business goal\./));
+      expect(screen.getByRole("button", { name: "Goals" }).parentElement!.getAttribute("title")).not.toMatch(/Deen/);
+      rerender(<WeeklyGoalsHeader {...base} deen={null} business={null} extraActions={goals} />);
+      expect(screen.queryByTestId("weekly-nudge-dot")).not.toBeInTheDocument();
+    });
+
+    it("editing in compact mode still opens GoalCard's dialog and saves to the right domain", async () => {
+      const onSaveBusiness = vi.fn(() => Promise.resolve());
+      render(<WeeklyGoalsHeader {...base} onSaveBusiness={onSaveBusiness} deen={null} business={{ headline: "Close 3 deals", milestones: [] }} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Edit Business goal" }));
+      await user.clear(screen.getByPlaceholderText("This week's headline goal"));
+      await user.type(screen.getByPlaceholderText("This week's headline goal"), "Close 5 deals");
+      await user.click(screen.getByRole("button", { name: "Save goal" }));
+      expect(onSaveBusiness).toHaveBeenCalledWith("Close 5 deals", [], undefined);
+    });
+
+    it("the non-compact (Calendar) layout is unchanged: heading visible, nudge is still a text line, no dot", () => {
+      render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />);
+      expect(screen.getByText("This Week's Focus").className).not.toContain("sr-only");
+      expect(screen.getByText(/set next week's deen and business goals below/i)).toBeInTheDocument();
+      expect(screen.queryByTestId("weekly-nudge-dot")).not.toBeInTheDocument();
+    });
+  });
 });

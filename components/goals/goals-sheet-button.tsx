@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 /**
- * "Goals" on Home's weekly header (IA-P3b): the monthly goal board, reachable any day without
+ * "Goals" on Home's weekly header (IA-P3b), a compact flag icon button (the header is one slim row): the monthly goal board, reachable any day without
  * the weekly reset. The data is read when the sheet opens (getGoalsSheetData, a lean Server
  * Action -- no function props, nothing fetched until asked); the board inside is the same
  * GoalBoard /week step 2 renders.
@@ -37,9 +37,8 @@ export function GoalsSheetButton() {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm" data-testid="goals-sheet-open" className="gap-1.5">
-          <Flag className="size-3.5" aria-hidden />
-          Goals
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="Goals" title="Goals" data-testid="goals-sheet-open" className="text-muted-foreground">
+          <Flag className="size-4" aria-hidden />
         </Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-y-auto">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { IconChip } from "@/components/ui/icon-chip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,7 @@ export function WeeklyGoalSlot({
   domain: GoalDomain;
   goal: WeeklyGoalEntry;
   onSave: (headline: string, milestones: string[], quranPageTarget?: number) => Promise<void>;
-  /** Inside the page-header bar (Home): stacked rows below 2xl, side by side from 2xl up. */
+  /** Inside the page-header bar (Home): a slim column -- 24px chip, tiny label, one-line headline (2 lines on a phone), small edit control. */
   compact?: boolean;
 }) {
   const accent = DOMAIN_ACCENT[domain];
@@ -55,20 +55,23 @@ export function WeeklyGoalSlot({
     setOpen(false);
   }
 
+  const label = GOAL_DOMAIN_LABEL[domain];
   return (
-    <div className={cn("flex min-w-0 flex-1 items-center gap-3", compact ? "py-2 first:pt-0 last:pb-0 2xl:px-4 2xl:py-0 2xl:first:pl-0 2xl:last:pr-0" : "py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4")}>
-      <IconChip icon={Icon} accent={accent} size="md" />
+    <div className={cn("flex min-w-0 flex-1 items-center", compact ? "gap-2 px-2.5" : "gap-3 py-2 first:pt-0 last:pb-0 sm:py-0 sm:first:pl-0 sm:last:pr-0 sm:px-4")}>
+      <IconChip icon={Icon} accent={accent} size={compact ? "sm" : "md"} className={compact ? "size-6 rounded-lg [&>svg]:size-3.5" : undefined} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span
-          className="text-[10px] font-semibold tracking-wide uppercase"
+          className={cn("font-semibold tracking-wide uppercase", compact ? "text-[9px] leading-none" : "text-[10px]")}
           style={{ color: `var(${ACCENT_VAR[accent]})` }}
         >
-          {GOAL_DOMAIN_LABEL[domain]}
+          {label}
         </span>
         {isSet ? (
-          <p className="truncate text-sm font-medium">{goal!.headline}</p>
+          <p title={goal!.headline} className={cn("font-medium", compact ? "line-clamp-2 text-[13px] leading-tight md:line-clamp-1" : "truncate text-sm")}>
+            {goal!.headline}
+          </p>
         ) : (
-          <p className="text-sm text-muted-foreground">Set this week&apos;s {GOAL_DOMAIN_LABEL[domain]} goal</p>
+          <p className={cn("text-muted-foreground", compact ? "line-clamp-2 text-[13px] leading-tight md:line-clamp-1" : "text-sm")}>Set this week&apos;s {label} goal</p>
         )}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -78,9 +81,9 @@ export function WeeklyGoalSlot({
             variant="ghost"
             size="icon-sm"
             aria-label={`Edit ${GOAL_DOMAIN_LABEL[domain]} goal`}
-            className="shrink-0 text-muted-foreground"
+            className={cn("shrink-0 text-muted-foreground", compact && "size-6")}
           >
-            <Pencil className="size-3.5" />
+            {compact && !isSet ? <Plus className="size-3.5" /> : <Pencil className="size-3.5" />}
           </Button>
         </DialogTrigger>
         <DialogContent className="sm:max-w-md">

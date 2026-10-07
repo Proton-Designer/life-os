@@ -48,35 +48,39 @@ export function WeeklyGoalsHeader({
   showBusiness?: boolean;
   /** Optional element(s) beside the title (Home passes its Goals sheet button). A React node, never a function. */
   extraActions?: React.ReactNode;
-  /** One slim bar -- title + Goals button on the left, the two goals side by side -- for a page header (Home). */
+  /** One slim bar for a page header (Home): the two goals side by side (one line each from md up, two on a phone) and a compact Goals icon at the end. */
   compact?: boolean;
 }) {
   if (!showDeen && !showBusiness) return null;
 
   if (compact) {
+    const nudge = showDeen ? "It's the weekend — set next week's Deen and Business goals." : "It's the weekend — set next week's Business goal.";
     return (
       <div
         id="weekly-focus"
         data-testid="weekly-goals-header"
-        className={cn("scroll-mt-20 flex flex-col gap-2 rounded-2xl border border-white/70 bg-card px-3 py-2.5 2xl:flex-row 2xl:items-center 2xl:gap-4", className)}
+        className={cn("scroll-mt-20 flex items-center gap-1 rounded-2xl border border-white/70 bg-card py-1.5 pr-1.5 pl-3", className)}
         style={{
           boxShadow:
             "0 0 0 1px color-mix(in oklch, var(--glow-white) 30%, transparent), 0 0 20px 2px color-mix(in oklch, var(--glow-white) 22%, transparent)",
         }}
       >
-        <div className="flex items-center justify-between gap-2 2xl:flex-col 2xl:items-start 2xl:justify-center 2xl:gap-1.5 2xl:pl-1">
-          <h2 className="text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase">This Week&apos;s Focus</h2>
-          {extraActions}
-        </div>
-        {showPlanningNudge && (
-          <p className="text-xs text-accent-business 2xl:hidden">
-            {showDeen ? "It's the weekend — set next week's Deen and Business goals." : "It's the weekend — set next week's Business goal."}
-          </p>
-        )}
-        <div className="flex min-w-0 flex-1 flex-col divide-y divide-border/40 border-t border-border/40 pt-2 2xl:flex-row 2xl:divide-x 2xl:divide-y-0 2xl:border-t-0 2xl:border-l 2xl:pt-0">
+        {/* a tiny caption at lg+ (it fits without adding height); a screen-reader-only heading below that */}
+        <h2 className="sr-only lg:not-sr-only lg:w-14 lg:shrink-0 lg:text-[9px] lg:leading-tight lg:font-semibold lg:tracking-wide lg:text-muted-foreground lg:uppercase">This Week&apos;s Focus</h2>
+        <div className="flex min-w-0 flex-1 divide-x divide-border/40">
           {showDeen && <WeeklyGoalSlot compact domain="deen" goal={deen} onSave={onSaveDeen} />}
           {showBusiness && <WeeklyGoalSlot compact domain="business" goal={business} onSave={onSaveBusiness} />}
         </div>
+        {/* the weekend nudge is a dot on the Goals button, not a text line */}
+        <span className="relative inline-flex shrink-0" title={showPlanningNudge ? nudge : undefined}>
+          {extraActions}
+          {showPlanningNudge && (
+            <>
+              <span data-testid="weekly-nudge-dot" aria-hidden className="pointer-events-none absolute top-0.5 right-0.5 size-2 rounded-full bg-accent-business ring-2 ring-card" />
+              <span className="sr-only">{nudge}</span>
+            </>
+          )}
+        </span>
       </div>
     );
   }
