@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Minimize2, Check } from "lucide-react";
+import { Minimize2, Check, Pause } from "lucide-react";
 import { useLockInOverlay } from "./lock-in-overlay-context";
+import { formatClockSeconds } from "@/lib/plan/plan-behavior";
 import { elapsedMinutesSince } from "@/lib/business/format-elapsed";
 import { goalProgress } from "@/lib/business/session-goal";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
@@ -111,7 +112,7 @@ export function LockInOverlay({
   /** profiles.deen_mode as a plain boolean; gates the Deen option in the distraction capture dialog. */
   deenMode?: boolean;
 }) {
-  const { session, minimized, isPending, minimize, endSession, toggleObjective } = useLockInOverlay();
+  const { session, minimized, isPending, minimize, endSession, pauseSession, completePlanSession, toggleObjective } = useLockInOverlay();
   const visible = !!session && !minimized;
   const now = useTickingClock(visible);
 
@@ -260,6 +261,12 @@ export function LockInOverlay({
                 renders here for a legacy one. */}
             {isGoalBased && progress && <GoalProgressBar fraction={progress.fraction} />}
             <p className="font-mono text-lg tabular-nums text-foreground/70">{clockLabel}</p>
+            {/* A resumed plan line: the time already worked before this session (banked from the earlier, paused stretches). */}
+            {session.planTaskId && (session.bankedSeconds ?? 0) > 0 && (
+              <p className="text-sm text-foreground/60" data-testid="banked-caption">
+                {formatClockSeconds(session.bankedSeconds ?? 0)} already worked on this task
+              </p>
+            )}
             <HourCompleteBanner elapsedMinutes={minutes} />
             <EndOfHourReflection elapsedMinutes={minutes} intervals={hourInterval} />
 
@@ -289,9 +296,25 @@ export function LockInOverlay({
 
           <div className="flex w-full flex-col items-center gap-4 pb-2">
             <DistractionCaptureDialog deenMode={deenMode} />
-            <Button type="button" variant="outline" size="lg" disabled={isPending} onClick={endSession}>
-              End Session
-            </Button>
+            {/* A session working on a PLAN LINE (Home's Today list) offers Pause + Mark Done instead of End Session: both end the
+                session through the End Session path and bank its time on the line; Mark Done also completes it. Every other
+                session keeps End Session exactly as it was. */}
+            {session.planTaskId ? (
+              <div className="flex flex-wrap items-center justify-center gap-3" data-testid="plan-session-actions">
+                <Button type="button" variant="outline" size="lg" disabled={isPending} onClick={() => void pauseSession().catch(() => {})}>
+                  <Pause aria-hidden />
+                  Pause
+                </Button>
+                <Button type="button" size="lg" disabled={isPending} onClick={() => void completePlanSession().catch(() => {})}>
+                  <Check aria-hidden />
+                  Mark Done
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" size="lg" disabled={isPending} onClick={endSession}>
+                End Session
+              </Button>
+            )}
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

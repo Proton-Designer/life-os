@@ -127,6 +127,8 @@ export async function AppShell({
               kind: activeWorkSession.kind as LockInSessionKind,
               goalMinutes: activeWorkSession.goalMinutes,
               objectives: activeWorkSession.objectives,
+              planTaskId: activeWorkSession.planTaskId,
+              bankedSeconds: activeWorkSession.bankedSeconds,
             }
           : null
       }

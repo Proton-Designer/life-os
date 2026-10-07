@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { startWorkSession, endWorkSession, setSessionObjectiveCompleted, refreshBusinessViews, getActiveSessionDetail } from "@/app/(app)/business/actions";
+import { pausePlanItem, setPlanItemCompleted } from "@/app/(app)/open/today/plan-item-actions";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { scheduleRouteRefresh } from "@/lib/client/deferred-refresh";
 import { readLockInMinimized, writeLockInMinimized } from "@/lib/business/lock-in-storage";
@@ -29,6 +30,10 @@ export type ActiveWorkSession = {
    * counter, no `/ goal`, no progress bar, no auto-end. */
   goalMinutes: number | null;
   objectives: SessionObjective[];
+  /** The plan line (Home's Today list) this session is working on, if exactly one: the overlay then offers Pause + Mark Done in place of End Session. Absent/null = not a plan session. */
+  planTaskId?: string | null;
+  /** Seconds already banked on that plan line from earlier paused stretches (server-recorded). */
+  bankedSeconds?: number;
 };
 
 type LockInOverlayContextValue = {
@@ -53,6 +58,14 @@ type LockInOverlayContextValue = {
   /** The setup dialog's onStart — does the actual session creation. */
   confirmSessionStart: (payload: SessionStartPayload) => Promise<void>;
   endSession: () => Promise<void>;
+  /** Plan-linked sessions only (session.planTaskId): ends the session through the End Session path and banks its time into the plan line, then closes the overlay. */
+  pauseSession: () => Promise<void>;
+  /** Plan-linked sessions only: ends + banks the session and completes the plan line (and its paired Kill List line). `announce` = tell Home's Today list so the row leaves (the overlay's own button); the row's own Mark Done passes false. */
+  completePlanSession: (options?: { announce?: boolean }) => Promise<void>;
+  /** Plan lines just paused from the overlay -> their banked seconds, so Home's row shows "Paused" before its refresh lands. */
+  pausedHints: Record<string, number>;
+  /** Plan lines just completed from the overlay, so Home's Today list can let them leave cleanly. */
+  completedTaskIds: readonly string[];
   /** A session that was started somewhere other than the setup dialog (Home's plan list): show it, full screen. */
   adoptSession: (next: ActiveWorkSession) => void;
   /** Optimistic, write-through toggle for one objective — see
@@ -136,7 +149,7 @@ export function LockInOverlayProvider({
         if (!detail) return prev === null ? prev : null;
         if (detail.kind !== "deep_work" && detail.kind !== "deep_study") return prev;
         if (prev?.id === detail.id) return prev;
-        return { id: detail.id, startedAtIso: detail.startedAt, kind: detail.kind, goalMinutes: detail.goalMinutes, objectives: detail.objectives };
+        return { id: detail.id, startedAtIso: detail.startedAt, kind: detail.kind, goalMinutes: detail.goalMinutes, objectives: detail.objectives, planTaskId: detail.planTaskId, bankedSeconds: detail.bankedSeconds };
       });
       if (detail && sessionRef.current?.id !== detail.id) {
         setMinimized(false);
@@ -212,6 +225,50 @@ export function LockInOverlayProvider({
 
   const endSession = useCallback(() => endSessionAt(), [endSessionAt]);
 
+  // Plan-linked sessions (Package E). Pause and Mark Done are the plan line's own actions (the same Server Actions the row
+  // uses): they end the session through the End Session path, bank its server-recorded time, and (Mark Done) complete the
+  // line. The overlay closes because `session` goes to null; Home and Business refresh the way End Session refreshes them.
+  const [pausedHints, setPausedHints] = useState<Record<string, number>>({});
+  const [completedTaskIds, setCompletedTaskIds] = useState<readonly string[]>([]);
+
+  const pauseSession = useCallback(async () => {
+    const current = sessionRef.current;
+    const taskId = current?.planTaskId;
+    if (!current || !taskId) return;
+    setIsPending(true);
+    try {
+      const res = await pausePlanItem(taskId);
+      if (!res.ok) {
+        setError(res.message);
+        throw new Error(res.message);
+      }
+      setPausedHints((h) => ({ ...h, [taskId]: res.elapsedSeconds }));
+      setSession(null);
+      scheduleRouteRefresh(refreshBusinessSurfaces);
+    } finally {
+      setIsPending(false);
+    }
+  }, []);
+
+  const completePlanSession = useCallback(async (options: { announce?: boolean } = {}) => {
+    const current = sessionRef.current;
+    const taskId = current?.planTaskId;
+    if (!current || !taskId) return;
+    setIsPending(true);
+    try {
+      const res = await setPlanItemCompleted(taskId, true);
+      if (!res.ok) {
+        setError(res.message);
+        throw new Error(res.message);
+      }
+      setSession(null);
+      if (options.announce !== false) setCompletedTaskIds((ids) => [...ids, taskId]);
+      scheduleRouteRefresh(refreshBusinessSurfaces);
+    } finally {
+      setIsPending(false);
+    }
+  }, []);
+
   const adoptSession = useCallback((next: ActiveWorkSession) => {
     setSession(next);
     setMinimized(false);
@@ -239,7 +296,7 @@ export function LockInOverlayProvider({
         // detail", not two that could disagree.
         const detail = await getActiveSessionDetail();
         if (!detail) throw new Error("Session started but could not be loaded");
-        setSession({ id: detail.id, startedAtIso: detail.startedAt, kind: detail.kind as LockInSessionKind, goalMinutes: detail.goalMinutes, objectives: detail.objectives });
+        setSession({ id: detail.id, startedAtIso: detail.startedAt, kind: detail.kind as LockInSessionKind, goalMinutes: detail.goalMinutes, objectives: detail.objectives, planTaskId: detail.planTaskId, bankedSeconds: detail.bankedSeconds });
         setMinimized(false);
         writeLockInMinimized(detail.id, false);
       } catch (e) {
@@ -364,12 +421,16 @@ export function LockInOverlayProvider({
       setSetupOpen,
       confirmSessionStart,
       endSession,
+      pauseSession,
+      completePlanSession,
+      pausedHints,
+      completedTaskIds,
       adoptSession,
       toggleObjective,
       minimize,
       expand,
     }),
-    [session, minimized, isPending, error, setupOpen, pendingKind, startSession, setSetupOpen, confirmSessionStart, endSession, adoptSession, toggleObjective, minimize, expand]
+    [session, minimized, isPending, error, setupOpen, pendingKind, startSession, setSetupOpen, confirmSessionStart, endSession, pauseSession, completePlanSession, pausedHints, completedTaskIds, adoptSession, toggleObjective, minimize, expand]
   );
 
   return <LockInOverlayContext.Provider value={value}>{children}</LockInOverlayContext.Provider>;

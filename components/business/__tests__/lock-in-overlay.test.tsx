@@ -40,6 +40,15 @@ vi.mock("@/app/(app)/personal/reflection-cards-actions", () => ({
   submitEndOfHourReflection: vi.fn(),
 }));
 
+// Package E: a plan-linked session's Pause / Mark Done are the plan line's own Server Actions.
+const pausePlanItemMock = vi.fn(async (..._a: unknown[]): Promise<{ ok: boolean; kind?: string; elapsedSeconds?: number; message?: string }> => ({ ok: true, kind: "session", elapsedSeconds: 724 }));
+const setPlanItemCompletedMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, message: "Saved." }));
+vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({
+  pausePlanItem: (...a: unknown[]) => pausePlanItemMock(...a),
+  setPlanItemCompleted: (...a: unknown[]) => setPlanItemCompletedMock(...a),
+  startPlanItem: vi.fn(),
+}));
+
 import { LockInOverlay } from "../lock-in-overlay";
 import { LockInOverlayProvider, type ActiveWorkSession } from "../lock-in-overlay-context";
 import { setSessionObjectiveCompleted } from "@/app/(app)/business/actions";
@@ -299,4 +308,75 @@ describe("LockInOverlay", () => {
       expect(screen.getByTestId("hour-complete-banner")).toBeInTheDocument();
     });
   });
+
+  // PACKAGE E: a session working on a PLAN LINE offers Pause + Mark Done in place of End Session.
+  describe("plan-linked session (Home's Today list Start)", () => {
+    const PLAN_SESSION: ActiveWorkSession = {
+      id: "s1",
+      startedAtIso: new Date(Date.now() - 5 * 60_000).toISOString(),
+      kind: "deep_study",
+      goalMinutes: 18,
+      objectives: [objective({ id: "obj-t", kind: "task", label: "Lab report", refId: "task-9" })],
+      planTaskId: "task-9",
+      bankedSeconds: 724,
+    };
+
+    beforeEach(() => {
+      pausePlanItemMock.mockClear();
+      setPlanItemCompletedMock.mockClear();
+    });
+
+    it("shows Pause and Mark Done and NO End Session", () => {
+      renderOverlay(PLAN_SESSION);
+      expect(screen.getByRole("button", { name: "Pause" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Mark Done" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "End Session" })).not.toBeInTheDocument();
+    });
+
+    it("a session that is NOT a plan line's keeps End Session exactly as today (the positive control for the above)", () => {
+      renderOverlay({ ...PLAN_SESSION, planTaskId: null, bankedSeconds: 0 });
+      expect(screen.getByRole("button", { name: "End Session" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("plan-session-actions")).not.toBeInTheDocument();
+    });
+
+    it("Pause calls the plan line's pause action for ITS task and closes the overlay", async () => {
+      const user = userEvent.setup();
+      renderOverlay(PLAN_SESSION);
+      await user.click(screen.getByRole("button", { name: "Pause" }));
+      expect(pausePlanItemMock).toHaveBeenCalledWith("task-9");
+      expect(setPlanItemCompletedMock).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("Mark Done completes the line (the action ends + banks the session first) and closes the overlay", async () => {
+      const user = userEvent.setup();
+      renderOverlay(PLAN_SESSION);
+      await user.click(screen.getByRole("button", { name: "Mark Done" }));
+      expect(setPlanItemCompletedMock).toHaveBeenCalledWith("task-9", true);
+      expect(pausePlanItemMock).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("a refused Pause keeps the overlay open (the session is still running)", async () => {
+      pausePlanItemMock.mockResolvedValueOnce({ ok: false, message: "Couldn't pause that. Try again." });
+      const user = userEvent.setup();
+      renderOverlay(PLAN_SESSION);
+      await user.click(screen.getByRole("button", { name: "Pause" }));
+      await vi.waitFor(() => expect(pausePlanItemMock).toHaveBeenCalled());
+      expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    });
+
+    it("a resumed session says how much was already worked, from the server-banked seconds", () => {
+      renderOverlay(PLAN_SESSION);
+      expect(screen.getByTestId("banked-caption")).toHaveTextContent("12:04 already worked on this task");
+      expect(screen.queryByTestId("banked-caption")).toBeInTheDocument();
+    });
+
+    it("no banked caption on a fresh plan session", () => {
+      renderOverlay({ ...PLAN_SESSION, bankedSeconds: 0 });
+      expect(screen.queryByTestId("banked-caption")).not.toBeInTheDocument();
+    });
+  });
 });
+
