@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { WorkSessionKind } from "@/lib/business/work-session-kind";
 import { loadSessionObjectivesCore, type SessionObjective } from "@/lib/business/session-objectives";
+import { planTaskIdForSessionCore } from "@/lib/night-plan/plan-work-core";
 
 // cache() memoizes this per-request (React's request-scoped dedup, not a
 // cross-request cache) — AppShell (which feeds the app-wide Lock-In overlay
@@ -37,6 +38,10 @@ export type ActiveWorkSessionDetail = {
   kind: WorkSessionKind;
   goalMinutes: number | null;
   objectives: SessionObjective[];
+  /** The plan line this session is working on (exactly one plan task among its objectives), else null. The overlay then offers Pause + Mark Done in place of End Session. */
+  planTaskId: string | null;
+  /** Seconds already banked on that plan line from earlier paused stretches (0 when none / not a plan session). Server-recorded, never the client clock. */
+  bankedSeconds: number;
 };
 
 /**
@@ -64,12 +69,20 @@ export const getActiveWorkSessionDetail = cache(
     if (!data) return null;
 
     const objectives = await loadSessionObjectivesCore(supabase, userId, data.id);
+    const planTaskId = await planTaskIdForSessionCore(supabase, userId, data.id).catch(() => null);
+    let bankedSeconds = 0;
+    if (planTaskId) {
+      const { data: task } = await supabase.from("tasks").select("timer_elapsed_seconds").eq("id", planTaskId).eq("user_id", userId).maybeSingle();
+      bankedSeconds = (task?.timer_elapsed_seconds as number | null | undefined) ?? 0;
+    }
     return {
       id: data.id,
       startedAt: data.started_at,
       kind: data.kind as WorkSessionKind,
       goalMinutes: data.goal_minutes,
       objectives,
+      planTaskId,
+      bankedSeconds,
     };
   }
 );

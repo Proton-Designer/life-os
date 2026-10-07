@@ -260,6 +260,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/open/today/plan-item-actions.ts#startPlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "starts a Deep Work/Study session (work_session.start twin exists) or an inline timer" },
   "app/(app)/open/today/plan-item-actions.ts#setPlanItemCompleted": { pending: "P4-cov-PLAN-DETAILS" },
   "app/(app)/open/today/plan-item-actions.ts#stopPlanItemTimer": { pending: "P4-cov-PLAN-DETAILS" },
+  "app/(app)/open/today/plan-item-actions.ts#pausePlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "Package E: Pause replaces Stop; banks tasks.timer_elapsed_seconds. Resume is startPlanItem" },
 
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────
   "app/(app)/personal/answer-feedback-actions.ts#getAnswerFeedback": { excluded: "llm_spend: grades a typed answer with gatewayChat; the agent can judge the answer itself" },

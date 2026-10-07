@@ -38,7 +38,8 @@ import { formatHHMM12 } from "@/lib/date-utils";
 import { createIdentityHabitCore, setIdentityHabitFrequencyCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
-import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, endWorkSessionCore } from "@/lib/business/actions-core";
+import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore } from "@/lib/business/actions-core";
+import { endSessionAndBankCore } from "@/lib/night-plan/plan-work-core";
 import { addTaskCore, updateTaskCore, toggleTaskCore, updateScheduleEventCore, setScheduleEventOverrideCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
 import {
   createClassCore,
@@ -1184,7 +1185,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
               "endWorkSessionCore (lib/business/actions-core.ts) now selects `ended_at` alongside `id` and returns early (no-op) if the session is already ended, instead of always re-stamping via new Date(). The UPDATE itself also filters on `.is('ended_at', null)`, so even a genuine race between two concurrent retries can produce at most one write. Red-then-green proved with a stateful fake calling twice with real time between the calls.",
             handler: async (ctx) => {
               const id = requireId(ctx);
-              await endWorkSessionCore(ctx.userClient, ctx.userId, id);
+              await endSessionAndBankCore(ctx.userClient, ctx.userId, id);
               return {
                 result: { content: [{ type: "text", text: JSON.stringify({ id }) }], structuredContent: { id, updated_at: ctx.now.toISOString() } },
                 summary: `ended work session ${id}`,

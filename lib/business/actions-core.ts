@@ -228,19 +228,25 @@ export async function startWorkSessionCore(
  * race a plain existence check would leave open: two truly concurrent
  * retries can both pass the SELECT, but at most one WHERE `ended_at is
  * null` UPDATE can match a row whose `ended_at` the other just set.
+ *
+ * Returns whether THIS call is the one that ended the session (false for an already-ended no-op).
  */
-export async function endWorkSessionCore(supabase: SupabaseClient, userId: string, sessionId: string, endedAtIso?: string): Promise<void> {
+export async function endWorkSessionCore(supabase: SupabaseClient, userId: string, sessionId: string, endedAtIso?: string): Promise<boolean> {
   const { data: existing } = await supabase.from("work_sessions").select("id, ended_at").eq("id", sessionId).eq("user_id", userId).maybeSingle();
   if (!existing) throw new Error("Work session not found");
-  if (existing.ended_at !== null) return; // already ended -- idempotent no-op, never re-stamp forward
+  if (existing.ended_at !== null) return false; // already ended -- idempotent no-op, never re-stamp forward
 
-  const { error } = await supabase
+  const { data: ended, error } = await supabase
     .from("work_sessions")
     .update({ ended_at: endedAtIso ?? new Date().toISOString() })
     .eq("id", sessionId)
     .eq("user_id", userId)
-    .is("ended_at", null);
+    .is("ended_at", null)
+    .select("id");
   if (error) throw error;
+  // true only when THIS call stamped ended_at: a caller that does something once per ended session (banking its time into a
+  // plan line, lib/night-plan/plan-work-core.ts) needs to know it was the one that ended it, not a retry or the loser of a race.
+  return (ended?.length ?? 0) > 0;
 }
 
 /**

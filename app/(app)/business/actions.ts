@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
+import { endSessionAndBankCore } from "@/lib/night-plan/plan-work-core";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { revalidatePath } from "next/cache";
 import {
@@ -9,7 +10,6 @@ import {
   setKillListItemCompletedCore,
   saveBusinessWeeklyGoalCore,
   startWorkSessionCore,
-  endWorkSessionCore,
   toggleSessionObjectiveCore,
   setSessionObjectiveCompletedCore,
   type StartWorkSessionInput,
@@ -110,7 +110,8 @@ export async function startWorkSession(input: StartWorkSessionInput): Promise<St
  */
 export async function endWorkSession(sessionId: string, endedAtIso?: string): Promise<void> {
   const { supabase, userId } = await requireUser();
-  await endWorkSessionCore(supabase, userId, sessionId, endedAtIso);
+  // Every way a session ends (End Session, both auto-ends, Pause, Mark Done) banks a plan line's time through this one path.
+  await endSessionAndBankCore(supabase, userId, sessionId, endedAtIso);
   revalidateBusinessScreens();
   revalidatePath("/");
 }

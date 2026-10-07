@@ -107,6 +107,9 @@ describe("getActiveWorkSessionDetail", () => {
       kind: "deep_work",
       goalMinutes: 30,
       objectives: [],
+      // Package E: no plan task among the (empty) objectives, so nothing is banked and the overlay keeps End Session.
+      planTaskId: null,
+      bankedSeconds: 0,
     });
   });
 });

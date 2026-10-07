@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { PriorityItem, CompletedItem } from "@/lib/home/types";
@@ -22,9 +22,9 @@ import type { PlanItem } from "@/lib/plan/get-plan-items";
 // The unified Today list (components/home/today-tasks.tsx) replaced NextActions. Every behaviour below that NextActions
 // guaranteed for its priority rows is kept; what changed is asserted explicitly in the new "Today" describes at the end
 // (all of a domain's items, not one; prayers are not rows; plan rows are part of the list).
-vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn() }) }));
+vi.mock("@/components/business/lock-in-overlay-context", () => ({ useLockInOverlay: () => ({ session: null, adoptSession: vi.fn(), expand: vi.fn(), pausedHints: {}, completedTaskIds: [], pauseSession: vi.fn(), completePlanSession: vi.fn() }) }));
 vi.mock("@/app/(app)/business/actions", () => ({ refreshBusinessViews: async () => {} }));
-vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: vi.fn(async () => ({ ok: true, message: "Saved." })), stopPlanItemTimer: vi.fn() }));
+vi.mock("@/app/(app)/open/today/plan-item-actions", () => ({ startPlanItem: vi.fn(), setPlanItemCompleted: vi.fn(async () => ({ ok: true, message: "Saved." })), pausePlanItem: vi.fn() }));
 vi.mock("@/components/home/use-home-refresh", () => ({ useHomeRefresh: () => () => {} }));
 
 function Today(props: { items: PriorityItem[]; completedToday: CompletedItem[]; isFreshInstall: boolean; nowIso: string; weights: Record<string, never>; planItems?: PlanItem[] }) {
@@ -354,7 +354,7 @@ describe("TodayTasks (priority rows)", () => {
 
   // PACKAGE D: what is NEW about the unified list.
   describe("the unified Today list", () => {
-    const plan = (over: Partial<PlanItem> & Pick<PlanItem, "id" | "title">): PlanItem => ({ area: null, startTime: null, durationMinutes: null, timerStartedAt: null, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-08-16T20:00:00Z", ...over });
+    const plan = (over: Partial<PlanItem> & Pick<PlanItem, "id" | "title">): PlanItem => ({ area: null, startTime: null, durationMinutes: null, timerStartedAt: null, timerElapsedSeconds: 0, completed: false, mitRank: null, planOrder: null, killListItemId: null, classId: null, createdAt: "2026-08-16T20:00:00Z", ...over });
     const titles = () => screen.getAllByRole("listitem").filter((li) => li.dataset.emphasis).map((li) => li.textContent ?? "");
 
     it("shows ALL of a domain's items (the old Now module kept one per domain)", () => {
@@ -380,14 +380,24 @@ describe("TodayTasks (priority rows)", () => {
       expect(rows.findIndex((t) => t.includes("School task"))).toBe(3);
     });
 
-    it("highlights the first row (Focus label, tinted) and dims the others, which come back to full on hover", () => {
-      render(<Today planItems={[plan({ id: "c", title: "Crowned line", mitRank: 1 }), plan({ id: "b", title: "Second line" })]} items={[item({ id: "t1", domain: "school", title: "School task" })]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
+    it("highlights the first row (Focus label, tinted) and dims ONLY the content of the others (title, meta, icon), back to full on hover", () => {
+      render(<Today planItems={[plan({ id: "c", title: "Crowned line", mitRank: 1 }), plan({ id: "b", title: "Second line", area: "body", durationMinutes: 30 })]} items={[item({ id: "t1", domain: "school", title: "School task" })]} completedToday={[]} isFreshInstall={false} nowIso={NOW_ISO} weights={{}} />);
       const rows = screen.getAllByRole("listitem").filter((li) => li.dataset.emphasis);
       expect(rows.map((r) => r.dataset.emphasis)).toEqual(["focus", "dim", "dim"]);
       expect(rows[0]).toHaveTextContent("Focus");
-      expect(rows[1]!.className).toContain("opacity-70");
-      expect(rows[1]!.className).toContain("hover:opacity-100");
       expect(rows[1]).not.toHaveTextContent("Focus");
+      // the dim is a rule on [data-dim] content, NOT an opacity on the whole row
+      expect(rows[1]!.className).toContain("[&_[data-dim]]:opacity-70");
+      expect(rows[1]!.className).toContain("hover:[&_[data-dim]]:opacity-100");
+      expect(rows[1]!.className).not.toMatch(/(^| )opacity-70/);
+      // title, meta and icon are marked; the action buttons are NOT inside anything dimmed
+      expect(within(rows[1]!).getByText("Second line")).toHaveAttribute("data-dim");
+      expect(within(rows[1]!).getByText("Fitness · 30m")).toHaveAttribute("data-dim");
+      expect(rows[1]!.querySelector("[data-dim] button, button[data-dim]")).toBeNull();
+      expect(within(rows[1]!).getByRole("button", { name: "Start Second line" }).closest("[data-dim]")).toBeNull();
+      // priority rows follow the same rule: Delay is an action, the title/meta/chip are dimmed content
+      expect(within(rows[2]!).getByRole("button", { name: /^Delay/ }).closest("[data-dim]")).toBeNull();
+      expect(within(rows[2]!).getByText("School task").closest("[data-dim]")).not.toBeNull();
     });
 
     it("the highlight moves to the row with a RUNNING timer", () => {
