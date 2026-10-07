@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
  * The <li> every Today / task row sits in: it carries the EXIT motion (a 1fr -> 0fr grid row collapses the height without
  * measuring it, together with a fade: no layout jump) and the focus treatment of Home's Today list.
  *   focus  the one row to do right now: full brightness, a subtle tint + ring, a tiny "Focus" label.
- *   dim    every other pending row in that list: slightly dimmed, back to full on hover / focus-within.
+ *   dim    every other pending row in that list: its title, meta and icon (anything marked `data-dim`) slightly dimmed, back
+ *          to full on hover / focus-within; action buttons keep their normal colours on every row.
  */
 export function RowShell({
   exiting = false,
@@ -26,7 +27,9 @@ export function RowShell({
       className={cn(
         "grid min-w-0 transition-[grid-template-rows,opacity] duration-200 ease-out",
         exiting ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]",
-        !exiting && emphasis === "dim" && "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100",
+        // Dim ONLY the content marked data-dim (title, meta, icon), never the action buttons: a whole-row opacity turned the
+        // primary Start button a flat grey that read as disabled. Back to full on hover and focus-within.
+        !exiting && emphasis === "dim" && "[&_[data-dim]]:opacity-70 [&_[data-dim]]:transition-opacity hover:[&_[data-dim]]:opacity-100 focus-within:[&_[data-dim]]:opacity-100",
         className,
       )}
     >

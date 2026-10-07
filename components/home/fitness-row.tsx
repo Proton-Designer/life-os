@@ -13,9 +13,9 @@ export function FitnessRow({ item, meta, emphasis }: { item: PriorityItem; meta:
   return (
     <RowShell emphasis={emphasis}>
       <Link href="/fitness" className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/50">
-        <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" />
-        <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
-        {meta && <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>}
+        <IconChip icon={DOMAIN_ICON[item.domain]} accent={DOMAIN_ACCENT[item.domain]} size="sm" data-dim />
+        <span data-dim className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
+        {meta && <span data-dim className="shrink-0 text-xs text-muted-foreground">{meta}</span>}
         <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       </Link>
     </RowShell>

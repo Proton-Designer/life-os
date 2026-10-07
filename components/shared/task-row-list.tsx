@@ -257,8 +257,9 @@ export function ActiveRow({
           className="flex min-h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:cursor-default disabled:opacity-60"
         >
           <Checkbox checked={justCompleted || exiting} />
-          <IconChip icon={getDomainIcon(item.domain)} accent={getDomainAccent(item.domain)} size="sm" />
+          <IconChip icon={getDomainIcon(item.domain)} accent={getDomainAccent(item.domain)} size="sm" data-dim />
           <span
+            data-dim
             className={cn(
               "flex min-w-0 flex-1 flex-col",
               item.metaBelow ? "gap-0.5" : "flex-row items-center gap-3"
@@ -299,7 +300,7 @@ export function ActiveRow({
             // intercepted by a "Sep. 3rd" span at mobile width. `overflow-hidden`
             // on the row above is the second half of the guard: content can
             // no longer escape the row at all, whatever it does internally.
-            <span className="min-w-0 max-w-[12rem] shrink truncate text-xs text-muted-foreground">{item.meta}</span>
+            <span data-dim className="min-w-0 max-w-[12rem] shrink truncate text-xs text-muted-foreground">{item.meta}</span>
           )}
         </button>
         {showDelay && (
@@ -318,6 +319,7 @@ export function ActiveRow({
             </button>
             {item.meta && (
               <span
+                data-dim
                 aria-hidden
                 onClick={handleClick}
                 className="min-w-0 max-w-[12rem] shrink cursor-pointer truncate pl-1 pr-3 text-xs text-muted-foreground"
