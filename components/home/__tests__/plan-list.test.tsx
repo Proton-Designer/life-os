@@ -146,4 +146,27 @@ describe("PlanList", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't update that task");
     expect(screen.getByTestId("plan-row")).toBeInTheDocument();
   });
+
+  // Package F: fresh server data that PREDATES a write must not resurrect the row. The local state used to be wiped on ANY
+  // items change, so an unrelated refresh landing while the write was still in flight put a ticked row back in Pending.
+  it("an unrelated refresh while the write is in flight does not resurrect a ticked row; the confirming refresh takes over", async () => {
+    let resolveSave!: (v: { ok: boolean; message: string }) => void;
+    completeMock.mockImplementationOnce(() => new Promise((r) => (resolveSave = r)));
+    const user = userEvent.setup();
+    const { rerender } = render(<PlanList nowIso={NOW_ISO} items={[plan({ id: "n", title: "Call the bank" }), plan({ id: "m", title: "Email Sam" })]} />);
+    await user.click(screen.getByRole("button", { name: "Mark Call the bank done" }));
+    expect(screen.queryByRole("button", { name: "Mark Call the bank done" })).not.toBeInTheDocument();
+    rerender(<PlanList nowIso={NOW_ISO} items={[plan({ id: "n", title: "Call the bank" }), plan({ id: "m", title: "Email Sam" })]} />); // unrelated refresh: same data, the write has not landed
+    expect(screen.queryByRole("button", { name: "Mark Call the bank done" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo Call the bank" })).toBeInTheDocument();
+    resolveSave({ ok: true, message: "Saved." });
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
+    rerender(<PlanList nowIso={NOW_ISO} items={[plan({ id: "n", title: "Call the bank", completed: true }), plan({ id: "m", title: "Email Sam" })]} />); // the server caught up
+    expect(screen.queryByRole("button", { name: "Mark Call the bank done" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo Call the bank" })).toBeInTheDocument();
+    // and once confirmed, the server is the truth again: an Undo from elsewhere shows it pending
+    rerender(<PlanList nowIso={NOW_ISO} items={[plan({ id: "n", title: "Call the bank" }), plan({ id: "m", title: "Email Sam" })]} />);
+    expect(screen.getByRole("button", { name: "Mark Call the bank done" })).toBeInTheDocument();
+  });
 });
+

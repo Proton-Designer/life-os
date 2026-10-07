@@ -26,7 +26,28 @@ import { cn } from "@/lib/utils";
 
 const TICK_MS = 1000;
 
-type Local = { completed: boolean; timerStartedAt: string | null };
+type Local = { completed: boolean; timerStartedAt: string | null; at: number };
+
+// An entry the server never confirms (changed back elsewhere) stops hiding the server's truth after this long.
+const LOCAL_MAX_MS = 15_000;
+
+/**
+ * Drop only the local entries the fresh server list CONFIRMS (the row now shows what we assumed), or that outlived
+ * LOCAL_MAX_MS. A list that PREDATES a write (an unrelated refresh landing while it is in flight) confirms nothing, so it
+ * cannot put a ticked row back in Pending (Package F; this used to wipe every entry on any items change).
+ */
+function pruneConfirmed(local: Record<string, Local>, items: PlanItem[], now: number): Record<string, Local> {
+  let next: Record<string, Local> | null = null;
+  for (const [id, entry] of Object.entries(local)) {
+    const server = items.find((i) => i.id === id);
+    const confirmed = !server || now - entry.at > LOCAL_MAX_MS || (entry.completed ? server.completed : !server.completed && (server.timerStartedAt !== null) === (entry.timerStartedAt !== null));
+    if (confirmed) {
+      next ??= { ...local };
+      delete next[id];
+    }
+  }
+  return next ?? local;
+}
 
 export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string }) {
   const scheduleRefresh = useHomeRefresh();
@@ -36,12 +57,12 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
   const [busy, setBusy] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => new Date(nowIso).getTime());
 
-  // Fresh server data replaces whatever this list had assumed (the same row, now confirmed). Adjusted during render
-  // (React's "reset state when a prop changes" pattern), not in an effect, so there is no extra stale paint.
+  // Fresh server data takes over for the rows it now CONFIRMS (see pruneConfirmed). Adjusted during render (React's
+  // "reset state when a prop changes" pattern), not in an effect, so there is no extra stale paint.
   const [seenItems, setSeenItems] = useState(items);
   if (seenItems !== items) {
     setSeenItems(items);
-    setLocal({});
+    setLocal((l) => pruneConfirmed(l, items, Date.now()));
   }
 
   const anyRunning = items.some((i) => (local[i.id]?.timerStartedAt ?? i.timerStartedAt) && !(local[i.id]?.completed ?? i.completed));
@@ -71,7 +92,7 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
 
   async function complete(item: PlanItem, completed: boolean) {
     say(item.id, null);
-    setLocal((l) => ({ ...l, [item.id]: { completed, timerStartedAt: completed ? null : item.timerStartedAt } }));
+    setLocal((l) => ({ ...l, [item.id]: { completed, timerStartedAt: completed ? null : item.timerStartedAt, at: Date.now() } }));
     const res = await setPlanItemCompleted(item.id, completed);
     if (!res.ok) {
       setLocal((l) => {
@@ -99,7 +120,7 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
       if (res.activeSession) lockIn.adoptSession(res.activeSession);
       return say(item.id, res.message);
     }
-    if (res.kind === "timer") setLocal((l) => ({ ...l, [item.id]: { completed: false, timerStartedAt: res.startedAt } }));
+    if (res.kind === "timer") setLocal((l) => ({ ...l, [item.id]: { completed: false, timerStartedAt: res.startedAt, at: Date.now() } }));
     // The action returns the running session, so the Lock-In overlay opens at once (nothing else tells the
     // provider); Home and the Business screens catch up in the background.
     else {
@@ -110,7 +131,7 @@ export function PlanList({ items, nowIso }: { items: PlanItem[]; nowIso: string 
   }
 
   async function stop(item: PlanItem) {
-    setLocal((l) => ({ ...l, [item.id]: { completed: false, timerStartedAt: null } }));
+    setLocal((l) => ({ ...l, [item.id]: { completed: false, timerStartedAt: null, at: Date.now() } }));
     const res = await stopPlanItemTimer(item.id);
     if (!res.ok) say(item.id, res.message);
     scheduleRefresh();
