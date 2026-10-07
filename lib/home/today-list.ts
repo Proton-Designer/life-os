@@ -2,7 +2,7 @@ import type { AreaWeightLookup } from "./build-candidates";
 import { buildCandidatesFromPriorityItems } from "./build-candidates";
 import { rankCandidates } from "./arbiter";
 import type { PriorityItem } from "./types";
-import { orderPlanItems } from "@/lib/plan/plan-behavior";
+import { orderPlanItems, planTimerState } from "@/lib/plan/plan-behavior";
 import type { PlanItem } from "@/lib/plan/get-plan-items";
 
 /**
@@ -34,7 +34,7 @@ export type TodayList = {
   rows: TodayRow[];
   /** Plan lines already done today (shown struck, below, with Undo). */
   completedPlan: PlanItem[];
-  /** Index into `rows` of the row to highlight: the one RUNNING (inline timer started) if any, else the first pending row; null when nothing is pending. */
+  /** Index into `rows` of the row to highlight: the one RUNNING (inline timer started, or a Deep Session working on it) if any, else the first pending row; null when nothing is pending. */
   focusIndex: number | null;
 };
 
@@ -49,7 +49,7 @@ export function todayRowId(item: PriorityItem): string {
 }
 
 /**
- * The id of the row to highlight: the one RUNNING (inline timer started) if there is one, else the first pending row. A row
+ * The id of the row to highlight: the one RUNNING (an inline timer started, or a Deep Session working on it) if there is one, else the first pending row. A row
  * that is already leaving (struck, fading out) never takes the focus, so it moves on to the next row as soon as you tick one.
  */
 export function pickFocusId(rows: readonly { id: string; running: boolean }[], leavingIds: ReadonlySet<string> = new Set()): string | null {
@@ -65,12 +65,15 @@ export function buildTodayList({
   weights,
   now,
   deenMode,
+  activeSessionTaskId = null,
 }: {
   planItems: PlanItem[];
   priorityItems: PriorityItem[];
   weights: AreaWeightLookup;
   now: Date;
   deenMode: boolean;
+  /** The plan line a running Deep Work / Deep Study session is working on (from the Lock-In context): that row is "running" for focus, like an inline timer. */
+  activeSessionTaskId?: string | null;
 }): TodayList {
   const pendingPlan = planItems.filter((p) => !p.completed);
   const completedPlan = planItems.filter((p) => p.completed);
@@ -97,7 +100,7 @@ export function buildTodayList({
     ...rankedPriority.map((priority): TodayRow => ({ source: "priority", id: todayRowId(priority), priority })),
   ];
 
-  const focusId = pickFocusId(rows.map((r) => ({ id: r.id, running: r.source === "plan" && r.plan.timerStartedAt !== null })));
+  const focusId = pickFocusId(rows.map((r) => ({ id: r.id, running: r.source === "plan" && planTimerState(r.plan, activeSessionTaskId).startsWith("running") })));
   const focusIndex = focusId === null ? null : rows.findIndex((r) => r.id === focusId);
   return { rows, completedPlan, focusIndex };
 }
