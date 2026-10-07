@@ -304,7 +304,7 @@ export async function commitPlan(input: CommitPlanInput): Promise<{ ok: true; ki
 
   const [details, ranks] = await Promise.all([
     applyPlanDetailsCore(supabase, ctx.userId, ctx.plannedDate, input.lines, { killListAvailable }),
-    savePlanRanksCore(supabase, ctx.userId, ctx.plannedDate, input.starred, input.crowned),
+    savePlanRanksCore(supabase, ctx.userId, ctx.plannedDate, input.starred, input.crowned, { clearWhenEmpty: true }),
   ]);
   if ("error" in details) return details;
   if (!("ok" in ranks)) return ranks;

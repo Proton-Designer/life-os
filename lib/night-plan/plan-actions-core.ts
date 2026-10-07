@@ -153,6 +153,8 @@ export async function savePlanRanksCore(
   plannedDate: string,
   starred: string[],
   crowned: string | null,
+  /** Edit Plan's Save: an empty rank set means "nothing starred", so the day's old ranks are cleared. The MCP tool keeps its no-write no-op. */
+  opts: { clearWhenEmpty?: boolean } = {},
 ): Promise<{ ok: true } | { error: string }> {
   let ranks;
   try {
@@ -160,7 +162,7 @@ export async function savePlanRanksCore(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Invalid plan" };
   }
-  if (ranks.length === 0) return { ok: true };
+  if (ranks.length === 0 && !opts.clearWhenEmpty) return { ok: true };
 
   const { error: clearError } = await supabase
     .from("tasks")

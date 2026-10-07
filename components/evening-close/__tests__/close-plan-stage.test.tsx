@@ -267,7 +267,7 @@ describe("ClosePlanStage — line details", () => {
   const lines = [{ id: "t1", title: "Send the invoices" }, { id: "t2", title: "Gym" }];
 
   async function openDetails(user: ReturnType<typeof userEvent.setup>, title: string) {
-    await user.click(screen.getByRole("button", { name: new RegExp(`details for ${title}`, "i") }));
+    await user.click(screen.getByRole("button", { name: new RegExp(`^details for ${title}`, "i") }));
   }
   async function starCrownFinish(user: ReturnType<typeof userEvent.setup>, title: string) {
     await user.click(screen.getByRole("button", { name: new RegExp(`star ${title}`, "i") }));
@@ -359,7 +359,7 @@ describe("ClosePlanStage — line details", () => {
     );
     expect(screen.getByRole("button", { name: "Unstar Send the invoices" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Remove crown from Send the invoices" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /details for send the invoices/i })).toHaveTextContent("Business · Kill List · 9:00 AM · 45m");
+    expect(screen.getByRole("button", { name: /^details for send the invoices/i })).toHaveTextContent("Business · Kill List · 9:00 AM · 45m");
     await user.click(screen.getByRole("button", { name: "Save plan" }));
     expect(commitPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "today", starred: ["t1"], crowned: "t1", lines: [expect.objectContaining({ id: "t1", area: "business", addToKillList: true, startTime: "09:00", durationMinutes: 45, order: 0 }), expect.objectContaining({ id: "t2", area: null })] }),
@@ -381,5 +381,57 @@ describe("ClosePlanStage — line details", () => {
     await starCrownFinish(user, "Gym");
     expect(await screen.findByText("Your plan wasn't saved.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Saved" })).not.toBeInTheDocument();
+  });
+});
+
+// PACKAGE A (2026-10-07): Edit Plan always has a Save; the lines expand and collapse independently.
+describe("ClosePlanStage — Save and expand/collapse", () => {
+  const two = [{ id: "t1", title: "Send the invoices" }, { id: "t2", title: "Gym" }];
+  beforeEach(() => commitPlanMock.mockClear());
+
+  it("Edit Plan (today) with nothing starred shows an enabled Save plan, and it saves an empty rank set", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={two} mode="today" />);
+    const save = screen.getByRole("button", { name: "Save plan" });
+    expect(save).toBeEnabled();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Move Gym up" }));
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    await user.click(save);
+    expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ mode: "today", starred: [], crowned: null }));
+    await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
+  });
+
+  it("tonight with nothing starred shows no Finish, and says what Finish saves", () => {
+    render(<ClosePlanStage initialLines={two} mode="tonight" />);
+    expect(screen.queryByRole("button", { name: "Finish" })).not.toBeInTheDocument();
+    expect(screen.getByText("Domains, times and timers are saved when you Finish.")).toBeInTheDocument();
+  });
+
+  it("two lines can be open at once; Collapse all closes both; Expand all opens both", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={two} />);
+    const chevron = (t: string, verb: string) => screen.getByRole("button", { name: `${verb} details for ${t}` });
+    expect(screen.getByRole("button", { name: "Expand all" })).toBeInTheDocument();
+    await user.click(chevron("Send the invoices", "Show"));
+    await user.click(chevron("Gym", "Show"));
+    expect(chevron("Send the invoices", "Hide")).toHaveAttribute("aria-expanded", "true");
+    expect(chevron("Gym", "Hide")).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(chevron("Send the invoices", "Show")).toHaveAttribute("aria-expanded", "false");
+    expect(chevron("Gym", "Show")).toHaveAttribute("aria-expanded", "false");
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(chevron("Gym", "Hide")).toBeInTheDocument();
+  });
+
+  it("removing an open line drops it from the open set", async () => {
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={two} mode="today" />);
+    await user.click(screen.getByRole("button", { name: "Show details for Gym" }));
+    await user.click(screen.getByRole("button", { name: "Remove Gym" }));
+    expect(screen.queryByText("Gym")).not.toBeInTheDocument();
+    // One line left: the bulk toggle is gone, and the remaining line starts collapsed.
+    expect(screen.queryByRole("button", { name: /expand all|collapse all/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show details for Send the invoices" })).toHaveAttribute("aria-expanded", "false");
   });
 });

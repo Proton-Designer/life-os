@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { ChevronDown } from "lucide-react";
 import { dumpLine, refreshCloseViews, commitPlan, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
 import type { PlanLineState } from "@/lib/night-plan/plan-line";
@@ -124,15 +125,32 @@ export function ClosePlanStage({
   });
   const [crowned, setCrowned] = useState<string | null>(() => initialLines.find((l) => l.crowned && l.starred)?.id ?? null);
   const [removed, setRemoved] = useState<string[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // True once the draft differs from what was last written (any edit, add or remove); cleared by a successful save.
+  const [dirty, setDirty] = useState(false);
   const [pending, startTransition] = useTransition();
   const scheduleRefresh = useScheduleRefresh(refreshClose);
 
   const atStarCap = starred.length >= MAX_STARRED;
+
+  function markDirty() {
+    setSaved(false);
+    setDirty(true);
+  }
+
+  function toggleOpen(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const anyOpen = expanded.size > 0;
 
   // PERF-4: the draft clears at once so the next line can be typed while this one saves;
   // lines are written in order on one queue, appear with their real id when written, and a
@@ -149,6 +167,7 @@ export function ClosePlanStage({
           setDraft((d) => (d.length === 0 ? title : d));
           return;
         }
+        markDirty();
         setLines((prev) => [...prev, { id: res.id, title, draft: EMPTY_PLAN_DRAFT }]);
       })
       .catch(() => {
@@ -164,7 +183,10 @@ export function ClosePlanStage({
   function triage(item: InboxEntry, action: "plan" | "school" | "co_op" | "worry" | "done") {
     setError(null);
     setInboxItems((prev) => prev.filter((i) => i.id !== item.id));
-    if (action === "plan") setLines((prev) => [...prev, { id: item.id, title: item.title, draft: EMPTY_PLAN_DRAFT }]);
+    if (action === "plan") {
+      markDirty();
+      setLines((prev) => [...prev, { id: item.id, title: item.title, draft: EMPTY_PLAN_DRAFT }]);
+    }
     const undo = (message: string) => {
       setError(message);
       setInboxItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, item]));
@@ -197,7 +219,7 @@ export function ClosePlanStage({
   }
 
   function toggleStar(id: string) {
-    setSaved(false);
+    markDirty();
     if (starred.includes(id)) {
       // Unstarring drops the crown with it — a crown on an unstarred item is
       // not a state this ceremony has.
@@ -211,11 +233,16 @@ export function ClosePlanStage({
 
   /** Takes a line out of the local plan (and out of the star/crown). */
   function dropLocal(id: string) {
-    setSaved(false);
+    markDirty();
     setLines((prev) => prev.filter((l) => l.id !== id));
     setStarred((prev) => prev.filter((x) => x !== id));
     if (crowned === id) setCrowned(null);
-    if (expanded === id) setExpanded(null);
+    setExpanded((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }
 
   /** Seeded-worry-only: "this isn't weighing on me anymore" removes the line AND marks the worry Handled — see this file's header on why that IS the SPEC's "removing a seeded line is a planning act". */
@@ -238,7 +265,7 @@ export function ClosePlanStage({
   }
 
   function move(id: string, delta: -1 | 1) {
-    setSaved(false);
+    markDirty();
     setLines((prev) => {
       const i = prev.findIndex((l) => l.id === id);
       const j = i + delta;
@@ -250,7 +277,7 @@ export function ClosePlanStage({
   }
 
   function setLineDraft(id: string, next: PlanLineDraft) {
-    setSaved(false);
+    markDirty();
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, draft: next } : l)));
   }
 
@@ -307,6 +334,7 @@ export function ClosePlanStage({
       setNotice(messages.length > 0 ? messages.join(" ") : null);
       setRemoved([]);
       setSaved(true);
+      setDirty(false);
       if (messages.length === 0) onSaved?.();
     });
   }
@@ -370,11 +398,22 @@ export function ClosePlanStage({
         </p>
       ) : (
         <>
+          {lines.length > 1 ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setExpanded(anyOpen ? new Set() : new Set(lines.map((l) => l.id)))}
+                className="min-h-8 px-1 text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+              >
+                {anyOpen ? "Collapse all" : "Expand all"}
+              </button>
+            </div>
+          ) : null}
           <ul className="space-y-2">
             {lines.map((l, index) => {
               const isStarred = starred.includes(l.id);
               const isCrowned = crowned === l.id;
-              const isOpen = expanded === l.id;
+              const isOpen = expanded.has(l.id);
               const summary = planDraftSummary({ ...l.draft, addToKillList: l.draft.addToKillList && killList });
               return (
                 <li key={l.id} className="space-y-2 rounded-md border p-2">
@@ -401,7 +440,7 @@ export function ClosePlanStage({
                       <button
                         type="button"
                         onClick={() => {
-                          setSaved(false);
+                          markDirty();
                           setCrowned(isCrowned ? null : l.id);
                         }}
                         aria-pressed={isCrowned}
@@ -411,12 +450,22 @@ export function ClosePlanStage({
                         {isCrowned ? "Crowned" : "Crown"}
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => toggleOpen(l.id)}
+                      aria-expanded={isOpen}
+                      aria-label={`${isOpen ? "Hide" : "Show"} details for ${l.title}`}
+                      data-testid="plan-line-chevron"
+                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <ChevronDown aria-hidden className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                    </button>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setExpanded(isOpen ? null : l.id)}
+                      onClick={() => toggleOpen(l.id)}
                       aria-expanded={isOpen}
                       aria-label={`Details for ${l.title}`}
                       data-testid="plan-line-details-toggle"
@@ -473,23 +522,31 @@ export function ClosePlanStage({
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {notice ? <p data-testid="plan-notice" className="text-sm text-muted-foreground">{notice}</p> : null}
 
-      {/* Absent until a crown exists, for the same reason Continue is absent
-          while a rewrite is outstanding: a disabled control still says there is
-          a way through. */}
-      {crowned !== null ? (
-        <button
-          type="button"
-          onClick={commit}
-          disabled={pending}
-          className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/85 disabled:opacity-50"
-        >
-          {saved ? "Saved" : pending ? "Saving…" : mode === "today" ? "Save plan" : "Finish"}
-        </button>
+      {/* Edit Plan ("today") always has a Save: domains, times and timers are worth saving with no star or crown.
+          The nightly ceremony keeps its rule -- Finish is absent until a crown exists, for the same reason Continue is
+          absent while a rewrite is outstanding: a disabled control still says there is a way through. */}
+      {mode === "today" || crowned !== null ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={commit}
+            disabled={pending}
+            className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/85 disabled:opacity-50"
+          >
+            {saved ? "Saved" : pending ? "Saving…" : mode === "today" ? "Save plan" : "Finish"}
+          </button>
+          {mode === "today" && dirty && !pending ? (
+            <span data-testid="plan-unsaved" className="text-xs text-muted-foreground">
+              Unsaved changes
+            </span>
+          ) : null}
+        </div>
       ) : (
         <p className="text-xs text-muted-foreground">
           {starred.length === 0 ? "Star up to three." : `${starred.length} starred. Crown one to finish.`}
         </p>
       )}
+      {mode === "tonight" ? <p className="text-xs text-muted-foreground">Domains, times and timers are saved when you Finish.</p> : null}
 
       {/* IA-P2: the close ends on "Done for today" -- Home shows the same state from here on. */}
       {saved && mode === "tonight" ? (

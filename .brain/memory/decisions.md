@@ -255,3 +255,8 @@ Deliberately NOT: **editing a wake mark after it exists** (migration 153 has no 
 - **Timed lines run in clock order; manual order breaks ties and orders the rest.** The up/down order is real but never overrides a start time.
 - **Work Backlog = the active position-1 target's `coop_tasks`**, fired once on entering Work (not on every re-save). No active target -> the line stays on the plan with a notice, never an invented target.
 - **Edit Plan is the nightly stage in `today` mode, not a second editor** — one component, one `commitPlan` write.
+
+## 2026-10-07 — Edit Plan always has a Save; lines expand independently
+- **Root cause of "there's no save button":** the stage rendered Save/Finish only when a line was crowned, so Edit Plan with no crown could never write domains, times or timers. Now `mode="today"` always renders "Save plan" (with a muted "Unsaved changes" while the draft differs from what was last written). The nightly `tonight` ceremony is unchanged: Finish still needs a crown, and a line under the hint says domains/times/timers are saved at Finish.
+- **Saving an empty rank set must clear old ranks.** `savePlanRanksCore` used to return early when nothing was starred, which would have left yesterday's stars on the plan after "unstar everything, Save". `commitPlan` now passes `clearWhenEmpty` so it clears `mit_rank` for the day first (the MCP `save_ranks` keeps its no-op); the tonight path never reaches it empty (crown required).
+- Open state is a `Set<string>` (several lines open at once), a chevron on each title row plus "Expand all / Collapse all" above the list; new lines start collapsed.

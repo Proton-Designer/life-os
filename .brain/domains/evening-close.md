@@ -57,6 +57,8 @@ source_hash: d5b4eb9c315a42a985fce82d55e9c9d8e95ed756ff5a4b3f4e13c2246dee75c9
 
 Account stage computes `closeBlockers()` from distraction triggers; if any current plan `mustRewrite`s, **only** the account stage renders (Reflect/VerdictDueList/Plan are hidden entirely, not disabled). Reflect shows yesterday's crowned three + today's deep-work minutes vs. baseline. `VerdictDueList` renders Self-Mastery lesson-promotion verdicts due today (renders nothing when empty). Plan stage: dump (seeded from school-risk/goal-milestone/worry sources + user-typed) → star 3 → crown 1. `/open` next morning reads that plan back read-only.
 
+Plan stage in `today` mode (Home's Edit Plan) always shows "Save plan" -- no star or crown needed; `tonight` keeps the crown-gated Finish. Each plan line has a chevron and the list has Expand all / Collapse all (open state is a Set). `savePlanRanksCore` with nothing starred clears the day's old ranks.
+
 ## Integration points
 
 | Direction | With | Via |
