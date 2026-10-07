@@ -162,11 +162,11 @@ export function AddClassDialog({
                 though the accessible names were already correct. */}
             <div className="flex flex-1 flex-col gap-1">
               <span className="text-xs text-muted-foreground">Start</span>
-              <TimeField12 aria-label="Start time" value={form.eventTime} onChange={(v) => setForm((f) => ({ ...f, eventTime: v }))} />
+              <TimeField12 aria-label="Start time" defaultOpenValue="09:00" value={form.eventTime} onChange={(v) => setForm((f) => ({ ...f, eventTime: v }))} />
             </div>
             <div className="flex flex-1 flex-col gap-1">
               <span className="text-xs text-muted-foreground">End</span>
-              <TimeField12 aria-label="End time" value={form.endTime} onChange={(v) => setForm((f) => ({ ...f, endTime: v }))} />
+              <TimeField12 aria-label="End time" defaultOpenValue="10:00" value={form.endTime} onChange={(v) => setForm((f) => ({ ...f, endTime: v }))} />
             </div>
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}

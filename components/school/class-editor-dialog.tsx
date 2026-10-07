@@ -289,8 +289,8 @@ export function ClassEditorDialog({
               </div>
             </div>
             <div className="flex gap-2">
-              <TimeField12 aria-label="Start time" value={form.eventTime} onChange={(v) => setForm((f) => ({ ...f, eventTime: v }))} />
-              <TimeField12 aria-label="End time" value={form.endTime} onChange={(v) => setForm((f) => ({ ...f, endTime: v }))} />
+              <TimeField12 aria-label="Start time" defaultOpenValue="09:00" value={form.eventTime} onChange={(v) => setForm((f) => ({ ...f, eventTime: v }))} />
+              <TimeField12 aria-label="End time" defaultOpenValue="10:00" value={form.endTime} onChange={(v) => setForm((f) => ({ ...f, endTime: v }))} />
             </div>
             <Input
               value={form.location}

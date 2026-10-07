@@ -104,7 +104,7 @@ const EMPTY_DRAFT: Draft = { id: null, label: "", ifCue: "", fallbackText: "", h
  * server render hands in new items (or a new local day), which fixes the old card's
  * never-resyncs / midnight bugs.
  */
-export function LaunchSequenceCard({ items, today, habits, dayStarted = true, rehearsal = null }: { rehearsal?: RehearsalPlan | null; items: MorningRoutineChecklistItem[]; today: string; habits: LaunchHabitOption[]; /** false = the Start Day mark doesn't exist yet today (Home's "morning" state). Default true so every other caller is unchanged. */ dayStarted?: boolean }) {
+export function LaunchSequenceCard({ items, today, habits, dayStarted = true, rehearsal = null, timezone = "UTC" }: { timezone?: string; rehearsal?: RehearsalPlan | null; items: MorningRoutineChecklistItem[]; today: string; habits: LaunchHabitOption[]; /** false = the Start Day mark doesn't exist yet today (Home's "morning" state). Default true so every other caller is unchanged. */ dayStarted?: boolean }) {
   const [added, setAdded] = useState<MorningRoutineChecklistItem[]>([]);
   const [edited, setEdited] = useState<Record<string, Partial<MorningRoutineChecklistItem>>>({});
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -243,7 +243,7 @@ export function LaunchSequenceCard({ items, today, habits, dayStarted = true, re
       {offerStart ? (
         <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border/60 p-3" data-testid="launch-start-offer">
           <p className="text-xs text-muted-foreground">Up already? Start your day too.</p>
-          <StartDayButton />
+          <StartDayButton timezone={timezone} />
         </div>
       ) : null}
       {error ? (

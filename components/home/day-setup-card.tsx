@@ -117,7 +117,7 @@ function DaySetupDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpen
 
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground">I want to wake up at</span>
-          <TimeField12 value={wake} onChange={setWake} aria-label="Wake time" disabled={pending} />
+          <TimeField12 value={wake} onChange={setWake} aria-label="Wake time" disabled={pending} defaultOpenValue="07:00" />
         </div>
         <div className="flex flex-wrap gap-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">

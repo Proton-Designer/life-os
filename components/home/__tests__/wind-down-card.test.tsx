@@ -10,7 +10,7 @@ describe("WindDownCard (Home, Sleep plan ON)", () => {
   it("no plan yet: shows the one-time set-up with the shared form", () => {
     render(<WindDownCard settings={{ wakeTime: null, sleepNeedMinutes: null, windDownMinutes: null, plan: null }} />);
     expect(screen.getByTestId("wind-down-setup")).toBeInTheDocument();
-    expect(screen.getByLabelText("Wake time")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Wake time/ })).toBeInTheDocument(); // TimeField12 pill (was a labelled select group)
   });
   it("plan set: nothing (set once; Lights out by lives on the wind-down and done cards)", () => {
     const { container } = render(<WindDownCard settings={{ wakeTime: "06:30", sleepNeedMinutes: 480, windDownMinutes: 45, plan: PLAN }} />);

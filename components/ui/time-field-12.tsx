@@ -1,25 +1,27 @@
 "use client";
 
+import { useRef, useState } from "react";
+import { Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { WheelTimePicker } from "@/components/ui/wheel-time-picker";
 import { cn } from "@/lib/utils";
-import { split12Hour, to24HourString, type Meridiem } from "@/lib/date-utils";
+import { formatHHMM12 } from "@/lib/date-utils";
 
 /**
- * A 12-hour time-of-day control: hour (1-12) / minute / AM-PM selects. It reads and writes the app's STORAGE format,
- * "HH:MM" 24-hour, so no backend, column or MCP contract changes -- only what the user sees and picks.
+ * A 12-hour time-of-day control: a pill showing the time ("9:00 PM", or "Set time" when empty) that opens an
+ * iOS-alarm-style wheel in a popover. It reads and writes the app's STORAGE format, "HH:MM" 24-hour, so no backend,
+ * column or MCP contract changes -- only what the user sees and picks.
  *
  * Why not <input type="time">: its display follows the browser/OS locale, so on a 24-hour locale it shows "21:00" no
- * matter what the page says. Fixed AM/PM selects are the only way to guarantee regular 12-hour time everywhere.
+ * matter what the page says. The wheel only ever lists hours 1-12 and AM/PM, so 12-hour time is guaranteed everywhere.
  *
- * `value === ""` is the EMPTY state (an optional time): the selects show "—"; the first choice fills the rest with a
- * sensible default (":00", AM) so a value is never half-formed. The control never emits a malformed string.
- * `minuteStep` (default 5) keeps the minute list short; a stored minute that isn't on the step is still offered, so an
+ * `value === ""` is the EMPTY state (an optional time). Opening an empty field immediately emits `defaultOpenValue`
+ * (default "09:00") so a value is never half-formed and the wheel has somewhere to land. The value updates live as the
+ * wheels move; Done / Escape / an outside click closes, Clear (shown only when set) empties it.
+ * `minuteStep` (default 5) keeps the minute wheel short; a stored minute that isn't on the step is still offered, so an
  * existing 8:48 PM is shown and kept, not silently rounded.
  */
-const SELECT_CLASS =
-  "h-8 min-w-0 rounded-lg border border-input bg-transparent px-2 py-1 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
-
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
-
 export function TimeField12({
   value,
   onChange,
@@ -28,6 +30,7 @@ export function TimeField12({
   id,
   "aria-label": ariaLabel = "Time",
   className,
+  defaultOpenValue = "09:00",
 }: {
   /** "HH:MM" 24-hour, or "" for none. */
   value: string;
@@ -37,65 +40,62 @@ export function TimeField12({
   id?: string;
   "aria-label"?: string;
   className?: string;
+  /** "HH:MM" the wheel lands on when it is opened on an empty value. */
+  defaultOpenValue?: string;
 }) {
-  const parts = split12Hour(value);
-  const empty = parts === null;
+  const [open, setOpen] = useState(false);
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const minutes = Array.from({ length: Math.ceil(60 / minuteStep) }, (_, i) => i * minuteStep);
-  if (parts && !minutes.includes(parts.minute)) minutes.push(parts.minute);
-  minutes.sort((a, b) => a - b);
-
-  function emit(hour12: number, minute: number, meridiem: Meridiem) {
-    onChange(to24HourString(hour12, minute, meridiem));
+  function handleOpenChange(next: boolean) {
+    if (next && !value) onChange(defaultOpenValue);
+    // In a modal Dialog the popover must live inside the dialog's DOM, or the dialog's scroll lock blocks the wheel.
+    if (next) setContainer(triggerRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null);
+    setOpen(next);
   }
 
   return (
-    <div role="group" aria-label={ariaLabel} className={cn("flex items-center gap-1.5", className)} id={id}>
-      <select
-        aria-label={`${ariaLabel} hour`}
-        className={SELECT_CLASS}
-        disabled={disabled}
-        value={empty ? "" : String(parts.hour12)}
-        onChange={(e) => {
-          if (e.target.value === "") return onChange("");
-          emit(Number(e.target.value), parts?.minute ?? 0, parts?.meridiem ?? "AM");
-        }}
-      >
-        {empty && <option value="">—</option>}
-        {HOURS.map((h) => (
-          <option key={h} value={h}>
-            {h}
-          </option>
-        ))}
-      </select>
-      <span aria-hidden className="text-muted-foreground">
-        :
-      </span>
-      <select
-        aria-label={`${ariaLabel} minute`}
-        className={SELECT_CLASS}
-        disabled={disabled || empty}
-        value={empty ? "" : String(parts.minute)}
-        onChange={(e) => parts && emit(parts.hour12, Number(e.target.value), parts.meridiem)}
-      >
-        {empty && <option value="">––</option>}
-        {minutes.map((m) => (
-          <option key={m} value={m}>
-            {String(m).padStart(2, "0")}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={`${ariaLabel} AM or PM`}
-        className={SELECT_CLASS}
-        disabled={disabled || empty}
-        value={empty ? "" : parts.meridiem}
-        onChange={(e) => parts && emit(parts.hour12, parts.minute, e.target.value as Meridiem)}
-      >
-        {empty && <option value="">––</option>}
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
-    </div>
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          ref={triggerRef}
+          type="button"
+          id={id}
+          disabled={disabled}
+          aria-label={value ? `${ariaLabel}: ${formatHHMM12(value)}. Change` : `Set ${ariaLabel}`}
+          className={cn(
+            "inline-flex min-h-9 items-center gap-2 rounded-full border px-3.5 text-sm transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50 aria-expanded:border-primary aria-expanded:bg-primary/10",
+            !value && "text-muted-foreground",
+            className,
+          )}
+        >
+          <Clock className="size-3.5 text-muted-foreground" aria-hidden />
+          {value ? formatHHMM12(value) : "Set time"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64" container={container}>
+        <WheelTimePicker value={value || defaultOpenValue} onChange={onChange} label={ariaLabel} minuteStep={minuteStep} />
+        <div className="flex items-center justify-between">
+          {value ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              Clear
+            </Button>
+          ) : (
+            <span />
+          )}
+          <Button type="button" size="sm" onClick={() => setOpen(false)}>
+            Done
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

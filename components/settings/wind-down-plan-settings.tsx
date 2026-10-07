@@ -49,7 +49,7 @@ export function WindDownPlanSettings({
       <div className="flex flex-wrap items-end gap-3 text-sm">
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Wake time</span>
-          <TimeField12 value={wake} onChange={setWake} aria-label="Wake time" />
+          <TimeField12 value={wake} onChange={setWake} aria-label="Wake time" defaultOpenValue="07:00" />
         </div>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Sleep I need (hours)</span>

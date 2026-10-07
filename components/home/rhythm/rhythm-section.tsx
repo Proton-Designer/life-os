@@ -81,7 +81,7 @@ export function RhythmSection({
             </div>
           )}
           <div className="mt-3 flex items-center gap-3">
-            <StartDayButton />
+            <StartDayButton timezone={timezone} />
             <ReplanDialog />
           </div>
         </Panel>

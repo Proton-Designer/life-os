@@ -376,6 +376,7 @@ export default async function HomePage() {
                   today={dateStr}
                   habits={activeHabits.map((h) => ({ id: h.id, identityStatement: h.identityStatement }))}
                   dayStarted={rhythm.state === "today"}
+                  timezone={timezone}
                   rehearsal={rehearsal}
                 />
               ) : null

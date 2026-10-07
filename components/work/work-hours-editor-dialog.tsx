@@ -56,8 +56,8 @@ function PermanentRow({
           ))}
         </select>
         <div className="flex gap-2">
-          <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
-          <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
+          <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" defaultOpenValue="09:00" />
+          <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" defaultOpenValue="10:00" />
         </div>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => setEditing(false)} disabled={isPending}>
@@ -145,8 +145,8 @@ function AddPermanentRow({ onAdd }: { onAdd: (dayOfWeek: number, eventTime: stri
         ))}
       </select>
       <div className="flex gap-2">
-        <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
-        <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
+        <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" defaultOpenValue="09:00" />
+        <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" defaultOpenValue="10:00" />
       </div>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
@@ -223,8 +223,8 @@ function OccurrenceRow({
         <li className="flex flex-col gap-2 rounded-lg border border-border/40 p-2 text-xs">
           <span>{label}</span>
           <div className="flex gap-2">
-            <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
-            <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
+            <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" defaultOpenValue="09:00" />
+            <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" defaultOpenValue="10:00" />
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setAddingHours(false)} className="text-muted-foreground hover:underline">
@@ -264,8 +264,8 @@ function OccurrenceRow({
       <li className="flex flex-col gap-2 rounded-lg border border-border/40 p-2 text-xs">
         <span>{label}</span>
         <div className="flex gap-2">
-          <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" />
-          <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" />
+          <TimeField12 value={eventTime} onChange={setEventTime} aria-label="Start time" defaultOpenValue="09:00" />
+          <TimeField12 value={endTime} onChange={setEndTime} aria-label="End time" defaultOpenValue="10:00" />
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => setChangingHours(false)} className="text-muted-foreground hover:underline">

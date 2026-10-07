@@ -188,11 +188,11 @@ export function SettingsForm({
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>
-            <TimeField12 id="window-start" aria-label="Window start" value={form.checkinWindowStart} onChange={(v) => setForm((f) => ({ ...f, checkinWindowStart: v }))} />
+            <TimeField12 id="window-start" aria-label="Window start" defaultOpenValue="09:00" value={form.checkinWindowStart} onChange={(v) => setForm((f) => ({ ...f, checkinWindowStart: v }))} />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-end">Window end</Label>
-            <TimeField12 id="window-end" aria-label="Window end" value={form.checkinWindowEnd} onChange={(v) => setForm((f) => ({ ...f, checkinWindowEnd: v }))} />
+            <TimeField12 id="window-end" aria-label="Window end" defaultOpenValue="21:00" value={form.checkinWindowEnd} onChange={(v) => setForm((f) => ({ ...f, checkinWindowEnd: v }))} />
           </div>
         </div>
       </Panel>
