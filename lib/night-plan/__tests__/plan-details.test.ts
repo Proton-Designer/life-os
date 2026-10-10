@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { planLineEffects, validatePlanLine, type PlanLineInput, type PlanLinePrev } from "../plan-details";
 
 const prev = (over: Partial<PlanLinePrev> = {}): PlanLinePrev => ({ area: null, domain: null, dueDate: null, killListItemId: null, ...over });
-const line = (over: Partial<PlanLineInput> = {}): PlanLineInput => ({ id: "t1", area: null, addToKillList: false, startTime: null, durationMinutes: null, order: 0, ...over });
+const line = (over: Partial<PlanLineInput> = {}): PlanLineInput => ({ id: "t1", area: null, addToKillList: false, startTime: null, durationMinutes: null, order: 0, criteria: null, ...over });
 const DAY = "2026-10-07";
 
 describe("planLineEffects", () => {
@@ -11,6 +11,10 @@ describe("planLineEffects", () => {
     expect(e.patch).toMatchObject({ plan_area: "body", planned_start_time: "07:00", planned_duration_minutes: 45, plan_order: 2 });
     expect(e.wantKillList).toBe(false);
     expect(e.enterWorkBacklog).toBe(false);
+  });
+  it("writes trimmed criteria, and clears the column when there are none", () => {
+    expect(planLineEffects(prev(), line({ criteria: "  all 12 problems, show work  " }), DAY).patch).toMatchObject({ plan_criteria: "all 12 problems, show work" });
+    expect(planLineEffects(prev(), line({ criteria: null }), DAY).patch).toMatchObject({ plan_criteria: null });
   });
   it("School makes the line a School task for the plan day", () => {
     const e = planLineEffects(prev(), line({ area: "school" }), DAY);
@@ -38,6 +42,18 @@ describe("planLineEffects", () => {
   it("Work backlog fires only on entering Work", () => {
     expect(planLineEffects(prev(), line({ area: "work" }), DAY).enterWorkBacklog).toBe(true);
     expect(planLineEffects(prev({ area: "work" }), line({ area: "work" }), DAY).enterWorkBacklog).toBe(false);
+  });
+});
+
+describe("validatePlanLine criteria", () => {
+  it("accepts null and ordinary text", () => {
+    expect(validatePlanLine(line({ criteria: null }))).toBeNull();
+    expect(validatePlanLine(line({ criteria: "show work" }))).toBeNull();
+  });
+  it("rejects blank-only and over-long criteria", () => {
+    expect(validatePlanLine(line({ criteria: "   " }))).not.toBeNull();
+    expect(validatePlanLine(line({ criteria: "x".repeat(2001) }))).not.toBeNull();
+    expect(validatePlanLine(line({ criteria: "x".repeat(2000) }))).toBeNull();
   });
 });
 

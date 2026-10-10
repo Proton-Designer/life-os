@@ -2,6 +2,7 @@
 
 import { DurationField } from "@/components/plan/duration-field";
 import { QuickTimeField } from "@/components/plan/quick-time-field";
+import { MAX_CRITERIA_LENGTH } from "@/lib/night-plan/plan-details";
 import { formatHHMM12 } from "@/lib/date-utils";
 import { PLAN_AREA_LABEL, formatDuration, type PlanArea } from "@/lib/plan/plan-behavior";
 import { cn } from "@/lib/utils";
@@ -22,9 +23,11 @@ export type PlanLineDraft = {
   /** "HH:MM" 24-hour, "" for none. */
   startTime: string;
   durationMinutes: number | null;
+  /** Free text; "" for none. Details kept off the title so the title stays short on Home. */
+  criteria: string;
 };
 
-export const EMPTY_PLAN_DRAFT: PlanLineDraft = { area: null, addToKillList: false, startTime: "", durationMinutes: null };
+export const EMPTY_PLAN_DRAFT: PlanLineDraft = { area: null, addToKillList: false, startTime: "", durationMinutes: null, criteria: "" };
 
 /** The short chips a collapsed row shows: "Business", "Kill List", "5:00 AM", "3h". Pure. */
 export function planDraftSummary(draft: PlanLineDraft): string[] {
@@ -33,12 +36,14 @@ export function planDraftSummary(draft: PlanLineDraft): string[] {
   if (draft.area === "business" && draft.addToKillList) out.push("Kill List");
   if (draft.startTime) out.push(formatHHMM12(draft.startTime));
   if (draft.durationMinutes !== null) out.push(formatDuration(draft.durationMinutes));
+  if (draft.criteria.trim().length > 0) out.push("Criteria");
   return out;
 }
 
 const CHIP = "min-h-8 rounded-md border px-2.5 text-xs transition-colors hover:bg-accent/60 aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary aria-pressed:hover:bg-primary/20";
 
 export function PlanLineDetails({
+  id,
   title,
   draft,
   onChange,
@@ -47,6 +52,7 @@ export function PlanLineDetails({
   timezone,
   relativeToNow,
 }: {
+  id: string;
   title: string;
   draft: PlanLineDraft;
   onChange: (next: PlanLineDraft) => void;
@@ -98,6 +104,22 @@ export function PlanLineDetails({
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">Timer (optional)</p>
         <DurationField value={draft.durationMinutes} onChange={(durationMinutes) => onChange({ ...draft, durationMinutes })} />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor={`plan-criteria-${id}`} className="text-xs font-medium text-muted-foreground">
+          Criteria (optional)
+        </label>
+        <textarea
+          id={`plan-criteria-${id}`}
+          value={draft.criteria}
+          onChange={(e) => onChange({ ...draft, criteria: e.target.value })}
+          maxLength={MAX_CRITERIA_LENGTH}
+          rows={3}
+          placeholder="What has to be true for this to count as done? Keep the title short and put the detail here."
+          data-testid="plan-criteria"
+          className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm"
+        />
       </div>
     </div>
   );

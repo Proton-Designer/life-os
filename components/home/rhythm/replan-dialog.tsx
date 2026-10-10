@@ -68,7 +68,7 @@ export function ReplanDialog() {
       <DialogContent className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit plan</DialogTitle>
-          <DialogDescription>Change today&apos;s plan: add, remove or reorder tasks, change the star and crown, and set each task&apos;s domain, start time or timer.</DialogDescription>
+          <DialogDescription>Change today&apos;s plan: add, remove or reorder tasks, change the star and crown, and set each task&apos;s domain, start time, timer or criteria.</DialogDescription>
         </DialogHeader>
         {error ? (
           <p role="alert" className="text-sm text-destructive">

@@ -38,7 +38,7 @@ function fake(responses: Record<string, unknown> = {}) {
 }
 
 const DAY = "2026-10-07";
-const line = (over: Partial<PlanLineInput> = {}): PlanLineInput => ({ id: "t1", area: null, addToKillList: false, startTime: null, durationMinutes: null, order: 0, ...over });
+const line = (over: Partial<PlanLineInput> = {}): PlanLineInput => ({ id: "t1", area: null, addToKillList: false, startTime: null, durationMinutes: null, order: 0, criteria: null, ...over });
 const prevRow = (over: Record<string, unknown> = {}) => ({ id: "t1", title: "Ship the deck", plan_area: null, domain: null, due_date: null, kill_list_item_id: null, ...over });
 
 describe("applyPlanDetailsCore", () => {

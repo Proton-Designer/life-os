@@ -4204,6 +4204,7 @@ export type Database = {
           kill_list_item_id: string | null
           mit_rank: number | null
           plan_area: string | null
+          plan_criteria: string | null
           plan_order: number | null
           planned_date: string | null
           planned_duration_minutes: number | null
@@ -4230,6 +4231,7 @@ export type Database = {
           kill_list_item_id?: string | null
           mit_rank?: number | null
           plan_area?: string | null
+          plan_criteria?: string | null
           plan_order?: number | null
           planned_date?: string | null
           planned_duration_minutes?: number | null
@@ -4256,6 +4258,7 @@ export type Database = {
           kill_list_item_id?: string | null
           mit_rank?: number | null
           plan_area?: string | null
+          plan_criteria?: string | null
           plan_order?: number | null
           planned_date?: string | null
           planned_duration_minutes?: number | null

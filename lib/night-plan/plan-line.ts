@@ -18,9 +18,11 @@ export type PlanLineState = {
   durationMinutes: number | null;
   /** Manual order (0-based) or null before the person has ordered anything. */
   order: number | null;
+  /** Free-text criteria for the line, or null. */
+  criteria: string | null;
 };
 
-export const PLAN_LINE_COLUMNS = "id, title, mit_rank, plan_area, kill_list_item_id, planned_start_time, planned_duration_minutes, plan_order, created_at";
+export const PLAN_LINE_COLUMNS = "id, title, mit_rank, plan_area, kill_list_item_id, planned_start_time, planned_duration_minutes, plan_order, plan_criteria, created_at";
 
 type Row = {
   id: string;
@@ -31,6 +33,7 @@ type Row = {
   planned_start_time: string | null;
   planned_duration_minutes: number | null;
   plan_order: number | null;
+  plan_criteria: string | null;
   created_at: string;
 };
 
@@ -45,6 +48,7 @@ export function toPlanLineState(r: Row): PlanLineState {
     startTime: r.planned_start_time,
     durationMinutes: r.planned_duration_minutes,
     order: r.plan_order,
+    criteria: r.plan_criteria,
   };
 }
 

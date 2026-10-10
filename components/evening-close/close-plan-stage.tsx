@@ -82,7 +82,7 @@ const refreshClose = () => refreshCloseViews();
 
 function draftFrom(state: Partial<PlanLineState> | undefined): PlanLineDraft {
   if (!state) return EMPTY_PLAN_DRAFT;
-  return { area: state.area ?? null, addToKillList: state.addToKillList ?? false, startTime: state.startTime ?? "", durationMinutes: state.durationMinutes ?? null };
+  return { area: state.area ?? null, addToKillList: state.addToKillList ?? false, startTime: state.startTime ?? "", durationMinutes: state.durationMinutes ?? null, criteria: state.criteria ?? "" };
 }
 
 export function ClosePlanStage({
@@ -319,6 +319,7 @@ export function ClosePlanStage({
           startTime: l.draft.startTime === "" ? null : l.draft.startTime,
           durationMinutes: l.draft.durationMinutes,
           order: Math.min(order, 999),
+          criteria: l.draft.criteria.trim() === "" ? null : l.draft.criteria.trim(),
         });
       });
 
@@ -471,7 +472,7 @@ export function ClosePlanStage({
                       data-testid="plan-line-details-toggle"
                       className="min-h-8 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground aria-expanded:border-primary aria-expanded:text-primary"
                     >
-                      {summary.length > 0 ? summary.join(" · ") : "Add domain, time or timer"}
+                      {summary.length > 0 ? summary.join(" · ") : "Add domain, time, timer or criteria"}
                     </button>
                     <span className="ml-auto flex items-center gap-1">
                       <button type="button" onClick={() => move(l.id, -1)} disabled={index === 0} aria-label={`Move ${l.title} up`} className="min-h-8 min-w-8 rounded border text-xs transition-colors enabled:hover:bg-accent disabled:opacity-30">
@@ -502,6 +503,7 @@ export function ClosePlanStage({
 
                   {isOpen ? (
                     <PlanLineDetails
+                      id={l.id}
                       title={l.title}
                       draft={l.draft}
                       onChange={(next) => setLineDraft(l.id, next)}

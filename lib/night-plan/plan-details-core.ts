@@ -134,7 +134,7 @@ export async function removePlanLinesCore(supabase: SupabaseClient, userId: stri
     // A School-attached worry was a School task only because of this plan: put that back too.
     const { error: unplanError } = await supabase
       .from("tasks")
-      .update({ planned_date: null, mit_rank: null, plan_area: null, planned_start_time: null, planned_duration_minutes: null, plan_order: null, timer_started_at: null, kill_list_item_id: null })
+      .update({ planned_date: null, mit_rank: null, plan_area: null, planned_start_time: null, planned_duration_minutes: null, plan_order: null, plan_criteria: null, timer_started_at: null, kill_list_item_id: null })
       .in("id", [...keepIds])
       .eq("user_id", userId);
     if (unplanError) return { error: unplanError.message };
